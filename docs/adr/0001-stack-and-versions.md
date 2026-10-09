@@ -56,6 +56,14 @@ Local stack images (`docker-compose.yml`, exact tags):
 | OpenTelemetry collector | `otel/opentelemetry-collector-contrib:0.162.0` |
 | Jaeger | `jaegertracing/jaeger:2.22.0` |
 
+### Added in S0-03
+
+| Library | Version |
+|---|---|
+| Zod | 4.6.5 (contracts, platform/config) |
+| pino | 10.4.0 (platform/logger) |
+| @node-rs/argon2 | 2.2.2 (platform/crypto passwords; prebuilt binaries, see ADR 0003) |
+
 ### Current stable versions on 2026-10-10 for later tasks
 
 Pin these exactly when the task that adds them lands. If a newer stable exists by then, update this table in the same PR.

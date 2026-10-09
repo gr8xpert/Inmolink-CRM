@@ -1,0 +1,111 @@
+import { Writable } from 'node:stream';
+import { describe, expect, it } from 'vitest';
+import { createLogger, REDACTED, redactPaths, stripQuery, withRequestId } from './index';
+
+function capture() {
+  const lines: Record<string, unknown>[] = [];
+  const raw: string[] = [];
+  const destination = new Writable({
+    write(chunk, _enc, done) {
+      raw.push(String(chunk));
+      lines.push(JSON.parse(String(chunk)));
+      done();
+    },
+  });
+  return { lines, raw, destination };
+}
+
+describe('logger', () => {
+  it('[S0-03] redaction removes configured fields (email, phone, password, token, key) from logs', () => {
+    const out = capture();
+    const logger = createLogger({ destination: out.destination, service: 'test' });
+
+    logger.info(
+      {
+        email: 'buyer@example.com',
+        phone: '+34600111222',
+        password: 'hunter2-secret',
+        token: 'tok_live_123',
+        key: 'sk_live_456',
+        user: { id: 'u1', email: 'agent@example.com' },
+        req: { headers: { authorization: 'Bearer abc.def.ghi', cookie: 'sid=xyz', 'set-cookie': 'sid=xyz' } },
+        lead: { contact: { details: { phone: '+34600999888' } } },
+        listingId: 'keep-me',
+      },
+      'lead received',
+    );
+
+    const text = out.raw.join('');
+    for (const secret of [
+      'buyer@example.com',
+      '+34600111222',
+      'hunter2-secret',
+      'tok_live_123',
+      'sk_live_456',
+      'agent@example.com',
+      'abc.def.ghi',
+      'sid=xyz',
+      '+34600999888',
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    const line = out.lines[0] as Record<string, unknown> & { user: Record<string, unknown> };
+    expect(line.email).toBe(REDACTED);
+    expect(line.user.email).toBe(REDACTED);
+    expect(line.user.id).toBe('u1');
+    expect(line.listingId).toBe('keep-me');
+    expect(line.msg).toBe('lead received');
+  });
+
+  it('[S0-03] redacts extra keys passed by the app', () => {
+    const out = capture();
+    createLogger({ destination: out.destination, redact: ['dni'] }).info({ dni: '12345678Z' });
+    expect(out.raw.join('')).not.toContain('12345678Z');
+  });
+
+  it('[S0-03] binds the request id to every line of a child logger', () => {
+    const out = capture();
+    const log = withRequestId(createLogger({ destination: out.destination }), 'req-123', { agencyId: 'a1' });
+    log.info('one');
+    log.warn('two');
+    expect(out.lines.map((l) => [l.requestId, l.agencyId, l.level])).toEqual([
+      ['req-123', 'a1', 'info'],
+      ['req-123', 'a1', 'warn'],
+    ]);
+  });
+
+  it('[S0-03] drops row values that database errors echo', () => {
+    const out = capture();
+    const err = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      detail: 'Key (email)=(buyer@example.com) already exists.',
+      parameters: ['buyer@example.com'],
+    });
+    createLogger({ destination: out.destination }).error({ err }, 'insert failed');
+    const text = out.raw.join('');
+    expect(text).not.toContain('buyer@example.com');
+    expect(text).toContain('23505');
+  });
+
+  it('[S0-03] redacts API-key headers and strips query strings from URLs', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info({ req: { headers: { 'x-api-key': 'inl_live_abc_secret' } } });
+    expect(out.raw.join('')).not.toContain('inl_live_abc_secret');
+    expect(stripQuery('/reset?token=abc')).toBe('/reset');
+    expect(stripQuery('/v2/listings')).toBe('/v2/listings');
+  });
+
+  it('[S0-03] bindings cannot overwrite the request id', () => {
+    const out = capture();
+    withRequestId(createLogger({ destination: out.destination }), 'req-1', { requestId: 'spoofed' }).info('x');
+    expect(out.lines[0]?.requestId).toBe('req-1');
+  });
+
+  it('[S0-03] builds bracket paths for keys that are not identifiers', () => {
+    const paths = redactPaths(['email', 'set-cookie']);
+    expect(paths).toContain('email');
+    expect(paths).toContain('*.*.*.email');
+    expect(paths).toContain('["set-cookie"]');
+    expect(paths).toContain('*.*["set-cookie"]');
+  });
+});

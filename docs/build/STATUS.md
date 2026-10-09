@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S0-03 · Platform core
+- **Task:** S0-04 · Database package
 - **Started:** —
-- **Notes:** S0-02 done. Local stack: `pnpm infra:up` / `pnpm infra:health` (dev), `pnpm infra:up:test` / `pnpm infra:health:test` (test). Env keys for platform/config to validate are in `.env.example`. Zod 4.6.5 and pino 10.4.0 per ADR 0001.
+- **Notes:** S0-03 done. Platform subpaths: `@inmolink/platform/{config,logger,errors,ids,clock,crypto,crypto/password,http}`. Load DB URLs with `loadConfigOrExit({ ...coreEnv, ...databaseEnv })`; `APP_ROLE` is already validated (`withSystem` refusal). Drizzle 0.45.4 / drizzle-kit 0.31.11 per ADR 0001. Use `newId()` for UUIDv7 defaults.
 
 ## Current sprint
 - **Sprint:** S0 — Foundation
 - **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 2 / 16 tasks done
+- **Progress:** 3 / 16 tasks done
 
 ## Blocked
 - none
@@ -21,7 +21,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 |---|---|---|---|
 | S0-01 | DONE | 2026-10-10 | pnpm + Turbo workspace with 6 Node/Next apps + 8 packages building; TS/Biome/Vitest presets in `@inmolink/config`; husky + lint-staged; `pnpm verify` uses `--affected`; later-task scripts stubbed (fail loudly); versions in ADR 0001 |
 | S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); all ports bound to 127.0.0.1; `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
-| S0-03 | TODO | | |
+| S0-03 | DONE | 2026-10-10 | `@inmolink/platform` subpath adapters: `config` (composable Zod env sections, all problems reported at once, keyring + prod dev-key checks, `loadConfigOrExit`), `logger` (pino, redaction list ≤3 levels, pg-error serializer, request-id child), `errors` (re-export of contracts `AppError`/`ErrorCodes`), `ids` (own monotonic UUIDv7, `INL-` Crockford refs), `clock` (swappable/fake), `crypto` (AES-256-GCM keyring with key IDs/rotation/required AAD, purpose-scoped HMAC via HKDF, `newToken`; Argon2id in `crypto/password`), `http` (cache-control builders, strong ETag + weak If-None-Match). ADR 0003. 44 unit tests; code-reviewer + security-auditor findings fixed |
 | S0-04 | TODO | | |
 | S0-05 | TODO | | |
 | S0-06 | TODO | | |
@@ -57,6 +57,11 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-10-10 · **Bootstrap superuser `postgres` is for ops only** (S0-02). `DATABASE_URL_ADMIN(_POOLED)` serve health checks and scripts. App roles (`app_owner`, `app_user`, `app_system`, `app_public`) are created in S0-04. PgBouncer finds them through `auth_query`, so S0-04 does not need to edit `userlist.txt`.
 - 2026-10-10 · **pg and ioredis were added in S0-02**, earlier than planned, for the health script. Versions match ADR 0001: pg 8.23.1 and ioredis 6.0.0. ioredis 6 defaults to RESP3, and the health script passes `protocol: 2`. S0-06 must choose the protocol on purpose for BullMQ.
 - 2026-10-10 · graphify knowledge-graph hooks live in `.claude/settings.local.json` (machine-specific, not committed); `graphify-out/` is git-ignored.
+
+- 2026-10-10 · **Log redaction censors values** (`[REDACTED]`) rather than deleting keys (S0-03). The value is gone from the log, and the key shows a field was present, which helps debugging. Matching is by exact key name, 3 levels deep (pino wildcard cost on feed-api), so PII fields use canonical names (`email`, `phone`, …). `key` is redacted by design, so log cache and S3 keys as `cacheKey` or `objectKey`.
+- 2026-10-10 · **UUIDv7 is generated in-house** (S0-03, ~40 lines, no dependency): RFC 9562 method 1, with a 12-bit counter, so IDs stay strictly ordered within a process even when the clock steps back.
+- 2026-10-10 · **Dev crypto keys are marked by convention** (S0-03). `.env.example` uses key ID `dev1` and `HMAC_KEY=dev-…`. Config refuses both under `NODE_ENV=production`.
+- 2026-10-10 · **Inbound request IDs are trusted only from the edge.** `requestIdFrom()` keeps any well-formed inbound ID. S0-08 must call it only for the trusted proxy/CDN header and log client-sent IDs separately.
 
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->

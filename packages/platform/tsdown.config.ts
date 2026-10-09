@@ -1,7 +1,17 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: {
+    index: 'src/index.ts',
+    'clock/index': 'src/clock/index.ts',
+    'config/index': 'src/config/index.ts',
+    'crypto/index': 'src/crypto/index.ts',
+    'crypto/password': 'src/crypto/password.ts',
+    'errors/index': 'src/errors/index.ts',
+    'http/index': 'src/http/index.ts',
+    'ids/index': 'src/ids/index.ts',
+    'logger/index': 'src/logger/index.ts',
+  },
   format: 'esm',
   fixedExtension: false,
   platform: 'node',
