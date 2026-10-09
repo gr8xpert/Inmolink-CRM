@@ -20,7 +20,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | Task | State | Date | Summary |
 |---|---|---|---|
 | S0-01 | DONE | 2026-10-10 | pnpm + Turbo workspace with 6 Node/Next apps + 8 packages building; TS/Biome/Vitest presets in `@inmolink/config`; husky + lint-staged; `pnpm verify` uses `--affected`; later-task scripts stubbed (fail loudly); versions in ADR 0001 |
-| S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
+| S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); all ports bound to 127.0.0.1; `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
 | S0-03 | TODO | | |
 | S0-04 | TODO | | |
 | S0-05 | TODO | | |

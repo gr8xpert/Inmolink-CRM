@@ -3,6 +3,7 @@
 #   docker compose --profile test up -d --wait    → used by integration tests, ports match .env.test.example
 # Check either with `pnpm infra:health` / `pnpm infra:health:test`.
 # Credentials here are local-only defaults; nothing in this file is used outside a developer machine or CI.
+# Every port binds to 127.0.0.1 so these defaults are never reachable from the LAN.
 name: inmolink
 
 x-postgres: &postgres
@@ -99,13 +100,13 @@ services:
   postgres:
     <<: *postgres
     profiles: [dev]
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: ["pg-dev:/var/lib/postgresql"]
 
   pgbouncer:
     <<: *pgbouncer
     profiles: [dev]
-    ports: ["6432:6432"]
+    ports: ["127.0.0.1:6432:6432"]
     volumes:
       - ./infra/docker/pgbouncer/dev.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./infra/docker/pgbouncer/common.ini:/etc/pgbouncer/common.ini:ro
@@ -117,25 +118,25 @@ services:
     <<: *redis
     profiles: [dev]
     command: *redis-queue-command
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     volumes: ["redis-queue-dev:/data"]
 
   redis-cache:
     <<: *redis
     profiles: [dev]
     command: *redis-cache-command
-    ports: ["6380:6379"]
+    ports: ["127.0.0.1:6380:6379"]
 
   meilisearch:
     <<: *meilisearch
     profiles: [dev]
-    ports: ["7700:7700"]
+    ports: ["127.0.0.1:7700:7700"]
     volumes: ["meili-dev:/meili_data"]
 
   minio:
     <<: *minio
     profiles: [dev]
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
     volumes: ["minio-dev:/data"]
 
   minio-init:
@@ -151,32 +152,32 @@ services:
   mailpit:
     <<: *mailpit
     profiles: [dev]
-    ports: ["1025:1025", "8025:8025"]
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.162.0
     profiles: [dev]
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes: ["./infra/docker/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
-    ports: ["4317:4317", "4318:4318", "13133:13133"]
+    ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318", "127.0.0.1:13133:13133"]
     depends_on: [jaeger]
 
   jaeger:
     image: jaegertracing/jaeger:2.22.0
     profiles: [dev]
-    ports: ["16686:16686"]
+    ports: ["127.0.0.1:16686:16686"]
 
   # ── test: same images, own ports and volumes ─────────────────────────────
   postgres-test:
     <<: *postgres
     profiles: [test]
-    ports: ["55432:5432"]
+    ports: ["127.0.0.1:55432:5432"]
     volumes: ["pg-test:/var/lib/postgresql"]
 
   pgbouncer-test:
     <<: *pgbouncer
     profiles: [test]
-    ports: ["56432:6432"]
+    ports: ["127.0.0.1:56432:6432"]
     volumes:
       - ./infra/docker/pgbouncer/test.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./infra/docker/pgbouncer/common.ini:/etc/pgbouncer/common.ini:ro
@@ -188,25 +189,25 @@ services:
     <<: *redis
     profiles: [test]
     command: *redis-queue-command
-    ports: ["56379:6379"]
+    ports: ["127.0.0.1:56379:6379"]
     volumes: ["redis-queue-test:/data"]
 
   redis-cache-test:
     <<: *redis
     profiles: [test]
     command: *redis-cache-command
-    ports: ["56380:6379"]
+    ports: ["127.0.0.1:56380:6379"]
 
   meilisearch-test:
     <<: *meilisearch
     profiles: [test]
-    ports: ["57700:7700"]
+    ports: ["127.0.0.1:57700:7700"]
     volumes: ["meili-test:/meili_data"]
 
   minio-test:
     <<: *minio
     profiles: [test]
-    ports: ["59000:9000"]
+    ports: ["127.0.0.1:59000:9000"]
     volumes: ["minio-test:/data"]
 
   minio-init-test:
@@ -222,7 +223,7 @@ services:
   mailpit-test:
     <<: *mailpit
     profiles: [test]
-    ports: ["51025:1025", "58025:8025"]
+    ports: ["127.0.0.1:51025:1025", "127.0.0.1:58025:8025"]
 
 volumes:
   pg-dev:

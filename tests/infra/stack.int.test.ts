@@ -9,7 +9,7 @@ const ROOT = join(import.meta.dirname, '..', '..');
 
 interface ComposeService {
   profiles?: string[];
-  ports?: { published?: string }[];
+  ports?: { published?: string; host_ip?: string }[];
   volumes?: { type: string; source?: string }[];
 }
 
@@ -53,6 +53,13 @@ describe('local stack', () => {
     // Each env file only reaches its own profile's ports.
     for (const port of envPorts('dev')) expect(devPorts, `dev env port ${port}`).toContain(port);
     for (const port of envPorts('test')) expect(testPorts, `test env port ${port}`).toContain(port);
+  });
+
+  it('[S0-02] every published port binds to loopback only', () => {
+    const exposed = Object.entries(compose.services).flatMap(([name, s]) =>
+      (s.ports ?? []).filter((p) => p.host_ip !== '127.0.0.1').map((p) => `${name}:${p.published}`),
+    );
+    expect(exposed).toEqual([]);
   });
 
   it('[S0-02] extensions are created by the init script and verified by the health check', () => {
