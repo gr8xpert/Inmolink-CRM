@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S0-02 · Local stack
+- **Task:** S0-03 · Platform core
 - **Started:** —
-- **Notes:** S0-01 done. Docker 29.7 is available locally. `.env.example` already lists provisional ports (PgBouncer 6432, redis-queue 6379, redis-cache 6380, Meilisearch 7700); align it with docker-compose.
+- **Notes:** S0-02 done. Local stack: `pnpm infra:up` / `pnpm infra:health` (dev), `pnpm infra:up:test` / `pnpm infra:health:test` (test). Env keys for platform/config to validate are in `.env.example`. Zod 4.6.5 and pino 10.4.0 per ADR 0001.
 
 ## Current sprint
 - **Sprint:** S0 — Foundation
 - **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 1 / 16 tasks done
+- **Progress:** 2 / 16 tasks done
 
 ## Blocked
 - none
@@ -20,7 +20,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | Task | State | Date | Summary |
 |---|---|---|---|
 | S0-01 | DONE | 2026-10-10 | pnpm + Turbo workspace with 6 Node/Next apps + 8 packages building; TS/Biome/Vitest presets in `@inmolink/config`; husky + lint-staged; `pnpm verify` uses `--affected`; later-task scripts stubbed (fail loudly); versions in ADR 0001 |
-| S0-02 | TODO | | |
+| S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
 | S0-03 | TODO | | |
 | S0-04 | TODO | | |
 | S0-05 | TODO | | |
@@ -51,6 +51,11 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-10-10 · **pnpm 10.33.2 pinned, pnpm 12 deferred** (S0-01). pnpm 10's auto-switch to `pnpm@12.10.1` fails on this machine because the user path contains a space (`Shah PC`). Upgrade after installing pnpm 12 globally (ADR 0001).
 - 2026-10-10 · **Package exports use a `@inmolink/source` condition** (S0-01). Typecheck, Vitest and tsx resolve TypeScript source; builds and Next resolve tsdown `dist/`. App packages are named `@inmolink/app-<name>`. `apps/wp-plugin` stays outside the pnpm workspace (PHP tooling).
 - 2026-10-10 · **Stubbed root scripts exit 1** with the owning task ID, so nothing silently pretends to work. `verify` gains `check:boundaries` (S0-12) and `test:isolation` (S0-05) when those tasks land.
+- 2026-10-10 · **PostgreSQL 18** (S0-02). PG 18.6 is the newest major with PostGIS 3.6, pgvector 0.8.7 and pg_partman 5.5 all packaged (PGDG), within "17+". Image `inmolink/postgres:18-3.6` is built from `postgis/postgis:18-3.6`. Production must run the same major (S0-15).
+- 2026-10-10 · **MinIO image from `pgsty/minio`** (S0-02). Upstream MinIO stopped publishing Docker images; `pgsty/minio` and `pgsty/mc` are the community builds of the same server and client. Local/CI only — production storage is R2. If that fork stalls, swap to any S3-compatible server; the storage adapter (S1-03) only speaks S3.
+- 2026-10-10 · **`pnpm verify` needs Docker** (S0-02). Root `test:int:root` (tests/infra) runs in `verify` and its global setup runs `docker compose --profile test up -d --wait`. Package integration tests from S0-04 on use the same test stack. The stack stays up between runs; `pnpm infra:down` stops both profiles.
+- 2026-10-10 · **Bootstrap superuser `postgres` is for ops only** (S0-02). `DATABASE_URL_ADMIN(_POOLED)` serve health checks and scripts. App roles (`app_owner`, `app_user`, `app_system`, `app_public`) are created in S0-04. PgBouncer finds them through `auth_query`, so S0-04 does not need to edit `userlist.txt`.
+- 2026-10-10 · **pg and ioredis were added in S0-02**, earlier than planned, for the health script. Versions match ADR 0001: pg 8.23.1 and ioredis 6.0.0. ioredis 6 defaults to RESP3, and the health script passes `protocol: 2`. S0-06 must choose the protocol on purpose for BullMQ.
 - 2026-10-10 · graphify knowledge-graph hooks live in `.claude/settings.local.json` (machine-specific, not committed); `graphify-out/` is git-ignored.
 
 ## Human actions

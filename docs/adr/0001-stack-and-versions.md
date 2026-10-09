@@ -36,6 +36,26 @@ PLAN §5.8 locks the stack but leaves exact versions to S0. AI-written code need
 | Next.js | 16.4.0 |
 | React / React DOM | 19.3.0 |
 
+### Added in S0-02
+
+| Tool | Version |
+|---|---|
+| pg / @types/pg | 8.23.1 / 8.23.1 (root, for ops scripts; S0-04 reuses it) |
+| ioredis | 6.0.0 (RESP3 by default; health script uses `protocol: 2`) |
+
+Local stack images (`docker-compose.yml`, exact tags):
+
+| Service | Image |
+|---|---|
+| PostgreSQL 18.6 + PostGIS 3.6 + pgvector 0.8.7 + pg_partman 5.5 | `inmolink/postgres:18-3.6` built from `postgis/postgis:18-3.6` |
+| PgBouncer 1.26 | `edoburu/pgbouncer:v1.26.0-p0` |
+| Redis 7.4 | `redis:7.4.11-alpine` |
+| Meilisearch | `getmeili/meilisearch:v1.54.3` |
+| MinIO / mc | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` / `pgsty/mc:RELEASE.2026-09-16T00-00-00Z` (upstream stopped publishing images) |
+| Mailpit | `axllent/mailpit:v1.31.4` |
+| OpenTelemetry collector | `otel/opentelemetry-collector-contrib:0.162.0` |
+| Jaeger | `jaegertracing/jaeger:2.22.0` |
+
 ### Current stable versions on 2026-10-10 for later tasks
 
 Pin these exactly when the task that adds them lands. If a newer stable exists by then, update this table in the same PR.
@@ -44,8 +64,8 @@ Pin these exactly when the task that adds them lands. If a newer stable exists b
 |---|---|---|
 | Fastify / @fastify/swagger | 5.12.5 / 9.9.2 | S0-08 |
 | Zod | 4.6.5 | S0-03 |
-| Drizzle ORM / drizzle-kit / pg | 0.45.4 / 0.31.11 / 8.23.1 | S0-04 |
-| BullMQ / ioredis | 6.3.12 / 6.0.0 | S0-06 |
+| Drizzle ORM / drizzle-kit | 0.45.4 / 0.31.11 | S0-04 |
+| BullMQ | 6.3.12 | S0-06 |
 | pino | 10.4.0 | S0-03 |
 | Socket.io | 4.8.4 | S0-08 |
 | Auth.js (next-auth) | 5.0.0-beta.32 | S0-09 |

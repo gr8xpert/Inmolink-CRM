@@ -16,7 +16,8 @@ AI-native MLS + CRM + website engine for Spanish estate agencies and developers.
 6. One task per session where possible. When context gets long: finish, commit, then suggest `/clear`.
 
 ## Commands (created in S0-01; add new ones to root `package.json`)
-- `pnpm dev` · `pnpm build` · `pnpm verify` (typecheck + lint + boundaries + unit + integration + isolation for affected packages)
+- `pnpm dev` (starts the docker `dev` stack, then apps) · `pnpm build` · `pnpm verify` (typecheck + lint + boundaries + unit + integration + isolation for affected packages; needs Docker)
+- `pnpm infra:up` · `pnpm infra:down` · `pnpm infra:health` · `pnpm infra:up:test` · `pnpm infra:health:test`
 - `pnpm db:generate` · `pnpm db:migrate` · `pnpm db:rls` · `pnpm db:seed` · `pnpm db:seed:scale --agencies=5000`
 - `pnpm gen:module <name>` · `pnpm test` · `pnpm test:int` · `pnpm test:isolation` · `pnpm test:e2e` · `pnpm perf:smoke`
 - `pnpm i18n:draft` · `pnpm ai:eval <feature>` · `pnpm sdk:generate`

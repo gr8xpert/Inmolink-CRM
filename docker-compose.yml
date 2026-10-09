@@ -1,0 +1,235 @@
+# Local stack (PLAN §5.1, §5.8). Two profiles that never share ports or volumes:
+#   docker compose --profile dev up -d --wait     → used by `pnpm dev`, ports match .env.example
+#   docker compose --profile test up -d --wait    → used by integration tests, ports match .env.test.example
+# Check either with `pnpm infra:health` / `pnpm infra:health:test`.
+# Credentials here are local-only defaults; nothing in this file is used outside a developer machine or CI.
+name: inmolink
+
+x-postgres: &postgres
+  build: ./infra/docker/postgres
+  image: inmolink/postgres:18-3.6
+  environment:
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: postgres
+    POSTGRES_DB: inmolink
+    POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+  command: >-
+    postgres
+    -c shared_preload_libraries=pg_stat_statements
+    -c pg_stat_statements.track=all
+    -c max_connections=200
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres -d inmolink"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-pgbouncer: &pgbouncer
+  image: edoburu/pgbouncer:v1.26.0-p0
+  command: ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
+  healthcheck:
+    test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-redis: &redis
+  image: redis:7.4.11-alpine
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+# BullMQ: never evict, persist every second.
+x-redis-queue-command: &redis-queue-command
+  ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+# Cache: bounded, evicts least-recently-used keys, no persistence.
+x-redis-cache-command: &redis-cache-command
+  ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+
+x-meilisearch: &meilisearch
+  image: getmeili/meilisearch:v1.54.3
+  environment:
+    MEILI_ENV: development
+    MEILI_MASTER_KEY: local-dev-master-key
+    MEILI_NO_ANALYTICS: "true"
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health || exit 1"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+# R2 stand-in. Upstream MinIO no longer publishes images; pgsty/minio is the community build of the same server.
+x-minio: &minio
+  image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  command: ["server", "/data", "--console-address", ":9001"]
+  environment:
+    MINIO_ROOT_USER: inmolink
+    MINIO_ROOT_PASSWORD: inmolink-local-secret
+  healthcheck:
+    test: ["CMD", "mc", "ready", "local"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+# Creates the buckets, then idles so `up --wait` can treat it as healthy (it fails on exited one-shot containers).
+x-minio-init: &minio-init
+  image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+  entrypoint: ["/bin/sh", "-c"]
+  healthcheck:
+    test: ["CMD", "mc", "ls", "local/inmolink-media"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+x-mailpit: &mailpit
+  image: axllent/mailpit:v1.31.4
+  environment:
+    MP_SMTP_AUTH_ACCEPT_ANY: "true"
+    MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+  healthcheck:
+    test: ["CMD", "/mailpit", "readyz"]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
+services:
+  # ── dev ──────────────────────────────────────────────────────────────────
+  postgres:
+    <<: *postgres
+    profiles: [dev]
+    ports: ["5432:5432"]
+    volumes: ["pg-dev:/var/lib/postgresql"]
+
+  pgbouncer:
+    <<: *pgbouncer
+    profiles: [dev]
+    ports: ["6432:6432"]
+    volumes:
+      - ./infra/docker/pgbouncer/dev.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./infra/docker/pgbouncer/common.ini:/etc/pgbouncer/common.ini:ro
+      - ./infra/docker/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  redis-queue:
+    <<: *redis
+    profiles: [dev]
+    command: *redis-queue-command
+    ports: ["6379:6379"]
+    volumes: ["redis-queue-dev:/data"]
+
+  redis-cache:
+    <<: *redis
+    profiles: [dev]
+    command: *redis-cache-command
+    ports: ["6380:6379"]
+
+  meilisearch:
+    <<: *meilisearch
+    profiles: [dev]
+    ports: ["7700:7700"]
+    volumes: ["meili-dev:/meili_data"]
+
+  minio:
+    <<: *minio
+    profiles: [dev]
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio-dev:/data"]
+
+  minio-init:
+    <<: *minio-init
+    profiles: [dev]
+    command:
+      - mc alias set local http://minio:9000 inmolink inmolink-local-secret
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports
+        && exec sleep infinity
+    depends_on:
+      minio: { condition: service_healthy }
+
+  mailpit:
+    <<: *mailpit
+    profiles: [dev]
+    ports: ["1025:1025", "8025:8025"]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    profiles: [dev]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./infra/docker/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["4317:4317", "4318:4318", "13133:13133"]
+    depends_on: [jaeger]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: [dev]
+    ports: ["16686:16686"]
+
+  # ── test: same images, own ports and volumes ─────────────────────────────
+  postgres-test:
+    <<: *postgres
+    profiles: [test]
+    ports: ["55432:5432"]
+    volumes: ["pg-test:/var/lib/postgresql"]
+
+  pgbouncer-test:
+    <<: *pgbouncer
+    profiles: [test]
+    ports: ["56432:6432"]
+    volumes:
+      - ./infra/docker/pgbouncer/test.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./infra/docker/pgbouncer/common.ini:/etc/pgbouncer/common.ini:ro
+      - ./infra/docker/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres-test: { condition: service_healthy }
+
+  redis-queue-test:
+    <<: *redis
+    profiles: [test]
+    command: *redis-queue-command
+    ports: ["56379:6379"]
+    volumes: ["redis-queue-test:/data"]
+
+  redis-cache-test:
+    <<: *redis
+    profiles: [test]
+    command: *redis-cache-command
+    ports: ["56380:6379"]
+
+  meilisearch-test:
+    <<: *meilisearch
+    profiles: [test]
+    ports: ["57700:7700"]
+    volumes: ["meili-test:/meili_data"]
+
+  minio-test:
+    <<: *minio
+    profiles: [test]
+    ports: ["59000:9000"]
+    volumes: ["minio-test:/data"]
+
+  minio-init-test:
+    <<: *minio-init
+    profiles: [test]
+    command:
+      - mc alias set local http://minio-test:9000 inmolink inmolink-local-secret
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports
+        && exec sleep infinity
+    depends_on:
+      minio-test: { condition: service_healthy }
+
+  mailpit-test:
+    <<: *mailpit
+    profiles: [test]
+    ports: ["51025:1025", "58025:8025"]
+
+volumes:
+  pg-dev:
+  redis-queue-dev:
+  meili-dev:
+  minio-dev:
+  pg-test:
+  redis-queue-test:
+  meili-test:
+  minio-test:

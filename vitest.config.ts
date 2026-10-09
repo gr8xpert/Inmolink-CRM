@@ -13,6 +13,16 @@ export default defineConfig({
           environment: 'node',
         },
       },
+      {
+        // Needs Docker: global setup starts the `test` compose profile.
+        test: {
+          name: 'infra',
+          include: ['tests/infra/**/*.int.test.ts'],
+          environment: 'node',
+          globalSetup: ['tests/infra/global-setup.ts'],
+          testTimeout: 30_000,
+        },
+      },
     ],
   },
 });

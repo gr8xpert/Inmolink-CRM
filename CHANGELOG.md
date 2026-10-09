@@ -6,3 +6,4 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Added
 - Monorepo scaffold: pnpm workspace + Turborepo with every app and package from PLAN §5.7 as a building skeleton, strict TypeScript/Biome/Vitest presets in `@inmolink/config`, husky + lint-staged, `pnpm verify` (Turbo `--affected`), stubbed root scripts for later tasks, and ADR 0001 with pinned versions. New dev dependencies: turbo, @biomejs/biome, typescript, vitest, tsdown, tsx, husky, lint-staged, @types/node; next, react, react-dom in the Next.js apps. [S0-01]
+- Local stack: `docker-compose.yml` with `dev` and `test` profiles (PostgreSQL 18 + PostGIS/pgvector/pg_trgm/pg_partman, PgBouncer, two Redis instances, Meilisearch, MinIO, Mailpit, OTel collector + Jaeger), `scripts/ops/health.ts` (`pnpm infra:health[:test]`), `.env.test.example`. `pnpm dev` starts infra first. New root dev dependencies: pg, @types/pg, ioredis. [S0-02]

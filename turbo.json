@@ -22,6 +22,9 @@
     },
     "//#typecheck:root": {},
     "//#lint:root": {},
-    "//#test:root": {}
+    "//#test:root": {},
+    "//#test:int:root": {
+      "cache": false
+    }
   }
 }
