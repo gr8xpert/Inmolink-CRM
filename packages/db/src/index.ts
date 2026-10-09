@@ -1,2 +1,4 @@
-/** @inmolink/db — Drizzle client, schema, migrations, tenant registry and RLS. Placeholder until its first feature lands. */
-export const PACKAGE_NAME = '@inmolink/db';
+/** @inmolink/db — Drizzle client, role pools, tenant scoping and migrations (PATTERNS §3). */
+export { closeDb, configureDb, type Db, type DbConfig, dbEnv, getPgClient, type PoolOptions, type Tx } from './client';
+export { DB_ROLES, type DbRoleName, type RuntimeRole } from './roles';
+export { type TenantScope, withPublicRead, withSystem, withTenant } from './tenancy/scope';

@@ -1,4 +1,4 @@
 {
   "extends": "@inmolink/config/tsconfig/node.json",
-  "include": ["src", "*.config.ts"]
+  "include": ["src", "test", "*.config.ts"]
 }

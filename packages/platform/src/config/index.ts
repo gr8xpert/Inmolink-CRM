@@ -25,13 +25,19 @@ export const coreEnv = {
 
 export const databaseEnv = {
   DATABASE_URL_APP_USER: url(['postgres', 'postgresql']),
-  DATABASE_URL_APP_SYSTEM: url(['postgres', 'postgresql']),
+  /** BYPASSRLS role — workers and scripts only; refused for APP_ROLE=http in production. */
+  DATABASE_URL_APP_SYSTEM: url(['postgres', 'postgresql']).optional(),
   DATABASE_URL_APP_PUBLIC: url(['postgres', 'postgresql']),
 };
 
 /** Migrations and ops scripts only — never loaded by app runtimes. */
 export const databaseOwnerEnv = {
   DATABASE_URL_APP_OWNER: url(['postgres', 'postgresql']),
+};
+
+/** Bootstrap superuser for role setup in `pnpm db:migrate`; optional where ops provisions roles. */
+export const databaseAdminEnv = {
+  DATABASE_URL_ADMIN: url(['postgres', 'postgresql']).optional(),
 };
 
 export const redisEnv = {
@@ -126,6 +132,12 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
       const key = /Active encryption key/.test(message) ? 'ENCRYPTION_ACTIVE_KEY_ID' : 'ENCRYPTION_KEYS';
       problems.push({ key, message });
     }
+  }
+  if (production && cfg.APP_ROLE === 'http' && cfg.DATABASE_URL_APP_SYSTEM !== undefined) {
+    problems.push({
+      key: 'DATABASE_URL_APP_SYSTEM',
+      message: 'must not be set for APP_ROLE=http in production (BYPASSRLS credential; workers and scripts only)',
+    });
   }
   if (production && typeof cfg.HMAC_KEY === 'string' && cfg.HMAC_KEY.startsWith('dev-')) {
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });

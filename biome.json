@@ -8,6 +8,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/.next", "!**/next-env.d.ts", "!apps/wp-plugin", "!graphify-out"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/.next",
+      "!**/next-env.d.ts",
+      "!apps/wp-plugin",
+      "!graphify-out",
+      "!packages/db/migrations"
+    ]
   }
 }

@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S0-04 · Database package
+- **Task:** S0-05 · Tenant registry, RLS generator, isolation harness
 - **Started:** —
-- **Notes:** S0-03 done. Platform subpaths: `@inmolink/platform/{config,logger,errors,ids,clock,crypto,crypto/password,http}`. Load DB URLs with `loadConfigOrExit({ ...coreEnv, ...databaseEnv })`; `APP_ROLE` is already validated (`withSystem` refusal). Drizzle 0.45.4 / drizzle-kit 0.31.11 per ADR 0001. Use `newId()` for UUIDv7 defaults.
+- **Notes:** S0-04 done. `@inmolink/db` exports `withTenant/withSystem/withPublicRead/getPgClient/configureDb/closeDb`; `@inmolink/db/migrate` has `runMigrations`. Integration tests call `setupTestDb()` from `packages/db/test/test-db.ts` (stack up + roles + migrations). RLS helpers must use `nullif(current_setting('app.agency_id', true), '')::uuid` (same for `app.user_id`, which is `''` when there is no user). Read the S0-05 items under **Decisions**.
 
 ## Current sprint
 - **Sprint:** S0 — Foundation
 - **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 3 / 16 tasks done
+- **Progress:** 4 / 16 tasks done
 
 ## Blocked
 - none
@@ -22,7 +22,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S0-01 | DONE | 2026-10-10 | pnpm + Turbo workspace with 6 Node/Next apps + 8 packages building; TS/Biome/Vitest presets in `@inmolink/config`; husky + lint-staged; `pnpm verify` uses `--affected`; later-task scripts stubbed (fail loudly); versions in ADR 0001 |
 | S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); all ports bound to 127.0.0.1; `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
 | S0-03 | DONE | 2026-10-10 | `@inmolink/platform` subpath adapters: `config` (composable Zod env sections, all problems reported at once, keyring + prod dev-key checks, `loadConfigOrExit`), `logger` (pino, redaction list ≤3 levels, pg-error serializer, request-id child), `errors` (re-export of contracts `AppError`/`ErrorCodes`), `ids` (own monotonic UUIDv7, `INL-` Crockford refs), `clock` (swappable/fake), `crypto` (AES-256-GCM keyring with key IDs/rotation/required AAD, purpose-scoped HMAC via HKDF, `newToken`; Argon2id in `crypto/password`), `http` (cache-control builders, strong ETag + weak If-None-Match). ADR 0003. 44 unit tests; code-reviewer + security-auditor findings fixed |
-| S0-04 | TODO | | |
+| S0-04 | DONE | 2026-10-10 | `@inmolink/db`: lazy pg pool + Drizzle per runtime role (`app_user`/`app_system`/`app_public`, idle-error listener), `withTenant` (UUID-checked, tx-local `set_config`), `withSystem` (refused for APP_ROLE=http or missing URL; reason logged + set), `withPublicRead` (read-only tx), `getPgClient`; `pnpm db:migrate[:test]` = advisory-locked (60 s) idempotent role bootstrap as admin (SCRAM verifiers computed client-side, role timeouts 2 s/5 s/60 s, `search_path=public`, default DML grants from `app_owner`, no TEMPORARY, EXECUTE revoked from PUBLIC, memberships revoked) + drizzle-kit migrations as `app_owner`; `pnpm db:generate`. 11 unit + 8 integration tests through PgBouncer; code-reviewer + security-auditor findings fixed or recorded under Decisions |
 | S0-05 | TODO | | |
 | S0-06 | TODO | | |
 | S0-07 | TODO | | |
@@ -66,6 +66,12 @@ Single source of truth for progress. Claude updates this at the end of every tas
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->
 - none yet
+- 2026-10-10 · **Roles are bootstrapped by `pnpm db:migrate`** (S0-04), not by initdb. With `DATABASE_URL_ADMIN` set it creates/updates the four roles; passwords come from the `DATABASE_URL_APP_*` URLs, sent only as SCRAM verifiers. Passwords `change-me`/`postgres` are refused for non-loopback hosts. Without the admin URL (production, where ops provisions roles once — S0-15) it only migrates. After changing a role timeout, PgBouncer server connections keep the old value until they recycle (`RECONNECT` in the admin console).
+- 2026-10-10 · **`DATABASE_URL_APP_SYSTEM` is optional and refused for APP_ROLE=http in production** (S0-04, security audit). Dev and test still set it so integration tests can switch `APP_ROLE`. Feed-api should load only `DATABASE_URL_APP_PUBLIC` (S0-08).
+- 2026-10-10 · **Env-file loading is all-or-nothing** (S0-04). `db:migrate` and integration tests read `.env[.test]`, falling back to the committed example, only when NODE_ENV is not production and no `DATABASE_URL_*` is set. Real and example credentials never mix.
+- 2026-10-10 · **Vitest preset: SSR conditions no longer list `import`** (S0-04). Vitest forwarded it to Node, so CJS `require('pg-pool')` resolved to the ESM build and crashed. Conditions are now `['@inmolink/source', 'node']`.
+- 2026-10-10 · **For S0-05 (security audit, deferred):** (1) Default privileges give `app_user`/`app_system` DML on every new `app_owner` table, so access fails open. The S0-05 guard must also fail on any `public` table that is neither registered as tenant nor explicitly marked global with RLS on, or grants must move to `pnpm db:rls`. (2) Use `force row level security`. (3) `app_public` gets SELECT and EXECUTE per table/function only; its read-only default is not a privilege boundary.
+- 2026-10-10 · **Proposed PATTERNS change, for the bulk-load task (S6):** `getPgClient` relies on the caller to begin, use `set_config(…, true)`, end the transaction and release. Before the first COPY path, add `withTenantClient(scope, fn)` / `withSystemClient(reason, fn)`, which wrap begin/commit/rollback and destroy the client on error. Grant TEMPORARY only together with a helper that creates `temp … on commit drop` tables. Lint against `set_config('app.…', …, false)` and `SET app.`. Also for S0-15: production PgBouncer should use a dedicated auth role with a SECURITY DEFINER lookup instead of `postgres`, and revoke CONNECT on `postgres`/`template1` from PUBLIC.
 
 ## Sprint history
 | Sprint | Closed | Report |

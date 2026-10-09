@@ -10,23 +10,35 @@
       "@inmolink/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./migrate": {
+      "@inmolink/source": "./src/migrate.ts",
+      "types": "./dist/migrate.d.ts",
+      "default": "./dist/migrate.js"
     }
   },
   "scripts": {
     "build": "tsdown",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --conditions=@inmolink/source src/cli/migrate.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "vitest run --exclude \"**/*.int.test.ts\"",
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
-    "@inmolink/platform": "workspace:*"
+    "@inmolink/platform": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
     "tsdown": "0.23.0",
+    "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
   }

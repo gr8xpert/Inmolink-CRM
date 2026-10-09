@@ -102,10 +102,20 @@ describe('loadConfig', () => {
     ).toBe('k1');
   });
 
+  it('[S0-04] the BYPASSRLS URL is refused for APP_ROLE=http in production, optional elsewhere', () => {
+    const prod = { ...validEnv, NODE_ENV: 'production' };
+    const err = problemsOf(() => loadConfig(shape, prod));
+    expect(err.problems.map((p) => p.key)).toEqual(['DATABASE_URL_APP_SYSTEM']);
+    expect(err.message).not.toContain('app_system:pw');
+    expect(() => loadConfig(shape, { ...prod, DATABASE_URL_APP_SYSTEM: undefined })).not.toThrow();
+    expect(() => loadConfig(shape, { ...prod, APP_ROLE: 'worker' })).not.toThrow();
+  });
+
   it('[S0-03] dev keys are refused in production', () => {
     const env = {
       ...validEnv,
       NODE_ENV: 'production',
+      APP_ROLE: 'worker',
       ENCRYPTION_KEYS: `dev1:${generateKey()}`,
       ENCRYPTION_ACTIVE_KEY_ID: 'dev1',
       HMAC_KEY: `dev-${'0'.repeat(64)}`,
