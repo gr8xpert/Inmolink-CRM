@@ -1,0 +1,58 @@
+# Build status
+
+Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
+
+## Now
+- **Task:** S0-01 · Monorepo scaffold and tooling
+- **Started:** —
+- **Notes:** First session. Read `CLAUDE.md`, then the task in `docs/build/BACKLOG-R1.md`.
+
+## Current sprint
+- **Sprint:** S0 — Foundation
+- **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
+- **Progress:** 0 / 16 tasks done
+
+## Blocked
+- none
+
+## Task log
+<!-- One line per task: ID · STATE · date · summary (· perf numbers for ⚡ tasks) -->
+| Task | State | Date | Summary |
+|---|---|---|---|
+| S0-01 | TODO | | |
+| S0-02 | TODO | | |
+| S0-03 | TODO | | |
+| S0-04 | TODO | | |
+| S0-05 | TODO | | |
+| S0-06 | TODO | | |
+| S0-07 | TODO | | |
+| S0-08 | TODO | | |
+| S0-09 | TODO | | |
+| S0-10 | TODO | | |
+| S0-11 | TODO | | |
+| S0-12 | TODO | | |
+| S0-13 | TODO | | |
+| S0-14 | TODO | | |
+| S0-15 | TODO | | |
+| S0-16 | TODO | | |
+
+*(Add the next sprint's rows when a sprint closes in `/sprint-review`.)*
+
+## Decisions
+<!-- Assumptions Claude made where the plan was silent, and proposed ADRs awaiting approval. -->
+- 2026-10-10 · **Pricing is configurable.** €800/yr and every other price, cap and reward in PLAN are working figures, not fixed values. Plans, prices, limits and add-ons are data (catalog synced to Stripe, staff-editable); never constants in code. PLAN §0 and §11 annotated. (Shahzaib)
+- 2026-10-10 · **Node.js 24 LTS** for dev and CI; production servers support 22 and 24, so root `engines.node` is `>=22 <25`. Record in ADR 0001. PLAN §5.8 updated. (Shahzaib)
+- 2026-10-10 · **PostgreSQL 17+** (PLAN §5.1 said 16; §5.8, S0-02 and PATTERNS §13 `MERGE … RETURNING merge_action()` need 17). §5.1 corrected.
+- 2026-10-10 · **Next.js latest stable** (PLAN §5.2 said 15; §5.8 says latest stable). §5.2 corrected; exact version pinned in ADR 0001.
+- 2026-10-10 · **Email and storage adapters** have no S0 task. Build `platform/email` (Resend/SES drivers, Mailpit locally) inside S0-09, and `platform/storage` (R2/MinIO, private buckets, signed URLs) inside S1-03, both following the platform adapter pattern. (Shahzaib approved)
+- 2026-10-10 · **Forward dependencies:** S3-10 depends on S4-02, and S5-06 depends on S11-04. S3 and S5 can close with those two tasks marked `BLOCKED S4-02` / `BLOCKED S11-04`; each task finishes when its dependency is DONE.
+- 2026-10-10 · Repo path is `E:\Repos\InmolinkCRM` (docs said `E:\Repos\Inmolink`; PLAN §22 and BUILD-GUIDE fixed). Remote: `https://github.com/gr8xpert/Inmolink-CRM.git`.
+- 2026-10-10 · graphify knowledge-graph hooks live in `.claude/settings.local.json` (machine-specific, not committed); `graphify-out/` is git-ignored.
+
+## Human actions
+<!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->
+- none yet
+
+## Sprint history
+| Sprint | Closed | Report |
+|---|---|---|

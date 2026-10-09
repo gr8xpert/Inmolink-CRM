@@ -1,0 +1,35 @@
+# Dependencies & build output
+node_modules/
+dist/
+apps/*/build/
+packages/*/build/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# Env & secrets — never commit
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Data — legacy dumps and real client data stay outside the repo
+*.sql.gz
+*.dump
+*.bak
+dumps/
+
+# Local tooling
+.claude/settings.local.json
+CLAUDE.local.md
+graphify-out/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log
