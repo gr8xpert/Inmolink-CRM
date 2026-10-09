@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S0-05 · Tenant registry, RLS generator, isolation harness
+- **Task:** S0-06 · Outbox and queues
 - **Started:** —
-- **Notes:** S0-04 done. `@inmolink/db` exports `withTenant/withSystem/withPublicRead/getPgClient/configureDb/closeDb`; `@inmolink/db/migrate` has `runMigrations`. Integration tests call `setupTestDb()` from `packages/db/test/test-db.ts` (stack up + roles + migrations). RLS helpers must use `nullif(current_setting('app.agency_id', true), '')::uuid` (same for `app.user_id`, which is `''` when there is no user). Read the S0-05 items under **Decisions**.
+- **Notes:** S0-05 done. New tables: add to `packages/db/src/tenancy/registry.ts` (tenant or global) and run `pnpm db:rls` — without it the app roles have no grants. `outbox_events` is cross-tenant infrastructure: decide tenant (with `agency_id`) vs global and register it; the dispatcher runs via `withSystem()`. `setupTestDb()` (`@inmolink/db/testing`) now also applies RLS. Integration tests must not commit objects in `public` (PATTERNS §20).
 
 ## Current sprint
 - **Sprint:** S0 — Foundation
 - **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 4 / 16 tasks done
+- **Progress:** 5 / 16 tasks done
 
 ## Blocked
 - none
@@ -23,7 +23,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S0-02 | DONE | 2026-10-10 | `docker-compose.yml` with `dev`/`test` profiles (own ports + volumes): PG 18.6 + PostGIS 3.6 + pgvector + pg_trgm + pg_partman + pg_stat_statements (init script), PgBouncer 1.26 transaction mode, redis-queue (noeviction, AOF) / redis-cache (allkeys-lru), Meilisearch, MinIO + buckets, Mailpit, OTel collector → Jaeger (dev only); all ports bound to 127.0.0.1; `scripts/ops/health.ts`; `pnpm dev` starts infra then apps; `test:int:root` brings up the test profile and runs in `verify` |
 | S0-03 | DONE | 2026-10-10 | `@inmolink/platform` subpath adapters: `config` (composable Zod env sections, all problems reported at once, keyring + prod dev-key checks, `loadConfigOrExit`), `logger` (pino, redaction list ≤3 levels, pg-error serializer, request-id child), `errors` (re-export of contracts `AppError`/`ErrorCodes`), `ids` (own monotonic UUIDv7, `INL-` Crockford refs), `clock` (swappable/fake), `crypto` (AES-256-GCM keyring with key IDs/rotation/required AAD, purpose-scoped HMAC via HKDF, `newToken`; Argon2id in `crypto/password`), `http` (cache-control builders, strong ETag + weak If-None-Match). ADR 0003. 44 unit tests; code-reviewer + security-auditor findings fixed |
 | S0-04 | DONE | 2026-10-10 | `@inmolink/db`: lazy pg pool + Drizzle per runtime role (`app_user`/`app_system`/`app_public`, idle-error listener), `withTenant` (UUID-checked, tx-local `set_config`), `withSystem` (refused for APP_ROLE=http or missing URL; reason logged + set), `withPublicRead` (read-only tx), `getPgClient`; `pnpm db:migrate[:test]` = advisory-locked (60 s) idempotent role bootstrap as admin (SCRAM verifiers computed client-side, role timeouts 2 s/5 s/60 s, `search_path=public`, default DML grants from `app_owner`, no TEMPORARY, EXECUTE revoked from PUBLIC, memberships revoked) + drizzle-kit migrations as `app_owner`; `pnpm db:generate`. 11 unit + 8 integration tests through PgBouncer; code-reviewer + security-auditor findings fixed or recorded under Decisions |
-| S0-05 | TODO | | |
+| S0-05 | DONE | 2026-10-10 | `packages/db/src/tenancy/registry.ts` (STRICT / NETWORK_READ / PUBLIC_READ + explicit global tables, test samples per predicate); `pnpm db:rls[:test]` generates `packages/db/rls/policies.sql` (helpers `app_agency()`/`app_user_id()`, forced RLS, policies scoped to `app_user`/`app_public`, revoke-all incl. PUBLIC then per-table grants; 5 s lock timeout), applies it as `app_owner` and runs the guard (`checkRls`: unregistered tables, agency_id on global, RLS off/not forced, missing/extra/altered policies, exact per-role privileges incl. TRUNCATE + column grants, partitions, views/matviews/foreign tables/other schemas, non-helper or SECURITY DEFINER functions); bootstrap no longer sets default table/function grants (fails closed). `pnpm test:isolation` (in `verify`): 46 tests — generated cases per registered table (cross-tenant select/update/delete/insert/move, no-tenant, app_public read-write tx, positive controls) over 5 fixture tables + 7 guard tests with planted violations. code-reviewer + security-auditor findings fixed or recorded under Decisions |
 | S0-06 | TODO | | |
 | S0-07 | TODO | | |
 | S0-08 | TODO | | |
@@ -62,6 +62,12 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-10-10 · **UUIDv7 is generated in-house** (S0-03, ~40 lines, no dependency): RFC 9562 method 1, with a 12-bit counter, so IDs stay strictly ordered within a process even when the clock steps back.
 - 2026-10-10 · **Dev crypto keys are marked by convention** (S0-03). `.env.example` uses key ID `dev1` and `HMAC_KEY=dev-…`. Config refuses both under `NODE_ENV=production`.
 - 2026-10-10 · **Inbound request IDs are trusted only from the edge.** `requestIdFrom()` keeps any well-formed inbound ID. S0-08 must call it only for the trusted proxy/CDN header and log client-sent IDs separately.
+
+- 2026-10-10 · **Grants come only from `pnpm db:rls`** (S0-05, resolves the S0-04 audit items). Bootstrap revokes default table/function privileges from the app roles; sequences keep default USAGE/SELECT (IDs are UUIDv7). Deploys must run `pnpm db:migrate && pnpm db:rls` — record in the S0-15 runbook.
+- 2026-10-10 · **Registry shape extends PATTERNS §2** (S0-05): `globalTables` (no `agency_id`, read-only for app_user, written via `withSystem()`, `publicRead` opt-in) and `samples`/`base` per tenant entry so the generated suite can seed rows on both sides of a predicate. PATTERNS §2/§20 updated.
+- 2026-10-10 · **Policy details** (S0-05): `own_rows` is `to app_user` (app_public reads only via `public_read`, app_owner sees nothing — backfills go through `withSystem()` jobs); `network_read` also requires `app_agency() is not null`. `app_agency_verified()` / `app_is_preferred_by()` are added to the generator's helpers by S1-01 / the preferred-agencies task, and NETWORK_READ predicates must use `app_agency_verified()` (security.md: only verified tenants read the network). NETWORK_READ/PUBLIC_READ tables hold only shareable columns.
+- 2026-10-10 · **Isolation suite runs on the shared test DB in parallel with `test:int`** (S0-05). Safe while integration tests commit no objects in `public` (PATTERNS §20). The root package depends on `@inmolink/db`, so `--affected` runs `//#test:isolation` when db changes (checked with `turbo --filter=...@inmolink/db --dry`). S0-14 CI should still run it on every build.
+- 2026-10-10 · **Known limits, accepted** (S0-05 audit notes): app_user can call `set_config('app.agency_id', …)`, so SQL injection in a request path could switch tenants — inherent to GUC scoping, mitigated by Drizzle/`sql` only (ADR 0003 in S0-16 should state it). `db:rls` rewrites every registered table in one transaction; if lock contention shows up at scale, skip tables whose policies/grants already match.
 
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->

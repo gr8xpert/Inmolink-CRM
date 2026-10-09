@@ -77,12 +77,16 @@ export function roleStatements(database: string, role: DbRoleName, verifier: str
     // Creates the `drizzle` migrations schema and every app table.
     out.push(`grant create on database ${db} to ${r}`, `grant create on schema public to ${r}`);
   }
-  if (spec.dml) {
+  if (role !== 'app_owner') {
+    // Table and function grants come per table from `pnpm db:rls` (S0-05): a table missing from the
+    // tenant registry stays unreachable. Revoked explicitly to clean databases bootstrapped before S0-05.
     out.push(
-      `alter default privileges for role app_owner in schema public grant select, insert, update, delete on tables to ${r}`,
-      `alter default privileges for role app_owner in schema public grant usage, select on sequences to ${r}`,
-      `alter default privileges for role app_owner in schema public grant execute on functions to ${r}`,
+      `alter default privileges for role app_owner in schema public revoke all on tables from ${r}`,
+      `alter default privileges for role app_owner in schema public revoke all on functions from ${r}`,
     );
+  }
+  if (spec.dml) {
+    out.push(`alter default privileges for role app_owner in schema public grant usage, select on sequences to ${r}`);
   }
   return out;
 }

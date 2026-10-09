@@ -25,6 +25,9 @@
     "//#test:root": {},
     "//#test:int:root": {
       "cache": false
+    },
+    "//#test:isolation": {
+      "cache": false
     }
   }
 }

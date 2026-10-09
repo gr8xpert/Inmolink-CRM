@@ -15,12 +15,16 @@
       "@inmolink/source": "./src/migrate.ts",
       "types": "./dist/migrate.d.ts",
       "default": "./dist/migrate.js"
+    },
+    "./testing": {
+      "@inmolink/source": "./test/test-db.ts"
     }
   },
   "scripts": {
     "build": "tsdown",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --conditions=@inmolink/source src/cli/migrate.ts",
+    "db:rls": "tsx --conditions=@inmolink/source src/cli/rls.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "vitest run --exclude \"**/*.int.test.ts\"",

@@ -105,26 +105,24 @@ describe('role statement timeouts', () => {
     }
   });
 
-  it('[S0-04] app_public has no write privilege even in a read-write transaction; app_user gets DML on new tables', async () => {
-    const owner = new pg.Client({ connectionString: process.env.DATABASE_URL_APP_OWNER });
-    await owner.connect();
+  it('[S0-04] app_public has no write privilege even in a read-write transaction; [S0-05] no app role gets default grants on new tables', async () => {
+    // One uncommitted admin transaction: the probe table never becomes visible to the RLS guard
+    // (pnpm test:isolation may run in parallel). SET ROLE skips the role's read-only login default.
+    const admin = new pg.Client({ connectionString: process.env.DATABASE_URL_ADMIN });
+    await admin.connect();
     try {
-      await owner.query('drop table if exists s0_04_probe; create table s0_04_probe (x int)');
-      const pub = await getPgClient('app_public');
-      try {
-        await pub.query('begin read write');
-        await expect(pub.query('insert into s0_04_probe values (1)')).rejects.toMatchObject({ code: '42501' });
-      } finally {
-        await pub.query('rollback');
-        pub.release();
+      await admin.query('begin read write');
+      await admin.query('set local role app_owner');
+      await admin.query('create table s0_04_probe (x int)');
+      for (const role of ['app_public', 'app_user', 'app_system']) {
+        await admin.query('savepoint probe');
+        await admin.query(`set local role ${role}`);
+        await expect(admin.query('insert into s0_04_probe values (1)')).rejects.toMatchObject({ code: '42501' });
+        await admin.query('rollback to savepoint probe');
       }
-      const inserted = await withTenant({ agencyId: newId() }, (tx) =>
-        tx.execute(sql`insert into s0_04_probe values (1)`),
-      );
-      expect(inserted.rowCount).toBe(1);
     } finally {
-      await owner.query('drop table if exists s0_04_probe');
-      await owner.end();
+      await admin.query('rollback');
+      await admin.end();
     }
   });
 

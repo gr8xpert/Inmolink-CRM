@@ -14,12 +14,21 @@ importers:
       '@inmolink/config':
         specifier: workspace:*
         version: link:packages/config
+      '@inmolink/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@inmolink/platform':
+        specifier: workspace:*
+        version: link:packages/platform
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+      drizzle-orm:
+        specifier: 0.45.4
+        version: 0.45.4(@types/pg@8.23.1)(pg@8.23.1)
       husky:
         specifier: 9.1.7
         version: 9.1.7

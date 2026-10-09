@@ -1,4 +1,4 @@
 {
   "extends": "./packages/config/tsconfig/node.json",
-  "include": ["vitest.config.ts", "tests/workspace", "tests/infra", "scripts/ops"]
+  "include": ["vitest.config.ts", "tests/workspace", "tests/infra", "tests/isolation", "scripts/ops"]
 }

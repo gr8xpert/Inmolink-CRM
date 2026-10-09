@@ -21,8 +21,16 @@ describe('role bootstrap', () => {
   it('[S0-04] app_public is read-only and gets no default table grants', () => {
     const sql = stmts('app_public');
     expect(sql).toContain('default_transaction_read_only = on');
-    expect(sql).not.toContain('default privileges');
+    expect(sql).not.toMatch(/default privileges .* grant/);
     expect(sql).not.toContain('grant create');
+  });
+
+  it('[S0-05] no role gets default table or function grants: access fails closed until pnpm db:rls grants it', () => {
+    for (const role of ['app_user', 'app_system', 'app_public'] as const) {
+      expect(stmts(role)).not.toMatch(/grant [^\n]* on (tables|functions)/);
+      expect(stmts(role)).toContain('revoke all on tables');
+      expect(stmts(role)).toContain('revoke all on functions');
+    }
   });
 
   it('[S0-04] only app_owner can create objects; nobody gets TEMPORARY or a "$user" search_path', () => {

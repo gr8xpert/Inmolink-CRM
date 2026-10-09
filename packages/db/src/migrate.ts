@@ -6,6 +6,9 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { bootstrapRoles, credentialFromUrl } from './bootstrap';
+import { checkRls } from './tenancy/guard';
+import { registry, type TenantRegistry } from './tenancy/registry';
+import { applyRls, generateRlsSql } from './tenancy/rls';
 
 export const migrateEnv = { ...databaseEnv, ...databaseOwnerEnv, ...databaseAdminEnv };
 export type MigrateConfig = Config<typeof migrateEnv>;
@@ -16,7 +19,7 @@ export const MIGRATIONS_FOLDER = join(import.meta.dirname, '..', 'migrations');
 const MIGRATION_LOCK = 4_120_250_404;
 
 /** Waits at most 60 s for another migrator instead of hanging a deploy forever. */
-async function lock(client: pg.Client): Promise<void> {
+async function lock(client: pg.ClientBase): Promise<void> {
   await client.query(`set lock_timeout = '60s'`);
   try {
     await client.query('select pg_advisory_lock($1)', [MIGRATION_LOCK]);
@@ -71,5 +74,25 @@ export async function runMigrations(
     // Ending the session releases its advisory lock.
     await owner?.end();
     await admin?.end();
+  }
+}
+
+/**
+ * `pnpm db:rls`: applies the SQL generated from the registry as `app_owner` (under the migration
+ * lock), then runs the guard. Returns the guard's problems; empty means the database matches.
+ */
+export async function runRls(
+  cfg: Pick<MigrateConfig, 'DATABASE_URL_APP_OWNER'>,
+  log: Pick<Logger, 'info'>,
+  reg: TenantRegistry = registry,
+): Promise<string[]> {
+  const owner = await connect(cfg.DATABASE_URL_APP_OWNER);
+  try {
+    await lock(owner);
+    await applyRls(owner, generateRlsSql(reg));
+    log.info({ tables: Object.keys(reg.tenant).length + Object.keys(reg.global).length }, 'rls applied');
+    return await checkRls(owner, reg);
+  } finally {
+    await owner.end();
   }
 }

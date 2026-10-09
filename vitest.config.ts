@@ -23,6 +23,20 @@ export default defineConfig({
           testTimeout: 30_000,
         },
       },
+      {
+        // `pnpm test:isolation`: cross-tenant suite generated from the tenant registry + RLS guard.
+        // Files run one at a time: they create and drop shared fixture tables in schema public.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'isolation',
+          include: ['tests/isolation/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 30_000,
+          hookTimeout: 180_000,
+        },
+      },
     ],
   },
 });

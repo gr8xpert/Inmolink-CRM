@@ -106,10 +106,8 @@ export const propertyPrivates = pgTable('property_privates', {
 ```
 
 ```ts
-// packages/db/src/tenancy/registry.ts — single source of truth for RLS + isolation tests
-export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
-
-export const tenantTables: Record<string, { kind: PolicyKind; networkReadSql?: string }> = {
+// packages/db/src/tenancy/registry.ts — single source of truth for RLS, grants + isolation tests
+export const tenantTables: Record<string, TenantTable> = {
   property_privates: { kind: 'STRICT' },
   contacts: { kind: 'STRICT' },
   properties: {
@@ -117,8 +115,18 @@ export const tenantTables: Record<string, { kind: PolicyKind; networkReadSql?: s
     networkReadSql: `visibility in ('SHARED','PUBLIC') and status = 'ACTIVE' and deleted_at is null
       and app_agency_verified()
       and (share_scope = 'ALL' or app_is_preferred_by(agency_id))`,
+    base: { location_id: '…' },             // values the isolation suite cannot invent
+    samples: {                               // rows on each side of the predicate, for the generated suite
+      visible: [{ visibility: 'SHARED', status: 'ACTIVE' }],
+      hidden: [{ visibility: 'PRIVATE', status: 'ACTIVE' }, { visibility: 'SHARED', status: 'DRAFT' }],
+    },
   },
-  // ...every table with agency_id must appear here; CI fails otherwise
+  listing_read_models: { kind: 'PUBLIC_READ', publicReadSql: 'true', samples: { visible: [{}], hidden: [] } },
+  // ...every table with agency_id must appear here; the guard fails otherwise
+};
+// Tables without agency_id: read-only for app_user, written by app_system (withSystem), app_public only if publicRead.
+export const globalTables: Record<string, GlobalTable> = {
+  locations: { reason: 'shared reference data', publicRead: true },
 };
 ```
 
@@ -138,12 +146,19 @@ create or replace function app_is_preferred_by(owner uuid) returns boolean
 
 alter table properties enable row level security;
 alter table properties force row level security;
-create policy own_rows on properties
+create policy own_rows on properties to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-create policy network_read on properties for select
-  using (visibility in ('SHARED','PUBLIC') and status = 'ACTIVE' and deleted_at is null
-         and app_agency_verified() and (share_scope = 'ALL' or app_is_preferred_by(agency_id)));
+create policy network_read on properties for select to app_user
+  using (app_agency() is not null and (visibility in ('SHARED','PUBLIC') and status = 'ACTIVE' and deleted_at is null
+         and app_agency_verified() and (share_scope = 'ALL' or app_is_preferred_by(agency_id))));
+revoke all on table properties from app_user, app_system, app_public;
+grant select, insert, update, delete on table properties to app_user, app_system;
+-- PUBLIC_READ adds: create policy public_read … for select to app_public using (…); grant select … to app_public;
 ```
+
+NETWORK_READ and PUBLIC_READ share whole rows (RLS is row-level): such tables hold only shareable columns; private fields go in a STRICT side table (`property_privates`). Forced RLS binds `app_owner` too, so data backfills belong in a `withSystem()` job, not in a migration.
+
+Grants come only from `pnpm db:rls` — app roles have no default privileges, so an unregistered table is unreachable. The guard (`checkRls`, run by `db:rls` and `pnpm test:isolation`) fails on: a `public` table not in the registry, `agency_id` on a global table, RLS off or not forced, missing or extra policies, stale entries, `app_public` grants on non-public tables, and direct grants on partitions, altered policies (command/roles), any privilege beyond the generated set (TRUNCATE, column grants), accessible views/materialized views/foreign tables or objects outside `public`, and functions an app role can execute other than the generated helpers.
 
 ---
 
@@ -717,7 +732,8 @@ describe('properties.updateListing', () => {
 ```
 
 - `asAgency(agency, fn)` builds a real `ctx` via `withTenant` — the same path production uses.
-- Isolation tests are generated from the registry (`tests/isolation/generated.test.ts`) — do not hand-write them per table.
+- Isolation tests are generated from the registry (`tests/isolation/generated.int.test.ts`) — do not hand-write them per table. Register a table → it is covered.
+- Integration tests never commit tables, views or functions in `public`: `pnpm test:isolation` runs in parallel and its guard fails on anything unregistered. Probe DDL goes in one transaction that is rolled back (see `packages/db/src/tenancy/scope.int.test.ts`).
 - External HTTP via MSW fixtures in `tests/fixtures/<provider>/`.
 
 ---

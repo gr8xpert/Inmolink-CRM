@@ -4,7 +4,7 @@ import { loadConfig } from '@inmolink/platform/config';
 import pg from 'pg';
 import { configureDb, dbEnv } from '../src/client';
 import { loadStackEnv } from '../src/env-file';
-import { migrateEnv, runMigrations } from '../src/migrate';
+import { migrateEnv, runMigrations, runRls } from '../src/migrate';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const silent = { info: () => {} };
@@ -23,7 +23,9 @@ async function reachable(url: string): Promise<boolean> {
 
 /**
  * Integration setup: the docker `test` stack (started only if Postgres is unreachable, so parallel
- * packages do not race on `compose up`), roles + migrations, and pools configured from `.env.test`.
+ * packages do not race on `compose up`), roles + migrations + RLS/grants (production registry), and
+ * pools configured from `.env.test`. Guard problems are left to `pnpm test:isolation`: it plants
+ * fixture tables that this registry does not know.
  */
 export async function setupTestDb(appRole: 'http' | 'worker' | 'script' = 'http') {
   loadStackEnv('test');
@@ -36,6 +38,7 @@ export async function setupTestDb(appRole: 'http' | 'worker' | 'script' = 'http'
     });
   }
   await runMigrations(cfg, silent);
+  await runRls(cfg, silent);
   const db = loadConfig(dbEnv);
   await configureDb({ ...db, APP_ROLE: appRole });
   return cfg;
