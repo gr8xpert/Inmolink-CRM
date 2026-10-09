@@ -1,0 +1,30 @@
+{
+  "name": "@inmolink/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zod DTOs and error codes shared by apps, SDK and OpenAPI.",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@inmolink/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run --exclude \"**/*.int.test.ts\"",
+    "test:int": "vitest run --passWithNoTests int.test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@inmolink/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "tsdown": "0.23.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

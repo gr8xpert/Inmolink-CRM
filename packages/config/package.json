@@ -1,0 +1,28 @@
+{
+  "name": "@inmolink/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared TypeScript, Biome and Vitest presets.",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/node.json": "./tsconfig/node.json",
+    "./tsconfig/react.json": "./tsconfig/react.json",
+    "./tsconfig/nextjs.json": "./tsconfig/nextjs.json",
+    "./biome": "./biome.preset.json",
+    "./vitest": {
+      "types": "./vitest.preset.d.ts",
+      "default": "./vitest.preset.js"
+    }
+  },
+  "scripts": {
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "vitest": "5.0.3"
+  },
+  "peerDependencies": {
+    "vitest": "5.0.3"
+  }
+}

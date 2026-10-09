@@ -1,0 +1,32 @@
+{
+  "name": "@inmolink/app-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Next.js dashboard (agency, agent, developer, staff console).",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run --exclude \"**/*.int.test.ts\"",
+    "test:int": "vitest run --passWithNoTests int.test"
+  },
+  "dependencies": {
+    "@inmolink/i18n": "workspace:*",
+    "@inmolink/ui": "workspace:*",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@inmolink/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

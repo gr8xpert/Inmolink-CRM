@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S0-01 · Monorepo scaffold and tooling
+- **Task:** S0-02 · Local stack
 - **Started:** —
-- **Notes:** First session. Read `CLAUDE.md`, then the task in `docs/build/BACKLOG-R1.md`.
+- **Notes:** S0-01 done. Docker 29.7 is available locally. `.env.example` already lists provisional ports (PgBouncer 6432, redis-queue 6379, redis-cache 6380, Meilisearch 7700); align it with docker-compose.
 
 ## Current sprint
 - **Sprint:** S0 — Foundation
 - **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 0 / 16 tasks done
+- **Progress:** 1 / 16 tasks done
 
 ## Blocked
 - none
@@ -19,7 +19,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 <!-- One line per task: ID · STATE · date · summary (· perf numbers for ⚡ tasks) -->
 | Task | State | Date | Summary |
 |---|---|---|---|
-| S0-01 | TODO | | |
+| S0-01 | DONE | 2026-10-10 | pnpm + Turbo workspace with 6 Node/Next apps + 8 packages building; TS/Biome/Vitest presets in `@inmolink/config`; husky + lint-staged; `pnpm verify` uses `--affected`; later-task scripts stubbed (fail loudly); versions in ADR 0001 |
 | S0-02 | TODO | | |
 | S0-03 | TODO | | |
 | S0-04 | TODO | | |
@@ -47,6 +47,10 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-10-10 · **Email and storage adapters** have no S0 task. Build `platform/email` (Resend/SES drivers, Mailpit locally) inside S0-09, and `platform/storage` (R2/MinIO, private buckets, signed URLs) inside S1-03, both following the platform adapter pattern. (Shahzaib approved)
 - 2026-10-10 · **Forward dependencies:** S3-10 depends on S4-02, and S5-06 depends on S11-04. S3 and S5 can close with those two tasks marked `BLOCKED S4-02` / `BLOCKED S11-04`; each task finishes when its dependency is DONE.
 - 2026-10-10 · Repo path is `E:\Repos\InmolinkCRM` (docs said `E:\Repos\Inmolink`; PLAN §22 and BUILD-GUIDE fixed). Remote: `https://github.com/gr8xpert/Inmolink-CRM.git`.
+- 2026-10-10 · **TypeScript 6.0.3, not 7.0** (S0-01). TS 7 has no JS compiler API yet, and Next API-mode type checking, dependency-cruiser, SDK codegen and tsdown d.ts depend on it. Revisit at each sprint review (ADR 0001).
+- 2026-10-10 · **pnpm 10.33.2 pinned, pnpm 12 deferred** (S0-01). pnpm 10's auto-switch to `pnpm@12.10.1` fails on this machine because the user path contains a space (`Shah PC`). Upgrade after installing pnpm 12 globally (ADR 0001).
+- 2026-10-10 · **Package exports use a `@inmolink/source` condition** (S0-01). Typecheck, Vitest and tsx resolve TypeScript source; builds and Next resolve tsdown `dist/`. App packages are named `@inmolink/app-<name>`. `apps/wp-plugin` stays outside the pnpm workspace (PHP tooling).
+- 2026-10-10 · **Stubbed root scripts exit 1** with the owning task ID, so nothing silently pretends to work. `verify` gains `check:boundaries` (S0-12) and `test:isolation` (S0-05) when those tasks land.
 - 2026-10-10 · graphify knowledge-graph hooks live in `.claude/settings.local.json` (machine-specific, not committed); `graphify-out/` is git-ignored.
 
 ## Human actions

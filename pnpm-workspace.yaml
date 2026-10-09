@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+  # PHP plugin — built and tested with its own tooling (Composer, PHPUnit, PHPCS).
+  - "!apps/wp-plugin"
+
+# Dependencies allowed to run install scripts (pnpm blocks all others).
+allowBuilds:
+  esbuild: true

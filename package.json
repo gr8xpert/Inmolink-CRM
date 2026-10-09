@@ -1,0 +1,52 @@
+{
+  "name": "inmolink",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck typecheck:root",
+    "typecheck:root": "tsc --noEmit",
+    "lint": "turbo run lint lint:root",
+    "lint:root": "biome check --files-ignore-unknown=true package.json turbo.json biome.json tsconfig.json vitest.config.ts scripts tests/workspace",
+    "format": "biome check --write .",
+    "test": "turbo run test test:root",
+    "test:root": "vitest run --project workspace",
+    "test:int": "turbo run test:int",
+    "verify": "turbo run typecheck typecheck:root lint lint:root test test:root test:int --affected",
+    "verify:all": "turbo run typecheck typecheck:root lint lint:root test test:root test:int",
+    "db:generate": "node scripts/stub.mjs db:generate S0-04",
+    "db:migrate": "node scripts/stub.mjs db:migrate S0-04",
+    "db:rls": "node scripts/stub.mjs db:rls S0-05",
+    "db:seed": "node scripts/stub.mjs db:seed S0-13",
+    "db:seed:scale": "node scripts/stub.mjs db:seed:scale S0-13",
+    "gen:module": "node scripts/stub.mjs gen:module S0-12",
+    "check:boundaries": "node scripts/stub.mjs check:boundaries S0-12",
+    "test:isolation": "node scripts/stub.mjs test:isolation S0-05",
+    "test:e2e": "node scripts/stub.mjs test:e2e",
+    "perf:smoke": "node scripts/stub.mjs perf:smoke",
+    "i18n:draft": "node scripts/stub.mjs i18n:draft S0-11",
+    "ai:eval": "node scripts/stub.mjs ai:eval S12-01",
+    "sdk:generate": "node scripts/stub.mjs sdk:generate"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@inmolink/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "tsdown": "0.23.0",
+    "tsx": "4.23.15",
+    "turbo": "2.11.7",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

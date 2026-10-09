@@ -35,9 +35,7 @@
           {
             "type": "command",
             "command": "node",
-            "args": [
-              "${CLAUDE_PROJECT_DIR}/.claude/hooks/format.mjs"
-            ]
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/format.mjs"]
           }
         ]
       }
@@ -49,9 +47,7 @@
           {
             "type": "command",
             "command": "node",
-            "args": [
-              "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-context.mjs"
-            ]
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/session-context.mjs"]
           }
         ]
       }

@@ -1,0 +1,28 @@
+{
+  "name": "@inmolink/app-realtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Socket.io server for chat and notifications.",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsx watch --conditions=@inmolink/source src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run --exclude \"**/*.int.test.ts\"",
+    "test:int": "vitest run --passWithNoTests int.test"
+  },
+  "dependencies": {
+    "@inmolink/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@inmolink/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "tsdown": "0.23.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3",
+    "tsx": "4.23.15"
+  }
+}
