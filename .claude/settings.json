@@ -2,8 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(pnpm *)",
-      "Bash(npx *)",
-      "Bash(node *)",
       "Bash(docker compose *)",
       "Bash(git status*)",
       "Bash(git diff*)",
@@ -12,7 +10,9 @@
       "Bash(git commit *)",
       "Bash(git tag *)",
       "Bash(git checkout -b *)",
-      "Bash(psql *)"
+      "Bash(psql *)",
+      "Bash(node scripts/*)",
+      "Bash(node .claude/hooks/*)"
     ],
     "deny": [
       "Read(./.env)",
@@ -20,7 +20,11 @@
       "Read(./.env.production)",
       "Read(./secrets/**)",
       "Bash(git push --force*)",
-      "Bash(git reset --hard*)"
+      "Bash(git reset --hard*)",
+      "Bash(pnpm dlx *)",
+      "Bash(node -e*)",
+      "Bash(node --eval*)",
+      "Bash(node -p*)"
     ]
   },
   "hooks": {

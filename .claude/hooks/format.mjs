@@ -2,7 +2,7 @@
 // Cross-platform (Windows/macOS/Linux). Never fails the tool call.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const FORMATTABLE = /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|css)$/i;
 
@@ -18,13 +18,18 @@ try {
   const input = JSON.parse(readStdin() || '{}');
   const file = input?.tool_input?.file_path;
   const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const biome = join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'biome.cmd' : 'biome');
+  // Run Biome's JS entry with this Node binary: no shell, so a file name can never be
+  // interpreted as a command (cmd.exe metacharacters such as & | ^ on Windows).
+  const biome = join(root, 'node_modules', '@biomejs', 'biome', 'bin', 'biome');
+  const target = file ? resolve(root, file) : '';
+  const rel = target ? relative(root, target) : '';
+  const insideRepo = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 
-  if (file && FORMATTABLE.test(file) && existsSync(file) && existsSync(biome)) {
-    spawnSync(biome, ['check', '--write', '--no-errors-on-unmatched', file], {
+  if (insideRepo && FORMATTABLE.test(target) && existsSync(target) && existsSync(biome)) {
+    spawnSync(process.execPath, [biome, 'check', '--write', '--no-errors-on-unmatched', '--', target], {
       cwd: root,
       stdio: 'ignore',
-      shell: process.platform === 'win32',
+      shell: false,
       timeout: 20000,
     });
   }
