@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Config, databaseAdminEnv, databaseEnv, databaseOwnerEnv } from '@inmolink/platform/config';
@@ -8,7 +9,7 @@ import pg from 'pg';
 import { bootstrapRoles, credentialFromUrl } from './bootstrap';
 import { checkRls } from './tenancy/guard';
 import { registry, type TenantRegistry } from './tenancy/registry';
-import { applyRls, generateRlsSql } from './tenancy/rls';
+import { applyRls, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
 
 export const migrateEnv = { ...databaseEnv, ...databaseOwnerEnv, ...databaseAdminEnv };
 export type MigrateConfig = Config<typeof migrateEnv>;
@@ -80,18 +81,50 @@ export async function runMigrations(
 }
 
 /**
+ * Guard problems that applying `reg` would fix: those about its own tables and the helper functions.
+ * Problems about relations or functions outside the registry (e.g. isolation fixtures) need other work.
+ */
+export function fixableProblems(problems: string[], reg: TenantRegistry): string[] {
+  const subjects = new Set<string>([
+    ...Object.keys(reg.tenant),
+    ...Object.keys(reg.global),
+    ...HELPER_FUNCTIONS.map((f) => `${f}()`),
+  ]);
+  return problems.filter((p) => p.includes(':') && subjects.has(p.slice(0, p.indexOf(':'))));
+}
+
+/** Stamp of the last applied RLS SQL, kept as the comment of a generated helper function. */
+const STAMP_SQL = `select obj_description(to_regprocedure('public.app_agency()'), 'pg_proc') as stamp`;
+export const rlsStamp = (sql: string) => `rls sha256:${createHash('sha256').update(sql).digest('hex')}`;
+
+/**
  * `pnpm db:rls`: applies the SQL generated from the registry as `app_owner` (under the migration
  * lock), then runs the guard. Returns the guard's problems; empty means the database matches.
+ * `ifStale` (test setup) skips the apply when the SQL generated now is the SQL last applied (the
+ * stamp also covers policy predicates and helper bodies, which the guard does not compare) and the
+ * guard finds nothing it would fix: the DDL takes ACCESS EXCLUSIVE locks, and parallel suites
+ * re-applying it under each other's queries deadlocked.
  */
 export async function runRls(
   cfg: Pick<MigrateConfig, 'DATABASE_URL_APP_OWNER'>,
   log: Pick<Logger, 'info'>,
   reg: TenantRegistry = registry,
+  opts: { ifStale?: boolean } = {},
 ): Promise<string[]> {
   const owner = await connect(cfg.DATABASE_URL_APP_OWNER);
   try {
     await lock(owner);
-    await applyRls(owner, generateRlsSql(reg));
+    const sql = generateRlsSql(reg);
+    if (opts.ifStale) {
+      const { rows } = await owner.query<{ stamp: string | null }>(STAMP_SQL);
+      const problems = rows[0]?.stamp === rlsStamp(sql) ? await checkRls(owner, reg) : undefined;
+      if (problems && fixableProblems(problems, reg).length === 0) {
+        log.info('rls current: skipped apply');
+        return problems;
+      }
+    }
+    await applyRls(owner, sql);
+    await owner.query(`comment on function public.app_agency() is '${rlsStamp(sql)}'`);
     log.info({ tables: Object.keys(reg.tenant).length + Object.keys(reg.global).length }, 'rls applied');
     return await checkRls(owner, reg);
   } finally {

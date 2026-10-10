@@ -89,7 +89,8 @@ describe('outbox dispatcher throughput', () => {
     console.info(
       `[S0-06] outbox dispatch: windows ${windows.map((r) => Math.round(r)).join(' / ')} events/s, overall ${Math.round(overall)} events/s`,
     );
-    expect(best).toBeGreaterThanOrEqual(2_000);
+    // CI runners (Linux, nothing else on the box) are held to the overall rate (STATUS › Decisions, S0-06).
+    expect(process.env.CI === 'true' ? overall : best).toBeGreaterThanOrEqual(2_000);
     expect(await queued()).toBe(TOTAL);
 
     // 2) Zero loss: a 20,000-event backlog (several seconds of work) dispatched while redis-queue restarts.

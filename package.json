@@ -2,7 +2,7 @@
   "name": "inmolink",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@10.33.2+sha512.a90faf6feeab71ad6c6e57f94e0fe1a12f5dcc22cd754db40ae9593eb6a3e0b6b12e3540218bb37ae083404b1f2ce6db2a4121e979829b4aff94b99f49da1cf8",
   "engines": {
     "node": ">=22 <25"
   },
@@ -13,12 +13,12 @@
     "typecheck": "turbo run typecheck typecheck:root",
     "typecheck:root": "tsc --noEmit",
     "lint": "turbo run lint lint:root",
-    "lint:root": "biome check --files-ignore-unknown=true package.json turbo.json biome.json tsconfig.json vitest.config.ts scripts tests/workspace tests/infra tests/isolation tests/queue tests/adapters tests/apps tests/perf tests/e2e tests/boundaries tests/seed playwright.config.ts",
+    "lint:root": "biome check --files-ignore-unknown=true package.json turbo.json biome.json tsconfig.json vitest.config.ts scripts tests/workspace tests/infra tests/isolation tests/queue tests/adapters tests/apps tests/perf tests/e2e tests/boundaries tests/seed tests/ci playwright.config.ts",
     "format": "biome check --write .",
     "test": "turbo run test test:root",
     "test:root": "vitest run --project workspace",
     "test:int": "turbo run test:int test:int:root",
-    "test:int:root": "vitest run --project infra --project queue && vitest run --project adapters && vitest run --project apps && vitest run --project seed",
+    "test:int:root": "vitest run --project infra --project queue && vitest run --project adapters && vitest run --project apps && vitest run --project seed && vitest run --project ci",
     "test:perf:root": "vitest run --project perf",
     "verify": "turbo run typecheck typecheck:root lint lint:root check:boundaries test:boundaries test test:root test:int test:int:root test:isolation test:perf:root --affected",
     "verify:all": "turbo run typecheck typecheck:root lint lint:root check:boundaries test:boundaries test test:root test:int test:int:root test:isolation test:perf:root",
@@ -33,6 +33,7 @@
     "db:migrate:test": "pnpm --filter @inmolink/db db:migrate --test",
     "db:rls": "pnpm --filter @inmolink/db db:rls",
     "db:rls:test": "pnpm --filter @inmolink/db db:rls --test",
+    "ci:migrations": "tsx --conditions=@inmolink/source scripts/ci/migration-check.ts",
     "db:seed": "tsx --conditions=@inmolink/source scripts/seed/cli.ts dev",
     "db:seed:scale": "tsx --conditions=@inmolink/source scripts/seed/cli.ts scale",
     "gen:module": "tsx scripts/gen/module.ts",
@@ -82,6 +83,7 @@
     "turbo": "2.11.7",
     "typescript": "6.0.3",
     "vitest": "5.0.3",
+    "yaml": "2.9.1",
     "zod": "4.6.5"
   }
 }

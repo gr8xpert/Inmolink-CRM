@@ -40,7 +40,7 @@ export async function setupTestDb(appRole: 'http' | 'worker' | 'script' = 'http'
     });
   }
   await runMigrations(cfg, silent);
-  await runRls(cfg, silent);
+  await runRls(cfg, silent, undefined, { ifStale: true });
   const db = loadConfig(dbEnv);
   await configureDb({ ...db, APP_ROLE: appRole });
   return cfg;

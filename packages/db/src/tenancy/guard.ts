@@ -79,11 +79,18 @@ function checkPrivileges(name: string, grants: string[], def: TenantTable | Glob
 }
 
 export async function checkRls(client: pg.ClientBase, registry: TenantRegistry): Promise<string[]> {
-  const [relations, policies, functions] = await Promise.all([
-    client.query<RelationRow>(RELATIONS_SQL),
-    client.query<{ table: string; name: string; cmd: string; permissive: string; roles: string[] }>(POLICIES_SQL),
-    client.query<{ schema: string; name: string; definer: boolean; executable: boolean }>(FUNCTIONS_SQL),
-  ]);
+  // One after another: a pg client runs one query at a time (queuing them is deprecated in pg 9).
+  const relations = await client.query<RelationRow>(RELATIONS_SQL);
+  const policies = await client.query<{
+    table: string;
+    name: string;
+    cmd: string;
+    permissive: string;
+    roles: string[];
+  }>(POLICIES_SQL);
+  const functions = await client.query<{ schema: string; name: string; definer: boolean; executable: boolean }>(
+    FUNCTIONS_SQL,
+  );
   const policiesOf = new Map<string, (typeof policies.rows)[number][]>();
   for (const p of policies.rows) policiesOf.set(p.table, [...(policiesOf.get(p.table) ?? []), p]);
 

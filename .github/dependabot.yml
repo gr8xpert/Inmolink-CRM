@@ -1,0 +1,12 @@
+# Keeps the SHA-pinned GitHub Actions current (S0-14). npm dependencies are pinned and updated by hand
+# (CHANGELOG notes every new dependency).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ["*"] }
+  - package-ecosystem: docker
+    directory: /infra/docker/app
+    schedule: { interval: weekly }

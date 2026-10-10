@@ -42,6 +42,8 @@ export default defineConfig({
         resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
         test: {
           name: 'queue',
+          // Threads, not forks: fork workers aborted with 0xC0000409 on Windows under parallel load.
+          pool: 'threads',
           include: ['tests/queue/**/*.int.test.ts'],
           environment: 'node',
           fileParallelism: false,
@@ -92,6 +94,19 @@ export default defineConfig({
         },
       },
       {
+        // CI migration check (S0-14): throwaway databases on the test stack's Postgres.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'ci',
+          include: ['tests/ci/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 120_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
         // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
@@ -112,6 +127,8 @@ export default defineConfig({
         resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
         test: {
           name: 'isolation',
+          // Threads, not forks: fork workers aborted with 0xC0000409 on Windows under parallel load.
+          pool: 'threads',
           include: ['tests/isolation/**/*.int.test.ts'],
           environment: 'node',
           fileParallelism: false,

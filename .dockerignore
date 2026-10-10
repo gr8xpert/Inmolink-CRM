@@ -1,0 +1,29 @@
+# Build context for infra/docker/app/Dockerfile: sources only — no installs, build output, env, keys,
+# data or tooling. Patterns without a slash only match at the root, so nested ones use **/.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+.claude
+CLAUDE.local.md
+docs
+graphify-out
+test-results
+playwright-report
+apps/wp-plugin
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.test.example
+**/secrets
+**/*.pem
+**/*.key
+**/*.sql.gz
+**/*.dump
+**/*.bak
+**/dumps
+**/*.log

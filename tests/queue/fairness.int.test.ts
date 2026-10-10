@@ -8,6 +8,7 @@ const run = runId();
 const POOL = 'test-fair';
 const CAP_POOL = 'test-fair-cap';
 const JOB_MS = 200;
+const PICKUP_MS = 50;
 const handles: PoolHandle[] = [];
 
 const startedAt = new Map<string, number>();
@@ -71,7 +72,10 @@ describe('queue fair share', () => {
     await waitFor(() => [...enqueuedAt.keys()].every((k) => startedAt.has(k)), 10_000, 5);
 
     const waits = [...enqueuedAt].map(([k, t]) => (startedAt.get(k) as number) - t);
-    expect(Math.max(...waits)).toBeLessThanOrEqual(longestJob);
+    // A freed slot still needs one fetch round trip (fairness Lua + moveToActive) before the next job
+    // starts; under parallel CI load that alone overran an exact bound by 1 ms. Waiting behind the flood
+    // would cost whole job durations, which `started < 200` below also rules out.
+    expect(Math.max(...waits)).toBeLessThanOrEqual(longestJob + PICKUP_MS);
     expect(started).toBeLessThan(200); // the other groups did not wait for the flood to drain
   });
 

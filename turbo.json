@@ -51,6 +51,7 @@
       "cache": false
     },
     "//#test:isolation": {
+      "dependsOn": ["^test:int"],
       "cache": false
     }
   }
