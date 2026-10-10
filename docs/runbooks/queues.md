@@ -1,0 +1,51 @@
+# Queues, dead letters and outbox replay
+
+PLAN §5.3 #5–#7, §17. Background work flows **outbox (Postgres) → dispatcher (worker pool `outbox`) → BullMQ jobs (redis-queue) → workers**. Postgres is the source of truth. A job lost in Redis can be rebuilt from the outbox.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Pending and processed events | `outbox_events` (Postgres; dead-lettered events have `dead_at` set) |
+| Queues | redis-queue, key prefix `inl`, one BullMQ queue per pool (`imports`, `media`, `email`, …) |
+| Dead letters | queue `<pool>.dead`, one entry per final failure: `{ jobId, payload, error, attemptsMade, failedAt }`. Kept 30 days, nothing consumes it |
+| Metrics | queue depth and age per pool (worker `/metrics`, BullMQ OTel metrics); alerts on queue age (PLAN §5.6) |
+
+## Jobs pile up (queue age alert)
+
+1. Find which pool and which tenant. Check the worker logs for `job dead-lettered` and slow job spans in the trace backend (Jaeger locally). Fair share caps each tenant, so one big import cannot block the pool (PLAN §3 #39).
+2. Check that the worker for that pool is running: `/healthz` and `/readyz` on the worker health port, and that `WORKER_POOLS` includes the pool.
+3. If the pool is healthy but saturated, add a worker process or node for that pool (scale trigger in PLAN §5.6). Do not raise per-tenant caps.
+
+## A job dead-lettered
+
+A job lands in `<pool>.dead` after its last retry, or straight away for a permanent failure (invalid payload, or the handler throws `UnrecoverableError` from `@inmolink/platform/queue`).
+
+1. Inspect it: for example `redis-cli -u $REDIS_QUEUE_URL --scan --pattern 'inl:<pool>.dead:*'`. Better, open the queue in a BullMQ UI pointed at redis-queue (read-only), and read `error` and `payload`.
+2. Fix the cause (code, data or the external service), and deploy if needed.
+3. Re-run it. Jobs are idempotent (CLAUDE.md worker budget), so re-running is safe:
+   - **When an outbox event produced the job (most cases):** replay the event, `pnpm ops:replay-outbox --id <event id>`, or by type and time window `--type <t> --since <iso> --until <iso>`. Add `--dry-run` first to see the count.
+   - **When the job was enqueued directly** (no outbox event): re-enqueue it from a script through the job's `defineJob(...).enqueue(payload)`, so it goes through the same schema and fair-share path. Never push raw entries into BullMQ keys.
+4. Remove the handled entries from `<pool>.dead`, or leave them to expire after 30 days.
+
+## Outbox events dead-lettered
+
+The dispatcher marks an event dead after its retries (consumer failing). After the fix:
+
+```sh
+pnpm ops:replay-outbox --dead --dry-run   # how many
+pnpm ops:replay-outbox --dead             # re-queue them
+```
+
+Filter with `--type`, `--agency <uuid>` or `--since/--until` to replay one slice.
+
+## redis-queue lost data (crash without AOF, or restored from scratch)
+
+1. Bring redis-queue back (Ansible role `redis_queue`; AOF on, `noeviction`).
+2. Replay the outbox for the gap: `pnpm ops:replay-outbox --since <last good time> --until <now>`. Consumers are idempotent, so overlap is harmless.
+3. Directly enqueued jobs in that window are not in the outbox. Their owning modules re-create them from their own state on the next scheduled run (nightly or drift jobs). Check the module runbook if one exists.
+
+## Never
+
+- Never `FLUSHALL` redis-queue. It holds jobs, fair-share state and dead letters.
+- Never edit `outbox_events` rows by hand. Use `ops:replay-outbox`.

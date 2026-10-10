@@ -70,23 +70,31 @@ Local stack images (`docker-compose.yml`, exact tags):
 | bullmq-otel | 2.0.1 |
 | @sentry/node | 11.6.0 (errors only; tracing stays with OpenTelemetry) |
 
+### Added in S0-04 to S0-15 (snapshot 2026-10-11, S0-16)
+
+| Library | Version | Task |
+|---|---|---|
+| Drizzle ORM / drizzle-kit | 0.45.4 / 0.31.11 (ADR 0009) | S0-04 |
+| BullMQ | 6.3.12 | S0-06 |
+| Fastify / @fastify/swagger / @fastify/swagger-ui / @fastify/type-provider-zod | 5.12.5 / 9.9.2 / 6.1.2 / 1.0.0 | S0-08 |
+| Socket.io / @socket.io/redis-adapter | 4.8.4 / 8.3.0 | S0-08 |
+| Tailwind CSS | 4.3.3 | S0-08 |
+| Auth.js (next-auth) / jose / nodemailer | 5.0.0-beta.32 / 6.2.12 / 10.1.0 (ADR 0004) | S0-09 |
+| next-intl | 4.14.9 | S0-11 |
+| dependency-cruiser | 18.5.0 (ADR 0010) | S0-12 |
+| pg-copy-streams | 7.0.0 | S0-13 |
+| Playwright | 1.64.0 | S0-09 |
+| yaml | 2.9.1 | S0-14 |
+| WAL-G, Kamal, ansible-core, Prometheus stack | see CHANGELOG S0-15 (ADR 0007) | S0-15 |
+
 ### Current stable versions on 2026-10-10 for later tasks
 
 Pin these exactly when the task that adds them lands. If a newer stable exists by then, update this table in the same PR.
 
 | Library | Version | Lands in |
 |---|---|---|
-| Fastify / @fastify/swagger | 5.12.5 / 9.9.2 | S0-08 |
-| Zod | 4.6.5 | S0-03 |
-| Drizzle ORM / drizzle-kit | 0.45.4 / 0.31.11 | S0-04 |
-| BullMQ | 6.3.12 | S0-06 |
-| pino | 10.4.0 | S0-03 |
-| Socket.io | 4.8.4 | S0-08 |
-| Auth.js (next-auth) | 5.0.0-beta.32 | S0-09 |
-| next-intl | 4.14.9 | S0-11 |
-| dependency-cruiser | 18.5.0 | S0-12 |
-| TanStack Query | 5.104.1 | S0-08 |
-| Playwright / MSW | 1.64.0 / 3.0.2 | S0-14 |
+| TanStack Query | 5.104.1 | first dashboard data page (S1-10) |
+| MSW | 3.0.2 | first external HTTP adapter test |
 | Meilisearch JS | 0.62.0 | search adapter |
 | sharp / Puppeteer / Stripe | 0.35.5 / 25.13.0 / 23.0.0 | media / pdf / billing |
 | MapLibre GL | 6.13.0 | maps |
