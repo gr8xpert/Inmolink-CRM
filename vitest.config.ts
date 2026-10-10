@@ -53,6 +53,20 @@ export default defineConfig({
         },
       },
       {
+        // Each Node app's real main.ts against the test stack: config, boot, /readyz, SIGTERM (S0-08).
+        test: {
+          name: 'apps',
+          include: ['tests/apps/**/*.int.test.ts'],
+          environment: 'node',
+          // Threads, not forks: a fork worker that spawns and kills children hit the Windows 0xC0000409 abort.
+          pool: 'threads',
+          fileParallelism: false,
+          globalSetup: ['tests/infra/global-setup.ts'],
+          testTimeout: 120_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
         // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },

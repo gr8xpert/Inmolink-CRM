@@ -5,7 +5,7 @@
  *   producers      — `await jobs.x.enqueue(payload, { debounceMs })` (never inside a DB transaction)
  *   apps/worker    — `registerPool('indexing', [searchJobs.reindexListing])`
  */
-export { closeQueues, configureQueue, type QueueConfig, queueFor } from './connection';
+export { closeQueues, configureQueue, producerConnection, type QueueConfig, queueFor } from './connection';
 export { type BacklogEntry, Fairness, MAX_PRIORITY } from './fairness';
 export {
   defineJob,

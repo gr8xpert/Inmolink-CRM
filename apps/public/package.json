@@ -6,8 +6,8 @@
   "description": "Next.js public portal, selections, client portal and embeds.",
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
-    "start": "next start",
+    "dev": "next dev --port 3101",
+    "start": "next start --port 3101",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "biome check .",
     "test": "vitest run --exclude \"**/*.int.test.ts\"",
@@ -23,9 +23,11 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
+    "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
   }

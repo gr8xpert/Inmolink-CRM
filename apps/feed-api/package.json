@@ -15,15 +15,18 @@
   },
   "dependencies": {
     "@inmolink/contracts": "workspace:*",
-    "@inmolink/core": "workspace:*"
+    "@inmolink/core": "workspace:*",
+    "@inmolink/platform": "workspace:*",
+    "fastify": "5.12.5",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
     "tsdown": "0.23.0",
+    "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "vitest": "5.0.3",
-    "tsx": "4.23.15"
+    "vitest": "5.0.3"
   }
 }

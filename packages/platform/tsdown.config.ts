@@ -16,6 +16,7 @@ export default defineConfig({
     'outbox/index': 'src/outbox/index.ts',
     'queue/index': 'src/queue/index.ts',
     'rate-limit/index': 'src/rate-limit/index.ts',
+    'server/index': 'src/server/index.ts',
   },
   format: 'esm',
   fixedExtension: false,

@@ -21,8 +21,8 @@ describe('withTenant', () => {
     const serverPort = await withTenant({ agencyId: newId() }, async (tx) =>
       first(await tx.execute(sql`select inet_server_port() as p`)),
     );
-    expect(String(serverPort.p)).not.toBe(port(cfg.DATABASE_URL_APP_USER));
-    expect(port(cfg.DATABASE_URL_APP_USER)).toBe(port(process.env.DATABASE_URL_ADMIN_POOLED ?? 'postgres://x:1'));
+    expect(String(serverPort.p)).not.toBe(port(cfg.DATABASE_URL_APP_USER ?? ''));
+    expect(port(cfg.DATABASE_URL_APP_USER ?? '')).toBe(port(process.env.DATABASE_URL_ADMIN_POOLED ?? 'postgres://x:1'));
 
     let sameServerConnection = false;
     for (let attempt = 0; attempt < 5 && !sameServerConnection; attempt++) {

@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@inmolink/ui/theme.css";
+
+/* Workspace UI components live outside this app; Tailwind must scan them for class names. */
+@source "../../../../packages/ui/src";

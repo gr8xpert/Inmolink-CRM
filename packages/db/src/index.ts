@@ -1,5 +1,16 @@
 /** @inmolink/db — Drizzle client, role pools, tenant scoping and migrations (PATTERNS §3). */
-export { closeDb, configureDb, type Db, type DbConfig, dbEnv, getPgClient, type PoolOptions, type Tx } from './client';
+export {
+  closeDb,
+  configureDb,
+  type Db,
+  type DbConfig,
+  dbEnv,
+  getPgClient,
+  type PoolOptions,
+  pingDb,
+  type Tx,
+} from './client';
+export { loadStackEnv } from './env-file';
 export { type Listener, type ListenOptions, listen } from './listen';
 export { DB_ROLES, type DbRoleName, type RuntimeRole } from './roles';
 export { checkRls } from './tenancy/guard';

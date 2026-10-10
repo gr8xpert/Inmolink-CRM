@@ -72,6 +72,20 @@ export function cacheConnection(): Redis {
 
 export const cacheLogger = (): Logger => current().logger;
 
+export type { Redis };
+
+/**
+ * A dedicated publish/subscribe pair on redis-cache for the Socket.io Redis adapter (realtime).
+ * Pub/sub writes no keys, so allkeys-lru eviction cannot touch it. The caller quits both on shutdown.
+ */
+export function pubSubConnections(): { pub: Redis; sub: Redis } {
+  const s = current();
+  const pub = new Redis(s.url, { protocol: 2, connectionName: 'inmolink-pubsub' });
+  const sub = pub.duplicate();
+  for (const conn of [pub, sub]) conn.on('error', (err) => s.logger.warn({ err }, 'redis-cache pub/sub error'));
+  return { pub, sub };
+}
+
 function instance(): Cache {
   const s = current();
   s.cache ??= new Cache({ redis: cacheConnection(), prefix: s.prefix, logger: s.logger });

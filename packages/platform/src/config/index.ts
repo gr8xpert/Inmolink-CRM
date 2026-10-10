@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { createKeyring, parseKeyList } from '../crypto/aead';
 
@@ -50,8 +51,78 @@ export const redisEnv = {
   REDIS_CACHE_URL: url(['redis', 'rediss']),
 };
 
+/** A listen port with a per-app default; each app names its own variable (`API_PORT`, `FEED_API_PORT`, …). */
+export const portVar = (fallback: number) => z.coerce.number().int().min(0).max(65_535).default(fallback);
+
+const PROXY_KEYWORDS = new Set(['loopback', 'linklocal', 'uniquelocal']);
+/** Narrowest ranges that still describe "our proxies"; wider ones are as good as trusting everyone. */
+const MIN_PREFIX = { 4: 8, 6: 16 } as const;
+const MAX_PROXY_HOPS = 3;
+
+/** A proxy-addr entry that names specific proxies: a keyword, an IP, or a CIDR no wider than /8 (v4) or /16 (v6). */
+function isProxyItem(item: string): boolean {
+  if (PROXY_KEYWORDS.has(item)) return true;
+  const [address = '', prefix, ...rest] = item.split('/');
+  const family = isIP(address);
+  if (family === 0 || rest.length > 0) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  const bits = Number(prefix);
+  return bits >= MIN_PREFIX[family as 4 | 6] && bits <= (family === 4 ? 32 : 128);
+}
+
+/** HTTP apps (api, feed-api, realtime, worker health server). */
+export const httpEnv = {
+  /** `0.0.0.0` in containers; loopback by default so a dev box never exposes an app. */
+  HOST: nonEmpty.default('127.0.0.1'),
+  /**
+   * Proxies in front of the app, for `request.ip`: a hop count (1–3; `1` = kamal-proxy) or a comma list
+   * of IPs / CIDRs (/8 or narrower for IPv4, /16 for IPv6) / `loopback`. `false` (default) trusts nobody.
+   * `true`, catch-all ranges and large hop counts are refused — each would let a client forge
+   * `X-Forwarded-For` and get a fresh rate-limit bucket per request.
+   */
+  TRUST_PROXY: z
+    .string()
+    .trim()
+    .default('false')
+    .transform((value, ctx): false | number | string[] => {
+      if (value === 'false' || value === '0') return false;
+      if (/^\d+$/.test(value)) {
+        const hops = Number(value);
+        if (hops <= MAX_PROXY_HOPS) return hops;
+        ctx.addIssue({ code: 'custom', message: `hop count must be at most ${MAX_PROXY_HOPS}` });
+        return z.NEVER;
+      }
+      const list = value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length === 0 || !list.every(isProxyItem)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'must be false, a hop count or a comma list of proxy IPs/CIDRs (no catch-all ranges) — never true',
+        });
+        return z.NEVER;
+      }
+      return list;
+    }),
+  /** Milliseconds to keep serving (with `/readyz` failing) before closing, so a load balancer can route away. */
+  SHUTDOWN_DRAIN_DELAY_MS: z.coerce.number().int().min(0).max(20_000).default(0),
+  /**
+   * Header the edge (CDN / kamal-proxy) sets with its request id, e.g. `cf-ray`. Only this header is
+   * trusted for correlation; a client-sent `x-request-id` is logged as `clientRequestId` instead.
+   */
+  EDGE_REQUEST_ID_HEADER: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9-]{1,64}$/, 'must be a header name')
+    .optional(),
+};
+
 export const searchEnv = {
   MEILI_URL: url(['http', 'https']),
+  /** Admin key — worker indexing and scripts only; request-path apps get a scoped key with the search adapter. */
   MEILI_MASTER_KEY: nonEmpty,
 };
 

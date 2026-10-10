@@ -11,7 +11,12 @@ import * as schema from './schema';
  * tenant settings are transaction-local (see tenancy/scope.ts).
  */
 export const dbEnv = { ...coreEnv, ...databaseEnv };
-export type DbConfig = Pick<Config<typeof dbEnv>, 'APP_ROLE' | keyof typeof databaseEnv>;
+/**
+ * Each app passes only the role URLs it may use — feed-api only `DATABASE_URL_APP_PUBLIC` (S0-08),
+ * so its process cannot open an `app_user` pool at all. A missing URL fails on first use.
+ */
+export type DbConfig = Pick<Config<typeof dbEnv>, 'APP_ROLE'> &
+  Partial<Pick<Config<typeof dbEnv>, keyof typeof databaseEnv>>;
 
 export type Db = NodePgDatabase<typeof schema> & { $client: pg.Pool };
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -73,6 +78,12 @@ export function getDb(role: RuntimeRole): Db {
     // Without a listener, an error on an idle client is unhandled and crashes the process.
     // The pool discards the broken client; the next checkout opens a fresh one.
     pool.on('error', (err) => dbLogger().warn({ err, role }, 'idle pg client error'));
+    // pg-pool drops its listener while a client is checked out; a connection that dies between two
+    // queries of a transaction (Postgres restart, failover) would then crash the process with an
+    // unhandled 'error'. The pending or next query still rejects, and the pool discards the client.
+    pool.on('connect', (client) => {
+      client.on('error', (err) => dbLogger().warn({ err, role }, 'pg client error'));
+    });
     db = drizzle({ client: pool, schema });
     dbs.set(role, db);
   }
@@ -85,6 +96,14 @@ export function getDb(role: RuntimeRole): Db {
  */
 export async function getPgClient(role: RuntimeRole): Promise<pg.PoolClient> {
   return getDb(role).$client.connect();
+}
+
+/**
+ * Readiness: one `select 1` on the role's pool (through PgBouncer, so a stopped Postgres fails here
+ * even while PgBouncer accepts the connection). Callers bound it with their own timeout.
+ */
+export async function pingDb(role: RuntimeRole): Promise<void> {
+  await getDb(role).$client.query('select 1');
 }
 
 /** Graceful shutdown: drains every pool. */

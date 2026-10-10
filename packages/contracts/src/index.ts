@@ -2,3 +2,4 @@
 export const PACKAGE_NAME = '@inmolink/contracts';
 
 export * from './errors';
+export * from './http';

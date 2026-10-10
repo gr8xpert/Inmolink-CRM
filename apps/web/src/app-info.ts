@@ -4,5 +4,5 @@ import { PACKAGE_NAME as UI } from '@inmolink/ui';
 export const APP_NAME = 'web';
 
 export function describeApp(): string {
-  return `${APP_NAME} skeleton on ${UI} — layout arrives in S0-08`;
+  return `${APP_NAME} skeleton on ${UI} (Tailwind + shadcn base; i18n routing in S0-11)`;
 }

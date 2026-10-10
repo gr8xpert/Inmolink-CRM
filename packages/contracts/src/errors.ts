@@ -3,6 +3,10 @@
  * Apps map `AppError` to `{ error: { code, details } }` with this status (S0-08).
  */
 export const ErrorCodes = {
+  BAD_REQUEST: 400,
+  PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
+  SERVICE_UNAVAILABLE: 503,
   FORBIDDEN: 403,
   NOT_AUTHENTICATED: 401,
   NOT_FOUND: 404,

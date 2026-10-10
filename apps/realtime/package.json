@@ -14,15 +14,22 @@
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
-    "@inmolink/core": "workspace:*"
+    "@inmolink/contracts": "workspace:*",
+    "@inmolink/core": "workspace:*",
+    "@inmolink/platform": "workspace:*",
+    "@socket.io/redis-adapter": "8.3.0",
+    "fastify": "5.12.5",
+    "socket.io": "4.8.4",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
+    "socket.io-client": "4.8.4",
     "tsdown": "0.23.0",
+    "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "vitest": "5.0.3",
-    "tsx": "4.23.15"
+    "vitest": "5.0.3"
   }
 }

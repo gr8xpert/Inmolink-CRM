@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Shared UI components and design tokens.",
-  "sideEffects": false,
+  "sideEffects": [
+    "*.css"
+  ],
   "exports": {
     ".": {
       "@inmolink/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./theme.css": "./src/theme.css"
   },
   "scripts": {
     "build": "tsdown",
@@ -20,14 +23,22 @@
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
-    "@inmolink/contracts": "workspace:*"
+    "@inmolink/contracts": "workspace:*",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "tailwind-merge": "3.7.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "react": "19.3.0",
     "tsdown": "0.23.0",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
   }
 }
