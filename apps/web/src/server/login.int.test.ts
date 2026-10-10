@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { authCtx, closeDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { setupTestDb } from '@inmolink/db/testing';
-import { closeCache } from '@inmolink/platform/cache';
+import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -15,6 +15,9 @@ import { attemptLogin } from './login';
 beforeAll(async () => {
   await setupTestDb('http'); // also loads .env.test(.example) into process.env
   await webConfig();
+  // These tests check counting, not latency: under full `verify` load a 200 ms command cut-off would
+  // trip the fail-closed credential limits (S0-10 finding). Fail-closed itself is tested in tests/adapters.
+  await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
 }, 120_000);
 
 afterAll(async () => {

@@ -8,6 +8,7 @@ import {
   loadConfigOrExit,
   portVar,
   redisEnv,
+  telemetryEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
 
@@ -16,6 +17,9 @@ export const realtimeEnv = {
   ...coreEnv,
   ...httpEnv,
   REALTIME_PORT: portVar(4002),
+  /** Prometheus `/metrics` on `METRICS_HOST` (private); 0 turns it off. */
+  REALTIME_METRICS_PORT: portVar(9466),
+  ...telemetryEnv,
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   ...cryptoEnv,

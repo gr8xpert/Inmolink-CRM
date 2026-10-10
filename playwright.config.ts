@@ -9,7 +9,8 @@ import { PORTS, ROOT, testStackEnv } from './tests/e2e/stack';
  */
 const env = testStackEnv();
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-const node = (app: string) => `node "${TSX}" --conditions=@inmolink/source ${join('apps', app, 'src', 'main.ts')}`;
+const node = (app: string) =>
+  `node "${TSX}" --conditions=@inmolink/source --import @inmolink/platform/telemetry/register ${join('apps', app, 'src', 'main.ts')}`;
 const common = { ...process.env, ...env, NODE_ENV: 'test', LOG_LEVEL: 'warn' };
 
 export default defineConfig({

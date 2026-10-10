@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { newId } from '../ids';
 import type { SqlExecutor } from '../sql';
+import { currentTraceparent } from '../telemetry/context';
 import type { OutboxMessage } from './events';
 
 export type { SqlExecutor } from '../sql';
@@ -46,13 +47,14 @@ export async function emit(
       throw new TypeError(`emit ${m.type}: payload is ${bytes} bytes (max ${MAX_EVENT_PAYLOAD_BYTES}); carry IDs only`);
     }
   }
+  const traceParent = currentTraceparent();
   const values = messages.map(
     (m) =>
       sql`(${newId()}, coalesce(${agencyOf(m, options)}::uuid, nullif(current_setting('app.agency_id', true), '')::uuid, ${PLATFORM_AGENCY_ID}::uuid),
-           ${m.type}, ${m.version}, ${JSON.stringify(m.payload)}::jsonb)`,
+           ${m.type}, ${m.version}, ${JSON.stringify(m.payload)}::jsonb, ${traceParent})`,
   );
   await tx.execute(
-    sql`insert into outbox_events (id, agency_id, type, version, payload) values ${sql.join(values, sql`, `)}`,
+    sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values, sql`, `)}`,
   );
   await tx.execute(sql.raw(`notify ${OUTBOX_CHANNEL}`));
 }

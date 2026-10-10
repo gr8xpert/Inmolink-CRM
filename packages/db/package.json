@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@inmolink/platform": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1"
   },

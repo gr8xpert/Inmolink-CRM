@@ -32,7 +32,7 @@ export interface PoolOptions {
   /** Connections per role per process. PgBouncer multiplexes them onto its own server pool. */
   max?: number;
   /** Idle-connection errors (PgBouncer restart, failover) and `withSystem` audit lines. Defaults to a `db` logger. */
-  logger?: Pick<Logger, 'warn' | 'info'>;
+  logger?: Pick<Logger, 'warn' | 'info' | 'debug'>;
 }
 
 let config: DbConfig | undefined;
@@ -54,7 +54,7 @@ export function dbConfig(): DbConfig {
   return config;
 }
 
-export function dbLogger(): Pick<Logger, 'warn' | 'info'> {
+export function dbLogger(): Pick<Logger, 'warn' | 'info' | 'debug'> {
   poolOptions.logger ??= createLogger({ service: 'db', level: process.env.LOG_LEVEL });
   return poolOptions.logger;
 }

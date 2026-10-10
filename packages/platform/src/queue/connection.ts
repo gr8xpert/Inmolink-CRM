@@ -1,4 +1,6 @@
+import { context, trace } from '@opentelemetry/api';
 import { Queue } from 'bullmq';
+import { BullMQOtel } from 'bullmq-otel';
 import { Redis, type RedisOptions } from 'ioredis';
 import { loadConfig, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
@@ -18,6 +20,7 @@ interface State {
   logger: Logger;
   producer?: Redis;
   fairness?: Fairness;
+  telemetry?: BullMQOtel;
   queues: Map<string, Queue>;
 }
 
@@ -80,12 +83,32 @@ export function workerConnection(): Redis {
   return conn;
 }
 
+/**
+ * BullMQ's OpenTelemetry bridge (S0-10): a job carries its producer's trace context and the worker's
+ * span continues it; job counts and durations become metrics. Created on first use — after
+ * `startTelemetry()` — so it binds the real meter provider.
+ */
+export function queueTelemetry(): BullMQOtel {
+  const s = current();
+  s.telemetry ??= new BullMQOtel({ tracerName: '@inmolink/queue', meterName: '@inmolink/queue', enableMetrics: true });
+  return s.telemetry;
+}
+
+/**
+ * The caller's trace context as BullMQ job metadata, captured at enqueue time: batched adds
+ * (`addBatched`) are sent later from the flushing caller's context, which may belong to another trace.
+ */
+export function traceMetadata(): string | undefined {
+  if (!trace.getActiveSpan()) return undefined;
+  return queueTelemetry().contextManager.getMetadata(context.active());
+}
+
 /** One BullMQ queue per pool (plus `<pool>.dead` for dead letters). */
 export function queueFor(name: string): Queue {
   const s = current();
   let q = s.queues.get(name);
   if (!q) {
-    q = new Queue(name, { connection: producerConnection(), prefix: s.prefix });
+    q = new Queue(name, { connection: producerConnection(), prefix: s.prefix, telemetry: queueTelemetry() });
     q.on('error', (err) => s.logger.warn({ err, queue: name }, 'queue error'));
     s.queues.set(name, q);
   }

@@ -63,6 +63,12 @@ Local stack images (`docker-compose.yml`, exact tags):
 | Zod | 4.6.5 (contracts, platform/config) |
 | pino | 10.4.0 (platform/logger) |
 | @node-rs/argon2 | 2.2.2 (platform/crypto passwords; prebuilt binaries, see ADR 0003) |
+| OpenTelemetry API / SDK (trace, metrics, resources, core) | 1.9.1 / 2.12.0 (platform/telemetry, S0-10) |
+| OpenTelemetry exporters (OTLP/HTTP traces, Prometheus) and `@opentelemetry/instrumentation`, `-http` | 0.223.0 |
+| OpenTelemetry instrumentations pg / ioredis / undici | 0.75.0 / 0.71.0 / 0.33.0 |
+| @opentelemetry/semantic-conventions | 1.43.0 |
+| bullmq-otel | 2.0.1 |
+| @sentry/node | 11.6.0 (errors only; tracing stays with OpenTelemetry) |
 
 ### Current stable versions on 2026-10-10 for later tasks
 

@@ -10,6 +10,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance, LogController } 
 import { newId, requestIdFrom } from '../ids';
 import { type Logger, stripQuery } from '../logger';
 import { registerErrorHandling, sendError } from './errors';
+import { observeRequests } from './observe';
 
 /** A Fastify instance with the Zod type provider — what route plugins receive (PATTERNS §10). */
 export type FastifyZod = FastifyInstance<Server, IncomingMessage, ServerResponse, FastifyBaseLogger, ZodTypeProvider>;
@@ -50,8 +51,8 @@ const CLIENT_REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
  * Fastify with the Inmolink plumbing (PLAN §5.2): Zod validation + serialization, request ids,
- * the standard error body, OpenAPI, request logs without query strings, and a draining gate for
- * graceful shutdown. Apps add rate limits, auth and routes on top.
+ * the standard error body, OpenAPI, request logs without query strings, per-route RED metrics and span
+ * names, 5xx reported to Sentry, and a draining gate for graceful shutdown. Apps add rate limits, auth and routes on top.
  */
 export async function createServer(options: ServerOptions): Promise<FastifyZod> {
   const edgeHeader = options.edgeRequestIdHeader;
@@ -76,6 +77,7 @@ export async function createServer(options: ServerOptions): Promise<FastifyZod> 
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('lifecycle', { draining: false, closing: false });
   registerErrorHandling(app);
+  observeRequests(app);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);

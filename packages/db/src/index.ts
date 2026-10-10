@@ -25,4 +25,11 @@ export {
   type TenantTable,
 } from './tenancy/registry';
 export { applyRls, expectedPolicies, generateRlsSql, helperSql, tablesSql } from './tenancy/rls';
-export { type TenantScope, withAuth, withPublicRead, withSystem, withTenant } from './tenancy/scope';
+export {
+  type SystemOptions,
+  type TenantScope,
+  withAuth,
+  withPublicRead,
+  withSystem,
+  withTenant,
+} from './tenancy/scope';

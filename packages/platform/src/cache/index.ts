@@ -15,12 +15,18 @@ export interface CacheConfig {
   /** Key prefix (default `inl:c`); tests use their own. */
   prefix?: string;
   logger?: Logger;
+  /**
+   * Cut-off for one command (default 200 ms). Tests that check limiter counting on a CPU-starved
+   * machine raise it; a slow cache in production must fail fast instead.
+   */
+  commandTimeoutMs?: number;
 }
 
 interface State {
   url: string;
   prefix: string;
   logger: Logger;
+  commandTimeoutMs: number;
   redis?: Redis;
   cache?: Cache;
 }
@@ -46,6 +52,7 @@ function fromEnv(config: CacheConfig = {}): State {
     url: config.url ?? loadConfig({ REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL }).REDIS_CACHE_URL,
     prefix: config.prefix ?? 'inl:c',
     logger: config.logger ?? createLogger({ service: 'cache', level: process.env.LOG_LEVEL }),
+    commandTimeoutMs: config.commandTimeoutMs ?? 200,
   };
 }
 
@@ -64,7 +71,7 @@ function current(): State {
 export function cacheConnection(): Redis {
   const s = current();
   if (!s.redis) {
-    s.redis = new Redis(s.url, options);
+    s.redis = new Redis(s.url, { ...options, commandTimeout: s.commandTimeoutMs });
     s.redis.on('error', (err) => s.logger.warn({ err }, 'redis-cache error'));
   }
   return s.redis;

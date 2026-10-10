@@ -182,8 +182,31 @@ const EXAMPLE_JWT_PUBLIC_KEYS = new Set([
   'MCowBQYDK2VwAyEAAy6KQhRaNdNDpYjKEVK5HhvejcYzS9e8Etz1obQc7II=',
 ]);
 
-export const otelEnv = {
+/** Traces, metrics and error reporting (S0-10, platform/telemetry). Each app adds its own `METRICS_PORT`. */
+export const telemetryEnv = {
+  /** OTLP/HTTP base URL (the collector, `/v1/traces` is appended). Unset: spans are not exported. */
   OTEL_EXPORTER_OTLP_ENDPOINT: url(['http', 'https']).optional(),
+  /** Share of new traces kept (parent-based: a sampled caller's trace is always continued). */
+  OTEL_TRACES_SAMPLE_RATIO: z.coerce.number().min(0).max(1).default(1),
+  /**
+   * Prometheus `/metrics` bind address — private: never the public interface (the endpoint has no auth).
+   * Production accepts loopback or a private address; `0.0.0.0`/`::` only with METRICS_ALLOW_WILDCARD=true
+   * (a container whose metrics port is not published and is fenced by network policy).
+   */
+  METRICS_HOST: nonEmpty.default('127.0.0.1'),
+  METRICS_ALLOW_WILDCARD: z.enum(['true', 'false']).default('false'),
+  /** Unset: errors are only logged. */
+  SENTRY_DSN: url(['https', 'http']).optional(),
+  /** Deploy name for Sentry/OTel (`production`, `staging`, …); defaults to NODE_ENV. */
+  DEPLOY_ENV: z
+    .string()
+    .regex(/^[a-z0-9-]{1,32}$/)
+    .optional(),
+  /** Build identifier (git SHA) — tags errors and spans. */
+  RELEASE: z
+    .string()
+    .regex(/^[A-Za-z0-9._@+-]{1,64}$/)
+    .default('dev'),
 };
 
 export const cryptoEnv = {
@@ -264,6 +287,22 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
       message: 'must not be set for APP_ROLE=http in production (outbox dispatcher only; runs in workers)',
     });
   }
+  // Sampling every trace at feed-api's request rate would drop spans and cost CPU: choose it per deploy.
+  if (production && 'OTEL_TRACES_SAMPLE_RATIO' in cfg && (env.OTEL_TRACES_SAMPLE_RATIO ?? '').trim() === '') {
+    problems.push({ key: 'OTEL_TRACES_SAMPLE_RATIO', message: 'must be set explicitly in production (e.g. 0.05)' });
+  }
+  if (production && typeof cfg.METRICS_HOST === 'string' && !metricsHostAllowed(cfg.METRICS_HOST, cfg)) {
+    problems.push({
+      key: 'METRICS_HOST',
+      message: 'must be loopback or a private address in production (wildcard needs METRICS_ALLOW_WILDCARD=true)',
+    });
+  }
+  if (production && typeof cfg.SENTRY_DSN === 'string' && !cfg.SENTRY_DSN.startsWith('https://')) {
+    problems.push({ key: 'SENTRY_DSN', message: 'must use https in production' });
+  }
+  if (production && cfg.RELEASE === 'dev') {
+    problems.push({ key: 'RELEASE', message: 'must be the build id (git SHA) in production' });
+  }
   if (production && typeof cfg.HMAC_KEY === 'string' && cfg.HMAC_KEY.startsWith('dev-')) {
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
   }
@@ -311,6 +350,16 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
 }
 
 /** SPKI base64 of the private key's public half, for the example-key check. */
+const PRIVATE_V4 = [/^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^127\./];
+
+function metricsHostAllowed(host: string, cfg: Record<string, unknown>): boolean {
+  if (host === '0.0.0.0' || host === '::') return cfg.METRICS_ALLOW_WILDCARD === 'true';
+  if (host === 'localhost' || host === '::1') return true;
+  if (isIP(host) === 4) return PRIVATE_V4.some((r) => r.test(host));
+  if (isIP(host) === 6) return /^f[cd][0-9a-f]{2}:/i.test(host);
+  return false; // hostnames may resolve anywhere
+}
+
 function publicOf(privateB64: string): string | undefined {
   try {
     const key = createPrivateKey({ key: Buffer.from(privateB64, 'base64'), format: 'der', type: 'pkcs8' });

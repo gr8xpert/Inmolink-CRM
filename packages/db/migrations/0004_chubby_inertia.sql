@@ -1,0 +1,1 @@
+ALTER TABLE "outbox_events" ADD CONSTRAINT "outbox_events_trace_parent_format" CHECK ("outbox_events"."trace_parent" is null or "outbox_events"."trace_parent" ~ '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$');

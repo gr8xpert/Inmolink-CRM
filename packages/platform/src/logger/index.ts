@@ -1,4 +1,5 @@
 import { type DestinationStream, type Logger, type LoggerOptions, pino } from 'pino';
+import { activeTraceIds } from '../telemetry/context';
 
 /**
  * Structured JSON logs (pino). PII and secrets are redacted by key name at the top
@@ -96,6 +97,8 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
     formatters: { level: (label) => ({ level: label }) },
     serializers: { err: errSerializer, error: errSerializer },
     redact: { paths: redactPaths([...REDACT_KEYS, ...(options.redact ?? [])]), censor: REDACTED },
+    // Lines written inside a sampled span carry its ids, so a log line opens its trace (S0-10).
+    mixin: () => activeTraceIds() ?? {},
   };
   return options.destination ? pino(pinoOptions, options.destination) : pino(pinoOptions);
 }

@@ -8,6 +8,7 @@ import {
   loadConfigOrExit,
   portVar,
   redisEnv,
+  telemetryEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
 import type { EmailConfig } from '@inmolink/platform/email';
@@ -49,6 +50,9 @@ export const workerEnv = {
     }),
   /** Health server for the orchestrator (`/healthz`, `/readyz`); bind it to a private interface. */
   WORKER_HEALTH_PORT: portVar(4003),
+  /** Prometheus `/metrics` on `METRICS_HOST` (private); 0 turns it off. */
+  WORKER_METRICS_PORT: portVar(9467),
+  ...telemetryEnv,
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   // Required here (optional in platform): the outbox and cross-tenant jobs run `withSystem`.
   DATABASE_URL_APP_SYSTEM: databaseEnv.DATABASE_URL_APP_SYSTEM.unwrap(),

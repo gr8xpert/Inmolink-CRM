@@ -4,7 +4,7 @@ import type { z } from 'zod';
 import { newId } from '../ids';
 import type { Logger } from '../logger';
 import { addBatched } from './batcher';
-import { fairnessFor, queueFor, queuePrefix } from './connection';
+import { fairnessFor, queueFor, queuePrefix, traceMetadata } from './connection';
 import type { BacklogEntry } from './fairness';
 
 export interface JobContext {
@@ -114,6 +114,9 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
       removeOnComplete: { age: 24 * 3_600, count: 50_000 },
       removeOnFail: { age: 7 * 24 * 3_600 },
     };
+    // No caller span: a fresh trace — never the context of whoever flushes the batch.
+    const metadata = traceMetadata();
+    opts.telemetry = metadata ? { metadata } : { omitContext: true };
     const data: StoredJob = { p: payload };
     let fair: BacklogEntry | undefined;
     if (group !== undefined) {

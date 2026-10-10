@@ -5,12 +5,20 @@ import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
+import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { buildApp } from './app';
 import { loadApiConfig } from './config';
 
 loadStackEnv('dev', { allowExample: false });
 const config = loadApiConfig();
 const logger = createLogger({ service: 'api', level: config.LOG_LEVEL });
+// Before any connection opens, so startup work is traced too. Port 0 = no /metrics endpoint.
+const telemetry = startObservability(config, {
+  service: 'api',
+  metricsPort: config.API_METRICS_PORT || undefined,
+  // Internet-facing: a client's traceparent must not force sampling.
+  trustRemoteParent: false,
+});
 
 try {
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER }, { logger });
@@ -39,10 +47,13 @@ try {
       { name: 'queue', run: closeQueues },
       { name: 'cache', run: closeCache },
       { name: 'db', run: closeDb },
+      { name: 'telemetry', run: telemetry.shutdown },
     ],
   });
   await app.listen({ host: config.HOST, port: config.API_PORT });
 } catch (err) {
   logger.fatal({ err }, 'api failed to start');
+  reportError(err, { phase: 'startup' });
+  await telemetry.shutdown();
   process.exit(1);
 }

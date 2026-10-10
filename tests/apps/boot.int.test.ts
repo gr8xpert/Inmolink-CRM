@@ -16,11 +16,18 @@ function stackEnv(): Record<string, string> {
 }
 
 const APPS = [
-  { name: 'api', port: 54100, portVar: 'API_PORT' },
-  { name: 'feed-api', port: 54101, portVar: 'FEED_API_PORT' },
-  { name: 'realtime', port: 54102, portVar: 'REALTIME_PORT' },
+  { name: 'api', port: 54100, portVar: 'API_PORT', metrics: 54110, metricsVar: 'API_METRICS_PORT' },
+  { name: 'feed-api', port: 54101, portVar: 'FEED_API_PORT', metrics: 54111, metricsVar: 'FEED_API_METRICS_PORT' },
+  { name: 'realtime', port: 54102, portVar: 'REALTIME_PORT', metrics: 54112, metricsVar: 'REALTIME_METRICS_PORT' },
   // `maintenance` has no jobs yet; never `outbox` here — it would claim the queue suite's events.
-  { name: 'worker', port: 54103, portVar: 'WORKER_HEALTH_PORT', extra: { WORKER_POOLS: 'maintenance' } },
+  {
+    name: 'worker',
+    port: 54103,
+    portVar: 'WORKER_HEALTH_PORT',
+    metrics: 54113,
+    metricsVar: 'WORKER_METRICS_PORT',
+    extra: { WORKER_POOLS: 'maintenance' },
+  },
 ] as const;
 
 const children: ChildProcess[] = [];
@@ -46,9 +53,17 @@ async function waitReady(port: number, child: ChildProcess, output: () => string
 
 describe('app entry points', () => {
   for (const app of APPS) {
-    it(`[S0-08] ${app.name} boots from main.ts, reports ready and exits on SIGTERM`, async () => {
+    it(`[S0-08] [S0-10] ${app.name} boots from main.ts with telemetry, reports ready, serves /metrics and exits on SIGTERM`, async () => {
       const { DATABASE_URL_LISTEN: _listen, ...env } = stackEnv();
-      const child = spawn(process.execPath, [TSX, '--conditions=@inmolink/source', 'src/main.ts'], {
+      // The same preload as the app's `dev`/`start` scripts.
+      const args = [
+        TSX,
+        '--conditions=@inmolink/source',
+        '--import',
+        '@inmolink/platform/telemetry/register',
+        'src/main.ts',
+      ];
+      const child = spawn(process.execPath, args, {
         cwd: join(ROOT, 'apps', app.name),
         env: {
           ...process.env,
@@ -56,6 +71,7 @@ describe('app entry points', () => {
           NODE_ENV: 'test',
           LOG_LEVEL: 'warn',
           [app.portVar]: String(app.port),
+          [app.metricsVar]: String(app.metrics),
           ...('extra' in app ? app.extra : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -71,6 +87,9 @@ describe('app entry points', () => {
 
       const body = await waitReady(app.port, child, () => output);
       expect(body).toMatchObject({ status: 'ok' });
+      const metrics = await fetch(`http://127.0.0.1:${app.metrics}/metrics`);
+      expect(metrics.status).toBe(200);
+      expect(await metrics.text()).toContain(`service_name="${app.name}"`);
 
       const exited = new Promise<number | null>((resolve) => child.once('exit', (code) => resolve(code)));
       child.kill('SIGTERM');

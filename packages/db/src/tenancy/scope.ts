@@ -22,14 +22,26 @@ export async function withTenant<T>(scope: TenantScope, fn: (tx: Tx) => Promise<
   });
 }
 
+export interface SystemOptions {
+  /**
+   * High-frequency platform plumbing (outbox claim/ack every poll): the audit line is logged at
+   * `debug`, not `info`. The reason is still set on the transaction.
+   */
+  routine?: boolean;
+}
+
 /**
  * Cross-tenant work as `app_system` (BYPASSRLS) — workers and scripts only, never request paths.
  * The reason is logged and set on the transaction (`app.system_reason`) for audit triggers.
  */
-export async function withSystem<T>(reason: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export async function withSystem<T>(
+  reason: string,
+  fn: (tx: Tx) => Promise<T>,
+  options: SystemOptions = {},
+): Promise<T> {
   assertSystemAllowed();
   if (reason.trim() === '') throw new TypeError('withSystem: a reason is required');
-  dbLogger().info({ reason, appRole: dbConfig().APP_ROLE }, 'withSystem');
+  dbLogger()[options.routine ? 'debug' : 'info']({ reason, appRole: dbConfig().APP_ROLE }, 'withSystem');
   return getDb('app_system').transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.system_reason', ${reason}, true)`);
     return fn(tx);

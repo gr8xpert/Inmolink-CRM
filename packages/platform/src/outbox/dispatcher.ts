@@ -1,5 +1,7 @@
+import { SpanStatusCode } from '@opentelemetry/api';
 import { sql } from 'drizzle-orm';
 import type { Logger } from '../logger';
+import { withConsumerSpan } from '../telemetry/context';
 import type { SqlExecutor } from './emit';
 import { defaultSubscribers, type EventMeta, type SubscriberRegistry } from './events';
 
@@ -66,6 +68,7 @@ interface ClaimedRow {
   payload: unknown;
   attempts: number;
   created_at: Date | string;
+  trace_parent: string | null;
 }
 
 interface Outcome {
@@ -182,12 +185,28 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
            set available_at = now() + ${leaseMs}::float8 * interval '1 millisecond', attempts = o.attempts + 1
           from due
          where o.id = due.id
-        returning o.id, o.agency_id, o.type, o.version, o.payload, o.attempts, o.created_at`),
+        returning o.id, o.agency_id, o.type, o.version, o.payload, o.attempts, o.created_at, o.trace_parent`),
     );
     return (rows as unknown as ClaimedRow[]).sort((a, b) => (a.id < b.id ? -1 : 1));
   }
 
-  async function deliver(row: ClaimedRow): Promise<Outcome & { ok: boolean; dead: boolean }> {
+  /** Delivery continues the emitter's trace: request → outbox → subscriber → job (S0-10). */
+  function deliver(row: ClaimedRow): Promise<Outcome & { ok: boolean; dead: boolean }> {
+    const attributes = {
+      'messaging.system': 'outbox',
+      'messaging.operation.type': 'process',
+      'messaging.message.id': row.id,
+      'inmolink.event.type': row.type,
+      'inmolink.event.attempt': row.attempts,
+    };
+    return withConsumerSpan(`outbox deliver ${row.type}`, row.trace_parent, attributes, async (span) => {
+      const outcome = await deliverRow(row);
+      if (!outcome.ok) span.setStatus({ code: SpanStatusCode.ERROR, message: outcome.error?.slice(0, 200) });
+      return outcome;
+    });
+  }
+
+  async function deliverRow(row: ClaimedRow): Promise<Outcome & { ok: boolean; dead: boolean }> {
     const base = { id: row.id, attempts: row.attempts };
     const subs = subscribers.get(row.type, row.version);
     if (subs.length === 0) return { ...base, ok: true, dead: false };

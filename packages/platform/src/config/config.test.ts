@@ -13,6 +13,7 @@ import {
   loadConfig,
   loadConfigOrExit,
   redisEnv,
+  telemetryEnv,
 } from './index';
 
 const validEnv = {
@@ -191,5 +192,28 @@ describe('loadConfig', () => {
         .problems.map((p) => p.key)
         .sort(),
     ).toEqual(['AUTH_JWT_PRIVATE_KEY', 'AUTH_JWT_PUBLIC_KEYS']);
+  });
+
+  it('[S0-10] production telemetry: explicit sample ratio, a real release, private metrics bind, https DSN', () => {
+    const tshape = { NODE_ENV: coreEnv.NODE_ENV, ...telemetryEnv };
+    const keys = (env: Record<string, string | undefined>) => {
+      try {
+        loadConfig(tshape, env);
+        return [];
+      } catch (err) {
+        return (err as ConfigError).problems.map((p) => p.key).sort();
+      }
+    };
+    // Dev and test keep the defaults (ratio 1, release "dev", loopback).
+    expect(keys({ NODE_ENV: 'development' })).toEqual([]);
+    expect(keys({ NODE_ENV: 'production' })).toEqual(['OTEL_TRACES_SAMPLE_RATIO', 'RELEASE']);
+    const prod = { NODE_ENV: 'production', OTEL_TRACES_SAMPLE_RATIO: '0.05', RELEASE: 'a1b2c3d' };
+    expect(keys(prod)).toEqual([]);
+    expect(keys({ ...prod, METRICS_HOST: '10.0.3.7' })).toEqual([]);
+    expect(keys({ ...prod, METRICS_HOST: '0.0.0.0' })).toEqual(['METRICS_HOST']);
+    expect(keys({ ...prod, METRICS_HOST: '0.0.0.0', METRICS_ALLOW_WILDCARD: 'true' })).toEqual([]);
+    expect(keys({ ...prod, METRICS_HOST: '203.0.113.9' })).toEqual(['METRICS_HOST']);
+    expect(keys({ ...prod, SENTRY_DSN: 'http://k@sentry.example.com/1' })).toEqual(['SENTRY_DSN']);
+    expect(keys({ ...prod, SENTRY_DSN: 'https://k@sentry.example.com/1' })).toEqual([]);
   });
 });

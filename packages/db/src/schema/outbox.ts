@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { check, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 /**
  * Transactional outbox (PLAN §5.3 #6, PATTERNS §8). Written by `emit()` in the caller's
@@ -27,6 +27,8 @@ export const outboxEvents = pgTable(
     /** Set when every subscriber succeeded — or with `dead_at` when attempts ran out. */
     processedAt: timestamp('processed_at', { withTimezone: true }),
     deadAt: timestamp('dead_at', { withTimezone: true }),
+    /** W3C `traceparent` of the emitting span: the dispatcher's delivery span continues that trace (S0-10). */
+    traceParent: text('trace_parent'),
   },
   (t) => [
     // dispatcher claim: where processed_at is null and available_at <= now() order by available_at, id
@@ -35,5 +37,10 @@ export const outboxEvents = pgTable(
     index('outbox_events_processed_idx').on(t.processedAt).where(sql`${t.processedAt} is not null`),
     // replay by type and time window (ops script)
     index('outbox_events_type_created_idx').on(t.type, t.createdAt),
+    // Only a well-formed W3C traceparent (or none) — the dispatcher continues the trace it names.
+    check(
+      'outbox_events_trace_parent_format',
+      sql`${t.traceParent} is null or ${t.traceParent} ~ '^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'`,
+    ),
   ],
 );

@@ -6,8 +6,8 @@
   "description": "Socket.io server for chat and notifications.",
   "scripts": {
     "build": "tsdown",
-    "dev": "tsx watch --conditions=@inmolink/source src/main.ts",
-    "start": "node dist/main.js",
+    "dev": "tsx watch --conditions=@inmolink/source --import @inmolink/platform/telemetry/register src/main.ts",
+    "start": "node --import @inmolink/platform/telemetry/register dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "vitest run --exclude \"**/*.int.test.ts\"",

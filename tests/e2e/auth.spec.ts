@@ -24,6 +24,8 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page.getByTestId('form-error')).toContainText('Please confirm your email first');
 
+  // The fresh link replaces the sign-up one: wait for the second email, or the first (now dead) link wins the race.
+  await expect.poll(() => countEmails(email, /Confirm your email/), { timeout: 60_000 }).toBe(2);
   const link = await waitForLink(email, /Confirm your email/);
   expect(link.pathname).toBe('/verify-email');
   await page.goto(link.href);

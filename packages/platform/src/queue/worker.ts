@@ -1,6 +1,7 @@
 import { DelayedError, type Job, UnrecoverableError, Worker } from 'bullmq';
 import { isAppError } from '../errors';
-import { fairnessFor, queueFor, queueLogger, queuePrefix, workerConnection } from './connection';
+import { reportError } from '../telemetry/report';
+import { fairnessFor, queueFor, queueLogger, queuePrefix, queueTelemetry, workerConnection } from './connection';
 import type { JobDef, StoredJob } from './jobs';
 
 export interface PoolOptions {
@@ -133,6 +134,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
         await deadLetter(job, message);
         if (fair && group !== undefined) await fair.done(pool, group, member);
         jobLog.error({ err, attempts: job.attemptsMade + 1 }, 'job dead-lettered');
+        reportError(err, { jobId: job.id, pool, job: job.name });
       } else {
         jobLog.warn({ err, attempt: job.attemptsMade + 1 }, 'job failed; will retry');
       }
@@ -150,6 +152,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     connection,
     prefix: queuePrefix(),
     concurrency: options.concurrency ?? 10,
+    telemetry: queueTelemetry(),
   });
   worker.on('error', (err) => log.warn({ err }, 'worker error'));
   // A job that stalls past maxStalledCount is failed by BullMQ without reaching the processor's catch.

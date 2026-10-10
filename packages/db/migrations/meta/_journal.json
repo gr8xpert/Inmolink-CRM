@@ -22,6 +22,20 @@
       "when": 1791621169415,
       "tag": "0002_sad_stephen_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791628267035,
+      "tag": "0003_quick_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791632464455,
+      "tag": "0004_chubby_inertia",
+      "breakpoints": true
     }
   ]
 }

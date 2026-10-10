@@ -29,6 +29,7 @@
     "@inmolink/db": "workspace:*",
     "@inmolink/i18n": "workspace:*",
     "@inmolink/platform": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.5"
   },

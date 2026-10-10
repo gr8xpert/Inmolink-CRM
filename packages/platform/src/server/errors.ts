@@ -3,6 +3,7 @@ import { hasZodFastifySchemaValidationErrors, isResponseSerializationError } fro
 import type { ErrorBody } from '@inmolink/contracts';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { type ErrorCode, ErrorCodes, isAppError } from '../errors';
+import { reportError } from '../telemetry/report';
 
 /** The standard error body, `{ error: { code, message, details? } }` (api.md). */
 export function errorBody(code: ErrorCode, details?: Record<string, unknown>): ErrorBody {
@@ -34,8 +35,10 @@ const FRAMEWORK_CODES: Partial<Record<number, ErrorCode>> = {
  */
 export function errorHandler(error: FastifyError, request: FastifyRequest, reply: FastifyReply): FastifyReply {
   if (isAppError(error)) {
-    if (error.status >= 500) request.log.error({ err: error }, 'request failed');
-    else request.log.info({ code: error.code }, 'request rejected');
+    if (error.status >= 500) {
+      request.log.error({ err: error }, 'request failed');
+      if (error.code !== 'SERVICE_UNAVAILABLE') report(error, request);
+    } else request.log.info({ code: error.code }, 'request rejected');
     return sendError(reply, error.code, error.details);
   }
   if (hasZodFastifySchemaValidationErrors(error)) {
@@ -45,6 +48,7 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
   }
   if (isResponseSerializationError(error)) {
     request.log.error({ err: error, issues: error.cause.issues }, 'response does not match its schema');
+    report(error, request);
     return sendError(reply, 'INTERNAL');
   }
   const status = typeof error.statusCode === 'number' ? error.statusCode : 500;
@@ -53,7 +57,13 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
     return sendError(reply, FRAMEWORK_CODES[status] ?? 'BAD_REQUEST');
   }
   request.log.error({ err: error }, 'request failed');
+  if (status !== 503) report(error, request);
   return sendError(reply, FRAMEWORK_CODES[status] ?? 'INTERNAL');
+}
+
+/** Unexpected failures go to Sentry with the request id and route (503s are load shedding, not bugs). */
+function report(error: unknown, request: FastifyRequest): void {
+  reportError(error, { requestId: request.id, route: request.routeOptions.url, method: request.method });
 }
 
 export function registerErrorHandling(app: FastifyInstance): void {
