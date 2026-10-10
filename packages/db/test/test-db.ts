@@ -6,6 +6,8 @@ import { configureDb, dbEnv } from '../src/client';
 import { loadStackEnv } from '../src/env-file';
 import { migrateEnv, runMigrations, runRls } from '../src/migrate';
 
+export { loadStackEnv } from '../src/env-file';
+
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 const silent = { info: () => {} };
 

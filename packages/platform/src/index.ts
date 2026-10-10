@@ -1,6 +1,6 @@
 /**
  * @inmolink/platform — infrastructure adapters. Import from the subpath of the adapter
  * you need (`@inmolink/platform/ids`, `/config`, `/logger`, `/crypto`, `/http`, `/clock`,
- * `/errors`, `/outbox`, `/queue`) so apps do not load adapters they do not use.
+ * `/errors`, `/outbox`, `/queue`, `/cache`, `/rate-limit`, `/flags`) so apps do not load adapters they do not use.
  */
 export const PACKAGE_NAME = '@inmolink/platform';

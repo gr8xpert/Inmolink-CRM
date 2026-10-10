@@ -68,7 +68,10 @@ export const tenantTables: Record<string, TenantTable> = {
 };
 
 /** Tables without `agency_id`. Readable by app roles, written only by `withSystem()` (app_system). */
-export const globalTables: Record<string, GlobalTable> = {};
+export const globalTables: Record<string, GlobalTable> = {
+  // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
+  feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },
+};
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };
 

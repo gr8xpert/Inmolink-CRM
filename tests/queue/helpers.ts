@@ -61,8 +61,10 @@ export async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs
 }
 
 /**
- * Restarts the test redis-queue container (graceful: AOF is flushed on shutdown). Plain `docker restart`
- * keeps the published port; `docker compose restart` drops it on Docker Desktop for Windows.
+ * Restarts the test redis-queue container (graceful: AOF is flushed on shutdown). `docker compose restart`
+ * drops the published port on Docker Desktop for Windows, and plain `docker restart` sometimes does too;
+ * a container that came back without its port is recreated (same volume, so the AOF survives) —
+ * otherwise this run and every later one would fail to reach Redis.
  */
 export async function restartRedisQueue(): Promise<void> {
   const id = execFileSync('docker', ['compose', '--profile', 'test', 'ps', '-q', 'redis-queue-test'], {
@@ -71,5 +73,17 @@ export async function restartRedisQueue(): Promise<void> {
   }).trim();
   if (!id) throw new Error('redis-queue-test is not running');
   // Async, so the dispatcher in this process keeps delivering while Redis goes down and comes back.
-  await promisify(execFile)('docker', ['restart', id], { timeout: 60_000 });
+  const run = promisify(execFile);
+  await run('docker', ['restart', id], { timeout: 60_000 });
+  const port = await run('docker', ['port', id, '6379/tcp'], { timeout: 10_000 }).then(
+    (r) => r.stdout.trim(),
+    () => '',
+  );
+  if (port === '') {
+    await run(
+      'docker',
+      ['compose', '--profile', 'test', 'up', '-d', '--wait', '--force-recreate', '--no-deps', 'redis-queue-test'],
+      { cwd: ROOT, timeout: 120_000 },
+    );
+  }
 }

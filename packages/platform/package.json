@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./cache": {
+      "@inmolink/source": "./src/cache/index.ts",
+      "types": "./dist/cache/index.d.ts",
+      "default": "./dist/cache/index.js"
+    },
     "./clock": {
       "@inmolink/source": "./src/clock/index.ts",
       "types": "./dist/clock/index.d.ts",
@@ -36,6 +41,11 @@
       "types": "./dist/errors/index.d.ts",
       "default": "./dist/errors/index.js"
     },
+    "./flags": {
+      "@inmolink/source": "./src/flags/index.ts",
+      "types": "./dist/flags/index.d.ts",
+      "default": "./dist/flags/index.js"
+    },
     "./http": {
       "@inmolink/source": "./src/http/index.ts",
       "types": "./dist/http/index.d.ts",
@@ -60,6 +70,11 @@
       "@inmolink/source": "./src/queue/index.ts",
       "types": "./dist/queue/index.d.ts",
       "default": "./dist/queue/index.js"
+    },
+    "./rate-limit": {
+      "@inmolink/source": "./src/rate-limit/index.ts",
+      "types": "./dist/rate-limit/index.d.ts",
+      "default": "./dist/rate-limit/index.js"
     }
   },
   "scripts": {
@@ -82,8 +97,17 @@
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
+    "fastify": "5.12.5",
     "tsdown": "0.23.0",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
+  },
+  "peerDependencies": {
+    "fastify": "^5.12.0"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
   }
 }

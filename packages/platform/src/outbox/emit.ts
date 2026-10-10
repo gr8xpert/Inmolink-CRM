@@ -1,11 +1,9 @@
-import { type SQL, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { newId } from '../ids';
+import type { SqlExecutor } from '../sql';
 import type { OutboxMessage } from './events';
 
-/** Any Drizzle transaction (or db) from `@inmolink/db` — kept structural so platform does not depend on db. */
-export interface SqlExecutor {
-  execute(query: SQL): Promise<{ rows: Record<string, unknown>[] }>;
-}
+export type { SqlExecutor } from '../sql';
 
 /** NOTIFY channel the dispatcher LISTENs on. Delivered at commit, never on rollback. */
 export const OUTBOX_CHANNEL = 'outbox_events';

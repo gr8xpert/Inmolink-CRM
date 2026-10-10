@@ -569,20 +569,25 @@ White-labelling is **not** baked into read models; it is applied per site at ser
 ## §15 Cache
 
 ```ts
-import { cache } from '@inmolink/platform/cache';
+import { cache, cacheKey } from '@inmolink/platform/cache';
+
+// Keys come only from cacheKey(): every key names its scope — 'global' or the agency whose RLS the loader ran under.
+const key = cacheKey({ v: 1, module: 'taxonomy', entity: 'tree', scope: 'global', locale });
 
 // read-through with single-flight (stampede protection) and tags for invalidation
-const taxonomy = await cache.get(
-  `v1:taxonomy:${locale}`,
-  { ttlSeconds: 3600, tags: ['taxonomy'] },
-  () => taxonomyRepo.loadAll(tx, locale),
+const taxonomy = await cache.get(key, { ttlSeconds: 3600, tags: ['taxonomy'], local: true }, () =>
+  taxonomyRepo.loadAll(tx, locale),
 );
 
 // invalidation is event-driven, never inline in a request
 subscribe(taxonomyEvents.changed, () => cache.invalidateTag('taxonomy'));
 ```
 
-Key format: `v<schema>:<module>:<entity>:<id>[:<locale>]`. Never cache per-user data under shared keys. In-process LRU (60 s) only for taxonomy and site configs.
+Key format (built by `cacheKey`): `v<schema>:<module>:<entity>:<g|a.<agencyId>>[:i.<id>][:l.<locale>][:agent|client]`. Tenant data is always `scope: { agencyId }`; Client Mode output sets `view: 'client'`. Never cache per-user data under shared keys. Values are JSON (a miss returns the same round trip as a hit). `local: true` (in-process LRU, ≤ 60 s, deep-frozen outside production) only for taxonomy and site configs. When redis-cache is down, `get` runs the loader uncached.
+
+Rate limits (`@inmolink/platform/rate-limit`): register `rateLimitPlugin` with `identify.ip: (r) => ipBucket(r.ip)` (Fastify `trustProxy` = hop count or CIDR list, never `true`); route rules go in `config.rateLimit`, `false` opts out. Rule names `auth.*`, `password.*`, `2fa.*` must set `failClosed: true`.
+
+Feature flags (`@inmolink/platform/flags`): `await flag(ctx, 'area.feature')` — one query per process per 60 s. Staff write with `setFlag`/`setFlagOverride` inside `withSystem()`, then `invalidateFlags()` after commit.
 
 ---
 

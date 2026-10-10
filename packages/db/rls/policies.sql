@@ -11,11 +11,19 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['outbox_events'])
+            where schemaname = 'public' and tablename = any (array['feature_flags', 'outbox_events'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
 end $$;
+
+-- feature_flags: GLOBAL
+alter table public."feature_flags" enable row level security;
+alter table public."feature_flags" force row level security;
+create policy global_read on public."feature_flags" for select to app_user using (true);
+revoke all on table public."feature_flags" from public, app_user, app_system, app_public;
+grant select on table public."feature_flags" to app_user;
+grant select, insert, update, delete on table public."feature_flags" to app_system;
 
 -- outbox_events: STRICT
 alter table public."outbox_events" enable row level security;

@@ -44,7 +44,8 @@ export const REDACT_KEYS = [
 ] as const;
 
 /** Error fields that may echo row values (pg `detail`, query parameters) — dropped from logs. */
-const UNSAFE_ERROR_FIELDS = ['detail', 'parameters', 'query', 'where', 'internalQuery'] as const;
+// `command`/`args`: ioredis attaches the failed command, whose arguments may be a cached value with PII.
+const UNSAFE_ERROR_FIELDS = ['detail', 'parameters', 'query', 'where', 'internalQuery', 'command', 'args'] as const;
 
 function errSerializer(err: unknown): unknown {
   const out = pino.stdSerializers.err(err as Error) as unknown as Record<string, unknown>;
