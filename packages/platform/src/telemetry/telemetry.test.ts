@@ -20,8 +20,8 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-// The first Sentry event loads integrations lazily (context lines, modules); on a busy 4-vCPU CI
-// runner that alone took longer than Vitest's 5 s default. Event delivery is asserted, not its speed.
+// On CI the first Sentry event took longer than Vitest's 5 s default. Event delivery is asserted,
+// not its speed; events are matched by request id (`eventFor`), never by count.
 const SENTRY_EVENT_MS = 15_000;
 
 async function until(check: () => boolean, ms = SENTRY_EVENT_MS - 1_000): Promise<void> {
