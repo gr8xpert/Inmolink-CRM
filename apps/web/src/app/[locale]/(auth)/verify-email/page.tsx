@@ -1,5 +1,5 @@
+import { getTranslations } from 'next-intl/server';
 import { formErrors } from '@/server/form-errors';
-import { authT } from '@/server/locale';
 import { verifyEmailAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
@@ -8,7 +8,7 @@ import { AuthForm } from '../auth-form';
  * must not burn the single-use token. It also needs the account password (pre-account hijack, ADR 0004).
  */
 export default async function VerifyEmailPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
-  const t = await authT();
+  const t = await getTranslations('auth');
   const { token } = await searchParams;
   return (
     <>
@@ -22,7 +22,7 @@ export default async function VerifyEmailPage({ searchParams }: { searchParams: 
             { name: 'password', label: t('verify.password'), type: 'password', autoComplete: 'current-password' },
           ]}
           submitLabel={t('email.verify.action')}
-          errors={formErrors(t)}
+          errors={await formErrors()}
         />
       ) : (
         <p role="alert" className="text-sm text-destructive">

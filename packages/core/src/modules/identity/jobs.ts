@@ -6,7 +6,7 @@ import { newId } from '@inmolink/platform/ids';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { identityConfig, TOKEN_TTL_MS } from './config';
-import { type AuthEmailKind, renderAuthEmail } from './emails';
+import { type AuthEmailKind, emailLocale, renderAuthEmail } from './emails';
 import * as repo from './repo';
 import { hashLinkToken } from './service';
 
@@ -46,7 +46,8 @@ export const identityJobs = {
         const user = await repo.findUserForEmail(tx, p.userId);
         if (user?.status !== 'ACTIVE') return null;
         if (p.kind === 'VERIFY_EMAIL' && user.emailVerifiedAt) return null;
-        const url = new URL(LINK_PATH[p.kind], webUrl);
+        // Locale-prefixed web route (S0-11): the page opens in the language of the email.
+        const url = new URL(`/${emailLocale(user.locale)}${LINK_PATH[p.kind]}`, webUrl);
         const tokenKind = TOKEN_KIND[p.kind];
         if (tokenKind) {
           const token = newToken();

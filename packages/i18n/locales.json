@@ -1,0 +1,13 @@
+{
+  "$comment": "PLAN §3 #14. Adding a locale is config-only: list it here, run `pnpm i18n:draft`, review the drafts. `handwritten` locales must have every key (checked by `pnpm i18n:check`); others are drafted.",
+  "ui": {
+    "default": "en",
+    "locales": ["en", "es"],
+    "handwritten": ["en", "es"]
+  },
+  "content": {
+    "default": "es",
+    "locales": ["es", "en", "nl", "de", "fr", "sv"]
+  },
+  "timeZone": "Europe/Madrid"
+}

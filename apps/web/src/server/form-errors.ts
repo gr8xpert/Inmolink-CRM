@@ -1,15 +1,16 @@
-import type { Translate } from '@inmolink/i18n';
-import type { FormState } from '@/app/(auth)/actions';
+import { getTranslations } from 'next-intl/server';
+import type { FormState } from '@/app/[locale]/(auth)/actions';
 
-/** Translated messages for every `FormState.error` code. */
-export function formErrors(t: Translate): Record<NonNullable<FormState['error']>, string> {
+/** Translated messages for every `FormState.error` code, in the request locale. */
+export async function formErrors(): Promise<Record<NonNullable<FormState['error']>, string>> {
+  const t = await getTranslations('auth.errors');
   return {
-    invalidInput: t('errors.invalidInput'),
-    rateLimited: t('errors.rateLimited'),
-    invalidCredentials: t('errors.invalidCredentials'),
-    emailNotVerified: t('errors.emailNotVerified'),
-    tokenInvalid: t('errors.tokenInvalid'),
-    verifyPassword: t('errors.verifyPassword'),
-    generic: t('errors.generic'),
+    invalidInput: t('invalidInput'),
+    rateLimited: t('rateLimited'),
+    invalidCredentials: t('invalidCredentials'),
+    emailNotVerified: t('emailNotVerified'),
+    tokenInvalid: t('tokenInvalid'),
+    verifyPassword: t('verifyPassword'),
+    generic: t('generic'),
   };
 }

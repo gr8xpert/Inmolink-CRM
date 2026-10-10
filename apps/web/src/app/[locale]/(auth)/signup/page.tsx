@@ -1,19 +1,19 @@
 import { PASSWORD_MIN_LENGTH } from '@inmolink/contracts';
-import Link from 'next/link';
+import { getTranslations } from 'next-intl/server';
+import { Link } from '@/i18n/navigation';
 import { formErrors } from '@/server/form-errors';
-import { authT } from '@/server/locale';
 import { signupAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
 export default async function SignupPage() {
-  const t = await authT();
+  const t = await getTranslations('auth');
   return (
     <>
       <h1 className="mb-4 text-xl font-semibold">{t('signup.title')}</h1>
       <AuthForm
         action={signupAction}
         submitLabel={t('signup.submit')}
-        errors={formErrors(t)}
+        errors={await formErrors()}
         doneMessage={`${t('signup.checkEmailTitle')}. ${t('signup.checkEmailBody')}`}
         fields={[
           { name: 'name', label: t('signup.name'), autoComplete: 'name' },

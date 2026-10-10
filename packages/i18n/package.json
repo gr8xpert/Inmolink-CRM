@@ -3,14 +3,26 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Locales and message catalogs.",
+  "description": "Locales, message catalogs and locale formatters.",
   "sideEffects": false,
   "exports": {
     ".": {
       "@inmolink/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./server": {
+      "@inmolink/source": "./src/server.ts",
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./tools": {
+      "@inmolink/source": "./src/tools.ts",
+      "types": "./dist/tools.d.ts",
+      "default": "./dist/tools.js"
+    },
+    "./locales.json": "./locales.json",
+    "./messages/*": "./messages/*"
   },
   "scripts": {
     "build": "tsdown",
@@ -26,5 +38,8 @@
     "tsdown": "0.23.0",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "use-intl": "4.14.9"
   }
 }

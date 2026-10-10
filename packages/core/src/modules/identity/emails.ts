@@ -1,4 +1,5 @@
-import { DEFAULT_UI_LOCALE, isUiLocale, translator } from '@inmolink/i18n';
+import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
+import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
 
 /** Auth emails rendered from `@inmolink/i18n` (EN/ES written by hand). Text + minimal escaped HTML. */
@@ -16,6 +17,9 @@ const TAG: Record<AuthEmailKind, string> = {
   ACCOUNT_EXISTS: 'identity.account-exists',
 };
 
+/** The user's UI locale, or the default when it is no longer configured. Also the link's locale prefix. */
+export const emailLocale = (locale: string) => (isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
+
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
@@ -24,7 +28,7 @@ export function renderAuthEmail(
   user: { email: string; name: string; locale: string },
   link: string,
 ): EmailMessage {
-  const t = translator(isUiLocale(user.locale) ? user.locale : DEFAULT_UI_LOCALE, 'auth');
+  const t = translator(emailLocale(user.locale), 'auth');
   const s = SECTION[kind];
   const greeting = t(`${s}.greeting`, { name: user.name });
   const body = t(`${s}.body`);

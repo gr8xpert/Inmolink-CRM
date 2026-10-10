@@ -1,11 +1,11 @@
 import { PASSWORD_MIN_LENGTH } from '@inmolink/contracts';
+import { getTranslations } from 'next-intl/server';
 import { formErrors } from '@/server/form-errors';
-import { authT } from '@/server/locale';
 import { resetPasswordAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
 export default async function ResetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
-  const t = await authT();
+  const t = await getTranslations('auth');
   const { token } = await searchParams;
   return (
     <>
@@ -15,7 +15,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
           action={resetPasswordAction}
           hidden={{ token }}
           submitLabel={t('reset.submit')}
-          errors={formErrors(t)}
+          errors={await formErrors()}
           fields={[
             {
               name: 'password',

@@ -1,14 +1,13 @@
-import Link from 'next/link';
-import { redirect } from 'next/navigation';
+import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { Link, redirect } from '@/i18n/navigation';
 import { formErrors } from '@/server/form-errors';
-import { authT } from '@/server/locale';
 import { loginAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
-  if (await auth()) redirect('/');
-  const t = await authT();
+  if (await auth()) return redirect({ href: '/', locale: await getLocale() });
+  const t = await getTranslations('auth');
   const params = await searchParams;
   const notice = params.verified ? t('login.verified') : params.reset ? t('login.resetDone') : null;
   return (
@@ -22,7 +21,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <AuthForm
         action={loginAction}
         submitLabel={t('login.submit')}
-        errors={formErrors(t)}
+        errors={await formErrors()}
         fields={[
           { name: 'email', label: t('login.email'), type: 'email', autoComplete: 'username' },
           { name: 'password', label: t('login.password'), type: 'password', autoComplete: 'current-password' },

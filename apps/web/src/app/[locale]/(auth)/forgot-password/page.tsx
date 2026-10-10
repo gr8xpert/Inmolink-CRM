@@ -1,11 +1,11 @@
-import Link from 'next/link';
+import { getTranslations } from 'next-intl/server';
+import { Link } from '@/i18n/navigation';
 import { formErrors } from '@/server/form-errors';
-import { authT } from '@/server/locale';
 import { forgotPasswordAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
 export default async function ForgotPasswordPage() {
-  const t = await authT();
+  const t = await getTranslations('auth');
   return (
     <>
       <h1 className="mb-2 text-xl font-semibold">{t('forgot.title')}</h1>
@@ -13,7 +13,7 @@ export default async function ForgotPasswordPage() {
       <AuthForm
         action={forgotPasswordAction}
         submitLabel={t('forgot.submit')}
-        errors={formErrors(t)}
+        errors={await formErrors()}
         doneMessage={t('forgot.sent')}
         fields={[{ name: 'email', label: t('forgot.email'), type: 'email', autoComplete: 'email' }]}
       />

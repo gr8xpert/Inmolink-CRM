@@ -27,7 +27,7 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   // The fresh link replaces the sign-up one: wait for the second email, or the first (now dead) link wins the race.
   await expect.poll(() => countEmails(email, /Confirm your email/), { timeout: 60_000 }).toBe(2);
   const link = await waitForLink(email, /Confirm your email/);
-  expect(link.pathname).toBe('/verify-email');
+  expect(link.pathname).toBe('/en/verify-email');
   await page.goto(link.href);
   await page.getByLabel('Password').fill('wrong password!');
   await page.getByRole('button', { name: 'Confirm my email' }).click();
@@ -37,10 +37,13 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   await expect(page).toHaveURL(/\/login\?verified=1$/);
   await expect(page.getByRole('status')).toContainText('Your email is confirmed');
 
+  // `next dev` compiles a route on first use, and the login action renders the home route inside its
+  // response: compile it now so the action's latency is not dominated by a cold compile.
+  await page.request.get('/en');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/en$/);
   await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
   // Server-side: web session → 15-minute api token → GET /v1/me on the API.
   await expect(page.getByTestId('api-check')).toContainText('API session check passed for user');
@@ -103,11 +106,26 @@ test('[S0-09] password reset: the emailed link works once and the new password l
   expect(await countEmails(email, /Reset your Inmolink password/)).toBe(1);
 });
 
+test('[S0-11] the locale prefix decides the language, whatever the browser prefers', async ({ page }) => {
+  await page.goto('/es/login');
+  await expect(page).toHaveURL(/\/es\/login$/);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+  await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toBeVisible();
+  // Links stay in the locale.
+  await page.getByRole('link', { name: /Crea una cuenta/ }).click();
+  await expect(page).toHaveURL(/\/es\/signup$/);
+  expect((await page.request.get('/healthz')).status()).toBe(200);
+  expect((await page.goto('/en/no-such-page'))?.status()).toBe(404);
+});
+
 test.describe('Spanish UI', () => {
   test.use({ locale: 'es-ES' });
 
-  test('[S0-09] auth pages render in Spanish for an es browser', async ({ page }) => {
+  test('[S0-09] [S0-11] an unprefixed URL redirects to the browser locale; auth pages render in Spanish', async ({
+    page,
+  }) => {
     await page.goto('/login');
+    await expect(page).toHaveURL(/\/es\/login$/);
     await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toBeVisible();
     await page.goto('/signup');
     await expect(page.getByRole('heading', { name: 'Crea tu cuenta' })).toBeVisible();

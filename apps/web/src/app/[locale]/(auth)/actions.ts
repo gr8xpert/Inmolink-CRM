@@ -6,12 +6,12 @@ import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { headers } from 'next/headers';
-import { redirect } from 'next/navigation';
 import { AuthError } from 'next-auth';
+import { getLocale } from 'next-intl/server';
 import { signIn, signOut } from '@/auth';
+import { getPathname, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { checkLimits, clientIp, LIMITS } from '@/server/limits';
-import { requestLocale } from '@/server/locale';
 
 /**
  * Auth form actions (transport only): validate with the contracts, rate-limit, call identity. The
@@ -51,7 +51,8 @@ export async function signupAction(_prev: FormState, form: FormData): Promise<Fo
     email: field(form, 'email'),
     password: field(form, 'password'),
     name: field(form, 'name'),
-    locale: await requestLocale(),
+    // The route locale becomes the account's UI and email language.
+    locale: await getLocale(),
   });
   if (!parsed.success) return invalid(parsed.error.issues);
   const wait = await checkLimits([
@@ -65,7 +66,11 @@ export async function signupAction(_prev: FormState, form: FormData): Promise<Fo
 
 export async function loginAction(_prev: FormState, form: FormData): Promise<FormState> {
   try {
-    await signIn('credentials', { email: field(form, 'email'), password: field(form, 'password'), redirectTo: '/' });
+    await signIn('credentials', {
+      email: field(form, 'email'),
+      password: field(form, 'password'),
+      redirectTo: getPathname({ href: '/', locale: await getLocale() }),
+    });
   } catch (err) {
     if (err instanceof AuthError) {
       const code = (err as AuthError & { code?: string }).code;
@@ -95,7 +100,7 @@ export async function verifyEmailAction(_prev: FormState, form: FormData): Promi
     if (isAppError(err) && err.code === 'INVALID_CREDENTIALS') return { error: 'verifyPassword' };
     throw err;
   }
-  redirect('/login?verified=1');
+  return redirect({ href: '/login?verified=1', locale: await getLocale() });
 }
 
 export async function forgotPasswordAction(_prev: FormState, form: FormData): Promise<FormState> {
@@ -126,9 +131,9 @@ export async function resetPasswordAction(_prev: FormState, form: FormData): Pro
     if (isAppError(err) && err.code === 'TOKEN_INVALID') return { error: 'tokenInvalid' };
     throw err;
   }
-  redirect('/login?reset=1');
+  return redirect({ href: '/login?reset=1', locale: await getLocale() });
 }
 
 export async function logoutAction(): Promise<void> {
-  await signOut({ redirectTo: '/login' });
+  await signOut({ redirectTo: getPathname({ href: '/login', locale: await getLocale() }) });
 }

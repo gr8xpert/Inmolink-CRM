@@ -114,7 +114,7 @@ describe('identity sign-up and verification', () => {
     const email = uniqueEmail();
     await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'es' });
     const link = await deliverLatest(email);
-    expect(link.origin + link.pathname).toBe('http://web.test/verify-email');
+    expect(link.origin + link.pathname).toBe('http://web.test/es/verify-email');
     expect(mail.sent.at(-1)?.subject).toBe('Confirma tu correo en Inmolink');
     const token = link.searchParams.get('token') ?? '';
     await identity.verifyEmail(ctx(), { token, password: 'correct horse battery' });
@@ -206,7 +206,7 @@ describe('identity password reset', () => {
   async function requestReset(email: string): Promise<string> {
     await identity.requestPasswordReset(ctx(), { email });
     const link = await deliverLatest(email);
-    expect(link.pathname).toBe('/reset-password');
+    expect(link.pathname).toBe('/es/reset-password');
     return link.searchParams.get('token') ?? '';
   }
 

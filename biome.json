@@ -15,7 +15,8 @@
       "!**/next-env.d.ts",
       "!apps/wp-plugin",
       "!graphify-out",
-      "!packages/db/migrations"
+      "!packages/db/migrations",
+      "!**/*.generated.ts"
     ]
   }
 }
