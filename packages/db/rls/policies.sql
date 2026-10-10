@@ -7,4 +7,21 @@ create or replace function app_user_id() returns uuid language sql stable parall
 revoke all on function app_agency(), app_user_id() from public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public;
 
--- no registered tables
+do $$
+declare p record;
+begin
+  for p in select tablename, policyname from pg_policies
+            where schemaname = 'public' and tablename = any (array['outbox_events'])
+  loop
+    execute format('drop policy %I on public.%I', p.policyname, p.tablename);
+  end loop;
+end $$;
+
+-- outbox_events: STRICT
+alter table public."outbox_events" enable row level security;
+alter table public."outbox_events" force row level security;
+create policy own_rows on public."outbox_events" for insert to app_user
+  with check (agency_id = app_agency());
+revoke all on table public."outbox_events" from public, app_user, app_system, app_public;
+grant insert on table public."outbox_events" to app_user;
+grant select, insert, update, delete on table public."outbox_events" to app_system;

@@ -11,6 +11,8 @@ export default defineConfig({
     'http/index': 'src/http/index.ts',
     'ids/index': 'src/ids/index.ts',
     'logger/index': 'src/logger/index.ts',
+    'outbox/index': 'src/outbox/index.ts',
+    'queue/index': 'src/queue/index.ts',
   },
   format: 'esm',
   fixedExtension: false,

@@ -9,6 +9,7 @@ import {
   columnsOf,
   expectNoPublicWrites,
   expectSqlState,
+  insertQuery,
   insertSql,
   type Row,
   seed,
@@ -94,64 +95,114 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   const adminCount = async (agencyId: string) =>
     Number((await admin.query(`select count(*) as n from "${table}" where agency_id = $1`, [agencyId])).rows[0].n);
 
-  it(`[S0-05] ${table}: tenant A reads all of its own rows`, async () => {
-    expect(await withTenant({ agencyId: a }, (tx) => count(tx, table, a))).toBe(visible.length + hidden.length);
-  });
+  if (def.appendOnly) {
+    // Write-only for tenants (e.g. the outbox): every read, update and delete is denied, even on own rows.
+    it(`[S0-06] ${table}: append-only — tenants cannot select, update or delete any rows, even their own`, async () => {
+      for (const agencyId of [a, b]) {
+        await expectSqlState(() => withTenant({ agencyId: b }, (tx) => count(tx, table, agencyId)), DENIED);
+        await expectSqlState(
+          () =>
+            withTenant({ agencyId: b }, (tx) =>
+              tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${agencyId}`),
+            ),
+          DENIED,
+        );
+        await expectSqlState(
+          () =>
+            withTenant({ agencyId: b }, (tx) =>
+              tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`),
+            ),
+          DENIED,
+        );
+      }
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+      expect(await adminCount(b)).toBe(1);
+    });
 
-  if (def.kind === 'NETWORK_READ') {
-    it(`[S0-05] ${table}: tenant B reads tenant A's rows only where the network predicate holds`, async () => {
-      expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(visible.length);
+    it(`[S0-06] ${table}: append-only — tenant B cannot insert a row for tenant A`, async () => {
+      await expectSqlState(
+        () => withTenant({ agencyId: b }, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
+        DENIED,
+      );
+    });
+
+    it(`[S0-06] ${table}: append-only — app_user without a tenant cannot read or insert`, async () => {
+      const client = await getPgClient('app_user');
+      try {
+        await expectSqlState(() => client.query(`select count(*) from "${table}"`), DENIED);
+        const q = insertQuery(table, build({ agency_id: a }));
+        await expectSqlState(() => client.query(q.text, q.values), DENIED);
+      } finally {
+        client.release();
+      }
+    });
+
+    it(`[S0-06] ${table}: positive control — tenant B can insert its own rows`, async () => {
+      await rolledBack(b, async (tx) => {
+        expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
+      });
+      expect(await adminCount(b)).toBe(1);
     });
   } else {
-    it(`[S0-05] ${table}: tenant B cannot select tenant A's rows`, async () => {
-      expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(0);
+    it(`[S0-05] ${table}: tenant A reads all of its own rows`, async () => {
+      expect(await withTenant({ agencyId: a }, (tx) => count(tx, table, a))).toBe(visible.length + hidden.length);
+    });
+
+    if (def.kind === 'NETWORK_READ') {
+      it(`[S0-05] ${table}: tenant B reads tenant A's rows only where the network predicate holds`, async () => {
+        expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(visible.length);
+      });
+    } else {
+      it(`[S0-05] ${table}: tenant B cannot select tenant A's rows`, async () => {
+        expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(0);
+      });
+    }
+
+    it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
+      const res = await withTenant({ agencyId: b }, (tx) =>
+        tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+      );
+      expect(res.rowCount).toBe(0);
+    });
+
+    it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
+      const res = await withTenant({ agencyId: b }, (tx) =>
+        tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
+      );
+      expect(res.rowCount).toBe(0);
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+    });
+
+    it(`[S0-05] ${table}: tenant B cannot insert a row for tenant A`, async () => {
+      await expectSqlState(
+        () => withTenant({ agencyId: b }, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
+        DENIED,
+      );
+    });
+
+    it(`[S0-05] ${table}: tenant B cannot move its own row to tenant A`, async () => {
+      await expectSqlState(
+        () =>
+          withTenant({ agencyId: b }, (tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set agency_id = ${a} where agency_id = ${b}`),
+          ),
+        DENIED,
+      );
+      expect(await adminCount(b)).toBe(1);
+    });
+
+    it(`[S0-05] ${table}: app_user without a tenant sees no rows`, async () => {
+      const client = await getPgClient('app_user');
+      try {
+        await client.query('begin');
+        const { rows } = await client.query(`select count(*) as n from "${table}" where agency_id = any($1)`, [[a, b]]);
+        await client.query('commit');
+        expect(Number(rows[0].n)).toBe(0);
+      } finally {
+        client.release();
+      }
     });
   }
-
-  it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
-    const res = await withTenant({ agencyId: b }, (tx) =>
-      tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
-    );
-    expect(res.rowCount).toBe(0);
-  });
-
-  it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
-    const res = await withTenant({ agencyId: b }, (tx) =>
-      tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
-    );
-    expect(res.rowCount).toBe(0);
-    expect(await adminCount(a)).toBe(visible.length + hidden.length);
-  });
-
-  it(`[S0-05] ${table}: tenant B cannot insert a row for tenant A`, async () => {
-    await expectSqlState(
-      () => withTenant({ agencyId: b }, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
-      DENIED,
-    );
-  });
-
-  it(`[S0-05] ${table}: tenant B cannot move its own row to tenant A`, async () => {
-    await expectSqlState(
-      () =>
-        withTenant({ agencyId: b }, (tx) =>
-          tx.execute(sql`update ${sql.identifier(table)} set agency_id = ${a} where agency_id = ${b}`),
-        ),
-      DENIED,
-    );
-    expect(await adminCount(b)).toBe(1);
-  });
-
-  it(`[S0-05] ${table}: app_user without a tenant sees no rows`, async () => {
-    const client = await getPgClient('app_user');
-    try {
-      await client.query('begin');
-      const { rows } = await client.query(`select count(*) as n from "${table}" where agency_id = any($1)`, [[a, b]]);
-      await client.query('commit');
-      expect(Number(rows[0].n)).toBe(0);
-    } finally {
-      client.release();
-    }
-  });
 
   if (def.kind === 'PUBLIC_READ') {
     it(`[S0-05] ${table}: app_public reads only rows matching the public predicate`, async () => {
@@ -167,17 +218,19 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     await asAppPublic((client) => expectNoPublicWrites(client, table, build({ agency_id: a }), 'agency_id'));
   });
 
-  it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
-    // Proves the cross-tenant denials above come from the policies, not from a missing grant.
-    await rolledBack(b, async (tx) => {
-      expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
-      const res = await tx.execute(
-        sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
-      );
-      expect(res.rowCount).toBe(2);
+  if (!def.appendOnly) {
+    it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
+      // Proves the cross-tenant denials above come from the policies, not from a missing grant.
+      await rolledBack(b, async (tx) => {
+        expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
+        const res = await tx.execute(
+          sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
+        );
+        expect(res.rowCount).toBe(2);
+      });
+      expect(await adminCount(b)).toBe(1);
     });
-    expect(await adminCount(b)).toBe(1);
-  });
+  }
 });
 
 describe.each(globalNames)('global table %s', (table) => {

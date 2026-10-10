@@ -50,6 +50,16 @@
       "@inmolink/source": "./src/logger/index.ts",
       "types": "./dist/logger/index.d.ts",
       "default": "./dist/logger/index.js"
+    },
+    "./outbox": {
+      "@inmolink/source": "./src/outbox/index.ts",
+      "types": "./dist/outbox/index.d.ts",
+      "default": "./dist/outbox/index.js"
+    },
+    "./queue": {
+      "@inmolink/source": "./src/queue/index.ts",
+      "types": "./dist/queue/index.d.ts",
+      "default": "./dist/queue/index.js"
     }
   },
   "scripts": {
@@ -62,6 +72,9 @@
   "dependencies": {
     "@inmolink/contracts": "workspace:*",
     "@node-rs/argon2": "2.2.2",
+    "bullmq": "6.3.12",
+    "drizzle-orm": "0.45.4",
+    "ioredis": "6.0.0",
     "pino": "10.4.0",
     "zod": "4.6.5"
   },

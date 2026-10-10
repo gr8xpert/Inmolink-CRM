@@ -28,6 +28,11 @@ export const databaseEnv = {
   /** BYPASSRLS role — workers and scripts only; refused for APP_ROLE=http in production. */
   DATABASE_URL_APP_SYSTEM: url(['postgres', 'postgresql']).optional(),
   DATABASE_URL_APP_PUBLIC: url(['postgres', 'postgresql']),
+  /**
+   * Direct (non-PgBouncer) session connection for LISTEN — the outbox dispatcher's wake-up.
+   * Workers only (app_system credential); without it the dispatcher polls.
+   */
+  DATABASE_URL_LISTEN: url(['postgres', 'postgresql']).optional(),
 };
 
 /** Migrations and ops scripts only — never loaded by app runtimes. */
@@ -137,6 +142,12 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
     problems.push({
       key: 'DATABASE_URL_APP_SYSTEM',
       message: 'must not be set for APP_ROLE=http in production (BYPASSRLS credential; workers and scripts only)',
+    });
+  }
+  if (production && cfg.APP_ROLE === 'http' && cfg.DATABASE_URL_LISTEN !== undefined) {
+    problems.push({
+      key: 'DATABASE_URL_LISTEN',
+      message: 'must not be set for APP_ROLE=http in production (outbox dispatcher only; runs in workers)',
     });
   }
   if (production && typeof cfg.HMAC_KEY === 'string' && cfg.HMAC_KEY.startsWith('dev-')) {

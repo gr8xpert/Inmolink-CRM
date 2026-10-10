@@ -20,6 +20,11 @@ export interface PredicateSamples {
 interface TenantBase {
   /** Values for NOT NULL columns the isolation suite cannot invent (geometry, check-constrained text, …). */
   base?: SampleRow;
+  /**
+   * STRICT only: `app_user` may INSERT its own agency's rows and nothing else (no SELECT, UPDATE or
+   * DELETE) — write-only queues such as the outbox. Reads and acknowledgements go through `withSystem()`.
+   */
+  appendOnly?: true;
 }
 
 export type TenantTable = TenantBase &
@@ -56,7 +61,11 @@ export interface TenantRegistry {
 }
 
 /** Tables with `agency_id`. Add each new tenant table here, then run `pnpm db:rls`. */
-export const tenantTables: Record<string, TenantTable> = {};
+export const tenantTables: Record<string, TenantTable> = {
+  // Transactional outbox: request transactions insert their own agency's events; the dispatcher
+  // reads and acknowledges every agency's rows through withSystem(). Platform events use the nil UUID.
+  outbox_events: { kind: 'STRICT', appendOnly: true },
+};
 
 /** Tables without `agency_id`. Readable by app roles, written only by `withSystem()` (app_system). */
 export const globalTables: Record<string, GlobalTable> = {};

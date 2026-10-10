@@ -158,6 +158,8 @@ grant select, insert, update, delete on table properties to app_user, app_system
 
 NETWORK_READ and PUBLIC_READ share whole rows (RLS is row-level): such tables hold only shareable columns; private fields go in a STRICT side table (`property_privates`). Forced RLS binds `app_owner` too, so data backfills belong in a `withSystem()` job, not in a migration.
 
+Write-only queues (the outbox) register as `{ kind: 'STRICT', appendOnly: true }`: `app_user` may only INSERT its own agency's rows (no SELECT/UPDATE/DELETE); reads and acknowledgements go through `withSystem()`.
+
 Grants come only from `pnpm db:rls` — app roles have no default privileges, so an unregistered table is unreachable. The guard (`checkRls`, run by `db:rls` and `pnpm test:isolation`) fails on: a `public` table not in the registry, `agency_id` on a global table, RLS off or not forced, missing or extra policies, stale entries, `app_public` grants on non-public tables, and direct grants on partitions, altered policies (command/roles), any privilege beyond the generated set (TRUNCATE, column grants), accessible views/materialized views/foreign tables or objects outside `public`, and functions an app role can execute other than the generated helpers.
 
 ---
@@ -357,7 +359,7 @@ subscribe(listingEvents.updated, (e) =>
   ));
 ```
 
-The dispatcher (`apps/worker` pool `outbox`) claims rows with `FOR UPDATE SKIP LOCKED`, calls subscribers, marks `processed_at`. Consumers must be idempotent and ignore stale versions.
+The dispatcher (`apps/worker` pool `outbox`, `createDispatcher({ runSystem: withSystem, listen: (cb) => listen(OUTBOX_CHANNEL, cb), logger })`) leases rows with `FOR UPDATE SKIP LOCKED`, calls subscribers outside any transaction, then marks `processed_at` (or retries with backoff / dead-letters; `pnpm ops:replay-outbox` re-queues). Delivery is at least once: consumers must be idempotent and ignore stale versions. Use `meta.agencyId` (RLS-checked) — not a payload field — as the tenant and fair-share group. Payloads ≤ 10 KB (IDs only).
 
 ---
 

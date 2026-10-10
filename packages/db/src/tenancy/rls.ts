@@ -29,13 +29,14 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
   if (!('kind' in def)) {
     return { app_user: ['SELECT'], app_system: DML, app_public: def.publicRead ? ['SELECT'] : [] };
   }
-  return { app_user: DML, app_system: DML, app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [] };
+  const user: Privilege[] = def.appendOnly ? ['INSERT'] : DML;
+  return { app_user: user, app_system: DML, app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [] };
 }
 
 export interface PolicySpec {
   name: string;
   /** pg_policies.cmd */
-  cmd: 'ALL' | 'SELECT';
+  cmd: 'ALL' | 'SELECT' | 'INSERT';
   roles: string[];
 }
 
@@ -44,7 +45,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (!('kind' in def)) {
     return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
   }
-  const out: PolicySpec[] = [{ name: 'own_rows', cmd: 'ALL', roles: ['app_user'] }];
+  const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
   if (def.kind === 'NETWORK_READ') out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   return out;
@@ -78,8 +79,12 @@ export function helperSql(): string {
 
 function tenantTableSql(name: string, def: TenantTable): string[] {
   const t = ident(name);
+  if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
   const out = [
-    `create policy own_rows on ${t} to app_user
+    def.appendOnly
+      ? `create policy own_rows on ${t} for insert to app_user
+  with check (agency_id = app_agency());`
+      : `create policy own_rows on ${t} to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
   ];
   if (def.kind === 'NETWORK_READ') {
@@ -93,7 +98,10 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   }
   out.push(
     `revoke all on table ${t} from ${APP_ROLES};`,
-    `grant select, insert, update, delete on table ${t} to app_user, app_system;`,
+    def.appendOnly
+      ? `grant insert on table ${t} to app_user;
+grant select, insert, update, delete on table ${t} to app_system;`
+      : `grant select, insert, update, delete on table ${t} to app_user, app_system;`,
   );
   if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);
   return out;

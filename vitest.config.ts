@@ -24,6 +24,34 @@ export default defineConfig({
         },
       },
       {
+        // Outbox + queues against the test stack (Postgres + redis-queue). Files run one at a time:
+        // fair-share timing assertions need a quiet event loop.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'queue',
+          include: ['tests/queue/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 180_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
+        // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
+        // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'perf',
+          include: ['tests/perf/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 300_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:isolation`: cross-tenant suite generated from the tenant registry + RLS guard.
         // Files run one at a time: they create and drop shared fixture tables in schema public.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },

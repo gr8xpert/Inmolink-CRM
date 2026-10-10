@@ -24,6 +24,21 @@
     "//#lint:root": {},
     "//#test:root": {},
     "//#test:int:root": {
+      "dependsOn": ["^test:int", "//#test:isolation"],
+      "cache": false
+    },
+    "//#test:perf:root": {
+      "dependsOn": [
+        "^typecheck",
+        "^lint",
+        "^test",
+        "^test:int",
+        "//#typecheck:root",
+        "//#lint:root",
+        "//#test:root",
+        "//#test:int:root",
+        "//#test:isolation"
+      ],
       "cache": false
     },
     "//#test:isolation": {
