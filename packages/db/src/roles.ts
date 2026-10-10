@@ -11,6 +11,12 @@ export const DB_ROLES = {
   app_user: { bypassRls: false, readOnly: false, statementTimeout: '5s', dml: true },
   /** Workers and scripts via `withSystem()`. Bypasses RLS; refused when APP_ROLE=http. */
   app_system: { bypassRls: true, readOnly: false, statementTimeout: '60s', dml: true },
+  /**
+   * Anonymous auth flows (sign-up, login, email verification, password reset, access tokens) in
+   * request paths, via `withAuth()`. Reaches only tables registered with `access: 'auth'` and may
+   * INSERT platform outbox events; no tenant table, no BYPASSRLS (S0-09, ADR 0004).
+   */
+  app_auth: { bypassRls: false, readOnly: false, statementTimeout: '5s', dml: true },
   /** Public read paths (feed-api, portal). Read-only; SELECT only on PUBLIC_READ tables, granted by `pnpm db:rls`. */
   app_public: { bypassRls: false, readOnly: true, statementTimeout: '2s', dml: false },
 } as const;

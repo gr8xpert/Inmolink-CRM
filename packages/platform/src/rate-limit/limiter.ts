@@ -5,7 +5,7 @@ import { hmacSha256 } from '../crypto/hmac';
 import type { Logger } from '../logger';
 
 /** What a limit counts against (PLAN §5.3 #11). */
-export type RateScope = 'ip' | 'user' | 'key' | 'tenant';
+export type RateScope = 'ip' | 'user' | 'key' | 'tenant' | 'email';
 
 export interface RateLimitRule {
   /** Stable name, part of the Redis key (`auth.login`, `api.default`, …). */

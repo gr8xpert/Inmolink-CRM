@@ -3,11 +3,14 @@ import {
   coreEnv,
   cryptoEnv,
   databaseEnv,
+  emailEnv,
   httpEnv,
   loadConfigOrExit,
   portVar,
   redisEnv,
+  webUrlEnv,
 } from '@inmolink/platform/config';
+import type { EmailConfig } from '@inmolink/platform/email';
 import { z } from 'zod';
 
 /** Worker pools (workers.md); each can run on its own node via `WORKER_POOLS`. */
@@ -52,8 +55,17 @@ export const workerEnv = {
   DATABASE_URL_LISTEN: databaseEnv.DATABASE_URL_LISTEN,
   ...redisEnv,
   ...cryptoEnv,
+  ...emailEnv,
+  ...webUrlEnv,
 };
 export type WorkerConfig = Config<typeof workerEnv>;
+
+/** platform/email driver settings from the validated env (cross-checks guarantee the credential). */
+export function emailConfig(config: WorkerConfig): EmailConfig {
+  return config.EMAIL_DRIVER === 'resend'
+    ? { driver: 'resend', from: config.EMAIL_FROM, resendApiKey: config.RESEND_API_KEY as string }
+    : { driver: 'smtp', from: config.EMAIL_FROM, smtpUrl: config.SMTP_URL as string };
+}
 
 export const loadWorkerConfig = (env: Record<string, string | undefined> = process.env) =>
   loadConfigOrExit(workerEnv, { ...env, APP_ROLE: 'worker' });

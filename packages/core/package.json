@@ -10,6 +10,11 @@
       "@inmolink/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./modules/*": {
+      "@inmolink/source": "./src/modules/*/index.ts",
+      "types": "./dist/modules/*/index.d.ts",
+      "default": "./dist/modules/*/index.js"
     }
   },
   "scripts": {
@@ -22,7 +27,10 @@
   "dependencies": {
     "@inmolink/contracts": "workspace:*",
     "@inmolink/db": "workspace:*",
-    "@inmolink/platform": "workspace:*"
+    "@inmolink/i18n": "workspace:*",
+    "@inmolink/platform": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

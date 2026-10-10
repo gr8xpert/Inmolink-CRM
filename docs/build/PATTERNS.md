@@ -160,6 +160,8 @@ NETWORK_READ and PUBLIC_READ share whole rows (RLS is row-level): such tables ho
 
 Write-only queues (the outbox) register as `{ kind: 'STRICT', appendOnly: true }`: `app_user` may only INSERT its own agency's rows (no SELECT/UPDATE/DELETE); reads and acknowledgements go through `withSystem()`.
 
+Identity data (`users`, `auth_tokens`) registers as a global table with `access: 'auth'`: only `app_auth` (`withAuth()`, the anonymous auth flows) and `app_system` reach it — `app_user` cannot even read it. `authAppend: true` on the outbox lets `app_auth` append platform events (nil agency) only. Services for those flows take `AuthCtx { requestId, transaction }` and do password hashing before opening the transaction (ADR 0004).
+
 Grants come only from `pnpm db:rls` — app roles have no default privileges, so an unregistered table is unreachable. The guard (`checkRls`, run by `db:rls` and `pnpm test:isolation`) fails on: a `public` table not in the registry, `agency_id` on a global table, RLS off or not forced, missing or extra policies, stale entries, `app_public` grants on non-public tables, and direct grants on partitions, altered policies (command/roles), any privilege beyond the generated set (TRUNCATE, column grants), accessible views/materialized views/foreign tables or objects outside `public`, and functions an app role can execute other than the generated helpers.
 
 ---
@@ -417,13 +419,16 @@ export async function listingRoutes(app: FastifyZod) {
       tags: ['properties'], operationId: 'properties.updateListing', summary: 'Update a listing',
       params: IdParams, body: UpdateListingBody, response: { 200: ListingDto },
     },
-    preHandler: [app.requireSession],
-    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    onRequest: [app.requireSession],   // onRequest, so the user/tenant rate limits (preHandler) see the caller
+    config: { rateLimit: [
+      { name: 'properties.write.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+      { name: 'properties.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
+    ] },
   }, (req) => app.withCtx(req, (ctx) => properties.updateListing(ctx, { id: req.params.id, ...req.body })));
 }
 ```
 
-`app.withCtx(req, fn)` (plugin in `apps/api/src/plugins/ctx.ts`) resolves the session, opens `withTenant`, builds `ctx`, runs `fn`, and lets the error plugin map `AppError`. Handlers stay one expression long.
+`app.requireSession` (`apps/api/src/plugins/session.ts`) verifies the `Authorization: Bearer` access token (audience `api`, 15 min, minted by web at `/session/token`) and sets `request.auth`; the API never reads cookies. `app.withCtx(req, fn)` (`apps/api/src/plugins/ctx.ts`) takes the caller's membership from `request.auth`, opens `withTenant`, builds `ctx`, runs `fn`, and lets the error plugin map `AppError`. Handlers stay one expression long.
 
 ---
 

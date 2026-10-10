@@ -1,4 +1,5 @@
 import type { Redis } from '@inmolink/platform/cache';
+import type { AccessTokenVerifier } from '@inmolink/platform/jwt';
 import type { Logger } from '@inmolink/platform/logger';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -14,6 +15,10 @@ export interface RealtimeDeps {
   checks: Record<string, HealthCheck>;
   /** Redis pub/sub for the adapter (sticky sessions + fan-out across nodes); omit for a single in-memory node in tests. */
   adapter?: { pub: Redis; sub: Redis };
+  /** Access tokens from the web app (audience `realtime`). */
+  verifier: AccessTokenVerifier;
+  /** Exact origins allowed to open a socket (`WEB_URL`). */
+  allowedOrigins: readonly string[];
 }
 
 export interface RealtimeApp {
@@ -35,14 +40,36 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   });
   healthRoutes(app, { checks: deps.checks });
 
+  const allowed = new Set(deps.allowedOrigins);
   const io = new Server(app.server, {
     serveClient: false,
     transports: ['websocket', 'polling'],
+    // Engine.io traffic bypasses Fastify hooks, so the origin check lives here: only the dashboard's
+    // origins may open a socket (browsers always send Origin; requests without one are refused).
+    allowRequest: (req, callback) => {
+      const origin = req.headers.origin;
+      callback(null, typeof origin === 'string' && allowed.has(origin));
+    },
+    cors: { origin: [...allowed], credentials: false },
     ...(deps.adapter ? { adapter: createAdapter(deps.adapter.pub, deps.adapter.sub) } : {}),
   });
-  // Auth (short-lived JWT, same as api) and the /chat and /notifications namespaces arrive in S0-09 / S11.
-  // Until then no client may connect, so nothing can join a room it does not belong to.
-  io.use((_socket, next) => next(new Error('NOT_AUTHENTICATED')));
+  // Same short-lived JWT as the api (audience `realtime`), sent in the handshake `auth` payload — never
+  // a cookie. The /chat and /notifications namespaces and their rooms arrive in S11.
+  io.use((socket, next) => {
+    const token = (socket.handshake.auth as { token?: unknown } | undefined)?.token;
+    deps.verifier.verify(typeof token === 'string' ? token : '', 'realtime').then(
+      (claims) => {
+        socket.data.userId = claims.sub;
+        socket.data.sessionVersion = claims.sv;
+        // A socket outlives its token by at most this long: the client reconnects with a fresh one.
+        const timer = setTimeout(() => socket.disconnect(true), Math.max(0, claims.exp * 1_000 - Date.now()));
+        timer.unref();
+        socket.once('disconnect', () => clearTimeout(timer));
+        next();
+      },
+      () => next(new Error('NOT_AUTHENTICATED')),
+    );
+  });
 
   return {
     app,

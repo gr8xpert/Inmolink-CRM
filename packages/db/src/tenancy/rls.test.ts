@@ -52,7 +52,9 @@ describe('RLS generator', () => {
   });
 
   it('[S0-05] every table resets its grants and policies, so reruns are idempotent', () => {
-    expect(out).toContain(`revoke all on table public."contacts" from public, app_user, app_system, app_public;`);
+    expect(out).toContain(
+      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth;`,
+    );
     expect(out).toContain(`array['contacts', 'listing_read_models', 'locations', 'properties']`);
     expect(generateRlsSql(reg)).toBe(out);
   });
@@ -75,8 +77,37 @@ describe('RLS generator', () => {
       app_user: ['SELECT'],
       app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
       app_public: [],
+      app_auth: [],
     });
     expect(() => mergeRegistries(reg, { tenant: {}, global: { contacts: { reason: 'x' } } })).toThrow(/twice/);
+  });
+
+  it('[S0-09] auth tables: only app_auth and app_system reach them; tenant tables give app_auth nothing', () => {
+    const authAppend = { column: 'type', prefix: 'identity.' };
+    const auth = generateRlsSql({
+      tenant: { outbox: { kind: 'STRICT', appendOnly: true, authAppend }, contacts: { kind: 'STRICT' } },
+      global: { users: { reason: 'identity', access: 'auth' } },
+    });
+    expect(auth).toContain(`create policy auth_rows on public."users" to app_auth using (true) with check (true);`);
+    expect(auth).toContain(`grant select, insert, update on table public."users" to app_auth;`);
+    expect(auth).not.toMatch(/"users"[^;]* to app_user/);
+    expect(auth).toContain(`create policy auth_append on public."outbox" for insert to app_auth
+  with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));`);
+    expect(auth).not.toMatch(/"contacts"[^;]* to [^;]*app_auth/);
+    expect(expectedPrivileges({ reason: 'x', access: 'auth' })).toEqual({
+      app_user: [],
+      app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
+      app_public: [],
+      app_auth: ['SELECT', 'INSERT', 'UPDATE'],
+    });
+    expect(() => tablesSql({ tenant: { t: { kind: 'STRICT', authAppend } }, global: {} })).toThrow(/appendOnly/);
+    const smuggled = { column: 'type', prefix: "x'; drop table y; --" };
+    expect(() =>
+      tablesSql({ tenant: { t: { kind: 'STRICT', appendOnly: true, authAppend: smuggled } }, global: {} }),
+    ).toThrow(/prefix/);
+    expect(() => tablesSql({ tenant: {}, global: { u: { reason: 'x', access: 'auth', publicRead: true } } })).toThrow(
+      /publicRead/,
+    );
   });
 
   it('[S0-05] the production registry generates valid SQL', () => {

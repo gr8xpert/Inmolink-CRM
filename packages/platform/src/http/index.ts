@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+export { clientIpFromForwarded, type TrustProxy } from './client-ip';
+
 /**
  * Cache-Control builders and ETag helpers. feed-api responses are public and shared by
  * the CDN; dashboard responses are private; anything with per-user secrets is no-store.

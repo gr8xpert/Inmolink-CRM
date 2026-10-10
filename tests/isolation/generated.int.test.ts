@@ -1,5 +1,6 @@
-import { getPgClient, type TenantTable, type Tx, withPublicRead, withTenant } from '@inmolink/db';
+import { getPgClient, type TenantTable, type Tx, withAuth, withPublicRead, withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -27,6 +28,15 @@ const DENIED = ['42501']; // insufficient_privilege: missing grant or RLS WITH C
 class Rollback extends Error {}
 async function rolledBack(agencyId: string, fn: (tx: Tx) => Promise<void>): Promise<void> {
   await withTenant({ agencyId }, async (tx) => {
+    await fn(tx);
+    throw new Rollback();
+  }).catch((err) => {
+    if (!(err instanceof Rollback)) throw err;
+  });
+}
+
+async function rolledBackAuth(fn: (tx: Tx) => Promise<void>): Promise<void> {
+  await withAuth(async (tx) => {
     await fn(tx);
     throw new Rollback();
   }).catch((err) => {
@@ -231,6 +241,52 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       expect(await adminCount(b)).toBe(1);
     });
   }
+
+  it(`[S0-09] ${table}: app_auth cannot read, update or delete it`, async () => {
+    await expectSqlState(() => withAuth((tx) => count(tx, table, a)), DENIED);
+    await expectSqlState(
+      () =>
+        withAuth((tx) =>
+          tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+        ),
+      DENIED,
+    );
+    await expectSqlState(
+      () => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
+      DENIED,
+    );
+    expect(await adminCount(a)).toBe(visible.length + hidden.length);
+  });
+
+  it(`[S0-09] ${table}: app_auth cannot insert a tenant's row`, async () => {
+    await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build({ agency_id: a })))), DENIED);
+  });
+
+  const authAppend = def.authAppend;
+  if (authAppend) {
+    const own = { agency_id: PLATFORM_AGENCY_ID, [authAppend.column]: `${authAppend.prefix}isoFixture` };
+    it(`[S0-09] ${table}: positive control — app_auth can append a platform row of its own kind`, async () => {
+      await rolledBackAuth(async (tx) => {
+        expect((await tx.execute(insertSql(table, build(own)))).rowCount).toBe(1);
+      });
+    });
+
+    it(`[S0-09] ${table}: app_auth cannot append a platform row of another kind, or its kind for a tenant`, async () => {
+      const foreign = { ...own, [authAppend.column]: 'billing.isoFixture' };
+      await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build(foreign)))), DENIED);
+      await expectSqlState(
+        () => withAuth((tx) => tx.execute(insertSql(table, build({ ...own, agency_id: a })))),
+        DENIED,
+      );
+    });
+  } else {
+    it(`[S0-09] ${table}: app_auth cannot append a platform row`, async () => {
+      await expectSqlState(
+        () => withAuth((tx) => tx.execute(insertSql(table, build({ agency_id: PLATFORM_AGENCY_ID })))),
+        DENIED,
+      );
+    });
+  }
 });
 
 describe.each(globalNames)('global table %s', (table) => {
@@ -255,9 +311,31 @@ describe.each(globalNames)('global table %s', (table) => {
       .execute(sql`select count(*) as n from ${sql.identifier(table)} where ctid = ${ctid}::tid`)
       .then((r) => Number(r.rows[0]?.n));
 
-  it(`[S0-05] ${table}: every tenant can read it`, async () => {
-    expect(await withTenant({ agencyId: newId() }, seen)).toBe(1);
-  });
+  if (def?.access === 'auth') {
+    it(`[S0-09] ${table}: auth table — tenants cannot read it`, async () => {
+      await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
+    });
+
+    it(`[S0-09] ${table}: positive control — app_auth reads and updates it`, async () => {
+      await rolledBackAuth(async (tx) => {
+        expect(await seen(tx)).toBe(1);
+        const res = await tx.execute(
+          sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,
+        );
+        expect(res.rowCount).toBe(1);
+      });
+    });
+  } else {
+    it(`[S0-05] ${table}: every tenant can read it`, async () => {
+      expect(await withTenant({ agencyId: newId() }, seen)).toBe(1);
+    });
+
+    it(`[S0-09] ${table}: app_auth cannot read or write it`, async () => {
+      await expectSqlState(() => withAuth(seen), DENIED);
+      await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build()))), DENIED);
+      await expectSqlState(() => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
+  }
 
   it(`[S0-05] ${table}: tenants cannot insert, update or delete`, async () => {
     const agencyId = newId();

@@ -1,4 +1,5 @@
 import {
+  authVerifyEnv,
   type Config,
   coreEnv,
   cryptoEnv,
@@ -20,6 +21,7 @@ export const apiEnv = {
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,
   ...cryptoEnv,
+  ...authVerifyEnv,
 };
 export type ApiConfig = Config<typeof apiEnv>;
 

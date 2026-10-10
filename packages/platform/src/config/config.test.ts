@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKey } from '../crypto';
-import { ConfigError, coreEnv, cryptoEnv, databaseEnv, loadConfig, loadConfigOrExit, redisEnv } from './index';
+import { generateAccessKeyPair } from '../jwt';
+import {
+  authSessionEnv,
+  authSignEnv,
+  authVerifyEnv,
+  ConfigError,
+  coreEnv,
+  cryptoEnv,
+  databaseEnv,
+  emailEnv,
+  loadConfig,
+  loadConfigOrExit,
+  redisEnv,
+} from './index';
 
 const validEnv = {
   NODE_ENV: 'test',
@@ -131,5 +144,52 @@ describe('loadConfig', () => {
     const err = problemsOf(() => loadConfig({ ...shape, ...cryptoEnv }, env));
     expect(err.problems.map((p) => p.key).sort()).toEqual(['ENCRYPTION_KEYS', 'HMAC_KEY']);
     expect(() => loadConfig({ ...shape, ...cryptoEnv }, { ...env, NODE_ENV: 'development' })).not.toThrow();
+  });
+
+  it('[S0-09] email driver needs its credential; JWT keys must be Ed25519 and not dev keys in production', () => {
+    const emailShape = { ...coreEnv, ...emailEnv };
+    const base = { NODE_ENV: 'test', APP_ROLE: 'worker', EMAIL_FROM: 'Inmolink <no-reply@inmolink.test>' };
+    expect(problemsOf(() => loadConfig(emailShape, base)).problems.map((p) => p.key)).toEqual(['SMTP_URL']);
+    expect(
+      problemsOf(() => loadConfig(emailShape, { ...base, EMAIL_DRIVER: 'resend' })).problems.map((p) => p.key),
+    ).toEqual(['RESEND_API_KEY']);
+    expect(() => loadConfig(emailShape, { ...base, SMTP_URL: 'smtp://localhost:1025' })).not.toThrow();
+
+    const pair = generateAccessKeyPair();
+    const authShape = { ...coreEnv, ...authSignEnv, ...authVerifyEnv };
+    const auth = {
+      NODE_ENV: 'production',
+      APP_ROLE: 'http',
+      AUTH_JWT_PRIVATE_KEY: pair.privateKey,
+      AUTH_JWT_KEY_ID: 'dev-1',
+      AUTH_JWT_PUBLIC_KEYS: `dev-1:${pair.publicKey}`,
+    };
+    expect(problemsOf(() => loadConfig(authShape, auth)).problems.map((p) => p.key)).toEqual([
+      'AUTH_JWT_KEY_ID',
+      'AUTH_JWT_PUBLIC_KEYS',
+    ]);
+    expect(() =>
+      loadConfig(authShape, { ...auth, AUTH_JWT_KEY_ID: 'k1', AUTH_JWT_PUBLIC_KEYS: `k1:${pair.publicKey}` }),
+    ).not.toThrow();
+
+    // The committed example key under a new id, and a dev session secret, are still refused.
+    const example = {
+      ...auth,
+      AUTH_JWT_KEY_ID: 'prod-1',
+      AUTH_JWT_PRIVATE_KEY: 'MC4CAQAwBQYDK2VwBCIEIIokFZlFPiG5rY8/BikaWmui4W0LMkhhDR3/KrGI9+cd',
+      AUTH_JWT_PUBLIC_KEYS: 'prod-1:MCowBQYDK2VwAyEA57hG/H5HUDaL1k17CeMBqE03zTvNPgLVHoX7DKSYyqs=',
+      AUTH_SECRET: `dev-${'x'.repeat(40)}`,
+    };
+    expect(
+      problemsOf(() => loadConfig({ ...authShape, ...authSessionEnv }, example))
+        .problems.map((p) => p.key)
+        .sort(),
+    ).toEqual(['AUTH_JWT_PRIVATE_KEY', 'AUTH_JWT_PUBLIC_KEYS', 'AUTH_SECRET']);
+    const bad = { ...auth, NODE_ENV: 'test', AUTH_JWT_PRIVATE_KEY: pair.publicKey, AUTH_JWT_PUBLIC_KEYS: 'k1:abc' };
+    expect(
+      problemsOf(() => loadConfig(authShape, bad))
+        .problems.map((p) => p.key)
+        .sort(),
+    ).toEqual(['AUTH_JWT_PRIVATE_KEY', 'AUTH_JWT_PUBLIC_KEYS']);
   });
 });

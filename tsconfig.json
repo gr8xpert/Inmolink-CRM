@@ -7,6 +7,8 @@
     "tests/isolation",
     "tests/queue",
     "tests/perf",
+    "tests/e2e",
+    "playwright.config.ts",
     "scripts/ops"
   ]
 }

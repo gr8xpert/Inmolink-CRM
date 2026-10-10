@@ -1,0 +1,69 @@
+import { configureDb, loadStackEnv } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
+import { configureCache } from '@inmolink/platform/cache';
+import {
+  authSessionEnv,
+  authSignEnv,
+  type Config,
+  ConfigError,
+  coreEnv,
+  cryptoEnv,
+  databaseEnv,
+  httpEnv,
+  loadConfig,
+  redisEnv,
+  webUrlEnv,
+} from '@inmolink/platform/config';
+import { createAccessTokenSigner, privateKeyFromBase64 } from '@inmolink/platform/jwt';
+import { createLogger } from '@inmolink/platform/logger';
+import { z } from 'zod';
+
+/**
+ * Server-side setup for the dashboard (S0-09): Auth.js session secret, `app_auth` pool for the auth
+ * flows, redis-cache for login rate limits, and the access-token signer. Loaded once, lazily, on the
+ * first request that needs it — never at build time.
+ */
+export const webEnv = {
+  ...coreEnv,
+  TRUST_PROXY: httpEnv.TRUST_PROXY,
+  DATABASE_URL_APP_AUTH: databaseEnv.DATABASE_URL_APP_AUTH.unwrap(),
+  REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  HMAC_KEY: cryptoEnv.HMAC_KEY,
+  ...authSignEnv,
+  ...webUrlEnv,
+  /** Dashboard API base URL for server-side calls. */
+  API_URL: z.url().transform((v) => v.replace(/\/+$/, '')),
+  ...authSessionEnv,
+};
+export type WebConfig = Config<typeof webEnv>;
+
+let ready: Promise<WebConfig> | undefined;
+
+async function setup(): Promise<WebConfig> {
+  loadStackEnv('dev', { allowExample: false });
+  // The web server is a request path: `withSystem` stays refused (APP_ROLE=http).
+  const config = loadConfig(webEnv, { ...process.env, APP_ROLE: 'http' });
+  if (config.NODE_ENV === 'production' && config.TRUST_PROXY === false) {
+    // Next has no socket address: without a trusted proxy hop, X-Forwarded-For is client-controlled.
+    throw new ConfigError([{ key: 'TRUST_PROXY', message: 'must name the proxy in front of web in production' }]);
+  }
+  const logger = createLogger({ service: 'web', level: config.LOG_LEVEL });
+  await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_AUTH: config.DATABASE_URL_APP_AUTH }, { logger });
+  await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  identity.configureIdentity({
+    hmacKey: config.HMAC_KEY,
+    signer: createAccessTokenSigner({
+      privateKey: privateKeyFromBase64(config.AUTH_JWT_PRIVATE_KEY),
+      keyId: config.AUTH_JWT_KEY_ID,
+    }),
+  });
+  return config;
+}
+
+export function webConfig(): Promise<WebConfig> {
+  ready ??= setup().catch((err) => {
+    ready = undefined;
+    throw err;
+  });
+  return ready;
+}

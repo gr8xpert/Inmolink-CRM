@@ -1,4 +1,5 @@
 import {
+  authVerifyEnv,
   type Config,
   coreEnv,
   cryptoEnv,
@@ -7,6 +8,7 @@ import {
   loadConfigOrExit,
   portVar,
   redisEnv,
+  webUrlEnv,
 } from '@inmolink/platform/config';
 
 /** Socket.io server: `app_user` (membership checks, S11), redis-cache for the adapter's pub/sub. */
@@ -17,6 +19,8 @@ export const realtimeEnv = {
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   ...cryptoEnv,
+  ...authVerifyEnv,
+  ...webUrlEnv,
 };
 export type RealtimeConfig = Config<typeof realtimeEnv>;
 

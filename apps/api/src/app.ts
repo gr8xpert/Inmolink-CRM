@@ -1,7 +1,10 @@
+import type { AccessTokenVerifier } from '@inmolink/platform/jwt';
 import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { ctxPlugin } from './plugins/ctx';
+import { sessionPlugin } from './plugins/session';
+import { identityRoutes } from './routes/identity/routes';
 
 /** Fastify dashboard API. Transport only — business logic lives in @inmolink/core. */
 export const APP_NAME = 'api';
@@ -20,6 +23,8 @@ export interface ApiDeps {
   /** Readiness result reuse (default 1 s); tests that swap dependencies pass 0. */
   readinessCacheMs?: number;
   limiter: RateLimiter;
+  /** Access tokens from the web app (audience `api`). */
+  verifier: AccessTokenVerifier;
 }
 
 export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
@@ -31,15 +36,17 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
     docsUi: deps.docsUi,
   });
   ctxPlugin(app);
+  sessionPlugin(app, { verifier: deps.verifier });
   await app.register(rateLimitPlugin, {
     limiter: deps.limiter,
     defaults: DEFAULT_LIMITS,
     identify: {
       ip: (r) => ipBucket(r.ip),
-      user: (r) => (r.auth?.actor.kind === 'user' ? r.auth.actor.userId : undefined),
-      tenant: (r) => r.auth?.tenant.agencyId,
+      user: (r) => r.auth?.userId,
+      tenant: (r) => r.auth?.member?.tenant.agencyId,
     },
   });
   healthRoutes(app, { checks: deps.checks, cacheMs: deps.readinessCacheMs });
+  await app.register(identityRoutes);
   return app;
 }

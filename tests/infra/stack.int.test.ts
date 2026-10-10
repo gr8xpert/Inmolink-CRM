@@ -34,9 +34,13 @@ const namedVolumes = (profile: StackTarget) =>
   );
 
 /** Every localhost port an env file points at. */
+/** Our own apps' URLs (S0-09), not docker services. */
+const APP_URL_KEYS = new Set(['WEB_URL', 'API_URL']);
+
 const envPorts = (target: StackTarget) =>
-  Object.values(readStackEnv(target))
-    .map((value) => value?.match(/localhost:(\d+)/)?.[1])
+  Object.entries(readStackEnv(target))
+    .filter(([key]) => !APP_URL_KEYS.has(key))
+    .map(([, value]) => value?.match(/localhost:(\d+)/)?.[1])
     .filter((port): port is string => port !== undefined)
     .map(Number);
 

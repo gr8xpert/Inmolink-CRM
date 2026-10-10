@@ -16,6 +16,11 @@
       "types": "./dist/migrate.d.ts",
       "default": "./dist/migrate.js"
     },
+    "./schema/*": {
+      "@inmolink/source": "./src/schema/*.ts",
+      "types": "./dist/schema/*.d.ts",
+      "default": "./dist/schema/*.js"
+    },
     "./testing": {
       "@inmolink/source": "./test/test-db.ts"
     }

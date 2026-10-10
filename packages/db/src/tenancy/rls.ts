@@ -14,23 +14,49 @@ import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
  */
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
-const APP_ROLES = 'public, app_user, app_system, app_public';
+const APP_ROLES = 'public, app_user, app_system, app_public, app_auth';
+
+/** `agency_id` of platform-wide outbox events (`PLATFORM_AGENCY_ID` in platform/outbox). */
+const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
 export const HELPER_FUNCTIONS = ['app_agency', 'app_user_id'] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
-export type AppRole = 'app_user' | 'app_system' | 'app_public';
+export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth';
+export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'app_public', 'app_auth'];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+
+function assertValid(name: string, def: TenantTable | GlobalTable): void {
+  if ('kind' in def) {
+    if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
+    if (def.authAppend && !def.appendOnly) throw new Error(`${name}: authAppend is only valid for appendOnly tables`);
+    if (
+      def.authAppend &&
+      (!IDENT.test(def.authAppend.column) || !/^[a-z][a-zA-Z0-9]*\.$/.test(def.authAppend.prefix))
+    ) {
+      throw new Error(`${name}: authAppend needs a column name and a prefix like 'identity.'`);
+    }
+  } else if (def.access === 'auth' && def.publicRead) {
+    throw new Error(`${name}: an auth table cannot be publicRead`);
+  }
+}
 
 /** Exact table privileges per app role; anything else (TRUNCATE, column grants, …) fails the guard. */
 export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRole, Privilege[]> {
   if (!('kind' in def)) {
-    return { app_user: ['SELECT'], app_system: DML, app_public: def.publicRead ? ['SELECT'] : [] };
+    if (def.access === 'auth')
+      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT', 'INSERT', 'UPDATE'] };
+    return { app_user: ['SELECT'], app_system: DML, app_public: def.publicRead ? ['SELECT'] : [], app_auth: [] };
   }
   const user: Privilege[] = def.appendOnly ? ['INSERT'] : DML;
-  return { app_user: user, app_system: DML, app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [] };
+  return {
+    app_user: user,
+    app_system: DML,
+    app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [],
+    app_auth: def.authAppend ? ['INSERT'] : [],
+  };
 }
 
 export interface PolicySpec {
@@ -43,9 +69,11 @@ export interface PolicySpec {
 /** Policies a registered table must have — exactly these (name, command, roles), and no others. */
 export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (!('kind' in def)) {
+    if (def.access === 'auth') return [{ name: 'auth_rows', cmd: 'ALL', roles: ['app_auth'] }];
     return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
   }
   const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
+  if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   if (def.kind === 'NETWORK_READ') out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   return out;
@@ -79,7 +107,7 @@ export function helperSql(): string {
 
 function tenantTableSql(name: string, def: TenantTable): string[] {
   const t = ident(name);
-  if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
+  assertValid(name, def);
   const out = [
     def.appendOnly
       ? `create policy own_rows on ${t} for insert to app_user
@@ -104,11 +132,29 @@ grant select, insert, update, delete on table ${t} to app_system;`
       : `grant select, insert, update, delete on table ${t} to app_user, app_system;`,
   );
   if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);
+  if (def.authAppend) {
+    // Anonymous auth flows have no tenant: they may only append their own module's platform rows.
+    const { column, prefix } = def.authAppend;
+    out.push(
+      `create policy auth_append on ${t} for insert to app_auth
+  with check (agency_id = '${PLATFORM_AGENCY_ID}'::uuid and starts_with("${column}", '${prefix}'));`,
+      `grant insert on table ${t} to app_auth;`,
+    );
+  }
   return out;
 }
 
 function globalTableSql(name: string, def: GlobalTable): string[] {
   const t = ident(name);
+  assertValid(name, def);
+  if (def.access === 'auth') {
+    return [
+      `create policy auth_rows on ${t} to app_auth using (true) with check (true);`,
+      `revoke all on table ${t} from ${APP_ROLES};`,
+      `grant select, insert, update on table ${t} to app_auth;`,
+      `grant select, insert, update, delete on table ${t} to app_system;`,
+    ];
+  }
   const readers = def.publicRead ? 'app_user, app_public' : 'app_user';
   return [
     `create policy global_read on ${t} for select to ${readers} using (true);`,

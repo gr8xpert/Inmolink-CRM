@@ -25,7 +25,9 @@ describe('feed-api app', () => {
     } finally {
       await app.close();
     }
-  });
+    // First server build loads Fastify, Swagger and the Zod provider; under `verify` (~50 parallel
+    // turbo tasks) that cold load alone exceeded the 5 s default once.
+  }, 30_000);
 
   it('[S0-08] feed-api config holds only the app_public database URL', () => {
     expect(Object.keys(feedApiEnv).filter((k) => k.startsWith('DATABASE_URL_'))).toEqual(['DATABASE_URL_APP_PUBLIC']);

@@ -10,6 +10,7 @@ paths:
 
 ## Data flow
 - **apps/web (dashboard):** talks to `apps/api` through the generated typed client in `packages/contracts`/`packages/sdk` with TanStack Query. One API for web, PWA and the future native app. No direct DB or core imports in client components.
+  - **Only exception — auth flows (ADR 0004):** Auth.js, the auth server actions and `/session/token` call `@inmolink/core/modules/identity` directly through `authCtx` (`app_auth`, identity tables only). Never use this path for tenant data.
 - **apps/public (portal, selections, client portal, iFrame embeds):** server components may call **read services** from `@inmolink/core` (search, read models, site content) directly — never repos or raw tables. Use ISR/`revalidate` and cache tags; pages must be CDN-cacheable.
 - Server Components by default. Add `'use client'` only for interactivity, as low in the tree as possible.
 

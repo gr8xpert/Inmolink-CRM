@@ -40,3 +40,11 @@ export async function withSystem<T>(reason: string, fn: (tx: Tx) => Promise<T>):
 export async function withPublicRead<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   return getDb('app_public').transaction(fn, { accessMode: 'read only' });
 }
+
+/**
+ * Anonymous auth flows (sign-up, login, verification, reset, access tokens) as `app_auth`: only the
+ * identity tables (`access: 'auth'`) plus INSERT of platform outbox events. Allowed in request paths.
+ */
+export async function withAuth<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return getDb('app_auth').transaction(fn);
+}

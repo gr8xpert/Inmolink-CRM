@@ -4,4 +4,5 @@
  */
 
 export * from './flags';
+export * from './identity';
 export * from './outbox';

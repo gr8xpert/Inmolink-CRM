@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
-import { type AppRole, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS } from './rls';
+import { APP_ROLE_NAMES, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS } from './rls';
 
 /**
  * RLS guard (CI): compares the database with the tenant registry. Returns one message per problem,
@@ -8,7 +8,8 @@ import { type AppRole, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS } 
  * (PostGIS `spatial_ref_sys`, its views and functions) are skipped.
  */
 
-const ROLES: AppRole[] = ['app_user', 'app_system', 'app_public'];
+const ROLES = APP_ROLE_NAMES;
+const ROLES_SQL = `array[${ROLES.map((r) => `'${r}'`).join(', ')}]`;
 /** Column-capable privileges go through has_any_column_privilege, so column-level grants count too. */
 const PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] as const;
 const SYSTEM_SCHEMAS = ['pg_catalog', 'information_schema', 'pg_toast'];
@@ -36,7 +37,7 @@ select n.nspname as schema, c.relname as name, c.relkind as kind, c.relispartiti
        coalesce('security_invoker=true' = any (c.reloptions), false) as security_invoker,
        format_type(a.atttypid, a.atttypmod) as agency_type, a.attnotnull as agency_not_null,
        array(select r || ':' || p
-               from unnest(array['app_user', 'app_system', 'app_public']) r,
+               from unnest(${ROLES_SQL}) r,
                     unnest(array[${PRIVILEGES.map((p) => `'${p}'`).join(', ')}]) p
               where case when p in ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
                          then has_any_column_privilege(r, c.oid, p)
@@ -54,8 +55,7 @@ select tablename as table, policyname as name, cmd, permissive, roles::text[] as
 
 const FUNCTIONS_SQL = `
 select n.nspname as schema, p.proname as name, p.prosecdef as definer,
-       (has_function_privilege('app_user', p.oid, 'EXECUTE') or has_function_privilege('app_system', p.oid, 'EXECUTE')
-         or has_function_privilege('app_public', p.oid, 'EXECUTE')) as executable
+       exists (select 1 from unnest(${ROLES_SQL}) r where has_function_privilege(r, p.oid, 'EXECUTE')) as executable
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname <> all (array[${SYSTEM_SCHEMAS.map((s) => `'${s}'`).join(', ')}])
    and ${NOT_EXTENSION('pg_proc', 'p')}`;

@@ -2,6 +2,7 @@ import { type Ctx, closeDb, configureDb, pingDb } from '@inmolink/core';
 import { setupTestDb } from '@inmolink/db/testing';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
+import { createAccessTokenVerifier, generateAccessKeyPair, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -19,6 +20,7 @@ const build = () =>
     limiter: allowAll,
     readinessCacheMs: 0,
     checks: { db: () => pingDb('app_user') },
+    verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${generateAccessKeyPair().publicKey}`) }),
   });
 
 /** A service that loses an optimistic-concurrency race (PATTERNS §7). */
@@ -61,11 +63,17 @@ describe('api against the test stack', () => {
     try {
       const agencyId = newId();
       app.addHook('onRequest', async (req) => {
+        const userId = newId();
         req.auth = {
-          tenant: { agencyId, verified: true, plan: 'test', locales: ['en'] },
-          actor: { kind: 'user', userId: newId(), role: 'agent' },
-          locale: 'en',
-          clientMode: false,
+          userId,
+          sessionVersion: 1,
+          tokenExpiresAt: new Date(Date.now() + 60_000),
+          member: {
+            tenant: { agencyId, verified: true, plan: 'test', locales: ['en'] },
+            actor: { kind: 'user', userId, role: 'agent' },
+            locale: 'en',
+            clientMode: false,
+          },
         };
       });
       app.patch('/listings/:id', (req) => app.withCtx(req, (ctx) => updateListing(ctx, { version: 2 })));

@@ -1,5 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
+import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
@@ -22,6 +23,7 @@ try {
     edgeRequestIdHeader: config.EDGE_REQUEST_ID_HEADER,
     docsUi: config.NODE_ENV === 'development',
     limiter: rateLimiter(),
+    verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(config.AUTH_JWT_PUBLIC_KEYS) }),
     checks: {
       db: () => pingDb('app_user'),
       redisCache: redisCheck(cacheConnection),

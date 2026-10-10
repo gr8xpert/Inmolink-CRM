@@ -1,3 +1,4 @@
+import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
 import { createKeyring, parseKeyList } from '../crypto/aead';
@@ -29,6 +30,8 @@ export const databaseEnv = {
   /** BYPASSRLS role — workers and scripts only; refused for APP_ROLE=http in production. */
   DATABASE_URL_APP_SYSTEM: url(['postgres', 'postgresql']).optional(),
   DATABASE_URL_APP_PUBLIC: url(['postgres', 'postgresql']),
+  /** Identity tables only (sign-up, login, reset, access tokens) — the auth flows in web (S0-09). */
+  DATABASE_URL_APP_AUTH: url(['postgres', 'postgresql']).optional(),
   /**
    * Direct (non-PgBouncer) session connection for LISTEN — the outbox dispatcher's wake-up.
    * Workers only (app_system credential); without it the dispatcher polls.
@@ -135,9 +138,49 @@ export const storageEnv = {
   S3_BUCKET_EXPORTS: nonEmpty,
 };
 
+/** Transactional email (platform/email). Workers only: requests never send mail. */
 export const emailEnv = {
-  SMTP_URL: url(['smtp', 'smtps']),
+  /** `smtp` (Mailpit locally, or Amazon SES SMTP) | `resend`. */
+  EMAIL_DRIVER: z.enum(['smtp', 'resend']).default('smtp'),
+  /** `Name <address>` or a bare address. */
+  EMAIL_FROM: nonEmpty.refine((v) => !/[\r\n]/.test(v), 'must be one line'),
+  SMTP_URL: url(['smtp', 'smtps']).optional(),
+  RESEND_API_KEY: nonEmpty.optional(),
 };
+
+/** Base URL of the dashboard (`web`) — email links, CORS and socket origin allowlists. */
+export const webUrlEnv = {
+  WEB_URL: url(['http', 'https']).transform((v) => v.replace(/\/+$/, '')),
+};
+
+const KEY_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** Mints access tokens — `web` only (platform/jwt). */
+export const authSignEnv = {
+  /** base64(PKCS#8 DER) of an Ed25519 key. */
+  AUTH_JWT_PRIVATE_KEY: nonEmpty,
+  AUTH_JWT_KEY_ID: z.string().regex(KEY_ID, 'must be 1–32 of A-Z a-z 0-9 _ -'),
+};
+
+/** Verifies access tokens — `api`, `realtime` (platform/jwt). */
+export const authVerifyEnv = {
+  /** `kid:base64(SPKI DER)[,kid:base64…]`; keep the previous key listed for 15 minutes after a rotation. */
+  AUTH_JWT_PUBLIC_KEYS: nonEmpty,
+};
+
+/** Encrypts the Auth.js session cookie — `web` only. 32+ random bytes; "dev-…" values are refused in production. */
+export const authSessionEnv = {
+  AUTH_SECRET: z.string().min(32, 'must be at least 32 characters'),
+};
+
+/**
+ * Public halves of the access-token keys committed in `.env.example` / `.env.test.example`. Refused in
+ * production whatever key id they are listed under (a renamed example key is still public).
+ */
+const EXAMPLE_JWT_PUBLIC_KEYS = new Set([
+  'MCowBQYDK2VwAyEA57hG/H5HUDaL1k17CeMBqE03zTvNPgLVHoX7DKSYyqs=',
+  'MCowBQYDK2VwAyEAAy6KQhRaNdNDpYjKEVK5HhvejcYzS9e8Etz1obQc7II=',
+]);
 
 export const otelEnv = {
   OTEL_EXPORTER_OTLP_ENDPOINT: url(['http', 'https']).optional(),
@@ -224,7 +267,74 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   if (production && typeof cfg.HMAC_KEY === 'string' && cfg.HMAC_KEY.startsWith('dev-')) {
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
   }
+  if (cfg.EMAIL_DRIVER === 'smtp' && cfg.SMTP_URL === undefined) {
+    problems.push({ key: 'SMTP_URL', message: 'is required when EMAIL_DRIVER=smtp' });
+  }
+  if (cfg.EMAIL_DRIVER === 'resend' && cfg.RESEND_API_KEY === undefined) {
+    problems.push({ key: 'RESEND_API_KEY', message: 'is required when EMAIL_DRIVER=resend' });
+  }
+  if (typeof cfg.AUTH_JWT_PRIVATE_KEY === 'string') {
+    if (!isEd25519(cfg.AUTH_JWT_PRIVATE_KEY, 'private')) {
+      problems.push({ key: 'AUTH_JWT_PRIVATE_KEY', message: 'must be base64 PKCS#8 DER of an Ed25519 key' });
+    }
+    if (production && typeof cfg.AUTH_JWT_KEY_ID === 'string' && cfg.AUTH_JWT_KEY_ID.startsWith('dev')) {
+      problems.push({ key: 'AUTH_JWT_KEY_ID', message: 'dev keys (id "dev…") are not allowed in production' });
+    }
+    if (production && EXAMPLE_JWT_PUBLIC_KEYS.has(publicOf(cfg.AUTH_JWT_PRIVATE_KEY) ?? '')) {
+      problems.push({ key: 'AUTH_JWT_PRIVATE_KEY', message: 'is a committed example key; generate a new one' });
+    }
+  }
+  if (production && typeof cfg.AUTH_SECRET === 'string' && cfg.AUTH_SECRET.startsWith('dev-')) {
+    problems.push({ key: 'AUTH_SECRET', message: 'dev values ("dev-…") are not allowed in production' });
+  }
+  if (typeof cfg.AUTH_JWT_PUBLIC_KEYS === 'string') {
+    const entries = cfg.AUTH_JWT_PUBLIC_KEYS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((e) => [e.slice(0, Math.max(0, e.indexOf(':'))), e.slice(e.indexOf(':') + 1)] as const);
+    if (entries.length === 0 || entries.some(([kid, key]) => !KEY_ID.test(kid) || !isEd25519(key, 'public'))) {
+      problems.push({
+        key: 'AUTH_JWT_PUBLIC_KEYS',
+        message: 'must be kid:base64(SPKI DER) Ed25519 keys, comma-separated',
+      });
+    } else if (
+      production &&
+      entries.some(([kid, key]) => kid.startsWith('dev') || EXAMPLE_JWT_PUBLIC_KEYS.has(normalizeSpki(key)))
+    ) {
+      problems.push({
+        key: 'AUTH_JWT_PUBLIC_KEYS',
+        message: 'dev or committed example keys are not allowed in production',
+      });
+    }
+  }
   return problems;
+}
+
+/** SPKI base64 of the private key's public half, for the example-key check. */
+function publicOf(privateB64: string): string | undefined {
+  try {
+    const key = createPrivateKey({ key: Buffer.from(privateB64, 'base64'), format: 'der', type: 'pkcs8' });
+    return createPublicKey(key).export({ format: 'der', type: 'spki' }).toString('base64');
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeSpki(b64: string): string {
+  return Buffer.from(b64, 'base64').toString('base64');
+}
+
+function isEd25519(b64: string, kind: 'private' | 'public'): boolean {
+  try {
+    const der = Buffer.from(b64, 'base64');
+    const key =
+      kind === 'private'
+        ? createPrivateKey({ key: der, format: 'der', type: 'pkcs8' })
+        : createPublicKey({ key: der, format: 'der', type: 'spki' });
+    return key.asymmetricKeyType === 'ed25519';
+  } catch {
+    return false;
+  }
 }
 
 export interface ExitIo {

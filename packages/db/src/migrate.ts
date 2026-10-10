@@ -49,12 +49,14 @@ export async function runMigrations(
   try {
     if (admin) {
       if (!cfg.DATABASE_URL_APP_SYSTEM) throw new Error('DATABASE_URL_APP_SYSTEM is required to bootstrap roles');
+      if (!cfg.DATABASE_URL_APP_AUTH) throw new Error('DATABASE_URL_APP_AUTH is required to bootstrap roles');
       await lock(admin);
       await bootstrapRoles(admin, [
         credentialFromUrl('app_owner', cfg.DATABASE_URL_APP_OWNER),
         credentialFromUrl('app_user', cfg.DATABASE_URL_APP_USER),
         credentialFromUrl('app_system', cfg.DATABASE_URL_APP_SYSTEM),
         credentialFromUrl('app_public', cfg.DATABASE_URL_APP_PUBLIC),
+        credentialFromUrl('app_auth', cfg.DATABASE_URL_APP_AUTH),
       ]);
       log.info('db roles bootstrapped');
     } else {

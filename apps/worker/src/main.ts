@@ -1,10 +1,12 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
 import { startWorker } from './app';
-import { loadWorkerConfig } from './config';
+import { emailConfig, loadWorkerConfig } from './config';
 import { POOL_JOBS } from './processors';
 
 loadStackEnv('dev', { allowExample: false });
@@ -23,6 +25,9 @@ try {
   );
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  await configureEmail(emailConfig(config));
+  identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
+  identity.registerIdentitySubscriptions();
 
   const worker = await startWorker({
     logger,
@@ -39,6 +44,7 @@ try {
       { name: 'pools', run: worker.drain },
       { name: 'queue', run: closeQueues },
       { name: 'cache', run: closeCache },
+      { name: 'email', run: closeEmail },
       { name: 'db', run: closeDb },
     ],
   });

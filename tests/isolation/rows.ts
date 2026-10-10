@@ -23,7 +23,7 @@ export async function columnsOf(client: pg.ClientBase, table: string): Promise<C
   const { rows } = await client.query<Column>(
     `select a.attname as name, format_type(a.atttypid, a.atttypmod) as type, t.typcategory as category,
             (a.attnotnull and not a.atthasdef and a.attidentity = '' and a.attgenerated = '') as required,
-            (select array_agg(e.enumlabel order by e.enumsortorder) from pg_enum e where e.enumtypid = a.atttypid) as labels
+            (select array_agg(e.enumlabel::text order by e.enumsortorder) from pg_enum e where e.enumtypid = a.atttypid) as labels
        from pg_attribute a join pg_type t on t.oid = a.atttypid
       where a.attrelid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
     [`public.${table}`],

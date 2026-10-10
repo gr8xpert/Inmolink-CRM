@@ -1,5 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import { configureCache, pubSubConnections } from '@inmolink/platform/cache';
+import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
 import { buildApp } from './app';
@@ -19,6 +20,8 @@ try {
     trustProxy: config.TRUST_PROXY,
     edgeRequestIdHeader: config.EDGE_REQUEST_ID_HEADER,
     adapter: { pub, sub },
+    verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(config.AUTH_JWT_PUBLIC_KEYS) }),
+    allowedOrigins: [new URL(config.WEB_URL).origin],
     checks: { db: () => pingDb('app_user'), redis: redisCheck(() => pub) },
   });
 

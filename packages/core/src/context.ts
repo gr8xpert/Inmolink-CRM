@@ -1,4 +1,4 @@
-import { type Tx, withTenant } from '@inmolink/db';
+import { type Tx, withAuth, withTenant } from '@inmolink/db';
 
 /** Locale code from `packages/i18n` config (S0-11 narrows this). */
 export type Locale = string;
@@ -24,6 +24,20 @@ export interface Ctx {
 
 /** What an app knows about the caller before the transaction opens. */
 export type RequestCtx = Omit<Ctx, 'tx'>;
+
+/**
+ * Context for anonymous auth flows (sign-up, login, email links, access tokens — S0-09): no tenant
+ * and no actor yet. It carries a transaction runner (`withAuth`, role `app_auth`) instead of an open
+ * `tx`, so services hash and verify passwords (tens of ms of CPU) before opening a transaction.
+ */
+export interface AuthCtx {
+  requestId: string;
+  transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
+}
+
+export function authCtx(requestId: string): AuthCtx {
+  return { requestId, transaction: withAuth };
+}
 
 /**
  * Opens `withTenant` for the caller's agency (RLS applies) and runs `fn` with a full `ctx`.

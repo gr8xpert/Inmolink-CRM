@@ -124,6 +124,23 @@ describe('RLS guard', () => {
     ]);
   });
 
+  it('[S0-09] an auth table readable by app_user, or a tenant table reachable by app_auth, fails the guard', async () => {
+    const auth: TenantRegistry = { tenant: {}, global: { planted_auth: { reason: 'x', access: 'auth' } } };
+    const reg = mergeRegistries(isolationRegistry, auth, strict('planted_tenant'));
+    const problems = await guardWith(
+      `create table planted_auth (id uuid primary key, secret text);
+       create table planted_tenant (id uuid primary key, agency_id uuid not null);
+       ${tablesSql(mergeRegistries(auth, strict('planted_tenant')))}
+       grant select on planted_auth to app_user;
+       grant select on planted_tenant to app_auth;`,
+      reg,
+    );
+    expect(problems).toEqual([
+      'planted_auth: app_user has unexpected SELECT',
+      'planted_tenant: app_auth has unexpected SELECT',
+    ]);
+  });
+
   it('[S0-05] a stale registry entry and a nullable agency_id fail the guard', async () => {
     const reg = mergeRegistries(isolationRegistry, strict('planted_nullable'), strict('planted_missing'));
     const problems = await guardWith(

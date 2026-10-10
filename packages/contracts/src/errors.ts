@@ -17,6 +17,13 @@ export const ErrorCodes = {
   RATE_LIMITED: 429,
   INTERNAL: 500,
   LISTING_NOT_FOUND: 404,
+  // identity (S0-09). Wrong password, unknown email and disabled account are all INVALID_CREDENTIALS.
+  INVALID_CREDENTIALS: 401,
+  EMAIL_NOT_VERIFIED: 403,
+  /** An email link that is unknown, used or expired — one code, so links cannot be probed. */
+  TOKEN_INVALID: 400,
+  /** The access token's session was revoked (password reset) or the user is no longer active. */
+  SESSION_REVOKED: 401,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

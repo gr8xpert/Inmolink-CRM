@@ -25,6 +25,7 @@ const ROLE_URL: Record<RuntimeRole, keyof typeof databaseEnv> = {
   app_user: 'DATABASE_URL_APP_USER',
   app_system: 'DATABASE_URL_APP_SYSTEM',
   app_public: 'DATABASE_URL_APP_PUBLIC',
+  app_auth: 'DATABASE_URL_APP_AUTH',
 };
 
 export interface PoolOptions {

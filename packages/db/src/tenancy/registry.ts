@@ -25,6 +25,12 @@ interface TenantBase {
    * DELETE) — write-only queues such as the outbox. Reads and acknowledgements go through `withSystem()`.
    */
   appendOnly?: true;
+  /**
+   * appendOnly only: `app_auth` (anonymous auth flows, `withAuth()`) may INSERT platform rows
+   * (`agency_id` = nil UUID) whose `column` starts with `prefix` — e.g. `identity.*` outbox events
+   * ("send the verification email") in the sign-up transaction, and nothing else.
+   */
+  authAppend?: { column: string; prefix: string };
 }
 
 export type TenantTable = TenantBase &
@@ -53,6 +59,11 @@ export interface GlobalTable {
   reason: string;
   /** `app_public` may read it (reference data used by public pages). */
   publicRead?: boolean;
+  /**
+   * `'auth'`: identity data (password hashes, auth tokens). Only `app_auth` (`withAuth()`) and
+   * `app_system` may read or write it; `app_user` and `app_public` get nothing (S0-09, ADR 0004).
+   */
+  access?: 'auth';
 }
 
 export interface TenantRegistry {
@@ -63,14 +74,21 @@ export interface TenantRegistry {
 /** Tables with `agency_id`. Add each new tenant table here, then run `pnpm db:rls`. */
 export const tenantTables: Record<string, TenantTable> = {
   // Transactional outbox: request transactions insert their own agency's events; the dispatcher
-  // reads and acknowledges every agency's rows through withSystem(). Platform events use the nil UUID.
-  outbox_events: { kind: 'STRICT', appendOnly: true },
+  // reads and acknowledges every agency's rows through withSystem(). Platform events use the nil UUID;
+  // auth flows (app_auth) may append those too (sign-up / reset emails).
+  outbox_events: { kind: 'STRICT', appendOnly: true, authAppend: { column: 'type', prefix: 'identity.' } },
 };
 
-/** Tables without `agency_id`. Readable by app roles, written only by `withSystem()` (app_system). */
+/**
+ * Tables without `agency_id`. Readable by `app_user`, written only by `withSystem()` (app_system) —
+ * except `access: 'auth'` tables, which only `app_auth` and `app_system` reach.
+ */
 export const globalTables: Record<string, GlobalTable> = {
   // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
   feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },
+  // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).
+  users: { reason: 'login identity, resolved before a tenant is known', access: 'auth' },
+  auth_tokens: { reason: 'email verification and password reset tokens (hashed)', access: 'auth' },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

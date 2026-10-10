@@ -11,17 +11,25 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['feature_flags', 'outbox_events'])
+            where schemaname = 'public' and tablename = any (array['auth_tokens', 'feature_flags', 'outbox_events', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
 end $$;
 
+-- auth_tokens: GLOBAL
+alter table public."auth_tokens" enable row level security;
+alter table public."auth_tokens" force row level security;
+create policy auth_rows on public."auth_tokens" to app_auth using (true) with check (true);
+revoke all on table public."auth_tokens" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update on table public."auth_tokens" to app_auth;
+grant select, insert, update, delete on table public."auth_tokens" to app_system;
+
 -- feature_flags: GLOBAL
 alter table public."feature_flags" enable row level security;
 alter table public."feature_flags" force row level security;
 create policy global_read on public."feature_flags" for select to app_user using (true);
-revoke all on table public."feature_flags" from public, app_user, app_system, app_public;
+revoke all on table public."feature_flags" from public, app_user, app_system, app_public, app_auth;
 grant select on table public."feature_flags" to app_user;
 grant select, insert, update, delete on table public."feature_flags" to app_system;
 
@@ -30,6 +38,17 @@ alter table public."outbox_events" enable row level security;
 alter table public."outbox_events" force row level security;
 create policy own_rows on public."outbox_events" for insert to app_user
   with check (agency_id = app_agency());
-revoke all on table public."outbox_events" from public, app_user, app_system, app_public;
+revoke all on table public."outbox_events" from public, app_user, app_system, app_public, app_auth;
 grant insert on table public."outbox_events" to app_user;
 grant select, insert, update, delete on table public."outbox_events" to app_system;
+create policy auth_append on public."outbox_events" for insert to app_auth
+  with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
+grant insert on table public."outbox_events" to app_auth;
+
+-- users: GLOBAL
+alter table public."users" enable row level security;
+alter table public."users" force row level security;
+create policy auth_rows on public."users" to app_auth using (true) with check (true);
+revoke all on table public."users" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update on table public."users" to app_auth;
+grant select, insert, update, delete on table public."users" to app_system;
