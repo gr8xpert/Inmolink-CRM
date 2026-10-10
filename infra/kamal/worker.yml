@@ -1,0 +1,47 @@
+# BullMQ workers + outbox dispatcher: Kamal 2 config (S0-15, PLAN §3 #40). Destinations: worker.staging.yml, worker.production.yml.
+# Deploy with scripts/ops/deploy.sh <staging|production> (migrations first, then every app). By hand:
+#   RELEASE=<git sha> kamal deploy -c infra/kamal/worker.yml -d staging --skip-push --version <git sha>
+# Image built and pushed by CI (.github/workflows/ci.yml): ghcr.io/gr8xpert/inmolink-worker:<git sha>.
+service: inmolink-worker
+image: gr8xpert/inmolink-worker
+require_destination: true
+secrets_path: .kamal/secrets
+registry:
+  server: ghcr.io
+  username: gr8xpert
+  password: [KAMAL_REGISTRY_PASSWORD]
+builder:
+  arch: amd64
+ssh:
+  user: deploy
+primary_role: workers
+servers:
+  workers:
+    hosts: [] # per destination
+    proxy: false
+    # Workers finish or release in-flight jobs on SIGTERM (S0-06); long jobs get time.
+    stop_timeout: 90
+retain_containers: 5
+env:
+  clear:
+    NODE_ENV: "production"
+    HOST: "0.0.0.0"
+    APP_ROLE: "worker"
+    WORKER_POOLS: "all"
+    WORKER_HEALTH_PORT: "4003"
+    WORKER_METRICS_PORT: "0"
+    EMAIL_DRIVER: "smtp"
+    # Accessories of infra/kamal/api.yml, reached over the `kamal` Docker network.
+    REDIS_CACHE_URL: "redis://inmolink-api-redis-cache:6379"
+  secret:
+    - RELEASE
+    - SENTRY_DSN
+    - DATABASE_URL_APP_USER
+    - DATABASE_URL_APP_SYSTEM
+    - DATABASE_URL_LISTEN
+    - REDIS_QUEUE_URL
+    - SMTP_URL
+    - EMAIL_FROM
+    - ENCRYPTION_KEYS
+    - ENCRYPTION_ACTIVE_KEY_ID
+    - HMAC_KEY

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Origin lock (S0-15): kamal-proxy's published 80/443 accept only Cloudflare, the private network and local
+# containers. Docker-published ports bypass ufw, so the rules live in DOCKER-USER, which Docker evaluates
+# before its own. Idempotent; re-applied after every Docker start by inmolink-origin-lock.service.
+set -euo pipefail
+
+apply() {
+  local ipt="$1"; shift
+  $ipt -N INMOLINK-ORIGIN 2>/dev/null || $ipt -F INMOLINK-ORIGIN
+  for cidr in "$@"; do $ipt -A INMOLINK-ORIGIN -s "$cidr" -j RETURN; done
+  $ipt -A INMOLINK-ORIGIN -j DROP
+  $ipt -N DOCKER-USER 2>/dev/null || true
+  for port in 80 443; do
+    $ipt -C DOCKER-USER -p tcp -m conntrack --ctorigdstport "$port" --ctdir ORIGINAL -j INMOLINK-ORIGIN 2>/dev/null ||
+      $ipt -I DOCKER-USER -p tcp -m conntrack --ctorigdstport "$port" --ctdir ORIGINAL -j INMOLINK-ORIGIN
+  done
+}
+
+apply iptables {{ (cloudflare_ips | select('search', '\.') | list + [wg_network, '172.16.0.0/12', '127.0.0.0/8']) | join(' ') }}
+apply ip6tables {{ (cloudflare_ips | select('search', ':') | list + ['::1/128']) | join(' ') }}

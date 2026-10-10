@@ -1,0 +1,31 @@
+# Converges every host to its role (PLAN §5.5 Stage A). Idempotent: safe to re-run after any change.
+# Order matters: WireGuard before anything that listens on the private network; the primary before the
+# standby clones it; monitoring last, once every exporter is up.
+- name: Baseline (users, SSH, firewall, upgrades, WireGuard, Docker, node exporter)
+  hosts: all
+  become: true
+  roles:
+    - base
+    - wireguard
+    - docker
+    - node_exporter
+
+- name: Postgres primary, PgBouncer, WAL-G archiving and nightly base backup
+  hosts: db_primary
+  become: true
+  roles:
+    - postgres
+    - redis_queue
+
+- name: Postgres hot standby (other datacenter)
+  hosts: db_replica
+  become: true
+  serial: 1
+  roles:
+    - postgres
+
+- name: Prometheus, Alertmanager, Grafana
+  hosts: monitoring
+  become: true
+  roles:
+    - monitoring

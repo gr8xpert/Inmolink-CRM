@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# TYPE  DATABASE        USER                ADDRESS                 METHOD
+# Ops inside the container (docker exec -u postgres): peer only.
+local   all             postgres                                    peer
+local   all             all                                         reject
+# Same host: PgBouncer, exporter, deploy migrations (host network → 127.0.0.1).
+host    all             all                 127.0.0.1/32            scram-sha-256
+{% for h in groups['db'] if hostvars[h].wg_ip is defined %}
+# {{ h }}: streaming replication and slot management
+host    replication     replicator          {{ hostvars[h].wg_ip }}/32           scram-sha-256
+host    postgres        replicator          {{ hostvars[h].wg_ip }}/32           scram-sha-256
+{% endfor %}
+{% for h in groups['app'] if hostvars[h].wg_ip is defined %}
+# {{ h }}: outbox LISTEN connections (PgBouncer transaction mode cannot hold LISTEN)
+host    {{ postgres_db }}        app_system          {{ hostvars[h].wg_ip }}/32           scram-sha-256
+{% endfor %}
+{% if inventory_hostname in groups['app'] %}
+# This host also runs the apps (staging): Kamal containers connect from a Docker bridge subnet.
+host    {{ postgres_db }}        app_system          172.16.0.0/12           scram-sha-256
+{% endif %}
+host    all             all                 0.0.0.0/0               reject
+host    all             all                 ::/0                    reject

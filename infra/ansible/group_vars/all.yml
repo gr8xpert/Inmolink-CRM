@@ -1,0 +1,64 @@
+# Shared by staging and production. Playbook group_vars beat inventory group_vars, so nothing here may
+# also be set per environment (those live in inventories/<env>/group_vars/all/main.yml).
+
+# Users: admins get sudo; `deploy` runs Kamal and the restore drill (docker group, no sudo).
+inmolink_admin_user: inmolink
+inmolink_deploy_user: deploy
+ssh_port: 22
+
+wg_port: 51820
+
+# Images and binaries, pinned by digest (bump deliberately and note it in CHANGELOG).
+# The Postgres tag is immutable: CI pushes it once and never overwrites it (a new build needs a new tag).
+# Built by CI from infra/docker/postgres (same image as local dev and the tests).
+postgres_image: ghcr.io/gr8xpert/inmolink-postgres:18-3.6-walg3.0.9
+pgbouncer_image: edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711
+redis_image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+postgres_exporter_image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+prometheus_image: prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e
+alertmanager_image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+grafana_image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+node_exporter_version: 1.12.1
+node_exporter_sha256: b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63
+
+# Postgres
+postgres_data_dir: /srv/postgres
+postgres_config_dir: /etc/inmolink/postgres
+# uid/gid of the postgres user inside the image (Debian postgres images).
+postgres_uid: 999
+postgres_port: 5432
+postgres_db: inmolink
+pgbouncer_port: 6432
+postgres_exporter_port: 9187
+node_exporter_port: 9100
+# archive_timeout bounds the RPO for quiet periods (PLAN §3 #36: RPO ≤ 5 min).
+postgres_archive_timeout: 60
+postgres_backup_on_calendar: "*-*-* 02:30:00 Europe/Madrid"
+redis_queue_port: 6379
+
+# Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). App hosts accept 80/443 only
+# from these (roles/docker origin lock), and the Kamal apps trust them in TRUST_PROXY — keep both in sync
+# (tests/workspace/deploy-config.test.ts compares them).
+cloudflare_ips:
+  - 173.245.48.0/20
+  - 103.21.244.0/22
+  - 103.22.200.0/22
+  - 103.31.4.0/22
+  - 141.101.64.0/18
+  - 108.162.192.0/18
+  - 190.93.240.0/20
+  - 188.114.96.0/20
+  - 197.234.240.0/22
+  - 198.41.128.0/17
+  - 162.158.0.0/15
+  - 104.16.0.0/13
+  - 104.24.0.0/14
+  - 172.64.0.0/13
+  - 131.0.72.0/22
+  - 2400:cb00::/32
+  - 2606:4700::/32
+  - 2803:f800::/32
+  - 2405:b500::/32
+  - 2405:8100::/32
+  - 2a06:98c0::/29
+  - 2c0f:f248::/32

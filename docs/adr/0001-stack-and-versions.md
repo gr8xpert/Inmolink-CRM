@@ -47,7 +47,7 @@ Local stack images (`docker-compose.yml`, exact tags):
 
 | Service | Image |
 |---|---|
-| PostgreSQL 18.6 + PostGIS 3.6 + pgvector 0.8.7 + pg_partman 5.5 | `inmolink/postgres:18-3.6` built from `postgis/postgis:18-3.6` |
+| PostgreSQL 18.6 + PostGIS 3.6 + pgvector 0.8.7 + pg_partman 5.5 | `inmolink/postgres:18-3.6-walg3.0.9` (+ WAL-G 3.0.9, S0-15) built from `postgis/postgis:18-3.6` |
 | PgBouncer 1.26 | `edoburu/pgbouncer:v1.26.0-p0` |
 | Redis 7.4 | `redis:7.4.11-alpine` |
 | Meilisearch | `getmeili/meilisearch:v1.54.3` |

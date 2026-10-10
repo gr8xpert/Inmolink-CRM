@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Point-in-time restore, step 1 (PLAN §3 #36): fetch a base backup from the WAL-G store into an empty
+# $PGDATA and configure recovery. Starting the server afterwards replays archived WAL up to the target
+# and promotes. Run as postgres in a one-off container on the new data volume:
+#   docker run --rm -u postgres -v <data>:/var/lib/postgresql --env-file walg.env \
+#     -e BACKUP_NAME=base_… -e TARGET_TIME='2026-10-11 10:00:00+00' <image> inmolink-pitr-prepare
+# `scripts/ops/restore-drill.ts` picks BACKUP_NAME (newest backup finished before TARGET_TIME).
+# Env: BACKUP_NAME (default LATEST), TARGET_TIME (unset = replay all archived WAL).
+set -euo pipefail
+
+: "${PGDATA:?PGDATA is not set}"
+: "${WALG_S3_PREFIX:?WALG_S3_PREFIX is not set}"
+backup="${BACKUP_NAME:-LATEST}"
+
+if [ -s "$PGDATA/PG_VERSION" ]; then
+  echo "inmolink-pitr-prepare: $PGDATA already holds a cluster; restore into an empty volume" >&2
+  exit 2
+fi
+if [[ ! "$backup" =~ ^(LATEST|base_[0-9A-F_]+)$ ]]; then
+  echo "inmolink-pitr-prepare: BACKUP_NAME must be LATEST or a WAL-G base_… name" >&2
+  exit 2
+fi
+if [ -n "${TARGET_TIME:-}" ] && [[ ! "$TARGET_TIME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9:.]+[+-][0-9]{2}(:?[0-9]{2})?$ ]]; then
+  echo "inmolink-pitr-prepare: TARGET_TIME must be a timestamp like '2026-10-11 10:00:00+00'" >&2
+  exit 2
+fi
+
+mkdir -p "$PGDATA"
+chmod 0700 "$PGDATA"
+wal-g backup-fetch "$PGDATA" "$backup"
+
+# A restored cluster must never archive into the store it was restored from.
+{
+  echo "# inmolink-pitr-prepare $(date -u +%FT%TZ): backup $backup"
+  echo "archive_mode = 'off'"
+  echo "restore_command = 'wal-g wal-fetch \"%f\" \"%p\"'"
+  echo "recovery_target_action = 'promote'"
+  echo "recovery_target_timeline = 'latest'"
+  if [ -n "${TARGET_TIME:-}" ]; then
+    echo "recovery_target_time = '$TARGET_TIME'"
+    echo "recovery_target_inclusive = 'false'"
+  fi
+} >>"$PGDATA/postgresql.auto.conf"
+# A backup taken on a standby may carry standby.signal; this cluster must recover and promote instead.
+rm -f "$PGDATA/standby.signal"
+touch "$PGDATA/recovery.signal"
+echo "inmolink-pitr-prepare: fetched $backup; recovery target ${TARGET_TIME:-end of archived WAL}"

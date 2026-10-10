@@ -1,0 +1,9 @@
+# production overrides for public.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d production`.
+servers:
+  web:
+    hosts: [203.0.113.10]
+proxy:
+  host: sites.inmolink.es
+env:
+  clear:
+    DEPLOY_ENV: "production"

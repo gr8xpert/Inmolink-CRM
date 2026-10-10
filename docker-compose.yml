@@ -8,7 +8,7 @@ name: inmolink
 
 x-postgres: &postgres
   build: ./infra/docker/postgres
-  image: inmolink/postgres:18-3.6
+  image: inmolink/postgres:18-3.6-walg3.0.9
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
@@ -144,7 +144,7 @@ services:
     profiles: [dev]
     command:
       - mc alias set local http://minio:9000 inmolink inmolink-local-secret
-        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups
         && exec sleep infinity
     depends_on:
       minio: { condition: service_healthy }
@@ -215,7 +215,7 @@ services:
     profiles: [test]
     command:
       - mc alias set local http://minio-test:9000 inmolink inmolink-local-secret
-        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups
         && exec sleep infinity
     depends_on:
       minio-test: { condition: service_healthy }

@@ -1,0 +1,26 @@
+; {{ ansible_managed }}
+; Production twin of infra/docker/pgbouncer/common.ini, with a dedicated auth role instead of postgres.
+[databases]
+{{ postgres_db }} = host=127.0.0.1 port={{ postgres_port }} dbname={{ postgres_db }}
+
+[pgbouncer]
+listen_addr = 127.0.0.1,{{ wg_ip }}
+listen_port = {{ pgbouncer_port }}
+pool_mode = transaction
+max_client_conn = 2000
+default_pool_size = 40
+reserve_pool_size = 10
+max_prepared_statements = 200
+
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+auth_user = pgbouncer_auth
+auth_dbname = {{ postgres_db }}
+auth_query = SELECT usename, passwd FROM pgbouncer.get_auth($1)
+stats_users = pgbouncer_auth
+
+ignore_startup_parameters = extra_float_digits,options
+server_reset_query =
+server_tls_sslmode = disable
+log_connections = 0
+log_disconnections = 0

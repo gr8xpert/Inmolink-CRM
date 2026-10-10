@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Interface]
+Address = {{ wg_ip }}/{{ wg_network.split('/')[1] }}
+ListenPort = {{ wg_port }}
+PostUp = wg set %i private-key /etc/wireguard/private.key
+{% for peer in groups['all'] | unique if peer != inventory_hostname and hostvars[peer].wg_ip is defined and hostvars[peer].wg_ip != wg_ip %}
+
+[Peer]
+# {{ peer }}
+PublicKey = {{ wg_pubkeys[peer] }}
+Endpoint = {{ hostvars[peer].ansible_host }}:{{ wg_port }}
+AllowedIPs = {{ hostvars[peer].wg_ip }}/32
+PersistentKeepalive = 25
+{% endfor %}

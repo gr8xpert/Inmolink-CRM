@@ -1,0 +1,109 @@
+# Prometheus + Alertmanager + Grafana (PLAN §3 #44). Stage A runs them on db-2 — the other datacenter, so
+# an outage of app-1/db-1 still pages. All three listen on the WireGuard address only; reach Grafana via
+# the VPN or `ssh -L 3000:<wg_ip>:3000 inmolink@db-2`. Stage B moves them to a monitoring node.
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: /etc/inmolink/monitoring/rules, owner: root }
+    - { path: /etc/inmolink/monitoring/grafana/provisioning/datasources, owner: root }
+    - { path: /etc/inmolink/monitoring/grafana/provisioning/dashboards, owner: root }
+    - { path: /etc/inmolink/monitoring/grafana/dashboards, owner: root }
+    - { path: /srv/prometheus, owner: "65534" }
+    - { path: /srv/alertmanager, owner: "65534" }
+    - { path: /srv/grafana, owner: "472" }
+
+- name: Prometheus and Alertmanager config (Alertmanager's holds the SMTP password; both run as nobody)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/inmolink/monitoring/{{ item }}"
+    owner: "65534"
+    group: "65534"
+    mode: "0600"
+  loop: [prometheus.yml, alertmanager.yml]
+  register: monitoring_config
+  no_log: true
+
+- name: Alert rules (infra/monitoring/rules — unit-tested with promtool in tests/ops)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../monitoring/rules/postgres.yml"
+    dest: /etc/inmolink/monitoring/rules/postgres.yml
+    mode: "0644"
+  register: monitoring_rules
+
+- name: Grafana dashboards (infra/grafana/dashboards)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../grafana/dashboards/"
+    dest: /etc/inmolink/monitoring/grafana/dashboards/
+    mode: "0644"
+
+- name: Grafana provisioning
+  ansible.builtin.copy:
+    dest: "/etc/inmolink/monitoring/grafana/provisioning/{{ item.path }}"
+    content: "{{ item.content | to_nice_yaml }}"
+    mode: "0644"
+  loop:
+    - path: datasources/prometheus.yml
+      content:
+        apiVersion: 1
+        datasources:
+          - { name: Prometheus, type: prometheus, uid: prometheus, url: "http://{{ wg_ip }}:9090", isDefault: true }
+    - path: dashboards/inmolink.yml
+      content:
+        apiVersion: 1
+        providers:
+          - { name: inmolink, folder: Inmolink, type: file, options: { path: /var/lib/grafana/dashboards } }
+
+- name: Prometheus
+  community.docker.docker_container:
+    name: prometheus
+    image: "{{ prometheus_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    volumes:
+      - /etc/inmolink/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /etc/inmolink/monitoring/rules:/etc/prometheus/rules:ro
+      - /srv/prometheus:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.listen-address={{ wg_ip }}:9090
+    restart: "{{ monitoring_config.changed or monitoring_rules.changed }}"
+
+- name: Alertmanager
+  community.docker.docker_container:
+    name: alertmanager
+    image: "{{ alertmanager_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    volumes:
+      - /etc/inmolink/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - /srv/alertmanager:/alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address={{ wg_ip }}:9093
+      - --cluster.listen-address=
+    restart: "{{ monitoring_config.changed }}"
+
+- name: Grafana
+  community.docker.docker_container:
+    name: grafana
+    image: "{{ grafana_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    volumes:
+      - /srv/grafana:/var/lib/grafana
+      - /etc/inmolink/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - /etc/inmolink/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    env:
+      GF_SERVER_HTTP_ADDR: "{{ wg_ip }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ vault_grafana_admin_password }}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+  no_log: true

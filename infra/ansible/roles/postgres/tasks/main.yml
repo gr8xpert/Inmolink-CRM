@@ -1,0 +1,201 @@
+# Postgres in the repo's own image (infra/docker/postgres: PG 18 + PostGIS/pgvector/pg_partman + WAL-G
+# + inmolink-* ops scripts), host networking, data on the host's NVMe RAID1. Same tasks for primary and
+# standby: config is identical so a promoted standby needs no edits (docs/runbooks/failover.md).
+- name: Is this host the primary?
+  ansible.builtin.set_fact:
+    postgres_is_primary: "{{ 'db_primary' in group_names }}"
+
+- name: Config and data directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ postgres_config_dir }}", owner: root, mode: "0755" }
+    - { path: "{{ postgres_data_dir }}", owner: "{{ postgres_uid }}", mode: "0700" }
+
+- name: postgresql.conf and pg_hba.conf
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ postgres_config_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: [postgresql.conf, pg_hba.conf]
+  register: postgres_config
+
+- name: WAL-G environment (R2 credentials, encryption key) — root only
+  ansible.builtin.template:
+    src: walg.env.j2
+    dest: "{{ postgres_config_dir }}/walg.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Pull image
+  community.docker.docker_image_pull:
+    name: "{{ postgres_image }}"
+
+- name: Existing cluster?
+  ansible.builtin.stat:
+    path: "{{ postgres_data_dir }}/18/docker/PG_VERSION"
+  register: postgres_pg_version
+
+- name: Standby — clone the primary into the empty data directory
+  community.docker.docker_container:
+    name: postgres-replica-init
+    image: "{{ postgres_image }}"
+    user: postgres
+    network_mode: host
+    detach: false
+    cleanup: true
+    command: [inmolink-replica-init]
+    volumes: ["{{ postgres_data_dir }}:/var/lib/postgresql"]
+    env:
+      PRIMARY_HOST: "{{ hostvars[groups['db_primary'][0]].wg_ip }}"
+      PRIMARY_PORT: "{{ postgres_port | string }}"
+      REPLICATION_PASSWORD: "{{ vault_replication_password }}"
+      REPLICATION_SLOT: "{{ replication_slot }}"
+  when: not postgres_is_primary and not postgres_pg_version.stat.exists
+  no_log: true
+
+- name: Postgres server
+  community.docker.docker_container:
+    name: postgres
+    image: "{{ postgres_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    stop_timeout: 120
+    shm_size: 1g
+    ulimits: ["nofile:65536:65536"]
+    volumes:
+      - "{{ postgres_data_dir }}:/var/lib/postgresql"
+      - "{{ postgres_config_dir }}/postgresql.conf:/etc/postgresql/postgresql.conf:ro"
+      - "{{ postgres_config_dir }}/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro"
+    env_file: "{{ postgres_config_dir }}/walg.env"
+    env:
+      # Used only when the entrypoint initialises an empty primary.
+      POSTGRES_PASSWORD: "{{ vault_postgres_superuser_password }}"
+      POSTGRES_DB: "{{ postgres_db }}"
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --data-checksums
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+  no_log: true
+
+# TCP, not the socket: during first initialisation the entrypoint runs a temporary socket-only server.
+- name: Wait for Postgres
+  ansible.builtin.command: docker exec -u postgres postgres pg_isready -h 127.0.0.1 -p {{ postgres_port }}
+  register: postgres_ready
+  until: postgres_ready.rc == 0
+  retries: 90
+  delay: 2
+  changed_when: false
+
+- name: Reload when config changed
+  ansible.builtin.command: docker exec -u postgres postgres psql -h /var/run/postgresql -XtAc "select pg_reload_conf()"
+  when: postgres_config.changed
+  changed_when: true
+
+- name: Settings that only apply after a restart
+  ansible.builtin.command: >-
+    docker exec -u postgres postgres psql -h /var/run/postgresql -XtAc
+    "select string_agg(name, ', ') from pg_settings where pending_restart"
+  register: postgres_pending_restart
+  changed_when: false
+  failed_when: false
+
+- name: Restart needed — schedule it (standby first, then a switchover or a short primary restart)
+  ansible.builtin.debug:
+    msg: "PENDING RESTART on {{ inventory_hostname }}: {{ postgres_pending_restart.stdout }}. Run `docker restart postgres` in a maintenance window (docs/runbooks/failover.md)."
+  when: postgres_pending_restart.stdout | default('') | length > 0
+
+- name: Primary — roles for replication, PgBouncer auth and monitoring
+  ansible.builtin.include_tasks: primary.yml
+  when: postgres_is_primary
+
+- name: Migration env for scripts/ops/deploy.sh (owner credentials) — docker group only (root-equivalent anyway)
+  ansible.builtin.template:
+    src: migrate.env.j2
+    dest: /etc/inmolink/migrate.env
+    owner: root
+    group: docker
+    mode: "0640"
+  no_log: true
+
+- name: Exporter
+  community.docker.docker_container:
+    name: postgres-exporter
+    image: "{{ postgres_exporter_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    command:
+      - --web.listen-address={{ wg_ip }}:{{ postgres_exporter_port }}
+      - --collector.stat_archiver
+      - --collector.replication_slots
+      - --collector.stat_statements
+      - --no-collector.stat_statements.include_query
+    env:
+      # The app database: pg_stat_statements lives there (initdb/01-extensions.sql).
+      DATA_SOURCE_URI: "127.0.0.1:{{ postgres_port }}/{{ postgres_db }}?sslmode=disable"
+      DATA_SOURCE_USER: postgres_exporter
+      DATA_SOURCE_PASS: "{{ vault_postgres_exporter_password }}"
+  no_log: true
+
+- name: Base backup wrapper (runs on whichever db host is primary; writes textfile metrics)
+  ansible.builtin.copy:
+    src: inmolink-walg-backup-run
+    dest: /usr/local/sbin/inmolink-walg-backup-run
+    mode: "0755"
+
+- name: Nightly base backup — service and timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: inmolink-walg-backup.service
+      content: |
+        [Unit]
+        Description=WAL-G base backup + retention (PLAN §3 #36)
+        After=docker.service
+        Requires=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/inmolink-walg-backup-run
+        TimeoutStartSec=6h
+        Nice=10
+        IOSchedulingClass=best-effort
+        IOSchedulingPriority=7
+    - name: inmolink-walg-backup.timer
+      content: |
+        [Unit]
+        Description=Nightly WAL-G base backup
+
+        [Timer]
+        OnCalendar={{ postgres_backup_on_calendar }}
+        RandomizedDelaySec=15m
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+
+- name: Timer enabled
+  ansible.builtin.systemd_service:
+    name: inmolink-walg-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Primary — first base backup right away so PITR works from day one
+  ansible.builtin.systemd_service:
+    name: inmolink-walg-backup.service
+    state: started
+  when: postgres_is_primary and not postgres_pg_version.stat.exists

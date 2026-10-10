@@ -42,8 +42,8 @@ describe('CI workflow', () => {
     const required = workflow.jobs.required as Job;
     expect(required.if).toBe('always()'); // still reports (as failed) when a needed job failed or was skipped
     expect(required.needs).toEqual(expect.arrayContaining(['isolation', 'boundaries']));
-    // Every job except the post-merge image build is required.
-    const others = Object.keys(workflow.jobs).filter((j) => j !== 'required' && j !== 'images');
+    // Every job except the post-merge image builds is required.
+    const others = Object.keys(workflow.jobs).filter((j) => !['required', 'images', 'image-postgres'].includes(j));
     expect([...(required.needs ?? [])].sort()).toEqual(others.sort());
     expect(runs(required)).toMatch(/\[ "\$r" = success \] \|\| exit 1/);
   });
@@ -64,6 +64,7 @@ describe('CI workflow', () => {
   it('[S0-14] pins every external action to a full commit SHA (the image job can write packages)', () => {
     const files = [
       join(ROOT, '.github', 'workflows', 'ci.yml'),
+      join(ROOT, '.github', 'workflows', 'restore-drill.yml'),
       join(ROOT, '.github', 'actions', 'setup', 'action.yml'),
     ];
     const uses = files.flatMap((f) =>

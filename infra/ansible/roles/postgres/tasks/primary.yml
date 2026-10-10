@@ -1,0 +1,53 @@
+# Idempotent: roles are created once and their passwords re-set on every run (rotation = change the vault, re-run).
+# App roles (app_owner, app_user, …) are bootstrapped by `pnpm db:migrate` with DATABASE_URL_ADMIN —
+# scripts/ops/deploy.sh --bootstrap-roles (docs/runbooks/deploy.md, first deploy).
+- name: Bootstrap SQL
+  ansible.builtin.template:
+    src: bootstrap.sql.j2
+    dest: "{{ postgres_config_dir }}/bootstrap.sql"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Apply bootstrap SQL
+  ansible.builtin.shell: >-
+    docker exec -i -u postgres postgres psql -h /var/run/postgresql -d {{ postgres_db }} -X -q -v ON_ERROR_STOP=1
+    < {{ postgres_config_dir }}/bootstrap.sql
+  changed_when: false
+  no_log: true
+
+- name: Remove bootstrap SQL (it holds role passwords)
+  ansible.builtin.file:
+    path: "{{ postgres_config_dir }}/bootstrap.sql"
+    state: absent
+
+- name: PgBouncer config
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ postgres_config_dir }}/{{ item.dest }}"
+    owner: "70"
+    group: "70"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: pgbouncer.ini.j2, dest: pgbouncer.ini, mode: "0644" }
+    - { src: userlist.txt.j2, dest: userlist.txt, mode: "0600" }
+  register: pgbouncer_config
+  no_log: true
+
+- name: PgBouncer (transaction pooling; apps connect here over WireGuard)
+  community.docker.docker_container:
+    name: pgbouncer
+    image: "{{ pgbouncer_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    command: [pgbouncer, /etc/pgbouncer/pgbouncer.ini]
+    volumes:
+      - "{{ postgres_config_dir }}/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro"
+      - "{{ postgres_config_dir }}/userlist.txt:/etc/pgbouncer/userlist.txt:ro"
+
+# SIGHUP re-reads pgbouncer.ini and userlist.txt without dropping client connections.
+- name: Reload PgBouncer on config change
+  ansible.builtin.command: docker kill --signal HUP pgbouncer
+  when: pgbouncer_config.changed
+  changed_when: true

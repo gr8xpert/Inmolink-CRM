@@ -1,0 +1,40 @@
+# BullMQ's Redis on db-1 (PLAN §5.5 Stage A): AOF every second, never evicts. Same settings as the
+# local `redis-queue` service. Reached by workers over WireGuard with a password.
+- name: Data directory
+  ansible.builtin.file:
+    path: /srv/redis-queue
+    state: directory
+    owner: "999"
+    group: "1000"
+    mode: "0750"
+
+# Password in a 0600 file, not argv (visible in `ps` to every local user).
+- name: redis-queue config
+  ansible.builtin.copy:
+    dest: /etc/inmolink/redis-queue.conf
+    content: |
+      bind 127.0.0.1 {{ wg_ip }}
+      port {{ redis_queue_port }}
+      protected-mode yes
+      requirepass {{ vault_redis_queue_password }}
+      appendonly yes
+      appendfsync everysec
+      maxmemory-policy noeviction
+      dir /data
+    owner: "999"
+    group: "1000"
+    mode: "0600"
+  register: redis_queue_config
+  no_log: true
+
+- name: redis-queue
+  community.docker.docker_container:
+    name: redis-queue
+    image: "{{ redis_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    volumes:
+      - /srv/redis-queue:/data
+      - /etc/inmolink/redis-queue.conf:/usr/local/etc/redis/redis.conf:ro
+    command: [redis-server, /usr/local/etc/redis/redis.conf]
+    restart: "{{ redis_queue_config.changed }}"

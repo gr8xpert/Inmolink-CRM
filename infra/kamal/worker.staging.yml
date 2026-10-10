@@ -1,0 +1,9 @@
+# staging overrides for worker.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d staging`.
+servers:
+  workers:
+    hosts: [203.0.113.50]
+env:
+  clear:
+    DEPLOY_ENV: "staging"
+    OTEL_TRACES_SAMPLE_RATIO: "1"
+    WEB_URL: "https://app.staging.inmolink.es"

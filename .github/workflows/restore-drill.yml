@@ -1,0 +1,76 @@
+# Weekly automated restore test (S0-15, PLAN §3 #36): point-in-time restore of the production WAL-G store
+# onto the dedicated drill host's Docker engine, verified and timed. A failed run fails
+# this workflow (GitHub notifies the repo admins); every report is kept as an artifact for RTO history.
+# Needs the `production` environment secrets listed in docs/runbooks/pitr-restore.md (H3/H4).
+name: Restore drill
+
+on:
+  schedule:
+    - cron: '17 4 * * 0' # Sundays 04:17 UTC, after the nightly base backup
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Recovery target (ISO timestamp, UTC). Empty = latest archived WAL.'
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: restore-drill
+  cancel-in-progress: false
+
+jobs:
+  drill:
+    name: PITR restore on the drill host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/setup
+        with: { cache-key: restore-drill }
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: SSH to the drill host
+        env:
+          DRILL_SSH_KEY: ${{ secrets.DRILL_SSH_KEY }}
+          DRILL_KNOWN_HOSTS: ${{ secrets.DRILL_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DRILL_SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DRILL_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          echo "DRILL_HOST=$(pnpm -s exec tsx scripts/ops/inventory.ts production drill | head -1)" >> "$GITHUB_ENV"
+      - name: WAL-G env (read-only R2 token)
+        env:
+          WALG_ENV: ${{ secrets.RESTORE_DRILL_WALG_ENV }}
+        run: printf '%s\n' "$WALG_ENV" > "$RUNNER_TEMP/walg.env" && chmod 600 "$RUNNER_TEMP/walg.env"
+      - name: Restore drill
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/inmolink-postgres:$(grep -oP 'image: inmolink/postgres:\K\S+' docker-compose.yml)"
+          pnpm ops:restore-drill --image "$image" --walg-env "$RUNNER_TEMP/walg.env" \
+            --docker-host "ssh://deploy@$DRILL_HOST" ${TARGET:+--target "$TARGET"} \
+            --verify-sql "select count(*) from drizzle.__drizzle_migrations" \
+            --report restore-drill-report.json
+      - name: Report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: restore-drill-${{ github.run_id }}
+          path: restore-drill-report.json
+          if-no-files-found: ignore
+          retention-days: 90
+      # A cancelled or timed-out drill skips its own cleanup: never leave a production copy behind.
+      - name: Remove drill containers and volumes
+        if: always() && env.DRILL_HOST != ''
+        run: pnpm ops:restore-drill --cleanup --docker-host "ssh://deploy@$DRILL_HOST"
+      - name: Clean up secrets
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519 "$RUNNER_TEMP/walg.env"

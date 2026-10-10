@@ -1,0 +1,34 @@
+# CI only (scripts/ci/deploy-config-check.sh): renders every role template for every inventory host,
+# locally, with the example vault — catches undefined variables and Jinja errors without servers.
+- name: Render role templates offline
+  hosts: all
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Stand-in for the WireGuard key a real run reads from each host
+      ansible.builtin.set_fact:
+        wg_pubkeys: "{{ dict(groups['all'] | unique | zip(groups['all'] | unique | map('regex_replace', '^', 'ci-pubkey-'))) }}"
+
+    - name: Find role templates
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/roles"
+        patterns: "*.j2"
+        recurse: true
+      register: ci_templates
+      delegate_to: localhost
+      run_once: true
+
+    - name: Output directory
+      ansible.builtin.file:
+        path: "/tmp/ansible-render/{{ inmolink_env }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+
+    - name: Render
+      ansible.builtin.template:
+        src: "{{ item }}"
+        dest: "/tmp/ansible-render/{{ inmolink_env }}/{{ inventory_hostname }}/{{ item | basename | regex_replace('\\.j2$', '') }}"
+        mode: "0644"
+      loop: "{{ ci_templates.files | map(attribute='path') | list }}"
+      delegate_to: localhost

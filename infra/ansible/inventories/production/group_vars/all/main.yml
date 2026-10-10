@@ -1,0 +1,13 @@
+inmolink_env: production
+wg_network: 10.10.0.0/24
+# Secrets (vault_*) live in vault.yml next to this file (git-ignored; template: vault.example.yml).
+
+postgres_shared_buffers: 16GB
+postgres_effective_cache_size: 48GB
+postgres_work_mem: 32MB
+postgres_maintenance_work_mem: 2GB
+postgres_max_connections: 300
+# R2 bucket per environment; WAL-G encrypts client-side (libsodium) before upload.
+walg_s3_prefix: s3://inmolink-backups-production/pg/main
+walg_retain_full: 14
+alert_email_to: ops@inmolink.es

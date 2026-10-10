@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Base backup to the WAL-G store, then retention (PLAN §3 #36). Run as postgres on the primary:
+#   docker exec -u postgres postgres inmolink-walg-backup
+# Nightly systemd timer on db-1 (Ansible role `postgres`). WAL-G settings come from the container env
+# (WALG_S3_PREFIX, AWS_*, WALG_LIBSODIUM_KEY, …). WALG_RETAIN_FULL: full backups kept (default 14).
+set -euo pipefail
+
+# Exit 2 only for a confirmed standby; a primary that does not answer must fail loudly (exit 1), not
+# look like a standby to the timer wrapper.
+in_recovery="$(psql -h /var/run/postgresql -U postgres -d postgres -tAc 'select pg_is_in_recovery()')" || {
+  echo "inmolink-walg-backup: Postgres is not answering" >&2
+  exit 1
+}
+if [ "$in_recovery" = "t" ]; then
+  echo "inmolink-walg-backup: this server is a standby; base backups run on the primary" >&2
+  exit 2
+fi
+: "${PGDATA:?PGDATA is not set}"
+: "${WALG_S3_PREFIX:?WALG_S3_PREFIX is not set}"
+
+wal-g backup-push "$PGDATA"
+wal-g delete retain FULL "${WALG_RETAIN_FULL:-14}" --confirm

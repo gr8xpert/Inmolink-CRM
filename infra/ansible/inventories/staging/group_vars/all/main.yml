@@ -1,0 +1,11 @@
+inmolink_env: staging
+wg_network: 10.20.0.0/24
+
+postgres_shared_buffers: 2GB
+postgres_effective_cache_size: 6GB
+postgres_work_mem: 16MB
+postgres_maintenance_work_mem: 512MB
+postgres_max_connections: 200
+walg_s3_prefix: s3://inmolink-backups-staging/pg/main
+walg_retain_full: 7
+alert_email_to: ops@inmolink.es

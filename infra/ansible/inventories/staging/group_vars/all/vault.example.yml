@@ -1,0 +1,35 @@
+# Copy to vault.yml (git-ignored), fill in, then `ansible-vault encrypt vault.yml`.
+# Generate passwords with: openssl rand -base64 32 | tr -d '/+=' | cut -c1-32
+vault_admin_ssh_keys:
+  - "ssh-ed25519 AAAA... shahzaib@laptop"
+# CI keys for the `deploy` user: Kamal (app hosts only) and the weekly restore drill (drill host only).
+vault_deploy_ssh_keys:
+  - "ssh-ed25519 AAAA... github-actions-kamal"
+vault_drill_ssh_keys:
+  - "ssh-ed25519 AAAA... github-actions-restore-drill"
+vault_postgres_superuser_password: ""
+# App roles (S0-04). The same values go into .kamal/secrets.<destination> as DATABASE_URL_* for the apps.
+vault_db_app_owner_password: ""
+vault_db_app_user_password: ""
+vault_db_app_system_password: ""
+vault_db_app_public_password: ""
+vault_db_app_auth_password: ""
+vault_replication_password: ""
+vault_pgbouncer_auth_password: ""
+vault_postgres_exporter_password: ""
+vault_redis_queue_password: ""
+vault_grafana_admin_password: ""
+# Cloudflare R2 API token scoped to the backups bucket (read + write).
+vault_r2_account_id: ""
+vault_r2_access_key_id: ""
+vault_r2_secret_access_key: ""
+# 32 random bytes as hex (openssl rand -hex 32). LOSING THIS KEY MAKES EVERY BACKUP UNREADABLE:
+# store a copy in the password manager, outside the servers.
+vault_walg_libsodium_key: ""
+# GitHub user + fine-grained token with read:packages, for pulling ghcr.io/gr8xpert/inmolink-* images.
+vault_ghcr_user: ""
+vault_ghcr_token: ""
+vault_smtp_url: "smtp://user:pass@email-smtp.eu-west-1.amazonaws.com:587"
+vault_alert_email_from: "alerts@inmolink.es"
+# Dead-man's switch ping URL (e.g. healthchecks.io / Better Stack heartbeat), alerting if pings stop for 5 min.
+vault_heartbeat_url: "https://hc-ping.com/<uuid>"

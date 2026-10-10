@@ -1,0 +1,36 @@
+-- {{ ansible_managed }}
+-- Cluster roles that are not the app's (those come from `pnpm db:migrate`, S0-04). Idempotent.
+-- Passwords below must not reach pg_stat_statements (readable by pg_monitor) or the server log.
+set pg_stat_statements.track_utility = off;
+set log_min_error_statement = panic;
+set log_statement = 'none';
+
+select format('create role %I', r) from unnest(array['replicator', 'pgbouncer_auth', 'postgres_exporter']) as r
+where not exists (select 1 from pg_roles where rolname = r) \gexec
+
+alter role replicator with login replication nosuperuser password '{{ vault_replication_password }}';
+alter role pgbouncer_auth with login nosuperuser nocreatedb nocreaterole password '{{ vault_pgbouncer_auth_password }}';
+alter role postgres_exporter with login nosuperuser password '{{ vault_postgres_exporter_password }}';
+grant pg_monitor to postgres_exporter;
+
+-- PgBouncer looks up app roles through this function instead of reading pg_shadow as a superuser
+-- (STATUS Decisions 2026-10-10). Only the pooled runtime roles: never app_owner (migrations connect
+-- directly from the db host) and never a superuser.
+create schema if not exists pgbouncer authorization postgres;
+revoke all on schema pgbouncer from public;
+grant usage on schema pgbouncer to pgbouncer_auth;
+create or replace function pgbouncer.get_auth(p_usename text)
+returns table (usename name, passwd text)
+language sql security definer set search_path = pg_catalog
+as $$
+  select usename, passwd from pg_catalog.pg_shadow
+  where usename = p_usename and usename in ('app_user', 'app_system', 'app_public', 'app_auth') and not usesuper
+$$;
+revoke all on function pgbouncer.get_auth(text) from public;
+grant execute on function pgbouncer.get_auth(text) to pgbouncer_auth;
+
+-- Nobody connects to the maintenance databases by default.
+revoke connect on database postgres from public;
+revoke connect on database template1 from public;
+grant connect on database postgres to replicator;
+grant connect on database {{ postgres_db }} to postgres_exporter;

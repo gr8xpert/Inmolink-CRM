@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+Port {{ ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AllowUsers {{ inmolink_admin_user }} {{ inmolink_deploy_user }}
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+AllowAgentForwarding no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+# Admins tunnel to Grafana (ssh -L). Kamal and `DOCKER_HOST=ssh://` (docker system dial-stdio) run
+# commands and need no forwarding, so the CI-used account gets none.
+AllowTcpForwarding yes
+
+Match User {{ inmolink_deploy_user }}
+    AllowTcpForwarding no
+    AllowStreamLocalForwarding no
+    PermitTunnel no

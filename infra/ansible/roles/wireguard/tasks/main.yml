@@ -1,0 +1,50 @@
+# Private mesh between every host (PLAN §5.5): replication, PgBouncer, redis-queue and metrics never
+# cross the public internet in clear text. Each host's key is generated on the host and never leaves it.
+- name: WireGuard tools
+  ansible.builtin.apt:
+    name: wireguard-tools
+    state: present
+
+- name: Private key
+  ansible.builtin.shell: umask 077 && wg genkey > /etc/wireguard/private.key
+  args:
+    creates: /etc/wireguard/private.key
+
+- name: Public key file
+  ansible.builtin.shell: wg pubkey < /etc/wireguard/private.key > /etc/wireguard/public.key
+  args:
+    creates: /etc/wireguard/public.key
+
+# Read from every host, not only those in the play, so `--limit db-2` still renders all peers.
+# A host's first run must therefore be a full `site.yml` run (or include the new host's peers).
+- name: Public keys of every host
+  ansible.builtin.slurp:
+    src: /etc/wireguard/public.key
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['all'] | unique }}"
+  register: wg_public_keys
+  run_once: true
+
+- name: Peer key map
+  ansible.builtin.set_fact:
+    wg_pubkeys: "{{ dict(wg_public_keys.results | map(attribute='item') | zip(wg_public_keys.results | map(attribute='content') | map('b64decode') | map('trim'))) }}"
+
+- name: wg0 config
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+  notify: Restart wg0
+
+- name: Enable wg0
+  ansible.builtin.systemd_service:
+    name: wg-quick@wg0
+    enabled: true
+    state: started
+
+- name: Firewall — everything on the private interface from the private network
+  community.general.ufw:
+    rule: allow
+    interface: wg0
+    direction: in
+    from_ip: "{{ wg_network }}"

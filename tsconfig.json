@@ -16,6 +16,7 @@
     "tests/seed",
     "tests/boundaries",
     "scripts/ci",
-    "tests/ci"
+    "tests/ci",
+    "tests/ops"
   ]
 }

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Nightly base backup on whichever db host is currently primary (inmolink-walg-backup.timer on every db
+# host). On a standby the image script exits 2 and this exits 0 without touching the metrics.
+# Success is exported via node_exporter's textfile collector → BaseBackupMissing alert, Grafana panel.
+set -uo pipefail
+
+out=/var/lib/node_exporter/textfile/inmolink_walg.prom
+start=$(date +%s)
+docker exec -u postgres postgres inmolink-walg-backup
+rc=$?
+if [ "$rc" -eq 2 ]; then
+  echo "standby: base backup skipped"
+  exit 0
+fi
+[ "$rc" -eq 0 ] || exit "$rc"
+end=$(date +%s)
+
+tmp=$(mktemp "${out}.XXXXXX")
+cat >"$tmp" <<EOF
+# HELP inmolink_walg_last_backup_success_timestamp_seconds Unix time of the last successful WAL-G base backup.
+# TYPE inmolink_walg_last_backup_success_timestamp_seconds gauge
+inmolink_walg_last_backup_success_timestamp_seconds $end
+# HELP inmolink_walg_last_backup_duration_seconds Duration of the last successful WAL-G base backup.
+# TYPE inmolink_walg_last_backup_duration_seconds gauge
+inmolink_walg_last_backup_duration_seconds $((end - start))
+EOF
+chmod 0644 "$tmp"
+mv "$tmp" "$out"

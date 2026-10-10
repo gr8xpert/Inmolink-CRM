@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Clones the primary into an empty $PGDATA as a streaming hot standby (PLAN §3 #35). Run as postgres,
+# in a one-off container on the standby's data volume, before the server container starts:
+#   docker run --rm -u postgres -v <data>:/var/lib/postgresql -e PRIMARY_HOST=… -e REPLICATION_PASSWORD=… \
+#     <image> inmolink-replica-init
+# Env: PRIMARY_HOST (required), PRIMARY_PORT (5432), REPLICATION_USER (replicator), REPLICATION_PASSWORD,
+#      REPLICATION_SLOT (db_2). The physical slot is created on the primary if missing, so the primary
+#      keeps WAL the standby has not received yet.
+set -euo pipefail
+
+: "${PGDATA:?PGDATA is not set}"
+: "${PRIMARY_HOST:?PRIMARY_HOST is not set}"
+: "${REPLICATION_PASSWORD:?REPLICATION_PASSWORD is not set}"
+port="${PRIMARY_PORT:-5432}"
+user="${REPLICATION_USER:-replicator}"
+slot="${REPLICATION_SLOT:-db_2}"
+
+if [[ ! "$slot" =~ ^[a-z0-9_]{1,63}$ ]]; then
+  echo "inmolink-replica-init: REPLICATION_SLOT must match [a-z0-9_]{1,63}" >&2
+  exit 2
+fi
+if [ -s "$PGDATA/PG_VERSION" ]; then
+  echo "inmolink-replica-init: $PGDATA already holds a cluster; refusing to overwrite it" >&2
+  exit 2
+fi
+
+export PGPASSWORD="$REPLICATION_PASSWORD"
+psql -h "$PRIMARY_HOST" -p "$port" -U "$user" -d postgres -v ON_ERROR_STOP=1 -tAq -c \
+  "select pg_create_physical_replication_slot('$slot') where not exists (select 1 from pg_replication_slots where slot_name = '$slot')" \
+  >/dev/null
+
+mkdir -p "$PGDATA"
+chmod 0700 "$PGDATA"
+# -R writes standby.signal + primary_conninfo (with primary_slot_name) into postgresql.auto.conf.
+pg_basebackup -h "$PRIMARY_HOST" -p "$port" -U "$user" -D "$PGDATA" -R -X stream -S "$slot" --checkpoint=fast --progress
+
+# Keep the password out of $PGDATA (it would ride along in every base backup after a failover): libpq
+# reads it from ~/.pgpass (/var/lib/postgresql, the volume root, outside $PGDATA) instead.
+umask 077
+printf '%s:%s:*:%s:%s\n' "$PRIMARY_HOST" "$port" "$user" "$REPLICATION_PASSWORD" >/var/lib/postgresql/.pgpass
+sed -i -E "s/ password=('[^']*'|[^ ']*)//" "$PGDATA/postgresql.auto.conf"
+if grep -q "password=" "$PGDATA/postgresql.auto.conf"; then
+  echo "inmolink-replica-init: could not remove the password from postgresql.auto.conf" >&2
+  exit 1
+fi
+echo "inmolink-replica-init: standby cloned from $PRIMARY_HOST:$port using slot $slot"

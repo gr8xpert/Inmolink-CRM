@@ -1,0 +1,68 @@
+# Host metrics on the WireGuard address. The textfile collector carries job results written by
+# systemd units (e.g. inmolink_walg_* from the nightly base backup).
+- name: node_exporter user
+  ansible.builtin.user:
+    name: node_exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Download node_exporter
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+    checksum: "sha256:{{ node_exporter_sha256 }}"
+    mode: "0644"
+
+- name: Install node_exporter
+  ansible.builtin.unarchive:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    extra_opts: [--strip-components=1, --wildcards, "*/node_exporter"]
+    creates: "/usr/local/bin/.node_exporter-{{ node_exporter_version }}"
+  notify: Restart node_exporter
+
+- name: Mark installed version
+  ansible.builtin.file:
+    path: "/usr/local/bin/.node_exporter-{{ node_exporter_version }}"
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+
+- name: Textfile collector directory
+  ansible.builtin.file:
+    path: /var/lib/node_exporter/textfile
+    state: directory
+    owner: root
+    group: node_exporter
+    mode: "0755"
+
+- name: systemd unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/node_exporter.service
+    content: |
+      [Unit]
+      Description=Prometheus node exporter
+      After=network-online.target wg-quick@wg0.service
+      Wants=wg-quick@wg0.service
+
+      [Service]
+      User=node_exporter
+      ExecStart=/usr/local/bin/node_exporter --web.listen-address={{ wg_ip }}:{{ node_exporter_port }} --collector.textfile.directory=/var/lib/node_exporter/textfile --collector.systemd
+      Restart=always
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: node_exporter running
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,10 @@
+# production overrides for feed-api.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d production`.
+servers:
+  web:
+    hosts: [203.0.113.10]
+proxy:
+  host: feed.inmolink.es
+env:
+  clear:
+    DEPLOY_ENV: "production"
+    OTEL_TRACES_SAMPLE_RATIO: "0.05"

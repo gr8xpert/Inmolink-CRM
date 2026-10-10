@@ -1,0 +1,135 @@
+# Users, SSH hardening, firewall, unattended security upgrades, time sync. Debian 13 / Ubuntu 24.04.
+- name: Base packages
+  ansible.builtin.apt:
+    name: [ufw, unattended-upgrades, apt-listchanges, fail2ban, chrony, ca-certificates, curl, gnupg, jq, needrestart]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Admin user (sudo, key-only)
+  ansible.builtin.user:
+    name: "{{ inmolink_admin_user }}"
+    groups: [sudo]
+    append: true
+    shell: /bin/bash
+    password: "!"
+
+- name: Deploy user (Kamal, restore drill; docker group is added by the docker role)
+  ansible.builtin.user:
+    name: "{{ inmolink_deploy_user }}"
+    shell: /bin/bash
+    password: "!"
+
+- name: Admin SSH keys (exclusive)
+  ansible.posix.authorized_key:
+    user: "{{ inmolink_admin_user }}"
+    key: "{{ vault_admin_ssh_keys | join('\n') }}"
+    exclusive: true
+
+# `deploy` is in the docker group (root-equivalent), so each CI key reaches only the hosts its job needs:
+# the Kamal key → app hosts, the restore-drill key → the drill host. Never db hosts (operators only).
+- name: Deploy SSH keys (exclusive)
+  ansible.posix.authorized_key:
+    user: "{{ inmolink_deploy_user }}"
+    key: >-
+      {{ (vault_admin_ssh_keys
+          + (vault_deploy_ssh_keys if 'app' in group_names else [])
+          + (vault_drill_ssh_keys if 'drill' in group_names else [])) | join('\n') }}
+    exclusive: true
+
+- name: Passwordless sudo for the admin user (key-only login, no passwords exist)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-inmolink
+    content: "{{ inmolink_admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: SSH hardening
+  ansible.builtin.template:
+    src: sshd-inmolink.conf.j2
+    dest: /etc/ssh/sshd_config.d/10-inmolink.conf
+    mode: "0644"
+  notify: Restart ssh
+
+- name: Unattended upgrades (security only, no automatic reboot)
+  ansible.builtin.copy:
+    dest: "/etc/apt/apt.conf.d/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: 20auto-upgrades
+      content: |
+        APT::Periodic::Update-Package-Lists "1";
+        APT::Periodic::Unattended-Upgrade "1";
+        APT::Periodic::AutocleanInterval "7";
+    - name: 52inmolink-unattended-upgrades
+      content: |
+        Unattended-Upgrade::Automatic-Reboot "false";
+        Unattended-Upgrade::Remove-Unused-Dependencies "true";
+        // Docker and Postgres containers are upgraded through images, never by apt.
+        Unattended-Upgrade::Package-Blacklist { "docker-ce"; "docker-ce-cli"; "containerd.io"; };
+
+- name: Kernel settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/90-inmolink.conf
+  loop: "{{ base_sysctl | dict2items }}"
+  vars:
+    base_sysctl:
+      vm.swappiness: 10
+      net.core.somaxconn: 4096
+      net.ipv4.tcp_max_syn_backlog: 8192
+      fs.inotify.max_user_watches: 524288
+
+- name: Firewall defaults
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+    - { direction: routed, policy: deny }
+
+- name: Firewall — SSH (rate limited) and WireGuard
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  loop:
+    - { rule: limit, port: "{{ ssh_port }}", proto: tcp }
+    - { rule: allow, port: "{{ wg_port }}", proto: udp }
+
+- name: Firewall — HTTP(S) on app hosts (kamal-proxy; Cloudflare in front)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+  when: "'app' in group_names"
+
+- name: Firewall — app containers to db services on the same host (staging single-host)
+  community.general.ufw:
+    rule: allow
+    from_ip: 172.16.0.0/12
+    to_ip: "{{ wg_ip }}"
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["{{ postgres_port }}", "{{ pgbouncer_port }}", "{{ redis_queue_port }}"]
+  when: "'app' in group_names and 'db' in group_names"
+
+- name: Enable firewall
+  community.general.ufw:
+    state: enabled
+
+- name: fail2ban for sshd
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.d/sshd.local
+    content: |
+      [sshd]
+      enabled = true
+      backend = systemd
+      maxretry = 5
+      bantime = 1h
+    mode: "0644"
+  notify: Restart fail2ban

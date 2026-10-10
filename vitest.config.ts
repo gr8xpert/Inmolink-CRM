@@ -107,6 +107,20 @@ export default defineConfig({
         },
       },
       {
+        // Deploy/backup tooling (S0-15): WAL-G PITR drill and streaming replica in throwaway containers on
+        // the test stack's network (MinIO = R2 stand-in), plus promtool alert-rule tests. Needs Docker.
+        test: {
+          name: 'ops',
+          include: ['tests/ops/**/*.int.test.ts'],
+          environment: 'node',
+          pool: 'threads',
+          fileParallelism: false,
+          globalSetup: ['tests/infra/global-setup.ts'],
+          testTimeout: 300_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
         // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },

@@ -1,0 +1,15 @@
+# staging overrides for api.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d staging`.
+servers:
+  web:
+    hosts: [203.0.113.50]
+proxy:
+  host: api.staging.inmolink.es
+env:
+  clear:
+    DEPLOY_ENV: "staging"
+    OTEL_TRACES_SAMPLE_RATIO: "1"
+accessories:
+  redis-cache:
+    host: 203.0.113.50
+  meilisearch:
+    host: 203.0.113.50

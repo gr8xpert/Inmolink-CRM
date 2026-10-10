@@ -39,3 +39,9 @@ Thumbs.db
 next-env.d.ts
 test-results/
 playwright-report/
+
+# Ops secrets (S0-15): Ansible vault files and Kamal secrets live only on the operator's machine
+infra/ansible/inventories/*/group_vars/all/vault.yml
+.kamal/secrets*
+!.kamal/secrets.example
+restore-drill-*.json

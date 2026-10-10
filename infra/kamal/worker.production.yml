@@ -1,0 +1,9 @@
+# production overrides for worker.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d production`.
+servers:
+  workers:
+    hosts: [203.0.113.10]
+env:
+  clear:
+    DEPLOY_ENV: "production"
+    OTEL_TRACES_SAMPLE_RATIO: "0.05"
+    WEB_URL: "https://app.inmolink.es"

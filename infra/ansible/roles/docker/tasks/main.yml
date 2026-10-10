@@ -1,0 +1,122 @@
+# Docker Engine from Docker's apt repo. Docker publishes ports past ufw, so every container either binds
+# to 127.0.0.1 / the WireGuard address or uses host networking with a private listen address — only
+# kamal-proxy publishes 80/443 on app hosts.
+- name: Docker apt key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Docker apt key is Docker's release key (fingerprint 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88)
+  ansible.builtin.shell: >-
+    gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
+    | grep -q '^fpr:::::::::9DC858229FC7DD38854AE2D88D81803C0EBFCD88:'
+  changed_when: false
+
+- name: Docker apt repo
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }} signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+
+- name: Docker Engine
+  ansible.builtin.apt:
+    name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin, python3-docker]
+    state: present
+    update_cache: true
+
+- name: Docker started (login below talks to the daemon)
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Docker starts after WireGuard (containers bind to the wg0 address)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/10-after-wireguard.conf
+    content: |
+      [Unit]
+      After=wg-quick@wg0.service
+      Wants=wg-quick@wg0.service
+    mode: "0644"
+  notify: Restart docker
+
+- name: Daemon config (bounded logs, containers survive daemon restarts)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ docker_daemon | to_nice_json }}\n"
+    mode: "0644"
+  vars:
+    docker_daemon:
+      log-driver: local
+      log-opts: { max-size: 50m, max-file: "5" }
+      live-restore: true
+      userland-proxy: false
+  notify: Restart docker
+
+- name: Deploy user may use Docker (Kamal, restore drill over ssh)
+  ansible.builtin.user:
+    name: "{{ inmolink_deploy_user }}"
+    groups: [docker]
+    append: true
+
+- name: GHCR pull login (private images) for root (Ansible-managed containers) and deploy (deploy.sh migrations)
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "{{ vault_ghcr_user }}"
+    password: "{{ vault_ghcr_token }}"
+    config_path: "{{ item }}"
+  loop: [/root/.docker/config.json, "/home/{{ inmolink_deploy_user }}/.docker/config.json"]
+  no_log: true
+
+- name: deploy owns its Docker config
+  ansible.builtin.file:
+    path: "/home/{{ inmolink_deploy_user }}/.docker"
+    owner: "{{ inmolink_deploy_user }}"
+    group: "{{ inmolink_deploy_user }}"
+    recurse: true
+
+- name: Origin lock script (app hosts — only Cloudflare reaches 80/443)
+  ansible.builtin.template:
+    src: inmolink-origin-lock.j2
+    dest: /usr/local/sbin/inmolink-origin-lock
+    mode: "0755"
+  when: "'app' in group_names"
+  register: origin_lock_script
+
+- name: Origin lock unit (re-applied after every Docker start)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/inmolink-origin-lock.service
+    content: |
+      [Unit]
+      Description=Accept 80/443 only from Cloudflare (DOCKER-USER)
+      After=docker.service
+      PartOf=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=true
+      ExecStart=/usr/local/sbin/inmolink-origin-lock
+
+      [Install]
+      WantedBy=docker.service
+    mode: "0644"
+  when: "'app' in group_names"
+
+- name: Origin lock active
+  ansible.builtin.systemd_service:
+    name: inmolink-origin-lock.service
+    enabled: true
+    state: "{{ 'restarted' if origin_lock_script.changed else 'started' }}"
+    daemon_reload: true
+  when: "'app' in group_names"
+
+- name: Weekly prune of unused images (Kamal keeps the last few releases itself)
+  ansible.builtin.copy:
+    dest: /etc/cron.weekly/docker-image-prune
+    content: |
+      #!/bin/sh
+      docker image prune -af --filter "until=336h" >/dev/null
+    mode: "0755"

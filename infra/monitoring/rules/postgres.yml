@@ -1,0 +1,97 @@
+# Postgres HA + backup alerts (S0-15, PLAN §3 #35 #36). Loaded by Prometheus on the monitoring host
+# (Ansible role `monitoring`). Unit tests: postgres.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Labels: `role` (primary | replica) is set per scrape target in prometheus.yml.j2.
+# Metrics: postgres_exporter v0.20.1 (pg_up, pg_replication_*, pg_replication_slots_*, pg_stat_archiver_*),
+# node_exporter textfile collector (inmolink_walg_* written by inmolink-walg-backup.service).
+groups:
+  # Always firing. Alertmanager sends it to an external dead-man's switch (vault_heartbeat_url); when the
+  # pings stop (monitoring host or Alertmanager down) that service pages instead.
+  - name: meta
+    rules:
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "Alerting pipeline heartbeat"
+  - name: postgres-replication
+    rules:
+      # The exporter reports 0 when the standby has replayed everything it received, so an idle primary
+      # never looks lagged; a standby that stopped receiving is caught by PostgresReplicaNotStreaming.
+      - alert: PostgresReplicaLagHigh
+        expr: max by (instance) (pg_replication_lag_seconds{role="replica"}) > 60
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Replica {{ $labels.instance }} is {{ $value | humanizeDuration }} behind the primary"
+          runbook: docs/runbooks/failover.md#replica-lag
+      # Primary-side view: WAL the standby has not confirmed. Catches a standby that receives slowly (saturated
+      # cross-datacenter link), which the replay-based lag above reports as 0.
+      - alert: PostgresReplicaBehindBytes
+        expr: max by (instance, slot_name) (pg_replication_slots_pg_wal_lsn_diff{role="primary"}) > 1024 * 1024 * 1024
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Standby on slot {{ $labels.slot_name }} is {{ $value | humanize1024 }}B of WAL behind {{ $labels.instance }}"
+          runbook: docs/runbooks/failover.md#replica-lag
+      - alert: PostgresReplicaNotStreaming
+        expr: max by (instance, slot_name) (pg_replication_slots_slot_is_active{role="primary"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No standby is streaming from slot {{ $labels.slot_name }} on {{ $labels.instance }}"
+          runbook: docs/runbooks/failover.md#replica-not-streaming
+      # An inactive slot keeps WAL on the primary forever; page before the disk fills.
+      - alert: PostgresSlotRetainingWal
+        expr: max by (instance, slot_name) (pg_replication_slots_pg_wal_lsn_diff{role="primary"}) > 20 * 1024 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Slot {{ $labels.slot_name }} holds {{ $value | humanize1024 }}B of WAL on {{ $labels.instance }}"
+          runbook: docs/runbooks/failover.md#replica-not-streaming
+      - alert: PostgresDown
+        expr: (pg_up == 0) or (up{job="postgres"} == 0)
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres {{ $labels.instance }} ({{ $labels.role }}) is not answering"
+          runbook: docs/runbooks/failover.md
+  - name: postgres-backups
+    rules:
+      - alert: WalArchivingFailing
+        expr: increase(pg_stat_archiver_failed_count{role="primary"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "wal-g wal-push is failing on {{ $labels.instance }}: point-in-time recovery is at risk"
+          runbook: docs/runbooks/pitr-restore.md#archiving-failing
+      # archive_timeout = 60 s and the outbox writes continuously, so 15 min without a segment means
+      # archiving stalled (RPO target ≤ 5 min).
+      - alert: WalArchivingStale
+        expr: pg_stat_archiver_last_archive_age{role="primary"} > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No WAL segment archived from {{ $labels.instance }} for {{ $value | humanizeDuration }}"
+          runbook: docs/runbooks/pitr-restore.md#archiving-failing
+      - alert: BaseBackupMissing
+        expr: time() - max(inmolink_walg_last_backup_success_timestamp_seconds) > 26 * 3600
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful nightly base backup for {{ $value | humanizeDuration }}"
+          runbook: docs/runbooks/pitr-restore.md#base-backup-missing
+      - alert: BaseBackupNeverReported
+        expr: absent(inmolink_walg_last_backup_success_timestamp_seconds)
+        for: 26h
+        labels:
+          severity: critical
+        annotations:
+          summary: "The base backup job has never reported success"
+          runbook: docs/runbooks/pitr-restore.md#base-backup-missing

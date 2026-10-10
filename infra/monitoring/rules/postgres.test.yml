@@ -1,0 +1,119 @@
+# promtool test rules postgres.test.yml — run by tests/ops/alerts.int.test.ts (S0-15).
+rule_files:
+  - postgres.yml
+evaluation_interval: 15s
+
+tests:
+  # Lag climbs 0 → 120 s at 15 s per minute... then recovers. Fires once lag > 60 s has held for 30 s.
+  - interval: 15s
+    input_series:
+      - series: 'pg_replication_lag_seconds{role="replica", instance="db-2"}'
+        values: "0 0 0 0 30 59 59 59 61 75 90 105 120 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m30s # lag 59 s: below the threshold
+        alertname: PostgresReplicaLagHigh
+        exp_alerts: []
+      - eval_time: 2m # lag 61 s, pending
+        alertname: PostgresReplicaLagHigh
+        exp_alerts: []
+      - eval_time: 2m30s # lag 90 s, held > 60 s for 30 s: firing
+        alertname: PostgresReplicaLagHigh
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: db-2 }
+            exp_annotations:
+              summary: "Replica db-2 is 1m 30s behind the primary"
+              runbook: docs/runbooks/failover.md#replica-lag
+      - eval_time: 4m # caught up again
+        alertname: PostgresReplicaLagHigh
+        exp_alerts: []
+
+  # The primary's own lag series (always 0) never alerts, even with a replica label missing.
+  - interval: 15s
+    input_series:
+      - series: 'pg_replication_lag_seconds{role="primary", instance="db-1"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresReplicaLagHigh
+        exp_alerts: []
+
+  - interval: 30s
+    input_series:
+      - series: 'pg_replication_slots_slot_is_active{role="primary", instance="db-1", slot_name="db_2"}'
+        values: "1 1 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: PostgresReplicaNotStreaming
+        exp_alerts: []
+      - eval_time: 3m30s
+        alertname: PostgresReplicaNotStreaming
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: db-1, slot_name: db_2 }
+            exp_annotations:
+              summary: "No standby is streaming from slot db_2 on db-1"
+              runbook: docs/runbooks/failover.md#replica-not-streaming
+
+  # Slot 2 GiB behind (slow link), while replay-based lag on the standby reads 0.
+  - interval: 1m
+    input_series:
+      - series: 'pg_replication_slots_pg_wal_lsn_diff{role="primary", instance="db-1", slot_name="db_2"}'
+        values: "0 104857600 2147483648 2147483648 2147483648 2147483648"
+      - series: 'pg_replication_lag_seconds{role="replica", instance="db-2"}'
+        values: "0x5"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PostgresReplicaBehindBytes
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: PostgresReplicaBehindBytes
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: db-1, slot_name: db_2 }
+            exp_annotations:
+              summary: "Standby on slot db_2 is 2GiB of WAL behind db-1"
+              runbook: docs/runbooks/failover.md#replica-lag
+      - eval_time: 5m
+        alertname: PostgresReplicaLagHigh
+        exp_alerts: []
+
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: { severity: none }
+            exp_annotations:
+              summary: "Alerting pipeline heartbeat"
+
+  - interval: 1m
+    input_series:
+      - series: 'pg_stat_archiver_failed_count{role="primary", instance="db-1"}'
+        values: "0 0 0 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: WalArchivingFailing
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: WalArchivingFailing
+        exp_alerts:
+          - exp_labels: { severity: critical, role: primary, instance: db-1 }
+            exp_annotations:
+              summary: "wal-g wal-push is failing on db-1: point-in-time recovery is at risk"
+              runbook: docs/runbooks/pitr-restore.md#archiving-failing
+
+  # Last success at t=0; 26 h later with no new success the alert fires.
+  - interval: 1h
+    input_series:
+      - series: 'inmolink_walg_last_backup_success_timestamp_seconds{instance="db-1"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BaseBackupMissing
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BaseBackupMissing
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "No successful nightly base backup for 1d 3h 0m 0s"
+              runbook: docs/runbooks/pitr-restore.md#base-backup-missing

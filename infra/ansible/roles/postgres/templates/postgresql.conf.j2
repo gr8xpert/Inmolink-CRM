@@ -1,0 +1,63 @@
+# {{ ansible_managed }}
+# Same file on primary and standby. Data directory: $PGDATA in the container (/var/lib/postgresql/18/docker).
+listen_addresses = '127.0.0.1,{{ wg_ip }}'
+port = {{ postgres_port }}
+unix_socket_directories = '/var/run/postgresql'
+max_connections = {{ postgres_max_connections }}
+password_encryption = scram-sha-256
+timezone = 'UTC'
+log_timezone = 'UTC'
+
+# Memory
+shared_buffers = {{ postgres_shared_buffers }}
+effective_cache_size = {{ postgres_effective_cache_size }}
+work_mem = {{ postgres_work_mem }}
+maintenance_work_mem = {{ postgres_maintenance_work_mem }}
+huge_pages = try
+
+# NVMe
+random_page_cost = 1.1
+effective_io_concurrency = 200
+maintenance_io_concurrency = 200
+
+# Extensions
+shared_preload_libraries = 'pg_stat_statements'
+pg_stat_statements.track = all
+
+# WAL, replication (PLAN §3 #35)
+wal_level = replica
+wal_compression = zstd
+max_wal_senders = 10
+max_replication_slots = 10
+wal_keep_size = 2GB
+# A standby that is gone for days must not fill the primary's disk: past this, its slot is invalidated
+# and it is re-cloned (PostgresSlotRetainingWal pages well before).
+max_slot_wal_keep_size = 100GB
+hot_standby = on
+hot_standby_feedback = on
+max_standby_streaming_delay = 30s
+checkpoint_timeout = 15min
+max_wal_size = 16GB
+min_wal_size = 2GB
+checkpoint_completion_target = 0.9
+
+# Archiving to R2 (PLAN §3 #36). On a standby archive_mode=on does nothing until it is promoted, then
+# it archives on the new timeline without a config change.
+archive_mode = on
+archive_command = 'wal-g wal-push "%p"'
+archive_timeout = {{ postgres_archive_timeout }}
+# Standby fallback when the slot's WAL is gone; also used by PITR restores.
+restore_command = 'wal-g wal-fetch "%f" "%p"'
+
+# Logging (no statement text by default: parameters may carry PII)
+log_destination = 'stderr'
+log_min_duration_statement = 500ms
+log_checkpoints = on
+log_lock_waits = on
+log_temp_files = 64MB
+log_autovacuum_min_duration = 10s
+log_line_prefix = '%m [%p] %q%u@%d '
+
+# Safety nets
+idle_in_transaction_session_timeout = 5min
+statement_timeout = 0

@@ -1,0 +1,176 @@
+{
+  "title": "Inmolink · Postgres replication & backups",
+  "uid": "inmolink-postgres-replication",
+  "description": "S0-15. Hot-standby lag and slot state (postgres_exporter on db-1/db-2), WAL archiving to R2 (WAL-G) and the nightly base backup. Alerts: infra/monitoring/rules/postgres.yml.",
+  "tags": ["inmolink", "postgres", "ha", "backups"],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [{ "name": "datasource", "type": "datasource", "query": "prometheus", "current": {} }]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Replica lag (alert > 60 s)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "thresholdsStyle": { "mode": "line+area" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 60 }]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (instance) (pg_replication_lag_seconds{role=\"replica\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Replica lag now",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "max(pg_replication_lag_seconds{role=\"replica\"})" }]
+    },
+    {
+      "id": 3,
+      "title": "Standby streaming (slot active)",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "NOT STREAMING", "color": "red" },
+                "1": { "text": "streaming", "color": "green" }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (slot_name) (pg_replication_slots_slot_is_active{role=\"primary\"})",
+          "legendFormat": "{{slot_name}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "WAL held by replication slots",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (slot_name) (pg_replication_slots_pg_wal_lsn_diff{role=\"primary\"})",
+          "legendFormat": "{{slot_name}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Seconds since last archived WAL segment",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_stat_archiver_last_archive_age{role=\"primary\"}",
+          "legendFormat": "last archive age"
+        },
+        {
+          "refId": "B",
+          "expr": "increase(pg_stat_archiver_failed_count{role=\"primary\"}[10m])",
+          "legendFormat": "failed pushes (10 min)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Hours since last successful base backup",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 26 }]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "(time() - max(inmolink_walg_last_backup_success_timestamp_seconds)) / 3600" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Last base backup duration",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 16, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "max(inmolink_walg_last_backup_duration_seconds)" }]
+    },
+    {
+      "id": 8,
+      "title": "Postgres up",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "up", "color": "green" } }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "targets": [{ "refId": "A", "expr": "pg_up", "legendFormat": "{{instance}} ({{role}})" }]
+    }
+  ]
+}
