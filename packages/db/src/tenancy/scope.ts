@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
-import { assertSystemAllowed, dbConfig, dbLogger, getDb, type Tx } from '../client';
+import type pg from 'pg';
+import { assertSystemAllowed, dbConfig, dbLogger, getDb, getPgClient, type Tx } from '../client';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,6 +47,35 @@ export async function withSystem<T>(
     await tx.execute(sql`select set_config('app.system_reason', ${reason}, true)`);
     return fn(tx);
   });
+}
+
+/**
+ * `withSystem()` for driver-level work (COPY streams, PATTERNS §13) on a raw `app_system` client.
+ * Owns the transaction: begin, transaction-local `app.system_reason`, commit — or rollback and
+ * destroy the client on error, so a connection in an unknown state (an aborted COPY) never returns
+ * to the pool. `fn` must not commit, release or change session settings.
+ */
+export async function withSystemClient<T>(reason: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  assertSystemAllowed();
+  if (reason.trim() === '') throw new TypeError('withSystemClient: a reason is required');
+  dbLogger().info({ reason, appRole: dbConfig().APP_ROLE }, 'withSystem');
+  const client = await getPgClient('app_system');
+  try {
+    await client.query('begin');
+    await client.query(`select set_config('app.system_reason', $1, true)`, [reason]);
+    const result = await fn(client);
+    await client.query('commit');
+    client.release();
+    return result;
+  } catch (err) {
+    await client.query('rollback').catch(() => {});
+    try {
+      client.release(err instanceof Error ? err : new Error(String(err)));
+    } catch {
+      // Already released (by a misbehaving `fn`): keep the original error.
+    }
+    throw err;
+  }
 }
 
 /** Public read paths (feed-api, portal): `app_public`, read-only transaction, read models + PUBLIC_READ tables only. */

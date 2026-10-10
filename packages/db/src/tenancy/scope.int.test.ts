@@ -3,8 +3,8 @@ import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDb } from '../../test/test-db';
-import { closeDb, configureDb, dbConfig, getPgClient } from '../client';
-import { withPublicRead, withSystem, withTenant } from './scope';
+import { closeDb, configureDb, dbConfig, getDb, getPgClient } from '../client';
+import { withPublicRead, withSystem, withSystemClient, withTenant } from './scope';
 
 type Row = Record<string, unknown>;
 const first = (res: { rows: unknown[] }) => res.rows[0] as Row;
@@ -76,6 +76,37 @@ describe('withSystem', () => {
       );
       expect(row).toEqual({ role: 'app_system', reason: 's0-04 test' });
     } finally {
+      await configureDb({ ...dbConfig(), APP_ROLE: 'http' });
+    }
+  });
+
+  it('[S0-13] withSystemClient commits with the reason set; on error it rolls back and destroys the client', async () => {
+    await expect(withSystemClient('test', async () => 1)).rejects.toThrow(/not allowed when APP_ROLE=http/);
+    await configureDb({ ...dbConfig(), APP_ROLE: 'script' }, { max: 1 });
+    const key = `test.s0-13-${newId()}`;
+    const flagExists = () =>
+      withSystem('s0-13 check', async (tx) =>
+        first(await tx.execute(sql`select count(*)::int as n from feature_flags where key = ${key}`)),
+      ).then((r) => r.n);
+    try {
+      const reason = await withSystemClient('s0-13 copy', async (client) => {
+        await client.query('insert into feature_flags (key) values ($1)', [key]);
+        return (await client.query(`select current_setting('app.system_reason', true) as r`)).rows[0]?.r;
+      });
+      expect(reason).toBe('s0-13 copy');
+      expect(await flagExists()).toBe(1);
+
+      const pool = getDb('app_system').$client;
+      await expect(
+        withSystemClient('s0-13 failing copy', async (client) => {
+          await client.query('delete from feature_flags where key = $1', [key]);
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+      expect(pool.totalCount).toBe(0); // destroyed, not returned to the pool
+      expect(await flagExists()).toBe(1); // the delete rolled back
+    } finally {
+      await withSystem('s0-13 cleanup', (tx) => tx.execute(sql`delete from feature_flags where key = ${key}`));
       await configureDb({ ...dbConfig(), APP_ROLE: 'http' });
     }
   });

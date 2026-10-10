@@ -79,6 +79,19 @@ export default defineConfig({
         },
       },
       {
+        // `pnpm db:seed` / `db:seed:scale` (S0-13) against the test stack: timing, idempotency, determinism.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'seed',
+          include: ['tests/seed/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 60_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
         // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },

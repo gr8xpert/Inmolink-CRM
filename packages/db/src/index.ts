@@ -31,5 +31,6 @@ export {
   withAuth,
   withPublicRead,
   withSystem,
+  withSystemClient,
   withTenant,
 } from './tenancy/scope';

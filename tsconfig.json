@@ -12,6 +12,8 @@
     "scripts/ops",
     "scripts/gen",
     "scripts/boundaries",
+    "scripts/seed",
+    "tests/seed",
     "tests/boundaries"
   ]
 }
