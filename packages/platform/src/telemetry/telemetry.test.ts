@@ -32,6 +32,19 @@ async function until(check: () => boolean, ms = SENTRY_EVENT_MS - 1_000): Promis
   }
 }
 
+const messageOf = (e: ErrorEvent) => e.exception?.values?.[0]?.value ?? e.message ?? '?';
+
+/** The event of one request (matched by its id in the message); a timeout lists what did arrive. */
+async function eventFor(requestId: unknown): Promise<ErrorEvent> {
+  const find = () => events.find((e) => messageOf(e).includes(String(requestId)));
+  try {
+    await until(() => find() !== undefined);
+  } catch {
+    throw new Error(`no event for ${String(requestId)}; received: ${JSON.stringify(events.map(messageOf))}`);
+  }
+  return find() as ErrorEvent;
+}
+
 const events: ErrorEvent[] = [];
 let telemetry: Telemetry;
 let metricsUrl: string;
@@ -129,8 +142,7 @@ describe('telemetry', () => {
         headers: { authorization: 'Bearer x', cookie: 'a=b' },
       });
       expect(res.statusCode).toBe(500);
-      await until(() => events.length === 1);
-      const [event] = events as [ErrorEvent];
+      const event = await eventFor(res.headers['x-request-id']);
       expect(event.release).toBe('abc123');
       expect(event.environment).toBe('test');
       expect(event.tags).toMatchObject({ requestId: res.headers['x-request-id'], route: '/boom', service: 'api' });
@@ -144,12 +156,13 @@ describe('telemetry', () => {
     '[S0-10] an outgoing call leaks no Sentry headers or baggage, and its query string stays out of the event',
     async () => {
       events.length = 0;
-      expect((await app.inject({ url: '/calls-out', headers: { baggage: 'planted=1' } })).statusCode).toBe(500);
-      await until(() => events.length === 1);
+      const res = await app.inject({ url: '/calls-out', headers: { baggage: 'planted=1' } });
+      expect(res.statusCode).toBe(500);
+      const event = await eventFor(res.headers['x-request-id']);
       expect(upstreamHeaders).toBeDefined();
       expect(Object.keys(upstreamHeaders ?? {})).not.toContain('sentry-trace');
       expect(Object.keys(upstreamHeaders ?? {})).not.toContain('baggage');
-      expect(JSON.stringify(events[0])).not.toContain(SECRET);
+      expect(JSON.stringify(event)).not.toContain(SECRET);
     },
     SENTRY_EVENT_MS,
   );
