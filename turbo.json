@@ -23,6 +23,13 @@
     "//#typecheck:root": {},
     "//#lint:root": {},
     "//#test:root": {},
+    "//#check:boundaries": {
+      "cache": false
+    },
+    "//#test:boundaries": {
+      "dependsOn": ["^test:int", "//#test:int:root", "//#test:isolation"],
+      "cache": false
+    },
     "//#test:int:root": {
       "dependsOn": ["^test:int", "//#test:isolation"],
       "cache": false
@@ -36,6 +43,8 @@
         "//#typecheck:root",
         "//#lint:root",
         "//#test:root",
+        "//#check:boundaries",
+        "//#test:boundaries",
         "//#test:int:root",
         "//#test:isolation"
       ],

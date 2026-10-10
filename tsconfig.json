@@ -9,6 +9,9 @@
     "tests/perf",
     "tests/e2e",
     "playwright.config.ts",
-    "scripts/ops"
+    "scripts/ops",
+    "scripts/gen",
+    "scripts/boundaries",
+    "tests/boundaries"
   ]
 }

@@ -14,6 +14,18 @@ export default defineConfig({
         },
       },
       {
+        // `pnpm test:boundaries` (S0-12): gen:module output and planted boundary violations, in a sandbox
+        // copy of the workspace. Spawns tsc, Biome and dependency-cruiser, so it gets generous timeouts.
+        test: {
+          name: 'boundaries',
+          include: ['tests/boundaries/**/*.test.ts'],
+          environment: 'node',
+          pool: 'threads',
+          testTimeout: 300_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // Needs Docker: global setup starts the `test` compose profile.
         test: {
           name: 'infra',
