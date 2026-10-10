@@ -36,8 +36,11 @@ jobs:
         with: { persist-credentials: false, fetch-depth: 0 }
       - uses: ./.github/actions/setup
         with: { cache-key: static }
-      - name: Typecheck, lint, unit tests, build
-        run: pnpm turbo run typecheck typecheck:root lint lint:root test test:root build $AFFECTED
+      - name: Typecheck, lint, build
+        run: pnpm turbo run typecheck typecheck:root lint lint:root build $AFFECTED
+      # Own step: unit tests with timing assertions do not compete with tsc and next build for CPU.
+      - name: Unit tests
+        run: pnpm turbo run test test:root $AFFECTED
       - name: i18n catalogs
         if: success() || failure() # report catalog problems even when the step above failed
         run: pnpm i18n:check

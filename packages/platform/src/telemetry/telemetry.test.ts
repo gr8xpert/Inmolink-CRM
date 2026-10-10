@@ -20,7 +20,11 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function until(check: () => boolean, ms = 5_000): Promise<void> {
+// The first Sentry event loads integrations lazily (context lines, modules); on a busy 4-vCPU CI
+// runner that alone took longer than Vitest's 5 s default. Event delivery is asserted, not its speed.
+const SENTRY_EVENT_MS = 15_000;
+
+async function until(check: () => boolean, ms = SENTRY_EVENT_MS - 1_000): Promise<void> {
   const end = Date.now() + ms;
   while (!check()) {
     if (Date.now() > end) throw new Error('timed out');
@@ -116,28 +120,39 @@ describe('telemetry', () => {
     expect(text).not.toContain('/nope/at/all');
   });
 
-  it('[S0-10] errors reach Sentry with release and request ID tags', async () => {
-    events.length = 0;
-    const res = await app.inject({ url: '/boom?token=secret', headers: { authorization: 'Bearer x', cookie: 'a=b' } });
-    expect(res.statusCode).toBe(500);
-    await until(() => events.length === 1);
-    const [event] = events as [ErrorEvent];
-    expect(event.release).toBe('abc123');
-    expect(event.environment).toBe('test');
-    expect(event.tags).toMatchObject({ requestId: res.headers['x-request-id'], route: '/boom', service: 'api' });
-    expect(event.exception?.values?.[0]?.value).toBe(`kaboom ${res.headers['x-request-id']}`);
-    expect(JSON.stringify(event)).not.toMatch(/token=secret|Bearer x|a=b/);
-  });
+  it(
+    '[S0-10] errors reach Sentry with release and request ID tags',
+    async () => {
+      events.length = 0;
+      const res = await app.inject({
+        url: '/boom?token=secret',
+        headers: { authorization: 'Bearer x', cookie: 'a=b' },
+      });
+      expect(res.statusCode).toBe(500);
+      await until(() => events.length === 1);
+      const [event] = events as [ErrorEvent];
+      expect(event.release).toBe('abc123');
+      expect(event.environment).toBe('test');
+      expect(event.tags).toMatchObject({ requestId: res.headers['x-request-id'], route: '/boom', service: 'api' });
+      expect(event.exception?.values?.[0]?.value).toBe(`kaboom ${res.headers['x-request-id']}`);
+      expect(JSON.stringify(event)).not.toMatch(/token=secret|Bearer x|a=b/);
+    },
+    SENTRY_EVENT_MS,
+  );
 
-  it('[S0-10] an outgoing call leaks no Sentry headers or baggage, and its query string stays out of the event', async () => {
-    events.length = 0;
-    expect((await app.inject({ url: '/calls-out', headers: { baggage: 'planted=1' } })).statusCode).toBe(500);
-    await until(() => events.length === 1);
-    expect(upstreamHeaders).toBeDefined();
-    expect(Object.keys(upstreamHeaders ?? {})).not.toContain('sentry-trace');
-    expect(Object.keys(upstreamHeaders ?? {})).not.toContain('baggage');
-    expect(JSON.stringify(events[0])).not.toContain(SECRET);
-  });
+  it(
+    '[S0-10] an outgoing call leaks no Sentry headers or baggage, and its query string stays out of the event',
+    async () => {
+      events.length = 0;
+      expect((await app.inject({ url: '/calls-out', headers: { baggage: 'planted=1' } })).statusCode).toBe(500);
+      await until(() => events.length === 1);
+      expect(upstreamHeaders).toBeDefined();
+      expect(Object.keys(upstreamHeaders ?? {})).not.toContain('sentry-trace');
+      expect(Object.keys(upstreamHeaders ?? {})).not.toContain('baggage');
+      expect(JSON.stringify(events[0])).not.toContain(SECRET);
+    },
+    SENTRY_EVENT_MS,
+  );
 
   it('[S0-10] expected failures (4xx AppErrors) are not reported', async () => {
     events.length = 0;
