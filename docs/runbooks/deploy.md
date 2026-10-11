@@ -49,7 +49,23 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
 
    The primary takes its first base backup at the end of the run; the standby clones the primary
    through slot `db_2` (`inmolink-replica-init`).
-6. Boot the accessories: `kamal accessory boot all -c infra/kamal/api.yml -d staging`.
+   The docker role creates the `kamal` network on `kamal_network_subnet` (10.200.0.0/24), which the apps
+   trust as their proxy hop. It must exist before the first `kamal setup`; on a host where Kamal already
+   created it, stop the containers, `docker network rm kamal` and re-run the playbook.
+6. Boot the accessories: `kamal accessory boot all -c infra/kamal/api.yml -d staging`. redis-cache
+   refuses to start without `REDIS_CACHE_PASSWORD` (`openssl rand -hex 32`); every app's `REDIS_CACHE_URL`
+   is `redis://:<that password>@inmolink-api-redis-cache:6379`.
+   Then create the Meilisearch **search-only** key for api and feed-api (they never get the master key;
+   production config refuses it for http apps) and put its `key` in `MEILI_SEARCH_KEY`:
+
+   ```sh
+   curl -sX POST http://<meili>:7700/keys -H "Authorization: Bearer $MEILI_MASTER_KEY" \
+     -H 'Content-Type: application/json' \
+     -d '{"name":"request-apps","actions":["search"],"indexes":["*"],"expiresAt":null}'
+   ```
+
+   Turnstile (H3): create a widget for `app.inmolink.es` (+ staging) and set `TURNSTILE_SITE_KEY` /
+   `TURNSTILE_SECRET_KEY` for web. Without them, the per-email login ceiling is a hard block again.
 7. First deploy creates the app roles: export `DATABASE_URL_ADMIN=postgres://postgres:<superuser
    password>@127.0.0.1:5432/inmolink` in your shell, then `scripts/ops/deploy.sh staging --bootstrap-roles`.
    The URL travels over SSH stdin into the one-off container; it is never written to the hosts.
@@ -90,8 +106,11 @@ No line may be printed during `scripts/ops/deploy.sh staging --only api`. Record
 
 Cloudflare (proxied, Full strict) → kamal-proxy on app-1. App hosts accept 80/443 **only** from
 Cloudflare's ranges (`inmolink-origin-lock`, rules in `DOCKER-USER` because Docker-published ports
-bypass ufw), so the WAF cannot be skipped. Apps set `TRUST_PROXY` to the `kamal` Docker network +
-the same Cloudflare ranges, so `request.ip` is the client. Both lists come from `cloudflare_ips` in
+bypass ufw), so the WAF cannot be skipped. Apps set `TRUST_PROXY` to the `kamal` Docker network
+(`kamal_network_subnet`) + the same Cloudflare ranges, so `request.ip` is the client. The Workers
+egress range `2a06:98c0::/29` (`cloudflare_workers_ips`) passes the origin lock but is never trusted:
+any Cloudflare customer's Worker sends from it with headers of its choosing. Cloudflare Authenticated Origin Pulls (mTLS) would also need
+kamal-proxy to verify client certificates, which it does not do. Both lists come from `cloudflare_ips` in
 `infra/ansible/group_vars/all.yml` (a workspace test keeps the Kamal copies in sync); Cloudflare
 changes them rarely — check https://www.cloudflare.com/ips/ when bumping.
 

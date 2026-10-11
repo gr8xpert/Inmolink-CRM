@@ -30,6 +30,8 @@ export const apiEnv = {
   ...redisEnv,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,
+  /** Search-only key (S1-F5) — never the master key in a request app. */
+  MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
   ...cryptoEnv,
   ...authVerifyEnv,
 };

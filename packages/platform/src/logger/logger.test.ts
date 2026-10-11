@@ -57,6 +57,22 @@ describe('logger', () => {
     expect(line.msg).toBe('lead received');
   });
 
+  it('[S1-F5] redacts person names, top level and nested', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info({
+      name: 'Ana García',
+      user: { id: 'u1', name: 'Luis Pérez', firstName: 'Luis' },
+      invite: { contact: { fullName: 'Marta Ruiz' } },
+    });
+    const text = out.raw.join('');
+    for (const pii of ['Ana García', 'Luis Pérez', 'Marta Ruiz']) expect(text).not.toContain(pii);
+    expect((out.lines[0] as { user: Record<string, unknown> }).user).toEqual({
+      id: 'u1',
+      name: REDACTED,
+      firstName: REDACTED,
+    });
+  });
+
   it('[S0-03] redacts extra keys passed by the app', () => {
     const out = capture();
     createLogger({ destination: out.destination, redact: ['dni'] }).info({ dni: '12345678Z' });

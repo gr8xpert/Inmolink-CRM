@@ -23,6 +23,8 @@ export const feedApiEnv = {
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,
+  /** Search-only key (S1-F5) — never the master key in a request app. */
+  MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
   ...cryptoEnv,
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;

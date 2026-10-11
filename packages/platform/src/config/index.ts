@@ -127,8 +127,22 @@ export const httpEnv = {
 
 export const searchEnv = {
   MEILI_URL: url(['http', 'https']),
-  /** Admin key — worker indexing and scripts only; request-path apps get a scoped key with the search adapter. */
+  /** Admin key — worker indexing and scripts only; refused for APP_ROLE=http in production (S1-F5). */
   MEILI_MASTER_KEY: nonEmpty,
+  /**
+   * Search-only key (`actions: ["search"]`) for request-path apps (api, feed-api). Optional until the
+   * search adapter reads it; created once per deployment (docs/runbooks/deploy.md).
+   */
+  MEILI_SEARCH_KEY: nonEmpty.optional(),
+};
+
+/**
+ * Cloudflare Turnstile (S1-F5): the challenge shown once a per-email login ceiling is reached. Both or
+ * neither; unset, the ceiling stays a hard block. Cloudflare's test keys are refused in production.
+ */
+export const turnstileEnv = {
+  TURNSTILE_SITE_KEY: nonEmpty.optional(),
+  TURNSTILE_SECRET_KEY: nonEmpty.optional(),
 };
 
 export const storageEnv = {
@@ -185,6 +199,25 @@ const EXAMPLE_JWT_PUBLIC_KEYS = new Set([
   'MCowBQYDK2VwAyEA57hG/H5HUDaL1k17CeMBqE03zTvNPgLVHoX7DKSYyqs=',
   'MCowBQYDK2VwAyEAAy6KQhRaNdNDpYjKEVK5HhvejcYzS9e8Etz1obQc7II=',
 ]);
+
+/**
+ * Secret material committed in `.env.example` / `.env.test.example` (public by definition). Production
+ * refuses a value that contains one, whatever prefix or key id it carries — dropping `dev-` is not a
+ * new secret (S1-F5). Encryption keys are compared as bytes.
+ */
+const EXAMPLE_SECRETS = [
+  'P7U9zqzYvnRL38PwBgXH3LqIdqLN3IDtvyLOnitUOJE',
+  'xOmUta9NX3C5Z_oJq3EJuq5OargPUZY27uzbpxkbv5s',
+  '01c1d8e276ba8bfe3a373a947be2a96c5706827172d0449d9dac51abbe9b621b',
+  '7e010e159bffe2c51832864979e6b72652776ca7ea39d1fd9b81bcfaa227b7f8',
+];
+const EXAMPLE_ENCRYPTION_KEYS = new Set([
+  'gOid8c3Gq/xDngwo9zS6C1RbtlAac+1xxS+dcK8Kfak=',
+  '9A7vGB1PcY5bAilbX41zlnFBSMSlUhnJE2C/ML9bp9s=',
+]);
+const isExampleSecret = (value: string) => EXAMPLE_SECRETS.some((s) => value.includes(s));
+/** Cloudflare's published Turnstile test keys (`1x0000…AA`, `2x0000…AB`, …): always pass or always fail. */
+const TURNSTILE_TEST_KEY = /^[0-9]x0{10,}[A-Z]{2}$/;
 
 /** Traces, metrics and error reporting (S0-10, platform/telemetry). Each app adds its own `METRICS_PORT`. */
 export const telemetryEnv = {
@@ -272,6 +305,8 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
       createKeyring({ keys, activeKeyId: cfg.ENCRYPTION_ACTIVE_KEY_ID });
       if (production && Object.keys(keys).some((id) => id.startsWith('dev'))) {
         problems.push({ key: 'ENCRYPTION_KEYS', message: 'dev keys (id "dev…") are not allowed in production' });
+      } else if (production && Object.values(keys).some((k) => EXAMPLE_ENCRYPTION_KEYS.has(normalizeBase64(k)))) {
+        problems.push({ key: 'ENCRYPTION_KEYS', message: 'is a committed example key; generate a new one' });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'is invalid';
@@ -309,6 +344,25 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   }
   if (production && typeof cfg.HMAC_KEY === 'string' && cfg.HMAC_KEY.startsWith('dev-')) {
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
+  } else if (production && typeof cfg.HMAC_KEY === 'string' && isExampleSecret(cfg.HMAC_KEY)) {
+    problems.push({ key: 'HMAC_KEY', message: 'is a committed example value; generate a new one' });
+  }
+  // Read from the raw env: request apps do not declare the variable, so it would never reach `cfg`.
+  if (production && cfg.APP_ROLE === 'http' && (env.MEILI_MASTER_KEY ?? '').trim() !== '') {
+    problems.push({
+      key: 'MEILI_MASTER_KEY',
+      message: 'must not be set for APP_ROLE=http in production (admin key; use MEILI_SEARCH_KEY)',
+    });
+  }
+  if ((cfg.TURNSTILE_SITE_KEY === undefined) !== (cfg.TURNSTILE_SECRET_KEY === undefined)) {
+    const key = cfg.TURNSTILE_SITE_KEY === undefined ? 'TURNSTILE_SITE_KEY' : 'TURNSTILE_SECRET_KEY';
+    problems.push({ key, message: 'TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are set together or not at all' });
+  }
+  for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'] as const) {
+    const value = cfg[key];
+    if (production && typeof value === 'string' && TURNSTILE_TEST_KEY.test(value)) {
+      problems.push({ key, message: 'Cloudflare test keys are not allowed in production' });
+    }
   }
   if (cfg.EMAIL_DRIVER === 'smtp' && cfg.SMTP_URL === undefined) {
     problems.push({ key: 'SMTP_URL', message: 'is required when EMAIL_DRIVER=smtp' });
@@ -329,6 +383,8 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   }
   if (production && typeof cfg.AUTH_SECRET === 'string' && cfg.AUTH_SECRET.startsWith('dev-')) {
     problems.push({ key: 'AUTH_SECRET', message: 'dev values ("dev-…") are not allowed in production' });
+  } else if (production && typeof cfg.AUTH_SECRET === 'string' && isExampleSecret(cfg.AUTH_SECRET)) {
+    problems.push({ key: 'AUTH_SECRET', message: 'is a committed example value; generate a new one' });
   }
   if (typeof cfg.AUTH_JWT_PUBLIC_KEYS === 'string') {
     const entries = cfg.AUTH_JWT_PUBLIC_KEYS.split(',')
@@ -342,7 +398,7 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
       });
     } else if (
       production &&
-      entries.some(([kid, key]) => kid.startsWith('dev') || EXAMPLE_JWT_PUBLIC_KEYS.has(normalizeSpki(key)))
+      entries.some(([kid, key]) => kid.startsWith('dev') || EXAMPLE_JWT_PUBLIC_KEYS.has(normalizeBase64(key)))
     ) {
       problems.push({
         key: 'AUTH_JWT_PUBLIC_KEYS',
@@ -373,7 +429,7 @@ function publicOf(privateB64: string): string | undefined {
   }
 }
 
-function normalizeSpki(b64: string): string {
+function normalizeBase64(b64: string): string {
   return Buffer.from(b64, 'base64').toString('base64');
 }
 

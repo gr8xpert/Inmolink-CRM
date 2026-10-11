@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { generateKey } from '../crypto';
 import { generateAccessKeyPair } from '../jwt';
@@ -13,7 +15,9 @@ import {
   loadConfig,
   loadConfigOrExit,
   redisEnv,
+  searchEnv,
   telemetryEnv,
+  turnstileEnv,
 } from './index';
 
 const validEnv = {
@@ -145,6 +149,71 @@ describe('loadConfig', () => {
     const err = problemsOf(() => loadConfig({ ...shape, ...cryptoEnv }, env));
     expect(err.problems.map((p) => p.key).sort()).toEqual(['ENCRYPTION_KEYS', 'HMAC_KEY']);
     expect(() => loadConfig({ ...shape, ...cryptoEnv }, { ...env, NODE_ENV: 'development' })).not.toThrow();
+  });
+
+  it('[S1-F5] production config with an example secret minus its dev prefix fails to load', () => {
+    const root = join(import.meta.dirname, '..', '..', '..', '..');
+    for (const file of ['.env.example', '.env.test.example']) {
+      const text = readFileSync(join(root, file), 'utf8');
+      const value = (key: string) => new RegExp(`^${key}=(.+)$`, 'm').exec(text)?.[1]?.trim() ?? '';
+      const encryptionKey = value('ENCRYPTION_KEYS').split(':')[1] ?? '';
+      const env = {
+        ...validEnv,
+        NODE_ENV: 'production',
+        APP_ROLE: 'worker',
+        // The committed values with the dev markers removed: prefix dropped, key id renamed.
+        ENCRYPTION_KEYS: `prod1:${encryptionKey}`,
+        ENCRYPTION_ACTIVE_KEY_ID: 'prod1',
+        HMAC_KEY: value('HMAC_KEY').replace(/^dev-/, ''),
+        AUTH_SECRET: value('AUTH_SECRET').replace(/^dev-/, ''),
+      };
+      // Refused because they are the examples, not because they are malformed (a renamed key reads as '').
+      for (const v of [encryptionKey, env.HMAC_KEY, env.AUTH_SECRET]) expect(v.length, file).toBeGreaterThan(30);
+      const err = problemsOf(() => loadConfig({ ...shape, ...cryptoEnv, ...authSessionEnv }, env));
+      expect(err.problems.map((p) => p.key).sort(), file).toEqual(['AUTH_SECRET', 'ENCRYPTION_KEYS', 'HMAC_KEY']);
+      for (const p of err.problems) expect(p.message, p.key).toContain('committed example');
+      // A different prefix does not help either.
+      const prefixed = { ...env, HMAC_KEY: `prod-${env.HMAC_KEY}`, AUTH_SECRET: `x${env.AUTH_SECRET}` };
+      const again = problemsOf(() => loadConfig({ ...shape, ...cryptoEnv, ...authSessionEnv }, prefixed));
+      expect(again.problems.map((p) => p.message).every((m) => m.includes('committed example'))).toBe(true);
+      expect(again.problems).toHaveLength(3);
+    }
+    const fresh = {
+      ...validEnv,
+      NODE_ENV: 'production',
+      APP_ROLE: 'worker',
+      ENCRYPTION_KEYS: `k1:${generateKey()}`,
+      ENCRYPTION_ACTIVE_KEY_ID: 'k1',
+      HMAC_KEY: 'a'.repeat(64),
+      AUTH_SECRET: 'b'.repeat(43),
+    };
+    expect(() => loadConfig({ ...shape, ...cryptoEnv, ...authSessionEnv }, fresh)).not.toThrow();
+  });
+
+  it('[S1-F5] request apps never hold the Meilisearch admin key in production; Turnstile keys pair up', () => {
+    // Shaped like api/feed-api: the master key is not even declared, yet an injected one is refused.
+    const sshape = { ...coreEnv, MEILI_URL: searchEnv.MEILI_URL, MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY };
+    const base = { NODE_ENV: 'production', APP_ROLE: 'http', MEILI_URL: 'http://meili:7700' };
+    expect(problemsOf(() => loadConfig(sshape, { ...base, MEILI_MASTER_KEY: 'm' })).problems.map((p) => p.key)).toEqual(
+      ['MEILI_MASTER_KEY'],
+    );
+    expect(() => loadConfig(sshape, { ...base, MEILI_SEARCH_KEY: 'search-only' })).not.toThrow();
+    expect(() => loadConfig(sshape, { ...base, APP_ROLE: 'worker', MEILI_MASTER_KEY: 'm' })).not.toThrow();
+    const keys = (env: Record<string, string>) => {
+      try {
+        loadConfig({ ...coreEnv, ...turnstileEnv }, { APP_ROLE: 'http', ...env });
+        return [];
+      } catch (err) {
+        return (err as ConfigError).problems.map((p) => p.key);
+      }
+    };
+    expect(keys({ NODE_ENV: 'production', TURNSTILE_SITE_KEY: '0x4AAAAAAA' })).toEqual(['TURNSTILE_SECRET_KEY']);
+    const test = {
+      TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+    };
+    expect(keys({ NODE_ENV: 'development', ...test })).toEqual([]);
+    expect(keys({ NODE_ENV: 'production', ...test }).sort()).toEqual(['TURNSTILE_SECRET_KEY', 'TURNSTILE_SITE_KEY']);
   });
 
   it('[S0-09] email driver needs its credential; JWT keys must be Ed25519 and not dev keys in production', () => {

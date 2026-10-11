@@ -38,17 +38,16 @@ env:
   clear:
     NODE_ENV: "production"
     HOST: "0.0.0.0"
-    # Client → Cloudflare → kamal-proxy (Docker network) → app. Trusting exactly these makes request.ip the
+    # Client → Cloudflare → kamal-proxy (`kamal` network, kamal_network_subnet) → app. Trusting exactly these makes request.ip the
     # client's address. Cloudflare's published ranges (cloudflare.com/ips); keep in sync with
     # cloudflare_ips in infra/ansible/group_vars/all.yml (tests/workspace/deploy-config.test.ts checks).
-    TRUST_PROXY: "172.16.0.0/12,173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32"
+    TRUST_PROXY: "10.200.0.0/24,173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2c0f:f248::/32"
     SHUTDOWN_DRAIN_DELAY_MS: "2000"
     EDGE_REQUEST_ID_HEADER: "cf-ray"
     APP_ROLE: "http"
     API_PORT: "4000"
     API_METRICS_PORT: "0"
     # Accessories of infra/kamal/api.yml, reached over the `kamal` Docker network.
-    REDIS_CACHE_URL: "redis://inmolink-api-redis-cache:6379"
     MEILI_URL: "http://inmolink-api-meilisearch:7700"
     # Cloudflare R2 (S1-03): the endpoint names the account, so it is a secret like the keys.
     S3_REGION: "auto"
@@ -57,6 +56,8 @@ env:
   secret:
     - RELEASE
     - SENTRY_DSN
+    # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
+    - REDIS_CACHE_URL
     - DATABASE_URL_APP_USER
     - DATABASE_URL_APP_STAFF
     - S3_ENDPOINT
@@ -65,17 +66,30 @@ env:
     # Not a secret, but named like one (the deploy-config check keeps *PRIVATE* names out of clear env).
     - S3_BUCKET_PRIVATE
     - REDIS_QUEUE_URL
-    - MEILI_MASTER_KEY
+    # Search-only key; the master key stays with the meilisearch accessory and the worker (S1-F5).
+    - MEILI_SEARCH_KEY
     - AUTH_JWT_PUBLIC_KEYS
     - ENCRYPTION_KEYS
     - ENCRYPTION_ACTIVE_KEY_ID
     - HMAC_KEY
 accessories:
   # Cache: bounded, LRU, no persistence (same flags as the local redis-cache service).
+  # AUTH (S1-F5): the password goes into a 0600 config file, not the command line (visible in `ps`); the
+  # single quotes keep the Docker host's shell (Kamal runs `docker run` over SSH) from expanding it; the
+  # container's sh does. Hex only (`openssl rand -hex 32`): safe in the config line and in REDIS_CACHE_URL.
+  # The image's entrypoint then drops to the redis user as usual.
   redis-cache:
     image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
-    cmd: redis-server --maxmemory 4gb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    cmd: >-
+      sh -c 'case "$REDIS_CACHE_PASSWORD" in ""|*[!0-9a-f]*) echo "REDIS_CACHE_PASSWORD must be hex" >&2; exit 1;; esac
+      && umask 077
+      && printf "requirepass %s\n" "$REDIS_CACHE_PASSWORD" > /tmp/redis.conf && chown redis:redis /tmp/redis.conf
+      && exec docker-entrypoint.sh redis-server /tmp/redis.conf
+      --maxmemory 4gb --maxmemory-policy allkeys-lru --save "" --appendonly no'
     host: "" # per destination
+    env:
+      secret:
+        - REDIS_CACHE_PASSWORD
   # Rebuildable from Postgres (search reindex); the volume only saves reindex time.
   meilisearch:
     image: getmeili/meilisearch:v1.54.3@sha256:e68913ab7d6f5b159529e472cfd362ce3c741fafd3c127961b2142abbe41b3c9

@@ -15,8 +15,8 @@ host    postgres        replicator          {{ hostvars[h].wg_ip }}/32          
 host    {{ postgres_db }}        app_system          {{ hostvars[h].wg_ip }}/32           scram-sha-256
 {% endfor %}
 {% if inventory_hostname in groups['app'] %}
-# This host also runs the apps (staging): Kamal containers connect from a Docker bridge subnet.
-host    {{ postgres_db }}        app_system          172.16.0.0/12           scram-sha-256
+# This host also runs the apps (staging): Kamal containers connect from the `kamal` network.
+host    {{ postgres_db }}        app_system          {{ kamal_network_subnet }}           scram-sha-256
 {% endif %}
 host    all             all                 0.0.0.0/0               reject
 host    all             all                 ::/0                    reject

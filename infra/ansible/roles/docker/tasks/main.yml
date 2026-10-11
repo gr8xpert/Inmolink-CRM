@@ -78,6 +78,15 @@
     group: "{{ inmolink_deploy_user }}"
     recurse: true
 
+- name: The `kamal` network on its fixed subnet (apps trust exactly it as the proxy hop — TRUST_PROXY)
+  # Kamal creates `kamal` only when missing, so this must run before the first `kamal setup`. A host that
+  # already has the network on another subnet needs it recreated (docs/runbooks/deploy.md).
+  community.docker.docker_network:
+    name: kamal
+    ipam_config:
+      - subnet: "{{ kamal_network_subnet }}"
+  when: "'app' in group_names"
+
 - name: Origin lock script (app hosts — only Cloudflare reaches 80/443)
   ansible.builtin.template:
     src: inmolink-origin-lock.j2

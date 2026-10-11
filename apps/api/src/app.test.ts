@@ -112,6 +112,36 @@ describe('requireSession', () => {
     expect(cookie.statusCode).toBe(401);
   });
 
+  it('[S1-F5] a 401 body is identical for expired, unknown-key and wrong-audience tokens', async () => {
+    const a = await app();
+    const expiring = (await signer.sign({ sub: USER, aud: 'api', sv: 1 })).token;
+    clock.advance((ACCESS_TOKEN_TTL_SECONDS + 10) * 1_000);
+    try {
+      // Signed after the clock moved: each fails for its own reason only.
+      const wrongAudience = (await signer.sign({ sub: USER, aud: 'realtime', sv: 1 })).token;
+      const unknownKey = (
+        await createAccessTokenSigner({
+          privateKey: privateKeyFromBase64(pair.privateKey),
+          keyId: 'k9',
+          clock,
+        }).sign({ sub: USER, aud: 'api', sv: 1 })
+      ).token;
+      const bodies = await Promise.all(
+        [expiring, unknownKey, wrongAudience, undefined].map(async (t) => {
+          const res = await me(a, t);
+          expect(res.statusCode).toBe(401);
+          return res.body;
+        }),
+      );
+      expect(new Set(bodies).size).toBe(1);
+      expect(JSON.parse(bodies[0] as string)).toEqual({
+        error: { code: 'NOT_AUTHENTICATED', message: 'Unauthorized' },
+      });
+    } finally {
+      clock.set(Date.now());
+    }
+  });
+
   it('[S0-09] the per-user rate limit sees the authenticated user', async () => {
     const seen: string[] = [];
     const recording = {

@@ -111,7 +111,8 @@
 - name: Firewall — app containers to db services on the same host (staging single-host)
   community.general.ufw:
     rule: allow
-    from_ip: 172.16.0.0/12
+    # Kamal apps on the `kamal` network only (deploy.sh's one-off containers use host networking).
+    from_ip: "{{ kamal_network_subnet }}"
     to_ip: "{{ wg_ip }}"
     port: "{{ item }}"
     proto: tcp

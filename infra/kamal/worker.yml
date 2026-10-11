@@ -31,11 +31,11 @@ env:
     WORKER_HEALTH_PORT: "4003"
     WORKER_METRICS_PORT: "0"
     EMAIL_DRIVER: "smtp"
-    # Accessories of infra/kamal/api.yml, reached over the `kamal` Docker network.
-    REDIS_CACHE_URL: "redis://inmolink-api-redis-cache:6379"
   secret:
     - RELEASE
     - SENTRY_DSN
+    # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
+    - REDIS_CACHE_URL
     - DATABASE_URL_APP_USER
     - DATABASE_URL_APP_SYSTEM
     - DATABASE_URL_LISTEN

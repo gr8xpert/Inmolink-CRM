@@ -97,12 +97,9 @@ describe('Kamal deploy config', () => {
 });
 
 describe('edge and access', () => {
-  const groupVars = yaml<{ cloudflare_ips: string[]; postgres_image: string } & Record<string, unknown>>(
-    'infra',
-    'ansible',
-    'group_vars',
-    'all.yml',
-  );
+  const groupVars = yaml<
+    { cloudflare_ips: string[]; kamal_network_subnet: string; postgres_image: string } & Record<string, unknown>
+  >('infra', 'ansible', 'group_vars', 'all.yml');
 
   it('[S0-15] every env variable an app requires is set by its Kamal config (clear or secret)', async () => {
     const appEnv: Record<string, () => Promise<Record<string, { safeParse(v: unknown): { success: boolean } }>>> = {
@@ -136,12 +133,51 @@ describe('edge and access', () => {
     expect(groupVars.cloudflare_ips.length).toBeGreaterThan(10);
     for (const app of APPS.filter((a) => a !== 'worker')) {
       const trusted = kamal(app).env.clear.TRUST_PROXY?.split(',') ?? [];
-      expect(trusted[0], app).toBe('172.16.0.0/12'); // the `kamal` Docker network
+      expect(trusted[0], app).toBe(groupVars.kamal_network_subnet); // the `kamal` Docker network
       expect(trusted.slice(1).sort(), app).toEqual([...groupVars.cloudflare_ips].sort());
     }
     expect(read('infra', 'ansible', 'roles', 'docker', 'templates', 'inmolink-origin-lock.j2')).toContain(
       'cloudflare_ips',
     );
+  });
+
+  it('[S1-F5] the proxy hop is the fixed kamal subnet; the Workers range passes the origin lock but is not trusted', () => {
+    expect(read('infra', 'ansible', 'roles', 'docker', 'templates', 'inmolink-origin-lock.j2')).toContain(
+      'cloudflare_workers_ips',
+    );
+    expect(groupVars.kamal_network_subnet).toMatch(/^10\.\d+\.\d+\.0\/24$/);
+    expect(read('infra', 'ansible', 'roles', 'docker', 'tasks', 'main.yml')).toContain(
+      'subnet: "{{ kamal_network_subnet }}"',
+    );
+    expect(groupVars.cloudflare_ips).not.toContain('2a06:98c0::/29');
+    // No rule still opens a host service to every Docker bridge.
+    for (const file of [
+      ['roles', 'base', 'tasks', 'main.yml'],
+      ['roles', 'docker', 'templates', 'inmolink-origin-lock.j2'],
+      ['roles', 'postgres', 'templates', 'pg_hba.conf.j2'],
+    ]) {
+      expect(read('infra', 'ansible', ...file), file.join('/')).not.toContain('172.16.0.0/12');
+    }
+    for (const app of APPS.filter((a) => a !== 'worker')) {
+      const trusted = kamal(app).env.clear.TRUST_PROXY ?? '';
+      expect(trusted, app).not.toContain('172.16.0.0/12');
+      expect(trusted, app).not.toContain('2a06:98c0');
+    }
+  });
+
+  it('[S1-F5] redis-cache needs a password; request apps get the Meilisearch search key, never the master key', () => {
+    const api = kamal('api') as Kamal & {
+      accessories: Record<string, { cmd?: string; env?: { secret?: string[] } }>;
+    };
+    expect(api.accessories['redis-cache']?.cmd).toContain('requirepass');
+    expect(api.accessories['redis-cache']?.env?.secret).toEqual(['REDIS_CACHE_PASSWORD']);
+    for (const app of APPS) {
+      const k = kamal(app);
+      // The URL carries the password, so it is a secret everywhere.
+      expect(Object.keys(k.env.clear), app).not.toContain('REDIS_CACHE_URL');
+      if (k.env.clear.APP_ROLE === 'http') expect(k.env.secret, app).not.toContain('MEILI_MASTER_KEY');
+    }
+    for (const app of ['api', 'feed-api']) expect(kamal(app).env.secret, app).toContain('MEILI_SEARCH_KEY');
   });
 
   it('[S0-15] CI keys never reach db hosts; images are pinned by digest', () => {

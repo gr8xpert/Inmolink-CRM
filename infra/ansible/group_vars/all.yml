@@ -39,6 +39,8 @@ redis_queue_port: 6379
 # Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). App hosts accept 80/443 only
 # from these (roles/docker origin lock), and the Kamal apps trust them in TRUST_PROXY — keep both in sync
 # (tests/workspace/deploy-config.test.ts compares them).
+# Left out on purpose (S1-F5): 2a06:98c0::/29 (cloudflare_workers_ips below) — any Cloudflare customer's
+# Worker sends from it with headers of its choosing (X-Forwarded-For included), so it is never a trusted proxy.
 cloudflare_ips:
   - 173.245.48.0/20
   - 103.21.244.0/22
@@ -60,5 +62,13 @@ cloudflare_ips:
   - 2803:f800::/32
   - 2405:b500::/32
   - 2405:8100::/32
-  - 2a06:98c0::/29
   - 2c0f:f248::/32
+# Still on Cloudflare's published edge list, so the origin lock lets it reach 80/443 (proxied IPv6 traffic
+# may arrive from it); the apps just do not trust its X-Forwarded-For.
+cloudflare_workers_ips:
+  - 2a06:98c0::/29
+
+# The `kamal` Docker network (kamal-proxy ↔ apps ↔ accessories) on a fixed subnet, created by roles/docker
+# before Kamal's first boot, so apps can trust exactly it as the proxy hop (TRUST_PROXY, S1-F5) rather than
+# all of 172.16.0.0/12. Outside Docker's default address pools and the WireGuard networks.
+kamal_network_subnet: 10.200.0.0/24

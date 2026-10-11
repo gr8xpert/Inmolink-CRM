@@ -22,6 +22,7 @@ export default defineConfig({
     'storage/index': 'src/storage/index.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/register': 'src/telemetry/register.ts',
+    'turnstile/index': 'src/turnstile/index.ts',
   },
   format: 'esm',
   fixedExtension: false,

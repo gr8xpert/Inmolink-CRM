@@ -9,6 +9,12 @@ import { activeTraceIds } from '../telemetry/context';
  * `key` is on the list by design (acceptance check S0-03): log cache/S3 keys as `cacheKey`/`objectKey`.
  */
 export const REDACT_KEYS = [
+  // Person names (S1-F5). Log a queue, rule or check under its own key (`queue`, `rule`), never `name`;
+  // an error's own `name` is redacted too — its class stays in `type`.
+  'name',
+  'firstName',
+  'lastName',
+  'fullName',
   'email',
   'phone',
   'mobile',

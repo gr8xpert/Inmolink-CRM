@@ -1,4 +1,4 @@
-import { AppError } from '@inmolink/platform/errors';
+import { AppError, isAppError } from '@inmolink/platform/errors';
 import type { AccessTokenVerifier } from '@inmolink/platform/jwt';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -34,7 +34,11 @@ export function sessionPlugin(app: FastifyZod, options: { verifier: AccessTokenV
       };
     } catch (err) {
       reply.header('www-authenticate', 'Bearer error="invalid_token"');
-      throw err;
+      if (!isAppError(err) || err.code !== 'NOT_AUTHENTICATED') throw err;
+      // The reason (expired, unknown key, wrong audience, …) helps a forger more than a client: log it,
+      // send the same body for every failure (S1-F5).
+      request.log.info({ reason: err.details?.reason }, 'access token refused');
+      throw new AppError('NOT_AUTHENTICATED');
     }
   });
 }

@@ -74,10 +74,12 @@ export const {
     },
     providers: [
       Credentials({
-        credentials: { email: {}, password: {} },
+        credentials: { email: {}, password: {}, turnstile: {} },
         async authorize(credentials, request) {
+          const turnstile = (credentials as { turnstile?: unknown }).turnstile;
           const result = await attemptLogin(credentials, request.headers.get('x-forwarded-for'), {
             deviceToken: readCookie(request.headers.get('cookie'), rememberedDeviceCookie(secure).name),
+            turnstileToken: typeof turnstile === 'string' && turnstile !== '' ? turnstile : undefined,
           });
           if (!result.ok) throw new LoginError(result.code);
           const u = result.user;

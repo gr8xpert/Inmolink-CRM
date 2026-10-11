@@ -5,6 +5,8 @@ import { setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
+import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
+import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { webConfig } from './env';
 import { LIMITS } from './limits';
@@ -65,9 +67,15 @@ describe('login rate limits', () => {
         code: 'invalid',
       });
     }
-    expect(await attemptLogin({ email, password: 'wrong password' }, randomIp())).toEqual({
+    // Without Turnstile the ceiling blocks; with it, the next attempt needs a challenge (S1-F5 test).
+    expect(await attemptLogin({ email, password: 'wrong password' }, randomIp(), { turnstile: null })).toEqual({
       ok: false,
       code: 'rate_limited',
+    });
+    const unsolved = { verify: async () => false };
+    expect(await attemptLogin({ email, password: 'wrong password' }, randomIp(), { turnstile: unsolved })).toEqual({
+      ok: false,
+      code: 'challenge',
     });
   }, 120_000);
 
@@ -87,6 +95,56 @@ describe('login rate limits', () => {
       code: 'invalid',
     });
   }, 60_000);
+
+  it('[S1-F5] past the per-email ceiling the owner gets a Turnstile step instead of a block', async () => {
+    const email = uniqueEmail();
+    await identity.register(authCtx(newId()), {
+      email,
+      password: 'correct horse battery',
+      name: 'Ana',
+      locale: 'en',
+      accountKind: 'AGENCY',
+      companyName: 'Costa Homes',
+    });
+    // The distributed-guessing ceiling is reached; the per-IP rules are not.
+    const ceilingReached = {
+      consume: async (rule: RateLimitRule) =>
+        rule.name === LIMITS.loginEmail.name
+          ? { allowed: false, limit: 1, remaining: 0, retryAfterSeconds: 600 }
+          : { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 },
+    } as unknown as RateLimiter;
+    const seen: { token: string; action: string }[] = [];
+    const turnstile: TurnstileVerifier = {
+      verify: async (token, { action }) => {
+        seen.push({ token, action });
+        return token === 'solved';
+      },
+    };
+    const owner = randomIp();
+    const login = (turnstileToken?: string) =>
+      attemptLogin({ email, password: 'correct horse battery' }, owner, {
+        limiter: ceilingReached,
+        turnstile,
+        turnstileToken,
+      });
+
+    expect(await login()).toEqual({ ok: false, code: 'challenge' });
+    expect(await login('forged')).toEqual({ ok: false, code: 'challenge' });
+    // Solved: the attempt reaches the password check (unverified account here).
+    expect(await login('solved')).toEqual({ ok: false, code: 'unverified' });
+    expect(seen).toEqual([
+      { token: 'forged', action: 'login' },
+      { token: 'solved', action: 'login' },
+    ]);
+    // Without Turnstile configured the ceiling stays a hard block.
+    expect(
+      await attemptLogin({ email, password: 'correct horse battery' }, owner, {
+        limiter: ceilingReached,
+        turnstile: null,
+        turnstileToken: 'solved',
+      }),
+    ).toEqual({ ok: false, code: 'rate_limited' });
+  });
 
   it('[S0-09] malformed input is refused before any limit or password work', async () => {
     expect(await attemptLogin({ email: 'not-an-email', password: 'x' }, randomIp())).toEqual({

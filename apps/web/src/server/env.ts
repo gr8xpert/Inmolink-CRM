@@ -12,6 +12,7 @@ import {
   httpEnv,
   loadConfig,
   redisEnv,
+  turnstileEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
 import { keyringFromEnv } from '@inmolink/platform/crypto';
@@ -40,6 +41,8 @@ export const webEnv = {
   /** Dashboard API base URL for server-side calls. */
   API_URL: z.url().transform((v) => v.replace(/\/+$/, '')),
   ...authSessionEnv,
+  /** Login challenge once the per-email ceiling is reached (S1-F5); unset keeps the hard block. */
+  ...turnstileEnv,
 };
 export type WebConfig = Config<typeof webEnv>;
 

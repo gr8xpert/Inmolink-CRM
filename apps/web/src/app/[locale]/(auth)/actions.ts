@@ -26,6 +26,7 @@ export interface FormState {
   error?:
     | 'invalidInput'
     | 'rateLimited'
+    | 'challengeRequired'
     | 'invalidCredentials'
     | 'emailNotVerified'
     | 'tokenInvalid'
@@ -35,6 +36,8 @@ export interface FormState {
   /** Field names that failed validation. */
   fields?: string[];
   done?: boolean;
+  /** Login only: show the Turnstile challenge on the next attempt (S1-F5). */
+  challenge?: boolean;
 }
 
 const field = (form: FormData, name: string) => {
@@ -77,12 +80,14 @@ export async function loginAction(_prev: FormState, form: FormData): Promise<For
     await signIn('credentials', {
       email: field(form, 'email'),
       password: field(form, 'password'),
+      turnstile: field(form, 'cf-turnstile-response'),
       redirectTo: getPathname({ href: '/', locale: await getLocale() }),
     });
   } catch (err) {
     if (err instanceof AuthError) {
       const code = (err as AuthError & { code?: string }).code;
       if (code === 'rate_limited') return { error: 'rateLimited' };
+      if (code === 'challenge') return { error: 'challengeRequired', challenge: true };
       if (code === 'unverified') return { error: 'emailNotVerified' };
       if (code === 'input' || code === 'invalid') return { error: 'invalidCredentials' };
       return { error: 'generic' };

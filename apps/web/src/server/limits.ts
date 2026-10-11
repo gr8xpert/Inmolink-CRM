@@ -10,10 +10,19 @@ export const LIMITS = {
   loginIp: { name: 'auth.login.ip', scope: 'ip', limit: 30, windowSeconds: 15 * 60, failClosed: true },
   /**
    * Per email from one client (identity `email|ipBucket`): guessing one account is slow, but nobody
-   * can lock its owner out from elsewhere. `loginEmail` is the ceiling against distributed guessing.
+   * can lock its owner out from elsewhere. `loginEmail` is the ceiling against distributed guessing:
+   * past it each attempt needs a solved Turnstile challenge (S1-F5; a hard block when Turnstile is not
+   * configured). `loginEmailDay` is the hard cap behind it, against paid captcha solving at scale.
    */
   loginEmailIp: { name: 'auth.login.email-ip', scope: 'email', limit: 10, windowSeconds: 15 * 60, failClosed: true },
   loginEmail: { name: 'auth.login.email', scope: 'email', limit: 100, windowSeconds: 60 * 60, failClosed: true },
+  loginEmailDay: {
+    name: 'auth.login.email-day',
+    scope: 'email',
+    limit: 1_000,
+    windowSeconds: 24 * 60 * 60,
+    failClosed: true,
+  },
   signupIp: { name: 'auth.signup.ip', scope: 'ip', limit: 10, windowSeconds: 60 * 60, failClosed: true },
   /** Each sign-up emails the address (confirmation or "account exists"): cap mail to one inbox. */
   signupEmail: { name: 'auth.signup.email', scope: 'email', limit: 3, windowSeconds: 60 * 60, failClosed: true },

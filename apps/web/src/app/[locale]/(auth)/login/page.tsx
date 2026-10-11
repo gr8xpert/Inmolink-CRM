@@ -1,7 +1,9 @@
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect } from '@/i18n/navigation';
+import { webConfig } from '@/server/env';
 import { formErrors } from '@/server/form-errors';
+import { TURNSTILE_LOGIN_ACTION } from '@/server/login';
 import { loginAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
@@ -9,6 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   if (await auth()) return redirect({ href: '/', locale: await getLocale() });
   const t = await getTranslations('auth');
   const params = await searchParams;
+  const siteKey = (await webConfig()).TURNSTILE_SITE_KEY;
   const notice = params.verified
     ? t('login.verified')
     : params.reset
@@ -28,6 +31,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         action={loginAction}
         submitLabel={t('login.submit')}
         errors={await formErrors()}
+        challenge={siteKey ? { siteKey, action: TURNSTILE_LOGIN_ACTION } : undefined}
         fields={[
           { name: 'email', label: t('login.email'), type: 'email', autoComplete: 'username' },
           { name: 'password', label: t('login.password'), type: 'password', autoComplete: 'current-password' },

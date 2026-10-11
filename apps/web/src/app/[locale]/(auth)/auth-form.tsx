@@ -1,8 +1,9 @@
 'use client';
 
 import { Button, Input, Label } from '@inmolink/ui';
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import type { FormState } from './actions';
+import { Turnstile } from './turnstile';
 
 export interface FieldSpec {
   name: string;
@@ -26,11 +27,17 @@ interface Props {
   doneMessage?: string;
   /** Short instruction above the fields. */
   intro?: string;
+  /** Login: the Turnstile widget shown once the action asks for a challenge (S1-F5). */
+  challenge?: { siteKey: string; action: string };
 }
 
 /** Progressive-enhancement form: works without JS (server action), shows server errors by code. */
-export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMessage, intro }: Props) {
+export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMessage, intro, challenge }: Props) {
   const [state, formAction, pending] = useActionState(action, {});
+  // Once challenged, keep the widget: past the ceiling every attempt needs a fresh token, even after a
+  // wrong password (which the action reports without `challenge`).
+  const [challenged, setChallenged] = useState(false);
+  if (state.challenge && !challenged) setChallenged(true);
   if (state.done && doneMessage) {
     return (
       <p role="status" className="rounded-md bg-muted p-4 text-sm">
@@ -88,6 +95,9 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
           </div>
         );
       })}
+      {challenge && challenged ? (
+        <Turnstile siteKey={challenge.siteKey} action={challenge.action} resetKey={state} />
+      ) : null}
       <Button type="submit" disabled={pending}>
         {submitLabel}
       </Button>

@@ -8,6 +8,7 @@ export async function formErrors(): Promise<Record<NonNullable<FormState['error'
   return {
     invalidInput: t('invalidInput'),
     rateLimited: t('rateLimited'),
+    challengeRequired: t('challengeRequired'),
     invalidCredentials: t('invalidCredentials'),
     emailNotVerified: t('emailNotVerified'),
     tokenInvalid: t('tokenInvalid'),
