@@ -25,13 +25,13 @@ export default async function VerificationRequestPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ locale: string; id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const id = VerificationRequestParams.safeParse(await params);
+  const id = VerificationRequestParams.safeParse({ id: (await params).id });
   if (!id.success) notFound();
   const res = await fetchVerificationRequest(sessionRef(session.user), id.data.id);
   if (res === 'revoked') redirect('/session/expired');

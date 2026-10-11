@@ -23,6 +23,11 @@ export function inmolinkProject(options = {}) {
     test: {
       environment: options.environment ?? 'node',
       include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
+      // Sized for a full, non-affected `verify` on one machine (S1-F1): boot tests and `setupTestDb`
+      // hooks blew Vitest's 5 s / 10 s defaults under parallel load and passed alone. Same as the
+      // root projects; a slow test still fails, just not because the machine is busy.
+      testTimeout: 30_000,
+      hookTimeout: 180_000,
     },
   });
 }

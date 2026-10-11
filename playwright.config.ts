@@ -4,8 +4,9 @@ import { PORTS, ROOT, testStackEnv } from './tests/e2e/stack';
 
 /**
  * E2E (PLAN §15 critical flows) against the full local stack on the docker `test` profile:
- * api + worker (outbox, email) from source, web from `next dev` (workspace packages from dist —
- * `pnpm test:e2e` builds them first). Emails land in the test Mailpit.
+ * api + worker (outbox, email) from source, web as a production build (`next start`; `pnpm test:e2e`
+ * builds it and the workspace packages first). Not `next dev`: on-demand compiles and dev-server
+ * reloads made the flows flaky (S1-F1). Emails land in the test Mailpit.
  */
 const env = testStackEnv();
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -47,11 +48,11 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `pnpm exec next dev --port ${PORTS.web}`,
+      command: `pnpm exec next start --port ${PORTS.web}`,
       cwd: join(ROOT, 'apps', 'web'),
       url: `${env.WEB_URL}/healthz`,
       env: common,
-      timeout: 180_000,
+      timeout: 120_000,
       reuseExistingServer: false,
     },
   ],

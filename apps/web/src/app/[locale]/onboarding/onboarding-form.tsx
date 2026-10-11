@@ -33,9 +33,11 @@ export function OnboardingForm(props: Props) {
     if (state.revoked) window.location.assign(props.loginHref);
   }, [state.revoked, props.loginHref]);
   const invalid = (name: string) => state.fields?.includes(name) ?? false;
+  // After a submission, what the user sent (see `OnboardingState.values`).
+  const values = state.values ?? props.values;
 
   return (
-    <form action={formAction} className="flex flex-col gap-4" noValidate>
+    <form key={state.submission ?? 0} action={formAction} className="flex flex-col gap-4" noValidate>
       <input type="hidden" name="version" value={props.version} />
       {state.error ? (
         <p
@@ -57,7 +59,7 @@ export function OnboardingForm(props: Props) {
           <Input
             id={f.name}
             name={f.name}
-            defaultValue={props.values[f.name]}
+            defaultValue={values[f.name]}
             autoComplete={f.autoComplete}
             aria-invalid={invalid(f.name)}
             aria-describedby={f.name === 'taxId' ? 'taxId-hint' : undefined}
@@ -75,7 +77,7 @@ export function OnboardingForm(props: Props) {
         <select
           id="region"
           name="region"
-          defaultValue={props.values.region}
+          defaultValue={values.region}
           aria-invalid={invalid('region')}
           required
           className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -99,7 +101,7 @@ export function OnboardingForm(props: Props) {
                 type="checkbox"
                 name="languages"
                 value={l.value}
-                defaultChecked={props.values.languages.includes(l.value)}
+                defaultChecked={values.languages.includes(l.value)}
               />
               {l.label}
             </label>

@@ -22,8 +22,12 @@ function nextCode(email: string): string {
 
 /** After "Log in": completes enrolment or the challenge if the dashboard asks for it. */
 export async function passTwoFactor(page: Page, email: string): Promise<void> {
-  await expect(page).toHaveURL(/\/en(?:\/two-factor)?$/);
-  if (!page.url().endsWith('/two-factor')) return;
+  // Login lands on `/en` first; the dashboard then redirects to `/two-factor` when 2FA is owed. Wait
+  // for a page that is not about to move: the dashboard itself, or one of the two 2FA views.
+  const dashboard = page.getByRole('heading', { name: 'Dashboard' });
+  const twoFactor = page.getByRole('heading', { name: /two-step verification/i });
+  await expect(dashboard.or(twoFactor)).toBeVisible();
+  if (await dashboard.isVisible()) return;
   const setupKey = page.getByTestId('totp-secret');
   if (await setupKey.isVisible()) {
     const secret = ((await setupKey.textContent()) ?? '').replaceAll(/\s/g, '');

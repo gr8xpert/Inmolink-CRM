@@ -117,6 +117,32 @@ jobs:
       - name: Apply to an empty database and over the previous release
         run: pnpm ci:migrations --test
 
+  # Browser flows (PLAN §15, S1-F1) against the full test stack: api + worker from source, web as a
+  # production build (`next start`). Traces of failed tests are uploaded for debugging.
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: ./.github/actions/setup
+        with: { cache-key: e2e }
+      - name: Browser (Chromium)
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build web, run flows
+        run: pnpm test:e2e
+      - name: Traces on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose --profile test logs --tail=200
+
   # Deploy configuration with the real tools, in the same containers as locally (S0-15): Ansible syntax +
   # every template rendered for every host, `kamal config` for every app × destination.
   deploy-config:
@@ -138,7 +164,7 @@ jobs:
   required:
     name: required
     if: always()
-    needs: [static, boundaries, isolation, integration, migrations, deploy-config]
+    needs: [static, boundaries, isolation, integration, e2e, migrations, deploy-config]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

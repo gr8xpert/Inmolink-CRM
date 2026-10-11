@@ -39,6 +39,23 @@ async function createStaff(): Promise<string> {
   return email;
 }
 
+/** The id of the agency's open verification request (read as the database owner). */
+async function openRequestId(company: string): Promise<string> {
+  const admin = new pg.Client({ connectionString: env.DATABASE_URL_ADMIN });
+  await admin.connect();
+  try {
+    const { rows } = await admin.query(
+      `select r.id from agency_verification_requests r join agencies a using (agency_id)
+        where a.name = $1 and r.status = 'SUBMITTED'`,
+      [company],
+    );
+    if (rows.length !== 1) throw new Error(`expected one open request for ${company}, found ${rows.length}`);
+    return rows[0].id;
+  } finally {
+    await admin.end();
+  }
+}
+
 test('[S1-03] an agency uploads and submits; staff approve; the agency is verified', async ({ page }) => {
   const email = uniqueEmail();
   const company = `Verified ${randomBytes(3).toString('hex')} S.L.`;
@@ -78,7 +95,8 @@ test('[S1-03] an agency uploads and submits; staff approve; the agency is verifi
     .getByLabel(/^File/)
     .setInputFiles({ name: 'fake.pdf', mimeType: 'application/pdf', buffer: Buffer.from('<html></html>') });
   await page.getByRole('button', { name: 'Upload' }).click();
-  await expect(page.getByRole('alert')).toContainText('not a PDF, PNG, JPEG or WebP');
+  // The page's own alert, not Next's route announcer (also role=alert).
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('not a PDF, PNG, JPEG or WebP');
   await page.getByRole('button', { name: 'Send for verification' }).click();
   await expect(page.getByRole('status')).toContainText('Sent.');
   await page.goto('/en');
@@ -94,8 +112,10 @@ test('[S1-03] an agency uploads and submits; staff approve; the agency is verifi
   const staff = await createStaff();
   await login(page, staff);
   await page.getByRole('link', { name: 'Verification queue (staff)' }).click();
-  const row = page.getByTestId('verification-queue').getByRole('listitem').filter({ hasText: company });
-  await row.getByRole('link', { name: 'Review' }).click();
+  await expect(page.getByTestId('verification-queue')).toBeVisible();
+  // The shared test database holds other runs' open requests, oldest first: this one may be on a later
+  // page, so open it by id rather than by its position in the queue.
+  await page.goto(`/en/staff/verification/${await openRequestId(company)}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(company);
   await page.getByLabel('Reason (shown to the agency)').fill('CIF checked against AEAT\nDeeds match');
   await page.getByRole('button', { name: 'Approve' }).click();
