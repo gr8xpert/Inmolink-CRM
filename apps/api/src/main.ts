@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
@@ -33,6 +34,11 @@ try {
   configureStorage(storageConfigFromEnv(config));
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
+  // API keys (S1-05) are issued here: stored as HMACs, `live` keys only in production.
+  identity.configureIdentity({
+    hmacKey: config.HMAC_KEY,
+    apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
+  });
 
   const app = await buildApp({
     logger,

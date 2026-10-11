@@ -77,6 +77,19 @@ export async function getTenantInfo(tx: Tx, id: string) {
   return row ?? null;
 }
 
+/**
+ * The agency's status with a row lock (S1-05): `share` keeps staff from changing it until the caller's
+ * transaction ends; `update` also serialises callers with each other (e.g. a per-agency cap check).
+ */
+export async function lockStatus(tx: Tx, id: string, mode: 'share' | 'update') {
+  const [row] = await tx
+    .select({ status: agencies.status })
+    .from(agencies)
+    .where(eq(agencies.id, id))
+    .for(mode === 'share' ? 'share' : 'no key update');
+  return row?.status ?? null;
+}
+
 /** What an edit of the company details needs to know about the current row. */
 export async function getDetailsState(tx: Tx, id: string) {
   const [row] = await tx

@@ -12,6 +12,8 @@ export interface CacheGetOptions {
   tags?: readonly string[];
   /** Also keep the value in the in-process LRU for up to 60 s. Hot config only (PATTERNS §15). */
   local?: boolean;
+  /** In-process TTL in seconds when shorter than `ttlSeconds` (e.g. revocable credentials, S1-05). */
+  localTtlSeconds?: number;
 }
 
 export interface CacheOptions {
@@ -183,7 +185,7 @@ export class Cache {
     this.local.set(
       key,
       FREEZE_LOCAL ? deepFreeze(value) : value,
-      Math.min(options.ttlSeconds * 1_000, this.localTtlMs),
+      Math.min((options.localTtlSeconds ?? options.ttlSeconds) * 1_000, options.ttlSeconds * 1_000, this.localTtlMs),
       tags,
     );
   }

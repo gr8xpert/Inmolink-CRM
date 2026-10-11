@@ -14,7 +14,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'auth_tokens', 'feature_flags', 'outbox_events', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -110,6 +110,17 @@ create policy staff_select on public."agency_verification_requests" for select t
 create policy staff_update on public."agency_verification_requests" for update to app_staff
   using (app_is_staff() and (true)) with check (app_is_staff() and (true));
 grant select, update on table public."agency_verification_requests" to app_staff;
+
+-- api_keys: PUBLIC_READ
+alter table public."api_keys" enable row level security;
+alter table public."api_keys" force row level security;
+create policy own_rows on public."api_keys" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy public_read on public."api_keys" for select to app_public
+  using (revoked_at is null and agency_active);
+revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."api_keys" to app_user, app_system;
+grant select on table public."api_keys" to app_public;
 
 -- auth_tokens: GLOBAL
 alter table public."auth_tokens" enable row level security;

@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
@@ -19,6 +20,11 @@ const telemetry = startObservability(config, {
 try {
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_PUBLIC: config.DATABASE_URL_APP_PUBLIC }, { logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  // Website API keys (S1-05): HMAC-checked; only keys of this environment (`live` in production) work.
+  identity.configureIdentity({
+    hmacKey: config.HMAC_KEY,
+    apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
+  });
 
   const app = await buildApp({
     logger,

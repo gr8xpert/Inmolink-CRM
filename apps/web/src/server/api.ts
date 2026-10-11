@@ -1,12 +1,15 @@
 import {
   AgencyDto,
   AgencyVerificationDto,
+  ApiKeyPage,
+  type CreateApiKeyInput,
   type DecideVerificationBody,
   ErrorBody,
   type InvitableRole,
   InviteDto,
   type InviteMemberInput,
   InvitePage,
+  IssuedApiKeyDto,
   MeDto,
   MemberDto,
   MemberPage,
@@ -204,6 +207,25 @@ export function changeMemberRole(
 
 export function deactivateMember(session: SessionRef, userId: string): Promise<ApiResult<MemberDto>> {
   return apiRequest(session, `/v1/members/${encodeURIComponent(userId)}/deactivate`, MemberDto, { method: 'POST' });
+}
+
+// ── Website API keys (S1-05) ────────────────────────────────────────────────────────────────────
+
+export function fetchApiKeys(session: SessionRef): Promise<ApiResult<ApiKeyPage>> {
+  return apiRequest(session, '/v1/api-keys?limit=100', ApiKeyPage);
+}
+
+/** The whole key comes back once: hand it to the page, never log or store it. */
+export function createApiKey(session: SessionRef, body: CreateApiKeyInput): Promise<ApiResult<IssuedApiKeyDto>> {
+  return apiRequest(session, '/v1/api-keys', IssuedApiKeyDto, { method: 'POST', body });
+}
+
+export function rotateApiKey(session: SessionRef, keyId: string): Promise<ApiResult<IssuedApiKeyDto>> {
+  return apiRequest(session, `/v1/api-keys/${encodeURIComponent(keyId)}/rotate`, IssuedApiKeyDto, { method: 'POST' });
+}
+
+export function revokeApiKey(session: SessionRef, keyId: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/api-keys/${encodeURIComponent(keyId)}`, z.null(), { method: 'DELETE' });
 }
 
 // ── Verification (S1-03) ────────────────────────────────────────────────────────────────────────

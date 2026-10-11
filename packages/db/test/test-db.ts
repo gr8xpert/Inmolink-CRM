@@ -73,3 +73,23 @@ export async function createStaffUser(
     await admin.end();
   }
 }
+
+/**
+ * Sets an agency's status through the admin connection (S1-05): staff decide it in production, but app
+ * tests (`http`, no `withSystem`) need a verified agency without driving the staff flow.
+ */
+export async function setAgencyStatus(agencyId: string, status: 'PENDING' | 'VERIFIED' | 'SUSPENDED'): Promise<void> {
+  loadStackEnv('test');
+  const cfg = loadConfig(migrateEnv);
+  if (!cfg.DATABASE_URL_ADMIN) throw new Error('setAgencyStatus needs DATABASE_URL_ADMIN');
+  const admin = new pg.Client({ connectionString: cfg.DATABASE_URL_ADMIN });
+  await admin.connect();
+  try {
+    await admin.query(
+      'update agencies set status = $2, onboarded_at = coalesce(onboarded_at, now()) where agency_id = $1',
+      [agencyId, status],
+    );
+  } finally {
+    await admin.end();
+  }
+}

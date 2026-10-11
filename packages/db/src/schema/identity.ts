@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   index,
   integer,
   pgEnum,
@@ -211,5 +212,53 @@ export const userRecoveryCodes = pgTable(
   (t) => [
     // FK + consume (where user_id = ? and code_hash = ? and used_at is null) + count left
     index('user_recovery_codes_user_idx').on(t.userId, t.codeHash),
+  ],
+);
+
+/** Website API keys (S1-05, PLAN §3 #30 §9.1): server-to-server secret keys and browser publishable keys. */
+export const apiKeyKindEnum = pgEnum('api_key_kind', ['SECRET', 'PUBLISHABLE']);
+/** Per-key request rate on the website API; the limits per tier live in identity `API_KEYS.RATE_TIERS`. */
+export const apiKeyRateTierEnum = pgEnum('api_key_rate_tier', ['STANDARD', 'HIGH']);
+
+/**
+ * API keys (S1-05). Key format `inl_<env>_<prefix>_<secret>`: only the prefix (the lookup id, shown in
+ * the dashboard) and `hmacSha256(HMAC_KEY, 'api-key', whole key)` are stored; the key itself is shown
+ * once. PUBLIC_READ tenant table: feed-api (`app_public`) looks a key up by prefix before it knows the
+ * tenant, and sees only usable keys (not revoked, agency verified). `agency_active` mirrors the agency's
+ * status (set by the `identity.syncApiKeyAgencyStatus` job on `agencies.status.changed`), because
+ * `app_public` cannot read `agencies`. `last_used_at` is written in batches by `identity.flushApiKeyUsage`.
+ */
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    kind: apiKeyKindEnum('kind').notNull(),
+    /** `pk…`/`sk…` + random; changes on rotation. Not secret. */
+    prefix: text('prefix').notNull(),
+    keyHash: text('key_hash').notNull(),
+    /** Contract `ApiKeyScope` values. */
+    scopes: text('scopes').array().notNull(),
+    /** Publishable keys only: normalised origins (`https://host[:port]`) allowed to use the key. */
+    allowedOrigins: text('allowed_origins').array().notNull().default(sql`'{}'::text[]`),
+    rateTier: apiKeyRateTierEnum('rate_tier').notNull().default('STANDARD'),
+    agencyActive: boolean('agency_active').notNull().default(true),
+    /** The admin who created the key (audit; no FK, so removing that user keeps the history). */
+    createdBy: uuid('created_by').notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    rotatedAt: timestamp('rotated_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedBy: uuid('revoked_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // website API auth (feed-api, cached): where prefix = ?
+    uniqueIndex('api_keys_prefix_uq').on(t.prefix),
+    // FK + dashboard list: where agency_id = ? order by created_at, id (keyset); active-key count
+    index('api_keys_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
   ],
 );

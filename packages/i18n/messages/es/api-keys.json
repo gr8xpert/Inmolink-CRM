@@ -1,0 +1,56 @@
+{
+  "title": "Claves de la API web",
+  "back": "Volver al panel",
+  "intro": "Las claves permiten que tus webs lean tu inventario y envíen contactos a Inmolink. Las claves secretas son para servidores (el plugin de WordPress, integraciones) y nunca deben aparecer en una página web. Las claves publicables son para el widget del navegador y solo funcionan en las webs que indiques.",
+  "never": "nunca",
+  "kinds": {
+    "SECRET": "Secreta (servidor)",
+    "PUBLISHABLE": "Publicable (navegador)"
+  },
+  "scopes": {
+    "listings_read": "Leer inmuebles",
+    "developments_read": "Leer obra nueva",
+    "taxonomy_read": "Leer zonas, tipos y características",
+    "leads_write": "Enviar contactos",
+    "viewing_requests_write": "Enviar solicitudes de visita",
+    "search_ai": "Búsqueda con IA"
+  },
+  "rateTiers": {
+    "STANDARD": "Estándar (600 peticiones por minuto)",
+    "HIGH": "Alto (3.000 peticiones por minuto)"
+  },
+  "list": {
+    "title": "Tus claves",
+    "empty": "Todavía no hay claves.",
+    "revokedBadge": "Revocada",
+    "meta": "{tier} · creada el {created} · último uso: {lastUsed}",
+    "rotate": "Renovar",
+    "revoke": "Revocar"
+  },
+  "create": {
+    "title": "Crear una clave",
+    "name": "Nombre",
+    "kind": "Tipo",
+    "scopes": "Permisos",
+    "origins": "Webs permitidas (claves publicables)",
+    "originsHint": "Una por línea, por ejemplo https://www.ejemplo.com. Indica la versión con y sin www por separado. Usa http://localhost:3000 solo para pruebas locales.",
+    "submit": "Crear clave"
+  },
+  "issued": {
+    "title": "Copia ahora tu nueva clave",
+    "intro": "Es la única vez que la mostramos. Guárdala en un lugar seguro; si la pierdes, renueva la clave para obtener una nueva.",
+    "done": "Ya la he copiado"
+  },
+  "notices": {
+    "revoked": "La clave se ha revocado. Las webs que la usan dejarán de funcionar en menos de un minuto."
+  },
+  "errors": {
+    "FORBIDDEN": "Solo los administradores de la agencia pueden gestionar las claves de la API.",
+    "NOT_FOUND": "Esa clave ya no existe o ya estaba revocada.",
+    "VERIFICATION_REQUIRED": "Las claves de la API se activan cuando nuestro equipo haya verificado tu empresa.",
+    "API_KEY_LIMIT_REACHED": "Has alcanzado el número máximo de claves activas. Revoca primero una que ya no uses.",
+    "VALIDATION_FAILED": "Revisa el formulario: un nombre, al menos un permiso y, para claves publicables, al menos una dirección web (https://…) y solo permisos de lectura (contactos y solicitudes de visita necesitan una clave secreta).",
+    "RATE_LIMITED": "Demasiados cambios. Espera unos minutos y vuelve a intentarlo.",
+    "generic": "Algo ha salido mal. Inténtalo de nuevo."
+  }
+}

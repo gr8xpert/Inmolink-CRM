@@ -57,6 +57,19 @@ export async function loadTenant(
   return row ? { status: row.status, locales: row.enabledLocales } : null;
 }
 
+/**
+ * The agency's current status, locked until the transaction ends (S1-05: API keys mirror it). Takes a
+ * raw `tx` like `loadTenant`: identity calls it inside its own request transaction or job. `update`
+ * also serialises concurrent callers (`FOR NO KEY UPDATE`); `share` only blocks status changes.
+ */
+export async function lockAgencyStatus(
+  tx: Tx,
+  agencyId: string,
+  mode: 'share' | 'update',
+): Promise<AgencyDto['status'] | null> {
+  return repo.lockStatus(tx, agencyId, mode);
+}
+
 /** The agency's name, for emails sent by jobs (`withSystem`; no `ctx`). */
 export async function getAgencyName(tx: Tx, agencyId: string): Promise<string | null> {
   return repo.getName(tx, agencyId);

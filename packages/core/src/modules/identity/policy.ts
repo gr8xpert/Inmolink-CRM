@@ -56,7 +56,10 @@ export function sessionNeedsSecondFactor(subject: { enrolled: boolean; required:
   return subject.enrolled || subject.required;
 }
 
-export type IdentityAction = 'identity.members.read' | 'identity.members.manage';
+export type IdentityAction = 'identity.members.read' | 'identity.members.manage' | 'identity.apiKeys.manage';
+
+/** Roles that manage the agency's website API keys (S1-05): the admin of either family. */
+const API_KEY_ROLES: readonly string[] = ['AGENCY_ADMIN', 'DEVELOPER_ADMIN'];
 
 /**
  * Admins hand out the roles of their own family (PLAN §3 #2): an agency admin manages agency admins
@@ -84,6 +87,9 @@ export function can(
       if (!managed) return false;
       return resource.role === undefined || (managed as readonly string[]).includes(resource.role);
     }
+    case 'identity.apiKeys.manage':
+      // Keys expose the agency's inventory to websites: admins only, never in Client Mode.
+      return sameAgency && !ctx.clientMode && API_KEY_ROLES.includes(ctx.actor.role);
   }
 }
 

@@ -2,7 +2,13 @@ import { cacheConnection, cacheLogger } from '../cache';
 import { cryptoEnv, loadConfig } from '../config';
 import { RateLimiter } from './limiter';
 
-export { ipBucket, type RateLimitPluginOptions, rateLimitPlugin, type ScopeIdentity } from './fastify';
+export {
+  ipBucket,
+  type RateLimitPluginOptions,
+  rateLimitPlugin,
+  replyRateLimited,
+  type ScopeIdentity,
+} from './fastify';
 export {
   assertRule,
   RateLimiter,

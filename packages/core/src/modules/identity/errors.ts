@@ -15,4 +15,8 @@ export const identityErrors = [
   'MFA_REQUIRED',
   'MFA_CODE_INVALID',
   'MFA_ALREADY_ENABLED',
+  'API_KEY_INVALID',
+  'API_KEY_ORIGIN_DENIED',
+  'API_KEY_SCOPE_DENIED',
+  'API_KEY_LIMIT_REACHED',
 ] as const satisfies readonly ErrorCode[];

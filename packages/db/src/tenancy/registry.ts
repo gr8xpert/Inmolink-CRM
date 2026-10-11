@@ -186,6 +186,20 @@ export const tenantTables: Record<string, TenantTable> = {
   // nor a document once attached; staff change only the decision columns of an open request.
   agency_verification_requests: { kind: 'STRICT', staff: { select: 'true', update: 'true' } },
   agency_verification_documents: { kind: 'STRICT', staff: { select: 'true' } },
+  // Website API keys (S1-05). Agency admins manage their own; feed-api (app_public) authenticates a
+  // request by prefix before it knows the tenant, so it reads usable keys of every agency: the stored
+  // hash is an HMAC under HMAC_KEY of a 256-bit secret, and the rest is metadata the API enforces.
+  // `agency_active` mirrors the agency status (app_public cannot read `agencies`).
+  // Inserts need the session's own user as creator (guard trigger 0018), which the suite cannot fake.
+  api_keys: {
+    kind: 'PUBLIC_READ',
+    guardedInsert: true,
+    publicReadSql: 'revoked_at is null and agency_active',
+    samples: {
+      visible: [{}],
+      hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }, { agency_active: false }],
+    },
+  },
 };
 
 /**

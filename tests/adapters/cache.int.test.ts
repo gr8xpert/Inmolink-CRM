@@ -1,5 +1,5 @@
 import { loadStackEnv } from '@inmolink/db/testing';
-import { Cache, type CacheKey, cacheKey } from '@inmolink/platform/cache';
+import { Cache, type CacheKey, cacheKey, SeenTimes } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -141,5 +141,20 @@ describe('cache', () => {
 
   it('[S0-07] rejects keys not built by cacheKey()', async () => {
     await expect(cache.get('taxonomy' as CacheKey, { ttlSeconds: 60 }, async () => 1)).rejects.toThrow(/cacheKey\(\)/);
+  });
+});
+
+describe('seen times', () => {
+  it('[S1-05] marks keep the latest time per id; a drain returns them once and empties the set', async () => {
+    const seen = new SeenTimes(redis, prefix, log);
+    await seen.mark('apikeys', 'a', new Date(2_000));
+    await seen.mark('apikeys', 'a', new Date(1_000)); // older: ignored
+    await seen.mark('apikeys', 'b', new Date(3_000));
+    const drained = await seen.drain('apikeys');
+    expect([...drained.entries()].sort()).toEqual([
+      ['a', new Date(2_000)],
+      ['b', new Date(3_000)],
+    ]);
+    expect((await seen.drain('apikeys')).size).toBe(0);
   });
 });

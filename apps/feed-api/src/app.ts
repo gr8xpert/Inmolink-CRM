@@ -1,13 +1,14 @@
 import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
+import { apiKeyPlugin } from './plugins/api-key';
 
 /** Website API (v1 shim, v2, XML feeds) — read-only, isolated. Transport only. */
 export const APP_NAME = 'feed-api';
 
 /**
  * Per-IP ceiling for routes without their own rules. Most traffic arrives through the CDN, so the
- * origin sees few IPs; per-key and per-site rules arrive with `requireApiKey`.
+ * origin sees few IPs. `requireApiKey` applies each key's rate tier (S1-05); routes may add `key` rules.
  */
 export const DEFAULT_LIMITS: readonly RateLimitRule[] = [
   { name: 'feed.ip', scope: 'ip', limit: 1_200, windowSeconds: 60 },
@@ -31,10 +32,11 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     docsUi: deps.docsUi,
     successLogLevel: 'debug',
   });
+  apiKeyPlugin(app, { limiter: deps.limiter });
   await app.register(rateLimitPlugin, {
     limiter: deps.limiter,
     defaults: DEFAULT_LIMITS,
-    identify: { ip: (r) => ipBucket(r.ip) },
+    identify: { ip: (r) => ipBucket(r.ip), key: (r) => r.apiKey?.keyId, tenant: (r) => r.apiKey?.agencyId },
   });
   healthRoutes(app, { checks: deps.checks });
   return app;

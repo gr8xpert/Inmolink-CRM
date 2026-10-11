@@ -49,7 +49,11 @@ describe('@inmolink/i18n', () => {
 
   it('[S0-11] the shipped catalogs pass i18n:check and the bundled index is current', () => {
     expect(checkCatalogs(localeConfig).errors).toEqual([]);
-    expect(renderCatalogIndex(localeConfig)).toContain("import m0 from '../messages/en/auth.json'");
+    // Namespaces are numbered alphabetically (`api-keys` sorts before `auth`, S1-05): match any number.
+    expect(renderCatalogIndex(localeConfig)).toMatch(/import m\d+ from '\.\.\/messages\/en\/auth\.json'/);
+    expect(readFileSync(join(import.meta.dirname, 'catalogs.generated.ts'), 'utf8').replaceAll('\r\n', '\n')).toBe(
+      renderCatalogIndex(localeConfig),
+    );
     expect(UI_LOCALES).toEqual(expect.arrayContaining(['en', 'es']));
   });
 

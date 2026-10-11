@@ -87,4 +87,14 @@ describe('identity policy', () => {
     expect(sessionNeedsSecondFactor({ enrolled: false, required: true })).toBe(true);
     expect(sessionNeedsSecondFactor({ enrolled: false, required: false })).toBe(false);
   });
+
+  it('[S1-05] only agency admins manage API keys, in their own agency, outside Client Mode', () => {
+    expect(can(ctxAs('AGENCY_ADMIN'), 'identity.apiKeys.manage')).toBe(true);
+    expect(can(ctxAs('DEVELOPER_ADMIN'), 'identity.apiKeys.manage')).toBe(true);
+    for (const role of ['AGENT', 'DEVELOPER_AGENT', 'PARTNER']) {
+      expect(can(ctxAs(role), 'identity.apiKeys.manage')).toBe(false);
+    }
+    expect(can(ctxAs('AGENCY_ADMIN', { clientMode: true }), 'identity.apiKeys.manage')).toBe(false);
+    expect(can(ctxAs('AGENCY_ADMIN'), 'identity.apiKeys.manage', { agencyId: OTHER_AGENCY })).toBe(false);
+  });
 });

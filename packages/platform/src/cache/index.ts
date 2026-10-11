@@ -3,11 +3,13 @@ import { loadConfig, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
 import type { CacheKey } from './key';
+import { SeenTimes } from './seen';
 
 export { Cache, type CacheGetOptions, type CacheOptions } from './cache';
 export { assertCacheKey, type CacheKey, type CacheKeyParts, cacheKey } from './key';
 export { LocalLru } from './lru';
 export { whenReady } from './ready';
+export { SeenTimes } from './seen';
 
 export interface CacheConfig {
   /** redis-cache (allkeys-lru). Defaults to `REDIS_CACHE_URL` — never redis-queue. */
@@ -29,6 +31,7 @@ interface State {
   commandTimeoutMs: number;
   redis?: Redis;
   cache?: Cache;
+  seen?: SeenTimes;
 }
 
 let state: State | undefined;
@@ -110,6 +113,18 @@ export const cache = {
   invalidateTags: (tags: readonly string[]): Promise<void> => instance().invalidateTags(tags),
   clearLocal: (): void => instance().clearLocal(),
 };
+
+/** Process-wide "last seen" times on redis-cache (API key usage, S1-05). */
+export const seen = {
+  mark: (set: string, id: string, at: Date): Promise<void> => seenInstance().mark(set, id, at),
+  drain: (set: string): Promise<Map<string, Date>> => seenInstance().drain(set),
+};
+
+function seenInstance(): SeenTimes {
+  const s = current();
+  s.seen ??= new SeenTimes(cacheConnection(), s.prefix, s.logger);
+  return s.seen;
+}
 
 /** Graceful shutdown. */
 export async function closeCache(): Promise<void> {

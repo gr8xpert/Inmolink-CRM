@@ -1,5 +1,7 @@
+import { cache } from '@inmolink/platform/cache';
 import { type EventDef, subscribe } from '@inmolink/platform/outbox';
 import { agenciesEvents } from '../agencies';
+import { apiKeyCacheKey, isApiKeyPrefix } from './api-keys';
 import type { AuthEmailKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
@@ -13,7 +15,11 @@ const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
 
 let unsubscribe: (() => void)[] | undefined;
 
-/** Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail` / `identity.sendVerificationDecisionEmail`, one job per event. Called once by the worker; idempotent. */
+/**
+ * Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail` / `identity.sendVerificationDecisionEmail`,
+ * one job per event; API key cache invalidation and `identity.syncApiKeyAgencyStatus` (S1-05). Called once
+ * by the worker; idempotent.
+ */
 export function registerIdentitySubscriptions(): void {
   if (unsubscribe) return;
   unsubscribe = [
@@ -43,6 +49,23 @@ export function registerIdentitySubscriptions(): void {
           requestId: payload.requestId,
         }),
       { name: 'identity.email.VERIFICATION_DECISION' },
+    ),
+    // API keys (S1-05): a revoked or rotated prefix leaves the shared lookup cache when the event is
+    // delivered; in-process copies elsewhere expire within 15 s (all of it within 60 s without the event).
+    ...[identityEvents.apiKeyRevoked, identityEvents.apiKeyRotated].map((def) =>
+      subscribe(
+        def,
+        async (payload) => {
+          if (isApiKeyPrefix(payload.retiredPrefix)) await cache.delete(apiKeyCacheKey(payload.retiredPrefix));
+        },
+        { name: `identity.apiKeyCache.${def.type.split('.').at(-1)}` },
+      ),
+    ),
+    subscribe(
+      agenciesEvents.statusChanged,
+      (payload, meta) =>
+        identityJobs.syncApiKeyAgencyStatus.enqueue({ eventId: meta.eventId, agencyId: payload.agencyId }),
+      { name: 'identity.apiKeys.agencyStatus' },
     ),
   ];
 }

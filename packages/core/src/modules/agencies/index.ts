@@ -9,6 +9,7 @@ export {
   getMyAgency,
   initialLocales,
   loadTenant,
+  lockAgencyStatus,
   replaceSignupAgency,
   updateAgencyDetails,
 } from './service';

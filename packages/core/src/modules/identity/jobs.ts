@@ -1,4 +1,5 @@
 import { withSystem } from '@inmolink/db';
+import { cache, seen } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import { newToken } from '@inmolink/platform/crypto';
 import { mailer } from '@inmolink/platform/email';
@@ -6,7 +7,9 @@ import { newId } from '@inmolink/platform/ids';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
-import { identityConfig, TOKEN_RETENTION_MS, TOKEN_TTL_MS } from './config';
+import { API_KEY_USAGE_SET, apiKeyCacheKey } from './api-keys';
+import * as keysRepo from './api-keys-repo';
+import { API_KEYS, identityConfig, TOKEN_RETENTION_MS, TOKEN_TTL_MS } from './config';
 import {
   type AuthEmailKind,
   emailLocale,
@@ -185,6 +188,57 @@ export const identityJobs = {
       return { deleted: total };
     },
   }),
+
+  /**
+   * API keys (S1-05): writes the "last used" times that feed-api marked in Redis, every minute, in
+   * batches of 1,000 (one UPDATE each). Idempotent: a time never moves backwards. A batch lost to a
+   * failed write only leaves `last_used_at` older (it is informational).
+   */
+  flushApiKeyUsage: defineJob({
+    name: 'identity.flushApiKeyUsage',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: API_KEYS.USAGE_FLUSH_EVERY_MS,
+    attempts: 1,
+    timeoutMs: 60_000,
+    async run(_p, { log }) {
+      const uses = [...(await seen.drain(API_KEY_USAGE_SET)).entries()].map(([id, at]) => ({ id, at }));
+      let updated = 0;
+      for (let i = 0; i < uses.length; i += USAGE_BATCH) {
+        const batch = uses.slice(i, i + USAGE_BATCH);
+        updated += await withSystem('identity.flushApiKeyUsage', (tx) => keysRepo.recordApiKeyUse(tx, batch));
+      }
+      if (uses.length > 0) log.info({ keys: uses.length, updated }, 'api key usage recorded');
+      return { keys: uses.length, updated };
+    },
+  }),
+
+  /**
+   * API keys follow their agency's status (S1-03 → S1-05): `api_keys.agency_active` mirrors "VERIFIED"
+   * (feed-api cannot read `agencies`), then the agency's cached key lookups are dropped. Reads the
+   * current status, so duplicate or out-of-order events converge.
+   */
+  syncApiKeyAgencyStatus: defineJob({
+    name: 'identity.syncApiKeyAgencyStatus',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const { active, prefixes } = await withSystem('identity.syncApiKeyAgencyStatus', async (tx) => {
+        // Locked FOR SHARE: no status change can commit between this read and the write below, so two
+        // jobs (or a job and a key creation) racing each other all end on the current status.
+        const isActive = (await agencies.lockAgencyStatus(tx, p.agencyId, 'share')) === 'VERIFIED';
+        return { active: isActive, prefixes: await keysRepo.setAgencyActive(tx, p.agencyId, isActive, clock.now()) };
+      });
+      // After commit, outside the transaction (CLAUDE.md rule 6).
+      await Promise.all(prefixes.map((prefix) => cache.delete(apiKeyCacheKey(prefix))));
+      log.info({ active, keys: prefixes.length }, 'api keys follow the agency status');
+    },
+  }),
 };
 
 const PRUNE_BATCH = 5_000;
+const USAGE_BATCH = 1_000;

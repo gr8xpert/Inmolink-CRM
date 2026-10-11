@@ -32,9 +32,14 @@ export default async function HomePage() {
           {t('home.security')}
         </Link>
         {home.agency ? (
-          <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
-            {t('home.team')}
-          </Link>
+          <>
+            <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.team')}
+            </Link>
+            <Link href="/api-keys" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.apiKeys')}
+            </Link>
+          </>
         ) : (
           // No agency: staff (or a user without one). The page 404s for non-staff (S1-03).
           <Link href="/staff/verification" className="text-sm font-medium underline-offset-4 hover:underline">

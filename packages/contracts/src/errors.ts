@@ -36,6 +36,15 @@ export const ErrorCodes = {
   MFA_CODE_INVALID: 400,
   /** 2FA is already enabled: disable it first to enrol a new authenticator. */
   MFA_ALREADY_ENABLED: 409,
+  // identity: API keys (S1-05)
+  /** Missing, malformed, unknown, rotated or revoked key, a key of another environment, or its agency is not verified. */
+  API_KEY_INVALID: 401,
+  /** A publishable key used without an `Origin`, or from an origin not on its allowlist. */
+  API_KEY_ORIGIN_DENIED: 403,
+  /** The key does not have the scope this endpoint needs. */
+  API_KEY_SCOPE_DENIED: 403,
+  /** The agency has as many active keys as allowed: revoke one first. */
+  API_KEY_LIMIT_REACHED: 409,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

@@ -28,6 +28,17 @@ export interface RateLimitPluginOptions {
 const RATE_LIMITED_MESSAGE = 'Too many requests';
 
 /**
+ * The 429 answer: `Retry-After` and the standard error body. Also for limits a plugin checks itself
+ * (the per-key rate tier of `requireApiKey`, S1-05).
+ */
+export function replyRateLimited(reply: FastifyReply, scope: RateScope, retryAfterSeconds: number): FastifyReply {
+  return reply
+    .code(429)
+    .header('retry-after', String(retryAfterSeconds))
+    .send({ error: { code: 'RATE_LIMITED', message: RATE_LIMITED_MESSAGE, details: { scope, retryAfterSeconds } } });
+}
+
+/**
  * Bucket for an IP: IPv4 as is (IPv4-mapped IPv6 unwrapped), IPv6 by /64 — one host usually owns a
  * whole /64, so per-address limits would be trivial to rotate around.
  */
@@ -111,16 +122,7 @@ export function rateLimitPlugin(
     if (denied.length === 0) return;
     const worst = denied.reduce((a, b) => (b.result.retryAfterSeconds > a.result.retryAfterSeconds ? b : a));
     request.log.info({ rule: worst.rule.name, scope: worst.rule.scope }, 'rate limited');
-    return reply
-      .code(429)
-      .header('retry-after', String(worst.result.retryAfterSeconds))
-      .send({
-        error: {
-          code: 'RATE_LIMITED',
-          message: RATE_LIMITED_MESSAGE,
-          details: { scope: worst.rule.scope, retryAfterSeconds: worst.result.retryAfterSeconds },
-        },
-      });
+    return replyRateLimited(reply, worst.rule.scope, worst.result.retryAfterSeconds);
   };
 
   fastify.addHook('onRequest', (request, reply) => check(request, reply, 'ip'));

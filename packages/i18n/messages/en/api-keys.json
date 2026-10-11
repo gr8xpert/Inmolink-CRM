@@ -1,0 +1,56 @@
+{
+  "title": "Website API keys",
+  "back": "Back to the dashboard",
+  "intro": "Keys let your websites read your inventory and send leads to Inmolink. Secret keys are for servers (the WordPress plugin, integrations) and must never appear in a web page. Publishable keys are for the browser widget and only work on the websites you list.",
+  "never": "never",
+  "kinds": {
+    "SECRET": "Secret (server)",
+    "PUBLISHABLE": "Publishable (browser)"
+  },
+  "scopes": {
+    "listings_read": "Read listings",
+    "developments_read": "Read new developments",
+    "taxonomy_read": "Read locations, types and features",
+    "leads_write": "Send leads",
+    "viewing_requests_write": "Send viewing requests",
+    "search_ai": "AI search"
+  },
+  "rateTiers": {
+    "STANDARD": "Standard (600 requests a minute)",
+    "HIGH": "High (3,000 requests a minute)"
+  },
+  "list": {
+    "title": "Your keys",
+    "empty": "No keys yet.",
+    "revokedBadge": "Revoked",
+    "meta": "{tier} · created {created} · last used {lastUsed}",
+    "rotate": "Rotate",
+    "revoke": "Revoke"
+  },
+  "create": {
+    "title": "Create a key",
+    "name": "Name",
+    "kind": "Type",
+    "scopes": "Allowed to",
+    "origins": "Allowed websites (publishable keys)",
+    "originsHint": "One per line, for example https://www.example.com. List www and non-www separately. Use http://localhost:3000 only for local testing.",
+    "submit": "Create key"
+  },
+  "issued": {
+    "title": "Copy your new key now",
+    "intro": "This is the only time we show it. Store it somewhere safe; if you lose it, rotate the key to get a new one.",
+    "done": "I have copied it"
+  },
+  "notices": {
+    "revoked": "The key was revoked. Websites using it stop working within a minute."
+  },
+  "errors": {
+    "FORBIDDEN": "Only agency admins can manage API keys.",
+    "NOT_FOUND": "That key no longer exists or was already revoked.",
+    "VERIFICATION_REQUIRED": "API keys unlock once our team has verified your company.",
+    "API_KEY_LIMIT_REACHED": "You have reached the maximum number of active keys. Revoke one you no longer use first.",
+    "VALIDATION_FAILED": "Please check the form: a name, at least one permission and, for publishable keys, at least one website address (https://…) and read permissions only (leads and viewing requests need a secret key).",
+    "RATE_LIMITED": "Too many changes. Please wait a few minutes and try again.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

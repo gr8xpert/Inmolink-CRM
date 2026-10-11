@@ -14,6 +14,18 @@ export interface IdentityConfig {
   signer?: AccessTokenSigner;
   /** Encrypts TOTP secrets (web, S1-04). */
   keyring?: Keyring;
+  /**
+   * The `<env>` part of API keys this process issues and accepts (S1-05): `live` in production, `test`
+   * elsewhere, so a staging key never works against production. Default `test`.
+   */
+  apiKeyEnv?: ApiKeyEnv;
+}
+
+export type ApiKeyEnv = 'live' | 'test';
+
+/** `live` for the production deploy (`DEPLOY_ENV`, defaulting to `NODE_ENV`), `test` for every other. */
+export function apiKeyEnvFor(deployEnv: string | undefined): ApiKeyEnv {
+  return deployEnv === 'production' ? 'live' : 'test';
 }
 
 let current: IdentityConfig | undefined;
@@ -52,4 +64,31 @@ export const TWO_FACTOR = {
   REMEMBER_DEVICE_MS: 30 * 24 * 60 * 60_000,
   /** A passed challenge is handed to the session within this window. */
   PROOF_TTL_MS: 2 * 60_000,
+} as const;
+
+/** Website API keys (S1-05, PLAN §3 #30 §9.2). */
+export const API_KEYS = {
+  /** Active (not revoked) keys per agency. */
+  MAX_ACTIVE: 20,
+  /** Revoked keys stay in the dashboard list this long. */
+  REVOKED_LISTED_MS: 30 * 24 * 60 * 60_000,
+  /**
+   * Lookup cache (S1-05 acceptance "revoked key rejected within 60 s"): Redis keeps a key ≤ 25 s and a
+   * process's copy ≤ 15 s, so even with the invalidation event lost, a revoked or rotated key is refused
+   * after ≤ 40 s plus the time the load took.
+   */
+  CACHE_TTL_SECONDS: 25,
+  CACHE_LOCAL_TTL_SECONDS: 15,
+  /** A process records a key's use in Redis at most once a minute; the worker writes it every minute. */
+  USAGE_MARK_INTERVAL_MS: 60_000,
+  USAGE_FLUSH_EVERY_MS: 60_000,
+  /** Requests per key per minute on the website API, by the key's tier. */
+  RATE_TIERS: {
+    STANDARD: { limit: 600, windowSeconds: 60 },
+    HIGH: { limit: 3_000, windowSeconds: 60 },
+  },
+  /** All keys of one agency together, per minute: extra keys do not multiply the ceiling. */
+  AGENCY_RATE: { limit: 3_000, windowSeconds: 60 },
+  /** Failed key checks per client IP per minute before `requireApiKey` answers 429. */
+  FAILED_CHECKS_PER_IP: { limit: 60, windowSeconds: 60 },
 } as const;
