@@ -142,3 +142,21 @@ export const agencyInvites = pgTable(
     index('agency_invites_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
   ],
 );
+
+/** Inmolink staff roles (PLAN §3 #2). Staff have no agency: their role lives here, not in `agency_members`. */
+export const staffRoleEnum = pgEnum('staff_role', ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS']);
+
+/**
+ * Who is Inmolink staff (S1-03, ADR 0015). Global `access: 'staff'` table: granted by `pnpm staff:grant`
+ * (`app_system`); `app_staff` reads only the row of the user it acts for (`app_is_staff()`, policy
+ * `staff_self`); no other role reaches it. A staff user has no `agency_members` row, so their access token has no agency.
+ */
+export const staffUsers = pgTable('staff_users', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  role: staffRoleEnum('role').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Set when staff access is withdrawn; `app_is_staff()` is then false at once. */
+  deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+});

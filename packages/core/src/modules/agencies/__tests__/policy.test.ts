@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Ctx } from '../../../context';
-import { assertVerified, can } from '../policy';
+import type { Ctx, StaffCtx, StaffRole } from '../../../context';
+import { assertVerified, can, canStaff } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -44,6 +44,30 @@ describe('agencies policy', () => {
         expect.objectContaining({ code: 'VERIFICATION_REQUIRED', details: { action } }),
       );
       expect(() => assertVerified(as('AGENCY_ADMIN', { verified: true }), action)).not.toThrow();
+    }
+  });
+
+  it('[S1-03] verification documents and submission are for admins only, never in Client Mode', () => {
+    for (const action of ['agencies.verification.read', 'agencies.verification.manage'] as const) {
+      expect(can(as('AGENCY_ADMIN'), action)).toBe(true);
+      expect(can(as('DEVELOPER_ADMIN'), action)).toBe(true);
+      expect(can(as('AGENT'), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN', { clientMode: true }), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN'), action, { agencyId: OTHER_AGENCY })).toBe(false);
+    }
+  });
+
+  it('[S1-03] only super admins and support staff read and decide verification', () => {
+    const staff = (role: StaffRole): StaffCtx => ({
+      tx: {} as StaffCtx['tx'],
+      actor: { kind: 'staff', userId: USER, role },
+      locale: 'en',
+      requestId: 'test',
+    });
+    for (const action of ['staff.verification.read', 'staff.verification.decide'] as const) {
+      expect(canStaff(staff('SUPER_ADMIN'), action)).toBe(true);
+      expect(canStaff(staff('STAFF_SUPPORT'), action)).toBe(true);
+      expect(canStaff(staff('STAFF_DATA_OPS'), action)).toBe(false);
     }
   });
 });

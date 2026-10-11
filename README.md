@@ -42,7 +42,8 @@ pnpm infra:health
 # 7. Create the database roles, run migrations, then generate and apply RLS
 pnpm db:migrate && pnpm db:rls
 
-# 8. Seed demo agencies and users (prints the logins and the shared password)
+# 8. Seed demo agencies and users (prints the logins and the shared password). It includes a staff
+#    login, support@staff.inmolink.test, for the verification queue at /staff/verification.
 pnpm db:seed
 
 # 9. Start every app in watch mode
@@ -73,7 +74,7 @@ pnpm verify:all      # everything, as CI does on main
 pnpm test:e2e        # Playwright against the dev servers
 ```
 
-Other commands: `pnpm db:generate` (after a schema change), `pnpm gen:module <name>` (new domain module), `pnpm db:seed:scale --agencies=5000` (scale data, see [docs/runbooks/scale-seed.md](docs/runbooks/scale-seed.md)), `pnpm ops:replay-outbox` and `pnpm ops:restore-drill` (operations). The full list is in [CLAUDE.md](CLAUDE.md#commands-created-in-s0-01-add-new-ones-to-root-packagejson).
+Other commands: `pnpm db:generate` (after a schema change), `pnpm gen:module <name>` (new domain module), `pnpm db:seed:scale --agencies=5000` (scale data, see [docs/runbooks/scale-seed.md](docs/runbooks/scale-seed.md)), `pnpm ops:replay-outbox` and `pnpm ops:restore-drill` (operations), `pnpm staff:grant --email … --role … --reason …` / `pnpm staff:revoke` (Inmolink staff access, ADR 0015). The full list is in [CLAUDE.md](CLAUDE.md#commands-created-in-s0-01-add-new-ones-to-root-packagejson).
 
 ## Repository layout
 

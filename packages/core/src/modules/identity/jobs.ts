@@ -7,7 +7,13 @@ import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
 import { identityConfig, TOKEN_TTL_MS } from './config';
-import { type AuthEmailKind, emailLocale, renderAuthEmail, renderInviteEmail } from './emails';
+import {
+  type AuthEmailKind,
+  emailLocale,
+  renderAuthEmail,
+  renderInviteEmail,
+  renderVerificationDecisionEmail,
+} from './emails';
 import * as repo from './repo';
 import { hashInviteToken, hashLinkToken, inviteTokenPrefix } from './service';
 
@@ -117,6 +123,40 @@ export const identityJobs = {
       // Outside the transaction (CLAUDE.md rule 6). Never log the message: it holds a one-time link.
       await mailer().send(message);
       log.info('invite email sent');
+    },
+  }),
+
+  /**
+   * Tells the agency's admins that staff approved or rejected its verification (S1-03), with staff's
+   * reason. Identity owns the member list, so it sends agency notices; the decision comes from
+   * agencies. A retry may email an admin twice; never someone who is no longer an active admin.
+   */
+  sendVerificationDecisionEmail: defineJob({
+    name: 'identity.sendVerificationDecisionEmail',
+    pool: 'email',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), requestId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const { webUrl } = identityConfig();
+      if (!webUrl) throw new Error('identity: webUrl is not configured');
+      const messages = await withSystem('identity.sendVerificationDecisionEmail', async (tx) => {
+        const decision = await agencies.getVerificationDecision(tx, p.requestId);
+        if (!decision || decision.agencyId !== p.agencyId || decision.status === 'SUBMITTED') return [];
+        const admins = await repo.listAdminRecipients(tx, p.agencyId);
+        return admins.map((admin) =>
+          renderVerificationDecisionEmail(
+            admin,
+            { approved: decision.status === 'APPROVED', agency: decision.agencyName, reason: decision.reason },
+            new URL(`/${emailLocale(admin.locale)}/verification`, webUrl).href,
+          ),
+        );
+      });
+      // Outside the transaction (CLAUDE.md rule 6).
+      for (const message of messages) await mailer().send(message);
+      log.info({ recipients: messages.length }, 'verification decision email sent');
     },
   }),
 };

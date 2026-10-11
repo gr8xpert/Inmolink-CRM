@@ -32,6 +32,23 @@ export const ErrorCodes = {
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,
+  // agencies: verification (S1-03)
+  /** Onboarding (company details) is not complete, so there is nothing to verify yet. */
+  AGENCY_NOT_ONBOARDED: 409,
+  /** The agency already has a request waiting for staff. */
+  VERIFICATION_ALREADY_SUBMITTED: 409,
+  /** Submitting needs at least one uploaded document. */
+  VERIFICATION_DOCUMENTS_REQUIRED: 422,
+  /** The request was already decided, or the agency is no longer PENDING. */
+  VERIFICATION_NOT_OPEN: 409,
+  /** The agency changed its details after the version staff reviewed: reload and review again. */
+  VERIFICATION_STALE: 409,
+  /** Not a PDF, PNG, JPEG or WebP by its content. */
+  DOCUMENT_TYPE_NOT_ALLOWED: 415,
+  /** Too many documents waiting to be submitted. */
+  DOCUMENT_LIMIT_REACHED: 409,
+  /** A submitted document is kept as evidence. */
+  DOCUMENT_LOCKED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

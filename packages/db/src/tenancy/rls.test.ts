@@ -53,7 +53,7 @@ describe('RLS generator', () => {
 
   it('[S0-05] every table resets its grants and policies, so reruns are idempotent', () => {
     expect(out).toContain(
-      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth;`,
+      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff;`,
     );
     expect(out).toContain(`array['contacts', 'listing_read_models', 'locations', 'properties']`);
     expect(generateRlsSql(reg)).toBe(out);
@@ -78,6 +78,7 @@ describe('RLS generator', () => {
       app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
       app_public: [],
       app_auth: [],
+      app_staff: [],
     });
     expect(() => mergeRegistries(reg, { tenant: {}, global: { contacts: { reason: 'x' } } })).toThrow(/twice/);
   });
@@ -99,6 +100,7 @@ describe('RLS generator', () => {
       app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
       app_public: [],
       app_auth: ['SELECT', 'INSERT', 'UPDATE'],
+      app_staff: [],
     });
     expect(() => tablesSql({ tenant: { t: { kind: 'STRICT', authAppend } }, global: {} })).toThrow(/appendOnly/);
     const smuggled = { column: 'type', prefix: "x'; drop table y; --" };
@@ -129,7 +131,7 @@ describe('RLS generator', () => {
       'auth_insert:INSERT',
     ]);
     expect(generateRlsSql(reg)).toContain(
-      'grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth;',
+      'grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;',
     );
   });
 
@@ -143,6 +145,42 @@ describe('RLS generator', () => {
         global: {},
       }),
     ).toThrow(/appendOnly/);
+  });
+
+  it('[S1-03] staff predicates: app_staff gets gated policies and grants, never DELETE; staff tables show it only its own row', () => {
+    const def = { kind: 'STRICT' as const, staff: { select: 'true', update: "status = 'SUBMITTED'" } };
+    const sql = generateRlsSql({
+      tenant: { requests: def },
+      global: { staff_users: { reason: 'staff', access: 'staff' } },
+    });
+    expect(sql).toContain(`create policy staff_select on public."requests" for select to app_staff
+  using (app_is_staff() and (true));`);
+    expect(sql).toContain(`create policy staff_update on public."requests" for update to app_staff
+  using (app_is_staff() and (status = 'SUBMITTED')) with check (app_is_staff() and (status = 'SUBMITTED'));`);
+    expect(sql).toContain(`grant select, update on table public."requests" to app_staff;`);
+    expect(sql).not.toContain('staff_insert');
+    expect(sql).toContain(
+      `create policy staff_self on public."staff_users" for select to app_staff using (user_id = app_user_id());`,
+    );
+    expect(sql).toContain('grant execute on function app_is_staff() to app_staff;');
+    expect(expectedPrivileges(def).app_staff).toEqual(['SELECT', 'UPDATE']);
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_rows:ALL',
+      'staff_select:SELECT',
+      'staff_update:UPDATE',
+    ]);
+    expect(expectedPrivileges({ kind: 'STRICT' }).app_staff).toEqual([]);
+    expect(sql).not.toMatch(/"staff_users"[^;]* to [^;]*app_(?:user|auth|public)(?![a-z_])/);
+    expect(expectedPrivileges({ reason: 'x', access: 'staff' })).toEqual({
+      app_user: [],
+      app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
+      app_public: [],
+      app_auth: [],
+      app_staff: ['SELECT'],
+    });
+    expect(() => tablesSql({ tenant: {}, global: { g: { reason: 'x', access: 'staff', publicRead: true } } })).toThrow(
+      /publicRead/,
+    );
   });
 
   it('[S0-05] the production registry generates valid SQL', () => {

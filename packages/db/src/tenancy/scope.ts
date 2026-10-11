@@ -91,6 +91,28 @@ export async function withAuth<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   return getDb('app_auth').transaction(fn);
 }
 
+export interface StaffScope {
+  /** The staff member's `users.id`; `app_is_staff()` checks it against `staff_users` in every staff policy. */
+  userId: string;
+  /** Why (e.g. `agencies.decideVerification`): set on the transaction as `app.staff_reason` for audit triggers. */
+  reason: string;
+}
+
+/**
+ * Staff request paths (verification queue, staff console) as `app_staff` (S1-03, ADR 0015). RLS stays
+ * on: only tables whose registry entry has `staff` predicates are reachable, and only while
+ * `app.user_id` names an active staff member. No tenant is set. The caller has checked the staff role.
+ */
+export async function withStaff<T>(scope: StaffScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  if (!UUID.test(scope.userId)) throw new TypeError('withStaff: userId must be a UUID');
+  if (scope.reason.trim() === '') throw new TypeError('withStaff: a reason is required');
+  return getDb('app_staff').transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.user_id', ${scope.userId}, true),
+                                set_config('app.staff_reason', ${scope.reason}, true)`);
+    return fn(tx);
+  });
+}
+
 /**
  * Inside `withAuth()`: pins the rows the registry's `auth` predicates may reach to one agency and/or
  * user (`app.agency_id`, `app.user_id`, transaction-local). Sign-up sets the agency it is creating and

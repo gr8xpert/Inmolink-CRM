@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeclaredEvent } from '@inmolink/platform/outbox';
 import { describe, expect, it } from 'vitest';
+import { POOL_JOBS } from './processors';
 import { MODULES } from './subscriptions';
 
 const MODULES_DIR = join(import.meta.dirname, '..', '..', '..', 'packages', 'core', 'src', 'modules');
@@ -31,6 +32,16 @@ describe('worker subscriptions', () => {
       if (files.includes('subscriptions.ts')) {
         expect(body, name).toMatch(new RegExp(String.raw`\b${camel(name)}\.register\w*Subscriptions\(\)`));
       }
+    }
+  });
+
+  it('[S1-03] every job a module defines runs in a worker pool (an unlisted job is enqueued but never processed)', () => {
+    const pooled = new Set(Object.values(POOL_JOBS).flatMap((jobs) => jobs.map((j) => j.name)));
+    for (const [name, mod] of Object.entries(MODULES)) {
+      const jobs = Object.entries(mod).find(([k]) => k === `${camel(name)}Jobs`)?.[1] as
+        | Record<string, { name: string }>
+        | undefined;
+      for (const job of Object.values(jobs ?? {})) expect(pooled.has(job.name), job.name).toBe(true);
     }
   });
 });

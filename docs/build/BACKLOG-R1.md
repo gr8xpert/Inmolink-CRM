@@ -264,10 +264,19 @@ Ref §14 · Mod platform, infra · Dep S0-15
 
 ### S1-F6 · Database and Redis operations
 Ref §5.5 §5.6 · Mod infra · Dep S0-15
-**Build:** PgBouncer `query_wait_timeout` ≈ 5 s and `max_db_connections` below `max_connections`; `idle_in_transaction_session_timeout` 10–30 s for `app_user`, `app_auth`, `app_public`; rate-limit counters on a Redis that does not evict (redis-queue with a prefix, or a `volatile-lru` split); scale seed throughput (bigger chunks, buffered COPY writes; 25k users took 15.2 s).
+**Build:** PgBouncer `query_wait_timeout` ≈ 5 s and `max_db_connections` below `max_connections`; `idle_in_transaction_session_timeout` 10–30 s for `app_user`, `app_auth`, `app_public`, `app_staff`; rate-limit counters on a Redis that does not evict (redis-queue with a prefix, or a `volatile-lru` split); scale seed throughput (bigger chunks, buffered COPY writes; 25k users took 15.2 s).
 **Done when:**
 - A saturated pool returns an error within 6 s instead of waiting 120 s
 - `pnpm db:seed:scale --agencies=5000` users phase runs ≥ 5× faster
+
+### S1-F7 · Verification follow-ups (S1-03 reviews)
+Ref §3 #3 §12 · Mod agencies, identity, platform · Dep S1-03 (image part: S3-03)
+**Build:** re-encode image verification documents with sharp (strips EXIF and payloads), plus a scan hook that does nothing until a scanner is configured, once the media pipeline brings sharp (S3-03); a maintenance job that deletes `verification/<agency>/…` objects with no row (crash between store and record, failed deletes, deleted agencies); one decision email job per recipient (`jobId` per event + recipient, fair-share `group` = agency); an advisory lock on the agency for the document cap; `Idempotency-Key` on the upload (or dedupe on `(agency_id, sha256)` among unattached documents); refuse invites and sign-ups for staff users, and end staff access when `users.status` is not ACTIVE (with S1-09).
+**Done when:**
+- An uploaded JPEG is stored without EXIF
+- An object without a document row older than 24 h is deleted by the job
+- A retried decision email job does not email an admin who already got it
+- Eleven parallel uploads leave at most ten unsubmitted documents
 
 ---
 

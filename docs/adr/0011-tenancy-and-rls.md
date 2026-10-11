@@ -19,6 +19,7 @@ The agency is the tenant (PLAN §3 #1). Principle 7 says tenant isolation is abs
 | `app_user` | enforced | 5 s | dashboard and API requests (`withTenant`) |
 | `app_public` | enforced, read-only, per-table SELECT only | 2 s | feed-api, portal (`withPublicRead`) |
 | `app_auth` | enforced, identity tables only | 5 s | sign-up, login, reset (`withAuth`, ADR 0004) |
+| `app_staff` | enforced, registry `staff` predicates only, gated by `app_is_staff()` | 5 s | staff request paths (`withStaff`, ADR 0015) |
 | `app_system` | BYPASSRLS | 60 s | workers and scripts only (`withSystem(reason, …)`), refused for `APP_ROLE=http` in production |
 | `app_owner` | owns tables, no DML grants, sees no rows | — | migrations only, never at runtime |
 

@@ -1,8 +1,12 @@
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx } from '../../context';
+import type { Ctx, StaffCtx } from '../../context';
 
 /** Who may do what in agencies (PATTERNS §6). Deny by default; services call `assertCan`. */
-export type AgenciesAction = 'agencies.read' | 'agencies.updateDetails';
+export type AgenciesAction =
+  | 'agencies.read'
+  | 'agencies.updateDetails'
+  | 'agencies.verification.read'
+  | 'agencies.verification.manage';
 
 /** Roles that administer their agency (PLAN §3 #2). */
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -14,13 +18,35 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
     case 'agencies.read':
       return sameAgency;
     case 'agencies.updateDetails':
+    case 'agencies.verification.manage':
       // Client Mode is read-only (PATTERNS §6).
+      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
+    case 'agencies.verification.read':
+      // Company documents: admins only, never in Client Mode.
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
   }
 }
 
 export function assertCan(...args: Parameters<typeof can>): void {
   if (!can(...args)) throw new AppError('FORBIDDEN');
+}
+
+/** Staff actions in agencies (S1-03). Verification is support work; data ops do not decide it. */
+export type StaffAgenciesAction = 'staff.verification.read' | 'staff.verification.decide';
+
+const VERIFICATION_STAFF = new Set(['SUPER_ADMIN', 'STAFF_SUPPORT']);
+
+export function canStaff(ctx: StaffCtx, action: StaffAgenciesAction): boolean {
+  if (ctx.actor.kind !== 'staff') return false;
+  switch (action) {
+    case 'staff.verification.read':
+    case 'staff.verification.decide':
+      return VERIFICATION_STAFF.has(ctx.actor.role);
+  }
+}
+
+export function assertStaffCan(...args: Parameters<typeof canStaff>): void {
+  if (!canStaff(...args)) throw new AppError('FORBIDDEN');
 }
 
 /**

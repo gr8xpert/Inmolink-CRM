@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { AuthAccess, GlobalTable, TenantRegistry, TenantTable } from './registry';
+import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable } from './registry';
 
 /**
  * RLS generator (PATTERNS §2). Turns the tenant registry into idempotent SQL: helper functions,
@@ -14,17 +14,17 @@ import type { AuthAccess, GlobalTable, TenantRegistry, TenantTable } from './reg
  */
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
-const APP_ROLES = 'public, app_user, app_system, app_public, app_auth';
+const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff';
 
 /** `agency_id` of platform-wide outbox events (`PLATFORM_AGENCY_ID` in platform/outbox). */
 const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
-export const HELPER_FUNCTIONS = ['app_agency', 'app_user_id'] as const;
+export const HELPER_FUNCTIONS = ['app_agency', 'app_user_id', 'app_is_staff'] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
-export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth';
-export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'app_public', 'app_auth'];
+export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff';
+export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'app_public', 'app_auth', 'app_staff'];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
@@ -50,8 +50,8 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         }
       }
     }
-  } else if (def.access === 'auth' && def.publicRead) {
-    throw new Error(`${name}: an auth table cannot be publicRead`);
+  } else {
+    if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
   }
 }
 
@@ -59,8 +59,16 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
 export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRole, Privilege[]> {
   if (!('kind' in def)) {
     if (def.access === 'auth')
-      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT', 'INSERT', 'UPDATE'] };
-    return { app_user: ['SELECT'], app_system: DML, app_public: def.publicRead ? ['SELECT'] : [], app_auth: [] };
+      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT', 'INSERT', 'UPDATE'], app_staff: [] };
+    if (def.access === 'staff')
+      return { app_user: [], app_system: DML, app_public: [], app_auth: [], app_staff: ['SELECT'] };
+    return {
+      app_user: ['SELECT'],
+      app_system: DML,
+      app_public: def.publicRead ? ['SELECT'] : [],
+      app_auth: [],
+      app_staff: [],
+    };
   }
   const user: Privilege[] = def.appendOnly ? ['INSERT'] : DML;
   return {
@@ -68,6 +76,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     app_system: DML,
     app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [],
     app_auth: def.authAppend ? ['INSERT'] : authPrivileges(def.auth),
+    app_staff: authPrivileges(def.staff),
   };
 }
 
@@ -77,7 +86,7 @@ const AUTH_COMMANDS = [
   ['update', 'UPDATE'],
 ] as const satisfies readonly (readonly [keyof AuthAccess, Privilege])[];
 
-function authPrivileges(auth: AuthAccess | undefined): Privilege[] {
+function authPrivileges(auth: AuthAccess | StaffAccess | undefined): Privilege[] {
   return AUTH_COMMANDS.filter(([key]) => auth?.[key] !== undefined).map(([, priv]) => priv);
 }
 
@@ -92,12 +101,16 @@ export interface PolicySpec {
 export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (!('kind' in def)) {
     if (def.access === 'auth') return [{ name: 'auth_rows', cmd: 'ALL', roles: ['app_auth'] }];
+    if (def.access === 'staff') return [{ name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] }];
     return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
   }
   const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   for (const [key, cmd] of AUTH_COMMANDS) {
     if (def.auth?.[key] !== undefined) out.push({ name: `auth_${key}`, cmd, roles: ['app_auth'] });
+  }
+  for (const [key, cmd] of AUTH_COMMANDS) {
+    if (def.staff?.[key] !== undefined) out.push({ name: `staff_${key}`, cmd, roles: ['app_staff'] });
   }
   if (def.kind === 'NETWORK_READ') out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
@@ -118,15 +131,22 @@ function ident(name: string): string {
   return `public."${name}"`;
 }
 
-/** Helper functions used by policies. `security invoker`, read only the transaction-local settings. */
+/**
+ * Helper functions used by policies. `security invoker`: `app_agency()` / `app_user_id()` read only the
+ * transaction-local settings; `app_is_staff()` reads the caller's own `staff_users` row (policy
+ * `staff_self`), so it is true only for `app_staff` acting for an active staff member.
+ */
 export function helperSql(): string {
   return [
     `create or replace function app_agency() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.agency_id', true), '')::uuid $$;`,
     `create or replace function app_user_id() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;`,
-    `revoke all on function app_agency(), app_user_id() from public;`,
-    `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth;`,
+    `create or replace function app_is_staff() returns boolean language sql stable parallel safe
+  as $$ select exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.deactivated_at is null) $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_is_staff() from public;`,
+    `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
+    `grant execute on function app_is_staff() to app_staff;`,
   ].join('\n');
 }
 
@@ -183,6 +203,24 @@ grant select, insert, update, delete on table ${t} to app_system;`
     }
     out.push(`grant ${authPrivileges(def.auth).join(', ').toLowerCase()} on table ${t} to app_auth;`);
   }
+  if (def.staff) {
+    // Staff work across tenants, but only as an active staff member (`app_is_staff()`), never DELETE.
+    const { select, insert, update } = def.staff;
+    const gated = (p: string) => `app_is_staff() and (${predicate(name, p)})`;
+    if (select !== undefined) {
+      out.push(`create policy staff_select on ${t} for select to app_staff
+  using (${gated(select)});`);
+    }
+    if (insert !== undefined) {
+      out.push(`create policy staff_insert on ${t} for insert to app_staff
+  with check (${gated(insert)});`);
+    }
+    if (update !== undefined) {
+      out.push(`create policy staff_update on ${t} for update to app_staff
+  using (${gated(update)}) with check (${gated(update)});`);
+    }
+    out.push(`grant ${authPrivileges(def.staff).join(', ').toLowerCase()} on table ${t} to app_staff;`);
+  }
   return out;
 }
 
@@ -194,6 +232,15 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
       `create policy auth_rows on ${t} to app_auth using (true) with check (true);`,
       `revoke all on table ${t} from ${APP_ROLES};`,
       `grant select, insert, update on table ${t} to app_auth;`,
+      `grant select, insert, update, delete on table ${t} to app_system;`,
+    ];
+  }
+  if (def.access === 'staff') {
+    // The table needs a `user_id`; app_staff sees only the staff member it acts for.
+    return [
+      `create policy staff_self on ${t} for select to app_staff using (user_id = app_user_id());`,
+      `revoke all on table ${t} from ${APP_ROLES};`,
+      `grant select on table ${t} to app_staff;`,
       `grant select, insert, update, delete on table ${t} to app_system;`,
     ];
   }

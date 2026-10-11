@@ -5,7 +5,7 @@ import { verifyPassword } from '@inmolink/platform/crypto/password';
 import { isUuidV7 } from '@inmolink/platform/ids';
 import { asc, eq, like, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEMO_DOMAIN, demoEmail } from '../../scripts/seed/identity';
+import { DEMO_DOMAIN, DEMO_STAFF_EMAIL, demoEmail } from '../../scripts/seed/identity';
 import { scaleCounts } from '../../scripts/seed/profile';
 import { seededId } from '../../scripts/seed/rng';
 import { assertSeedTarget, DEFAULT_DEMO_PASSWORD, runDevSeed, runScaleSeed } from '../../scripts/seed/run';
@@ -93,8 +93,10 @@ describe('dev seed', () => {
   it('[S0-13] dev seed completes in < 30 s and prints working demo logins', async () => {
     const report = await runDevSeed({ demoPassword: DEFAULT_DEMO_PASSWORD });
     expect(report.seconds).toBeLessThan(30);
-    expect(report.logins).toHaveLength(25);
-    expect(new Set(report.logins.map((l) => l.agency)).size).toBe(5);
+    // 25 agency users + the staff login (S1-03).
+    expect(report.logins).toHaveLength(26);
+    expect(new Set(report.logins.map((l) => l.agency)).size).toBe(6);
+    expect(report.logins.at(-1)).toEqual({ agency: 'Inmolink staff', role: 'staff', email: DEMO_STAFF_EMAIL });
     expect(report.results['identity.users']).toEqual({ inserted: 25, total: 25, logins: report.logins });
     expect(report.results['agencies.agencies']).toMatchObject({ total: 5 });
 
@@ -107,6 +109,15 @@ describe('dev seed', () => {
     expect(admin?.status).toBe('ACTIVE');
     expect(admin?.verified).not.toBeNull();
     expect(await verifyPassword(admin?.hash ?? '', DEFAULT_DEMO_PASSWORD)).toBe(true);
+
+    // The staff login has no agency and an active staff role.
+    const staff = await withSystem('test.seed.staff', (tx) =>
+      tx.execute<{ role: string; members: number }>(sql`
+        select s.role, (select count(*)::int from agency_members m where m.user_id = u.id) as members
+          from users u join staff_users s on s.user_id = u.id
+         where u.email = ${DEMO_STAFF_EMAIL} and s.deactivated_at is null`),
+    );
+    expect(staff.rows).toEqual([{ role: 'STAFF_SUPPORT', members: 0 }]);
   }, 60_000);
 
   it('[S0-13] re-running the dev seed is idempotent', async () => {

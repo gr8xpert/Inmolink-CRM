@@ -7,3 +7,4 @@ export * from './common';
 export * from './errors';
 export * from './http';
 export * from './identity';
+export * from './verification';

@@ -87,3 +87,29 @@ export function renderAuthEmail(
     link,
   );
 }
+
+/**
+ * Verification decision for an agency admin (S1-03). Agency name and staff reason come from validated
+ * contract fields (no markup or controls) and are escaped in the HTML part.
+ */
+export function renderVerificationDecisionEmail(
+  to: { email: string; name: string; locale: string },
+  decision: { approved: boolean; agency: string; reason: string | null },
+  link: string,
+): EmailMessage {
+  const t = translator(emailLocale(to.locale), 'verification');
+  const s = decision.approved ? 'email.approved' : 'email.rejected';
+  const params = { agency: decision.agency, name: to.name, reason: decision.reason ?? '' };
+  return message(
+    to.email,
+    decision.approved ? 'agencies.verification-approved' : 'agencies.verification-rejected',
+    {
+      subject: t(`${s}.subject`, params),
+      greeting: t(`${s}.greeting`, params),
+      body: t(`${s}.body`, params),
+      action: t(`${s}.action`),
+      ignore: t(`${s}.footer`, params),
+    },
+    link,
+  );
+}

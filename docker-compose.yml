@@ -79,7 +79,7 @@ x-minio-init: &minio-init
   image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
   entrypoint: ["/bin/sh", "-c"]
   healthcheck:
-    test: ["CMD", "mc", "ls", "local/inmolink-media"]
+    test: ["CMD", "mc", "ls", "local/inmolink-private"]
     interval: 2s
     timeout: 3s
     retries: 30
@@ -144,7 +144,7 @@ services:
     profiles: [dev]
     command:
       - mc alias set local http://minio:9000 inmolink inmolink-local-secret
-        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
         && exec sleep infinity
     depends_on:
       minio: { condition: service_healthy }
@@ -215,7 +215,7 @@ services:
     profiles: [test]
     command:
       - mc alias set local http://minio-test:9000 inmolink inmolink-local-secret
-        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups
+        && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
         && exec sleep infinity
     depends_on:
       minio-test: { condition: service_healthy }

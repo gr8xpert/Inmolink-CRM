@@ -1,0 +1,44 @@
+{
+  "title": "Staff",
+  "queue": {
+    "title": "Cola de verificación",
+    "empty": "No hay solicitudes en esta lista.",
+    "submitted": "Enviada el {date}",
+    "open": "Revisar",
+    "next": "Página siguiente",
+    "tabs": {
+      "SUBMITTED": "Pendientes",
+      "APPROVED": "Aprobadas",
+      "REJECTED": "Rechazadas"
+    }
+  },
+  "request": {
+    "title": "Verificación de {agency}",
+    "back": "Volver a la cola",
+    "details": "Datos de la empresa (versión {version})",
+    "changedSince": "La agencia cambió sus datos después de enviarlos (versión enviada {submitted}). Revisas los datos actuales.",
+    "kind": "Tipo",
+    "taxId": "CIF / NIF / NIE",
+    "address": "Dirección",
+    "region": "Comunidad",
+    "languages": "Idiomas",
+    "documents": "Documentos",
+    "download": "Abrir (enlace válido 5 minutos)",
+    "decided": "{status} el {date}: {reason}",
+    "reason": "Motivo (lo verá la agencia)",
+    "approve": "Aprobar",
+    "reject": "Rechazar"
+  },
+  "notices": {
+    "APPROVE": "Aprobada. La agencia está verificada.",
+    "REJECT": "Rechazada. Hemos enviado tu motivo a la agencia."
+  },
+  "errors": {
+    "FORBIDDEN": "Tu rol de staff no permite hacer eso.",
+    "NOT_FOUND": "Esa solicitud o documento ya no existe.",
+    "VERIFICATION_STALE": "La agencia cambió sus datos mientras revisabas. Comprueba los datos actuales y vuelve a decidir.",
+    "VERIFICATION_NOT_OPEN": "Esta solicitud ya se decidió.",
+    "VALIDATION_FAILED": "Escribe un motivo de al menos 3 caracteres.",
+    "generic": "Algo ha fallado. Vuelve a intentarlo."
+  }
+}

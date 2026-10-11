@@ -122,7 +122,8 @@ describe('@inmolink/i18n', () => {
     expect(again.indexChanged).toBe(false);
     expect(translator('de', 'auth', { catalogs: catalogs() })('login.title')).toBe('Anmelden');
     expect(checkCatalogs(withDe, dir).drafts.de?.todo).toBe((first.locales.de?.added ?? 0) - 1);
-  });
+    // Real file I/O over every catalog: under a full parallel verify it outlives the 5 s default (S1-F1).
+  }, 30_000);
 
   it('[S0-11] draft uses the machine translation hook when given, marked for review', async () => {
     const dir = scratchCatalogs();

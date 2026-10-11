@@ -27,15 +27,26 @@ export default async function HomePage() {
         </form>
       </div>
       <p className="text-sm">{t('home.signedInAs', { email: session.user.email })}</p>
-      <nav>
-        <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
-          {t('home.team')}
-        </Link>
+      <nav className="flex gap-4">
+        {home.agency ? (
+          <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
+            {t('home.team')}
+          </Link>
+        ) : (
+          // No agency: staff (or a user without one). The page 404s for non-staff (S1-03).
+          <Link href="/staff/verification" className="text-sm font-medium underline-offset-4 hover:underline">
+            {t('home.staffVerification')}
+          </Link>
+        )}
       </nav>
       {pending ? (
         <div data-testid="agency-pending" role="status" className="flex flex-col gap-2 rounded-md border p-3 text-sm">
           <p>{t('home.agencyPending', { agency: pending.name })}</p>
-          {pending.onboarded ? null : (
+          {pending.onboarded ? (
+            <Link href="/verification" className="font-medium underline-offset-4 hover:underline">
+              {t('home.verify')}
+            </Link>
+          ) : (
             <Link href="/onboarding" className="font-medium underline-offset-4 hover:underline">
               {t('home.completeOnboarding')}
             </Link>

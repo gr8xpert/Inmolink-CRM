@@ -1,0 +1,44 @@
+{
+  "title": "Staff",
+  "queue": {
+    "title": "Verification queue",
+    "empty": "No requests in this list.",
+    "submitted": "Submitted {date}",
+    "open": "Review",
+    "next": "Next page",
+    "tabs": {
+      "SUBMITTED": "Waiting",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    }
+  },
+  "request": {
+    "title": "Verification of {agency}",
+    "back": "Back to the queue",
+    "details": "Company details (version {version})",
+    "changedSince": "The agency changed its details after submitting (submitted version {submitted}). You review the current details.",
+    "kind": "Kind",
+    "taxId": "CIF / NIF / NIE",
+    "address": "Address",
+    "region": "Region",
+    "languages": "Languages",
+    "documents": "Documents",
+    "download": "Open (link valid 5 minutes)",
+    "decided": "{status} on {date}: {reason}",
+    "reason": "Reason (shown to the agency)",
+    "approve": "Approve",
+    "reject": "Reject"
+  },
+  "notices": {
+    "APPROVE": "Approved. The agency is verified.",
+    "REJECT": "Rejected. The agency was emailed your reason."
+  },
+  "errors": {
+    "FORBIDDEN": "Your staff role cannot do that.",
+    "NOT_FOUND": "That request or document no longer exists.",
+    "VERIFICATION_STALE": "The agency changed its details while you reviewed. Check the current details and decide again.",
+    "VERIFICATION_NOT_OPEN": "This request was already decided.",
+    "VALIDATION_FAILED": "Write a reason of at least 3 characters.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

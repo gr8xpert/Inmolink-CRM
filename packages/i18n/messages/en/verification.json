@@ -1,0 +1,76 @@
+{
+  "title": "Verification",
+  "intro": "Inmolink checks every agency before it can share listings with the network, publish them or connect a website. Upload documents that prove your company, then send them to our team.",
+  "status": {
+    "PENDING": "Not verified yet",
+    "VERIFIED": "Verified",
+    "SUSPENDED": "Suspended"
+  },
+  "requestStatus": {
+    "SUBMITTED": "Waiting for review since {date}",
+    "APPROVED": "Approved on {date}",
+    "REJECTED": "Not approved on {date}"
+  },
+  "verifiedBody": "Your agency is verified. You can share and publish listings and create website API keys.",
+  "rejectedReason": "What our team asked for: {reason}",
+  "onboardingFirst": "Complete your company details first, then come back to send them for verification.",
+  "goToOnboarding": "Complete company details",
+  "documents": "Documents",
+  "noDocuments": "No documents uploaded yet.",
+  "submittedBadge": "Sent",
+  "remove": "Remove",
+  "kinds": {
+    "TAX_ID": "CIF / NIF certificate",
+    "BUSINESS_PROOF": "Proof of business (deeds, IAE registration)",
+    "REGISTER": "Regional register certificate",
+    "OTHER": "Other document"
+  },
+  "upload": {
+    "title": "Upload a document",
+    "kind": "Document type",
+    "file": "File (PDF, PNG, JPEG or WebP, up to 10 MB)",
+    "submit": "Upload"
+  },
+  "submit": {
+    "title": "Send for verification",
+    "body": "Our team reviews the company details on your onboarding page together with these documents. If you change your details after sending, the review starts from your latest details.",
+    "action": "Send for verification"
+  },
+  "notices": {
+    "uploaded": "Document uploaded.",
+    "removed": "Document removed.",
+    "submitted": "Sent. We will email you when our team has decided."
+  },
+  "errors": {
+    "FORBIDDEN": "Only an agency admin can manage verification.",
+    "NOT_FOUND": "That document no longer exists.",
+    "VERSION_CONFLICT": "Your company details changed meanwhile. Reload the page and send again.",
+    "AGENCY_NOT_ONBOARDED": "Complete your company details first.",
+    "VERIFICATION_ALREADY_SUBMITTED": "Your documents are already waiting for review.",
+    "VERIFICATION_DOCUMENTS_REQUIRED": "Upload at least one document first.",
+    "VERIFICATION_NOT_OPEN": "Your agency is already verified.",
+    "DOCUMENT_TYPE_NOT_ALLOWED": "That file is not a PDF, PNG, JPEG or WebP.",
+    "DOCUMENT_LIMIT_REACHED": "You can upload up to 10 documents. Remove one first.",
+    "DOCUMENT_LOCKED": "Documents already sent cannot be removed.",
+    "PAYLOAD_TOO_LARGE": "That file is larger than 10 MB.",
+    "VALIDATION_FAILED": "Please choose a document type and a file.",
+    "RATE_LIMITED": "Too many uploads. Please wait a moment and try again.",
+    "generic": "Something went wrong. Please try again."
+  },
+  "email": {
+    "approved": {
+      "subject": "{agency} is verified on Inmolink",
+      "greeting": "Hello {name},",
+      "body": "Our team has verified {agency}. You can now share listings with the network, publish them and connect your website.",
+      "action": "Open Inmolink",
+      "footer": "You receive this email as an admin of {agency}."
+    },
+    "rejected": {
+      "subject": "Verification of {agency}: action needed",
+      "greeting": "Hello {name},",
+      "body": "Our team could not verify {agency} yet. Their note: {reason}",
+      "action": "Review and send again",
+      "footer": "You receive this email as an admin of {agency}."
+    }
+  }
+}

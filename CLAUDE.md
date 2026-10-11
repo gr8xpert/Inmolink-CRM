@@ -21,6 +21,7 @@ AI-native MLS + CRM + website engine for Spanish estate agencies and developers.
 - `pnpm db:generate` · `pnpm db:migrate` · `pnpm db:rls` · `pnpm db:seed` · `pnpm db:seed:scale --agencies=5000`
 - `pnpm gen:module <name>` · `pnpm test` · `pnpm test:int` · `pnpm test:isolation` · `pnpm test:e2e` · `pnpm perf:smoke`
 - `pnpm i18n:draft` · `pnpm ai:eval <feature>` · `pnpm sdk:generate`
+- `pnpm staff:grant --email <e> --role <r> --reason <why>` · `pnpm staff:revoke --email <e> --reason <why>`
 
 ## Architecture — golden rules
 1. Business logic lives only in `packages/core/src/modules/<module>/`. Apps (`apps/*`) are thin: authenticate, validate, call a service, serialize.

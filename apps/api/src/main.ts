@@ -5,6 +5,7 @@ import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
+import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { buildApp } from './app';
 import { loadApiConfig } from './config';
@@ -21,7 +22,15 @@ const telemetry = startObservability(config, {
 });
 
 try {
-  await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER }, { logger });
+  await configureDb(
+    {
+      APP_ROLE: 'http',
+      DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER,
+      DATABASE_URL_APP_STAFF: config.DATABASE_URL_APP_STAFF,
+    },
+    { logger },
+  );
+  configureStorage(storageConfigFromEnv(config));
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
 

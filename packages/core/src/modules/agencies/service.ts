@@ -62,7 +62,7 @@ export async function getAgencyName(tx: Tx, agencyId: string): Promise<string | 
   return repo.getName(tx, agencyId);
 }
 
-function toDto(row: NonNullable<Awaited<ReturnType<typeof repo.getAgency>>>): AgencyDto {
+export function toAgencyDto(row: NonNullable<Awaited<ReturnType<typeof repo.getAgency>>>): AgencyDto {
   return {
     id: row.id,
     kind: row.kind,
@@ -85,7 +85,7 @@ export async function getMyAgency(ctx: Ctx): Promise<AgencyDto> {
   assertCan(ctx, 'agencies.read');
   const row = await repo.getAgency(ctx.tx, ctx.tenant.agencyId);
   if (!row) throw new AppError('NOT_FOUND');
-  return toDto(row);
+  return toAgencyDto(row);
 }
 
 /**
@@ -120,5 +120,5 @@ export async function updateAgencyDetails(ctx: Ctx, input: UpdateAgencyDetailsBo
       firstOnboarding: before.onboardedAt === null,
     }),
   );
-  return toDto(row);
+  return toAgencyDto(row);
 }

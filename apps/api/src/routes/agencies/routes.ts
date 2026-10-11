@@ -2,6 +2,7 @@ import { AgencyDto, UpdateAgencyDetailsBody } from '@inmolink/contracts';
 import * as agencies from '@inmolink/core/modules/agencies';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
+import { verificationRoutes } from './verification';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'agencies.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -44,4 +45,7 @@ export async function agenciesRoutes(app: FastifyZod): Promise<void> {
     },
     (req) => app.withCtx(req, (ctx) => agencies.updateAgencyDetails(ctx, req.body)),
   );
+
+  // Own plugin: its binary body parser stays out of the other agencies routes.
+  await app.register(verificationRoutes);
 }

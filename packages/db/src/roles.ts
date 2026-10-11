@@ -17,6 +17,12 @@ export const DB_ROLES = {
    * INSERT platform outbox events; no tenant table, no BYPASSRLS (S0-09, ADR 0004).
    */
   app_auth: { bypassRls: false, readOnly: false, statementTimeout: '5s', dml: true },
+  /**
+   * Staff request paths (verification queue, later the staff console) via `withStaff()`. RLS on, no
+   * BYPASSRLS: reaches only what the registry's `staff` predicates open, and only while `app.user_id`
+   * names an active `staff_users` row (`app_is_staff()`) (S1-03, ADR 0015).
+   */
+  app_staff: { bypassRls: false, readOnly: false, statementTimeout: '5s', dml: true },
   /** Public read paths (feed-api, portal). Read-only; SELECT only on PUBLIC_READ tables, granted by `pnpm db:rls`. */
   app_public: { bypassRls: false, readOnly: true, statementTimeout: '2s', dml: false },
 } as const;

@@ -22,6 +22,28 @@ export interface Ctx {
   clientMode: boolean;
 }
 
+/** Inmolink staff roles (PLAN §3 #2); `identity.STAFF_ROLES` is the runtime list. */
+export type StaffRole = 'SUPER_ADMIN' | 'STAFF_SUPPORT' | 'STAFF_DATA_OPS';
+
+/**
+ * Context for staff work (S1-03, ADR 0015): no tenant — staff act across agencies — and a `withStaff`
+ * transaction (`app_staff`, RLS on, staff predicates only). Staff use cases take this instead of `Ctx`;
+ * a tenant `ctx` can never reach them, nor a staff `ctx` a tenant use case.
+ */
+export interface StaffCtx {
+  tx: Tx;
+  actor: { kind: 'staff'; userId: string; role: StaffRole };
+  locale: Locale;
+  requestId: string;
+}
+
+/**
+ * Opens a fresh request transaction with a full `ctx` per call (an app passes `(fn) => withCtx(req, fn)`).
+ * For use cases with network I/O between two short transactions (uploads: check, then store the file
+ * outside any transaction, then record it) — like `AuthCtx.transaction` (CLAUDE.md rule 6).
+ */
+export type CtxRunner = <T>(fn: (ctx: Ctx) => Promise<T>) => Promise<T>;
+
 /** What an app knows about the caller before the transaction opens. */
 export type RequestCtx = Omit<Ctx, 'tx'>;
 

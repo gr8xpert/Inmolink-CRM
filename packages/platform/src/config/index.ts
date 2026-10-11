@@ -32,6 +32,8 @@ export const databaseEnv = {
   DATABASE_URL_APP_PUBLIC: url(['postgres', 'postgresql']),
   /** Identity tables only (sign-up, login, reset, access tokens) — the auth flows in web (S0-09). */
   DATABASE_URL_APP_AUTH: url(['postgres', 'postgresql']).optional(),
+  /** Staff request paths (`withStaff`, S1-03, ADR 0015) — `api` only. */
+  DATABASE_URL_APP_STAFF: url(['postgres', 'postgresql']).optional(),
   /**
    * Direct (non-PgBouncer) session connection for LISTEN — the outbox dispatcher's wake-up.
    * Workers only (app_system credential); without it the dispatcher polls.
@@ -136,6 +138,8 @@ export const storageEnv = {
   S3_SECRET_ACCESS_KEY: nonEmpty,
   S3_BUCKET_MEDIA: nonEmpty,
   S3_BUCKET_EXPORTS: nonEmpty,
+  /** Private documents (agency verification): no public access, read only through short signed URLs (S1-03). */
+  S3_BUCKET_PRIVATE: nonEmpty,
 };
 
 /** Transactional email (platform/email). Workers only: requests never send mail. */

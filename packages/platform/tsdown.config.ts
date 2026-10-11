@@ -19,6 +19,7 @@ export default defineConfig({
     'queue/index': 'src/queue/index.ts',
     'rate-limit/index': 'src/rate-limit/index.ts',
     'server/index': 'src/server/index.ts',
+    'storage/index': 'src/storage/index.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/register': 'src/telemetry/register.ts',
   },

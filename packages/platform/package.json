@@ -94,6 +94,11 @@
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
     },
+    "./storage": {
+      "@inmolink/source": "./src/storage/index.ts",
+      "types": "./dist/storage/index.d.ts",
+      "default": "./dist/storage/index.js"
+    },
     "./telemetry": {
       "@inmolink/source": "./src/telemetry/index.ts",
       "types": "./dist/telemetry/index.d.ts",
@@ -132,6 +137,7 @@
     "@opentelemetry/sdk-trace-node": "2.12.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
     "@sentry/node": "11.6.0",
+    "aws4fetch": "1.0.20",
     "bullmq": "6.3.12",
     "bullmq-otel": "2.0.1",
     "drizzle-orm": "0.45.4",

@@ -1,5 +1,5 @@
 import type { Tx } from '@inmolink/db';
-import { agencyInvites, agencyMembers, authTokens, users } from '@inmolink/db/schema/identity';
+import { agencyInvites, agencyMembers, authTokens, staffUsers, users } from '@inmolink/db/schema/identity';
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 
@@ -493,4 +493,65 @@ export async function markInviteAccepted(
     .where(and(eq(agencyInvites.id, id), eq(agencyInvites.tokenHash, tokenHash), openInvite(now)))
     .returning({ id: agencyInvites.id });
   return rows.length === 1;
+}
+
+// ── Staff (S1-03) ───────────────────────────────────────────────────────────────────────────────
+
+export type StaffRole = (typeof staffUsers.$inferSelect)['role'];
+
+/** The user's active staff role (primary key). As `app_staff`, policy `staff_self` shows only that row. */
+export async function findStaffRole(tx: Tx, userId: string): Promise<StaffRole | null> {
+  const [row] = await tx
+    .select({ role: staffUsers.role })
+    .from(staffUsers)
+    .where(and(eq(staffUsers.userId, userId), isNull(staffUsers.deactivatedAt)));
+  return row?.role ?? null;
+}
+
+/** `pnpm staff:grant` (`app_system`): grants or changes a role, re-activating a withdrawn one. */
+export async function upsertStaff(tx: Tx, userId: string, role: StaffRole): Promise<void> {
+  await tx
+    .insert(staffUsers)
+    .values({ userId, role })
+    .onConflictDoUpdate({ target: staffUsers.userId, set: { role, deactivatedAt: null } });
+}
+
+/** `pnpm staff:revoke`: staff access ends on the next request (`app_is_staff()`). */
+export async function deactivateStaff(tx: Tx, userId: string, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(staffUsers)
+    .set({ deactivatedAt: now })
+    .where(and(eq(staffUsers.userId, userId), isNull(staffUsers.deactivatedAt)))
+    .returning({ userId: staffUsers.userId });
+  return rows.length === 1;
+}
+
+/** Whether the user belongs to an agency (staff must not: their token would carry the agency). */
+export async function hasMembership(tx: Tx, userId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .where(eq(agencyMembers.userId, userId));
+  return row !== undefined;
+}
+
+/** Active admins of an agency with their UI locale, for agency notices sent by jobs (`app_system`). */
+export async function listAdminRecipients(
+  tx: Tx,
+  agencyId: string,
+): Promise<{ email: string; name: string; locale: string }[]> {
+  return tx
+    .select({ email: users.email, name: users.name, locale: users.locale })
+    .from(agencyMembers)
+    .innerJoin(users, eq(users.id, agencyMembers.userId))
+    .where(
+      and(
+        eq(agencyMembers.agencyId, agencyId),
+        inArray(agencyMembers.role, ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']),
+        isNull(agencyMembers.deactivatedAt),
+        eq(users.status, 'ACTIVE'),
+      ),
+    )
+    .orderBy(asc(agencyMembers.createdAt))
+    .limit(20);
 }

@@ -7,6 +7,9 @@ export default defineConfig({
       'apps/*/vitest.config.ts',
       'packages/*/vitest.config.ts',
       {
+        // Source, not dist: these checks import app config modules, which must not need a prior build.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
         test: {
           name: 'workspace',
           include: ['tests/workspace/**/*.test.ts'],

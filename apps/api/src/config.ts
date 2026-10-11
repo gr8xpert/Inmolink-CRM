@@ -9,10 +9,14 @@ import {
   portVar,
   redisEnv,
   searchEnv,
+  storageEnv,
   telemetryEnv,
 } from '@inmolink/platform/config';
 
-/** Dashboard API: `app_user` only (RLS), both Redis instances, search. */
+/**
+ * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
+ * routes (S1-03), both Redis instances, search, object storage (verification documents).
+ */
 export const apiEnv = {
   ...coreEnv,
   ...httpEnv,
@@ -21,6 +25,8 @@ export const apiEnv = {
   API_METRICS_PORT: portVar(9464),
   ...telemetryEnv,
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
+  DATABASE_URL_APP_STAFF: databaseEnv.DATABASE_URL_APP_STAFF.unwrap(),
+  ...storageEnv,
   ...redisEnv,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,

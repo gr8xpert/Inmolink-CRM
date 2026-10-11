@@ -1,5 +1,7 @@
 import {
   AgencyDto,
+  AgencyVerificationDto,
+  type DecideVerificationBody,
   ErrorBody,
   type InvitableRole,
   InviteDto,
@@ -8,7 +10,14 @@ import {
   MeDto,
   MemberDto,
   MemberPage,
+  SignedUrlDto,
   type UpdateAgencyDetailsInput,
+  type UploadVerificationDocumentQuery,
+  VERIFICATION_DOCUMENT_TYPES,
+  VerificationDocumentDto,
+  VerificationQueuePage,
+  VerificationRequestDto,
+  type VerificationRequestStatus,
 } from '@inmolink/contracts';
 import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
@@ -46,7 +55,13 @@ async function apiRequest<S extends z.ZodType>(
   session: SessionRef | Token,
   path: string,
   schema: S,
-  init: { method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown } = {},
+  init: {
+    method?: 'GET' | 'PUT' | 'POST' | 'DELETE';
+    body?: unknown;
+    /** A binary body (uploads) instead of JSON. */
+    raw?: { bytes: Uint8Array; contentType: string };
+    timeoutMs?: number;
+  } = {},
 ): Promise<ApiResult<z.infer<S>>> {
   const config = await webConfig();
   try {
@@ -58,11 +73,19 @@ async function apiRequest<S extends z.ZodType>(
       method: init.method ?? 'GET',
       headers: {
         authorization: `Bearer ${token}`,
-        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(init.raw
+          ? { 'content-type': init.raw.contentType }
+          : init.body === undefined
+            ? {}
+            : { 'content-type': 'application/json' }),
       },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      body: init.raw
+        ? (init.raw.bytes as Uint8Array<ArrayBuffer>)
+        : init.body === undefined
+          ? undefined
+          : JSON.stringify(init.body),
       cache: 'no-store',
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(init.timeoutMs ?? 5_000),
     });
     const json: unknown = await res.json().catch(() => null);
     if (!res.ok) {
@@ -162,4 +185,78 @@ export function changeMemberRole(
 
 export function deactivateMember(session: SessionRef, userId: string): Promise<ApiResult<MemberDto>> {
   return apiRequest(session, `/v1/members/${encodeURIComponent(userId)}/deactivate`, MemberDto, { method: 'POST' });
+}
+
+// ── Verification (S1-03) ────────────────────────────────────────────────────────────────────────
+
+export function fetchVerification(session: SessionRef): Promise<ApiResult<AgencyVerificationDto>> {
+  return apiRequest(session, '/v1/agency/verification', AgencyVerificationDto);
+}
+
+/** The file goes to the API as the raw body; the API checks its real type and size. */
+export function uploadVerificationDocument(
+  session: SessionRef,
+  query: UploadVerificationDocumentQuery,
+  file: { bytes: Uint8Array; contentType: string },
+): Promise<ApiResult<VerificationDocumentDto>> {
+  const qs = new URLSearchParams({ kind: query.kind, fileName: query.fileName });
+  // Only types the API's body parser accepts; anything else is sent as octet-stream and sniffed.
+  const contentType = (VERIFICATION_DOCUMENT_TYPES as readonly string[]).includes(file.contentType)
+    ? file.contentType
+    : 'application/octet-stream';
+  return apiRequest(session, `/v1/agency/verification/documents?${qs}`, VerificationDocumentDto, {
+    method: 'POST',
+    raw: { bytes: file.bytes, contentType },
+    timeoutMs: 30_000,
+  });
+}
+
+export function deleteVerificationDocument(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/agency/verification/documents/${encodeURIComponent(id)}`, z.null(), {
+    method: 'DELETE',
+  });
+}
+
+export function submitVerification(session: SessionRef, version: number): Promise<ApiResult<AgencyVerificationDto>> {
+  return apiRequest(session, '/v1/agency/verification', AgencyVerificationDto, { method: 'POST', body: { version } });
+}
+
+export function fetchVerificationQueue(
+  session: SessionRef,
+  q: { status: VerificationRequestStatus; cursor?: string },
+): Promise<ApiResult<VerificationQueuePage>> {
+  const qs = new URLSearchParams({ status: q.status, limit: '50', ...(q.cursor ? { cursor: q.cursor } : {}) });
+  return apiRequest(session, `/v1/staff/verification-requests?${qs}`, VerificationQueuePage);
+}
+
+export function fetchVerificationRequest(session: SessionRef, id: string): Promise<ApiResult<VerificationRequestDto>> {
+  return apiRequest(session, `/v1/staff/verification-requests/${encodeURIComponent(id)}`, VerificationRequestDto);
+}
+
+export function fetchVerificationDocumentUrl(
+  session: SessionRef,
+  id: string,
+  documentId: string,
+): Promise<ApiResult<SignedUrlDto>> {
+  return apiRequest(
+    session,
+    `/v1/staff/verification-requests/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}/url`,
+    SignedUrlDto,
+  );
+}
+
+export function decideVerification(
+  session: SessionRef,
+  id: string,
+  body: DecideVerificationBody,
+): Promise<ApiResult<VerificationRequestDto>> {
+  return apiRequest(
+    session,
+    `/v1/staff/verification-requests/${encodeURIComponent(id)}/decision`,
+    VerificationRequestDto,
+    {
+      method: 'POST',
+      body,
+    },
+  );
 }

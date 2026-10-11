@@ -1,4 +1,5 @@
 import { type EventDef, subscribe } from '@inmolink/platform/outbox';
+import { agenciesEvents } from '../agencies';
 import type { AuthEmailKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
@@ -12,7 +13,7 @@ const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
 
 let unsubscribe: (() => void)[] | undefined;
 
-/** Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail`, one job per event. Called once by the worker; idempotent. */
+/** Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail` / `identity.sendVerificationDecisionEmail`, one job per event. Called once by the worker; idempotent. */
 export function registerIdentitySubscriptions(): void {
   if (unsubscribe) return;
   unsubscribe = [
@@ -32,6 +33,16 @@ export function registerIdentitySubscriptions(): void {
       identityEvents.inviteCreated,
       (payload, meta) => identityJobs.sendInviteEmail.enqueue({ eventId: meta.eventId, ...payload }),
       { name: 'identity.email.INVITE' },
+    ),
+    subscribe(
+      agenciesEvents.verificationDecided,
+      (payload, meta) =>
+        identityJobs.sendVerificationDecisionEmail.enqueue({
+          eventId: meta.eventId,
+          agencyId: payload.agencyId,
+          requestId: payload.requestId,
+        }),
+      { name: 'identity.email.VERIFICATION_DECISION' },
     ),
   ];
 }

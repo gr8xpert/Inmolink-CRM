@@ -215,6 +215,10 @@ export interface Ctx {
 
 Apps build `ctx` once per request (see §10). Services never construct their own transactions except via helpers that take `ctx`.
 
+**Network I/O between two transactions** (uploads: check → store the file → record it): the use case takes a `CtxRunner` (`(fn) => withCtx(req, fn)`) instead of a `ctx`, and opens one short transaction per step, with the I/O between them and never inside one (S1-03 `agencies.uploadVerificationDocument`). Undo the I/O if the second step fails.
+
+**Staff** (ADR 0015): staff use cases take `StaffCtx` — `{ tx, actor: { kind: 'staff', userId, role }, locale, requestId }`, no tenant — built by `withStaffCtx({ userId, requestId, reason }, fn)` over `withStaff()` (`app_staff`, RLS on). Authorize with the module's `canStaff(ctx, action)`. Tables reach staff only through registry `staff` predicates (§2), and guard triggers say which columns staff may change.
+
 ---
 
 ## §5 Repo
@@ -428,6 +432,8 @@ export async function listingRoutes(app: FastifyZod) {
 }
 ```
 
+Staff routes use `app.withStaffCtx(req, '<module>.<useCase>', (ctx) => …)` (the reason is set on the transaction for audit); tokens with an agency claim and non-staff users get 403. Upload routes register their binary body parser in their own child plugin, so no other route accepts binary bodies.
+
 `app.requireSession` (`apps/api/src/plugins/session.ts`) verifies the `Authorization: Bearer` access token (audience `api`, 15 min, minted by web at `/session/token`) and sets `request.auth`; the API never reads cookies. `app.withCtx(req, fn)` (`apps/api/src/plugins/ctx.ts`) takes the caller's membership from `request.auth`, opens `withTenant`, builds `ctx`, runs `fn`, and lets the error plugin map `AppError`. Handlers stay one expression long.
 
 ---
@@ -593,6 +599,8 @@ Key format (built by `cacheKey`): `v<schema>:<module>:<entity>:<g|a.<agencyId>>[
 Rate limits (`@inmolink/platform/rate-limit`): register `rateLimitPlugin` with `identify.ip: (r) => ipBucket(r.ip)` (Fastify `trustProxy` = hop count or CIDR list, never `true`); route rules go in `config.rateLimit`, `false` opts out. Rule names `auth.*`, `password.*`, `2fa.*` must set `failClosed: true`.
 
 Feature flags (`@inmolink/platform/flags`): `await flag(ctx, 'area.feature')` — one query per process per 60 s. Staff write with `setFlag`/`setFlagOverride` inside `withSystem()`, then `invalidateFlags()` after commit.
+
+Object storage (`@inmolink/platform/storage`, S1-03): `storage().put(bucket, key, bytes, { contentType })`, `delete`, `head`, `signedGetUrl(bucket, key, { expiresInSeconds ≤ 3600, downloadName })`. Buckets `media`, `exports`, `private` (never public; signed URLs only). Keys are built from IDs, never from file names. Check uploads with `detectFileType(bytes)` (magic bytes) against an allowlist. All of it is network I/O: outside transactions.
 
 ---
 

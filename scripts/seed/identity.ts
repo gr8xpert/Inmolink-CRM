@@ -1,5 +1,5 @@
 import { withSystem, withSystemClient } from '@inmolink/db';
-import { users } from '@inmolink/db/schema/identity';
+import { staffUsers, users } from '@inmolink/db/schema/identity';
 import { DEFAULT_UI_LOCALE, UI_LOCALES } from '@inmolink/i18n';
 import { hashPassword } from '@inmolink/platform/crypto/password';
 import { sql } from 'drizzle-orm';
@@ -16,6 +16,8 @@ export const DEMO_DOMAIN = 'demo.inmolink.test';
 export const DEMO_AGENCIES = ['Costa Homes', 'Sierra Nevada Realty', 'Marbella Prime', 'Levante Estates', 'Nova Obra'];
 export const DEMO_ROLES = ['admin', 'agent1', 'agent2', 'agent3', 'assistant'] as const;
 export const DEV_SEED = 0;
+/** Dev staff login (S1-03): no agency, `STAFF_SUPPORT` — opens the verification queue. */
+export const DEMO_STAFF_EMAIL = 'support@staff.inmolink.test';
 
 /** Fixed timestamps keep re-runs and different machines byte-identical. */
 export const SEEDED_AT = new Date(Date.UTC(2026, 0, 1));
@@ -84,6 +86,25 @@ export const identityUsers: Seeder = {
     const inserted = await withSystem('seed.identity.users.dev', (tx) =>
       tx.insert(users).values(values).onConflictDoNothing({ target: users.email }).returning({ id: users.id }),
     );
+    // A staff member has no agency: the agencies seeder never sees this user.
+    const staffId = seededId(DEV_SEED, 'identity.users.dev.staff', 0);
+    await withSystem('seed.identity.staff.dev', async (tx) => {
+      await tx
+        .insert(users)
+        .values({
+          id: staffId,
+          email: DEMO_STAFF_EMAIL,
+          passwordHash,
+          name: 'Inmolink Support',
+          locale: DEFAULT_UI_LOCALE,
+          emailVerifiedAt: SEEDED_AT,
+          createdAt: SEEDED_AT,
+          updatedAt: SEEDED_AT,
+        })
+        .onConflictDoNothing({ target: users.email });
+      await tx.insert(staffUsers).values({ userId: staffId, role: 'STAFF_SUPPORT' }).onConflictDoNothing();
+    });
+    logins.push({ agency: 'Inmolink staff', role: 'staff', email: DEMO_STAFF_EMAIL });
     return { inserted: inserted.length, total: await countLike(`%.${DEMO_DOMAIN}`), logins };
   },
 

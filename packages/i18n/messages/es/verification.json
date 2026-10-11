@@ -1,0 +1,76 @@
+{
+  "title": "Verificación",
+  "intro": "Inmolink comprueba cada agencia antes de que pueda compartir inmuebles con la red, publicarlos o conectar una web. Sube documentos que acrediten tu empresa y envíalos a nuestro equipo.",
+  "status": {
+    "PENDING": "Pendiente de verificación",
+    "VERIFIED": "Verificada",
+    "SUSPENDED": "Suspendida"
+  },
+  "requestStatus": {
+    "SUBMITTED": "En revisión desde el {date}",
+    "APPROVED": "Aprobada el {date}",
+    "REJECTED": "No aprobada el {date}"
+  },
+  "verifiedBody": "Tu agencia está verificada. Ya puedes compartir y publicar inmuebles y crear claves de API para tu web.",
+  "rejectedReason": "Lo que nos falta: {reason}",
+  "onboardingFirst": "Completa primero los datos de tu empresa y vuelve aquí para enviarlos a verificación.",
+  "goToOnboarding": "Completar datos de la empresa",
+  "documents": "Documentos",
+  "noDocuments": "Aún no has subido ningún documento.",
+  "submittedBadge": "Enviado",
+  "remove": "Quitar",
+  "kinds": {
+    "TAX_ID": "Tarjeta o certificado de CIF / NIF",
+    "BUSINESS_PROOF": "Acreditación de la actividad (escrituras, alta en el IAE)",
+    "REGISTER": "Certificado del registro autonómico",
+    "OTHER": "Otro documento"
+  },
+  "upload": {
+    "title": "Subir un documento",
+    "kind": "Tipo de documento",
+    "file": "Archivo (PDF, PNG, JPEG o WebP, hasta 10 MB)",
+    "submit": "Subir"
+  },
+  "submit": {
+    "title": "Enviar a verificación",
+    "body": "Nuestro equipo revisa los datos de empresa de tu página de alta junto con estos documentos. Si cambias tus datos después de enviarlos, la revisión se hará sobre los datos más recientes.",
+    "action": "Enviar a verificación"
+  },
+  "notices": {
+    "uploaded": "Documento subido.",
+    "removed": "Documento eliminado.",
+    "submitted": "Enviado. Te avisaremos por email cuando nuestro equipo haya decidido."
+  },
+  "errors": {
+    "FORBIDDEN": "Solo un administrador de la agencia puede gestionar la verificación.",
+    "NOT_FOUND": "Ese documento ya no existe.",
+    "VERSION_CONFLICT": "Los datos de tu empresa han cambiado mientras tanto. Recarga la página y vuelve a enviar.",
+    "AGENCY_NOT_ONBOARDED": "Completa primero los datos de tu empresa.",
+    "VERIFICATION_ALREADY_SUBMITTED": "Tus documentos ya están pendientes de revisión.",
+    "VERIFICATION_DOCUMENTS_REQUIRED": "Sube al menos un documento antes de enviar.",
+    "VERIFICATION_NOT_OPEN": "Tu agencia ya está verificada.",
+    "DOCUMENT_TYPE_NOT_ALLOWED": "Ese archivo no es un PDF, PNG, JPEG ni WebP.",
+    "DOCUMENT_LIMIT_REACHED": "Puedes subir hasta 10 documentos. Quita uno primero.",
+    "DOCUMENT_LOCKED": "Los documentos ya enviados no se pueden quitar.",
+    "PAYLOAD_TOO_LARGE": "Ese archivo ocupa más de 10 MB.",
+    "VALIDATION_FAILED": "Elige un tipo de documento y un archivo.",
+    "RATE_LIMITED": "Demasiadas subidas. Espera un momento y vuelve a intentarlo.",
+    "generic": "Algo ha fallado. Vuelve a intentarlo."
+  },
+  "email": {
+    "approved": {
+      "subject": "{agency} ya está verificada en Inmolink",
+      "greeting": "Hola, {name}:",
+      "body": "Nuestro equipo ha verificado {agency}. Ya puedes compartir inmuebles con la red, publicarlos y conectar tu web.",
+      "action": "Abrir Inmolink",
+      "footer": "Recibes este email como administrador de {agency}."
+    },
+    "rejected": {
+      "subject": "Verificación de {agency}: falta algo",
+      "greeting": "Hola, {name}:",
+      "body": "Nuestro equipo aún no ha podido verificar {agency}. Su nota: {reason}",
+      "action": "Revisar y volver a enviar",
+      "footer": "Recibes este email como administrador de {agency}."
+    }
+  }
+}

@@ -13,7 +13,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   indexing: [],
   matching: [],
   exports: [],
-  email: [identityJobs.sendAuthEmail],
+  email: [identityJobs.sendAuthEmail, identityJobs.sendInviteEmail, identityJobs.sendVerificationDecisionEmail],
   ai: [],
   social: [],
   pdf: [],

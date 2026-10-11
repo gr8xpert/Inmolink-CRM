@@ -5,6 +5,7 @@ import {
   type Tx,
   withAuth,
   withPublicRead,
+  withStaff,
   withTenant,
 } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
@@ -32,7 +33,8 @@ import {
  */
 
 const DENIED = ['42501']; // insufficient_privilege: missing grant or RLS WITH CHECK violation
-const FK_VIOLATION = '23503';
+/** Raised only after RLS let the row through: FK triggers, and unique indexes (e.g. one open request per agency). */
+const PASSED_RLS = ['23503', '23505'];
 
 /** Runs `fn` as the tenant and rolls the transaction back (positive controls leave no rows). */
 class Rollback extends Error {}
@@ -65,15 +67,28 @@ async function asAppPublic(fn: (client: pg.PoolClient) => Promise<void>): Promis
 
 let admin: pg.Client;
 let ownerUrl = '';
+/** An active staff member, and a user with no staff row (S1-03): app_staff acting for each. */
+const staffUserId = newId();
+const notStaffUserId = newId();
+const asStaff = <T>(fn: (tx: Tx) => Promise<T>) => withStaff({ userId: staffUserId, reason: 'isolation' }, fn);
+const asNotStaff = <T>(fn: (tx: Tx) => Promise<T>) => withStaff({ userId: notStaffUserId, reason: 'isolation' }, fn);
 
 beforeAll(async () => {
   const cfg = await setupIsolation();
   ownerUrl = cfg.DATABASE_URL_APP_OWNER;
   admin = new pg.Client({ connectionString: cfg.DATABASE_URL_ADMIN });
   await admin.connect();
+  for (const id of [staffUserId, notStaffUserId]) {
+    await admin.query(`insert into users (id, email, password_hash, name, locale) values ($1, $2, 'x', 'Iso', 'en')`, [
+      id,
+      `iso-${id}@isolation.test`,
+    ]);
+  }
+  await admin.query(`insert into staff_users (user_id, role) values ($1, 'SUPER_ADMIN')`, [staffUserId]);
 });
 
 afterAll(async () => {
+  await admin?.query('delete from users where id = any($1)', [[staffUserId, notStaffUserId]]);
   await admin?.end();
   if (ownerUrl) await teardownIsolation(ownerUrl);
 });
@@ -269,11 +284,12 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       // Proves the cross-tenant denials above come from the policies, not from a missing grant.
       await rolledBack(b, async (tx) => {
         // In a savepoint: a table whose parents the suite does not create (FK to agencies, users)
-        // fails the insert with 23503 — which the FK trigger raises only after RLS let the row through.
+        // fails the insert with 23503 — which the FK trigger raises only after RLS let the row through —
+        // and a partial unique index the seeded row already fills fails with 23505, also after RLS.
         const inserted = await tx
           .transaction(async (sp) => (await sp.execute(insertSql(table, build({ agency_id: b })))).rowCount)
           .catch((err: unknown) => {
-            if (sqlState(err) === FK_VIOLATION) return 0;
+            if (PASSED_RLS.includes(sqlState(err) ?? '')) return 0;
             throw err;
           });
         const res = await tx.execute(
@@ -335,6 +351,47 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build({ agency_id: a })))), DENIED);
   });
 
+  const staff = def.staff;
+  const updateA = (tx: Tx) =>
+    tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`);
+  const deleteA = (tx: Tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`);
+  const insertA = (tx: Tx) => tx.execute(insertSql(table, build({ agency_id: a })));
+  if (staff) {
+    // Staff work across tenants (S1-03), but only while acting for an active staff member.
+    it(`[S1-03] ${table}: app_staff for a user who is not staff reaches no rows`, async () => {
+      if (staff.select) expect(await asNotStaff((tx) => count(tx, table, a))).toBe(0);
+      else await expectSqlState(() => asNotStaff((tx) => count(tx, table, a)), DENIED);
+      if (staff.update && staff.select) expect((await asNotStaff(updateA)).rowCount).toBe(0);
+      else await expectSqlState(() => asNotStaff(updateA), DENIED);
+      await expectSqlState(() => asNotStaff(insertA), DENIED);
+      await expectSqlState(() => asNotStaff(deleteA), DENIED);
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+    });
+
+    it(`[S1-03] ${table}: staff read and write only what the staff predicates open, and never delete`, async () => {
+      if (staff.select === 'true') {
+        expect(await asStaff((tx) => count(tx, table, a))).toBe(visible.length + hidden.length);
+      } else if (staff.select) {
+        expect(await asStaff((tx) => count(tx, table, a))).toBeLessThanOrEqual(visible.length + hidden.length);
+      } else {
+        await expectSqlState(() => asStaff((tx) => count(tx, table, a)), DENIED);
+      }
+      if (!staff.update) await expectSqlState(() => asStaff(updateA), DENIED);
+      if (!staff.insert) await expectSqlState(() => asStaff(insertA), DENIED);
+      await expectSqlState(() => asStaff(deleteA), DENIED);
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+    });
+  } else {
+    it(`[S1-03] ${table}: app_staff cannot read, update, insert or delete it, even as staff`, async () => {
+      for (const run of [asStaff, asNotStaff]) {
+        await expectSqlState(() => run((tx) => count(tx, table, a)), DENIED);
+        await expectSqlState(() => run(updateA), DENIED);
+        await expectSqlState(() => run(insertA), DENIED);
+        await expectSqlState(() => run(deleteA), DENIED);
+      }
+    });
+  }
+
   const authAppend = def.authAppend;
   if (authAppend) {
     const own = { agency_id: PLATFORM_AGENCY_ID, [authAppend.column]: `${authAppend.prefix}isoFixture` };
@@ -384,7 +441,33 @@ describe.each(globalNames)('global table %s', (table) => {
       .execute(sql`select count(*) as n from ${sql.identifier(table)} where ctid = ${ctid}::tid`)
       .then((r) => Number(r.rows[0]?.n));
 
-  if (def?.access === 'auth') {
+  if (def?.access === 'staff') {
+    it(`[S1-03] ${table}: staff table — tenants, app_auth and app_public cannot read it`, async () => {
+      await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
+      await expectSqlState(() => withAuth(seen), DENIED);
+      await expectSqlState(() => withPublicRead(seen), DENIED);
+    });
+
+    it(`[S1-03] ${table}: app_staff sees only the row of the user it acts for, and writes nothing`, async () => {
+      const owner = (await admin.query(`select user_id from "${table}" where ctid = $1::tid`, [ctid])).rows[0]?.user_id;
+      expect(await withStaff({ userId: owner, reason: 'isolation' }, seen)).toBe(1);
+      expect(await asNotStaff(seen)).toBe(0);
+      await expectSqlState(() => asStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);
+      await expectSqlState(
+        () =>
+          asStaff((tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)}`),
+          ),
+        DENIED,
+      );
+      await expectSqlState(() => asStaff((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
+
+    it(`[S1-03] ${table}: tenants and app_auth cannot write it`, async () => {
+      await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build()))), DENIED);
+      await expectSqlState(() => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
+  } else if (def?.access === 'auth') {
     it(`[S0-09] ${table}: auth table — tenants cannot read it`, async () => {
       await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
     });
@@ -407,6 +490,13 @@ describe.each(globalNames)('global table %s', (table) => {
       await expectSqlState(() => withAuth(seen), DENIED);
       await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build()))), DENIED);
       await expectSqlState(() => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
+  }
+
+  if (def?.access !== 'staff') {
+    it(`[S1-03] ${table}: app_staff cannot read or write it`, async () => {
+      await expectSqlState(() => asStaff(seen), DENIED);
+      await expectSqlState(() => asStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);
     });
   }
 

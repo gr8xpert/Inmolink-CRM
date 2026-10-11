@@ -22,16 +22,19 @@ export {
   type PredicateSamples,
   registry,
   type SampleRow,
+  type StaffAccess,
   type TenantRegistry,
   type TenantTable,
 } from './tenancy/registry';
 export { applyRls, expectedPolicies, generateRlsSql, helperSql, tablesSql } from './tenancy/rls';
 export {
+  type StaffScope,
   type SystemOptions,
   setAuthScope,
   type TenantScope,
   withAuth,
   withPublicRead,
+  withStaff,
   withSystem,
   withSystemClient,
   withTenant,

@@ -50,9 +50,23 @@ interface TenantBase {
    * grant by updating the tenant's row and expects its insert to be refused.
    */
   guardedInsert?: true;
+  /**
+   * Staff request paths (`app_staff`, `withStaff()`, S1-03, ADR 0015) may reach rows across tenants:
+   * the verification queue reads every agency's requests and decides them. One SQL predicate per
+   * command (`'true'` for all rows); the generator ANDs each with `app_is_staff()`, so a staff
+   * transaction whose `app.user_id` is not an active staff member sees and changes nothing. DELETE is
+   * never granted; column rules (which fields staff may change) live in guard triggers.
+   */
+  staff?: StaffAccess;
 }
 
 export interface AuthAccess {
+  select?: string;
+  insert?: string;
+  update?: string;
+}
+
+export interface StaffAccess {
   select?: string;
   insert?: string;
   update?: string;
@@ -87,8 +101,11 @@ export interface GlobalTable {
   /**
    * `'auth'`: identity data (password hashes, auth tokens). Only `app_auth` (`withAuth()`) and
    * `app_system` may read or write it; `app_user` and `app_public` get nothing (S0-09, ADR 0004).
+   *
+   * `'staff'`: who is staff (S1-03, ADR 0015). Only `app_system` writes it; `app_staff` reads the row of
+   * the user it acts for (`user_id = app_user_id()`, which `app_is_staff()` relies on). Nobody else.
    */
-  access?: 'auth';
+  access?: 'auth' | 'staff';
 }
 
 export interface TenantRegistry {
@@ -101,13 +118,22 @@ export const tenantTables: Record<string, TenantTable> = {
   // Transactional outbox: request transactions insert their own agency's events; the dispatcher
   // reads and acknowledges every agency's rows through withSystem(). Platform events use the nil UUID;
   // auth flows (app_auth) may append those too (sign-up / reset emails).
-  outbox_events: { kind: 'STRICT', appendOnly: true, authAppend: { column: 'type', prefix: 'identity.' } },
+  // Staff decisions (app_staff, S1-03) append the decided agency's `agencies.*` events in the same
+  // transaction — never platform (nil-agency) rows or another module's events, which workers trust.
+  outbox_events: {
+    kind: 'STRICT',
+    appendOnly: true,
+    authAppend: { column: 'type', prefix: 'identity.' },
+    staff: { insert: `starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid` },
+  },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
   // unconfirmed email may rename it while it is still PENDING and not onboarded. Status changes are
-  // staff-only (S1-03) — no service lets a tenant write `status`.
+  // staff-only (S1-03) — no service lets a tenant write `status`. Staff (app_staff) read every agency
+  // and change only `status` (guard trigger, migration 0011).
   agencies: {
     kind: 'STRICT',
     singleRow: true,
+    staff: { select: 'true', update: 'true' },
     auth: {
       select: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
       insert: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
@@ -148,6 +174,11 @@ export const tenantTables: Record<string, TenantTable> = {
         'agency_id = app_agency() and revoked_at is null and coalesce(accepted_user_id, app_user_id()) = app_user_id()',
     },
   },
+  // Verification (S1-03). The agency submits requests and uploads documents; staff read every agency's
+  // and decide requests. Guard triggers (0011): tenants never change a request after submitting it,
+  // nor a document once attached; staff change only the decision columns of an open request.
+  agency_verification_requests: { kind: 'STRICT', staff: { select: 'true', update: 'true' } },
+  agency_verification_documents: { kind: 'STRICT', staff: { select: 'true' } },
 };
 
 /**
@@ -160,6 +191,8 @@ export const globalTables: Record<string, GlobalTable> = {
   // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).
   users: { reason: 'login identity, resolved before a tenant is known', access: 'auth' },
   auth_tokens: { reason: 'email verification and password reset tokens (hashed)', access: 'auth' },
+  // Staff have no agency (S1-03, ADR 0015). Granted by `pnpm staff:grant`; app_staff reads its own row.
+  staff_users: { reason: 'Inmolink staff, who have no agency', access: 'staff' },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };
