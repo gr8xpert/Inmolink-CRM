@@ -1,0 +1,44 @@
+{
+  "title": "Team",
+  "members": "Members",
+  "role": "Role",
+  "saveRole": "Save role",
+  "deactivate": "Deactivate",
+  "deactivatedBadge": "Deactivated",
+  "pending": "Open invites",
+  "noPending": "No open invites.",
+  "expires": "expires {date}",
+  "revoke": "Withdraw",
+  "invite": {
+    "title": "Invite a colleague",
+    "email": "Email",
+    "language": "Email language",
+    "submit": "Send invite",
+    "hint": "The invite link is valid for 7 days and works once. Inviting the same email again replaces the previous link."
+  },
+  "roles": {
+    "AGENCY_ADMIN": "Agency admin",
+    "AGENT": "Agent",
+    "DEVELOPER_ADMIN": "Developer admin",
+    "DEVELOPER_AGENT": "Developer agent",
+    "PARTNER": "Partner"
+  },
+  "languages": {
+    "en": "English",
+    "es": "Spanish"
+  },
+  "notices": {
+    "invited": "Invite sent.",
+    "roleChanged": "Role changed. It applies from the member's next action.",
+    "deactivated": "Member deactivated. They can no longer log in.",
+    "revoked": "Invite withdrawn; its link no longer works."
+  },
+  "errors": {
+    "FORBIDDEN": "Only an agency admin can do that, and nobody can change their own role.",
+    "NOT_FOUND": "That member or invite no longer exists.",
+    "ALREADY_MEMBER": "That email already belongs to a member of your agency.",
+    "VALIDATION_FAILED": "Please check the email and role.",
+    "RATE_LIMITED": "Too many changes. Please wait a minute and try again.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

@@ -2,6 +2,8 @@
 export const PACKAGE_NAME = '@inmolink/contracts';
 
 export * from './agencies';
+export * from './billing';
+export * from './common';
 export * from './errors';
 export * from './http';
 export * from './identity';

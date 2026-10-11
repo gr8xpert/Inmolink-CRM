@@ -5,6 +5,7 @@ export { agenciesJobs } from './jobs';
 export { assertVerified, type VerifiedAction } from './policy';
 export {
   createSignupAgency,
+  getAgencyName,
   getMyAgency,
   initialLocales,
   loadTenant,

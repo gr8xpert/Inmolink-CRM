@@ -4,8 +4,16 @@ import { CONTENT_LOCALES, DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { sql } from 'drizzle-orm';
 import type pg from 'pg';
 import { type CopyValue, copyNewRows } from './copy';
-import { DEMO_AGENCIES, DEMO_ROLES, DEV_SEED, SEEDED_AT } from './identity';
-import { PER_AGENCY } from './profile';
+import {
+  DEMO_AGENCIES,
+  DEMO_ROLES,
+  DEV_SEED,
+  demoEmail,
+  demoUserName,
+  SEEDED_AT,
+  scaleEmail,
+  scaleUserProfiles,
+} from './identity';
 import { createRng, type Rng, seededId } from './rng';
 import type { Seeder } from './seeders';
 
@@ -30,7 +38,7 @@ const AGENCY_COLUMNS = [
   'updated_at',
 ];
 const SETTINGS_COLUMNS = ['agency_id', 'enabled_locales', 'updated_at'];
-const MEMBER_COLUMNS = ['user_id', 'agency_id', 'role', 'created_at', 'updated_at'];
+const MEMBER_COLUMNS = ['user_id', 'agency_id', 'role', 'name', 'email', 'created_at', 'updated_at'];
 
 const CITIES: readonly [string, string, (typeof SPANISH_REGIONS)[number]][] = [
   ['Marbella', '29601', 'ES-AN'],
@@ -121,12 +129,12 @@ export const agenciesSeeder: Seeder = {
       const kind = name === 'Nova Obra' ? 'DEVELOPER' : 'AGENCY';
       const status = name === 'Levante Estates' ? 'PENDING' : 'VERIFIED';
       agencies.push(agencyRow(id, a, name, kind, status, createRng(DEV_SEED, `agencies.dev:${a}`)));
-      DEMO_ROLES.forEach((_role, r) => {
+      DEMO_ROLES.forEach((demoRole, r) => {
         const admin = r === 0;
         const role =
           kind === 'DEVELOPER' ? (admin ? 'DEVELOPER_ADMIN' : 'DEVELOPER_AGENT') : admin ? 'AGENCY_ADMIN' : 'AGENT';
         const userId = seededId(DEV_SEED, 'identity.users.dev', a * DEMO_ROLES.length + r);
-        members.push([userId, id, role, SEEDED_AT, SEEDED_AT]);
+        members.push([userId, id, role, demoUserName(a, demoRole), demoEmail(a, demoRole), SEEDED_AT, SEEDED_AT]);
       });
     });
     const { agencies: inserted } = await withSystemClient('seed.agencies.dev', (client) =>
@@ -149,12 +157,13 @@ export const agenciesSeeder: Seeder = {
         const kind = rng.next() < 0.05 ? 'DEVELOPER' : 'AGENCY';
         const status = rng.next() < 0.9 ? 'VERIFIED' : 'PENDING';
         agencies.push(agencyRow(id, a, `Agency ${a}`, kind, status, rng));
-        for (let u = 0; u < PER_AGENCY.users; u++) {
+        scaleUserProfiles(seed, a).forEach(({ name: userName }, u) => {
           const admin = u === 0;
           const role =
             kind === 'DEVELOPER' ? (admin ? 'DEVELOPER_ADMIN' : 'DEVELOPER_AGENT') : admin ? 'AGENCY_ADMIN' : 'AGENT';
-          members.push([seededId(seed, `identity.users:${a}`, u), id, role, SEEDED_AT, SEEDED_AT]);
-        }
+          const userId = seededId(seed, `identity.users:${a}`, u);
+          members.push([userId, id, role, userName, scaleEmail(seed, a, u), SEEDED_AT, SEEDED_AT]);
+        });
       }
       const res = await withSystemClient('seed.agencies.scale', (client) => writeRows(client, agencies, members));
       inserted += res.agencies;

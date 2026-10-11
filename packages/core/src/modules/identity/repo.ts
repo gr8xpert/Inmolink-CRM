@@ -1,11 +1,12 @@
 import type { Tx } from '@inmolink/db';
-import { agencyMembers, authTokens, users } from '@inmolink/db/schema/identity';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { agencyInvites, agencyMembers, authTokens, users } from '@inmolink/db/schema/identity';
+import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import type { KeysetCursor } from '../../pagination';
 
 /**
- * Identity tables only (PATTERNS §5). Runs as `app_auth` in request paths (`withAuth`) and as
- * `app_system` in the email job. Time comparisons take `now` from the platform clock, so expiry is
- * testable with a fake clock.
+ * Identity tables only (PATTERNS §5). Runs as `app_auth` in auth flows (`withAuth`), as `app_user`
+ * under `withTenant` for team management, and as `app_system` in the email jobs. Time comparisons take
+ * `now` from the platform clock, so expiry is testable with a fake clock.
  */
 
 export type TokenKind = 'EMAIL_VERIFY' | 'PASSWORD_RESET';
@@ -21,10 +22,13 @@ const credentialColumns = {
   passwordHash: users.passwordHash,
 };
 
-/** Inserts a user unless the email is taken. Returns the new id, or null when it already existed. */
+/**
+ * Inserts a user unless the email is taken. Returns the new id, or null when it already existed.
+ * `emailVerifiedAt` is set only when the caller proved the email (an invite link).
+ */
 export async function insertUserIfAbsent(
   tx: Tx,
-  row: { id: string; email: string; passwordHash: string; name: string; locale: string },
+  row: { id: string; email: string; passwordHash: string; name: string; locale: string; emailVerifiedAt?: Date },
 ): Promise<string | null> {
   const [inserted] = await tx
     .insert(users)
@@ -34,22 +38,33 @@ export async function insertUserIfAbsent(
   return inserted?.id ?? null;
 }
 
+/** A repeated sign-up: the existing account, locked so a concurrent confirmation waits for this one. */
+export async function findSignupState(tx: Tx, email: string) {
+  const [row] = await tx
+    .select({ id: users.id, status: users.status, emailVerifiedAt: users.emailVerifiedAt })
+    .from(users)
+    .where(eq(users.email, email))
+    .for('update');
+  return row ?? null;
+}
+
 /**
  * A repeated sign-up for an email that was never confirmed takes over that pending account (new
- * password, name, locale): whoever controls the inbox decides which password the account gets.
+ * password, name, locale): whoever controls the inbox decides which password the account gets. The
+ * caller locked the row (`findSignupState`) and checked that its agency may still be replaced.
  */
 export async function replaceUnverifiedSignup(
   tx: Tx,
-  email: string,
+  id: string,
   row: { passwordHash: string; name: string; locale: string },
   now: Date,
-): Promise<string | null> {
-  const [updated] = await tx
+): Promise<boolean> {
+  const rows = await tx
     .update(users)
     .set({ ...row, updatedAt: now })
-    .where(and(eq(users.email, email), isNull(users.emailVerifiedAt), eq(users.status, 'ACTIVE')))
+    .where(and(eq(users.id, id), isNull(users.emailVerifiedAt), eq(users.status, 'ACTIVE')))
     .returning({ id: users.id });
-  return updated?.id ?? null;
+  return rows.length === 1;
 }
 
 export async function findUserIdByEmail(tx: Tx, email: string): Promise<{ id: string; status: string } | null> {
@@ -177,32 +192,305 @@ export async function consumeToken(tx: Tx, tokenHash: string, kind: TokenKind, n
 
 export type MemberRole = (typeof agencyMembers.$inferSelect)['role'];
 
-/** Sign-up: the founding admin's membership (app_auth, scope pinned to the new agency and user). */
-export async function insertMember(tx: Tx, row: { agencyId: string; userId: string; role: MemberRole }): Promise<void> {
-  await tx.insert(agencyMembers).values(row);
+/** A new membership: the founder at sign-up, or an invitee accepting (app_auth, scope pinned to both). */
+/**
+ * `createdAt` comes from the platform clock (millisecond precision, like the keyset cursor), not the
+ * database default (microseconds), so a page boundary on this row compares equal.
+ */
+export async function insertMember(
+  tx: Tx,
+  row: { agencyId: string; userId: string; role: MemberRole; name: string; email: string; createdAt: Date },
+): Promise<void> {
+  await tx.insert(agencyMembers).values({ ...row, updatedAt: row.createdAt });
 }
 
-/** The user's agency and role; one membership per user. */
-export async function findMembership(tx: Tx, userId: string): Promise<{ agencyId: string; role: MemberRole } | null> {
+/** The user's agency, role and deactivation; one membership per user. */
+export async function findMembership(
+  tx: Tx,
+  userId: string,
+): Promise<{ agencyId: string; role: MemberRole; deactivatedAt: Date | null } | null> {
   const [row] = await tx
-    .select({ agencyId: agencyMembers.agencyId, role: agencyMembers.role })
+    .select({ agencyId: agencyMembers.agencyId, role: agencyMembers.role, deactivatedAt: agencyMembers.deactivatedAt })
     .from(agencyMembers)
     .where(eq(agencyMembers.userId, userId));
   return row ?? null;
 }
 
-/** The user's role in `agencyId` (primary-key lookup), or null if not a member there. */
+/** The user's role in `agencyId` (primary-key lookup), or null if not an active member there. */
 export async function findMemberRole(tx: Tx, agencyId: string, userId: string): Promise<MemberRole | null> {
   const [row] = await tx
     .select({ role: agencyMembers.role })
     .from(agencyMembers)
-    .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId)));
+    .where(
+      and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId), isNull(agencyMembers.deactivatedAt)),
+    );
   return row?.role ?? null;
 }
 
-export async function setMemberRole(tx: Tx, agencyId: string, userId: string, role: MemberRole, now: Date) {
+/** A repeated sign-up: the founder's role and name follow the new details. */
+export async function updateFounderMember(
+  tx: Tx,
+  agencyId: string,
+  userId: string,
+  patch: { role: MemberRole; name: string },
+  now: Date,
+): Promise<void> {
   await tx
     .update(agencyMembers)
-    .set({ role, updatedAt: now })
+    .set({ ...patch, updatedAt: now })
     .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId)));
+}
+
+const memberColumns = {
+  userId: agencyMembers.userId,
+  name: agencyMembers.name,
+  email: agencyMembers.email,
+  role: agencyMembers.role,
+  deactivatedAt: agencyMembers.deactivatedAt,
+  createdAt: agencyMembers.createdAt,
+};
+
+export interface MemberRow {
+  userId: string;
+  name: string;
+  email: string;
+  role: MemberRole;
+  deactivatedAt: Date | null;
+  createdAt: Date;
+}
+
+/** Team list, oldest first (the founder leads): keyset on `(created_at, user_id)`. */
+export async function listMembers(
+  tx: Tx,
+  agencyId: string,
+  q: { limit: number; cursor?: KeysetCursor },
+): Promise<MemberRow[]> {
+  return tx
+    .select(memberColumns)
+    .from(agencyMembers)
+    .where(
+      and(
+        eq(agencyMembers.agencyId, agencyId),
+        q.cursor
+          ? or(
+              gt(agencyMembers.createdAt, q.cursor.at),
+              and(eq(agencyMembers.createdAt, q.cursor.at), gt(agencyMembers.userId, q.cursor.id)),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(asc(agencyMembers.createdAt), asc(agencyMembers.userId))
+    .limit(q.limit + 1);
+}
+
+/**
+ * Locks the caller's and the target's member rows, in user-id order so two admins acting on each other
+ * wait instead of deadlocking, and returns them as they are now.
+ */
+export async function lockMembers(tx: Tx, agencyId: string, userIds: string[]): Promise<MemberRow[]> {
+  return tx
+    .select(memberColumns)
+    .from(agencyMembers)
+    .where(and(eq(agencyMembers.agencyId, agencyId), inArray(agencyMembers.userId, userIds)))
+    .orderBy(asc(agencyMembers.userId))
+    .for('update');
+}
+
+export async function updateMember(
+  tx: Tx,
+  agencyId: string,
+  userId: string,
+  patch: { role?: MemberRole; deactivatedAt?: Date },
+  now: Date,
+): Promise<MemberRow | null> {
+  const [row] = await tx
+    .update(agencyMembers)
+    .set({ ...patch, updatedAt: now })
+    .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId)))
+    .returning(memberColumns);
+  return row ?? null;
+}
+
+/** Whether the email already belongs to a member of the agency (active or not). */
+export async function memberEmailExists(tx: Tx, agencyId: string, email: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.email, email)))
+    .limit(1);
+  return row !== undefined;
+}
+
+const openInvite = (now: Date) =>
+  and(isNull(agencyInvites.acceptedAt), isNull(agencyInvites.revokedAt), gt(agencyInvites.expiresAt, now));
+
+/** Seats in use: active members plus open, unexpired invites (one round trip). */
+export async function countSeats(tx: Tx, agencyId: string, now: Date): Promise<number> {
+  const r = await tx.execute<{ n: string | number }>(sql`
+    select (select count(*) from ${agencyMembers}
+             where ${agencyMembers.agencyId} = ${agencyId} and ${agencyMembers.deactivatedAt} is null)
+         + (select count(*) from ${agencyInvites}
+             where ${agencyInvites.agencyId} = ${agencyId} and ${openInvite(now)}) as n`);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+const inviteColumns = {
+  id: agencyInvites.id,
+  email: agencyInvites.email,
+  role: agencyInvites.role,
+  expiresAt: agencyInvites.expiresAt,
+  createdAt: agencyInvites.createdAt,
+};
+
+export interface InviteRow {
+  id: string;
+  email: string;
+  role: MemberRole;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+/** Re-inviting an email replaces its open invite: the old link stops working. */
+export async function revokeOpenInvites(tx: Tx, agencyId: string, email: string, now: Date): Promise<void> {
+  await tx
+    .update(agencyInvites)
+    .set({ revokedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(agencyInvites.agencyId, agencyId),
+        eq(agencyInvites.email, email),
+        isNull(agencyInvites.acceptedAt),
+        isNull(agencyInvites.revokedAt),
+      ),
+    );
+}
+
+export async function insertInvite(
+  tx: Tx,
+  row: {
+    id: string;
+    agencyId: string;
+    email: string;
+    role: MemberRole;
+    invitedBy: string;
+    locale: string;
+    expiresAt: Date;
+    createdAt: Date;
+  },
+): Promise<InviteRow> {
+  const [inserted] = await tx
+    .insert(agencyInvites)
+    .values({ ...row, updatedAt: row.createdAt })
+    .returning(inviteColumns);
+  if (!inserted) throw new Error('insertInvite: no row returned');
+  return inserted;
+}
+
+/** Open, unexpired invites, oldest first: keyset on `(created_at, id)`. */
+export async function listOpenInvites(
+  tx: Tx,
+  agencyId: string,
+  now: Date,
+  q: { limit: number; cursor?: KeysetCursor },
+): Promise<InviteRow[]> {
+  return tx
+    .select(inviteColumns)
+    .from(agencyInvites)
+    .where(
+      and(
+        eq(agencyInvites.agencyId, agencyId),
+        openInvite(now),
+        q.cursor
+          ? or(
+              gt(agencyInvites.createdAt, q.cursor.at),
+              and(eq(agencyInvites.createdAt, q.cursor.at), gt(agencyInvites.id, q.cursor.id)),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(asc(agencyInvites.createdAt), asc(agencyInvites.id))
+    .limit(q.limit + 1);
+}
+
+/** An admin who is deactivated or loses the admin role: the invites they sent stop working. */
+export async function revokeInvitesBy(tx: Tx, agencyId: string, invitedBy: string, now: Date): Promise<void> {
+  await tx
+    .update(agencyInvites)
+    .set({ revokedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(agencyInvites.agencyId, agencyId),
+        eq(agencyInvites.invitedBy, invitedBy),
+        isNull(agencyInvites.acceptedAt),
+        isNull(agencyInvites.revokedAt),
+      ),
+    );
+}
+
+export async function revokeInvite(tx: Tx, agencyId: string, id: string, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(agencyInvites)
+    .set({ revokedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(agencyInvites.agencyId, agencyId),
+        eq(agencyInvites.id, id),
+        isNull(agencyInvites.acceptedAt),
+        isNull(agencyInvites.revokedAt),
+      ),
+    )
+    .returning({ id: agencyInvites.id });
+  return rows.length === 1;
+}
+
+/** Email job (app_system): what the invite email needs, while the invite is still open. */
+export async function findInviteForEmail(tx: Tx, id: string, now: Date) {
+  const [row] = await tx
+    .select({
+      agencyId: agencyInvites.agencyId,
+      email: agencyInvites.email,
+      invitedBy: agencyInvites.invitedBy,
+      locale: agencyInvites.locale,
+    })
+    .from(agencyInvites)
+    .where(and(eq(agencyInvites.id, id), openInvite(now)));
+  return row ?? null;
+}
+
+/** A new link replaces the previous one: only the latest emailed link works. */
+export async function setInviteToken(tx: Tx, id: string, tokenHash: string, now: Date): Promise<void> {
+  await tx.update(agencyInvites).set({ tokenHash, updatedAt: now }).where(eq(agencyInvites.id, id));
+}
+
+/** Accept flow (app_auth, scope pinned to the link's agency): the open invite behind a link. */
+export async function findOpenInviteByToken(tx: Tx, agencyId: string, tokenHash: string, now: Date) {
+  const [row] = await tx
+    .select({
+      id: agencyInvites.id,
+      email: agencyInvites.email,
+      role: agencyInvites.role,
+      locale: agencyInvites.locale,
+    })
+    .from(agencyInvites)
+    .where(and(eq(agencyInvites.agencyId, agencyId), eq(agencyInvites.tokenHash, tokenHash), openInvite(now)));
+  return row ?? null;
+}
+
+/**
+ * Single use: marks the invite accepted by `userId` in one statement, so two concurrent accepts of the
+ * same link cannot both succeed. False when it was used, revoked or expired meanwhile.
+ */
+export async function markInviteAccepted(
+  tx: Tx,
+  id: string,
+  tokenHash: string,
+  userId: string,
+  now: Date,
+): Promise<boolean> {
+  const rows = await tx
+    .update(agencyInvites)
+    .set({ acceptedAt: now, acceptedUserId: userId, updatedAt: now })
+    .where(and(eq(agencyInvites.id, id), eq(agencyInvites.tokenHash, tokenHash), openInvite(now)))
+    .returning({ id: agencyInvites.id });
+  return rows.length === 1;
 }

@@ -5,6 +5,7 @@ import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@
 import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
 import { agenciesRoutes } from './routes/agencies/routes';
+import { billingRoutes } from './routes/billing/routes';
 import { identityRoutes } from './routes/identity/routes';
 
 /** Fastify dashboard API. Transport only — business logic lives in @inmolink/core. */
@@ -50,5 +51,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   healthRoutes(app, { checks: deps.checks, cacheMs: deps.readinessCacheMs });
   await app.register(identityRoutes);
   await app.register(agenciesRoutes);
+  await app.register(billingRoutes);
   return app;
 }

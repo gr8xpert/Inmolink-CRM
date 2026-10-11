@@ -9,7 +9,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   if (await auth()) return redirect({ href: '/', locale: await getLocale() });
   const t = await getTranslations('auth');
   const params = await searchParams;
-  const notice = params.verified ? t('login.verified') : params.reset ? t('login.resetDone') : null;
+  const notice = params.verified
+    ? t('login.verified')
+    : params.reset
+      ? t('login.resetDone')
+      : params.joined
+        ? t('login.joined')
+        : null;
   return (
     <>
       <h1 className="mb-4 text-xl font-semibold">{t('login.title')}</h1>

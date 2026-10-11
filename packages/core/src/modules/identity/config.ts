@@ -24,8 +24,15 @@ export function identityConfig(): IdentityConfig {
   return current;
 }
 
-/** Email link lifetimes (S0-09 acceptance: reset links expire in 60 minutes). */
+/** Email link lifetimes (S0-09: reset links expire in 60 minutes; S1-02: invites in 7 days). */
 export const TOKEN_TTL_MS = {
   EMAIL_VERIFY: 24 * 60 * 60_000,
   PASSWORD_RESET: 60 * 60_000,
+  INVITE: 7 * 24 * 60 * 60_000,
 } as const;
+
+/**
+ * Seats (members + open invites) an agency may fill before staff verify it (S1-02 security review M2):
+ * invites send email under our domain, so an unverified sign-up must not become a mailing tool.
+ */
+export const UNVERIFIED_SEAT_CAP = 5;

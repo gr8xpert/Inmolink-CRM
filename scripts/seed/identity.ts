@@ -29,6 +29,23 @@ export function demoEmail(agencyIndex: number, role: string): string {
   return `${role}@${slug(DEMO_AGENCIES[agencyIndex] ?? `agency-${agencyIndex}`)}.${DEMO_DOMAIN}`;
 }
 
+export function demoUserName(agencyIndex: number, role: (typeof DEMO_ROLES)[number]): string {
+  const label = role === 'admin' ? 'Admin' : role === 'assistant' ? 'Assistant' : `Agent ${role.slice(-1)}`;
+  return `${label} · ${DEMO_AGENCIES[agencyIndex] ?? `Agency ${agencyIndex}`}`;
+}
+
+/**
+ * Name and locale of each synthetic user of agency `a`. One RNG per agency, so the output depends on
+ * neither the chunk size nor the caller: the agencies seeder copies the names into `agency_members`.
+ */
+export function scaleUserProfiles(seed: number, a: number): { name: string; locale: string }[] {
+  const rng = createRng(seed, `identity.users:${a}`);
+  return Array.from({ length: PER_AGENCY.users }, () => ({
+    name: `${rng.pick(FIRST)} ${rng.pick(LAST)}`,
+    locale: rng.pick(UI_LOCALES),
+  }));
+}
+
 /** `a<agency>-u<user>@s<seed>.scale.inmolink.test`: the seed is in the domain, so two seeds never collide. */
 export function scaleEmail(seed: number, agency: number, user: number): string {
   return `a${agency}-u${user}@s${seed}.scale.inmolink.test`;
@@ -55,7 +72,7 @@ export const identityUsers: Seeder = {
           id: seededId(DEV_SEED, 'identity.users.dev', a * DEMO_ROLES.length + r),
           email,
           passwordHash,
-          name: `${role === 'admin' ? 'Admin' : role === 'assistant' ? 'Assistant' : `Agent ${role.slice(-1)}`} · ${agency}`,
+          name: demoUserName(a, role),
           locale: UI_LOCALES[a % UI_LOCALES.length] ?? DEFAULT_UI_LOCALE,
           emailVerifiedAt: SEEDED_AT,
           createdAt: SEEDED_AT,
@@ -90,23 +107,21 @@ export const identityUsers: Seeder = {
       const end = Math.min(agencies, start + chunk);
       const rows: CopyValue[][] = [];
       for (let a = start; a < end; a++) {
-        // One RNG per agency: output does not depend on the chunk size.
-        const rng = createRng(seed, `identity.users:${a}`);
-        for (let u = 0; u < PER_AGENCY.users; u++) {
+        scaleUserProfiles(seed, a).forEach(({ name, locale }, u) => {
           rows.push([
             // Index within the agency: changing the users ratio never shifts existing IDs.
             seededId(seed, `identity.users:${a}`, u),
             scaleEmail(seed, a, u),
             passwordHash,
-            `${rng.pick(FIRST)} ${rng.pick(LAST)}`,
-            rng.pick(UI_LOCALES),
+            name,
+            locale,
             'ACTIVE',
             SEEDED_AT,
             1,
             SEEDED_AT,
             SEEDED_AT,
           ]);
-        }
+        });
       }
       inserted += await withSystemClient('seed.identity.users.scale', (client) =>
         copyNewRows(client, 'users', columns, rows),

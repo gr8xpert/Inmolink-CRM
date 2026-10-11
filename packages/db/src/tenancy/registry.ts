@@ -44,6 +44,12 @@ interface TenantBase {
    * the tenant's row instead of inserting a second one.
    */
   singleRow?: true;
+  /**
+   * A guard trigger refuses `app_user` INSERTs the service rules do not allow (members join through
+   * `app_auth`; invites need an active admin). The isolation suite's positive control then proves the
+   * grant by updating the tenant's row and expects its insert to be refused.
+   */
+  guardedInsert?: true;
 }
 
 export interface AuthAccess {
@@ -110,17 +116,36 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   agency_settings: { kind: 'STRICT', singleRow: true, auth: { insert: 'agency_id = app_agency()' } },
   agency_translations: { kind: 'STRICT' },
-  // Membership + role (S1-01). app_auth reads only the user it is signing in, and writes only the
-  // membership of the user it is signing up, in the agency that sign-up created.
+  // Membership + role (S1-01, S1-02). app_auth reads only the user it is signing in, and writes only
+  // the membership of the user it is signing up or who accepts an invite. Tenant sessions change only
+  // role and deactivation, as an admin, never their own (guard trigger, migration 0008).
   agency_members: {
     kind: 'STRICT',
+    guardedInsert: true,
     auth: {
       select: 'user_id = app_user_id()',
-      // The agency must be one app_auth can see: the PENDING, not-onboarded agency being signed up.
+      // Sign-up: the agency is one app_auth can see (the PENDING, not-onboarded agency being signed
+      // up). Invite: this user accepted an invite of this agency for exactly this role.
       insert:
-        'agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())',
+        'agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency() union all select 1 from agency_invites i where i.agency_id = app_agency() and i.accepted_user_id = app_user_id() and i.role = agency_members.role)',
       update:
         'agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())',
+    },
+  },
+  // Invites (S1-02). Admins create and revoke them (guard trigger); the email job sets the token. The
+  // accept flow (app_auth) pins its scope to the agency named in the link, reads that agency's open
+  // invites, and marks one accepted by the user it just created. The coalesce reads "open, or
+  // accepted by the scoped user" (`accepted_user_id` is set together with `accepted_at`).
+  agency_invites: {
+    kind: 'STRICT',
+    guardedInsert: true,
+    auth: {
+      select:
+        'agency_id = app_agency() and coalesce(accepted_user_id, app_user_id()) is not distinct from app_user_id()',
+      // Only with a user in scope, never a revoked invite; the guard trigger (0009) limits it to
+      // marking an open invite accepted by that user.
+      update:
+        'agency_id = app_agency() and revoked_at is null and coalesce(accepted_user_id, app_user_id()) = app_user_id()',
     },
   },
 };

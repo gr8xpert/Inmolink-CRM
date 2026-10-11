@@ -1,10 +1,21 @@
-import { AgencyDto, ErrorBody, MeDto, type UpdateAgencyDetailsInput } from '@inmolink/contracts';
+import {
+  AgencyDto,
+  ErrorBody,
+  type InvitableRole,
+  InviteDto,
+  type InviteMemberInput,
+  InvitePage,
+  MeDto,
+  MemberDto,
+  MemberPage,
+  type UpdateAgencyDetailsInput,
+} from '@inmolink/contracts';
 import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { webConfig } from './env';
 
 const logger = createLogger({ service: 'web' });
@@ -35,7 +46,7 @@ async function apiRequest<S extends z.ZodType>(
   session: SessionRef | Token,
   path: string,
   schema: S,
-  init: { method?: 'GET' | 'PUT'; body?: unknown } = {},
+  init: { method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown } = {},
 ): Promise<ApiResult<z.infer<S>>> {
   const config = await webConfig();
   try {
@@ -105,4 +116,50 @@ export function fetchMyAgency(session: SessionRef): Promise<ApiResult<AgencyDto>
 
 export function saveAgencyDetails(session: SessionRef, body: UpdateAgencyDetailsInput): Promise<ApiResult<AgencyDto>> {
   return apiRequest(session, '/v1/agency/details', AgencyDto, { method: 'PUT', body });
+}
+
+/**
+ * The team page (S1-02): members and, for admins, open invites — one minted token, two calls in
+ * parallel. `invites` is null when the API refused them (not an admin).
+ */
+export async function fetchTeam(
+  session: SessionRef,
+): Promise<'revoked' | { members: Exclude<ApiResult<MemberPage>, 'revoked'>; invites: InvitePage | null }> {
+  let token: string;
+  try {
+    ({ token } = await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' }));
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    logger.error({ err }, 'access token mint failed');
+    return { members: { ok: false, status: 0, error: null }, invites: null };
+  }
+  const [members, invites] = await Promise.all([
+    apiRequest({ token }, '/v1/members?limit=100', MemberPage),
+    apiRequest({ token }, '/v1/invites?limit=100', InvitePage),
+  ]);
+  if (members === 'revoked') return 'revoked';
+  return { members, invites: invites !== 'revoked' && invites.ok ? invites.data : null };
+}
+
+export function inviteMember(session: SessionRef, body: InviteMemberInput): Promise<ApiResult<InviteDto>> {
+  return apiRequest(session, '/v1/invites', InviteDto, { method: 'POST', body });
+}
+
+export function revokeInvite(session: SessionRef, inviteId: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/invites/${encodeURIComponent(inviteId)}`, z.null(), { method: 'DELETE' });
+}
+
+export function changeMemberRole(
+  session: SessionRef,
+  userId: string,
+  role: InvitableRole,
+): Promise<ApiResult<MemberDto>> {
+  return apiRequest(session, `/v1/members/${encodeURIComponent(userId)}/role`, MemberDto, {
+    method: 'PUT',
+    body: { role },
+  });
+}
+
+export function deactivateMember(session: SessionRef, userId: string): Promise<ApiResult<MemberDto>> {
+  return apiRequest(session, `/v1/members/${encodeURIComponent(userId)}/deactivate`, MemberDto, { method: 'POST' });
 }

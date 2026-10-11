@@ -57,6 +57,11 @@ export async function loadTenant(
   return row ? { status: row.status, locales: row.enabledLocales } : null;
 }
 
+/** The agency's name, for emails sent by jobs (`withSystem`; no `ctx`). */
+export async function getAgencyName(tx: Tx, agencyId: string): Promise<string | null> {
+  return repo.getName(tx, agencyId);
+}
+
 function toDto(row: NonNullable<Awaited<ReturnType<typeof repo.getAgency>>>): AgencyDto {
   return {
     id: row.id,

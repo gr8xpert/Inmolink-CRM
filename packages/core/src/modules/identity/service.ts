@@ -1,8 +1,18 @@
 import type {
+  AcceptInviteInput,
   AccessTokenDto,
   Audience,
+  ChangeMemberRoleInput,
+  InviteDto,
+  InviteMemberInput,
+  InvitePage,
+  InviteParams,
   LoginInput,
+  MemberDto,
+  MemberPage,
+  MemberParams,
   MemberRole,
+  PageQuery,
   RegisterInput,
   RequestPasswordResetInput,
   ResetPasswordInput,
@@ -16,22 +26,40 @@ import { dummyVerify, hashPassword, needsRehash, verifyPassword } from '@inmolin
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
-import type { AuthCtx } from '../../context';
+import type { AuthCtx, Ctx } from '../../context';
+import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
-import { identityConfig } from './config';
+import * as billing from '../billing';
+import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
-import { canIssueAccessToken, loginDecision } from './policy';
+import { assertCan, canIssueAccessToken, loginDecision } from './policy';
 import * as repo from './repo';
 
 /**
- * Anonymous auth flows (S0-09). Inputs are already validated against the contracts by the app.
- * Responses never reveal whether an email is registered: sign-up and reset requests always succeed,
- * and a wrong password, an unknown email and a disabled account are the same error.
+ * Anonymous auth flows (S0-09) and team management (S1-02). Inputs are already validated against the
+ * contracts by the app. Auth responses never reveal whether an email is registered: sign-up and reset
+ * requests always succeed, and a wrong password, an unknown email, a disabled account and a
+ * deactivated member are the same error.
  */
 
 /** `hmacSha256(HMAC_KEY, 'auth-token', token)` — what `auth_tokens.token_hash` stores. */
 export function hashLinkToken(token: string): string {
   return hmacSha256(identityConfig().hmacKey, 'auth-token', token);
+}
+
+/** `hmacSha256(HMAC_KEY, 'invite-token', token)` — what `agency_invites.token_hash` stores. */
+export function hashInviteToken(token: string): string {
+  return hmacSha256(identityConfig().hmacKey, 'invite-token', token);
+}
+
+/** Invite links start with the agency id (32 hex digits), so the accept flow can pin its scope first. */
+export function inviteTokenPrefix(agencyId: string): string {
+  return agencyId.replaceAll('-', '').toLowerCase();
+}
+
+function agencyOfInviteToken(token: string): string {
+  const hex = token.slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** The founding member of an agency-of-one administers it (PLAN §3 #2). */
@@ -44,8 +72,9 @@ const FOUNDER_ROLE = { AGENCY: 'AGENCY_ADMIN', DEVELOPER: 'DEVELOPER_ADMIN' } as
  * Creates the account (unverified) together with its agency-of-one (PENDING) and the admin
  * membership, in one transaction (PLAN §3 #1, S1-01), and queues the confirmation email. A repeat
  * sign-up for an email that was never confirmed replaces that pending account and its agency's
- * details (and a fresh link retires the old one); a confirmed email queues an "account exists" email
- * to its owner instead. Same screen either way.
+ * details (and a fresh link retires the old one) — but only while that agency is still an untouched
+ * sign-up (PENDING, not onboarded); otherwise, and for a confirmed email, the owner gets an "account
+ * exists" email instead. Same screen either way.
  */
 export async function register(ctx: AuthCtx, input: RegisterInput): Promise<void> {
   // Hash before the transaction, and for a taken email too, so timing does not reveal accounts.
@@ -54,16 +83,22 @@ export async function register(ctx: AuthCtx, input: RegisterInput): Promise<void
   await ctx.transaction(async (tx) => {
     const profile = { passwordHash, name: input.name, locale: input.locale };
     const created = await repo.insertUserIfAbsent(tx, { id: newId(), email: input.email, ...profile });
-    const userId = created ?? (await repo.replaceUnverifiedSignup(tx, input.email, profile, now));
-    if (userId) {
+    if (created) {
       // A platform event (nil agency): app_auth may append only those, whatever scope is set later.
-      await emit(tx, identityEvents.registered({ userId }), { agencyId: PLATFORM_AGENCY_ID });
-      if (created) await createAgencyOfOne(tx, userId, input);
-      else await replaceSignupAgency(tx, userId, input, now);
+      await emit(tx, identityEvents.registered({ userId: created }), { agencyId: PLATFORM_AGENCY_ID });
+      await createAgencyOfOne(tx, created, input);
       return;
     }
-    const existing = await repo.findUserIdByEmail(tx, input.email);
-    if (existing?.status === 'ACTIVE') await emit(tx, identityEvents.signupDuplicated({ userId: existing.id }));
+    const existing = await repo.findSignupState(tx, input.email);
+    if (existing?.status !== 'ACTIVE') return;
+    // Security review L3 (S1-01): the password is replaced only together with an untouched sign-up
+    // agency, never for an account whose agency was onboarded or verified.
+    if (!existing.emailVerifiedAt && (await replaceSignupAgency(tx, existing.id, input, now))) {
+      await repo.replaceUnverifiedSignup(tx, existing.id, profile, now);
+      await emit(tx, identityEvents.registered({ userId: existing.id }), { agencyId: PLATFORM_AGENCY_ID });
+      return;
+    }
+    await emit(tx, identityEvents.signupDuplicated({ userId: existing.id }), { agencyId: PLATFORM_AGENCY_ID });
   });
 }
 
@@ -77,16 +112,24 @@ async function createAgencyOfOne(tx: Tx, userId: string, input: RegisterInput): 
     name: input.companyName,
     uiLocale: input.locale,
   });
-  await repo.insertMember(tx, { agencyId, userId, role: FOUNDER_ROLE[input.accountKind] });
+  await repo.insertMember(tx, {
+    agencyId,
+    userId,
+    role: FOUNDER_ROLE[input.accountKind],
+    name: input.name,
+    email: input.email,
+    createdAt: clock.now(),
+  });
 }
 
-async function replaceSignupAgency(tx: Tx, userId: string, input: RegisterInput, now: Date): Promise<void> {
+/** False when the account's agency may no longer be replaced (onboarded, verified, or not its own). */
+async function replaceSignupAgency(tx: Tx, userId: string, input: RegisterInput, now: Date): Promise<boolean> {
   await setAuthScope(tx, { userId });
   const member = await repo.findMembership(tx, userId);
   if (!member) {
     // An account from before agencies existed (S0 data): give it its agency now.
     await createAgencyOfOne(tx, userId, input);
-    return;
+    return true;
   }
   await setAuthScope(tx, { agencyId: member.agencyId, userId });
   const replaced = await agencies.replaceSignupAgency(tx, {
@@ -94,7 +137,11 @@ async function replaceSignupAgency(tx: Tx, userId: string, input: RegisterInput,
     kind: input.accountKind,
     name: input.companyName,
   });
-  if (replaced) await repo.setMemberRole(tx, member.agencyId, userId, FOUNDER_ROLE[input.accountKind], now);
+  if (replaced) {
+    const patch = { role: FOUNDER_ROLE[input.accountKind], name: input.name };
+    await repo.updateFounderMember(tx, member.agencyId, userId, patch, now);
+  }
+  return replaced;
 }
 
 /**
@@ -124,11 +171,19 @@ export async function verifyEmail(ctx: AuthCtx, input: VerifyEmailInput): Promis
  * `EMAIL_NOT_VERIFIED` — only after the password matched, so it reveals nothing to a guesser.
  */
 export async function verifyCredentials(ctx: AuthCtx, input: LoginInput): Promise<SessionUser> {
-  const user = await ctx.transaction((tx) => repo.findCredentialsByEmail(tx, input.email));
-  const matches = user ? await verifyPassword(user.passwordHash, input.password) : await dummyVerify(input.password);
-  if (!user || !matches) throw new AppError('INVALID_CREDENTIALS');
+  const found = await ctx.transaction(async (tx) => {
+    const user = await repo.findCredentialsByEmail(tx, input.email);
+    if (!user) return null;
+    await setAuthScope(tx, { userId: user.id });
+    return { user, member: await repo.findMembership(tx, user.id) };
+  });
+  const matches = found
+    ? await verifyPassword(found.user.passwordHash, input.password)
+    : await dummyVerify(input.password);
+  if (!found || !matches) throw new AppError('INVALID_CREDENTIALS');
+  const { user, member } = found;
 
-  const decision = loginDecision(user);
+  const decision = loginDecision(user, member);
   if (decision === 'invalid') throw new AppError('INVALID_CREDENTIALS');
   if (decision === 'unverified') {
     await ctx.transaction((tx) => emit(tx, identityEvents.verificationRequested({ userId: user.id })));
@@ -172,21 +227,31 @@ export async function resetPassword(ctx: AuthCtx, input: ResetPasswordInput): Pr
   });
 }
 
+/** The user and their membership, for session checks and token mints (app_auth, scope = the user). */
+async function loadSessionSubject(tx: Tx, userId: string) {
+  const user = await repo.findUserForToken(tx, userId);
+  if (!user) return null;
+  await setAuthScope(tx, { userId });
+  return { user, member: await repo.findMembership(tx, userId) };
+}
+
 /**
- * Whether a web session may continue: the user is active and verified and the session was not
- * revoked (password reset bumps `session_version`). Auth.js re-checks this every few minutes.
+ * Whether a web session may continue: the user is active and verified, the session was not revoked
+ * (password reset bumps `session_version`) and their agency did not deactivate them. Auth.js
+ * re-checks this every few minutes.
  */
 export async function isSessionValid(
   ctx: AuthCtx,
   input: { userId: string; sessionVersion: number },
 ): Promise<boolean> {
-  const user = await ctx.transaction((tx) => repo.findUserForToken(tx, input.userId));
-  return user !== null && canIssueAccessToken(user, input.sessionVersion);
+  const found = await ctx.transaction((tx) => loadSessionSubject(tx, input.userId));
+  return found !== null && canIssueAccessToken(found.user, input.sessionVersion, found.member);
 }
 
 /**
- * Mints a 15-minute access token for `api` or `realtime` from a web session. Re-checks the user on
- * every mint, so a password reset or deactivation ends API access within one token lifetime.
+ * Mints a 15-minute access token for `api` or `realtime` from a web session. Re-checks the user and
+ * their membership on every mint, so a password reset or deactivation ends API access at once (the
+ * API also reads the membership per request).
  */
 export async function issueAccessToken(
   ctx: AuthCtx,
@@ -194,13 +259,10 @@ export async function issueAccessToken(
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
-  const found = await ctx.transaction(async (tx) => {
-    const user = await repo.findUserForToken(tx, input.userId);
-    if (!user || !canIssueAccessToken(user, input.sessionVersion)) return null;
-    await setAuthScope(tx, { userId: input.userId });
-    return { user, member: await repo.findMembership(tx, input.userId) };
-  });
-  if (!found) throw new AppError('SESSION_REVOKED');
+  const found = await ctx.transaction((tx) => loadSessionSubject(tx, input.userId));
+  if (!found || !canIssueAccessToken(found.user, input.sessionVersion, found.member)) {
+    throw new AppError('SESSION_REVOKED');
+  }
   const { token, expiresAt } = await signer.sign({
     sub: input.userId,
     aud: input.audience,
@@ -213,8 +275,179 @@ export async function issueAccessToken(
 
 /**
  * The caller's role in the agency named by their access token, inside the request's `withTenant`
- * transaction (RLS: own agency only). Null when the user is not (or no longer) a member.
+ * transaction (RLS: own agency only). Null when the user is not (or no longer) an active member.
  */
 export async function getMemberRole(tx: Tx, agencyId: string, userId: string): Promise<MemberRole | null> {
   return repo.findMemberRole(tx, agencyId, userId);
+}
+
+// ── Team (S1-02) ────────────────────────────────────────────────────────────────────────────────
+
+function toMemberDto(row: repo.MemberRow): MemberDto {
+  return {
+    userId: row.userId,
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    status: row.deactivatedAt ? 'DEACTIVATED' : 'ACTIVE',
+    joinedAt: row.createdAt.toISOString(),
+  };
+}
+
+function toInviteDto(row: repo.InviteRow): InviteDto {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    expiresAt: row.expiresAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/** The caller's team, deactivated members included, oldest first. */
+export async function listMembers(ctx: Ctx, q: PageQuery): Promise<MemberPage> {
+  assertCan(ctx, 'identity.members.read');
+  const rows = await repo.listMembers(ctx.tx, ctx.tenant.agencyId, { limit: q.limit, cursor: decodeCursor(q.cursor) });
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.userId }), toMemberDto);
+}
+
+/**
+ * Invites `email` with `role` (admins only, roles of their own family). Inviting the same email again
+ * replaces its open invite. The seat check counts active members and open invites (`billing.assertSeat`,
+ * a stub until S13). The email job creates the link (7 days, single use).
+ */
+export async function inviteMember(ctx: Ctx, input: InviteMemberInput): Promise<InviteDto> {
+  assertCan(ctx, 'identity.members.manage', { role: input.role });
+  const { agencyId } = ctx.tenant;
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  if (await repo.memberEmailExists(ctx.tx, agencyId, input.email)) throw new AppError('ALREADY_MEMBER');
+  const now = clock.now();
+  await repo.revokeOpenInvites(ctx.tx, agencyId, input.email, now);
+  const used = await repo.countSeats(ctx.tx, agencyId, now);
+  if (!ctx.tenant.verified && used >= UNVERIFIED_SEAT_CAP) {
+    throw new AppError('VERIFICATION_REQUIRED', { action: 'invite', limit: UNVERIFIED_SEAT_CAP });
+  }
+  await billing.assertSeat(ctx, { used });
+  const invite = await repo.insertInvite(ctx.tx, {
+    id: newId(),
+    agencyId,
+    email: input.email,
+    role: input.role,
+    invitedBy: ctx.actor.userId,
+    locale: input.locale ?? ctx.locale,
+    expiresAt: new Date(now.getTime() + TOKEN_TTL_MS.INVITE),
+    createdAt: now,
+  });
+  await emit(ctx.tx, identityEvents.inviteCreated({ agencyId, inviteId: invite.id }));
+  return toInviteDto(invite);
+}
+
+/** Open, unexpired invites of the caller's agency (admins only). */
+export async function listInvites(ctx: Ctx, q: PageQuery): Promise<InvitePage> {
+  assertCan(ctx, 'identity.members.manage');
+  const rows = await repo.listOpenInvites(ctx.tx, ctx.tenant.agencyId, clock.now(), {
+    limit: q.limit,
+    cursor: decodeCursor(q.cursor),
+  });
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id }), toInviteDto);
+}
+
+/** Withdraws an open invite: its link stops working. `NOT_FOUND` if it was used or revoked already. */
+export async function revokeInvite(ctx: Ctx, input: InviteParams): Promise<void> {
+  assertCan(ctx, 'identity.members.manage');
+  if (!(await repo.revokeInvite(ctx.tx, ctx.tenant.agencyId, input.inviteId, clock.now()))) {
+    throw new AppError('NOT_FOUND');
+  }
+}
+
+const ADMIN_ROLES: readonly MemberRole[] = ['AGENCY_ADMIN', 'DEVELOPER_ADMIN'];
+
+/**
+ * Locks the caller's and the target's membership and checks the change against both as they are now
+ * (not as `ctx` saw them at the start of the request): the caller must still be an active admin with
+ * the same role, and the target a member whose current role this admin manages.
+ */
+async function lockForChange(ctx: Ctx, userId: string): Promise<repo.MemberRow> {
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  const callerId = ctx.actor.userId;
+  const rows = await repo.lockMembers(ctx.tx, ctx.tenant.agencyId, [callerId, userId]);
+  const caller = rows.find((r) => r.userId === callerId);
+  const target = rows.find((r) => r.userId === userId);
+  if (!caller || caller.deactivatedAt || caller.role !== ctx.actor.role) throw new AppError('FORBIDDEN');
+  if (!target) throw new AppError('NOT_FOUND');
+  assertCan(ctx, 'identity.members.manage', { userId, role: target.role });
+  return target;
+}
+
+/**
+ * Changes a member's role (admins only, within their own family, never their own). The API reads the
+ * role per request, so it applies on the member's next call. An admin who loses the admin role loses
+ * the invites they sent. A database guard enforces the same rules.
+ */
+export async function changeMemberRole(ctx: Ctx, input: ChangeMemberRoleInput): Promise<MemberDto> {
+  assertCan(ctx, 'identity.members.manage', { userId: input.userId, role: input.role });
+  const { agencyId } = ctx.tenant;
+  const current = await lockForChange(ctx, input.userId);
+  if (current.role === input.role) return toMemberDto(current);
+  const now = clock.now();
+  const updated = await repo.updateMember(ctx.tx, agencyId, input.userId, { role: input.role }, now);
+  if (!updated) throw new AppError('NOT_FOUND');
+  if (ADMIN_ROLES.includes(current.role) && !ADMIN_ROLES.includes(input.role)) {
+    await repo.revokeInvitesBy(ctx.tx, agencyId, input.userId, now);
+  }
+  await emit(ctx.tx, identityEvents.memberRoleChanged({ agencyId, userId: input.userId, role: input.role }));
+  return toMemberDto(updated);
+}
+
+/**
+ * Deactivates a member (admins only, never themselves). From the commit on, the user cannot log in,
+ * their web session ends at its next check, no access token is minted, the API refuses them, and the
+ * invites they sent stop working. Idempotent.
+ */
+export async function deactivateMember(ctx: Ctx, input: MemberParams): Promise<MemberDto> {
+  assertCan(ctx, 'identity.members.manage', { userId: input.userId });
+  const { agencyId } = ctx.tenant;
+  const current = await lockForChange(ctx, input.userId);
+  if (current.deactivatedAt) return toMemberDto(current);
+  const now = clock.now();
+  const updated = await repo.updateMember(ctx.tx, agencyId, input.userId, { deactivatedAt: now }, now);
+  if (!updated) throw new AppError('NOT_FOUND');
+  await repo.revokeInvitesBy(ctx.tx, agencyId, input.userId, now);
+  await emit(ctx.tx, identityEvents.memberDeactivated({ agencyId, userId: input.userId }));
+  return toMemberDto(updated);
+}
+
+/**
+ * Accepts an invite (anonymous, `app_auth`): creates the account with the invited email — confirmed,
+ * since the link proves the inbox — and joins the inviting agency with the invited role, in one
+ * transaction. The link works once: unknown, used, revoked and expired links are `TOKEN_INVALID`. An
+ * email that already has an account is `INVITE_EMAIL_IN_USE` (one agency per user, PLAN §3 #1) and
+ * leaves the invite usable.
+ */
+export async function acceptInvite(ctx: AuthCtx, input: AcceptInviteInput): Promise<{ userId: string; email: string }> {
+  const agencyId = agencyOfInviteToken(input.token);
+  const tokenHash = hashInviteToken(input.token);
+  // Hash before the transaction (tens of ms of CPU), as sign-up does.
+  const passwordHash = await hashPassword(input.password);
+  const now = clock.now();
+  return ctx.transaction(async (tx) => {
+    // The registry's `auth` predicates let app_auth see only this agency's open invites.
+    await setAuthScope(tx, { agencyId });
+    const invite = await repo.findOpenInviteByToken(tx, agencyId, tokenHash, now);
+    if (!invite) throw new AppError('TOKEN_INVALID');
+    const userId = await repo.insertUserIfAbsent(tx, {
+      id: newId(),
+      email: invite.email,
+      passwordHash,
+      name: input.name,
+      locale: invite.locale,
+      emailVerifiedAt: now,
+    });
+    if (!userId) throw new AppError('INVITE_EMAIL_IN_USE');
+    await setAuthScope(tx, { agencyId, userId });
+    if (!(await repo.markInviteAccepted(tx, invite.id, tokenHash, userId, now))) throw new AppError('TOKEN_INVALID');
+    const member = { agencyId, userId, role: invite.role, name: input.name, email: invite.email, createdAt: now };
+    await repo.insertMember(tx, member);
+    return { userId, email: invite.email };
+  });
 }

@@ -27,6 +27,7 @@ export const LIMITS = {
     failClosed: true,
   },
   resetSubmitIp: { name: 'password.reset.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
+  inviteAcceptIp: { name: 'invite.accept.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
   tokenUser: { name: 'session.token.user', scope: 'user', limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 

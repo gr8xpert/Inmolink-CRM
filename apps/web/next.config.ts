@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
   ],
   // Email-link pages carry a one-time token in the URL: never leak it in a Referer header.
   async headers() {
-    return ['/:locale/verify-email', '/:locale/reset-password'].map((source) => ({
+    return ['/:locale/verify-email', '/:locale/reset-password', '/:locale/accept-invite'].map((source) => ({
       source,
       headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
     }));

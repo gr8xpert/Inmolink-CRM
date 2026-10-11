@@ -248,6 +248,22 @@ describe.each(tenantNames)('tenant table %s', (table) => {
         expect(res.rowCount).toBe(1);
       });
     });
+  } else if (!def.appendOnly && def.guardedInsert) {
+    it(`[S1-02] ${table}: positive control — tenant B can update its own rows; its guard trigger refuses tenant inserts`, async () => {
+      // Rows arrive through another role (sign-up, invite accept) or need an admin the suite does not
+      // create, so the grant is proven by updating the seeded row.
+      await rolledBack(b, async (tx) => {
+        const res = await tx.execute(
+          sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
+        );
+        expect(res.rowCount).toBe(1);
+      });
+      await expectSqlState(
+        () => rolledBack(b, (tx) => tx.execute(insertSql(table, build({ agency_id: b }))).then(() => undefined)),
+        DENIED,
+      );
+      expect(await adminCount(b)).toBe(1);
+    });
   } else if (!def.appendOnly) {
     it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
       // Proves the cross-tenant denials above come from the policies, not from a missing grant.

@@ -160,4 +160,59 @@ describe('api against the test stack', () => {
       await app.close();
     }
   }, 30_000);
+
+  it('[S1-02] team routes: an admin invites (201), lists and revokes invites (204); pages carry a cursor', async () => {
+    const app = await build();
+    try {
+      const founder = await createFounder();
+      const headers = await bearer(founder);
+      const email = `invitee-${newId().slice(-8)}@example.com`;
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/invites',
+        headers,
+        payload: { email: ` ${email.toUpperCase()} `, role: 'AGENT' },
+      });
+      expect(created.statusCode).toBe(201);
+      expect(created.json()).toMatchObject({ email, role: 'AGENT' });
+      const second = await app.inject({
+        method: 'POST',
+        url: '/v1/invites',
+        headers,
+        payload: { email: `other-${email}`, role: 'AGENCY_ADMIN' },
+      });
+      expect(second.statusCode).toBe(201);
+
+      const page1 = await app.inject({ method: 'GET', url: '/v1/invites?limit=1', headers });
+      expect(page1.statusCode).toBe(200);
+      const { items, nextCursor } = page1.json() as { items: { id: string }[]; nextCursor: string };
+      expect(items.map((i) => i.id)).toEqual([created.json().id]);
+      const page2 = await app.inject({ method: 'GET', url: `/v1/invites?limit=1&cursor=${nextCursor}`, headers });
+      expect(page2.json()).toMatchObject({ items: [{ id: second.json().id }], nextCursor: null });
+      const badCursor = await app.inject({ method: 'GET', url: '/v1/invites?cursor=bm9wZQ', headers });
+      expect(badCursor.statusCode).toBe(422);
+
+      const revoked = await app.inject({ method: 'DELETE', url: `/v1/invites/${created.json().id}`, headers });
+      expect(revoked.statusCode).toBe(204);
+      const again = await app.inject({ method: 'DELETE', url: `/v1/invites/${created.json().id}`, headers });
+      expect(again.statusCode).toBe(404);
+
+      const members = await app.inject({ method: 'GET', url: '/v1/members', headers });
+      expect(members.json()).toMatchObject({
+        items: [{ userId: founder.userId, role: 'AGENCY_ADMIN', status: 'ACTIVE' }],
+        nextCursor: null,
+      });
+      const ownRole = await app.inject({
+        method: 'PUT',
+        url: `/v1/members/${founder.userId}/role`,
+        headers,
+        payload: { role: 'AGENT' },
+      });
+      expect(ownRole.statusCode).toBe(403);
+      const tooMany = await app.inject({ method: 'GET', url: '/v1/members?limit=101', headers });
+      expect(tooMany.statusCode).toBe(422);
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
 });

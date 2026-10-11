@@ -56,6 +56,11 @@ export async function getAgency(tx: Tx, id: string) {
   return row ?? null;
 }
 
+export async function getName(tx: Tx, id: string): Promise<string | null> {
+  const [row] = await tx.select({ name: agencies.name }).from(agencies).where(eq(agencies.id, id));
+  return row?.name ?? null;
+}
+
 /** What a request `ctx` needs about its tenant: one indexed join on the agency's primary key. */
 export async function getTenantInfo(tx: Tx, id: string) {
   const [row] = await tx

@@ -5,10 +5,11 @@ import { mailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as agencies from '../agencies';
 import { identityConfig, TOKEN_TTL_MS } from './config';
-import { type AuthEmailKind, emailLocale, renderAuthEmail } from './emails';
+import { type AuthEmailKind, emailLocale, renderAuthEmail, renderInviteEmail } from './emails';
 import * as repo from './repo';
-import { hashLinkToken } from './service';
+import { hashInviteToken, hashLinkToken, inviteTokenPrefix } from './service';
 
 const LINK_PATH: Record<AuthEmailKind, string> = {
   VERIFY_EMAIL: '/verify-email',
@@ -74,6 +75,48 @@ export const identityJobs = {
       // Outside the transaction (CLAUDE.md rule 6). Never log the message: it holds a one-time link.
       await mailer().send(message);
       log.info({ kind: p.kind }, 'auth email sent');
+    },
+  }),
+
+  /**
+   * Sends the invite link (S1-02). Same rules as `sendAuthEmail`: the token is created here and only
+   * its HMAC stored; a retry issues a fresh link and retires the previous one. Skipped once the invite
+   * was accepted, revoked or expired, or its inviter is no longer an active admin.
+   */
+  sendInviteEmail: defineJob({
+    name: 'identity.sendInviteEmail',
+    pool: 'email',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), inviteId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const { webUrl } = identityConfig();
+      if (!webUrl) throw new Error('identity: webUrl is not configured');
+      const message = await withSystem('identity.sendInviteEmail', async (tx) => {
+        const now = clock.now();
+        const invite = await repo.findInviteForEmail(tx, p.inviteId, now);
+        if (!invite || invite.agencyId !== p.agencyId) return null;
+        // The inviter must still be an active admin there (S1-02 security review M1).
+        const inviterRole = await repo.findMemberRole(tx, invite.agencyId, invite.invitedBy);
+        if (inviterRole !== 'AGENCY_ADMIN' && inviterRole !== 'DEVELOPER_ADMIN') return null;
+        const inviter = await repo.findUserForEmail(tx, invite.invitedBy);
+        const agency = await agencies.getAgencyName(tx, invite.agencyId);
+        if (!inviter || !agency) return null;
+        const token = `${inviteTokenPrefix(invite.agencyId)}${newToken()}`;
+        await repo.setInviteToken(tx, p.inviteId, hashInviteToken(token), now);
+        const url = new URL(`/${emailLocale(invite.locale)}/accept-invite`, webUrl);
+        url.searchParams.set('token', token);
+        return renderInviteEmail(invite, { agency, inviter: inviter.name }, url.href);
+      });
+      if (!message) {
+        log.info('invite email skipped (invite no longer open)');
+        return;
+      }
+      // Outside the transaction (CLAUDE.md rule 6). Never log the message: it holds a one-time link.
+      await mailer().send(message);
+      log.info('invite email sent');
     },
   }),
 };

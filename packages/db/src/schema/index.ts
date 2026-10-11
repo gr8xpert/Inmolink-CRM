@@ -4,6 +4,7 @@
  */
 
 export * from './agencies';
+export * from './billing';
 export * from './flags';
 export * from './identity';
 export * from './outbox';

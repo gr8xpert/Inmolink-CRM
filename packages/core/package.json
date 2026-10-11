@@ -25,7 +25,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "test": "vitest run --exclude \"**/*.int.test.ts\"",
-    "test:int": "vitest run --passWithNoTests int.test"
+    "test:int": "vitest run --passWithNoTests --testTimeout=30000 int.test"
   },
   "dependencies": {
     "@inmolink/contracts": "workspace:*",

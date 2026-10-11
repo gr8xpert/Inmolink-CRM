@@ -23,6 +23,50 @@ export const emailLocale = (locale: string) => (isUiLocale(locale) ? locale : DE
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
+function message(
+  to: string,
+  tag: string,
+  parts: { subject: string; greeting: string; body: string; action: string; ignore: string },
+  link: string,
+): EmailMessage {
+  return {
+    to,
+    subject: parts.subject,
+    tag,
+    text: `${parts.greeting}\n\n${parts.body}\n\n${parts.action}: ${link}\n\n${parts.ignore}\n`,
+    html: [
+      `<p>${escapeHtml(parts.greeting)}</p>`,
+      `<p>${escapeHtml(parts.body)}</p>`,
+      `<p><a href="${escapeHtml(link)}">${escapeHtml(parts.action)}</a></p>`,
+      `<p style="color:#666">${escapeHtml(parts.ignore)}</p>`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Invite to join an agency (S1-02). Agency and inviter names come from validated contract fields (no
+ * links or markup) and are escaped in the HTML part.
+ */
+export function renderInviteEmail(
+  invite: { email: string; locale: string },
+  from: { agency: string; inviter: string },
+  link: string,
+): EmailMessage {
+  const t = translator(emailLocale(invite.locale), 'auth');
+  return message(
+    invite.email,
+    'identity.invite',
+    {
+      subject: t('email.invite.subject', from),
+      greeting: t('email.invite.greeting'),
+      body: t('email.invite.body', from),
+      action: t('email.invite.action'),
+      ignore: t('email.invite.ignore'),
+    },
+    link,
+  );
+}
+
 export function renderAuthEmail(
   kind: AuthEmailKind,
   user: { email: string; name: string; locale: string },
@@ -30,20 +74,16 @@ export function renderAuthEmail(
 ): EmailMessage {
   const t = translator(emailLocale(user.locale), 'auth');
   const s = SECTION[kind];
-  const greeting = t(`${s}.greeting`, { name: user.name });
-  const body = t(`${s}.body`);
-  const action = t(`${s}.action`);
-  const ignore = t(`${s}.ignore`);
-  return {
-    to: user.email,
-    subject: t(`${s}.subject`),
-    tag: TAG[kind],
-    text: `${greeting}\n\n${body}\n\n${action}: ${link}\n\n${ignore}\n`,
-    html: [
-      `<p>${escapeHtml(greeting)}</p>`,
-      `<p>${escapeHtml(body)}</p>`,
-      `<p><a href="${escapeHtml(link)}">${escapeHtml(action)}</a></p>`,
-      `<p style="color:#666">${escapeHtml(ignore)}</p>`,
-    ].join('\n'),
-  };
+  return message(
+    user.email,
+    TAG[kind],
+    {
+      subject: t(`${s}.subject`),
+      greeting: t(`${s}.greeting`, { name: user.name }),
+      body: t(`${s}.body`),
+      action: t(`${s}.action`),
+      ignore: t(`${s}.ignore`),
+    },
+    link,
+  );
 }

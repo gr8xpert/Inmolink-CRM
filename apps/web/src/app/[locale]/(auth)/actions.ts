@@ -1,6 +1,12 @@
 'use server';
 
-import { RegisterInput, RequestPasswordResetInput, ResetPasswordInput, VerifyEmailInput } from '@inmolink/contracts';
+import {
+  AcceptInviteInput,
+  RegisterInput,
+  RequestPasswordResetInput,
+  ResetPasswordInput,
+  VerifyEmailInput,
+} from '@inmolink/contracts';
 import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
@@ -25,6 +31,7 @@ export interface FormState {
     | 'emailNotVerified'
     | 'tokenInvalid'
     | 'verifyPassword'
+    | 'inviteEmailInUse'
     | 'generic';
   /** Field names that failed validation. */
   fields?: string[];
@@ -134,6 +141,30 @@ export async function resetPasswordAction(_prev: FormState, form: FormData): Pro
     throw err;
   }
   return redirect({ href: '/login?reset=1', locale: await getLocale() });
+}
+
+/** Invite link (S1-02): creates the account in the inviting agency, then sends the user to log in. */
+export async function acceptInviteAction(_prev: FormState, form: FormData): Promise<FormState> {
+  await webConfig();
+  const parsed = AcceptInviteInput.safeParse({
+    token: field(form, 'token'),
+    name: field(form, 'name'),
+    password: field(form, 'password'),
+  });
+  if (!parsed.success) {
+    return parsed.error.issues.some((i) => i.path[0] === 'token')
+      ? { error: 'tokenInvalid' }
+      : invalid(parsed.error.issues);
+  }
+  if ((await checkLimits([[LIMITS.inviteAcceptIp, await ip()]])) > 0) return { error: 'rateLimited' };
+  try {
+    await identity.acceptInvite(authCtx(newId()), parsed.data);
+  } catch (err) {
+    if (isAppError(err) && err.code === 'TOKEN_INVALID') return { error: 'tokenInvalid' };
+    if (isAppError(err) && err.code === 'INVITE_EMAIL_IN_USE') return { error: 'inviteEmailInUse' };
+    throw err;
+  }
+  return redirect({ href: '/login?joined=1', locale: await getLocale() });
 }
 
 export async function logoutAction(): Promise<void> {

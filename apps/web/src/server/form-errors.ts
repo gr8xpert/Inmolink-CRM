@@ -11,6 +11,7 @@ export async function formErrors(): Promise<Record<NonNullable<FormState['error'
     emailNotVerified: t('emailNotVerified'),
     tokenInvalid: t('tokenInvalid'),
     verifyPassword: t('verifyPassword'),
+    inviteEmailInUse: t('inviteEmailInUse'),
     generic: t('generic'),
   };
 }

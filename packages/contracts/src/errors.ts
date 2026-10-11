@@ -24,6 +24,11 @@ export const ErrorCodes = {
   TOKEN_INVALID: 400,
   /** The access token's session was revoked (password reset) or the user is no longer active. */
   SESSION_REVOKED: 401,
+  // identity: team (S1-02)
+  /** The invited email already has an account (one agency per user); the invite stays usable. */
+  INVITE_EMAIL_IN_USE: 409,
+  /** The email already belongs to a member of this agency. */
+  ALREADY_MEMBER: 409,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

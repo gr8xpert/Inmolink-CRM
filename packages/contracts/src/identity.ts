@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CompanyName, SignupAgencyKind } from './agencies';
+import { pageOf } from './common';
 
 /**
  * Identity DTOs (S0-09): sign-up, email verification, login, password reset, access tokens.
@@ -89,3 +90,61 @@ export const MeDto = z.object({
   tokenExpiresAt: z.iso.datetime(),
 });
 export type MeDto = z.infer<typeof MeDto>;
+
+/**
+ * Invite link token (S1-02): the agency id (32 hex digits, no dashes) followed by the random part, so
+ * the anonymous accept flow can pin its database scope to that agency before it looks the token up.
+ */
+export const InviteToken = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{32}[A-Za-z0-9_-]{32,96}$/);
+
+/** Roles an admin hands out: their own family (agency or developer). PARTNER arrives in R4. */
+export const InvitableRole = z.enum(['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_ADMIN', 'DEVELOPER_AGENT']);
+export type InvitableRole = z.infer<typeof InvitableRole>;
+
+/** A member of the caller's agency (team list). */
+export const MemberDto = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  email: z.string(),
+  role: MemberRole,
+  status: z.enum(['ACTIVE', 'DEACTIVATED']),
+  joinedAt: z.iso.datetime(),
+});
+export type MemberDto = z.infer<typeof MemberDto>;
+export const MemberPage = pageOf(MemberDto);
+export type MemberPage = z.infer<typeof MemberPage>;
+
+export const MemberParams = z.object({ userId: z.uuid() });
+export type MemberParams = z.infer<typeof MemberParams>;
+
+/** `PUT /v1/members/:userId/role`. Admins only, never on their own membership. */
+export const ChangeMemberRoleBody = z.object({ role: InvitableRole }).strict();
+export type ChangeMemberRoleInput = z.infer<typeof ChangeMemberRoleBody> & MemberParams;
+
+/**
+ * `POST /v1/invites`: the invitee gets a 7-day, single-use link by email, in `locale` (default: the
+ * inviter's request locale). Inviting the same email again replaces the open invite.
+ */
+export const InviteMemberBody = z.object({ email: Email, role: InvitableRole, locale: UiLocale.optional() }).strict();
+export type InviteMemberInput = z.infer<typeof InviteMemberBody>;
+
+export const InviteDto = z.object({
+  id: z.uuid(),
+  email: z.string(),
+  role: MemberRole,
+  expiresAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+});
+export type InviteDto = z.infer<typeof InviteDto>;
+export const InvitePage = pageOf(InviteDto);
+export type InvitePage = z.infer<typeof InvitePage>;
+
+export const InviteParams = z.object({ inviteId: z.uuid() });
+export type InviteParams = z.infer<typeof InviteParams>;
+
+/** Accepting an invite creates the account: the link proves the email, so it is confirmed at once. */
+export const AcceptInviteInput = z.object({ token: InviteToken, name: PersonName, password: Password });
+export type AcceptInviteInput = z.infer<typeof AcceptInviteInput>;

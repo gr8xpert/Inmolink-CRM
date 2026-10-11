@@ -27,6 +27,11 @@ export default async function HomePage() {
         </form>
       </div>
       <p className="text-sm">{t('home.signedInAs', { email: session.user.email })}</p>
+      <nav>
+        <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('home.team')}
+        </Link>
+      </nav>
       {pending ? (
         <div data-testid="agency-pending" role="status" className="flex flex-col gap-2 rounded-md border p-3 text-sm">
           <p>{t('home.agencyPending', { agency: pending.name })}</p>

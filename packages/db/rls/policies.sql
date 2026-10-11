@@ -11,7 +11,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_members', 'agency_settings', 'agency_translations', 'auth_tokens', 'feature_flags', 'outbox_events', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_settings', 'agency_translations', 'auth_tokens', 'feature_flags', 'outbox_events', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -32,6 +32,19 @@ create policy auth_update on public."agencies" for update to app_auth
   using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null) with check (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
 grant select, insert, update on table public."agencies" to app_auth;
 
+-- agency_invites: STRICT
+alter table public."agency_invites" enable row level security;
+alter table public."agency_invites" force row level security;
+create policy own_rows on public."agency_invites" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agency_invites" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update, delete on table public."agency_invites" to app_user, app_system;
+create policy auth_select on public."agency_invites" for select to app_auth
+  using (agency_id = app_agency() and coalesce(accepted_user_id, app_user_id()) is not distinct from app_user_id());
+create policy auth_update on public."agency_invites" for update to app_auth
+  using (agency_id = app_agency() and revoked_at is null and coalesce(accepted_user_id, app_user_id()) = app_user_id()) with check (agency_id = app_agency() and revoked_at is null and coalesce(accepted_user_id, app_user_id()) = app_user_id());
+grant select, update on table public."agency_invites" to app_auth;
+
 -- agency_members: STRICT
 alter table public."agency_members" enable row level security;
 alter table public."agency_members" force row level security;
@@ -42,7 +55,7 @@ grant select, insert, update, delete on table public."agency_members" to app_use
 create policy auth_select on public."agency_members" for select to app_auth
   using (user_id = app_user_id());
 create policy auth_insert on public."agency_members" for insert to app_auth
-  with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
+  with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency() union all select 1 from agency_invites i where i.agency_id = app_agency() and i.accepted_user_id = app_user_id() and i.role = agency_members.role));
 create policy auth_update on public."agency_members" for update to app_auth
   using (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())) with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
 grant select, insert, update on table public."agency_members" to app_auth;

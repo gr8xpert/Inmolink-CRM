@@ -69,8 +69,9 @@ export const authTokens = pgTable(
 
 /**
  * A user's agency and role. One agency per user (PLAN §3 #1): `user_id` is unique. STRICT tenant table;
- * the sign-up transaction (`app_auth`) may create the founding admin's row and read a user's own
- * membership to mint access tokens (registry `auth` predicates).
+ * the sign-up and invite-accept transactions (`app_auth`) create a member row and read a user's own
+ * membership to mint access tokens (registry `auth` predicates). Role and deactivation change only
+ * through an admin of the agency, never on their own row (guard trigger, migration 0008).
  */
 export const agencyMembers = pgTable(
   'agency_members',
@@ -82,6 +83,14 @@ export const agencyMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     role: memberRoleEnum('role').notNull(),
+    /**
+     * Team directory copy of the user's name and email: `users` is reachable only by `app_auth`, so
+     * this is what the agency's own sessions list. Written when the member joins (S1-02).
+     */
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    /** Set by an admin: the user can no longer log in, mint tokens or reach tenant routes. */
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -89,5 +98,47 @@ export const agencyMembers = pgTable(
     primaryKey({ columns: [t.agencyId, t.userId] }),
     // access-token mint and request ctx: where user_id = ?
     uniqueIndex('agency_members_user_uq').on(t.userId),
+    // team list: where agency_id = ? order by created_at, user_id (keyset)
+    index('agency_members_agency_created_idx').on(t.agencyId, t.createdAt, t.userId),
+  ],
+);
+
+/**
+ * Invites to join an agency with a role (S1-02). STRICT tenant table. The link token is created by the
+ * email job and only its HMAC is stored; the link also names the agency, so the anonymous accept flow
+ * (`app_auth`) can pin its scope before it looks the token up. Single use (`accepted_at`), 7 days.
+ */
+export const agencyInvites = pgTable(
+  'agency_invites',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    /** Trimmed and lower-cased by the contract; the account is created with this email. */
+    email: text('email').notNull(),
+    role: memberRoleEnum('role').notNull(),
+    /** The admin who invited (audit; no FK, so removing that user keeps the history). */
+    invitedBy: uuid('invited_by').notNull(),
+    /** UI locale of the invite email and the new account. */
+    locale: text('locale').notNull(),
+    /** `hmacSha256(HMAC_KEY, 'invite-token', token)`; null until the email job sends the link. */
+    tokenHash: text('token_hash'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    acceptedUserId: uuid('accepted_user_id'),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // accept: where token_hash = ? (agency pinned by RLS)
+    uniqueIndex('agency_invites_token_uq').on(t.tokenHash),
+    // one open invite per email and agency; re-inviting revokes the open one first
+    uniqueIndex('agency_invites_open_email_uq')
+      .on(t.agencyId, t.email)
+      .where(sql`accepted_at is null and revoked_at is null`),
+    // FK + open invites list: where agency_id = ? and open order by created_at, id (keyset)
+    index('agency_invites_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
   ],
 );

@@ -12,21 +12,28 @@ const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
 
 let unsubscribe: (() => void)[] | undefined;
 
-/** Outbox → `identity.sendAuthEmail`, one job per event. Called once by the worker; idempotent. */
+/** Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail`, one job per event. Called once by the worker; idempotent. */
 export function registerIdentitySubscriptions(): void {
   if (unsubscribe) return;
-  unsubscribe = EMAIL_FOR.map(([def, kind]) =>
-    subscribe(
-      def,
-      (payload, meta) =>
-        identityJobs.sendAuthEmail.enqueue({
-          eventId: meta.eventId,
-          userId: (payload as { userId: string }).userId,
-          kind,
-        }),
-      { name: `identity.email.${kind}` },
+  unsubscribe = [
+    ...EMAIL_FOR.map(([def, kind]) =>
+      subscribe(
+        def,
+        (payload, meta) =>
+          identityJobs.sendAuthEmail.enqueue({
+            eventId: meta.eventId,
+            userId: (payload as { userId: string }).userId,
+            kind,
+          }),
+        { name: `identity.email.${kind}` },
+      ),
     ),
-  );
+    subscribe(
+      identityEvents.inviteCreated,
+      (payload, meta) => identityJobs.sendInviteEmail.enqueue({ eventId: meta.eventId, ...payload }),
+      { name: 'identity.email.INVITE' },
+    ),
+  ];
 }
 
 /** Tests: drop the subscriptions again. */

@@ -1,0 +1,44 @@
+{
+  "title": "Equipo",
+  "members": "Miembros",
+  "role": "Rol",
+  "saveRole": "Guardar rol",
+  "deactivate": "Desactivar",
+  "deactivatedBadge": "Desactivado",
+  "pending": "Invitaciones pendientes",
+  "noPending": "No hay invitaciones pendientes.",
+  "expires": "caduca el {date}",
+  "revoke": "Retirar",
+  "invite": {
+    "title": "Invitar a un compañero",
+    "email": "Correo electrónico",
+    "language": "Idioma del correo",
+    "submit": "Enviar invitación",
+    "hint": "El enlace de invitación es válido durante 7 días y solo funciona una vez. Si vuelves a invitar al mismo correo, el enlace anterior deja de valer."
+  },
+  "roles": {
+    "AGENCY_ADMIN": "Administrador de la agencia",
+    "AGENT": "Agente",
+    "DEVELOPER_ADMIN": "Administrador del promotor",
+    "DEVELOPER_AGENT": "Agente del promotor",
+    "PARTNER": "Colaborador"
+  },
+  "languages": {
+    "en": "Inglés",
+    "es": "Español"
+  },
+  "notices": {
+    "invited": "Invitación enviada.",
+    "roleChanged": "Rol cambiado. Se aplica desde la próxima acción del miembro.",
+    "deactivated": "Miembro desactivado. Ya no puede iniciar sesión.",
+    "revoked": "Invitación retirada; su enlace ya no funciona."
+  },
+  "errors": {
+    "FORBIDDEN": "Solo un administrador de la agencia puede hacerlo, y nadie puede cambiar su propio rol.",
+    "NOT_FOUND": "Ese miembro o esa invitación ya no existe.",
+    "ALREADY_MEMBER": "Ese correo ya pertenece a un miembro de tu agencia.",
+    "VALIDATION_FAILED": "Revisa el correo y el rol.",
+    "RATE_LIMITED": "Demasiados cambios. Espera un minuto y vuelve a intentarlo.",
+    "generic": "Algo ha ido mal. Vuelve a intentarlo."
+  }
+}
