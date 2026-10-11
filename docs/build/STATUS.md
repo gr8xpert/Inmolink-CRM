@@ -5,12 +5,12 @@ Single source of truth for progress. Claude updates this at the end of every tas
 ## Now
 - **Task:** S1-01 · Agencies and signup
 - **Started:** —
-- **Notes:** S0-16 committed. S0 is 15/16 done; only S0-15 remains (**BLOCKED-HUMAN H3/H4/H5**, see Blocked) — run `/sprint-review` for S0 when convenient (exit criterion "login works on staging" also waits on H4/H5). **Human steps open:** (1) branch protection on `main` requiring `required` (`docs/runbooks/ci.md`); (2) GitHub environment `production` limited to `main`; (3) H4 includes a small drill host (`drill-1`). Local: your existing `.env` predates S0-09 — re-copy it from `.env.example` (`pnpm dev` ignores shell exports, see TROUBLESHOOTING). New readers start at `README.md`.
+- **Notes:** S0 closed by `/sprint-review` (`docs/build/reviews/S0.md`), with S0-15 carried as **BLOCKED-HUMAN H3/H4/H5**. **Approval needed:** Proposed ADR 0013 (public JS budget) and ADR 0014 (outbox NOTIFY). Review follow-ups S1-F1 to S1-F6 are in the backlog: do S1-F1 (e2e on `next build`) early, and the 🔒 S1-F4/F5 before S1-05. Since the review, `pnpm gen:module` also adds the module to `apps/worker/src/subscriptions.ts`. **Human steps open:** branch protection on `main` (`docs/runbooks/ci.md`); GitHub environment `production`; H3/H4/H5; start Meta verification (H3) and the portal applications (H6). Local: copy `.env` again from `.env.example`.
 
 ## Current sprint
-- **Sprint:** S0 — Foundation
-- **Exit criteria:** Login works on staging; restore drill passes; boundary and isolation checks fail on planted violations (PLAN §16)
-- **Progress:** 15 / 16 tasks done (S0-15 blocked on humans)
+- **Sprint:** S1 — Tenancy & identity
+- **Exit criteria:** Staff verifies an agency; isolation tests green (PLAN §16)
+- **Progress:** 0 / 10 tasks + 6 review follow-ups (S1-F1 … S1-F6)
 
 ## Blocked
 - **S0-15 · BLOCKED-HUMAN H3 H4 H5** — everything is built and runs against fixtures (MinIO as R2, containers as servers). Left once servers, DNS and accounts exist: (1) `scripts/ops/deploy.sh staging` with the curl loop from `docs/runbooks/deploy.md` → no errors; (2) `pnpm ops:restore-drill --docker-host ssh://deploy@<fresh server> --target <T>` → record RTO + DB size; (3) Grafana *Postgres replication & backups* shows db-2 lag; fire `PostgresReplicaLagHigh` once (e.g. `docker pause postgres` on db-2 for 2 min) and record it. Then mark DONE.
@@ -142,6 +142,13 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-10-11 · **AI model defaults** (S0-16, ADR 0008): `AI_MODEL_FAST=claude-haiku-5-5`, `AI_MODEL_SMART=claude-opus-5-5`; `claude-sonnet-5-5` is the cost candidate for SMART once `pnpm ai:eval` shows quality holds. IDs live in env/config only; no prices recorded. S12-01 adds them to `.env.example` and config.
 - 2026-10-11 · **ADRs for unbuilt areas are "Accepted (design)"** (S0-16): 0002, 0005, 0006, 0008, 0012 record the PLAN decisions and the implementing tasks; the implementing task updates the ADR with anything it changes.
 - 2026-10-11 · **Follow-ups for the S0-15 Kamal config (background security review of 9e05d19, titles only: "ip-spoofing / rate-limit bypass" and "missing-authentication" in `infra/kamal/api.yml`; details not available):** (1) the IP-range origin lock admits any Cloudflare customer's traffic, so trusting `X-Forwarded-For` from Cloudflare ranges can be spoofed through another zone — add Cloudflare **Authenticated Origin Pulls** (mTLS at kamal-proxy) with H3, and narrow `172.16.0.0/12` to the `kamal` network's actual subnet; (2) the `redis-cache` accessory runs without AUTH on the Docker network (rate-limit counters live there) — add `requirepass` + `REDIS_CACHE_URL` credentials. Neither is reachable from the internet with the DOCKER-USER lock; fix before the staging acceptance run (H4/H5).
+- 2026-10-11 · **S0 sprint review** (`docs/build/reviews/S0.md`). Fixed:
+  - Outbox rows of a `type@version` the process does not define are retried and dead-lettered, never marked processed. The worker loads every module via `apps/worker/src/subscriptions.ts`, and `gen:module` adds new ones.
+  - The shared Drizzle client has no schema, so there is no `tx.query.<anyTable>` around the boundary check.
+  - `web.yml` gained `HMAC_KEY` and `REDIS_CACHE_URL`; web validates its env at boot; a test checks every app's required env against Kamal.
+  - Outbox prune deletes by primary key.
+
+  **Proposed, awaiting approval:** ADR 0013 (public first-load JS: 141.7 KB framework floor vs the 120 KB budget) and ADR 0014 (drop NOTIFY in business transactions). Until ADR 0013 is decided, public tasks record framework and route JS separately. Should-fix items → BACKLOG S1-F1 … S1-F6. The earlier "Kamal follow-ups" entry is checked: XFF spoofing is not exploitable as configured; the items live on in S1-F5.
 
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->
@@ -156,3 +163,4 @@ Single source of truth for progress. Claude updates this at the end of every tas
 ## Sprint history
 | Sprint | Closed | Report |
 |---|---|---|
+| S0 Foundation | 2026-10-11 (15/16; S0-15 BLOCKED-HUMAN H3 H4 H5) | [reviews/S0.md](reviews/S0.md) |

@@ -221,6 +221,51 @@ Ref §2 · Mod web · Dep S0-09 S0-11
 - Dashboard route first-load JS ≤ 250 KB gzip
 - Lighthouse accessibility ≥ 90 on the shell
 
+### S1 follow-ups from the S0 review (`docs/build/reviews/S0.md`)
+Small hardening tasks. Take them between feature tasks; the 🔒 ones before S1-05 (API keys) at the latest.
+
+### S1-F1 · Test reliability
+Ref §15 · Mod tests · Dep S0-14
+**Build:** Playwright e2e against `next build` + `next start` instead of `next dev` (the reload loop: two of four e2e tests failed in the S0 review run); then add e2e to CI. Integration `setupTestDb` hooks get a timeout that survives a full, non-affected `verify` (the identity suite timed out at 10 s under full parallel load, then passed alone). Package `test:int` scripts still use Vitest's 5 s / 10 s defaults while the root projects use 30 s+; align them.
+**Done when:**
+- `pnpm test:e2e` passes 3 runs in a row locally and runs in CI
+- A full `turbo run … test:int` (no `--affected`) passes twice in a row
+
+### S1-F2 · Outbox hardening
+Ref §5.3 #6 · Mod platform · Dep S0-06
+**Build:** per-tenant fairness in the claim query (one agency's burst must not delay others' events); per-table autovacuum settings for `outbox_events`; either per-subscriber delivery tracking or a PATTERNS §8 rule that each subscriber is idempotent on its own (a retry re-runs all subscribers); one shared `PLATFORM_AGENCY_ID` (now in `db/tenancy/rls.ts` and `platform/outbox/emit.ts`); implement ADR 0014 once decided.
+**Done when:**
+- With 10 agencies, one agency emitting 50,000 events does not delay another agency's event by more than one batch
+- A test fails if the two platform agency IDs ever differ
+
+### S1-F3 · Platform and core cleanups
+Ref §5.3 · Mod platform, core · Dep S0-07 S0-11
+**Build:** feature-flag reload on its own short read, not on the first caller's `tx` (a failed request transaction must not fail concurrent flag reads); narrow `Locale` in `core/context.ts` to the i18n type; the `gen:module` policy template gets the Client Mode branch from PATTERNS §6; `withTenant`/`withSystem` fold `set_config` into the first statement (3 round trips → 1 per transaction, feed-api budget ≤ 3 queries); queue fair share uses growing backoff for over-cap groups instead of re-delaying at the same priority.
+**Done when:**
+- A flag read during another request's failed transaction succeeds
+- `withTenant` with one query issues one round trip plus commit (counted by `countQueries()`)
+
+### S1-F4 · Identity follow-ups · 🔒
+Ref §6 Identity · Mod identity, web · Dep S0-09
+**Build:** `policy.test.ts` for `loginDecision` / `canIssueAccessToken`; web auth paths pass the incoming request ID instead of `authCtx(newId())`; debounce verification emails per user on unverified logins; `/v1/me` through an `identity.getMe` service; a maintenance job that prunes used/expired `auth_tokens`.
+**Done when:**
+- Ten logins to an unverified account within 10 minutes send one email
+- Expired and used tokens older than 7 days are deleted by the job
+
+### S1-F5 · Security hardening · 🔒
+Ref §14 · Mod platform, infra · Dep S0-15
+**Build:** production refuses the committed example `ENCRYPTION_KEYS`, `HMAC_KEY` and `AUTH_SECRET` by value (not only by the `dev` prefix); 401 bodies give no token-failure reason (log it instead); logger redacts `name`; replace the hard per-email login block with a Turnstile step after the limit; Kamal: Cloudflare Authenticated Origin Pulls (or `TRUST_PROXY` by hop count) and drop the Workers range `2a06:98c0::/29`, narrow `172.16.0.0/12` to the kamal network, redis-cache `requirepass`, a search-only Meilisearch key for api/feed-api instead of `MEILI_MASTER_KEY`.
+**Done when:**
+- Production config with an example secret minus its `dev` prefix fails to load
+- A 401 body is identical for expired, unknown-key and wrong-audience tokens
+
+### S1-F6 · Database and Redis operations
+Ref §5.5 §5.6 · Mod infra · Dep S0-15
+**Build:** PgBouncer `query_wait_timeout` ≈ 5 s and `max_db_connections` below `max_connections`; `idle_in_transaction_session_timeout` 10–30 s for `app_user`, `app_auth`, `app_public`; rate-limit counters on a Redis that does not evict (redis-queue with a prefix, or a `volatile-lru` split); scale seed throughput (bigger chunks, buffered COPY writes; 25k users took 15.2 s).
+**Done when:**
+- A saturated pool returns an error within 6 s instead of waiting 120 s
+- `pnpm db:seed:scale --agencies=5000` users phase runs ≥ 5× faster
+
 ---
 
 ## S2 — Taxonomy & i18n

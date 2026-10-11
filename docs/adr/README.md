@@ -21,5 +21,7 @@ One file per decision: `NNNN-short-title.md` with **Status**, **Context**, **Dec
 | [0010](0010-modular-monolith-and-boundaries.md) | Modular monolith with enforced boundaries | Accepted |
 | [0011](0011-tenancy-and-rls.md) | Tenancy and row-level security | Accepted |
 | [0012](0012-website-api-and-caching.md) | Website API and caching | Accepted (design) |
+| [0013](0013-public-page-js-budget.md) | Public page JavaScript budget | Proposed |
+| [0014](0014-outbox-wake-up.md) | Outbox wake-up without NOTIFY in business transactions | Proposed |
 
 "Accepted (design)" means the decision is settled but the code lands with a later task, which the ADR names.
