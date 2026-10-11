@@ -16,7 +16,7 @@ Budgets are in `CLAUDE.md`. Use the `scale` seed (`pnpm db:seed:scale --agencies
 
 4. **Latency**: `pnpm perf:smoke <scenario>` (k6, 60 s) for affected endpoints; record p50/p95/p99 and error rate.
 
-5. **Frontend** (if pages changed): `pnpm --filter <app> analyze` → first-load JS per affected route vs budget; check that heavy components are dynamically imported.
+5. **Frontend** (if pages changed): `pnpm --filter <app> analyze` → first-load JS per affected route vs budget (public: framework ≤ 149 KB + route ≤ 30 KB gzip, ADR 0013; JS chunks served `immutable` for 1 year); check that heavy components are dynamically imported.
 
 6. **Jobs** (if workers changed): run the job on the scale seed; record throughput, peak RSS and whether other tenants' jobs were delayed (fair share).
 

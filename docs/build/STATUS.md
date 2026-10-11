@@ -5,7 +5,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 ## Now
 - **Task:** S1-02 · Users, roles, invites, seats
 - **Started:** —
-- **Notes:** S1-01 is done. S1-02 must: replace the `agency_members_guard` trigger (migration 0006) with "only an AGENCY_ADMIN changes roles, never their own"; set invitee passwords through the signed invite token and skip `replaceUnverifiedSignup` for users in a non-PENDING agency (security review L3); bump `session_version` on role change/deactivation. Before S1-03: bind approval to the reviewed details `version` (agencies/S1-01 decision). S1-F1 (e2e on `next build`) early; 🔒 S1-F4/F5 before S1-05. **Approval needed:** ADR 0013, ADR 0014. **Human steps open:** branch protection on `main`; GitHub environment `production`; H3/H4/H5; Meta verification (H3); portal applications (H6). Local: `pnpm db:migrate && pnpm db:rls` on the dev database (migrations 0005–0006).
+- **Notes:** S1-01 is done. S1-02 must: replace the `agency_members_guard` trigger (migration 0006) with "only an AGENCY_ADMIN changes roles, never their own"; set invitee passwords through the signed invite token and skip `replaceUnverifiedSignup` for users in a non-PENDING agency (security review L3); bump `session_version` on role change/deactivation. Before S1-03: bind approval to the reviewed details `version` (agencies/S1-01 decision). S1-F1 (e2e on `next build`) early; 🔒 S1-F4/F5 before S1-05. **Approval needed:** ADR 0014. **Human steps open:** branch protection on `main`; GitHub environment `production`; H3/H4/H5; Meta verification (H3); portal applications (H6). Local: `pnpm db:migrate && pnpm db:rls` on the dev database (migrations 0005–0006).
 
 ## Current sprint
 - **Sprint:** S1 — Tenancy & identity
@@ -149,7 +149,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
   - `web.yml` gained `HMAC_KEY` and `REDIS_CACHE_URL`; web validates its env at boot; a test checks every app's required env against Kamal.
   - Outbox prune deletes by primary key.
 
-  **Proposed, awaiting approval:** ADR 0013 (public first-load JS: 141.7 KB framework floor vs the 120 KB budget) and ADR 0014 (drop NOTIFY in business transactions). Until ADR 0013 is decided, public tasks record framework and route JS separately. Should-fix items → BACKLOG S1-F1 … S1-F6. The earlier "Kamal follow-ups" entry is checked: XFF spoofing is not exploitable as configured; the items live on in S1-F5.
+  **ADR 0013 accepted 2026-10-11 (option 1 + immutable JS caching), see below.** **Proposed, awaiting approval:** ADR 0014 (drop NOTIFY in business transactions). Should-fix items → BACKLOG S1-F1 … S1-F6. The earlier "Kamal follow-ups" entry is checked: XFF spoofing is not exploitable as configured; the items live on in S1-F5.
 
 - 2026-10-11 · **S1-01 agencies and sign-up.**
   - `agencies` keys on `agency_id` (TS `id`), so the registry, RLS and isolation suite need no special case.
@@ -162,6 +162,8 @@ Single source of truth for progress. Claude updates this at the end of every tas
   - Web onboarding uses a server action + server-side API call like the S0-09 auth forms (no SDK/TanStack Query or react-hook-form yet; `pnpm sdk:generate` does not exist).
   - The isolation positive control accepts FK violation 23503 on insert (raised after RLS passed) for tables whose parents the suite does not create.
   - Follow-ups (not done): `countQueries()` helper does not exist yet, so no query-count test on `withMemberCtx` (add with S1-F3); the RLS guard compares policy names/commands/roles but not predicate text (security M3); a full `verify` on Windows can crash a Vitest worker (0xC0000409) and starve the perf tests under load — each suite passed alone (S1-F1).
+
+- 2026-10-11 · **ADR 0013 accepted (option 1).** Public-page budget is split: framework JS ≤ 149 KB gzip (141.7 measured + 5%), route JS ≤ 30 KB gzip, LCP < 2.0 s mobile; JS chunks must be served `Cache-Control: public, max-age=31536000, immutable` (checked by `/perf-check`). CLAUDE.md, `.claude/rules/frontend.md`, perf-check skill and S15-01 updated. (Shahzaib)
 
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->

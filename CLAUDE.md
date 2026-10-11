@@ -40,7 +40,7 @@ AI-native MLS + CRM + website engine for Spanish estate agencies and developers.
 | feed-api endpoint | p95 < 150 ms at origin · ≤ 3 queries · ≤ 150 KB gzip · Cache-Control + ETag set |
 | Dashboard API endpoint | p95 < 300 ms · ≤ 10 queries · no N+1 · cursor pagination, max 100 |
 | SQL on a hot path | p95 < 20 ms on the scale seed · no Seq Scan on tables > 10k rows · only needed columns |
-| Public page | LCP < 2.0 s mobile · first-load JS ≤ 120 KB gzip |
+| Public page | LCP < 2.0 s mobile · framework JS ≤ 149 KB gzip · route JS ≤ 30 KB gzip · JS chunks `immutable`, 1 year (ADR 0013) |
 | Dashboard route | first-load JS ≤ 250 KB gzip · maps/charts/editors via dynamic import |
 | Worker job | idempotent · per-tenant fair share · batched · RSS < 512 MB |
 

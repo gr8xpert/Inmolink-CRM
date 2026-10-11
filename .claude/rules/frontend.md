@@ -15,7 +15,7 @@ paths:
 - Server Components by default. Add `'use client'` only for interactivity, as low in the tree as possible.
 
 ## Performance
-- First-load JS budgets: public ≤ 120 KB gzip, dashboard ≤ 250 KB gzip per route. Check with the bundle analyzer when adding dependencies.
+- First-load JS budgets: public = framework ≤ 149 KB gzip + route code ≤ 30 KB gzip (ADR 0013), dashboard ≤ 250 KB gzip per route. JS chunks keep `Cache-Control: public, max-age=31536000, immutable`. Check with the bundle analyzer when adding dependencies.
 - Heavy UI (MapLibre maps, charts, rich-text editor, PDF preview, drag-and-drop) only via `next/dynamic` with a skeleton.
 - Images: CDN variant URLs from `platform/storage` helpers with `sizes`/`srcset`; never full-size originals; cover image `priority` only above the fold.
 - Lists over 200 rows are virtualized. Search inputs debounce 250 ms. Prefetch only primary navigation.

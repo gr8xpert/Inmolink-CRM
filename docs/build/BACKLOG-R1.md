@@ -856,7 +856,7 @@ Ref §3 #63 §7 M14 PATTERNS §19 · Mod websites (portal), public · Dep S5-03 
 **Build:** inmolink.es on Next.js: locale-prefixed search (filters, map dynamic import), listing detail (ISR, JSON-LD, OG), location landing pages (4 levels + groups), development pages.
 **Done when:**
 - Lighthouse ≥ 90 (performance, SEO, accessibility) on search, detail, location pages
-- Public first-load JS ≤ 120 KB gzip
+- Public JS: framework ≤ 149 KB gzip, route ≤ 30 KB gzip, chunks cached `immutable` (ADR 0013)
 
 ### S15-02 · Portal enquiries, sitemaps, redirects
 Ref §7 M14 §3 #12 · Mod public · Dep S15-01 S14-05 S10-02
