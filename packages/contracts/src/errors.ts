@@ -24,6 +24,9 @@ export const ErrorCodes = {
   TOKEN_INVALID: 400,
   /** The access token's session was revoked (password reset) or the user is no longer active. */
   SESSION_REVOKED: 401,
+  // agencies (S1-01)
+  /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
+  AGENCY_DETAILS_LOCKED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

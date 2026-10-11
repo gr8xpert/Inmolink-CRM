@@ -32,7 +32,7 @@ beforeAll(async () => {
     webUrl: 'http://web.test',
     signer: createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' }),
   });
-});
+}, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 beforeEach(async () => {
   mail = createMemoryMailer();
@@ -46,6 +46,7 @@ afterAll(async () => {
   await closeDb();
 });
 
+const AGENCY = { accountKind: 'AGENCY', companyName: 'Costa Homes S.L.' } as const;
 const uniqueEmail = () => `user-${newToken(6).toLowerCase()}@example.com`;
 
 interface OutboxRow {
@@ -90,7 +91,7 @@ async function deliverLatest(email: string): Promise<URL> {
 }
 
 async function signUpAndVerify(email = uniqueEmail(), password = 'correct horse battery') {
-  await identity.register(ctx(), { email, password, name: 'Ana', locale: 'es' });
+  await identity.register(ctx(), { email, password, name: 'Ana', locale: 'es', ...AGENCY });
   const link = await deliverLatest(email);
   await identity.verifyEmail(ctx(), { token: link.searchParams.get('token') ?? '', password });
   return { email, password };
@@ -99,7 +100,7 @@ async function signUpAndVerify(email = uniqueEmail(), password = 'correct horse 
 describe('identity sign-up and verification', () => {
   it('[S0-09] sign-up stores an unverified user and queues the confirmation email in the same transaction', async () => {
     const email = uniqueEmail();
-    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'es' });
+    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'es', ...AGENCY });
     const events = await eventsFor(email);
     expect(events.map((e) => e.type)).toEqual(['identity.user.registered']);
     expect(events[0]?.agency_id).toBe('00000000-0000-0000-0000-000000000000');
@@ -112,7 +113,7 @@ describe('identity sign-up and verification', () => {
 
   it('[S0-09] the confirmation email (in the user locale) verifies the address once; then login works', async () => {
     const email = uniqueEmail();
-    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'es' });
+    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'es', ...AGENCY });
     const link = await deliverLatest(email);
     expect(link.origin + link.pathname).toBe('http://web.test/es/verify-email');
     expect(mail.sent.at(-1)?.subject).toBe('Confirma tu correo en Inmolink');
@@ -128,7 +129,7 @@ describe('identity sign-up and verification', () => {
 
   it('[S0-09] signing up with a taken email changes nothing and emails the owner instead', async () => {
     const { email } = await signUpAndVerify();
-    await identity.register(ctx(), { email, password: 'another password!', name: 'Mallory', locale: 'en' });
+    await identity.register(ctx(), { email, password: 'another password!', name: 'Mallory', locale: 'en', ...AGENCY });
     const events = await eventsFor(email);
     expect(events.at(-1)?.type).toBe('identity.signup.duplicated');
     await deliverLatest(email);
@@ -150,7 +151,7 @@ describe('identity sign-up and verification', () => {
 
   it('[S0-09] login with an unconfirmed email queues a fresh link; only the newest link works', async () => {
     const email = uniqueEmail();
-    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'en' });
+    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'en', ...AGENCY });
     const first = await deliverLatest(email);
     await expect(identity.verifyCredentials(ctx(), { email, password: 'correct horse battery' })).rejects.toMatchObject(
       {
@@ -172,7 +173,14 @@ describe('identity sign-up and verification', () => {
 
   it('[S0-09] someone who signs up with another person’s email cannot get it confirmed by them (pre-account hijack)', async () => {
     const email = uniqueEmail();
-    await identity.register(ctx(), { email, password: 'attacker password', name: 'Mallory', locale: 'en' });
+    await identity.register(ctx(), {
+      email,
+      password: 'attacker password',
+      name: 'Mallory',
+      locale: 'en',
+      accountKind: 'DEVELOPER',
+      companyName: 'Mallory Homes',
+    });
     const attackerLink = await deliverLatest(email);
     const attackerToken = attackerLink.searchParams.get('token') ?? '';
     // The owner clicks the link but does not know the attacker's password.
@@ -182,7 +190,7 @@ describe('identity sign-up and verification', () => {
       code: 'INVALID_CREDENTIALS',
     });
     // The owner signs up themselves: the pending account is replaced and only the new link works.
-    await identity.register(ctx(), { email, password: 'owner password!', name: 'Ana', locale: 'es' });
+    await identity.register(ctx(), { email, password: 'owner password!', name: 'Ana', locale: 'es', ...AGENCY });
     const ownerLink = await deliverLatest(email);
     await expect(
       identity.verifyEmail(ctx(), { token: attackerToken, password: 'attacker password' }),

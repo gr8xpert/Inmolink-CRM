@@ -3,7 +3,7 @@ import { users } from '@inmolink/db/schema/identity';
 import { setupTestDb } from '@inmolink/db/testing';
 import { verifyPassword } from '@inmolink/platform/crypto/password';
 import { isUuidV7 } from '@inmolink/platform/ids';
-import { asc, eq, like } from 'drizzle-orm';
+import { asc, eq, like, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO_DOMAIN, demoEmail } from '../../scripts/seed/identity';
 import { scaleCounts } from '../../scripts/seed/profile';
@@ -96,6 +96,7 @@ describe('dev seed', () => {
     expect(report.logins).toHaveLength(25);
     expect(new Set(report.logins.map((l) => l.agency)).size).toBe(5);
     expect(report.results['identity.users']).toEqual({ inserted: 25, total: 25, logins: report.logins });
+    expect(report.results['agencies.agencies']).toMatchObject({ total: 5 });
 
     const [admin] = await withSystem('test.seed.login', (tx) =>
       tx
@@ -113,7 +114,23 @@ describe('dev seed', () => {
     const before = await snapshot(demoDomain);
     const again = await runDevSeed({ demoPassword: DEFAULT_DEMO_PASSWORD });
     expect(again.results['identity.users']).toMatchObject({ inserted: 0, total: 25 });
+    expect(again.results['agencies.agencies']).toMatchObject({ inserted: 0, total: 5 });
     expect(await snapshot(demoDomain)).toEqual(before);
+  }, 60_000);
+  it('[S1-01] every demo user belongs to its agency; admins administer it', async () => {
+    await runDevSeed({ demoPassword: DEFAULT_DEMO_PASSWORD });
+    const rows = await withSystem('test.seed.members', (tx) =>
+      tx.execute<{ email: string; role: string; name: string; kind: string; status: string }>(sql`
+        select u.email, m.role, a.name, a.kind, a.status from users u
+          join agency_members m on m.user_id = u.id
+          join agencies a on a.agency_id = m.agency_id
+         where u.email like ${demoDomain}`),
+    );
+    expect(rows.rows).toHaveLength(25);
+    const admin = rows.rows.find((r) => r.email === demoEmail(0, 'admin'));
+    expect(admin).toMatchObject({ role: 'AGENCY_ADMIN', name: 'Costa Homes', kind: 'AGENCY', status: 'VERIFIED' });
+    expect(rows.rows.find((r) => r.email === demoEmail(4, 'admin'))).toMatchObject({ role: 'DEVELOPER_ADMIN' });
+    expect(rows.rows.find((r) => r.email === demoEmail(3, 'agent1'))).toMatchObject({ status: 'PENDING' });
   }, 60_000);
 });
 
@@ -121,6 +138,7 @@ describe('scale seed', () => {
   it('[S0-13] scale seed writes §4.1 ratios via COPY and re-running it is idempotent', async () => {
     const first = await scale(40, 7);
     expect(first.results['identity.users']).toEqual({ inserted: 200, total: 200 });
+    expect(first.results['agencies.agencies']).toMatchObject({ total: 40 });
     const before = await snapshot(scaleDomain);
 
     const again = await scale(40, 7);

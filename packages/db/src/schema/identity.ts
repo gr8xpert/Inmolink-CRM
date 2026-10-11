@@ -1,13 +1,22 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { agencies } from './agencies';
 
 /**
  * Login identity (PLAN §3 #30 #31, S0-09). Global tables with `access: 'auth'`: looked up by email
  * before any tenant is known, so only `app_auth` (`withAuth()`) and `app_system` reach them — never
  * `app_user`, which would expose password hashes to every tenant session. Agency membership and role
- * live in a STRICT table from S1-01/S1-02.
+ * live in `agency_members` (STRICT).
  */
 export const userStatusEnum = pgEnum('user_status', ['ACTIVE', 'DISABLED']);
+/** Tenant roles (PLAN §3 #2). Staff roles are not memberships (S1-09). */
+export const memberRoleEnum = pgEnum('member_role', [
+  'AGENCY_ADMIN',
+  'AGENT',
+  'DEVELOPER_ADMIN',
+  'DEVELOPER_AGENT',
+  'PARTNER',
+]);
 export const authTokenKindEnum = pgEnum('auth_token_kind', ['EMAIL_VERIFY', 'PASSWORD_RESET']);
 
 export const users = pgTable(
@@ -55,5 +64,30 @@ export const authTokens = pgTable(
     uniqueIndex('auth_tokens_hash_uq').on(t.tokenHash),
     // FK + "retire older unused tokens of this kind" on issue
     index('auth_tokens_user_kind_idx').on(t.userId, t.kind).where(sql`used_at is null`),
+  ],
+);
+
+/**
+ * A user's agency and role. One agency per user (PLAN §3 #1): `user_id` is unique. STRICT tenant table;
+ * the sign-up transaction (`app_auth`) may create the founding admin's row and read a user's own
+ * membership to mint access tokens (registry `auth` predicates).
+ */
+export const agencyMembers = pgTable(
+  'agency_members',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: memberRoleEnum('role').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.userId] }),
+    // access-token mint and request ctx: where user_id = ?
+    uniqueIndex('agency_members_user_uq').on(t.userId),
   ],
 );

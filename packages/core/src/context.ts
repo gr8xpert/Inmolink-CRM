@@ -40,8 +40,8 @@ export function authCtx(requestId: string): AuthCtx {
 }
 
 /**
- * Opens `withTenant` for the caller's agency (RLS applies) and runs `fn` with a full `ctx`.
- * Apps call it once per request through `app.withCtx` (PATTERNS §10).
+ * Opens `withTenant` for an already-known caller (RLS applies) and runs `fn` with a full `ctx`.
+ * Request paths use `withMemberCtx` (member.ts), which reads role and status from the database.
  */
 export function withRequestCtx<T>(init: RequestCtx, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
   const userId = init.actor.kind === 'user' ? init.actor.userId : undefined;

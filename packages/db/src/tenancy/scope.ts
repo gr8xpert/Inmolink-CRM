@@ -90,3 +90,18 @@ export async function withPublicRead<T>(fn: (tx: Tx) => Promise<T>): Promise<T> 
 export async function withAuth<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   return getDb('app_auth').transaction(fn);
 }
+
+/**
+ * Inside `withAuth()`: pins the rows the registry's `auth` predicates may reach to one agency and/or
+ * user (`app.agency_id`, `app.user_id`, transaction-local). Sign-up sets the agency it is creating and
+ * the new user; token minting sets only the user. Unset values match nothing.
+ */
+export async function setAuthScope(tx: Tx, scope: { agencyId?: string; userId?: string }): Promise<void> {
+  if (scope.agencyId !== undefined && !UUID.test(scope.agencyId)) {
+    throw new TypeError('setAuthScope: agencyId must be a UUID');
+  }
+  if (scope.userId !== undefined && !UUID.test(scope.userId))
+    throw new TypeError('setAuthScope: userId must be a UUID');
+  await tx.execute(sql`select set_config('app.agency_id', ${scope.agencyId ?? ''}, true),
+                              set_config('app.user_id', ${scope.userId ?? ''}, true)`);
+}

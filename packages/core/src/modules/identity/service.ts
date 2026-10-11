@@ -2,19 +2,22 @@ import type {
   AccessTokenDto,
   Audience,
   LoginInput,
+  MemberRole,
   RegisterInput,
   RequestPasswordResetInput,
   ResetPasswordInput,
   SessionUser,
   VerifyEmailInput,
 } from '@inmolink/contracts';
+import { setAuthScope, type Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { hmacSha256 } from '@inmolink/platform/crypto';
 import { dummyVerify, hashPassword, needsRehash, verifyPassword } from '@inmolink/platform/crypto/password';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import { emit } from '@inmolink/platform/outbox';
+import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import type { AuthCtx } from '../../context';
+import * as agencies from '../agencies';
 import { identityConfig } from './config';
 import { identityEvents } from './events';
 import { canIssueAccessToken, loginDecision } from './policy';
@@ -31,10 +34,18 @@ export function hashLinkToken(token: string): string {
   return hmacSha256(identityConfig().hmacKey, 'auth-token', token);
 }
 
+/** The founding member of an agency-of-one administers it (PLAN §3 #2). */
+const FOUNDER_ROLE = { AGENCY: 'AGENCY_ADMIN', DEVELOPER: 'DEVELOPER_ADMIN' } as const satisfies Record<
+  RegisterInput['accountKind'],
+  MemberRole
+>;
+
 /**
- * Creates the account (unverified) and queues the confirmation email. A repeat sign-up for an email
- * that was never confirmed replaces that pending account (and a fresh link retires the old one); a
- * confirmed email queues an "account exists" email to its owner instead. Same screen either way.
+ * Creates the account (unverified) together with its agency-of-one (PENDING) and the admin
+ * membership, in one transaction (PLAN §3 #1, S1-01), and queues the confirmation email. A repeat
+ * sign-up for an email that was never confirmed replaces that pending account and its agency's
+ * details (and a fresh link retires the old one); a confirmed email queues an "account exists" email
+ * to its owner instead. Same screen either way.
  */
 export async function register(ctx: AuthCtx, input: RegisterInput): Promise<void> {
   // Hash before the transaction, and for a taken email too, so timing does not reveal accounts.
@@ -42,16 +53,48 @@ export async function register(ctx: AuthCtx, input: RegisterInput): Promise<void
   const now = clock.now();
   await ctx.transaction(async (tx) => {
     const profile = { passwordHash, name: input.name, locale: input.locale };
-    const id =
-      (await repo.insertUserIfAbsent(tx, { id: newId(), email: input.email, ...profile })) ??
-      (await repo.replaceUnverifiedSignup(tx, input.email, profile, now));
-    if (id) {
-      await emit(tx, identityEvents.registered({ userId: id }));
+    const created = await repo.insertUserIfAbsent(tx, { id: newId(), email: input.email, ...profile });
+    const userId = created ?? (await repo.replaceUnverifiedSignup(tx, input.email, profile, now));
+    if (userId) {
+      // A platform event (nil agency): app_auth may append only those, whatever scope is set later.
+      await emit(tx, identityEvents.registered({ userId }), { agencyId: PLATFORM_AGENCY_ID });
+      if (created) await createAgencyOfOne(tx, userId, input);
+      else await replaceSignupAgency(tx, userId, input, now);
       return;
     }
     const existing = await repo.findUserIdByEmail(tx, input.email);
     if (existing?.status === 'ACTIVE') await emit(tx, identityEvents.signupDuplicated({ userId: existing.id }));
   });
+}
+
+async function createAgencyOfOne(tx: Tx, userId: string, input: RegisterInput): Promise<void> {
+  const agencyId = newId();
+  // The only agency and user the registry's `auth` predicates let this transaction write.
+  await setAuthScope(tx, { agencyId, userId });
+  await agencies.createSignupAgency(tx, {
+    agencyId,
+    kind: input.accountKind,
+    name: input.companyName,
+    uiLocale: input.locale,
+  });
+  await repo.insertMember(tx, { agencyId, userId, role: FOUNDER_ROLE[input.accountKind] });
+}
+
+async function replaceSignupAgency(tx: Tx, userId: string, input: RegisterInput, now: Date): Promise<void> {
+  await setAuthScope(tx, { userId });
+  const member = await repo.findMembership(tx, userId);
+  if (!member) {
+    // An account from before agencies existed (S0 data): give it its agency now.
+    await createAgencyOfOne(tx, userId, input);
+    return;
+  }
+  await setAuthScope(tx, { agencyId: member.agencyId, userId });
+  const replaced = await agencies.replaceSignupAgency(tx, {
+    agencyId: member.agencyId,
+    kind: input.accountKind,
+    name: input.companyName,
+  });
+  if (replaced) await repo.setMemberRole(tx, member.agencyId, userId, FOUNDER_ROLE[input.accountKind], now);
 }
 
 /**
@@ -151,8 +194,27 @@ export async function issueAccessToken(
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
-  const user = await ctx.transaction((tx) => repo.findUserForToken(tx, input.userId));
-  if (!user || !canIssueAccessToken(user, input.sessionVersion)) throw new AppError('SESSION_REVOKED');
-  const { token, expiresAt } = await signer.sign({ sub: input.userId, aud: input.audience, sv: user.sessionVersion });
+  const found = await ctx.transaction(async (tx) => {
+    const user = await repo.findUserForToken(tx, input.userId);
+    if (!user || !canIssueAccessToken(user, input.sessionVersion)) return null;
+    await setAuthScope(tx, { userId: input.userId });
+    return { user, member: await repo.findMembership(tx, input.userId) };
+  });
+  if (!found) throw new AppError('SESSION_REVOKED');
+  const { token, expiresAt } = await signer.sign({
+    sub: input.userId,
+    aud: input.audience,
+    sv: found.user.sessionVersion,
+    // The tenant; the role is read per request, so a role change applies at once (S1-02).
+    ...(found.member ? { agency: found.member.agencyId } : {}),
+  });
   return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * The caller's role in the agency named by their access token, inside the request's `withTenant`
+ * transaction (RLS: own agency only). Null when the user is not (or no longer) a member.
+ */
+export async function getMemberRole(tx: Tx, agencyId: string, userId: string): Promise<MemberRole | null> {
+  return repo.findMemberRole(tx, agencyId, userId);
 }

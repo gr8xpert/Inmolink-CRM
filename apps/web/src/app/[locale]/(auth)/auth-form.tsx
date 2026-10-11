@@ -7,9 +7,11 @@ import type { FormState } from './actions';
 export interface FieldSpec {
   name: string;
   label: string;
-  type?: 'text' | 'email' | 'password';
+  type?: 'text' | 'email' | 'password' | 'radio';
   autoComplete?: string;
   hint?: string;
+  /** `radio` only: the choices; the first is preselected. */
+  options?: { value: string; label: string }[];
 }
 
 interface Props {
@@ -53,6 +55,19 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
       ))}
       {fields.map((f) => {
         const invalid = state.fields?.includes(f.name) ?? false;
+        if (f.type === 'radio') {
+          return (
+            <fieldset key={f.name} className="flex flex-col gap-2" aria-invalid={invalid}>
+              <legend className="mb-2 text-sm font-medium">{f.label}</legend>
+              {(f.options ?? []).map((o, i) => (
+                <label key={o.value} className="flex items-center gap-2 text-sm">
+                  <input type="radio" name={f.name} value={o.value} defaultChecked={i === 0} />
+                  {o.label}
+                </label>
+              ))}
+            </fieldset>
+          );
+        }
         return (
           <div key={f.name} className="flex flex-col gap-2">
             <Label htmlFor={f.name}>{f.label}</Label>

@@ -110,6 +110,41 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S1-01] auth predicates: app_auth gets exactly the scoped policies and grants, never DELETE', () => {
+    const def = {
+      kind: 'STRICT' as const,
+      auth: { select: 'user_id = app_user_id()', insert: 'agency_id = app_agency() and user_id = app_user_id()' },
+    };
+    const sql = tablesSql({ tenant: { agency_members: def }, global: {} });
+    expect(sql).toContain(`create policy auth_select on public."agency_members" for select to app_auth
+  using (user_id = app_user_id());`);
+    expect(sql).toContain(`create policy auth_insert on public."agency_members" for insert to app_auth
+  with check (agency_id = app_agency() and user_id = app_user_id());`);
+    expect(sql).not.toContain('auth_update');
+    expect(sql).toContain(`grant select, insert on table public."agency_members" to app_auth;`);
+    expect(expectedPrivileges(def).app_auth).toEqual(['SELECT', 'INSERT']);
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_rows:ALL',
+      'auth_select:SELECT',
+      'auth_insert:INSERT',
+    ]);
+    expect(generateRlsSql(reg)).toContain(
+      'grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth;',
+    );
+  });
+
+  it('[S1-01] auth predicates must pin rows to the auth scope and are not allowed on append-only tables', () => {
+    expect(() => tablesSql({ tenant: { agencies: { kind: 'STRICT', auth: { select: 'true' } } }, global: {} })).toThrow(
+      /must pin rows/,
+    );
+    expect(() =>
+      tablesSql({
+        tenant: { q: { kind: 'STRICT', appendOnly: true, auth: { insert: 'agency_id = app_agency()' } } },
+        global: {},
+      }),
+    ).toThrow(/appendOnly/);
+  });
+
   it('[S0-05] the production registry generates valid SQL', () => {
     expect(() => generateRlsSql(registry)).not.toThrow();
   });

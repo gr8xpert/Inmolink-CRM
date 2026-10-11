@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CompanyName, SignupAgencyKind } from './agencies';
 
 /**
  * Identity DTOs (S0-09): sign-up, email verification, login, password reset, access tokens.
@@ -31,11 +32,18 @@ export const PersonName = z
   // "J. R. Smith" yes, "evil.example" (auto-linked by mail clients) no.
   .refine((v) => !/\.[\p{L}\p{M}]/u.test(v), 'a dot must be followed by a space');
 
+/** Tenant roles (PLAN §3 #2); staff roles are not agency memberships. */
+export const MemberRole = z.enum(['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_ADMIN', 'DEVELOPER_AGENT', 'PARTNER']);
+export type MemberRole = z.infer<typeof MemberRole>;
+
+/** Sign-up creates the user and their agency-of-one (PENDING) together (PLAN §3 #1, S1-01). */
 export const RegisterInput = z.object({
   email: Email,
   password: Password,
   name: PersonName,
   locale: UiLocale,
+  accountKind: SignupAgencyKind,
+  companyName: CompanyName,
 });
 export type RegisterInput = z.infer<typeof RegisterInput>;
 
@@ -73,7 +81,7 @@ export type Audience = z.infer<typeof Audience>;
 export const AccessTokenDto = z.object({ token: z.string(), expiresAt: z.iso.datetime() });
 export type AccessTokenDto = z.infer<typeof AccessTokenDto>;
 
-/** `GET /v1/me` — who the access token belongs to. `agencyId` is null until memberships exist (S1-01). */
+/** `GET /v1/me` — who the access token belongs to. `agencyId` is null for users without an agency (staff). */
 export const MeDto = z.object({
   userId: z.uuid(),
   agencyId: z.uuid().nullable(),

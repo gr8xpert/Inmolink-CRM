@@ -16,6 +16,16 @@ export default async function SignupPage() {
         errors={await formErrors()}
         doneMessage={`${t('signup.checkEmailTitle')}. ${t('signup.checkEmailBody')}`}
         fields={[
+          {
+            name: 'accountKind',
+            label: t('signup.accountKind'),
+            type: 'radio',
+            options: [
+              { value: 'AGENCY', label: t('signup.accountKindAgency') },
+              { value: 'DEVELOPER', label: t('signup.accountKindDeveloper') },
+            ],
+          },
+          { name: 'companyName', label: t('signup.companyName'), autoComplete: 'organization' },
           { name: 'name', label: t('signup.name'), autoComplete: 'name' },
           { name: 'email', label: t('signup.email'), type: 'email', autoComplete: 'email' },
           {

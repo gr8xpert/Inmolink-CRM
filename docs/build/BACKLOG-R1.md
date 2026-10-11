@@ -169,6 +169,7 @@ Ref §3 #3 §7 M1 · Mod agencies · Dep S1-01 · 🔒
 - Approve → VERIFIED unlocks SHARED/PUBLIC/API keys immediately (cache invalidated)
 - Verification documents are never readable by other tenants or via public URLs
 - Every decision is in the audit log with reviewer and reason
+- Note (S1-01): approval records the details `version` staff reviewed and is refused if the agency changed since; invalidate the tenant info read by `withMemberCtx` once it is cached.
 
 ### S1-04 · Two-factor authentication
 Ref §3 #30 §12 · Mod identity · Dep S0-09 · 🔒
@@ -185,6 +186,7 @@ Ref §3 #30 §9.1 · Mod identity · Dep S1-03 · 🔒
 - Secret is shown once; only prefix + hash are stored
 - Revoked key is rejected within 60 s (cache TTL)
 - Publishable key from a non-allowlisted origin is rejected
+- Note (S1-01): call `agencies.assertVerified(ctx, 'apiKey.create')` before creating a key.
 
 ### S1-06 · Agency profile and settings
 Ref §6 Identity §3 #7 #8 · Mod agencies · Dep S1-01
@@ -324,6 +326,7 @@ Ref §3 #4 #7 #18 #34 #57 §7 M2 · Mod properties · Dep S3-01 S1-07
 - Stale `version` → 409; history rows written for price and status changes
 - PREFERRED scope visible only to agencies that list the owner as preferred
 - `properties.listing.*` events emitted in the same transaction
+- Note (S1-01): SHARED/PUBLIC visibility calls `agencies.assertVerified(ctx, 'listing.share' | 'listing.publish')`.
 
 ### S3-03 · Media upload pipeline
 Ref §3 #33 §7 M2 · Mod media · Dep S3-01 · ⚡ 🔒

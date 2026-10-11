@@ -1,0 +1,58 @@
+{
+  "title": "Datos de tu empresa",
+  "intro": "Necesitamos estos datos para verificar tu empresa. Hasta entonces tu cuenta está pendiente: puedes añadir inmuebles y contactos, pero no compartirlos ni publicarlos.",
+  "status": {
+    "PENDING": "Pendiente de verificación",
+    "VERIFIED": "Verificada",
+    "SUSPENDED": "Suspendida"
+  },
+  "fields": {
+    "name": "Nombre de la empresa",
+    "taxId": "CIF / NIF / NIE",
+    "taxIdHint": "CIF de la empresa (p. ej. B12345674), o NIF/NIE si eres autónomo.",
+    "addressLine": "Dirección",
+    "city": "Ciudad",
+    "postalCode": "Código postal",
+    "region": "Comunidad autónoma",
+    "languages": "Idiomas en los que trabajas"
+  },
+  "regions": {
+    "ES-AN": "Andalucía",
+    "ES-AR": "Aragón",
+    "ES-AS": "Asturias",
+    "ES-CB": "Cantabria",
+    "ES-CE": "Ceuta",
+    "ES-CL": "Castilla y León",
+    "ES-CM": "Castilla-La Mancha",
+    "ES-CN": "Canarias",
+    "ES-CT": "Cataluña",
+    "ES-EX": "Extremadura",
+    "ES-GA": "Galicia",
+    "ES-IB": "Illes Balears",
+    "ES-MC": "Región de Murcia",
+    "ES-MD": "Comunidad de Madrid",
+    "ES-ML": "Melilla",
+    "ES-NC": "Navarra",
+    "ES-PV": "País Vasco",
+    "ES-RI": "La Rioja",
+    "ES-VC": "Comunitat Valenciana"
+  },
+  "languages": {
+    "es": "Español",
+    "en": "Inglés",
+    "nl": "Neerlandés",
+    "de": "Alemán",
+    "fr": "Francés",
+    "sv": "Sueco"
+  },
+  "submit": "Guardar datos de la empresa",
+  "saved": "Guardado. Nuestro equipo revisará tu empresa en breve.",
+  "errors": {
+    "invalidInput": "Revisa los campos marcados.",
+    "taxIdFormat": "No es un CIF, NIF o NIE español. Ejemplo: B12345674.",
+    "taxIdControl": "El último dígito o letra no corresponde al número. Revisa si hay errores.",
+    "conflict": "Otra persona ha cambiado estos datos mientras tanto. Recarga la página e inténtalo de nuevo.",
+    "forbidden": "Solo un administrador de tu empresa puede cambiar estos datos.",
+    "generic": "Algo ha ido mal. Inténtalo de nuevo."
+  }
+}

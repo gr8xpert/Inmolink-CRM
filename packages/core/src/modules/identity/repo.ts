@@ -1,5 +1,5 @@
 import type { Tx } from '@inmolink/db';
-import { authTokens, users } from '@inmolink/db/schema/identity';
+import { agencyMembers, authTokens, users } from '@inmolink/db/schema/identity';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 /**
@@ -173,4 +173,36 @@ export async function consumeToken(tx: Tx, tokenHash: string, kind: TokenKind, n
     )
     .returning({ userId: authTokens.userId });
   return row?.userId ?? null;
+}
+
+export type MemberRole = (typeof agencyMembers.$inferSelect)['role'];
+
+/** Sign-up: the founding admin's membership (app_auth, scope pinned to the new agency and user). */
+export async function insertMember(tx: Tx, row: { agencyId: string; userId: string; role: MemberRole }): Promise<void> {
+  await tx.insert(agencyMembers).values(row);
+}
+
+/** The user's agency and role; one membership per user. */
+export async function findMembership(tx: Tx, userId: string): Promise<{ agencyId: string; role: MemberRole } | null> {
+  const [row] = await tx
+    .select({ agencyId: agencyMembers.agencyId, role: agencyMembers.role })
+    .from(agencyMembers)
+    .where(eq(agencyMembers.userId, userId));
+  return row ?? null;
+}
+
+/** The user's role in `agencyId` (primary-key lookup), or null if not a member there. */
+export async function findMemberRole(tx: Tx, agencyId: string, userId: string): Promise<MemberRole | null> {
+  const [row] = await tx
+    .select({ role: agencyMembers.role })
+    .from(agencyMembers)
+    .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId)));
+  return row?.role ?? null;
+}
+
+export async function setMemberRole(tx: Tx, agencyId: string, userId: string, role: MemberRole, now: Date) {
+  await tx
+    .update(agencyMembers)
+    .set({ role, updatedAt: now })
+    .where(and(eq(agencyMembers.agencyId, agencyId), eq(agencyMembers.userId, userId)));
 }

@@ -14,6 +14,8 @@ export const REDACT_KEYS = [
   'mobile',
   'password',
   'passwordHash',
+  // CIF / NIF / NIE: a personal national id for self-employed agents (S1-01).
+  'taxId',
   'token',
   'accessToken',
   'refreshToken',

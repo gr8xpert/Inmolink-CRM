@@ -9,16 +9,16 @@ import { createRng, seededId } from './rng';
 import type { Login, Seeder } from './seeders';
 
 /**
- * Login identities (S0-09 `users`). Until agencies land (S1-01) a user carries its agency only in
- * its email domain; S1-01's seeder adds the agencies and memberships for these same deterministic IDs.
+ * Login identities (S0-09 `users`). The agencies seeder (S1-01, runs next) adds each user's agency and
+ * membership for these same deterministic IDs.
  */
 export const DEMO_DOMAIN = 'demo.inmolink.test';
 export const DEMO_AGENCIES = ['Costa Homes', 'Sierra Nevada Realty', 'Marbella Prime', 'Levante Estates', 'Nova Obra'];
-const DEMO_ROLES = ['admin', 'agent1', 'agent2', 'agent3', 'assistant'] as const;
-const DEV_SEED = 0;
+export const DEMO_ROLES = ['admin', 'agent1', 'agent2', 'agent3', 'assistant'] as const;
+export const DEV_SEED = 0;
 
 /** Fixed timestamps keep re-runs and different machines byte-identical. */
-const SEEDED_AT = new Date(Date.UTC(2026, 0, 1));
+export const SEEDED_AT = new Date(Date.UTC(2026, 0, 1));
 
 const FIRST = ['Lucía', 'Hugo', 'Martina', 'Mateo', 'Sofía', 'Leo', 'Emma', 'Daniel', 'Julia', 'Pablo', 'Anna', 'Lars'];
 const LAST = ['García', 'Martínez', 'López', 'Sánchez', 'Romero', 'Navarro', 'Smith', 'de Vries', 'Johansson'];

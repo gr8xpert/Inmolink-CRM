@@ -2,4 +2,5 @@
 export const PACKAGE_NAME = '@inmolink/core';
 
 export * from './context';
+export * from './member';
 export * from './runtime';

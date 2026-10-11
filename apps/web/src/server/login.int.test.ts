@@ -31,7 +31,14 @@ const uniqueEmail = () => `login-${newToken(6).toLowerCase()}@example.com`;
 describe('login rate limits', () => {
   it('[S0-09] login is rate-limited per email: guessing from one client stops, the owner elsewhere is not locked out', async () => {
     const email = uniqueEmail();
-    await identity.register(authCtx(newId()), { email, password: 'correct horse battery', name: 'Ana', locale: 'en' });
+    await identity.register(authCtx(newId()), {
+      email,
+      password: 'correct horse battery',
+      name: 'Ana',
+      locale: 'en',
+      accountKind: 'AGENCY',
+      companyName: 'Costa Homes',
+    });
     const attacker = randomIp();
     for (let i = 0; i < LIMITS.loginEmailIp.limit; i++) {
       expect(await attemptLogin({ email, password: 'wrong password' }, attacker)).toEqual({

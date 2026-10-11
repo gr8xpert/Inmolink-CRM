@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
+import type { AuthAccess, GlobalTable, TenantRegistry, TenantTable } from './registry';
 
 /**
  * RLS generator (PATTERNS §2). Turns the tenant registry into idempotent SQL: helper functions,
@@ -28,6 +28,9 @@ export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'ap
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
+/** `auth` predicates start with `agency_id = app_agency()` or `user_id = app_user_id()`, then only `and …`. */
+const AUTH_PIN = /^(agency_id = app_agency\(\)|user_id = app_user_id\(\))(\s+and\s+[\s\S]+)?$/;
+
 function assertValid(name: string, def: TenantTable | GlobalTable): void {
   if ('kind' in def) {
     if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
@@ -37,6 +40,15 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       (!IDENT.test(def.authAppend.column) || !/^[a-z][a-zA-Z0-9]*\.$/.test(def.authAppend.prefix))
     ) {
       throw new Error(`${name}: authAppend needs a column name and a prefix like 'identity.'`);
+    }
+    if (def.auth) {
+      if (def.appendOnly) throw new Error(`${name}: auth access is not valid for appendOnly tables`);
+      for (const [cmd, sql] of Object.entries(def.auth) as [keyof AuthAccess, string][]) {
+        // Pinned: the predicate starts with the scope equality and only narrows it with `and`.
+        if (!AUTH_PIN.test(sql.trim()) || /\bor\b/i.test(sql)) {
+          throw new Error(`${name}: auth.${cmd} must pin rows to app_agency() or app_user_id()`);
+        }
+      }
     }
   } else if (def.access === 'auth' && def.publicRead) {
     throw new Error(`${name}: an auth table cannot be publicRead`);
@@ -55,14 +67,24 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     app_user: user,
     app_system: DML,
     app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [],
-    app_auth: def.authAppend ? ['INSERT'] : [],
+    app_auth: def.authAppend ? ['INSERT'] : authPrivileges(def.auth),
   };
+}
+
+const AUTH_COMMANDS = [
+  ['select', 'SELECT'],
+  ['insert', 'INSERT'],
+  ['update', 'UPDATE'],
+] as const satisfies readonly (readonly [keyof AuthAccess, Privilege])[];
+
+function authPrivileges(auth: AuthAccess | undefined): Privilege[] {
+  return AUTH_COMMANDS.filter(([key]) => auth?.[key] !== undefined).map(([, priv]) => priv);
 }
 
 export interface PolicySpec {
   name: string;
   /** pg_policies.cmd */
-  cmd: 'ALL' | 'SELECT' | 'INSERT';
+  cmd: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE';
   roles: string[];
 }
 
@@ -74,6 +96,9 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   }
   const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
+  for (const [key, cmd] of AUTH_COMMANDS) {
+    if (def.auth?.[key] !== undefined) out.push({ name: `auth_${key}`, cmd, roles: ['app_auth'] });
+  }
   if (def.kind === 'NETWORK_READ') out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   return out;
@@ -101,7 +126,7 @@ export function helperSql(): string {
     `create or replace function app_user_id() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;`,
     `revoke all on function app_agency(), app_user_id() from public;`,
-    `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public;`,
+    `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth;`,
   ].join('\n');
 }
 
@@ -140,6 +165,23 @@ grant select, insert, update, delete on table ${t} to app_system;`
   with check (agency_id = '${PLATFORM_AGENCY_ID}'::uuid and starts_with("${column}", '${prefix}'));`,
       `grant insert on table ${t} to app_auth;`,
     );
+  }
+  if (def.auth) {
+    // Sign-up and token minting have no tenant session: rows are pinned to the scope the flow set.
+    const { select, insert, update } = def.auth;
+    if (select !== undefined) {
+      out.push(`create policy auth_select on ${t} for select to app_auth
+  using (${predicate(name, select)});`);
+    }
+    if (insert !== undefined) {
+      out.push(`create policy auth_insert on ${t} for insert to app_auth
+  with check (${predicate(name, insert)});`);
+    }
+    if (update !== undefined) {
+      out.push(`create policy auth_update on ${t} for update to app_auth
+  using (${predicate(name, update)}) with check (${predicate(name, update)});`);
+    }
+    out.push(`grant ${authPrivileges(def.auth).join(', ').toLowerCase()} on table ${t} to app_auth;`);
   }
   return out;
 }

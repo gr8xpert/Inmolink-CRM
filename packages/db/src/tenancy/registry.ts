@@ -31,6 +31,25 @@ interface TenantBase {
    * ("send the verification email") in the sign-up transaction, and nothing else.
    */
   authAppend?: { column: string; prefix: string };
+  /**
+   * Anonymous auth flows (`app_auth`, `withAuth()`) may reach some rows: the sign-up transaction creates
+   * the agency and its founding admin, and access-token minting reads the user's own membership (S1-01).
+   * One SQL predicate per command, reviewed like `networkReadSql`. Each must pin rows to `app_agency()`
+   * and/or `app_user_id()`, which the flow sets with `setAuthScope()`; without them nothing matches.
+   * DELETE is never granted.
+   */
+  auth?: AuthAccess;
+  /**
+   * Exactly one row per agency (keyed by `agency_id`): the isolation suite's positive control updates
+   * the tenant's row instead of inserting a second one.
+   */
+  singleRow?: true;
+}
+
+export interface AuthAccess {
+  select?: string;
+  insert?: string;
+  update?: string;
 }
 
 export type TenantTable = TenantBase &
@@ -77,6 +96,33 @@ export const tenantTables: Record<string, TenantTable> = {
   // reads and acknowledges every agency's rows through withSystem(). Platform events use the nil UUID;
   // auth flows (app_auth) may append those too (sign-up / reset emails).
   outbox_events: { kind: 'STRICT', appendOnly: true, authAppend: { column: 'type', prefix: 'identity.' } },
+  // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
+  // unconfirmed email may rename it while it is still PENDING and not onboarded. Status changes are
+  // staff-only (S1-03) — no service lets a tenant write `status`.
+  agencies: {
+    kind: 'STRICT',
+    singleRow: true,
+    auth: {
+      select: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
+      insert: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
+      update: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
+    },
+  },
+  agency_settings: { kind: 'STRICT', singleRow: true, auth: { insert: 'agency_id = app_agency()' } },
+  agency_translations: { kind: 'STRICT' },
+  // Membership + role (S1-01). app_auth reads only the user it is signing in, and writes only the
+  // membership of the user it is signing up, in the agency that sign-up created.
+  agency_members: {
+    kind: 'STRICT',
+    auth: {
+      select: 'user_id = app_user_id()',
+      // The agency must be one app_auth can see: the PENDING, not-onboarded agency being signed up.
+      insert:
+        'agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())',
+      update:
+        'agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())',
+    },
+  },
 };
 
 /**

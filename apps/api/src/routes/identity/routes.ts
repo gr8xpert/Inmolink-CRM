@@ -26,7 +26,7 @@ export async function identityRoutes(app: FastifyZod): Promise<void> {
       const auth = request.auth as NonNullable<typeof request.auth>;
       return {
         userId: auth.userId,
-        agencyId: auth.member?.tenant.agencyId ?? null,
+        agencyId: auth.agencyId,
         sessionVersion: auth.sessionVersion,
         tokenExpiresAt: auth.tokenExpiresAt.toISOString(),
       };

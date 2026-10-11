@@ -15,6 +15,9 @@
       "@inmolink/source": "./src/modules/*/index.ts",
       "types": "./dist/modules/*/index.d.ts",
       "default": "./dist/modules/*/index.js"
+    },
+    "./test": {
+      "@inmolink/source": "./src/testing/factories.ts"
     }
   },
   "scripts": {

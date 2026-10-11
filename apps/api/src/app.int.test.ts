@@ -1,8 +1,16 @@
 import { type Ctx, closeDb, configureDb, pingDb } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
+import { createFounder } from '@inmolink/core/test';
 import { setupTestDb } from '@inmolink/db/testing';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import { createAccessTokenVerifier, generateAccessKeyPair, parsePublicKeys } from '@inmolink/platform/jwt';
+import {
+  createAccessTokenSigner,
+  createAccessTokenVerifier,
+  generateAccessKeyPair,
+  parsePublicKeys,
+  privateKeyFromBase64,
+} from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -12,6 +20,12 @@ const allowAll = {
   consume: async () => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 }),
 } as unknown as RateLimiter;
 
+const pair = generateAccessKeyPair();
+const signer = createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' });
+const bearer = async (f: { userId: string; agencyId: string }) => ({
+  authorization: `Bearer ${(await signer.sign({ sub: f.userId, aud: 'api', sv: 1, agency: f.agencyId })).token}`,
+});
+
 const build = () =>
   buildApp({
     logger: createLogger({ level: 'silent' }),
@@ -20,7 +34,7 @@ const build = () =>
     limiter: allowAll,
     readinessCacheMs: 0,
     checks: { db: () => pingDb('app_user') },
-    verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${generateAccessKeyPair().publicKey}`) }),
+    verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${pair.publicKey}`) }),
   });
 
 /** A service that loses an optimistic-concurrency race (PATTERNS §7). */
@@ -33,6 +47,7 @@ let appUserUrl = '';
 
 beforeAll(async () => {
   await setupTestDb('http');
+  identity.configureIdentity({ hmacKey: 'test-hmac-key-0123456789abcdef0123456789' });
   appUserUrl = process.env.DATABASE_URL_APP_USER ?? '';
 }, 120_000);
 
@@ -54,34 +69,93 @@ describe('api against the test stack', () => {
       expect(down.json()).toEqual({ status: 'fail', checks: { db: 'fail' } });
     } finally {
       await app.close();
-      await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_USER: appUserUrl });
+      await configureDb({
+        APP_ROLE: 'http',
+        DATABASE_URL_APP_USER: appUserUrl,
+        DATABASE_URL_APP_AUTH: process.env.DATABASE_URL_APP_AUTH,
+      });
     }
   }, 30_000);
 
   it('[S0-08] AppError(VERSION_CONFLICT) from a service inside withCtx returns 409 with the standard body', async () => {
     const app = await build();
     try {
-      const agencyId = newId();
-      app.addHook('onRequest', async (req) => {
-        const userId = newId();
-        req.auth = {
-          userId,
-          sessionVersion: 1,
-          tokenExpiresAt: new Date(Date.now() + 60_000),
-          member: {
-            tenant: { agencyId, verified: true, plan: 'test', locales: ['en'] },
-            actor: { kind: 'user', userId, role: 'agent' },
-            locale: 'en',
-            clientMode: false,
-          },
-        };
-      });
-      app.patch('/listings/:id', (req) => app.withCtx(req, (ctx) => updateListing(ctx, { version: 2 })));
-      const res = await app.inject({ method: 'PATCH', url: `/listings/${newId()}` });
+      const founder = await createFounder();
+      const headers = await bearer(founder);
+      app.patch('/listings/:id', { onRequest: [app.requireSession] }, (req) =>
+        app.withCtx(req, (ctx) => updateListing(ctx, { version: 2 })),
+      );
+      const res = await app.inject({ method: 'PATCH', url: `/listings/${newId()}`, headers });
       expect(res.statusCode).toBe(409);
       expect(res.json()).toEqual({
         error: { code: 'VERSION_CONFLICT', message: 'Conflict', details: { sentVersion: 2 } },
       });
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it('[S1-01] a founder reaches their PENDING agency through the access token', async () => {
+    const app = await build();
+    try {
+      const founder = await createFounder({ companyName: 'Sierra Nevada Realty' });
+      const headers = await bearer(founder);
+      const me = await app.inject({ method: 'GET', url: '/v1/me', headers });
+      expect(me.json()).toMatchObject({ userId: founder.userId, agencyId: founder.agencyId });
+      const res = await app.inject({ method: 'GET', url: '/v1/agency', headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        id: founder.agencyId,
+        kind: 'AGENCY',
+        status: 'PENDING',
+        name: 'Sierra Nevada Realty',
+        onboarded: false,
+      });
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it('[S1-01] CIF/NIF format validated (Spanish rules) with a clear error — through the onboarding route', async () => {
+    const app = await build();
+    try {
+      const founder = await createFounder();
+      const headers = await bearer(founder);
+      const body = {
+        version: 1,
+        name: 'Costa Homes S.L.',
+        taxId: 'B12345675',
+        addressLine: 'Calle Mayor 1',
+        city: 'Marbella',
+        postalCode: '29601',
+        region: 'ES-AN',
+        languages: ['es', 'en'],
+      };
+      const bad = await app.inject({ method: 'PUT', url: '/v1/agency/details', headers, payload: body });
+      expect(bad.statusCode).toBe(422);
+      expect(JSON.stringify(bad.json())).toContain('control digit or letter does not match');
+
+      const ok = await app.inject({
+        method: 'PUT',
+        url: '/v1/agency/details',
+        headers,
+        payload: { ...body, taxId: 'b-12345674' },
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toMatchObject({ taxId: 'B12345674', onboarded: true, status: 'PENDING', version: 2 });
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it('[S1-01] a token for an agency the user does not belong to is refused', async () => {
+    const app = await build();
+    try {
+      const a = await createFounder();
+      const b = await createFounder();
+      const headers = await bearer({ userId: a.userId, agencyId: b.agencyId });
+      const res = await app.inject({ method: 'GET', url: '/v1/agency', headers });
+      expect(res.statusCode).toBe(403);
     } finally {
       await app.close();
     }

@@ -4,6 +4,7 @@ import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from 
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
+import { agenciesRoutes } from './routes/agencies/routes';
 import { identityRoutes } from './routes/identity/routes';
 
 /** Fastify dashboard API. Transport only — business logic lives in @inmolink/core. */
@@ -43,10 +44,11 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
     identify: {
       ip: (r) => ipBucket(r.ip),
       user: (r) => r.auth?.userId,
-      tenant: (r) => r.auth?.member?.tenant.agencyId,
+      tenant: (r) => r.auth?.agencyId ?? undefined,
     },
   });
   healthRoutes(app, { checks: deps.checks, cacheMs: deps.readinessCacheMs });
   await app.register(identityRoutes);
+  await app.register(agenciesRoutes);
   return app;
 }

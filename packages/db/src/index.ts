@@ -15,6 +15,7 @@ export { type Listener, type ListenOptions, listen } from './listen';
 export { DB_ROLES, type DbRoleName, type RuntimeRole } from './roles';
 export { checkRls } from './tenancy/guard';
 export {
+  type AuthAccess,
   type GlobalTable,
   mergeRegistries,
   type PolicyKind,
@@ -27,6 +28,7 @@ export {
 export { applyRls, expectedPolicies, generateRlsSql, helperSql, tablesSql } from './tenancy/rls';
 export {
   type SystemOptions,
+  setAuthScope,
   type TenantScope,
   withAuth,
   withPublicRead,

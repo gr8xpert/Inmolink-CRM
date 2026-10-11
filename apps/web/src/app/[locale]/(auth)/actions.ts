@@ -51,6 +51,8 @@ export async function signupAction(_prev: FormState, form: FormData): Promise<Fo
     email: field(form, 'email'),
     password: field(form, 'password'),
     name: field(form, 'name'),
+    accountKind: field(form, 'accountKind'),
+    companyName: field(form, 'companyName'),
     // The route locale becomes the account's UI and email language.
     locale: await getLocale(),
   });

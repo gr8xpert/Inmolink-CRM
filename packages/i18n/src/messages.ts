@@ -1,4 +1,5 @@
 import type auth from '../messages/en/auth.json';
+import type onboarding from '../messages/en/onboarding.json';
 
 /**
  * Shape of the UI messages, one namespace per file in `messages/en/` (EN is the source of truth).
@@ -7,6 +8,7 @@ import type auth from '../messages/en/auth.json';
  */
 export interface Messages {
   auth: typeof auth;
+  onboarding: typeof onboarding;
 }
 
 export type Namespace = keyof Messages;

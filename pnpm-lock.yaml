@@ -32,6 +32,9 @@ importers:
       '@inmolink/config':
         specifier: workspace:*
         version: link:packages/config
+      '@inmolink/contracts':
+        specifier: workspace:*
+        version: link:packages/contracts
       '@inmolink/db':
         specifier: workspace:*
         version: link:packages/db

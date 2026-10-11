@@ -15,7 +15,8 @@ function cell(value: CopyValue): string {
 }
 
 /**
- * Idempotent bulk insert for seeds: skips rows whose `id` already exists, COPYs the rest straight
+ * Idempotent bulk insert for seeds: skips rows whose key (the first column: `id`, or another unique
+ * uuid column such as `agency_id` / `user_id`) already exists, COPYs the rest straight
  * into `table`. Runs inside the caller's transaction (`withSystemClient`). Seeds use deterministic
  * IDs, so a re-run finds every row and copies nothing. Feeds use staging + MERGE instead (§13).
  */
@@ -26,11 +27,15 @@ export async function copyNewRows(
   rows: readonly (readonly CopyValue[])[],
 ): Promise<number> {
   for (const name of [table, ...columns]) if (!IDENT.test(name)) throw new TypeError(`bad identifier ${name}`);
-  if (columns[0] !== 'id') throw new TypeError('copyNewRows: the first column must be id');
+  const key = columns[0];
+  if (!key) throw new TypeError('copyNewRows: the first column must be a unique uuid key');
   if (rows.length === 0) return 0;
 
   const ids = rows.map((r) => r[0] as string);
-  const existing = await client.query<{ id: string }>(`select id from ${table} where id = any($1::uuid[])`, [ids]);
+  const existing = await client.query<{ id: string }>(
+    `select ${key} as id from ${table} where ${key} = any($1::uuid[])`,
+    [ids],
+  );
   const skip = new Set(existing.rows.map((r) => r.id));
   const fresh = rows.filter((r) => !skip.has(r[0] as string));
   if (fresh.length === 0) return 0;

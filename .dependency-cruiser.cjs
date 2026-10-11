@@ -11,7 +11,7 @@
 
 const TESTS = '(\\.(test|spec|int\\.test)\\.tsx?$|/__tests__/|^(packages|apps)/[^/]+/test/|^tests/)';
 const APP_TESTS = '^apps/([^/]+/test/|.*(\\.(test|spec|int\\.test)\\.tsx?$|/__tests__/))';
-const CORE_PUBLIC = '^packages/core/src/(index|modules/[^/]+/index)\\.ts$';
+const CORE_PUBLIC = '^packages/core/src/(index|modules/[^/]+/index|testing/factories)\\.ts$';
 const APP_PACKAGES = '^packages/(core|contracts|platform|ui|i18n|config)/';
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -39,6 +39,13 @@ module.exports = {
         'Outside @inmolink/core, import `@inmolink/core` or `@inmolink/core/modules/<module>` (its index.ts) only.',
       from: { pathNot: '^packages/core/' },
       to: { path: '^packages/core/', pathNot: CORE_PUBLIC },
+    },
+    {
+      name: 'core-test-factories-in-tests-only',
+      severity: 'error',
+      comment: '`@inmolink/core/test` (factories through the real services) is for tests only.',
+      from: { pathNot: [TESTS, '^packages/core/src/testing/'] },
+      to: { path: '^packages/core/src/testing/' },
     },
     {
       name: 'apps-infra-via-platform',

@@ -60,6 +60,7 @@
     "@inmolink/app-web": "workspace:*",
     "@inmolink/app-worker": "workspace:*",
     "@inmolink/config": "workspace:*",
+    "@inmolink/contracts": "workspace:*",
     "@inmolink/db": "workspace:*",
     "@inmolink/i18n": "workspace:*",
     "@inmolink/platform": "workspace:*",

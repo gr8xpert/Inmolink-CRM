@@ -1,4 +1,12 @@
-import { getPgClient, type TenantTable, type Tx, withAuth, withPublicRead, withTenant } from '@inmolink/db';
+import {
+  getPgClient,
+  setAuthScope,
+  type TenantTable,
+  type Tx,
+  withAuth,
+  withPublicRead,
+  withTenant,
+} from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
@@ -14,6 +22,7 @@ import {
   insertSql,
   type Row,
   seed,
+  sqlState,
   withReplicaRole,
 } from './rows';
 
@@ -23,6 +32,7 @@ import {
  */
 
 const DENIED = ['42501']; // insufficient_privilege: missing grant or RLS WITH CHECK violation
+const FK_VIOLATION = '23503';
 
 /** Runs `fn` as the tenant and rolls the transaction back (positive controls leave no rows). */
 class Rollback extends Error {}
@@ -228,35 +238,82 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     await asAppPublic((client) => expectNoPublicWrites(client, table, build({ agency_id: a }), 'agency_id'));
   });
 
-  if (!def.appendOnly) {
-    it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
-      // Proves the cross-tenant denials above come from the policies, not from a missing grant.
+  if (!def.appendOnly && def.singleRow) {
+    it(`[S1-01] ${table}: positive control — tenant B can update its own (single) row`, async () => {
+      // One row per agency: inserting a second one would hit the key, so prove the grant by updating.
       await rolledBack(b, async (tx) => {
-        expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
         const res = await tx.execute(
           sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
         );
-        expect(res.rowCount).toBe(2);
+        expect(res.rowCount).toBe(1);
+      });
+    });
+  } else if (!def.appendOnly) {
+    it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
+      // Proves the cross-tenant denials above come from the policies, not from a missing grant.
+      await rolledBack(b, async (tx) => {
+        // In a savepoint: a table whose parents the suite does not create (FK to agencies, users)
+        // fails the insert with 23503 — which the FK trigger raises only after RLS let the row through.
+        const inserted = await tx
+          .transaction(async (sp) => (await sp.execute(insertSql(table, build({ agency_id: b })))).rowCount)
+          .catch((err: unknown) => {
+            if (sqlState(err) === FK_VIOLATION) return 0;
+            throw err;
+          });
+        const res = await tx.execute(
+          sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
+        );
+        expect(res.rowCount).toBe(1 + (inserted ?? 0));
       });
       expect(await adminCount(b)).toBe(1);
     });
   }
 
-  it(`[S0-09] ${table}: app_auth cannot read, update or delete it`, async () => {
-    await expectSqlState(() => withAuth((tx) => count(tx, table, a)), DENIED);
-    await expectSqlState(
-      () =>
-        withAuth((tx) =>
-          tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
-        ),
-      DENIED,
-    );
-    await expectSqlState(
-      () => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
-      DENIED,
-    );
-    expect(await adminCount(a)).toBe(visible.length + hidden.length);
-  });
+  const auth = def.auth;
+  if (auth) {
+    // Sign-up / token flows (S1-01): app_auth reaches only rows pinned by `setAuthScope`. Unscoped it
+    // sees and changes nothing; scoped to tenant B (and a stranger user) it cannot touch tenant A.
+    const scopes = [{}, { agencyId: b, userId: newId() }];
+    it(`[S1-01] ${table}: app_auth, unscoped or scoped to another tenant, cannot read, update or delete tenant A's rows`, async () => {
+      for (const scope of scopes) {
+        const inScope = <T>(fn: (tx: Tx) => Promise<T>) =>
+          withAuth(async (tx) => {
+            await setAuthScope(tx, scope);
+            return fn(tx);
+          });
+        if (auth.select) expect(await inScope((tx) => count(tx, table, a))).toBe(0);
+        else await expectSqlState(() => inScope((tx) => count(tx, table, a)), DENIED);
+        const update = () =>
+          inScope((tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+          );
+        if (auth.update && auth.select) expect((await update()).rowCount).toBe(0);
+        else await expectSqlState(update, DENIED);
+        await expectSqlState(
+          () => inScope((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
+          DENIED,
+        );
+        await expectSqlState(() => inScope((tx) => tx.execute(insertSql(table, build({ agency_id: a })))), DENIED);
+      }
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+    });
+  } else {
+    it(`[S0-09] ${table}: app_auth cannot read, update or delete it`, async () => {
+      await expectSqlState(() => withAuth((tx) => count(tx, table, a)), DENIED);
+      await expectSqlState(
+        () =>
+          withAuth((tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+          ),
+        DENIED,
+      );
+      await expectSqlState(
+        () => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
+        DENIED,
+      );
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
+    });
+  }
 
   it(`[S0-09] ${table}: app_auth cannot insert a tenant's row`, async () => {
     await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build({ agency_id: a })))), DENIED);

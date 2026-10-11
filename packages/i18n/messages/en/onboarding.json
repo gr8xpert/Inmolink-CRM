@@ -1,0 +1,58 @@
+{
+  "title": "Your company details",
+  "intro": "We need these details to verify your company. Until then your account is pending: you can add listings and contacts, but not share or publish them.",
+  "status": {
+    "PENDING": "Pending verification",
+    "VERIFIED": "Verified",
+    "SUSPENDED": "Suspended"
+  },
+  "fields": {
+    "name": "Company name",
+    "taxId": "CIF / NIF / NIE",
+    "taxIdHint": "Company CIF (e.g. B12345674), or NIF/NIE for a self-employed agent.",
+    "addressLine": "Address",
+    "city": "City",
+    "postalCode": "Postal code",
+    "region": "Region",
+    "languages": "Languages you work in"
+  },
+  "regions": {
+    "ES-AN": "Andalusia",
+    "ES-AR": "Aragon",
+    "ES-AS": "Asturias",
+    "ES-CB": "Cantabria",
+    "ES-CE": "Ceuta",
+    "ES-CL": "Castile and León",
+    "ES-CM": "Castile-La Mancha",
+    "ES-CN": "Canary Islands",
+    "ES-CT": "Catalonia",
+    "ES-EX": "Extremadura",
+    "ES-GA": "Galicia",
+    "ES-IB": "Balearic Islands",
+    "ES-MC": "Region of Murcia",
+    "ES-MD": "Community of Madrid",
+    "ES-ML": "Melilla",
+    "ES-NC": "Navarre",
+    "ES-PV": "Basque Country",
+    "ES-RI": "La Rioja",
+    "ES-VC": "Valencian Community"
+  },
+  "languages": {
+    "es": "Spanish",
+    "en": "English",
+    "nl": "Dutch",
+    "de": "German",
+    "fr": "French",
+    "sv": "Swedish"
+  },
+  "submit": "Save company details",
+  "saved": "Saved. Our team will review your company shortly.",
+  "errors": {
+    "invalidInput": "Please check the highlighted fields.",
+    "taxIdFormat": "This is not a Spanish CIF, NIF or NIE. Example: B12345674.",
+    "taxIdControl": "The last digit or letter does not match the number. Please check it for typos.",
+    "conflict": "Someone else changed these details meanwhile. Reload the page and try again.",
+    "forbidden": "Only an administrator of your company can change these details.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

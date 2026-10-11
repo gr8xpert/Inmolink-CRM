@@ -4,6 +4,7 @@
  * seed (COPY-based, §4.1 ratios). Seeders run in this order, so later ones may reference earlier
  * ones' deterministic IDs (`seededId(seed, '<namespace>', i)`).
  */
+import { agenciesSeeder } from './agencies';
 import { identityUsers } from './identity';
 
 export interface Login {
@@ -42,4 +43,4 @@ export interface Seeder {
   scale(options: ScaleSeedOptions): Promise<SeedResult>;
 }
 
-export const SEEDERS: readonly Seeder[] = [identityUsers];
+export const SEEDERS: readonly Seeder[] = [identityUsers, agenciesSeeder];
