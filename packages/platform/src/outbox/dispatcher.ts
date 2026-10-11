@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { Logger } from '../logger';
 import { withConsumerSpan } from '../telemetry/context';
 import type { SqlExecutor } from './emit';
-import { defaultSubscribers, type EventMeta, type SubscriberRegistry } from './events';
+import { defaultSubscribers, type EventMeta, isDeclaredEvent, type SubscriberRegistry } from './events';
 
 /** `withSystem` from `@inmolink/db`, injected so platform does not depend on db. */
 export type RunSystem = <T>(reason: string, fn: (tx: SqlExecutor) => Promise<T>) => Promise<T>;
@@ -17,6 +17,12 @@ export interface DispatcherOptions {
   listen?: ListenFn;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   subscribers?: SubscriberRegistry;
+  /**
+   * Whether this process knows `type@version` (default: its `defineEvent` was loaded). A known event
+   * with no subscriber is done; an unknown one (newer deploy, module not wired into the worker) is
+   * retried with backoff and dead-lettered after `maxAttempts`, never silently marked processed.
+   */
+  isKnown?: (type: string, version: number) => boolean;
   /** Rows claimed per round. */
   batchSize?: number;
   /**
@@ -125,6 +131,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     runSystem,
     logger,
     subscribers = defaultSubscribers,
+    isKnown = isDeclaredEvent,
     batchSize = 500,
     lanes = 4,
     concurrency = 200,
@@ -209,7 +216,10 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
   async function deliverRow(row: ClaimedRow): Promise<Outcome & { ok: boolean; dead: boolean }> {
     const base = { id: row.id, attempts: row.attempts };
     const subs = subscribers.get(row.type, row.version);
-    if (subs.length === 0) return { ...base, ok: true, dead: false };
+    if (subs.length === 0) {
+      if (isKnown(row.type, row.version)) return { ...base, ok: true, dead: false };
+      return failed(row, `${row.type}@${row.version} is not defined in this process`);
+    }
     const parsed = (subs[0] as (typeof subs)[number]).def.schema.safeParse(row.payload);
     if (!parsed.success) {
       return { ...base, ok: false, dead: true, error: `invalid payload: ${errorText(parsed.error)}` };
@@ -238,9 +248,13 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
       errors.push(errorText(err));
     }
     if (errors.length === 0) return { ...base, ok: true, dead: false };
-    const error = errors.join('; ').slice(0, MAX_ERROR_LENGTH);
-    if (row.attempts >= maxAttempts) return { ...base, ok: false, dead: true, error };
-    return { ...base, ok: false, dead: false, error, delayMs: backoffMs(row.attempts) };
+    return failed(row, errors.join('; '));
+  }
+
+  function failed(row: ClaimedRow, message: string): Outcome & { ok: boolean; dead: boolean } {
+    const base = { id: row.id, attempts: row.attempts, error: message.slice(0, MAX_ERROR_LENGTH) };
+    if (row.attempts >= maxAttempts) return { ...base, ok: false, dead: true };
+    return { ...base, ok: false, dead: false, delayMs: backoffMs(row.attempts) };
   }
 
   async function acknowledge(done: Outcome[], retry: Outcome[], dead: Outcome[]): Promise<void> {
@@ -301,7 +315,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
                                           * interval '1 millisecond'
              limit ${PRUNE_BATCH}
           )
-          delete from outbox_events o using old where o.id = old.id
+          delete from outbox_events where id = any(array(select id from old))
           returning 1 as n`),
       );
       total += rows.length;

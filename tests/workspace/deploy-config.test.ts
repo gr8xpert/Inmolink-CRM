@@ -104,6 +104,34 @@ describe('edge and access', () => {
     'all.yml',
   );
 
+  it('[S0-15] every env variable an app requires is set by its Kamal config (clear or secret)', async () => {
+    const appEnv: Record<string, () => Promise<Record<string, { safeParse(v: unknown): { success: boolean } }>>> = {
+      api: async () => (await import('../../apps/api/src/config')).apiEnv,
+      'feed-api': async () => (await import('../../apps/feed-api/src/config')).feedApiEnv,
+      realtime: async () => (await import('../../apps/realtime/src/config')).realtimeEnv,
+      worker: async () => (await import('../../apps/worker/src/config')).workerEnv,
+      web: async () => (await import('../../apps/web/src/server/env')).webEnv,
+    };
+    // Set by the app itself (web forces APP_ROLE=http).
+    const SET_IN_CODE: Record<string, string[]> = { web: ['APP_ROLE'] };
+    const missing: string[] = [];
+    for (const [app, load] of Object.entries(appEnv)) {
+      const schema = await load();
+      for (const d of DESTS) {
+        const provided = new Set([
+          ...Object.keys(kamal(app).env.clear),
+          ...Object.keys(dest(app, d).env?.clear ?? {}),
+          ...kamal(app).env.secret,
+          ...(SET_IN_CODE[app] ?? []),
+        ]);
+        for (const [key, field] of Object.entries(schema)) {
+          if (!provided.has(key) && !field.safeParse(undefined).success) missing.push(`${app}.${d}: ${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  }, 60_000); // imports five apps' config modules (core, platform)
+
   it('[S0-15] behind Cloudflare, apps trust exactly kamal-proxy + Cloudflare (the origin lock allows the same ranges)', () => {
     expect(groupVars.cloudflare_ips.length).toBeGreaterThan(10);
     for (const app of APPS.filter((a) => a !== 'worker')) {

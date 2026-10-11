@@ -46,6 +46,8 @@ env:
     APP_ROLE: "http"
     PORT: "3000"
     HOSTNAME: "0.0.0.0"
+    # Login rate limits; the api's redis-cache accessory on the same kamal network.
+    REDIS_CACHE_URL: "redis://inmolink-api-redis-cache:6379"
   secret:
     - RELEASE
     - SENTRY_DSN
@@ -53,3 +55,4 @@ env:
     - AUTH_SECRET
     - AUTH_JWT_PRIVATE_KEY
     - AUTH_JWT_KEY_ID
+    - HMAC_KEY

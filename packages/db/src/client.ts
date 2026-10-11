@@ -3,7 +3,6 @@ import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import type { RuntimeRole } from './roles';
-import * as schema from './schema';
 
 /**
  * One pg pool + Drizzle instance per runtime role, created on first use (PLAN §3 #50).
@@ -18,7 +17,11 @@ export const dbEnv = { ...coreEnv, ...databaseEnv };
 export type DbConfig = Pick<Config<typeof dbEnv>, 'APP_ROLE'> &
   Partial<Pick<Config<typeof dbEnv>, keyof typeof databaseEnv>>;
 
-export type Db = NodePgDatabase<typeof schema> & { $client: pg.Pool };
+/**
+ * No schema is passed to Drizzle, so there is no `tx.query.<table>`: a repo can only query tables it
+ * imports, which keeps `module-own-schema-only` in the boundary check meaningful (golden rule 3).
+ */
+export type Db = NodePgDatabase & { $client: pg.Pool };
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const ROLE_URL: Record<RuntimeRole, keyof typeof databaseEnv> = {
@@ -85,7 +88,7 @@ export function getDb(role: RuntimeRole): Db {
     pool.on('connect', (client) => {
       client.on('error', (err) => dbLogger().warn({ err, role }, 'pg client error'));
     });
-    db = drizzle({ client: pool, schema });
+    db = drizzle({ client: pool });
     dbs.set(role, db);
   }
   return db;

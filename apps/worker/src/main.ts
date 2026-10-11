@@ -9,6 +9,7 @@ import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { startWorker } from './app';
 import { emailConfig, loadWorkerConfig } from './config';
 import { POOL_JOBS } from './processors';
+import { registerSubscriptions } from './subscriptions';
 
 loadStackEnv('dev', { allowExample: false });
 const config = loadWorkerConfig();
@@ -33,7 +34,7 @@ try {
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureEmail(emailConfig(config));
   identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
-  identity.registerIdentitySubscriptions();
+  registerSubscriptions();
 
   const worker = await startWorker({
     logger,

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { barrelEdits, type ModuleNames, moduleFiles, moduleNames } from './module-templates';
 
 const API_APP = 'apps/api/src/app.ts';
+const WORKER_MODULES = 'apps/worker/src/subscriptions.ts';
 const NL = '\n';
 
 export interface GenerateOptions {
@@ -37,6 +38,7 @@ export function generateModule(root: string, name: string, opts: GenerateOptions
     if (updated !== null) edits[edit.path] = updated;
   }
   if (opts.routes) edits[API_APP] = withRoutes(readFileSync(resolve(root, API_APP), 'utf8'), n);
+  edits[WORKER_MODULES] = withWorkerModule(readFileSync(resolve(root, WORKER_MODULES), 'utf8'), n);
 
   for (const [path, content] of Object.entries({ ...files, ...edits })) {
     const abs = resolve(root, path);
@@ -68,6 +70,28 @@ function withRoutes(source: string, n: ModuleNames): string {
   const indent = /^\s*/.exec(lines[lastRegister] ?? '')?.[0] ?? '  ';
   lines.splice(lastRegister + 1, 0, `${indent}await app.register(${n.camel}Routes);`);
   lines.splice(lastImportEnd + 1, 0, `import { ${n.camel}Routes } from './routes/${n.kebab}/routes';`);
+  return lines.join(NL);
+}
+
+/**
+ * Adds the module to the worker's `MODULES`, so its events.ts loads in the dispatcher process (an event
+ * type the dispatcher does not know is retried, never marked processed).
+ */
+function withWorkerModule(source: string, n: ModuleNames): string {
+  const open = 'export const MODULES = {';
+  const start = source.indexOf(open);
+  const end = start < 0 ? -1 : source.indexOf('} as const;', start);
+  if (end < 0) throw new Error(`${WORKER_MODULES}: no "export const MODULES = { … } as const;" to extend.`);
+  const entries = source
+    .slice(start + open.length, end)
+    .trim()
+    .replace(/,$/, '');
+  const entry = n.kebab === n.camel ? n.camel : `'${n.kebab}': ${n.camel}`;
+  const lines = `${source.slice(0, start)}${open} ${entries ? `${entries}, ` : ''}${entry} ${source.slice(end)}`.split(
+    NL,
+  );
+  const lastImportEnd = lines.findLastIndex((l) => /\bfrom '[^']+';$/.test(l));
+  lines.splice(lastImportEnd + 1, 0, `import * as ${n.camel} from '@inmolink/core/modules/${n.kebab}';`);
   return lines.join(NL);
 }
 

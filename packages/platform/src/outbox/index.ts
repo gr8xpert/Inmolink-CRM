@@ -28,6 +28,7 @@ export {
   type EventHandler,
   type EventMeta,
   type EventPayload,
+  isDeclaredEvent,
   type OutboxMessage,
   type Subscriber,
   SubscriberRegistry,

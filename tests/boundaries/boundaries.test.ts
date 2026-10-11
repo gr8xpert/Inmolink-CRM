@@ -58,7 +58,11 @@ describe('module scaffolder and boundaries', () => {
         'packages/db/src/schema/index.ts',
         'packages/contracts/src/index.ts',
         'apps/api/src/app.ts',
+        'apps/worker/src/subscriptions.ts',
       ]),
+    );
+    expect(readFileSync(join(sb.root, 'apps/worker/src/subscriptions.ts'), 'utf8')).toContain(
+      "'probe-listings': probeListings",
     );
     expect(readFileSync(join(sb.root, 'apps/api/src/app.ts'), 'utf8')).toContain(
       'await app.register(probeListingsRoutes);',
@@ -68,6 +72,7 @@ describe('module scaffolder and boundaries', () => {
     const results = [
       ...(await Promise.all([sb.typecheck('packages/core'), sb.typecheck('apps/api')])),
       ...(await Promise.all([sb.typecheck('packages/db'), sb.typecheck('packages/contracts')])),
+      ...(await Promise.all([sb.typecheck('apps/worker')])),
       ...(await Promise.all([sb.biome(touched), sb.boundaries()])),
     ];
     for (const r of results) expect(r, r.output).toMatchObject({ code: 0 });

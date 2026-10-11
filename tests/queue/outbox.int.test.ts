@@ -140,6 +140,30 @@ describe('outbox', () => {
     expect(seen).toEqual([7]);
   });
 
+  it('[S0-06] an event type this process does not define is retried and dead-lettered, never marked processed', async () => {
+    // A row from a newer deploy (or a module the worker does not load): no defineEvent here.
+    const unknown = { type: `test.${run}.unknown`, version: 1, payload: { n: 1 } };
+    await withSystem('test', (tx) => emit(tx, unknown));
+    const dispatcher = createDispatcher({
+      runSystem,
+      logger: log,
+      subscribers: new SubscriberRegistry(),
+      maxAttempts: 2,
+      backoffMs: () => 0,
+    });
+
+    await waitFor(async () => {
+      await dispatcher.runOnce();
+      return (await pendingOf([unknown.type])) === 0;
+    });
+    const { rows } = await withSystem('test', (tx) =>
+      tx.execute(sql`select attempts, dead_at is not null as dead, last_error from outbox_events
+                       where type = ${unknown.type}`),
+    );
+    expect(rows[0]).toMatchObject({ attempts: 2, dead: true });
+    expect(String(rows[0]?.last_error)).toContain('is not defined in this process');
+  });
+
   it('[S0-06] NOTIFY wakes an idle dispatcher immediately (polling is only a fallback)', async () => {
     const agencyId = newId();
     const subscribers = new SubscriberRegistry();

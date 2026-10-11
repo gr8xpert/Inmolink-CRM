@@ -45,6 +45,14 @@ export interface Subscriber {
 
 const key = (type: string, version: number) => `${type}@${version}`;
 
+/** Every `type@version` defined in this process. The dispatcher retries rows of any other type. */
+const declared = new Set<string>();
+
+/** True when this process loaded the event's definition (its module's events.ts). */
+export function isDeclaredEvent(type: string, version: number): boolean {
+  return declared.has(key(type, version));
+}
+
 /**
  * Defines a versioned event (PATTERNS §8). A breaking payload change is a new version; keep
  * the old definition until no row of it is pending, so the dispatcher can still parse it.
@@ -52,6 +60,7 @@ const key = (type: string, version: number) => `${type}@${version}`;
 export function defineEvent<S extends z.ZodType>(type: string, version: number, schema: S): EventDef<S> {
   if (!EVENT_TYPE.test(type)) throw new TypeError(`defineEvent: invalid event type ${JSON.stringify(type)}`);
   if (!Number.isInteger(version) || version < 1) throw new TypeError(`defineEvent: version must be a positive integer`);
+  declared.add(key(type, version));
   const build = (payload: z.input<S>): OutboxMessage<z.output<S>> => ({
     type,
     version,

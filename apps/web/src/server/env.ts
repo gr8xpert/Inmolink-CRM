@@ -39,7 +39,11 @@ export type WebConfig = Config<typeof webEnv>;
 
 let ready: Promise<WebConfig> | undefined;
 
-async function setup(): Promise<WebConfig> {
+/**
+ * Reads and checks the env without connecting anything. `instrumentation.node.ts` calls it at boot,
+ * so a missing variable stops the container instead of failing every login after a green deploy.
+ */
+export function loadWebConfig(): WebConfig {
   loadStackEnv('dev', { allowExample: false });
   // The web server is a request path: `withSystem` stays refused (APP_ROLE=http).
   const config = loadConfig(webEnv, { ...process.env, APP_ROLE: 'http' });
@@ -47,6 +51,11 @@ async function setup(): Promise<WebConfig> {
     // Next has no socket address: without a trusted proxy hop, X-Forwarded-For is client-controlled.
     throw new ConfigError([{ key: 'TRUST_PROXY', message: 'must name the proxy in front of web in production' }]);
   }
+  return config;
+}
+
+async function setup(): Promise<WebConfig> {
+  const config = loadWebConfig();
   const logger = createLogger({ service: 'web', level: config.LOG_LEVEL });
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_AUTH: config.DATABASE_URL_APP_AUTH }, { logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
