@@ -1,0 +1,95 @@
+import { authCtx } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
+import { newId } from '@inmolink/platform/ids';
+import { Button } from '@inmolink/ui';
+import { getLocale, getTranslations } from 'next-intl/server';
+import QRCode from 'qrcode';
+import { auth } from '@/auth';
+import { getPathname, redirect } from '@/i18n/navigation';
+import { webConfig } from '@/server/env';
+import { twoFactorErrors } from '@/server/form-errors';
+import { logoutAction } from '../actions';
+import { challengeAction, enrolAction } from './actions';
+import { CodeForm } from './code-form';
+
+/**
+ * Second factor (S1-04). Enabled → the login challenge. Not enabled → enrolment: required for staff
+ * and admins (their mints are refused until then), optional for others (`?setup=1` from the security
+ * page). A session that already passed goes on to the dashboard.
+ */
+export default async function TwoFactorPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const locale = await getLocale();
+  const session = await auth();
+  if (!session?.user?.id) return redirect({ href: '/login', locale });
+  await webConfig();
+  const userId = session.user.id;
+  const status = await identity.getTwoFactorStatus(authCtx(newId()), { userId });
+  const setup = (await searchParams).setup === '1';
+  if (status.enabled ? session.user.mfaVerified : !status.required && !setup) return redirect({ href: '/', locale });
+
+  const t = await getTranslations('security');
+  const errors = await twoFactorErrors();
+  const logout = (
+    <form action={logoutAction} className="mt-4">
+      <Button type="submit" variant="outline" size="sm">
+        {t('challenge.logout')}
+      </Button>
+    </form>
+  );
+
+  if (status.enabled) {
+    return (
+      <>
+        <h1 className="mb-2 text-xl font-semibold">{t('challenge.title')}</h1>
+        <p className="mb-4 text-sm text-muted-foreground">{t('challenge.intro')}</p>
+        <CodeForm
+          action={challengeAction}
+          codeLabel={t('challenge.code')}
+          submitLabel={t('challenge.submit')}
+          rememberLabel={t('challenge.remember')}
+          errors={errors}
+        />
+        {logout}
+      </>
+    );
+  }
+
+  const { secret, uri } = await identity.startEnrolment(authCtx(newId()), { userId });
+  const qr = await QRCode.toString(uri, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+  return (
+    <>
+      <h1 className="mb-2 text-xl font-semibold">{t('enrol.title')}</h1>
+      <p className="mb-4 text-sm text-muted-foreground">
+        {status.required ? t('enrol.intro') : t('enrol.introOptional')}
+      </p>
+      <p className="mb-2 text-sm">{t('enrol.scan')}</p>
+      {/* biome-ignore lint/performance/noImgElement: a generated QR code as a data URL (nothing to optimise); an <img> keeps the SVG inert. */}
+      <img
+        src={`data:image/svg+xml;base64,${Buffer.from(qr).toString('base64')}`}
+        alt={t('enrol.qrAlt')}
+        width={192}
+        height={192}
+        className="mx-auto mb-2"
+      />
+      <p className="mb-4 text-center text-xs">
+        {t('enrol.secret')}:{' '}
+        <code data-testid="totp-secret" className="break-all font-mono">
+          {secret.replace(/(.{4})/g, '$1 ').trim()}
+        </code>
+      </p>
+      <CodeForm
+        action={enrolAction}
+        codeLabel={t('enrol.code')}
+        submitLabel={t('enrol.submit')}
+        errors={errors}
+        codes={{
+          title: t('enrol.codesTitle'),
+          intro: t('enrol.codesIntro'),
+          continueLabel: t('enrol.continue'),
+          continueHref: getPathname({ href: '/', locale }),
+        }}
+      />
+      {logout}
+    </>
+  );
+}

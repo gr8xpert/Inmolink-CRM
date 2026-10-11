@@ -2,7 +2,7 @@
 
 import { UpdateAgencyDetailsBody } from '@inmolink/contracts';
 import { auth } from '@/auth';
-import { saveAgencyDetails } from '@/server/api';
+import { saveAgencyDetails, sessionRef } from '@/server/api';
 
 /**
  * Onboarding form action (transport only): validate with the contract — so the CIF/NIF error can
@@ -44,10 +44,7 @@ export async function saveDetailsAction(prev: OnboardingState, form: FormData): 
     const error = reason === 'control' ? 'taxIdControl' : reason === 'format' ? 'taxIdFormat' : 'invalidInput';
     return { ...prev, error, fields, done: false };
   }
-  const res = await saveAgencyDetails(
-    { userId: session.user.id, sessionVersion: session.user.sessionVersion },
-    parsed.data,
-  );
+  const res = await saveAgencyDetails(sessionRef(session.user), parsed.data);
   if (res === 'revoked') return { revoked: true };
   if (res.ok) return { done: true, version: res.data.version };
   const code = res.error?.code;

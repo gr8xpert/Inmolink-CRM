@@ -23,11 +23,14 @@ export async function GET(request: Request): Promise<Response> {
     const dto = await identity.issueAccessToken(authCtx(newId()), {
       userId: session.user.id,
       sessionVersion: session.user.sessionVersion,
+      mfaVerified: session.user.mfaVerified,
       audience: audience.data,
     });
     return Response.json(dto, { headers: NO_STORE });
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return error(401, 'SESSION_REVOKED');
+    // The session still owes its second factor (S1-04): the client sends the user to /two-factor.
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return error(403, 'MFA_REQUIRED');
     throw err;
   }
 }

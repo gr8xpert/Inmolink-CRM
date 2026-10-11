@@ -24,6 +24,10 @@ export const identityEvents = {
     1,
     z.object({ agencyId: z.uuid(), userId: z.uuid(), role: MemberRole }),
   ),
+  /** 2FA was turned on, off, or a recovery code was used (S1-04): for the audit log (S1-08) and notices. */
+  twoFactorEnabled: defineEvent('identity.twoFactor.enabled', 1, UserRef),
+  twoFactorDisabled: defineEvent('identity.twoFactor.disabled', 1, UserRef),
+  recoveryCodeUsed: defineEvent('identity.twoFactor.recoveryCodeUsed', 1, UserRef),
   /** The member can no longer log in or reach the agency. */
   memberDeactivated: defineEvent('identity.member.deactivated', 1, z.object({ agencyId: z.uuid(), userId: z.uuid() })),
 };

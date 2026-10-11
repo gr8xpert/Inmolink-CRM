@@ -1,0 +1,46 @@
+{
+  "challenge": {
+    "title": "Verificación en dos pasos",
+    "intro": "Introduce el código de 6 dígitos de tu app de autenticación o uno de tus códigos de recuperación.",
+    "code": "Código",
+    "remember": "Recordar este navegador durante 30 días",
+    "submit": "Verificar",
+    "logout": "Cerrar sesión"
+  },
+  "enrol": {
+    "title": "Configura la verificación en dos pasos",
+    "intro": "El personal de Inmolink y los administradores de agencia deben proteger su cuenta con una app de autenticación (por ejemplo Google Authenticator, Microsoft Authenticator o 1Password).",
+    "introOptional": "Protege tu cuenta con una app de autenticación (por ejemplo Google Authenticator, Microsoft Authenticator o 1Password).",
+    "scan": "Escanea este código QR con la app o introduce la clave a mano:",
+    "qrAlt": "Código QR para tu app de autenticación",
+    "secret": "Clave de configuración",
+    "code": "Código de la app",
+    "submit": "Activar la verificación en dos pasos",
+    "codesTitle": "Guarda tus códigos de recuperación",
+    "codesIntro": "Cada código sirve una sola vez, por si pierdes el móvil. Guárdalos en un lugar seguro: no se volverán a mostrar.",
+    "continue": "Continuar"
+  },
+  "account": {
+    "title": "Seguridad",
+    "back": "Volver al panel",
+    "on": "La verificación en dos pasos está activada.",
+    "off": "La verificación en dos pasos está desactivada.",
+    "required": "Tu rol la exige, así que no se puede desactivar.",
+    "codesLeft": "{count, plural, =0 {No te quedan códigos de recuperación.} one {Te queda # código de recuperación.} other {Te quedan # códigos de recuperación.}}",
+    "setUp": "Configurar la verificación en dos pasos",
+    "regenerateTitle": "Nuevos códigos de recuperación",
+    "regenerateIntro": "Tus códigos de recuperación anteriores dejarán de funcionar.",
+    "regenerate": "Crear nuevos códigos de recuperación",
+    "disableTitle": "Desactivar la verificación en dos pasos",
+    "disable": "Desactivar",
+    "code": "Código actual",
+    "disabled": "La verificación en dos pasos está desactivada."
+  },
+  "errors": {
+    "invalid": "Ese código no es válido. Comprueba la hora de tu app o usa un código de recuperación.",
+    "input": "Introduce un código de 6 dígitos o un código de recuperación (xxxxx-xxxxx).",
+    "rateLimited": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.",
+    "forbidden": "Tu rol exige la verificación en dos pasos.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo."
+  }
+}

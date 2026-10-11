@@ -185,6 +185,7 @@ describe('S1-01 sign-up creates the agency-of-one', () => {
       userId: founded.userId,
       sessionVersion: 1,
       audience: 'api',
+      mfaVerified: true,
     });
     const claims = await verifier.verify(token, 'api');
     expect(claims.agency).toBe(founded.agencyId);

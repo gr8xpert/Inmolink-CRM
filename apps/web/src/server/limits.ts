@@ -28,6 +28,15 @@ export const LIMITS = {
   },
   resetSubmitIp: { name: 'password.reset.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
   inviteAcceptIp: { name: 'invite.accept.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
+  /**
+   * Second-factor codes (S1-04; challenge, enrolment, new recovery codes and turning 2FA off share these
+   * buckets), counted before any check: 5 per user per 5 minutes leaves a guesser
+   * (who already has the password) about one chance in 70,000 per window against 3 valid TOTP codes.
+   */
+  mfaUser: { name: 'auth.mfa.user', scope: 'user', limit: 5, windowSeconds: 5 * 60, failClosed: true },
+  /** Daily ceiling per user (security review M1): a slow, steady guesser stops at 20 a day. */
+  mfaUserDay: { name: 'auth.mfa.user-day', scope: 'user', limit: 20, windowSeconds: 24 * 60 * 60, failClosed: true },
+  mfaIp: { name: 'auth.mfa.ip', scope: 'ip', limit: 30, windowSeconds: 15 * 60, failClosed: true },
   tokenUser: { name: 'session.token.user', scope: 'user', limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 

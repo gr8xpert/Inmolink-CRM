@@ -35,6 +35,27 @@ export function canIssueAccessToken(
   return loginDecision(user, member) === 'ok' && user.sessionVersion === sessionVersion;
 }
 
+/**
+ * Second factor (S1-04, PLAN §3 #30 §12): required for staff and for agency admins (the admin role of
+ * either family: they manage members, keys and billing). Other roles may opt in.
+ */
+const MFA_REQUIRED_ROLES: readonly string[] = ['AGENCY_ADMIN', 'DEVELOPER_ADMIN'];
+
+export function requiresSecondFactor(
+  member: { role: string; deactivatedAt: Date | null } | null,
+  isStaff: boolean,
+): boolean {
+  return isStaff || (member !== null && !member.deactivatedAt && MFA_REQUIRED_ROLES.includes(member.role));
+}
+
+/**
+ * Whether a session must have passed the second factor before it gets an access token: always when 2FA
+ * is enabled (opted in or not), and when the role requires it — then a session without it must enrol.
+ */
+export function sessionNeedsSecondFactor(subject: { enrolled: boolean; required: boolean }): boolean {
+  return subject.enrolled || subject.required;
+}
+
 export type IdentityAction = 'identity.members.read' | 'identity.members.manage';
 
 /**

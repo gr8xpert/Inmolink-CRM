@@ -442,10 +442,16 @@ describe.each(globalNames)('global table %s', (table) => {
       .then((r) => Number(r.rows[0]?.n));
 
   if (def?.access === 'staff') {
-    it(`[S1-03] ${table}: staff table — tenants, app_auth and app_public cannot read it`, async () => {
+    it(`[S1-03] ${table}: staff table — tenants and app_public cannot read it`, async () => {
       await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
-      await expectSqlState(() => withAuth(seen), DENIED);
       await expectSqlState(() => withPublicRead(seen), DENIED);
+    });
+
+    it(`[S1-04] ${table}: app_auth sees only the row of the user its flow is scoped to`, async () => {
+      const owner = (await admin.query(`select user_id from "${table}" where ctid = $1::tid`, [ctid])).rows[0]?.user_id;
+      expect(await withAuth(seen)).toBe(0);
+      expect(await withAuth((tx) => setAuthScope(tx, { userId: notStaffUserId }).then(() => seen(tx)))).toBe(0);
+      expect(await withAuth((tx) => setAuthScope(tx, { userId: owner }).then(() => seen(tx)))).toBe(1);
     });
 
     it(`[S1-03] ${table}: app_staff sees only the row of the user it acts for, and writes nothing`, async () => {
@@ -472,8 +478,35 @@ describe.each(globalNames)('global table %s', (table) => {
       await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
     });
 
+    if (def.userScoped) {
+      it(`[S1-04] ${table}: user-scoped — app_auth unscoped or scoped to another user sees and changes nothing`, async () => {
+        expect(await withAuth(seen)).toBe(0);
+        await rolledBackAuth(async (tx) => {
+          await setAuthScope(tx, { userId: newId() });
+          expect(await seen(tx)).toBe(0);
+          const res = await tx.execute(
+            sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,
+          );
+          expect(res.rowCount).toBe(0);
+        });
+        await expectSqlState(
+          () =>
+            withAuth(async (tx) => {
+              await setAuthScope(tx, { userId: newId() });
+              await tx.execute(insertSql(table, build()));
+            }),
+          DENIED,
+        );
+      });
+    }
+
     it(`[S0-09] ${table}: positive control — app_auth reads and updates it`, async () => {
       await rolledBackAuth(async (tx) => {
+        if (def.userScoped) {
+          const owner = (await admin.query(`select user_id from "${table}" where ctid = $1::tid`, [ctid])).rows[0]
+            ?.user_id;
+          await setAuthScope(tx, { userId: owner });
+        }
         expect(await seen(tx)).toBe(1);
         const res = await tx.execute(
           sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,

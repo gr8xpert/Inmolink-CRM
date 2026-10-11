@@ -4,6 +4,7 @@ import { expect, type Page, test } from '@playwright/test';
 import pg from 'pg';
 import { waitForLink } from './mailpit';
 import { testStackEnv } from './stack';
+import { passTwoFactor } from './two-factor';
 
 const env = testStackEnv();
 const password = 'correct horse battery';
@@ -16,7 +17,8 @@ async function login(page: Page, email: string): Promise<void> {
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
-  await expect(page).toHaveURL(/\/en$/);
+  // Agency admins and staff must use 2FA (S1-04).
+  await passTwoFactor(page, email);
 }
 
 /** A staff login (no agency): staff are granted by a script, so the test writes the rows directly. */

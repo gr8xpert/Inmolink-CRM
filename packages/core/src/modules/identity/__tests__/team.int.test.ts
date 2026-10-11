@@ -112,7 +112,12 @@ describe('invites', () => {
     // The link proved the email: the new member can log in at once.
     const user = await identity.verifyCredentials(anon(), { email: sent.email, password: PASSWORD });
     expect(user.id).toBe(joined.userId);
-    const { token } = await identity.issueAccessToken(anon(), { ...joined, sessionVersion: 1, audience: 'api' });
+    const { token } = await identity.issueAccessToken(anon(), {
+      ...joined,
+      sessionVersion: 1,
+      audience: 'api',
+      mfaVerified: true,
+    });
     expect((await verifier.verify(token, 'api')).agency).toBe(admin.agencyId);
     const role = await as({ userId: joined.userId, agencyId: admin.agencyId }, async (ctx) => ctx.actor);
     expect(role).toMatchObject({ kind: 'user', role: 'AGENCY_ADMIN' });
@@ -340,7 +345,9 @@ describe('deactivation', () => {
       },
     );
     expect(await identity.isSessionValid(anon(), session)).toBe(false);
-    await expect(identity.issueAccessToken(anon(), { ...session, audience: 'api' })).rejects.toMatchObject({
+    await expect(
+      identity.issueAccessToken(anon(), { ...session, audience: 'api', mfaVerified: true }),
+    ).rejects.toMatchObject({
       code: 'SESSION_REVOKED',
     });
     // A token minted before the deactivation is refused at the next request.

@@ -32,8 +32,9 @@ import * as agencies from '../agencies';
 import * as billing from '../billing';
 import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
-import { assertCan, canIssueAccessToken, loginDecision } from './policy';
+import { assertCan, canIssueAccessToken, loginDecision, sessionNeedsSecondFactor } from './policy';
 import * as repo from './repo';
+import { isDeviceRemembered, isSecondFactorRequired } from './two-factor';
 
 /**
  * Anonymous auth flows (S0-09) and team management (S1-02). Inputs are already validated against the
@@ -170,12 +171,19 @@ export async function verifyEmail(ctx: AuthCtx, input: VerifyEmailInput): Promis
  * caller's job and must run before this. An unconfirmed email gets a fresh link and
  * `EMAIL_NOT_VERIFIED` — only after the password matched, so it reveals nothing to a guesser.
  */
-export async function verifyCredentials(ctx: AuthCtx, input: LoginInput): Promise<SessionUser> {
+export async function verifyCredentials(
+  ctx: AuthCtx,
+  input: LoginInput & {
+    /** The "remember this browser" cookie (S1-04), if any: a valid one skips the 2FA challenge. */
+    deviceToken?: string;
+  },
+): Promise<SessionUser> {
   const found = await ctx.transaction(async (tx) => {
     const user = await repo.findCredentialsByEmail(tx, input.email);
     if (!user) return null;
     await setAuthScope(tx, { userId: user.id });
-    return { user, member: await repo.findMembership(tx, user.id) };
+    const mfa = input.deviceToken ? await repo.findMfa(tx, user.id) : null;
+    return { user, member: await repo.findMembership(tx, user.id), mfaConfirmedAt: mfa?.confirmedAt ?? null };
   });
   const matches = found
     ? await verifyPassword(found.user.passwordHash, input.password)
@@ -200,6 +208,12 @@ export async function verifyCredentials(ctx: AuthCtx, input: LoginInput): Promis
     name: user.name,
     locale: user.locale,
     sessionVersion: user.sessionVersion,
+    mfaVerified: isDeviceRemembered({
+      userId: user.id,
+      sessionVersion: user.sessionVersion,
+      confirmedAt: found.mfaConfirmedAt,
+      token: input.deviceToken,
+    }),
   };
 }
 
@@ -235,6 +249,20 @@ async function loadSessionSubject(tx: Tx, userId: string) {
   return { user, member: await repo.findMembership(tx, userId) };
 }
 
+/** Whether this user's sessions must pass the second factor before minting (S1-04). */
+async function needsSecondFactor(
+  tx: Tx,
+  userId: string,
+  member: { role: string; deactivatedAt: Date | null } | null,
+): Promise<boolean> {
+  const enrolled = Boolean((await repo.findMfa(tx, userId))?.confirmedAt);
+  // Enrolled users need it whatever their role: skip the role lookup.
+  return sessionNeedsSecondFactor({
+    enrolled,
+    required: !enrolled && (await isSecondFactorRequired(tx, userId, member)),
+  });
+}
+
 /**
  * Whether a web session may continue: the user is active and verified, the session was not revoked
  * (password reset bumps `session_version`) and their agency did not deactivate them. Auth.js
@@ -251,18 +279,30 @@ export async function isSessionValid(
 /**
  * Mints a 15-minute access token for `api` or `realtime` from a web session. Re-checks the user and
  * their membership on every mint, so a password reset or deactivation ends API access at once (the
- * API also reads the membership per request).
+ * API also reads the membership per request). Every dashboard page and action reaches data through
+ * this mint, so it is where 2FA is enforced: `MFA_REQUIRED` until the session passed it (S1-04).
  */
 export async function issueAccessToken(
   ctx: AuthCtx,
-  input: { userId: string; sessionVersion: number; audience: Audience },
+  input: {
+    userId: string;
+    sessionVersion: number;
+    audience: Audience;
+    /** The web session passed the second factor (S1-04). */
+    mfaVerified: boolean;
+  },
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
-  const found = await ctx.transaction((tx) => loadSessionSubject(tx, input.userId));
-  if (!found || !canIssueAccessToken(found.user, input.sessionVersion, found.member)) {
-    throw new AppError('SESSION_REVOKED');
-  }
+  const found = await ctx.transaction(async (tx) => {
+    const subject = await loadSessionSubject(tx, input.userId);
+    if (!subject || !canIssueAccessToken(subject.user, input.sessionVersion, subject.member)) return null;
+    // Enrolled, staff or admin: no token until this session passed 2FA (enrolling if it has none).
+    if (!input.mfaVerified && (await needsSecondFactor(tx, input.userId, subject.member))) return 'mfa' as const;
+    return subject;
+  });
+  if (!found) throw new AppError('SESSION_REVOKED');
+  if (found === 'mfa') throw new AppError('MFA_REQUIRED');
   const { token, expiresAt } = await signer.sign({
     sub: input.userId,
     aud: input.audience,

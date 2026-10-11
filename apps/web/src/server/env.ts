@@ -14,13 +14,14 @@ import {
   redisEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
+import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { createAccessTokenSigner, privateKeyFromBase64 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { z } from 'zod';
 
 /**
  * Server-side setup for the dashboard (S0-09): Auth.js session secret, `app_auth` pool for the auth
- * flows, redis-cache for login rate limits, and the access-token signer. Loaded once, lazily, on the
+ * flows, redis-cache for login rate limits, the access-token signer and the keyring for TOTP secrets. Loaded once, lazily, on the
  * first request that needs it — never at build time.
  */
 export const webEnv = {
@@ -29,6 +30,9 @@ export const webEnv = {
   DATABASE_URL_APP_AUTH: databaseEnv.DATABASE_URL_APP_AUTH.unwrap(),
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   HMAC_KEY: cryptoEnv.HMAC_KEY,
+  /** TOTP secrets are stored encrypted (S1-04). */
+  ENCRYPTION_KEYS: cryptoEnv.ENCRYPTION_KEYS,
+  ENCRYPTION_ACTIVE_KEY_ID: cryptoEnv.ENCRYPTION_ACTIVE_KEY_ID,
   ...authSignEnv,
   ...webUrlEnv,
   /** Dashboard API base URL for server-side calls. */
@@ -65,6 +69,7 @@ async function setup(): Promise<WebConfig> {
       privateKey: privateKeyFromBase64(config.AUTH_JWT_PRIVATE_KEY),
       keyId: config.AUTH_JWT_KEY_ID,
     }),
+    keyring: keyringFromEnv(config),
   });
   return config;
 }

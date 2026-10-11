@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchMyAgency } from '@/server/api';
+import { fetchMyAgency, sessionRef } from '@/server/api';
 import { OnboardingForm } from './onboarding-form';
 
 /** Company details for staff verification (S1-01): name, CIF/NIF, address, region, languages. */
@@ -12,7 +12,7 @@ export default async function OnboardingPage() {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const res = await fetchMyAgency({ userId: session.user.id, sessionVersion: session.user.sessionVersion });
+  const res = await fetchMyAgency(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('onboarding');
   if (!res.ok) {

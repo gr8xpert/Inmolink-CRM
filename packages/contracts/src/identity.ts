@@ -73,8 +73,40 @@ export const SessionUser = z.object({
   name: z.string(),
   locale: z.string(),
   sessionVersion: z.number().int(),
+  /** The login already passed the second factor (a remembered browser, S1-04). */
+  mfaVerified: z.boolean(),
 });
 export type SessionUser = z.infer<typeof SessionUser>;
+
+/**
+ * A second-factor code (S1-04): a 6-digit TOTP code or a recovery code (`xxxxx-xxxxx`). Spaces and
+ * dashes are ignored; identity tells the two apart.
+ */
+export const TwoFactorCode = z
+  .string()
+  .transform((v) => v.replaceAll(/[\s-]/g, '').toLowerCase())
+  .pipe(z.string().regex(/^(?:\d{6}|[a-z2-7]{10})$/));
+export type TwoFactorCode = z.infer<typeof TwoFactorCode>;
+
+export const TwoFactorChallengeInput = z.object({
+  code: TwoFactorCode,
+  /** Skip the challenge on this browser for 30 days. */
+  rememberDevice: z.boolean().default(false),
+});
+export type TwoFactorChallengeInput = z.infer<typeof TwoFactorChallengeInput>;
+
+/** Enrolment, disabling and new recovery codes all need a current code (TOTP only for enrolment). */
+export const TwoFactorCodeInput = z.object({ code: TwoFactorCode });
+export type TwoFactorCodeInput = z.infer<typeof TwoFactorCodeInput>;
+
+/** What the security page and the challenge screen need to know. */
+export const TwoFactorStatusDto = z.object({
+  enabled: z.boolean(),
+  /** Staff and admins must use 2FA and cannot turn it off. */
+  required: z.boolean(),
+  recoveryCodesLeft: z.number().int(),
+});
+export type TwoFactorStatusDto = z.infer<typeof TwoFactorStatusDto>;
 
 export const Audience = z.enum(['api', 'realtime']);
 export type Audience = z.infer<typeof Audience>;

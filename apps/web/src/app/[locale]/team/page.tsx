@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchTeam } from '@/server/api';
+import { fetchTeam, sessionRef } from '@/server/api';
 import { changeRoleAction, deactivateAction, inviteAction, revokeInviteAction } from './actions';
 
 /** Roles an admin hands out (mirrors the identity policy; the API enforces it). */
@@ -22,7 +22,7 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const res = await fetchTeam({ userId: session.user.id, sessionVersion: session.user.sessionVersion });
+  const res = await fetchTeam(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('team');
   const format = await getFormatter();

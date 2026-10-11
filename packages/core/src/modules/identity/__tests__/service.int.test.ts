@@ -267,13 +267,18 @@ describe('identity password reset', () => {
   it('[S0-09] a password reset revokes existing sessions (no new access tokens for the old session)', async () => {
     const { email, password } = await signUpAndVerify();
     const user = await identity.verifyCredentials(ctx(), { email, password });
-    const before = await identity.issueAccessToken(ctx(), { userId: user.id, sessionVersion: 1, audience: 'api' });
+    const before = await identity.issueAccessToken(ctx(), {
+      userId: user.id,
+      sessionVersion: 1,
+      audience: 'api',
+      mfaVerified: true,
+    });
     await expect(verifier.verify(before.token, 'api')).resolves.toMatchObject({ sub: user.id, sv: 1 });
 
     const token = await requestReset(email);
     await identity.resetPassword(ctx(), { token, password: 'brand new password' });
     await expect(
-      identity.issueAccessToken(ctx(), { userId: user.id, sessionVersion: 1, audience: 'api' }),
+      identity.issueAccessToken(ctx(), { userId: user.id, sessionVersion: 1, audience: 'api', mfaVerified: true }),
     ).rejects.toMatchObject({ code: 'SESSION_REVOKED' });
     const again = await identity.verifyCredentials(ctx(), { email, password: 'brand new password' });
     expect(again.sessionVersion).toBe(2);

@@ -1,0 +1,46 @@
+{
+  "challenge": {
+    "title": "Two-step verification",
+    "intro": "Enter the 6-digit code from your authenticator app, or one of your recovery codes.",
+    "code": "Code",
+    "remember": "Remember this browser for 30 days",
+    "submit": "Verify",
+    "logout": "Log out"
+  },
+  "enrol": {
+    "title": "Set up two-step verification",
+    "intro": "Staff and agency admins must protect their account with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password).",
+    "introOptional": "Protect your account with an authenticator app (for example Google Authenticator, Microsoft Authenticator or 1Password).",
+    "scan": "Scan this QR code with the app, or enter the key by hand:",
+    "qrAlt": "QR code for your authenticator app",
+    "secret": "Setup key",
+    "code": "Code from the app",
+    "submit": "Turn on two-step verification",
+    "codesTitle": "Save your recovery codes",
+    "codesIntro": "Each code works once, if you lose your phone. Store them somewhere safe — they will not be shown again.",
+    "continue": "Continue"
+  },
+  "account": {
+    "title": "Security",
+    "back": "Back to the dashboard",
+    "on": "Two-step verification is on.",
+    "off": "Two-step verification is off.",
+    "required": "Your role requires it, so it cannot be turned off.",
+    "codesLeft": "{count, plural, =0 {No recovery codes left.} one {# recovery code left.} other {# recovery codes left.}}",
+    "setUp": "Set up two-step verification",
+    "regenerateTitle": "New recovery codes",
+    "regenerateIntro": "Your old recovery codes stop working.",
+    "regenerate": "Create new recovery codes",
+    "disableTitle": "Turn off two-step verification",
+    "disable": "Turn off",
+    "code": "Current code",
+    "disabled": "Two-step verification is off."
+  },
+  "errors": {
+    "invalid": "That code is not valid. Check your app's time, or use a recovery code.",
+    "input": "Enter a 6-digit code or a recovery code (xxxxx-xxxxx).",
+    "rateLimited": "Too many attempts. Please wait a few minutes and try again.",
+    "forbidden": "Your role requires two-step verification.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

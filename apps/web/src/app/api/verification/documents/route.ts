@@ -1,7 +1,11 @@
 import { DocumentFileName, VERIFICATION_DOCUMENT_MAX_BYTES, VerificationDocumentKind } from '@inmolink/contracts';
+import { authCtx } from '@inmolink/core';
+import * as identity from '@inmolink/core/modules/identity';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
+import { newId } from '@inmolink/platform/ids';
 import { auth } from '@/auth';
-import { uploadVerificationDocument } from '@/server/api';
+import { getPathname } from '@/i18n/navigation';
+import { sessionRef, uploadVerificationDocument } from '@/server/api';
 import { webConfig } from '@/server/env';
 
 /** Multipart overhead on top of the file (boundaries, part headers, the other fields). */
@@ -41,6 +45,15 @@ export async function POST(request: Request): Promise<Response> {
   }
   const session = await auth();
   if (!session?.user?.id) return Response.redirect(`${config.WEB_URL}/session/expired`, 303);
+  // A session that still owes 2FA (S1-04) would be refused at the mint: send it to the challenge with
+  // a 303 before reading the body (a 307 from the shared API helper would re-post the file there).
+  if (!session.user.mfaVerified) {
+    const status = await identity.getTwoFactorStatus(authCtx(newId()), { userId: session.user.id });
+    if (status.enabled || status.required) {
+      const path = getPathname({ href: '/two-factor', locale: DEFAULT_UI_LOCALE });
+      return Response.redirect(`${config.WEB_URL}${path}`, 303);
+    }
+  }
 
   const form = await request.formData().catch(() => null);
   const localeField = form?.get('locale');
@@ -53,7 +66,7 @@ export async function POST(request: Request): Promise<Response> {
   const name = DocumentFileName.safeParse(file.name);
 
   const res = await uploadVerificationDocument(
-    { userId: session.user.id, sessionVersion: session.user.sessionVersion },
+    sessionRef(session.user),
     { kind: kind.data, fileName: name.success ? name.data : 'document' },
     { bytes: new Uint8Array(await file.arrayBuffer()), contentType: file.type },
   );

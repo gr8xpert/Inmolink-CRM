@@ -147,6 +147,31 @@ describe('RLS generator', () => {
     ).toThrow(/appendOnly/);
   });
 
+  it('[S1-04] staff tables: app_auth reads only the row of the user its flow is scoped to, and writes nothing', () => {
+    const def = { reason: 'staff', access: 'staff' as const };
+    const sql = generateRlsSql({ tenant: {}, global: { staff_users: def } });
+    expect(sql).toContain(
+      `create policy auth_self on public."staff_users" for select to app_auth using (user_id = app_user_id());`,
+    );
+    expect(sql).toContain(`grant select on table public."staff_users" to app_auth, app_staff;`);
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}:${p.roles.join()}`)).toEqual([
+      'auth_self:SELECT:app_auth',
+      'staff_self:SELECT:app_staff',
+    ]);
+  });
+
+  it("[S1-04] userScoped auth tables: app_auth reaches only the scoped user's rows", () => {
+    const sql = generateRlsSql({
+      tenant: {},
+      global: { user_mfa: { reason: 'x', access: 'auth', userScoped: true }, users: { reason: 'x', access: 'auth' } },
+    });
+    expect(sql).toContain(
+      `create policy auth_rows on public."user_mfa" to app_auth using (user_id = app_user_id()) with check (user_id = app_user_id());`,
+    );
+    expect(sql).toContain(`create policy auth_rows on public."users" to app_auth using (true) with check (true);`);
+    expect(() => tablesSql({ tenant: {}, global: { g: { reason: 'x', userScoped: true } } })).toThrow(/userScoped/);
+  });
+
   it('[S1-03] staff predicates: app_staff gets gated policies and grants, never DELETE; staff tables show it only its own row', () => {
     const def = { kind: 'STRICT' as const, staff: { select: 'true', update: "status = 'SUBMITTED'" } };
     const sql = generateRlsSql({
@@ -170,12 +195,12 @@ describe('RLS generator', () => {
       'staff_update:UPDATE',
     ]);
     expect(expectedPrivileges({ kind: 'STRICT' }).app_staff).toEqual([]);
-    expect(sql).not.toMatch(/"staff_users"[^;]* to [^;]*app_(?:user|auth|public)(?![a-z_])/);
+    expect(sql).not.toMatch(/"staff_users"[^;]* to [^;]*app_(?:user|public)(?![a-z_])/);
     expect(expectedPrivileges({ reason: 'x', access: 'staff' })).toEqual({
       app_user: [],
       app_system: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'],
       app_public: [],
-      app_auth: [],
+      app_auth: ['SELECT'],
       app_staff: ['SELECT'],
     });
     expect(() => tablesSql({ tenant: {}, global: { g: { reason: 'x', access: 'staff', publicRead: true } } })).toThrow(

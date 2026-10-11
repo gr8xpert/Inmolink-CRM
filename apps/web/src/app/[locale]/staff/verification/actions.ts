@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import { decideVerification, fetchVerificationDocumentUrl } from '@/server/api';
+import { decideVerification, fetchVerificationDocumentUrl, sessionRef } from '@/server/api';
 
 /**
  * Staff verification actions (transport only, S1-03). The API decides who is staff; a 403 here means
@@ -24,7 +24,7 @@ async function back(id: string, query: Record<string, string>): Promise<never> {
 async function session() {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
-  return { userId: s.user.id, sessionVersion: s.user.sessionVersion };
+  return sessionRef(s.user);
 }
 
 const KNOWN_ERRORS = [

@@ -52,6 +52,7 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     }
   } else {
     if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
+    if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
   }
 }
 
@@ -61,7 +62,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     if (def.access === 'auth')
       return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT', 'INSERT', 'UPDATE'], app_staff: [] };
     if (def.access === 'staff')
-      return { app_user: [], app_system: DML, app_public: [], app_auth: [], app_staff: ['SELECT'] };
+      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT'], app_staff: ['SELECT'] };
     return {
       app_user: ['SELECT'],
       app_system: DML,
@@ -101,7 +102,12 @@ export interface PolicySpec {
 export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (!('kind' in def)) {
     if (def.access === 'auth') return [{ name: 'auth_rows', cmd: 'ALL', roles: ['app_auth'] }];
-    if (def.access === 'staff') return [{ name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] }];
+    if (def.access === 'staff') {
+      return [
+        { name: 'auth_self', cmd: 'SELECT', roles: ['app_auth'] },
+        { name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] },
+      ];
+    }
     return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
   }
   const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
@@ -228,19 +234,23 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
   const t = ident(name);
   assertValid(name, def);
   if (def.access === 'auth') {
+    // userScoped: the table needs a `user_id`; app_auth sees and writes only the scoped user's rows.
+    const rows = def.userScoped ? 'user_id = app_user_id()' : 'true';
     return [
-      `create policy auth_rows on ${t} to app_auth using (true) with check (true);`,
+      `create policy auth_rows on ${t} to app_auth using (${rows}) with check (${rows});`,
       `revoke all on table ${t} from ${APP_ROLES};`,
       `grant select, insert, update on table ${t} to app_auth;`,
       `grant select, insert, update, delete on table ${t} to app_system;`,
     ];
   }
   if (def.access === 'staff') {
-    // The table needs a `user_id`; app_staff sees only the staff member it acts for.
+    // The table needs a `user_id`; app_staff sees only the staff member it acts for, and app_auth only
+    // the user its flow is scoped to (`setAuthScope`) — the token mint requires 2FA for staff (S1-04).
     return [
+      `create policy auth_self on ${t} for select to app_auth using (user_id = app_user_id());`,
       `create policy staff_self on ${t} for select to app_staff using (user_id = app_user_id());`,
       `revoke all on table ${t} from ${APP_ROLES};`,
-      `grant select on table ${t} to app_staff;`,
+      `grant select on table ${t} to app_auth, app_staff;`,
       `grant select, insert, update, delete on table ${t} to app_system;`,
     ];
   }

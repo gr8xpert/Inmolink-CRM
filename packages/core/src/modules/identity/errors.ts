@@ -12,4 +12,7 @@ export const identityErrors = [
   'INVITE_EMAIL_IN_USE',
   'ALREADY_MEMBER',
   'VERIFICATION_REQUIRED',
+  'MFA_REQUIRED',
+  'MFA_CODE_INVALID',
+  'MFA_ALREADY_ENABLED',
 ] as const satisfies readonly ErrorCode[];

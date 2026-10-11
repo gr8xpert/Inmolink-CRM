@@ -29,6 +29,13 @@ export const ErrorCodes = {
   INVITE_EMAIL_IN_USE: 409,
   /** The email already belongs to a member of this agency. */
   ALREADY_MEMBER: 409,
+  // identity: two-factor (S1-04)
+  /** The session has not passed the second factor this user needs (enrolled, or a role that requires it). */
+  MFA_REQUIRED: 403,
+  /** A TOTP or recovery code that does not match, was already used, or no factor is enrolled. */
+  MFA_CODE_INVALID: 400,
+  /** 2FA is already enabled: disable it first to enrol a new authenticator. */
+  MFA_ALREADY_ENABLED: 409,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

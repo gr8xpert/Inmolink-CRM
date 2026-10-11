@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchVerification } from '@/server/api';
+import { fetchVerification, sessionRef } from '@/server/api';
 import { removeAction, submitAction } from './actions';
 
 const NOTICES = ['uploaded', 'removed', 'submitted'] as const;
@@ -30,7 +30,7 @@ export default async function VerificationPage({ searchParams }: { searchParams:
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const res = await fetchVerification({ userId: session.user.id, sessionVersion: session.user.sessionVersion });
+  const res = await fetchVerification(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('verification');
   const format = await getFormatter();

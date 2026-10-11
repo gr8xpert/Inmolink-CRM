@@ -25,3 +25,8 @@ Staff verify agencies (S1-03) and later run the staff console (S1-09, S13-03). T
 - `staff_users` does not see `users.status`. A disabled account keeps staff access until its 15-minute token expires, unless `pnpm staff:revoke` is run too. Nothing stops a staff user from joining an agency later through an invite (`grantStaff` refuses current members). S1-09 closes both gaps.
 - Staff actions are recorded in their own tables (the verification request keeps reviewer, reason and the reviewed version), and `withStaff` sets `app.staff_reason` on the transaction. Nothing reads it yet: S1-08 (`audit_logs`) should, and S1-09 adds impersonation.
 - Staff console features add `staff` predicates table by table. Each one is reviewed like a NETWORK_READ predicate.
+
+## Amendment (S1-04, 2026-10-11)
+`app_auth` may read the `staff_users` row of the user its flow is scoped to (policy `auth_self`,
+`user_id = app_user_id()`), so the access-token mint can require 2FA for staff. Staff must pass 2FA
+before any token is minted; `pnpm staff:grant` in production is no longer blocked on S1-04.

@@ -1,6 +1,14 @@
 import type { Tx } from '@inmolink/db';
-import { agencyInvites, agencyMembers, authTokens, staffUsers, users } from '@inmolink/db/schema/identity';
-import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import {
+  agencyInvites,
+  agencyMembers,
+  authTokens,
+  staffUsers,
+  userMfa,
+  userRecoveryCodes,
+  users,
+} from '@inmolink/db/schema/identity';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 
 /**
@@ -554,4 +562,104 @@ export async function listAdminRecipients(
     )
     .orderBy(asc(agencyMembers.createdAt))
     .limit(20);
+}
+
+// ── Two-factor (S1-04, app_auth scoped to the user) ──────────────────────────────────────────────
+
+export interface MfaRow {
+  /** AES-256-GCM envelope; null after 2FA was disabled. */
+  totpSecret: string | null;
+  confirmedAt: Date | null;
+  lastUsedStep: number | null;
+}
+
+export async function findMfa(tx: Tx, userId: string): Promise<MfaRow | null> {
+  const [row] = await tx
+    .select({ totpSecret: userMfa.totpSecret, confirmedAt: userMfa.confirmedAt, lastUsedStep: userMfa.lastUsedStep })
+    .from(userMfa)
+    .where(eq(userMfa.userId, userId));
+  return row ?? null;
+}
+
+/** Stores a new, unconfirmed secret — unless 2FA is enabled (then false: disable it first). */
+export async function upsertPendingMfa(tx: Tx, userId: string, totpSecret: string, now: Date): Promise<boolean> {
+  const rows = await tx
+    .insert(userMfa)
+    .values({ userId, totpSecret, createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: userMfa.userId,
+      set: { totpSecret, confirmedAt: null, lastUsedStep: null, updatedAt: now },
+      setWhere: isNull(userMfa.confirmedAt),
+    })
+    .returning({ userId: userMfa.userId });
+  return rows.length === 1;
+}
+
+const stepIsNew = (step: number) => or(isNull(userMfa.lastUsedStep), lt(userMfa.lastUsedStep, step));
+
+/** Enrolment's first code: confirms the pending secret it was checked against (`secret` pins it). */
+export async function confirmMfa(tx: Tx, userId: string, secret: string, step: number, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(userMfa)
+    .set({ confirmedAt: now, lastUsedStep: step, updatedAt: now })
+    .where(and(eq(userMfa.userId, userId), isNull(userMfa.confirmedAt), eq(userMfa.totpSecret, secret)))
+    .returning({ userId: userMfa.userId });
+  return rows.length === 1;
+}
+
+/** Accepts a TOTP step once: false when this or a later step was already used (replay). */
+export async function useTotpStep(tx: Tx, userId: string, step: number, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(userMfa)
+    .set({ lastUsedStep: step, updatedAt: now })
+    .where(and(eq(userMfa.userId, userId), isNotNull(userMfa.confirmedAt), stepIsNew(step)))
+    .returning({ userId: userMfa.userId });
+  return rows.length === 1;
+}
+
+/** Turns 2FA off: the secret is dropped (app_auth never deletes rows). */
+export async function disableMfa(tx: Tx, userId: string, now: Date): Promise<void> {
+  await tx
+    .update(userMfa)
+    .set({ totpSecret: null, confirmedAt: null, lastUsedStep: null, updatedAt: now })
+    .where(eq(userMfa.userId, userId));
+}
+
+export async function insertRecoveryCodes(
+  tx: Tx,
+  rows: { id: string; userId: string; codeHash: string; createdAt: Date }[],
+): Promise<void> {
+  await tx.insert(userRecoveryCodes).values(rows);
+}
+
+/** Retires every open recovery code (new set, or 2FA disabled). */
+export async function retireRecoveryCodes(tx: Tx, userId: string, now: Date): Promise<void> {
+  await tx
+    .update(userRecoveryCodes)
+    .set({ usedAt: now })
+    .where(and(eq(userRecoveryCodes.userId, userId), isNull(userRecoveryCodes.usedAt)));
+}
+
+/** Uses a recovery code: one `UPDATE … WHERE used_at IS NULL`, so it works exactly once. */
+export async function consumeRecoveryCode(tx: Tx, userId: string, codeHash: string, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(userRecoveryCodes)
+    .set({ usedAt: now })
+    .where(
+      and(
+        eq(userRecoveryCodes.userId, userId),
+        eq(userRecoveryCodes.codeHash, codeHash),
+        isNull(userRecoveryCodes.usedAt),
+      ),
+    )
+    .returning({ id: userRecoveryCodes.id });
+  return rows.length === 1;
+}
+
+export async function countRecoveryCodes(tx: Tx, userId: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(userRecoveryCodes)
+    .where(and(eq(userRecoveryCodes.userId, userId), isNull(userRecoveryCodes.usedAt)));
+  return row?.n ?? 0;
 }

@@ -24,7 +24,10 @@ import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { redirect } from 'next/navigation';
+import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
+import { getPathname } from '@/i18n/navigation';
 import { webConfig } from './env';
 
 const logger = createLogger({ service: 'web' });
@@ -33,6 +36,20 @@ const logger = createLogger({ service: 'web' });
 export interface SessionRef {
   userId: string;
   sessionVersion: number;
+  /** The session passed the second factor (S1-04). */
+  mfaVerified: boolean;
+}
+
+export function sessionRef(user: { id: string; sessionVersion: number; mfaVerified: boolean }): SessionRef {
+  return { userId: user.id, sessionVersion: user.sessionVersion, mfaVerified: user.mfaVerified };
+}
+
+/**
+ * The session has not passed the second factor its user needs (S1-04): no access token, so no
+ * dashboard. Pages, actions and route handlers all land here, and go to the challenge (or enrolment).
+ */
+async function toTwoFactor(): Promise<never> {
+  redirect(getPathname({ href: '/two-factor', locale: await getLocale() }));
 }
 
 /** An api access token already minted for this render (several calls, one mint). */
@@ -96,14 +113,15 @@ async function apiRequest<S extends z.ZodType>(
     return { ok: true, data: schema.parse(json) };
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     logger.error({ err, path }, 'api call failed');
     return { ok: false, status: 0, error: null };
   }
 }
 
 /** `GET /v1/me`; null when the API refused or failed. */
-export async function fetchMe(userId: string, sessionVersion: number): Promise<MeDto | 'revoked' | null> {
-  const res = await apiRequest({ userId, sessionVersion }, '/v1/me', MeDto);
+export async function fetchMe(session: SessionRef): Promise<MeDto | 'revoked' | null> {
+  const res = await apiRequest(session, '/v1/me', MeDto);
   if (res === 'revoked') return res;
   return res.ok ? res.data : null;
 }
@@ -120,6 +138,7 @@ export async function fetchHome(
     ({ token } = await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' }));
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     logger.error({ err }, 'access token mint failed');
     return { me: null, agency: null };
   }
@@ -153,6 +172,7 @@ export async function fetchTeam(
     ({ token } = await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' }));
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     logger.error({ err }, 'access token mint failed');
     return { members: { ok: false, status: 0, error: null }, invites: null };
   }

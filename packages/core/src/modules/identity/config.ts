@@ -1,3 +1,4 @@
+import type { Keyring } from '@inmolink/platform/crypto';
 import type { AccessTokenSigner } from '@inmolink/platform/jwt';
 
 /**
@@ -11,6 +12,8 @@ export interface IdentityConfig {
   webUrl?: string;
   /** Mints access tokens (web). */
   signer?: AccessTokenSigner;
+  /** Encrypts TOTP secrets (web, S1-04). */
+  keyring?: Keyring;
 }
 
 let current: IdentityConfig | undefined;
@@ -36,3 +39,14 @@ export const TOKEN_TTL_MS = {
  * invites send email under our domain, so an unverified sign-up must not become a mailing tool.
  */
 export const UNVERIFIED_SEAT_CAP = 5;
+
+/** Two-factor (S1-04, PLAN §3 #30). */
+export const TWO_FACTOR = {
+  /** Shown in the authenticator app next to the account. */
+  ISSUER: 'Inmolink',
+  RECOVERY_CODES: 10,
+  /** "Remember this browser" skips the challenge for 30 days. */
+  REMEMBER_DEVICE_MS: 30 * 24 * 60 * 60_000,
+  /** A passed challenge is handed to the session within this window. */
+  PROOF_TTL_MS: 2 * 60_000,
+} as const;

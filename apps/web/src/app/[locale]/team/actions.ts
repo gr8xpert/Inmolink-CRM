@@ -5,7 +5,14 @@ import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import { type ApiResult, changeMemberRole, deactivateMember, inviteMember, revokeInvite } from '@/server/api';
+import {
+  type ApiResult,
+  changeMemberRole,
+  deactivateMember,
+  inviteMember,
+  revokeInvite,
+  sessionRef,
+} from '@/server/api';
 
 /**
  * Team form actions (transport only, S1-02): validate with the contracts, call the API, and come back
@@ -25,7 +32,7 @@ async function back(query: Record<string, string>): Promise<never> {
 async function session() {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
-  return { userId: s.user.id, sessionVersion: s.user.sessionVersion };
+  return sessionRef(s.user);
 }
 
 const KNOWN_ERRORS = ['FORBIDDEN', 'NOT_FOUND', 'ALREADY_MEMBER', 'VALIDATION_FAILED', 'RATE_LIMITED'] as const;

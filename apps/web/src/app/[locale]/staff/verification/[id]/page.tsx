@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchVerificationRequest } from '@/server/api';
+import { fetchVerificationRequest, sessionRef } from '@/server/api';
 import { decideAction, openDocumentAction } from '../actions';
 
 const ERRORS = [
@@ -33,10 +33,7 @@ export default async function VerificationRequestPage({
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const id = VerificationRequestParams.safeParse(await params);
   if (!id.success) notFound();
-  const res = await fetchVerificationRequest(
-    { userId: session.user.id, sessionVersion: session.user.sessionVersion },
-    id.data.id,
-  );
+  const res = await fetchVerificationRequest(sessionRef(session.user), id.data.id);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok && (res.status === 403 || res.status === 404)) notFound();
   const t = await getTranslations('staff');

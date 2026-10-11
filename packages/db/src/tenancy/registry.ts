@@ -103,9 +103,16 @@ export interface GlobalTable {
    * `app_system` may read or write it; `app_user` and `app_public` get nothing (S0-09, ADR 0004).
    *
    * `'staff'`: who is staff (S1-03, ADR 0015). Only `app_system` writes it; `app_staff` reads the row of
-   * the user it acts for (`user_id = app_user_id()`, which `app_is_staff()` relies on). Nobody else.
+   * the user it acts for (`user_id = app_user_id()`, which `app_is_staff()` relies on), and `app_auth`
+   * the row of the user its flow is scoped to (S1-04: staff must pass 2FA). Nobody else.
    */
   access?: 'auth' | 'staff';
+  /**
+   * `access: 'auth'` only: `app_auth` reaches only the rows of the user its flow is scoped to
+   * (`user_id = app_user_id()`, set by `setAuthScope`) — for per-user secrets such as 2FA (S1-04), so
+   * no other auth flow can read or change another user's factor.
+   */
+  userScoped?: true;
 }
 
 export interface TenantRegistry {
@@ -191,6 +198,9 @@ export const globalTables: Record<string, GlobalTable> = {
   // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).
   users: { reason: 'login identity, resolved before a tenant is known', access: 'auth' },
   auth_tokens: { reason: 'email verification and password reset tokens (hashed)', access: 'auth' },
+  // Second factor (S1-04): checked at login and on every access-token mint, before a tenant is known.
+  user_mfa: { reason: 'TOTP second factor of a login identity (secret encrypted)', access: 'auth', userScoped: true },
+  user_recovery_codes: { reason: '2FA recovery codes of a login identity (hashed)', access: 'auth', userScoped: true },
   // Staff have no agency (S1-03, ADR 0015). Granted by `pnpm staff:grant`; app_staff reads its own row.
   staff_users: { reason: 'Inmolink staff, who have no agency', access: 'staff' },
 };

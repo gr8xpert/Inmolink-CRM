@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 /**
@@ -160,3 +171,42 @@ export const staffUsers = pgTable('staff_users', {
   /** Set when staff access is withdrawn; `app_is_staff()` is then false at once. */
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
+
+/**
+ * TOTP second factor (S1-04, PLAN §3 #30). Global `access: 'auth'` table, one row per user. The secret
+ * is AES-256-GCM encrypted (platform/crypto keyring, AAD bound to this row). `confirmed_at` is null
+ * while enrolment waits for the first code, and null again after 2FA is disabled. `last_used_step` is
+ * the TOTP time step of the last accepted code: a code is accepted once (no replay within its window).
+ */
+export const userMfa = pgTable('user_mfa', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  totpSecret: text('totp_secret'),
+  confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+  lastUsedStep: bigint('last_used_step', { mode: 'number' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Recovery codes (S1-04): 10 per enrolment, each usable once. Only an HMAC is stored. Regenerating or
+ * disabling 2FA retires the open ones (`used_at`): `app_auth` never deletes.
+ */
+export const userRecoveryCodes = pgTable(
+  'user_recovery_codes',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `hmacSha256(HMAC_KEY, 'recovery-code', normalised code)`. */
+    codeHash: text('code_hash').notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // FK + consume (where user_id = ? and code_hash = ? and used_at is null) + count left
+    index('user_recovery_codes_user_idx').on(t.userId, t.codeHash),
+  ],
+);

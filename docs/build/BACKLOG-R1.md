@@ -278,6 +278,14 @@ Ref §3 #3 §12 · Mod agencies, identity, platform · Dep S1-03 (image part: S3
 - A retried decision email job does not email an admin who already got it
 - Eleven parallel uploads leave at most ten unsubmitted documents
 
+### S1-F8 · Two-factor follow-ups (S1-04 reviews) · 🔒
+Ref §12 · Mod identity, web · Dep S1-04
+**Build:** email the user when 2FA is turned on or off, a recovery code is used, or a new browser is remembered (the `identity.twoFactor.*` events exist); step-up before enrolment for accounts without 2FA (fresh password or emailed link), so a stolen password alone cannot enrol first; "forget all remembered browsers" (a per-user counter in the device signature); count failed codes per user and IP so someone with the password cannot lock the owner out of the challenge; create the pending secret in a POST instead of the enrolment page's GET; one query for MFA + staff state on the mint; S1-09: impersonation must not reach 2FA settings.
+**Done when:**
+- Each 2FA change emails the account owner (EN/ES)
+- Enrolment without an existing factor needs a fresh password check
+- The owner can still pass the challenge while another client is rate-limited
+
 ---
 
 ## S2 — Taxonomy & i18n

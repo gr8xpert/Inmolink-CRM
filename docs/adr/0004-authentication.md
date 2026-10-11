@@ -62,3 +62,22 @@ refused in request paths.
   public key after 15 minutes.
 - A stolen access token is valid for up to 15 minutes; there is no per-token deny list.
 - Apps that run auth flows (today only `web`) need `app_auth`; `api` and `realtime` need only public keys.
+
+## Amendment — two-factor authentication (S1-04, 2026-10-11)
+- **TOTP** (RFC 6238, SHA-1, 6 digits, 30 s, ±1 step) in `platform/crypto/totp.ts` (no dependency). Secrets in
+  `user_mfa` (AES-256-GCM, AAD bound to the user row; the web gets `ENCRYPTION_KEYS`); `last_used_step`
+  makes a code work once. 10 recovery codes (50 bits, `xxxxx-xxxxx`) in `user_recovery_codes`, stored as
+  HMACs (purpose `recovery-code`), spent by one `UPDATE … WHERE used_at IS NULL`.
+- Both tables are `access: 'auth'` with the new registry flag **`userScoped`**: `app_auth` reaches only rows
+  with `user_id = app_user_id()`. `app_auth` also reads its own `staff_users` row (policy `auth_self`).
+- **Required** for staff and both admin roles (`AGENCY_ADMIN`, `DEVELOPER_ADMIN`); optional for others, and
+  then required for anyone who enabled it. Staff and admins cannot turn it off.
+- **Enforcement at the mint:** `issueAccessToken` takes `mfaVerified` from the session and throws
+  `MFA_REQUIRED` when the user needs 2FA. Every dashboard page, action and `/session/token` goes through it;
+  the web sends such sessions to `/two-factor` (challenge, or enrolment when none exists).
+- **Session upgrade:** the Auth.js session carries `mfa`. Auth.js passes browser-supplied data to the `jwt`
+  callback on `update`, so only an identity **proof** — `exp.HMAC(user, session_version, exp)`, purpose
+  `mfa-proof`, 2 minutes — sets it. The proof is created and handed over server-side only.
+- **Remember this browser (30 days):** cookie `__Host-inmolink.mfa-device` (httpOnly, Secure, Strict) holding
+  `exp.HMAC(user, session_version, confirmed_at, exp)`; a password reset or a new enrolment ends it.
+- **Limits** (fail closed, counted before any check): 5 codes / 5 min and 20 / day per user, 30 / 15 min per IP.

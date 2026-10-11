@@ -6,11 +6,17 @@ import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { webConfig } from './server/env';
 import { attemptLogin, type LoginFailure } from './server/login';
+import { readCookie, rememberedDeviceCookie } from './server/two-factor';
 
 /**
  * Auth.js v5 (PLAN §3 #30): email + password, JWT session in an encrypted, httpOnly, SameSite=Strict
  * cookie. The session never goes to the API — the API gets 15-minute access tokens minted from it
  * (`/session/token`), and every mint re-checks the user and `session_version`.
+ *
+ * Two-factor (S1-04): the session carries `mfa` — whether it passed the second factor. Login sets it
+ * only for a remembered browser; afterwards only a server-signed proof from identity can set it
+ * (a session update's data comes from the browser, so nothing else in it is trusted). Mints refuse
+ * sessions without it when the user needs 2FA, and the pages send them to `/two-factor`.
  */
 class LoginError extends CredentialsSignin {
   constructor(code: LoginFailure) {
@@ -21,11 +27,14 @@ class LoginError extends CredentialsSignin {
 
 declare module 'next-auth' {
   interface Session {
-    user: { id: string; email: string; name: string; locale: string; sessionVersion: number };
+    user: { id: string; email: string; name: string; locale: string; sessionVersion: number; mfaVerified: boolean };
+    /** Only in `unstable_update` calls: proof that this session passed 2FA (checked by identity). */
+    mfaProof?: string;
   }
   interface User {
     locale?: string;
     sessionVersion?: number;
+    mfaVerified?: boolean;
   }
 }
 
@@ -35,7 +44,13 @@ const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const SESSION_RECHECK_MS = 5 * 60_000;
 const logger = createLogger({ service: 'web' });
 
-export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
+export const {
+  handlers,
+  auth,
+  signIn,
+  signOut,
+  unstable_update: updateSession,
+} = NextAuth(async () => {
   const config = await webConfig();
   const secure = config.WEB_URL.startsWith('https://');
   return {
@@ -62,22 +77,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
       Credentials({
         credentials: { email: {}, password: {} },
         async authorize(credentials, request) {
-          const result = await attemptLogin(credentials, request.headers.get('x-forwarded-for'));
+          const result = await attemptLogin(credentials, request.headers.get('x-forwarded-for'), {
+            deviceToken: readCookie(request.headers.get('cookie'), rememberedDeviceCookie(secure).name),
+          });
           if (!result.ok) throw new LoginError(result.code);
           const u = result.user;
-          return { id: u.id, email: u.email, name: u.name, locale: u.locale, sessionVersion: u.sessionVersion };
+          return {
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            locale: u.locale,
+            sessionVersion: u.sessionVersion,
+            mfaVerified: u.mfaVerified,
+          };
         },
       }),
     ],
     callbacks: {
-      async jwt({ token, user }) {
+      async jwt({ token, user, trigger, session }) {
         const now = Date.now();
         if (user) {
           token.sub = user.id;
           token.locale = user.locale;
           token.sv = user.sessionVersion;
+          token.mfa = user.mfaVerified === true;
           token.checkedAt = now;
           return token;
+        }
+        // The browser can send any data with an update: only a valid identity proof upgrades the session.
+        if (trigger === 'update') {
+          const proof = (session as { mfaProof?: unknown } | undefined)?.mfaProof;
+          if (identity.checkMfaProof({ userId: String(token.sub), sessionVersion: Number(token.sv), proof })) {
+            token.mfa = true;
+          }
         }
         // Every few minutes, end sessions revoked by a password reset or deactivation.
         if (now - Number(token.checkedAt ?? 0) > SESSION_RECHECK_MS) {
@@ -97,6 +129,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           name: String(token.name ?? ''),
           locale: String(token.locale ?? ''),
           sessionVersion: Number(token.sv),
+          mfaVerified: token.mfa === true,
         });
         return session;
       },

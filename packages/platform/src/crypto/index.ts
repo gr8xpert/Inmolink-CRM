@@ -22,3 +22,14 @@ export {
   verifyHmacSha256,
   verifyRawHmacSha256Hex,
 } from './hmac';
+export {
+  base32Decode,
+  base32Encode,
+  generateTotpSecret,
+  matchTotp,
+  TOTP_DIGITS,
+  TOTP_STEP_SECONDS,
+  totpCode,
+  totpStep,
+  totpUri,
+} from './totp';

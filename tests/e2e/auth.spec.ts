@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { countEmails, waitForLink } from './mailpit';
 import { testStackEnv } from './stack';
+import { passTwoFactor } from './two-factor';
 
 const API_URL = testStackEnv().API_URL as string;
 const uniqueEmail = () => `e2e-${randomBytes(5).toString('hex')}@example.com`;
@@ -45,7 +46,10 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
-  await expect(page).toHaveURL(/\/en$/);
+  // The founder is the agency admin: no dashboard (and no access token) before 2FA (S1-04).
+  await expect(page).toHaveURL(/\/en\/two-factor$/);
+  expect((await page.request.get('/session/token?aud=api')).status()).toBe(403);
+  await passTwoFactor(page, email);
   await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
   // Server-side: web session → 15-minute api token → GET /v1/me on the API.
   await expect(page.getByTestId('api-check')).toContainText('API session check passed for user');
@@ -106,6 +110,7 @@ test('[S0-09] password reset: the emailed link works once and the new password l
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill('second password!');
   await page.getByRole('button', { name: 'Log in' }).click();
+  await passTwoFactor(page, email);
   await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
   expect(await countEmails(email, /Reset your Inmolink password/)).toBe(1);
 });
@@ -158,6 +163,7 @@ test('[S1-01] a new agency is pending and completes its company details in onboa
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
+  await passTwoFactor(page, email);
   await expect(page.getByTestId('agency-pending')).toContainText('Nova Obra Promociones is waiting for verification');
 
   await page.getByRole('link', { name: 'Complete your company details' }).click();

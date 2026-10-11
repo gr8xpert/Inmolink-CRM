@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import { type ApiResult, deleteVerificationDocument, submitVerification } from '@/server/api';
+import { type ApiResult, deleteVerificationDocument, sessionRef, submitVerification } from '@/server/api';
 
 /**
  * Verification form actions (transport only, S1-03): validate with the contracts, call the API, and
@@ -25,7 +25,7 @@ async function back(query: Record<string, string>): Promise<never> {
 async function session() {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
-  return { userId: s.user.id, sessionVersion: s.user.sessionVersion };
+  return sessionRef(s.user);
 }
 
 const KNOWN_ERRORS = [

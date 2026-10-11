@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchVerificationQueue } from '@/server/api';
+import { fetchVerificationQueue, sessionRef } from '@/server/api';
 
 /**
  * Staff verification queue (S1-03, bare: the staff console shell comes with S1-09). Non-staff get a
@@ -21,10 +21,7 @@ export default async function VerificationQueuePage({
   const status = VerificationRequestStatus.catch('SUBMITTED').parse(params.status);
   const cursor =
     typeof params.cursor === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(params.cursor) ? params.cursor : undefined;
-  const res = await fetchVerificationQueue(
-    { userId: session.user.id, sessionVersion: session.user.sessionVersion },
-    { status, cursor },
-  );
+  const res = await fetchVerificationQueue(sessionRef(session.user), { status, cursor });
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok && res.status === 403) notFound();
   const t = await getTranslations('staff');

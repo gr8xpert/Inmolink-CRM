@@ -3,14 +3,14 @@ import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchHome } from '@/server/api';
+import { fetchHome, sessionRef } from '@/server/api';
 import { logoutAction } from './(auth)/actions';
 
 export default async function HomePage() {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const home = await fetchHome({ userId: session.user.id, sessionVersion: session.user.sessionVersion });
+  const home = await fetchHome(sessionRef(session.user));
   // Password reset or deactivation: the web session can no longer mint tokens — end it.
   if (home === 'revoked') redirect('/session/expired');
   const { me } = home;
@@ -28,6 +28,9 @@ export default async function HomePage() {
       </div>
       <p className="text-sm">{t('home.signedInAs', { email: session.user.email })}</p>
       <nav className="flex gap-4">
+        <Link href="/account/security" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('home.security')}
+        </Link>
         {home.agency ? (
           <Link href="/team" className="text-sm font-medium underline-offset-4 hover:underline">
             {t('home.team')}
