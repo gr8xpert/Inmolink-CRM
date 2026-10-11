@@ -5,17 +5,66 @@ create or replace function app_agency() returns uuid language sql stable paralle
 create or replace function app_user_id() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;
 revoke all on function app_agency(), app_user_id() from public;
-grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public;
+grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth;
 
 do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['auth_tokens', 'feature_flags', 'outbox_events', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_members', 'agency_settings', 'agency_translations', 'auth_tokens', 'feature_flags', 'outbox_events', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
 end $$;
+
+-- agencies: STRICT
+alter table public."agencies" enable row level security;
+alter table public."agencies" force row level security;
+create policy own_rows on public."agencies" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agencies" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update, delete on table public."agencies" to app_user, app_system;
+create policy auth_select on public."agencies" for select to app_auth
+  using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
+create policy auth_insert on public."agencies" for insert to app_auth
+  with check (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
+create policy auth_update on public."agencies" for update to app_auth
+  using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null) with check (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
+grant select, insert, update on table public."agencies" to app_auth;
+
+-- agency_members: STRICT
+alter table public."agency_members" enable row level security;
+alter table public."agency_members" force row level security;
+create policy own_rows on public."agency_members" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agency_members" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update, delete on table public."agency_members" to app_user, app_system;
+create policy auth_select on public."agency_members" for select to app_auth
+  using (user_id = app_user_id());
+create policy auth_insert on public."agency_members" for insert to app_auth
+  with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
+create policy auth_update on public."agency_members" for update to app_auth
+  using (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())) with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
+grant select, insert, update on table public."agency_members" to app_auth;
+
+-- agency_settings: STRICT
+alter table public."agency_settings" enable row level security;
+alter table public."agency_settings" force row level security;
+create policy own_rows on public."agency_settings" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agency_settings" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update, delete on table public."agency_settings" to app_user, app_system;
+create policy auth_insert on public."agency_settings" for insert to app_auth
+  with check (agency_id = app_agency());
+grant insert on table public."agency_settings" to app_auth;
+
+-- agency_translations: STRICT
+alter table public."agency_translations" enable row level security;
+alter table public."agency_translations" force row level security;
+create policy own_rows on public."agency_translations" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agency_translations" from public, app_user, app_system, app_public, app_auth;
+grant select, insert, update, delete on table public."agency_translations" to app_user, app_system;
 
 -- auth_tokens: GLOBAL
 alter table public."auth_tokens" enable row level security;
