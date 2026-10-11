@@ -361,7 +361,7 @@ subscribe(listingEvents.updated, (e) =>
   ));
 ```
 
-The dispatcher (`apps/worker` pool `outbox`, `createDispatcher({ runSystem: withSystem, listen: (cb) => listen(OUTBOX_CHANNEL, cb), logger })`) leases rows with `FOR UPDATE SKIP LOCKED`, calls subscribers outside any transaction, then marks `processed_at` (or retries with backoff / dead-letters; `pnpm ops:replay-outbox` re-queues). Delivery is at least once: consumers must be idempotent and ignore stale versions. Use `meta.agencyId` (RLS-checked) — not a payload field — as the tenant and fair-share group. Payloads ≤ 10 KB (IDs only).
+The dispatcher (`apps/worker` pool `outbox`, `createDispatcher({ runSystem: withSystem, logger })`; it polls every 250 ms, no LISTEN/NOTIFY — ADR 0014, implemented in S1-F2) leases rows with `FOR UPDATE SKIP LOCKED`, calls subscribers outside any transaction, then marks `processed_at` (or retries with backoff / dead-letters; `pnpm ops:replay-outbox` re-queues). Delivery is at least once: consumers must be idempotent and ignore stale versions. Use `meta.agencyId` (RLS-checked) — not a payload field — as the tenant and fair-share group. Payloads ≤ 10 KB (IDs only).
 
 ---
 

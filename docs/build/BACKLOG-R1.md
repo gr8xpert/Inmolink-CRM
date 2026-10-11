@@ -235,9 +235,10 @@ Ref §15 · Mod tests · Dep S0-14
 
 ### S1-F2 · Outbox hardening
 Ref §5.3 #6 · Mod platform · Dep S0-06
-**Build:** per-tenant fairness in the claim query (one agency's burst must not delay others' events); per-table autovacuum settings for `outbox_events`; either per-subscriber delivery tracking or a PATTERNS §8 rule that each subscriber is idempotent on its own (a retry re-runs all subscribers); one shared `PLATFORM_AGENCY_ID` (now in `db/tenancy/rls.ts` and `platform/outbox/emit.ts`); implement ADR 0014 once decided.
+**Build:** per-tenant fairness in the claim query (one agency's burst must not delay others' events); per-table autovacuum settings for `outbox_events`; either per-subscriber delivery tracking or a PATTERNS §8 rule that each subscriber is idempotent on its own (a retry re-runs all subscribers); one shared `PLATFORM_AGENCY_ID` (now in `db/tenancy/rls.ts` and `platform/outbox/emit.ts`); implement ADR 0014 (accepted: poll only): `emit()` sends no NOTIFY, each lane polls every 250 ms and drains without pause while batches are full, remove `DATABASE_URL_LISTEN` / `packages/db/src/listen.ts` and the `app_listen` follow-up.
 **Done when:**
 - With 10 agencies, one agency emitting 50,000 events does not delay another agency's event by more than one batch
+- An idle dispatcher picks up a new event within one poll interval (250 ms); ≥ 2,000 events/s still holds (ADR 0014)
 - A test fails if the two platform agency IDs ever differ
 
 ### S1-F3 · Platform and core cleanups
