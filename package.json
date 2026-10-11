@@ -43,7 +43,7 @@
     "check:boundaries": "tsx scripts/boundaries/check.ts",
     "test:boundaries": "vitest run --project boundaries",
     "test:isolation": "vitest run --project isolation",
-    "test:e2e": "turbo run build --filter=@inmolink/app-web... && playwright test",
+    "test:e2e": "turbo run build --filter=@inmolink/app-web... && tsx tests/e2e/prepare.ts && playwright test",
     "perf:smoke": "node scripts/stub.mjs perf:smoke",
     "i18n:check": "tsx --conditions=@inmolink/source scripts/i18n/check.ts",
     "i18n:draft": "tsx --conditions=@inmolink/source scripts/i18n/draft.ts",
