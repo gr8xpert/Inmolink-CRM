@@ -14,8 +14,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   matching: [],
   exports: [],
   email: [identityJobs.sendAuthEmail, identityJobs.sendInviteEmail, identityJobs.sendVerificationDecisionEmail],
+  maintenance: [identityJobs.pruneAuthTokens],
   ai: [],
   social: [],
   pdf: [],
-  maintenance: [],
 };

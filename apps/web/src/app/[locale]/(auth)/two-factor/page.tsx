@@ -1,6 +1,4 @@
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
-import { newId } from '@inmolink/platform/ids';
 import { Button } from '@inmolink/ui';
 import { headers } from 'next/headers';
 import { getLocale, getTranslations } from 'next-intl/server';
@@ -9,6 +7,7 @@ import { auth } from '@/auth';
 import { getPathname, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { twoFactorErrors } from '@/server/form-errors';
+import { requestAuthCtx } from '@/server/request-id';
 import { logoutAction } from '../actions';
 import { challengeAction, enrolAction } from './actions';
 import { CodeForm } from './code-form';
@@ -24,7 +23,7 @@ export default async function TwoFactorPage({ searchParams }: { searchParams: Pr
   if (!session?.user?.id) return redirect({ href: '/login', locale });
   await webConfig();
   const userId = session.user.id;
-  const status = await identity.getTwoFactorStatus(authCtx(newId()), { userId });
+  const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId });
   const setup = (await searchParams).setup === '1';
   // The render that follows a server action on this page (it carries `Next-Action`) never redirects:
   // after enrolment the form must stay on screen with the recovery codes the action returned, whatever
@@ -52,7 +51,7 @@ export default async function TwoFactorPage({ searchParams }: { searchParams: Pr
     continueLabel: t('enrol.continue'),
     continueHref: getPathname({ href: '/', locale }),
   };
-  const enrolment = status.enabled ? null : await identity.startEnrolment(authCtx(newId()), { userId });
+  const enrolment = status.enabled ? null : await identity.startEnrolment(await requestAuthCtx(), { userId });
   const qr = enrolment
     ? await QRCode.toString(enrolment.uri, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' })
     : null;

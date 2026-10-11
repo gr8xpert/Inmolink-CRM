@@ -27,6 +27,8 @@ import { z } from 'zod';
 export const webEnv = {
   ...coreEnv,
   TRUST_PROXY: httpEnv.TRUST_PROXY,
+  /** Correlates auth-flow logs with the edge's request id (S1-F4), like the API. */
+  EDGE_REQUEST_ID_HEADER: httpEnv.EDGE_REQUEST_ID_HEADER,
   DATABASE_URL_APP_AUTH: databaseEnv.DATABASE_URL_APP_AUTH.unwrap(),
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   HMAC_KEY: cryptoEnv.HMAC_KEY,

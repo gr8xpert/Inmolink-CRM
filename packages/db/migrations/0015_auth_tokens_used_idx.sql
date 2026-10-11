@@ -1,0 +1,1 @@
+CREATE INDEX "auth_tokens_used_idx" ON "auth_tokens" USING btree ("used_at") WHERE used_at is not null;

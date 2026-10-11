@@ -11,6 +11,20 @@ describe('queue definitions', () => {
     expect(stableJobId('a.b', '123')).not.toMatch(/^\d+$/);
   });
 
+  it('[S1-F4] recurring jobs run at most once a minute and must accept an empty payload', () => {
+    const run = async () => {};
+    const empty = z.object({}).strict();
+    expect(defineJob({ name: 'ops.prune', pool: 'maintenance', payload: empty, every: 60_000, run }).spec.every).toBe(
+      60_000,
+    );
+    expect(() => defineJob({ name: 'ops.prune', pool: 'maintenance', payload: empty, every: 1_000, run })).toThrow(
+      /every must be/,
+    );
+    expect(() => defineJob({ name: 'ops.prune', pool: 'maintenance', payload, every: 60_000, run })).toThrow(
+      /must accept \{\}/,
+    );
+  });
+
   it('[S0-06] defineJob validates name, pool and group settings', () => {
     const run = async () => {};
     expect(() => defineJob({ name: 'Bad Name', pool: 'indexing', payload, run })).toThrow(/invalid name/);

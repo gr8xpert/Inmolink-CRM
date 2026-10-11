@@ -1,5 +1,6 @@
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
+import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { newToken } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
@@ -32,6 +33,8 @@ beforeAll(async () => {
     webUrl: 'http://web.test',
     signer: createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' }),
   });
+  // Re-sent confirmation links are throttled per user in redis-cache (S1-F4).
+  await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 beforeEach(async () => {
@@ -42,6 +45,7 @@ beforeEach(async () => {
 afterEach(() => restoreClock());
 
 afterAll(async () => {
+  await closeCache();
   await closeEmail();
   await closeDb();
 });
@@ -109,6 +113,23 @@ describe('identity sign-up and verification', () => {
         code: 'EMAIL_NOT_VERIFIED',
       },
     );
+  });
+
+  it('[S1-F4] ten logins to an unverified account within 10 minutes send one email', async () => {
+    const email = uniqueEmail();
+    await identity.register(ctx(), { email, password: 'correct horse battery', name: 'Ana', locale: 'en', ...AGENCY });
+    for (let i = 0; i < 10; i++) {
+      await expect(
+        identity.verifyCredentials(ctx(), { email, password: 'correct horse battery' }),
+      ).rejects.toMatchObject({ code: 'EMAIL_NOT_VERIFIED' });
+    }
+    const resent = (await eventsFor(email)).filter((e) => e.type === 'identity.verification.requested');
+    expect(resent).toHaveLength(1);
+    // A wrong password never triggers an email at all.
+    await expect(identity.verifyCredentials(ctx(), { email, password: 'wrong password!' })).rejects.toMatchObject({
+      code: 'INVALID_CREDENTIALS',
+    });
+    expect((await eventsFor(email)).filter((e) => e.type === 'identity.verification.requested')).toHaveLength(1);
   });
 
   it('[S0-09] the confirmation email (in the user locale) verifies the address once; then login works', async () => {

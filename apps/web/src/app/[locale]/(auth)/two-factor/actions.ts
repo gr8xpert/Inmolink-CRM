@@ -1,14 +1,13 @@
 'use server';
 
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import { cookies, headers } from 'next/headers';
 import { getLocale } from 'next-intl/server';
 import { auth, updateSession } from '@/auth';
 import { redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
+import { requestAuthCtx } from '@/server/request-id';
 import { attemptChallenge, type CodeFailure, rememberedDeviceCookie, withCodeCheck } from '@/server/two-factor';
 
 /**
@@ -64,8 +63,12 @@ export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Pr
   try {
     const result = await withCodeCheck(
       { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
-      (code) =>
-        identity.confirmEnrolment(authCtx(newId()), { userId: user.id, sessionVersion: user.sessionVersion, code }),
+      async (code) =>
+        identity.confirmEnrolment(await requestAuthCtx(), {
+          userId: user.id,
+          sessionVersion: user.sessionVersion,
+          code,
+        }),
     );
     if (!result.ok) return { error: result.code };
     await updateSession({ mfaProof: result.value.proof });
@@ -84,7 +87,7 @@ export async function regenerateCodesAction(_prev: TwoFactorFormState, form: For
   const user = await signedIn();
   const result = await withCodeCheck(
     { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
-    (code) => identity.regenerateRecoveryCodes(authCtx(newId()), { userId: user.id, code }),
+    async (code) => identity.regenerateRecoveryCodes(await requestAuthCtx(), { userId: user.id, code }),
   );
   if (!result.ok) return { error: result.code };
   return { recoveryCodes: result.value.recoveryCodes };
@@ -97,7 +100,7 @@ export async function disableAction(_prev: TwoFactorFormState, form: FormData): 
   try {
     const result = await withCodeCheck(
       { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
-      (code) => identity.disableTwoFactor(authCtx(newId()), { userId: user.id, code }),
+      async (code) => identity.disableTwoFactor(await requestAuthCtx(), { userId: user.id, code }),
     );
     if (!result.ok) return { error: result.code };
   } catch (err) {

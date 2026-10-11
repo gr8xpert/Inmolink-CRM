@@ -16,7 +16,23 @@ export interface PoolOptions {
 export interface PoolHandle {
   readonly pool: string;
   readonly worker: Worker;
+  /** Resolves once the schedulers of the pool's recurring jobs (`every`) are upserted. */
+  readonly scheduled: Promise<void>;
   close(): Promise<void>;
+}
+
+/** Waits between scheduler upsert attempts (then gives up and reports). */
+const SCHEDULE_RETRY_MS = [1_000, 5_000, 30_000, 120_000];
+
+async function withRetry<T>(delays: readonly number[], fn: () => Promise<T>): Promise<T> {
+  for (const delay of delays) {
+    try {
+      return await fn();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  return fn();
 }
 
 /** Dead letters are kept this long, for inspection and manual re-enqueue. */
@@ -164,9 +180,41 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     ]).catch((cleanupErr) => log.warn({ err: cleanupErr, jobId: job.id }, 'stalled-job cleanup failed'));
   });
 
+  // Recurring jobs: one scheduler per job, keyed by its name, so restarts and replicas upsert the same one.
+  // A failed upsert (Redis blip at boot) is retried with backoff, so a recurring job never silently stops.
+  const scheduled = Promise.all(
+    jobs
+      .filter((def) => def.spec.every !== undefined)
+      .map((def) =>
+        withRetry(SCHEDULE_RETRY_MS, () =>
+          queueFor(pool).upsertJobScheduler(
+            def.name,
+            { every: def.spec.every as number },
+            {
+              name: def.name,
+              data: { p: def.spec.payload.parse({}) } satisfies StoredJob,
+              opts: {
+                attempts: def.attempts,
+                backoff: def.spec.backoff ?? { type: 'exponential', delay: 2_000 },
+                removeOnComplete: { age: 24 * 3_600, count: 1_000 },
+                removeOnFail: { age: 7 * 24 * 3_600 },
+              },
+            },
+          ),
+        ),
+      ),
+  ).then(
+    () => undefined,
+    (err: unknown) => {
+      log.error({ err }, 'recurring job scheduler upsert failed');
+      reportError(err, { pool });
+    },
+  );
+
   return {
     pool,
     worker,
+    scheduled,
     async close() {
       const budget = options.shutdownMs ?? 30_000;
       let timer: NodeJS.Timeout | undefined;

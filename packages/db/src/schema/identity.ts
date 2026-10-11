@@ -75,6 +75,9 @@ export const authTokens = pgTable(
     uniqueIndex('auth_tokens_hash_uq').on(t.tokenHash),
     // FK + "retire older unused tokens of this kind" on issue
     index('auth_tokens_user_kind_idx').on(t.userId, t.kind).where(sql`used_at is null`),
+    // maintenance prune (S1-F4): where expires_at < ? or used_at < ? (BitmapOr of these two)
+    index('auth_tokens_expires_idx').on(t.expiresAt),
+    index('auth_tokens_used_idx').on(t.usedAt).where(sql`used_at is not null`),
   ],
 );
 

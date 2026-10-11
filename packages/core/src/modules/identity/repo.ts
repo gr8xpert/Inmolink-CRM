@@ -564,6 +564,20 @@ export async function listAdminRecipients(
     .limit(20);
 }
 
+/**
+ * Maintenance (S1-F4, `app_system`): deletes up to `limit` link tokens that expired or were used
+ * before `before`. Returns how many went.
+ */
+export async function deleteExpiredTokens(tx: Tx, before: Date, limit: number): Promise<number> {
+  const batch = tx
+    .select({ id: authTokens.id })
+    .from(authTokens)
+    .where(or(lt(authTokens.expiresAt, before), lt(authTokens.usedAt, before)))
+    .limit(limit);
+  const rows = await tx.delete(authTokens).where(inArray(authTokens.id, batch)).returning({ id: authTokens.id });
+  return rows.length;
+}
+
 // ── Two-factor (S1-04, app_auth scoped to the user) ──────────────────────────────────────────────
 
 export interface MfaRow {

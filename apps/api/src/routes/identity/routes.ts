@@ -52,15 +52,7 @@ export async function identityRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: ME_LIMITS },
     },
     // Read straight from the verified token: no database round trip.
-    async (request) => {
-      const auth = request.auth as NonNullable<typeof request.auth>;
-      return {
-        userId: auth.userId,
-        agencyId: auth.agencyId,
-        sessionVersion: auth.sessionVersion,
-        tokenExpiresAt: auth.tokenExpiresAt.toISOString(),
-      };
-    },
+    async (request) => identity.getMe(request.auth as NonNullable<typeof request.auth>),
   );
 
   app.get(

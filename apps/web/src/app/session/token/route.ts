@@ -1,10 +1,9 @@
 import { Audience } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import { auth } from '@/auth';
 import { checkLimits, LIMITS } from '@/server/limits';
+import { requestAuthCtx } from '@/server/request-id';
 
 const NO_STORE = { 'cache-control': 'no-store' };
 
@@ -20,7 +19,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!session?.user?.id) return error(401, 'NOT_AUTHENTICATED');
   if ((await checkLimits([[LIMITS.tokenUser, session.user.id]])) > 0) return error(429, 'RATE_LIMITED');
   try {
-    const dto = await identity.issueAccessToken(authCtx(newId()), {
+    const dto = await identity.issueAccessToken(await requestAuthCtx(), {
       userId: session.user.id,
       sessionVersion: session.user.sessionVersion,
       mfaVerified: session.user.mfaVerified,

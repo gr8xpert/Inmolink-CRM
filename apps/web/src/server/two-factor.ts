@@ -1,10 +1,9 @@
 import { TwoFactorCode } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { checkLimits, clientIp, LIMITS } from './limits';
+import { requestAuthCtx } from './request-id';
 
 /**
  * Second-factor code checks for the web (S1-04): validate, rate-limit per user and per IP (fail closed,
@@ -46,7 +45,8 @@ export function attemptChallenge(
 ) {
   return withCodeCheck(
     { userId: session.userId, code: input.code, forwardedFor: input.forwardedFor },
-    (code) => identity.verifySecondFactor(authCtx(newId()), { ...session, code, rememberDevice: input.rememberDevice }),
+    async (code) =>
+      identity.verifySecondFactor(await requestAuthCtx(), { ...session, code, rememberDevice: input.rememberDevice }),
     limiter,
   );
 }

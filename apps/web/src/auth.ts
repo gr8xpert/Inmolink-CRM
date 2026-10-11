@@ -1,9 +1,8 @@
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
-import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
+import { requestAuthCtx } from '@/server/request-id';
 import { webConfig } from './server/env';
 import { attemptLogin, type LoginFailure } from './server/login';
 import { readCookie, rememberedDeviceCookie } from './server/two-factor';
@@ -113,7 +112,7 @@ export const {
         }
         // Every few minutes, end sessions revoked by a password reset or deactivation.
         if (now - Number(token.checkedAt ?? 0) > SESSION_RECHECK_MS) {
-          const valid = await identity.isSessionValid(authCtx(newId()), {
+          const valid = await identity.isSessionValid(await requestAuthCtx(), {
             userId: String(token.sub),
             sessionVersion: Number(token.sv),
           });

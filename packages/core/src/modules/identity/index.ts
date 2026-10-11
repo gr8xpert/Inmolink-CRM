@@ -3,6 +3,7 @@ export { configureIdentity, type IdentityConfig, TOKEN_TTL_MS, TWO_FACTOR } from
 export { identityErrors } from './errors';
 export { identityEvents } from './events';
 export { identityJobs } from './jobs';
+export { getMe, type SessionClaims } from './me';
 export {
   acceptInvite,
   changeMemberRole,

@@ -40,6 +40,9 @@ export const TOKEN_TTL_MS = {
  */
 export const UNVERIFIED_SEAT_CAP = 5;
 
+/** Expired (or used) link tokens are kept this long for support, then pruned (S1-F4). */
+export const TOKEN_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
 /** Two-factor (S1-04, PLAN §3 #30). */
 export const TWO_FACTOR = {
   /** Shown in the authenticator app next to the account. */

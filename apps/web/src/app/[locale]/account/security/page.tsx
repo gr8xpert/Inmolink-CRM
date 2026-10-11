@@ -1,11 +1,10 @@
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
-import { newId } from '@inmolink/platform/ids';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname, Link, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { twoFactorErrors } from '@/server/form-errors';
+import { requestAuthCtx } from '@/server/request-id';
 import { disableAction, regenerateCodesAction } from '../../(auth)/two-factor/actions';
 import { CodeForm } from '../../(auth)/two-factor/code-form';
 
@@ -18,7 +17,7 @@ export default async function SecurityPage() {
   const session = await auth();
   if (!session?.user?.id) return redirect({ href: '/login', locale });
   await webConfig();
-  const status = await identity.getTwoFactorStatus(authCtx(newId()), { userId: session.user.id });
+  const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId: session.user.id });
   if ((status.enabled || status.required) && !session.user.mfaVerified)
     return redirect({ href: '/two-factor', locale });
   const t = await getTranslations('security');

@@ -1,12 +1,11 @@
 import { DocumentFileName, VERIFICATION_DOCUMENT_MAX_BYTES, VerificationDocumentKind } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
-import { newId } from '@inmolink/platform/ids';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
 import { sessionRef, uploadVerificationDocument } from '@/server/api';
 import { webConfig } from '@/server/env';
+import { requestAuthCtx } from '@/server/request-id';
 
 /** Multipart overhead on top of the file (boundaries, part headers, the other fields). */
 const FORM_OVERHEAD_BYTES = 64 * 1024;
@@ -48,7 +47,7 @@ export async function POST(request: Request): Promise<Response> {
   // A session that still owes 2FA (S1-04) would be refused at the mint: send it to the challenge with
   // a 303 before reading the body (a 307 from the shared API helper would re-post the file there).
   if (!session.user.mfaVerified) {
-    const status = await identity.getTwoFactorStatus(authCtx(newId()), { userId: session.user.id });
+    const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId: session.user.id });
     if (status.enabled || status.required) {
       const path = getPathname({ href: '/two-factor', locale: DEFAULT_UI_LOCALE });
       return Response.redirect(`${config.WEB_URL}${path}`, 303);

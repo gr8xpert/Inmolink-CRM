@@ -99,6 +99,20 @@
       "when": 1791721117464,
       "tag": "0013_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791733023850,
+      "tag": "0014_auth_tokens_expires_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791733558280,
+      "tag": "0015_auth_tokens_used_idx",
+      "breakpoints": true
     }
   ]
 }

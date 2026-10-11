@@ -6,7 +6,7 @@ import { newId } from '@inmolink/platform/ids';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
-import { identityConfig, TOKEN_TTL_MS } from './config';
+import { identityConfig, TOKEN_RETENTION_MS, TOKEN_TTL_MS } from './config';
 import {
   type AuthEmailKind,
   emailLocale,
@@ -159,4 +159,32 @@ export const identityJobs = {
       log.info({ recipients: messages.length }, 'verification decision email sent');
     },
   }),
+
+  /**
+   * Maintenance (S1-F4): deletes email-link tokens that expired or were used more than 7 days ago,
+   * in batches of 5,000, each its own short transaction. Runs every 6 hours; idempotent.
+   */
+  pruneAuthTokens: defineJob({
+    name: 'identity.pruneAuthTokens',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 6 * 60 * 60_000,
+    attempts: 3,
+    timeoutMs: 5 * 60_000,
+    async run(_p, { log, signal }) {
+      const before = new Date(clock.now().getTime() - TOKEN_RETENTION_MS);
+      let total = 0;
+      for (;;) {
+        const deleted = await withSystem('identity.pruneAuthTokens', (tx) =>
+          repo.deleteExpiredTokens(tx, before, PRUNE_BATCH),
+        );
+        total += deleted;
+        if (deleted < PRUNE_BATCH || signal.aborted) break;
+      }
+      log.info({ deleted: total }, 'auth tokens pruned');
+      return { deleted: total };
+    },
+  }),
 };
+
+const PRUNE_BATCH = 5_000;

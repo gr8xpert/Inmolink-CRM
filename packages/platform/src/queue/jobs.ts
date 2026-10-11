@@ -34,6 +34,13 @@ export interface JobSpec<S extends z.ZodType> {
   backoff?: { type: 'exponential' | 'fixed'; delay: number };
   /** Aborts `ctx.signal` and fails the attempt. Default 10 minutes. */
   timeoutMs?: number;
+  /**
+   * Recurring job (maintenance, S1-F4): the pool's workers keep one BullMQ job scheduler that adds this
+   * job every `every` ms (≥ 1 minute) with an empty payload, so the payload schema must accept `{}`.
+   * Upserted at pool start; several processes upserting the same scheduler is harmless. Renaming or
+   * removing a recurring job leaves its old scheduler in Redis: remove it with `removeJobScheduler`.
+   */
+  every?: number;
   run(payload: z.output<S>, ctx: JobContext): Promise<unknown>;
 }
 
@@ -87,6 +94,14 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
   }
   const attempts = spec.attempts ?? 5;
   const timeoutMs = spec.timeoutMs ?? 10 * 60_000;
+  if (spec.every !== undefined) {
+    if (!Number.isInteger(spec.every) || spec.every < 60_000) {
+      throw new RangeError(`defineJob ${spec.name}: every must be an integer ≥ 60000 ms`);
+    }
+    if (!spec.payload.safeParse({}).success) {
+      throw new TypeError(`defineJob ${spec.name}: a recurring job's payload schema must accept {}`);
+    }
+  }
 
   async function enqueue(input: z.input<S>, options: EnqueueOptions = {}): Promise<EnqueueResult> {
     const payload = spec.payload.parse(input) as z.output<S>;

@@ -26,6 +26,7 @@ import { dummyVerify, hashPassword, needsRehash, verifyPassword } from '@inmolin
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
+import { type RateLimitRule, rateLimiter } from '@inmolink/platform/rate-limit';
 import type { AuthCtx, Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -62,6 +63,17 @@ function agencyOfInviteToken(token: string): string {
   const hex = token.slice(0, 32);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+/**
+ * Confirmation emails re-sent by logins to an unconfirmed account (S1-F4). Not a credential rule: when
+ * Redis is down it fails open (the email is sent).
+ */
+const VERIFY_RESEND = {
+  name: 'email.verify-resend',
+  scope: 'user',
+  limit: 1,
+  windowSeconds: 10 * 60,
+} as const satisfies RateLimitRule;
 
 /** The founding member of an agency-of-one administers it (PLAN §3 #2). */
 const FOUNDER_ROLE = { AGENCY: 'AGENCY_ADMIN', DEVELOPER: 'DEVELOPER_ADMIN' } as const satisfies Record<
@@ -194,7 +206,11 @@ export async function verifyCredentials(
   const decision = loginDecision(user, member);
   if (decision === 'invalid') throw new AppError('INVALID_CREDENTIALS');
   if (decision === 'unverified') {
-    await ctx.transaction((tx) => emit(tx, identityEvents.verificationRequested({ userId: user.id })));
+    // One fresh link per user per 10 minutes, however often they try to log in (S1-F4): the first
+    // attempt sends at once, the rest are covered by that email. The slot is spent before the event is
+    // written: if that write fails (rare), the next link waits for the window (sliding: 10–20 min).
+    const { allowed } = await rateLimiter().consume(VERIFY_RESEND, user.id);
+    if (allowed) await ctx.transaction((tx) => emit(tx, identityEvents.verificationRequested({ userId: user.id })));
     throw new AppError('EMAIL_NOT_VERIFIED');
   }
 

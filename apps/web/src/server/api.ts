@@ -19,16 +19,15 @@ import {
   VerificationRequestDto,
   type VerificationRequestStatus,
 } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { getPathname } from '@/i18n/navigation';
 import { webConfig } from './env';
+import { requestAuthCtx } from './request-id';
 
 const logger = createLogger({ service: 'web' });
 
@@ -85,7 +84,7 @@ async function apiRequest<S extends z.ZodType>(
     const token =
       'token' in session
         ? session.token
-        : (await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' })).token;
+        : (await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' })).token;
     const res = await fetch(`${config.API_URL}${path}`, {
       method: init.method ?? 'GET',
       headers: {
@@ -135,7 +134,7 @@ export async function fetchHome(
 ): Promise<'revoked' | { me: MeDto | null; agency: AgencyDto | null }> {
   let token: string;
   try {
-    ({ token } = await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' }));
+    ({ token } = await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' }));
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
@@ -169,7 +168,7 @@ export async function fetchTeam(
 ): Promise<'revoked' | { members: Exclude<ApiResult<MemberPage>, 'revoked'>; invites: InvitePage | null }> {
   let token: string;
   try {
-    ({ token } = await identity.issueAccessToken(authCtx(newId()), { ...session, audience: 'api' }));
+    ({ token } = await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' }));
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();

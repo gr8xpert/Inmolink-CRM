@@ -1,10 +1,9 @@
 import { LoginInput, type SessionUser } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { checkLimits, clientIp, LIMITS } from './limits';
+import { requestAuthCtx } from './request-id';
 
 export type LoginFailure = 'input' | 'rate_limited' | 'invalid' | 'unverified';
 export type LoginResult = { ok: true; user: SessionUser } | { ok: false; code: LoginFailure };
@@ -33,7 +32,7 @@ export async function attemptLogin(
   if (wait > 0) return { ok: false, code: 'rate_limited' };
   try {
     const input = { ...parsed.data, deviceToken: opts.deviceToken };
-    return { ok: true, user: await identity.verifyCredentials(authCtx(newId()), input) };
+    return { ok: true, user: await identity.verifyCredentials(await requestAuthCtx(), input) };
   } catch (err) {
     if (isAppError(err) && err.code === 'INVALID_CREDENTIALS') return { ok: false, code: 'invalid' };
     if (isAppError(err) && err.code === 'EMAIL_NOT_VERIFIED') return { ok: false, code: 'unverified' };

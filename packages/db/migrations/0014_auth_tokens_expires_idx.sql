@@ -1,0 +1,1 @@
+CREATE INDEX "auth_tokens_expires_idx" ON "auth_tokens" USING btree ("expires_at");

@@ -131,7 +131,15 @@ jobs:
       - name: Browser (Chromium)
         run: pnpm exec playwright install --with-deps chromium
       - name: Build web, run flows
-        run: pnpm test:e2e
+        run: |
+          set -o pipefail
+          pnpm test:e2e 2>&1 | tee e2e.log
+      # Job logs need a GitHub login; annotations do not: put the end of the output where anyone can read it.
+      - name: Failure summary
+        if: failure()
+        run: |
+          msg=$(tail -n 60 e2e.log | tr -d '\r' | sed -E 's/\x1b\[[0-9;]*m//g; s/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=e2e output (last 60 lines)::${msg}"
       - name: Traces on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

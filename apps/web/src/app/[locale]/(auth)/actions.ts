@@ -7,10 +7,8 @@ import {
   ResetPasswordInput,
   VerifyEmailInput,
 } from '@inmolink/contracts';
-import { authCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { isAppError } from '@inmolink/platform/errors';
-import { newId } from '@inmolink/platform/ids';
 import { headers } from 'next/headers';
 import { AuthError } from 'next-auth';
 import { getLocale } from 'next-intl/server';
@@ -18,6 +16,7 @@ import { signIn, signOut } from '@/auth';
 import { getPathname, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { checkLimits, clientIp, LIMITS } from '@/server/limits';
+import { requestAuthCtx } from '@/server/request-id';
 
 /**
  * Auth form actions (transport only): validate with the contracts, rate-limit, call identity. The
@@ -69,7 +68,7 @@ export async function signupAction(_prev: FormState, form: FormData): Promise<Fo
     [LIMITS.signupEmail, parsed.data.email],
   ]);
   if (wait > 0) return { error: 'rateLimited' };
-  await identity.register(authCtx(newId()), parsed.data);
+  await identity.register(await requestAuthCtx(), parsed.data);
   return { done: true };
 }
 
@@ -103,7 +102,7 @@ export async function verifyEmailAction(_prev: FormState, form: FormData): Promi
   }
   if ((await checkLimits([[LIMITS.verifyIp, await ip()]])) > 0) return { error: 'rateLimited' };
   try {
-    await identity.verifyEmail(authCtx(newId()), parsed.data);
+    await identity.verifyEmail(await requestAuthCtx(), parsed.data);
   } catch (err) {
     if (isAppError(err) && err.code === 'TOKEN_INVALID') return { error: 'tokenInvalid' };
     if (isAppError(err) && err.code === 'INVALID_CREDENTIALS') return { error: 'verifyPassword' };
@@ -121,7 +120,7 @@ export async function forgotPasswordAction(_prev: FormState, form: FormData): Pr
     [LIMITS.resetRequestEmail, parsed.data.email],
   ]);
   if (wait > 0) return { error: 'rateLimited' };
-  await identity.requestPasswordReset(authCtx(newId()), parsed.data);
+  await identity.requestPasswordReset(await requestAuthCtx(), parsed.data);
   return { done: true };
 }
 
@@ -135,7 +134,7 @@ export async function resetPasswordAction(_prev: FormState, form: FormData): Pro
   }
   if ((await checkLimits([[LIMITS.resetSubmitIp, await ip()]])) > 0) return { error: 'rateLimited' };
   try {
-    await identity.resetPassword(authCtx(newId()), parsed.data);
+    await identity.resetPassword(await requestAuthCtx(), parsed.data);
   } catch (err) {
     if (isAppError(err) && err.code === 'TOKEN_INVALID') return { error: 'tokenInvalid' };
     throw err;
@@ -158,7 +157,7 @@ export async function acceptInviteAction(_prev: FormState, form: FormData): Prom
   }
   if ((await checkLimits([[LIMITS.inviteAcceptIp, await ip()]])) > 0) return { error: 'rateLimited' };
   try {
-    await identity.acceptInvite(authCtx(newId()), parsed.data);
+    await identity.acceptInvite(await requestAuthCtx(), parsed.data);
   } catch (err) {
     if (isAppError(err) && err.code === 'TOKEN_INVALID') return { error: 'tokenInvalid' };
     if (isAppError(err) && err.code === 'INVITE_EMAIL_IN_USE') return { error: 'inviteEmailInUse' };
