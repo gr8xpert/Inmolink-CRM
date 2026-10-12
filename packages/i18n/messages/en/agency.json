@@ -69,6 +69,40 @@
     "submit": "Save settings",
     "saved": "Settings saved."
   },
+  "preferred": {
+    "title": "Preferred agencies",
+    "intro": "Your trusted partners. Listings you share with “Preferred agencies only” reach just them. Notes are internal: partners never see them.",
+    "empty": "No preferred agencies yet.",
+    "listed": "Verified",
+    "unlisted": "No longer verified: does not receive your listings",
+    "note": "Internal note",
+    "saveNote": "Save note",
+    "remove": "Remove",
+    "added": "Added {date}",
+    "more": "Show more",
+    "search": {
+      "title": "Add an agency",
+      "label": "Agency name",
+      "placeholder": "At least 3 letters",
+      "submit": "Search",
+      "none": "No verified agency matches “{q}”.",
+      "add": "Add",
+      "alreadyAdded": "Already on your list",
+      "verifiedOnly": "Only verified agencies can find and add partners."
+    },
+    "done": {
+      "added": "Agency added.",
+      "removed": "Agency removed. It no longer sees your preferred-only listings.",
+      "noted": "Note saved."
+    },
+    "errors": {
+      "PREFERRED_AGENCY_INVALID": "Only another verified agency can be added.",
+      "PREFERRED_AGENCY_EXISTS": "That agency is already on your list.",
+      "PREFERRED_AGENCY_LIMIT_REACHED": "Your list is full. Remove an agency first.",
+      "VERIFICATION_REQUIRED": "Your agency must be verified first.",
+      "NOT_FOUND": "That agency is no longer on your list."
+    }
+  },
   "errors": {
     "invalidInput": "Please check the highlighted fields.",
     "conflict": "Someone else changed this meanwhile. Reload the page and try again.",

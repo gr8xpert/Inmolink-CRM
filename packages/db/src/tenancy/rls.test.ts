@@ -36,7 +36,7 @@ describe('RLS generator', () => {
 
   it('[S0-05] NETWORK_READ adds a select-only predicate policy for app_user, only with a tenant set', () => {
     expect(out).toContain(`create policy network_read on public."properties" for select to app_user
-  using (app_agency() is not null and (visibility in ('SHARED','PUBLIC') and status = 'ACTIVE'));`);
+  using (app_agency() is not null and (select public.app_agency_verified()) and (visibility in ('SHARED','PUBLIC') and status = 'ACTIVE'));`);
   });
 
   it('[S0-05] PUBLIC_READ grants app_public select through a predicate policy; nothing else reaches app_public', () => {
@@ -68,6 +68,32 @@ describe('RLS generator', () => {
     expect(() => tablesSql(smuggle('true; drop table x'))).toThrow(/single expression/);
     expect(() => tablesSql(smuggle('true -- x'))).toThrow(/single expression/);
     expect(() => tablesSql(smuggle('  '))).toThrow(/empty/);
+  });
+
+  it('[S1-07] the generator itself requires a verified reader on every NETWORK_READ policy; no predicate can widen it', () => {
+    const weak = tablesSql({
+      tenant: {
+        t: {
+          kind: 'NETWORK_READ',
+          networkReadSql: 'app_agency_verified() or true',
+          samples: { visible: [], hidden: [] },
+        },
+      },
+      global: {},
+    });
+    // ANDed outside the registry predicate (in its own parentheses), as a once-per-statement init plan.
+    expect(weak).toContain(
+      'using (app_agency() is not null and (select public.app_agency_verified()) and (app_agency_verified() or true));',
+    );
+  });
+
+  it('[S1-07] the preferred helper is a set-returning SQL function for app_user only, never SECURITY DEFINER', () => {
+    expect(out).toContain(
+      'create or replace function app_preferring_agencies() returns setof uuid language sql stable parallel safe',
+    );
+    expect(out).toContain('drop function if exists app_is_preferred_by(uuid);');
+    expect(out).toContain('grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;');
+    expect(out).not.toMatch(/security definer/i);
   });
 
   it('[S0-05] expected policies per kind; duplicate registrations are refused', () => {

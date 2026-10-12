@@ -10,7 +10,11 @@ export type AgenciesAction =
   | 'agencies.profile.update'
   | 'agencies.settings.update'
   | 'agencies.settings.read'
-  | 'agencies.commission.read';
+  | 'agencies.commission.read'
+  | 'agencies.preferred.read'
+  | 'agencies.preferred.add'
+  | 'agencies.preferred.manage'
+  | 'agencies.directory.search';
 
 /** Roles that administer their agency (PLAN §3 #2). */
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -37,6 +41,18 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role) && ctx.actor.impersonatedBy === undefined;
     case 'agencies.verification.read':
       // Company documents: admins only, never in Client Mode.
+      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
+    case 'agencies.preferred.read':
+    case 'agencies.directory.search':
+      // Members see whom their agency trusts (they choose PREFERRED sharing on listings); the list and
+      // its internal notes are never shown to a client.
+      return sameAgency && !ctx.clientMode;
+    case 'agencies.preferred.add':
+      // Adding widens who sees the agency's PREFERRED listings: its own admins decide, never staff
+      // impersonating one (like settings and API keys).
+      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role) && ctx.actor.impersonatedBy === undefined;
+    case 'agencies.preferred.manage':
+      // Removing (only narrows access) and editing the note: admins, also while impersonated (both recorded).
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
   }
 }
@@ -66,9 +82,15 @@ export function assertStaffCan(...args: Parameters<typeof canStaff>): void {
 /**
  * What only a VERIFIED agency may do (PLAN §3 #3): share listings with the network or the public
  * (SHARED / PUBLIC visibility) and create website API keys. Listings (S3-02) and API keys (S1-05)
- * call `assertVerified` before writing.
+ * call `assertVerified` before writing; preferred agencies (S1-07) before adding one or searching the
+ * directory (only verified agencies take part in the network).
  */
-export type VerifiedAction = 'listing.share' | 'listing.publish' | 'apiKey.create';
+export type VerifiedAction =
+  | 'listing.share'
+  | 'listing.publish'
+  | 'apiKey.create'
+  | 'preferredAgency.add'
+  | 'directory.search';
 
 export function assertVerified(ctx: Ctx, action: VerifiedAction): void {
   if (!ctx.tenant.verified) throw new AppError('VERIFICATION_REQUIRED', { action });

@@ -141,6 +141,46 @@ describe('RLS guard', () => {
     ]);
   });
 
+  it('[S1-07] a hand-weakened policy predicate, helper body or guard trigger fails the guard', async () => {
+    const STAMP =
+      'app_user_id(): policy predicates, helper bodies or triggers differ from the last pnpm db:rls (run it again)';
+    const all = async (plant: string) => {
+      await owner.query('begin');
+      try {
+        await owner.query(plant);
+        return await checkRls(owner, isolationRegistry);
+      } finally {
+        await owner.query('rollback');
+      }
+    };
+    // Same name, command and roles: only the predicate changed.
+    expect(await all(`alter policy network_read on public.preferred_agencies using (true)`)).toEqual([STAMP]);
+    expect(
+      await all(
+        `create or replace function app_agency_verified() returns boolean language sql stable parallel safe as $$ select true $$`,
+      ),
+    ).toEqual([STAMP]);
+    // A guard trigger: its function body edited, the trigger disabled or dropped, or one added.
+    expect(
+      await all(`create or replace function preferred_agencies_guard() returns trigger language plpgsql
+                   as $$ begin return coalesce(new, old); end $$`),
+    ).toEqual([STAMP]);
+    expect(await all('alter table preferred_agencies disable trigger preferred_agencies_guard')).toEqual([
+      STAMP,
+      'preferred_agencies: trigger preferred_agencies_guard is disabled',
+    ]);
+    expect(await all('drop trigger preferred_agency_notes_guard on preferred_agency_notes')).toEqual([
+      STAMP,
+      'preferred_agency_notes: missing trigger preferred_agency_notes_guard (run pnpm db:migrate)',
+    ]);
+    expect(
+      await all(`create function planted_noop() returns trigger language plpgsql as $$ begin return new; end $$;
+                 revoke all on function planted_noop() from public;
+                 create trigger planted_noop before insert on preferred_agency_notes for each row execute function planted_noop()`),
+    ).toEqual([STAMP, 'preferred_agency_notes: unexpected trigger planted_noop']);
+    expect(await checkRls(owner, isolationRegistry)).toEqual([]);
+  });
+
   it('[S0-05] a stale registry entry and a nullable agency_id fail the guard', async () => {
     const reg = mergeRegistries(isolationRegistry, strict('planted_nullable'), strict('planted_missing'));
     const problems = await guardWith(

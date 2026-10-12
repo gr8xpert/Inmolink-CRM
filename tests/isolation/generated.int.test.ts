@@ -1,5 +1,6 @@
 import {
   getPgClient,
+  SAMPLE_READER,
   setAuthScope,
   type TenantTable,
   type Tx,
@@ -99,6 +100,20 @@ const count = async (tx: Tx, table: string, agencyId: string) =>
       ?.n,
   );
 
+/**
+ * A member of the network (S1-07): a VERIFIED agency listed in the directory. Seeded inside
+ * `withReplicaRole` (no triggers); an existing directory row (the directory's own samples) is kept.
+ */
+async function seedNetworkMember(agencyId: string): Promise<void> {
+  const columns = await columnsOf(admin, 'agencies');
+  await seed(admin, 'agencies', buildRow('agencies', columns, { agency_id: agencyId, status: 'VERIFIED' }));
+  await admin.query(
+    `insert into agency_directory (agency_id, name, kind, listed) values ($1, 'Iso', 'AGENCY', true)
+     on conflict (agency_id) do nothing`,
+    [agencyId],
+  );
+}
+
 function samplesOf(def: TenantTable): { visible: Row[]; hidden: Row[] } {
   if (def.kind === 'STRICT') return { visible: [], hidden: [{}] };
   return def.samples;
@@ -114,17 +129,27 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   const b = newId();
   let build: (overrides: Row) => Row;
 
+  /** Sample values naming the reader (`SAMPLE_READER`) become tenant B, which reads the network below. */
+  const forReader = (sample: Row): Row =>
+    Object.fromEntries(Object.entries(sample).map(([k, v]) => [k, v === SAMPLE_READER ? b : v]));
+
   beforeAll(async () => {
     const columns = await columnsOf(admin, table);
     build = (overrides) => buildRow(table, columns, { ...def.base, ...overrides });
     await withReplicaRole(admin, async () => {
-      for (const sample of [...visible, ...hidden]) await seed(admin, table, build({ ...sample, agency_id: a }));
+      for (const sample of [...visible, ...hidden]) {
+        await seed(admin, table, build({ ...forReader(sample), agency_id: a }));
+      }
       await seed(admin, table, build({ agency_id: b }));
+      // Only verified agencies read the network (the generator's `app_agency_verified()`, S1-07), and
+      // rows of an owner that left the directory may be hidden: both tenants are network members.
+      if (def.kind === 'NETWORK_READ') for (const id of [a, b]) await seedNetworkMember(id);
     });
   });
 
   afterAll(async () => {
     await admin.query(`delete from "${table}" where agency_id = any($1)`, [[a, b]]);
+    if (def.kind === 'NETWORK_READ') await admin.query('delete from agencies where agency_id = any($1)', [[a, b]]);
   });
 
   const adminCount = async (agencyId: string) =>
@@ -186,6 +211,21 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     if (def.kind === 'NETWORK_READ') {
       it(`[S0-05] ${table}: tenant B reads tenant A's rows only where the network predicate holds`, async () => {
         expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(visible.length);
+      });
+
+      it(`[S1-07] ${table}: an agency that is not verified reads none of tenant A's rows`, async () => {
+        const setStatus = (status: string) =>
+          withReplicaRole(admin, () =>
+            admin.query('update agencies set status = $2 where agency_id = $1', [b, status]),
+          );
+        await setStatus('SUSPENDED');
+        try {
+          expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(0);
+        } finally {
+          await setStatus('VERIFIED');
+        }
+        // An agency id with no agency at all, too.
+        expect(await withTenant({ agencyId: newId() }, (tx) => count(tx, table, a))).toBe(0);
       });
     } else {
       it(`[S0-05] ${table}: tenant B cannot select tenant A's rows`, async () => {

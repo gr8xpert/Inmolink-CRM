@@ -20,7 +20,13 @@ const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff
 const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
-export const HELPER_FUNCTIONS = ['app_agency', 'app_user_id', 'app_is_staff'] as const;
+export const HELPER_FUNCTIONS = [
+  'app_agency',
+  'app_user_id',
+  'app_is_staff',
+  'app_agency_verified',
+  'app_preferring_agencies',
+] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
 export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff';
@@ -141,6 +147,22 @@ function ident(name: string): string {
  * Helper functions used by policies. `security invoker`: `app_agency()` / `app_user_id()` read only the
  * transaction-local settings; `app_is_staff()` reads the caller's own `staff_users` row (policy
  * `staff_self`), so it is true only for `app_staff` acting for an active staff member.
+ *
+ * S1-07, for NETWORK_READ predicates (executable by `app_user` only):
+ * - `app_agency_verified()`: the session's agency is VERIFIED now (its own `agencies` row, `own_rows`).
+ *   The generator ANDs every `network_read` policy with `(select public.app_agency_verified())` — an
+ *   init plan, evaluated once per statement, that registry predicates cannot weaken (only verified
+ *   agencies read the network).
+ * - `app_preferring_agencies()`: the agencies that list the session's agency as preferred and are
+ *   themselves listed (VERIFIED) in the directory. Listing policies (S3-02) use it as
+ *   `share_scope = 'PREFERRED' and agency_id in (select a from public.app_preferring_agencies() a)`:
+ *   a set-returning SQL function in FROM is inlined by the planner into a (hashed) semi-join over
+ *   `preferred_agencies_preferred_idx`, evaluated once per statement — not a function call per listing
+ *   row, as a scalar `app_is_preferred_by(agency_id)` would be. It reads `preferred_agencies` through
+ *   that table's own `network_read` policy (rows naming the session's agency), so it needs no SECURITY
+ *   DEFINER and tells an agency only who prefers it. No cache: a removal hides the owner's PREFERRED rows
+ *   from the next statement on. No `set search_path` (that would stop the inlining): every name in the
+ *   body is schema-qualified, and it runs with the caller's own privileges.
  */
 export function helperSql(): string {
   return [
@@ -150,9 +172,18 @@ export function helperSql(): string {
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;`,
     `create or replace function app_is_staff() returns boolean language sql stable parallel safe
   as $$ select exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.deactivated_at is null) $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_is_staff() from public;`,
+    `create or replace function app_agency_verified() returns boolean language sql stable parallel safe
+  as $$ select exists (select 1 from public.agencies a where a.agency_id = public.app_agency() and a.status = 'VERIFIED') $$;`,
+    // Replaced by app_preferring_agencies() (S1-07 review: a scalar helper is evaluated per row).
+    `drop function if exists app_is_preferred_by(uuid);`,
+    `create or replace function app_preferring_agencies() returns setof uuid language sql stable parallel safe
+  as $$ select p.agency_id from public.preferred_agencies p
+      join public.agency_directory d on d.agency_id = p.agency_id and d.listed
+     where p.preferred_agency_id = public.app_agency() $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies() from public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_is_staff() to app_staff;`,
+    `grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;`,
   ].join('\n');
 }
 
@@ -167,9 +198,11 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
   ];
   if (def.kind === 'NETWORK_READ') {
-    // Only a tenant reads the network: a connection with no agency set sees nothing at all.
+    // Only a tenant reads the network: a connection with no agency set sees nothing at all. Only a
+    // verified one (PLAN §3 #3, S1-07): added here, not by the registry, so no predicate can weaken it;
+    // as a sub-select it is an init plan, evaluated once per statement rather than per row.
     out.push(`create policy network_read on ${t} for select to app_user
-  using (app_agency() is not null and (${predicate(name, def.networkReadSql)}));`);
+  using (app_agency() is not null and (select public.app_agency_verified()) and (${predicate(name, def.networkReadSql)}));`);
   }
   if (def.kind === 'PUBLIC_READ') {
     out.push(`create policy public_read on ${t} for select to app_public

@@ -71,4 +71,49 @@ export const agenciesEvents = {
       version: z.number().int(),
     }),
   ),
+  /**
+   * The agency added a preferred agency (S1-07): its listings shared to PREFERRED now reach it; search
+   * (S3) re-filters the partner's network view on it. Who acted — adding is refused while staff
+   * impersonate an admin, so `impersonatedBy` is null today; the field keeps the payload uniform.
+   */
+  preferredAdded: defineEvent(
+    'agencies.preferred.added',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      preferredAgencyId: z.uuid(),
+      actorUserId: z.uuid(),
+      impersonatedBy: z.uuid().nullable(),
+    }),
+  ),
+  /**
+   * The agency replaced its internal note on a preferred agency (S1-07), for the audit log (S1-08). Never
+   * the note text: notes are internal and events are read by workers of other modules. Staff impersonating
+   * an admin may edit notes; the event names both of them.
+   */
+  preferredNoteUpdated: defineEvent(
+    'agencies.preferred.noteUpdated',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      preferredAgencyId: z.uuid(),
+      actorUserId: z.uuid(),
+      impersonatedBy: z.uuid().nullable(),
+    }),
+  ),
+  /**
+   * The agency removed a preferred agency (S1-07): its PREFERRED listings stop reaching it from the next
+   * query on (RLS, no cache); search (S3) drops them from the partner's view. Staff impersonating an
+   * admin may remove (it only narrows access); the event names both of them.
+   */
+  preferredRemoved: defineEvent(
+    'agencies.preferred.removed',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      preferredAgencyId: z.uuid(),
+      actorUserId: z.uuid(),
+      impersonatedBy: z.uuid().nullable(),
+    }),
+  ),
 };

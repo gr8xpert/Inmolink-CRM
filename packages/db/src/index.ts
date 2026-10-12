@@ -21,6 +21,7 @@ export {
   type PolicyKind,
   type PredicateSamples,
   registry,
+  SAMPLE_READER,
   type SampleRow,
   type StaffAccess,
   type TenantRegistry,

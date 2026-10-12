@@ -1,4 +1,5 @@
 import {
+  type AddPreferredAgencyBody,
   AGENCY_LOGO_TYPES,
   AgencyDto,
   AgencyProfileDto,
@@ -7,6 +8,7 @@ import {
   ApiKeyPage,
   type CreateApiKeyInput,
   type DecideVerificationBody,
+  DirectorySearchResult,
   ErrorBody,
   type InvitableRole,
   InviteDto,
@@ -16,10 +18,13 @@ import {
   MeDto,
   MemberDto,
   MemberPage,
+  PreferredAgencyDto,
+  PreferredAgencyPage,
   SignedUrlDto,
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
+  type UpdatePreferredAgencyBody,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
   VerificationDocumentDto,
@@ -80,7 +85,7 @@ async function apiRequest<S extends z.ZodType>(
   path: string,
   schema: S,
   init: {
-    method?: 'GET' | 'PUT' | 'POST' | 'DELETE';
+    method?: 'GET' | 'PUT' | 'POST' | 'PATCH' | 'DELETE';
     body?: unknown;
     /** A binary body (uploads) instead of JSON. */
     raw?: { bytes: Uint8Array; contentType: string };
@@ -353,4 +358,42 @@ export function decideVerification(
       body,
     },
   );
+}
+
+// ── Preferred agencies (S1-07) ────────────────────────────────────────────────────────────────
+
+export function fetchPreferredAgencies(
+  session: SessionRef,
+  cursor: string | undefined,
+): Promise<ApiResult<PreferredAgencyPage>> {
+  const query = new URLSearchParams({ limit: '100', ...(cursor ? { cursor } : {}) });
+  return apiRequest(session, `/v1/agency/preferred-agencies?${query}`, PreferredAgencyPage);
+}
+
+export function searchAgencyDirectory(session: SessionRef, q: string): Promise<ApiResult<DirectorySearchResult>> {
+  return apiRequest(session, `/v1/agency-directory?${new URLSearchParams({ q })}`, DirectorySearchResult);
+}
+
+export function addPreferredAgency(
+  session: SessionRef,
+  body: AddPreferredAgencyBody,
+): Promise<ApiResult<PreferredAgencyDto>> {
+  return apiRequest(session, '/v1/agency/preferred-agencies', PreferredAgencyDto, { method: 'POST', body });
+}
+
+export function updatePreferredAgency(
+  session: SessionRef,
+  agencyId: string,
+  body: UpdatePreferredAgencyBody,
+): Promise<ApiResult<PreferredAgencyDto>> {
+  return apiRequest(session, `/v1/agency/preferred-agencies/${encodeURIComponent(agencyId)}`, PreferredAgencyDto, {
+    method: 'PATCH',
+    body,
+  });
+}
+
+export function removePreferredAgency(session: SessionRef, agencyId: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/agency/preferred-agencies/${encodeURIComponent(agencyId)}`, z.null(), {
+    method: 'DELETE',
+  });
 }

@@ -45,6 +45,9 @@ export default async function HomePage() {
             <Link href="/settings" className="text-sm font-medium underline-offset-4 hover:underline">
               {t('home.settings')}
             </Link>
+            <Link href="/preferred-agencies" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.preferred')}
+            </Link>
           </>
         ) : (
           // No agency: staff (or a user without one). The page 404s for non-staff (S1-03).

@@ -11,6 +11,12 @@ export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 /** Column overrides (DB column names) for rows the isolation suite seeds. */
 export type SampleRow = Record<string, unknown>;
 
+/**
+ * A sample value the isolation suite replaces with the reading tenant's agency id — for predicates about
+ * the reader, such as `preferred_agency_id = app_agency()` (S1-07).
+ */
+export const SAMPLE_READER = '{reader}';
+
 /** Rows that satisfy (`visible`) and fail (`hidden`) a read predicate, so the suite can test both sides. */
 export interface PredicateSamples {
   visible: SampleRow[];
@@ -58,6 +64,12 @@ interface TenantBase {
    * never granted; column rules (which fields staff may change) live in guard triggers.
    */
   staff?: StaffAccess;
+  /**
+   * The table's own (non-constraint) triggers — guard triggers and the directory sync (S1-07). The guard
+   * fails if one is missing or disabled, or if the table has a trigger not listed here; their function
+   * bodies are part of the catalog fingerprint `pnpm db:rls` records.
+   */
+  triggers?: readonly string[];
 }
 
 export interface AuthAccess {
@@ -77,8 +89,11 @@ export type TenantTable = TenantBase &
     | /** Own agency only. */ { kind: 'STRICT' }
     /**
      * Own agency, plus other agencies (`app_user`) may read rows matching the predicate. Never writable
-     * by them. RLS shares whole rows: keep private columns in a STRICT side table. The predicate must
-     * include `app_agency_verified()` once agencies exist (S1-01).
+     * by them. RLS shares whole rows: keep private columns in a STRICT side table. The generator ANDs
+     * the predicate with `(select public.app_agency_verified())` — only verified agencies read the
+     * network (S1-07); the isolation suite reads as a verified agency listed in the directory, and checks
+     * that an unverified one sees nothing. Listing-style rows shared with preferred agencies only use
+     * `agency_id in (select a from public.app_preferring_agencies() a)` (S1-07).
      */
     | {
         kind: 'NETWORK_READ';
@@ -140,6 +155,7 @@ export const tenantTables: Record<string, TenantTable> = {
   agencies: {
     kind: 'STRICT',
     singleRow: true,
+    triggers: ['agencies_guard', 'agencies_directory_sync'],
     staff: { select: 'true', update: 'true' },
     auth: {
       select: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
@@ -163,6 +179,7 @@ export const tenantTables: Record<string, TenantTable> = {
   agency_members: {
     kind: 'STRICT',
     guardedInsert: true,
+    triggers: ['agency_members_guard'],
     auth: {
       select: 'user_id = app_user_id()',
       // Sign-up: the agency is one app_auth can see (the PENDING, not-onboarded agency being signed
@@ -180,6 +197,7 @@ export const tenantTables: Record<string, TenantTable> = {
   agency_invites: {
     kind: 'STRICT',
     guardedInsert: true,
+    triggers: ['agency_invites_guard'],
     auth: {
       select:
         'agency_id = app_agency() and coalesce(accepted_user_id, app_user_id()) is not distinct from app_user_id()',
@@ -192,8 +210,16 @@ export const tenantTables: Record<string, TenantTable> = {
   // Verification (S1-03). The agency submits requests and uploads documents; staff read every agency's
   // and decide requests. Guard triggers (0011): tenants never change a request after submitting it,
   // nor a document once attached; staff change only the decision columns of an open request.
-  agency_verification_requests: { kind: 'STRICT', staff: { select: 'true', update: 'true' } },
-  agency_verification_documents: { kind: 'STRICT', staff: { select: 'true' } },
+  agency_verification_requests: {
+    kind: 'STRICT',
+    staff: { select: 'true', update: 'true' },
+    triggers: ['agency_verification_requests_guard'],
+  },
+  agency_verification_documents: {
+    kind: 'STRICT',
+    staff: { select: 'true' },
+    triggers: ['agency_verification_documents_guard'],
+  },
   // Website API keys (S1-05). Agency admins manage their own; feed-api (app_public) authenticates a
   // request by prefix before it knows the tenant, so it reads usable keys of every agency: the stored
   // hash is an HMAC under HMAC_KEY of a 256-bit secret, and the rest is metadata the API enforces.
@@ -202,12 +228,41 @@ export const tenantTables: Record<string, TenantTable> = {
   api_keys: {
     kind: 'PUBLIC_READ',
     guardedInsert: true,
+    triggers: ['api_keys_guard'],
     publicReadSql: 'revoked_at is null and agency_active',
     samples: {
       visible: [{}],
       hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }, { agency_active: false }],
     },
   },
+  // Directory of verified agencies (S1-07): name and kind only. Verified agencies read the listed rows
+  // (find a partner, show partner names). A trigger on `agencies` keeps it in step in the status change's
+  // transaction — staff decisions (app_staff) and app_system. Tenants never write it, and staff write only
+  // what `agencies` says (guard trigger, migration 0022); app_user's grant is proven by a no-op update.
+  // The `listed = false` side is tested in the agencies module (one row per agency: the suite seeds one).
+  agency_directory: {
+    kind: 'NETWORK_READ',
+    singleRow: true,
+    networkReadSql: 'listed',
+    staff: { select: 'true', insert: 'true', update: 'true' },
+    samples: { visible: [{ listed: true }], hidden: [] },
+    triggers: ['agency_directory_guard'],
+  },
+  // Preferred agencies (S1-07, PLAN §3 #57): the relationship only. The preferred agency reads the rows
+  // naming it whose owner is listed (VERIFIED) — what `app_preferring_agencies()` returns to listing
+  // policies; a suspended owner's relationships are invisible. Admins of a verified agency add verified
+  // agencies, at most 200; rows are never updated (guard trigger 0022). Notes are in the STRICT table below.
+  preferred_agencies: {
+    kind: 'NETWORK_READ',
+    guardedInsert: true,
+    networkReadSql:
+      'preferred_agency_id = app_agency() and exists (select 1 from public.agency_directory d where d.agency_id = preferred_agencies.agency_id and d.listed)',
+    samples: { visible: [{ preferred_agency_id: SAMPLE_READER }], hidden: [{}] },
+    triggers: ['preferred_agencies_guard'],
+  },
+  // The owner's internal note on a preferred agency (S1-07): never visible to the preferred agency.
+  // Admins only (guard trigger 0022).
+  preferred_agency_notes: { kind: 'STRICT', guardedInsert: true, triggers: ['preferred_agency_notes_guard'] },
 };
 
 /**

@@ -6,15 +6,23 @@ create or replace function app_user_id() returns uuid language sql stable parall
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;
 create or replace function app_is_staff() returns boolean language sql stable parallel safe
   as $$ select exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.deactivated_at is null) $$;
-revoke all on function app_agency(), app_user_id(), app_is_staff() from public;
+create or replace function app_agency_verified() returns boolean language sql stable parallel safe
+  as $$ select exists (select 1 from public.agencies a where a.agency_id = public.app_agency() and a.status = 'VERIFIED') $$;
+drop function if exists app_is_preferred_by(uuid);
+create or replace function app_preferring_agencies() returns setof uuid language sql stable parallel safe
+  as $$ select p.agency_id from public.preferred_agencies p
+      join public.agency_directory d on d.agency_id = p.agency_id and d.listed
+     where p.preferred_agency_id = public.app_agency() $$;
+revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies() from public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_is_staff() to app_staff;
+grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;
 
 do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -39,6 +47,23 @@ create policy staff_select on public."agencies" for select to app_staff
 create policy staff_update on public."agencies" for update to app_staff
   using (app_is_staff() and (true)) with check (app_is_staff() and (true));
 grant select, update on table public."agencies" to app_staff;
+
+-- agency_directory: NETWORK_READ
+alter table public."agency_directory" enable row level security;
+alter table public."agency_directory" force row level security;
+create policy own_rows on public."agency_directory" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."agency_directory" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (listed));
+revoke all on table public."agency_directory" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."agency_directory" to app_user, app_system;
+create policy staff_select on public."agency_directory" for select to app_staff
+  using (app_is_staff() and (true));
+create policy staff_insert on public."agency_directory" for insert to app_staff
+  with check (app_is_staff() and (true));
+create policy staff_update on public."agency_directory" for update to app_staff
+  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+grant select, insert, update on table public."agency_directory" to app_staff;
 
 -- agency_invites: STRICT
 alter table public."agency_invites" enable row level security;
@@ -160,6 +185,24 @@ grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
   with check (app_is_staff() and (starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid));
 grant insert on table public."outbox_events" to app_staff;
+
+-- preferred_agencies: NETWORK_READ
+alter table public."preferred_agencies" enable row level security;
+alter table public."preferred_agencies" force row level security;
+create policy own_rows on public."preferred_agencies" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."preferred_agencies" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (preferred_agency_id = app_agency() and exists (select 1 from public.agency_directory d where d.agency_id = preferred_agencies.agency_id and d.listed)));
+revoke all on table public."preferred_agencies" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."preferred_agencies" to app_user, app_system;
+
+-- preferred_agency_notes: STRICT
+alter table public."preferred_agency_notes" enable row level security;
+alter table public."preferred_agency_notes" force row level security;
+create policy own_rows on public."preferred_agency_notes" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."preferred_agency_notes" to app_user, app_system;
 
 -- staff_users: GLOBAL
 alter table public."staff_users" enable row level security;

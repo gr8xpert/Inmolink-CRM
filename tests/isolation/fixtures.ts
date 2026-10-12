@@ -26,6 +26,18 @@ export const fixtureRegistry: TenantRegistry = {
         ],
       },
     },
+    // S1-07: the listing policy shape S3-02 ships — shared with every verified agency (ALL) or only with
+    // the agencies that list the owner as preferred (PREFERRED). Without a relationship (the generated
+    // suite) PREFERRED rows stay hidden; `preferred.int.test.ts` adds one and removes it.
+    iso_fx_preferred: {
+      kind: 'NETWORK_READ',
+      networkReadSql: `share_scope = 'ALL' or (share_scope = 'PREFERRED' and agency_id in (select a from public.app_preferring_agencies() a))`,
+      base: { share_scope: 'PRIVATE' },
+      samples: {
+        visible: [{ share_scope: 'ALL' }],
+        hidden: [{ share_scope: 'PREFERRED' }, { share_scope: 'PRIVATE' }],
+      },
+    },
     iso_fx_public: {
       kind: 'PUBLIC_READ',
       publicReadSql: 'published',
@@ -48,6 +60,7 @@ create table iso_fx_strict (
 create table iso_fx_network (
   id uuid primary key, agency_id uuid not null, visibility text not null, status text not null,
   deleted_at timestamptz);
+create table iso_fx_preferred (id uuid primary key, agency_id uuid not null, share_scope text not null);
 create table iso_fx_public (id uuid primary key, agency_id uuid not null, published boolean not null);
 create table iso_fx_global (id uuid primary key, code text not null unique);
 create table iso_fx_global_public (id uuid primary key, code text not null unique);

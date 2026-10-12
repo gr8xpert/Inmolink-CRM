@@ -81,6 +81,29 @@ describe('agencies policy', () => {
     }
   });
 
+  it('[S1-07] admins add and manage preferred agencies, members read the list; staff impersonating may not add', () => {
+    for (const action of ['agencies.preferred.add', 'agencies.preferred.manage'] as const) {
+      expect(can(as('AGENCY_ADMIN'), action)).toBe(true);
+      expect(can(as('DEVELOPER_ADMIN'), action)).toBe(true);
+      for (const role of ['AGENT', 'DEVELOPER_AGENT', 'PARTNER']) expect(can(as(role), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN', { clientMode: true }), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN'), action, { agencyId: OTHER_AGENCY })).toBe(false);
+    }
+    for (const action of ['agencies.preferred.read', 'agencies.directory.search'] as const) {
+      expect(can(as('AGENT'), action)).toBe(true);
+      expect(can(as('AGENT', { clientMode: true }), action)).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+    }
+    const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: USER });
+    expect(can(impersonated, 'agencies.preferred.add')).toBe(false);
+    expect(can(impersonated, 'agencies.preferred.manage')).toBe(true);
+    for (const action of ['preferredAgency.add', 'directory.search'] as const) {
+      expect(() => assertVerified(as('AGENCY_ADMIN', { verified: false }), action)).toThrowError(
+        expect.objectContaining({ code: 'VERIFICATION_REQUIRED' }),
+      );
+    }
+  });
+
   it('[S1-03] only super admins and support staff read and decide verification', () => {
     const staff = (role: StaffRole): StaffCtx => ({
       tx: {} as StaffCtx['tx'],

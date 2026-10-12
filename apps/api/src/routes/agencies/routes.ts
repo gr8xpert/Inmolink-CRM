@@ -2,6 +2,7 @@ import { AgencyDto, UpdateAgencyDetailsBody } from '@inmolink/contracts';
 import * as agencies from '@inmolink/core/modules/agencies';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
+import { preferredAgencyRoutes } from './preferred';
 import { settingsRoutes } from './settings';
 import { verificationRoutes } from './verification';
 
@@ -50,4 +51,5 @@ export async function agenciesRoutes(app: FastifyZod): Promise<void> {
   // Own plugins: their binary body parsers stay out of the other agencies routes.
   await app.register(verificationRoutes);
   await app.register(settingsRoutes);
+  await app.register(preferredAgencyRoutes);
 }

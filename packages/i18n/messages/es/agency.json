@@ -69,6 +69,40 @@
     "submit": "Guardar ajustes",
     "saved": "Ajustes guardados."
   },
+  "preferred": {
+    "title": "Agencias preferentes",
+    "intro": "Tus colaboradores de confianza. Los inmuebles que compartas con «Solo agencias preferentes» solo les llegan a ellos. Las notas son internas: los colaboradores nunca las ven.",
+    "empty": "Todavía no tienes agencias preferentes.",
+    "listed": "Verificada",
+    "unlisted": "Ya no está verificada: no recibe tus inmuebles",
+    "note": "Nota interna",
+    "saveNote": "Guardar nota",
+    "remove": "Quitar",
+    "added": "Añadida el {date}",
+    "more": "Ver más",
+    "search": {
+      "title": "Añadir una agencia",
+      "label": "Nombre de la agencia",
+      "placeholder": "Al menos 3 letras",
+      "submit": "Buscar",
+      "none": "Ninguna agencia verificada coincide con «{q}».",
+      "add": "Añadir",
+      "alreadyAdded": "Ya está en tu lista",
+      "verifiedOnly": "Solo las agencias verificadas pueden buscar y añadir colaboradores."
+    },
+    "done": {
+      "added": "Agencia añadida.",
+      "removed": "Agencia quitada. Ya no ve tus inmuebles solo para preferentes.",
+      "noted": "Nota guardada."
+    },
+    "errors": {
+      "PREFERRED_AGENCY_INVALID": "Solo se puede añadir otra agencia verificada.",
+      "PREFERRED_AGENCY_EXISTS": "Esa agencia ya está en tu lista.",
+      "PREFERRED_AGENCY_LIMIT_REACHED": "Tu lista está llena. Quita una agencia primero.",
+      "VERIFICATION_REQUIRED": "Tu agencia debe estar verificada primero.",
+      "NOT_FOUND": "Esa agencia ya no está en tu lista."
+    }
+  },
   "errors": {
     "invalidInput": "Revisa los campos marcados.",
     "conflict": "Otra persona ha cambiado esto mientras tanto. Recarga la página e inténtalo de nuevo.",

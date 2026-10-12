@@ -65,6 +65,13 @@ export const ErrorCodes = {
   DOCUMENT_LIMIT_REACHED: 409,
   /** A submitted document is kept as evidence. */
   DOCUMENT_LOCKED: 409,
+  // agencies: preferred agencies (S1-07)
+  /** Not a verified agency in the directory (unknown, not verified, suspended), or the caller's own agency. */
+  PREFERRED_AGENCY_INVALID: 422,
+  /** The agency is already on the list. */
+  PREFERRED_AGENCY_EXISTS: 409,
+  /** The list is full: remove an agency first. */
+  PREFERRED_AGENCY_LIMIT_REACHED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

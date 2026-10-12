@@ -7,7 +7,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { bootstrapRoles, credentialFromUrl } from './bootstrap';
-import { checkRls } from './tenancy/guard';
+import { CATALOG_STAMP_FUNCTION, checkRls, rlsCatalogStamp } from './tenancy/guard';
 import { registry, type TenantRegistry } from './tenancy/registry';
 import { applyRls, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
 
@@ -127,6 +127,8 @@ export async function runRls(
     }
     await applyRls(owner, sql);
     await owner.query(`comment on function public.app_agency() is '${rlsStamp(sql)}'`);
+    // What the guard compares policy predicates and helper bodies against (S1-07).
+    await owner.query(`comment on function ${CATALOG_STAMP_FUNCTION} is '${await rlsCatalogStamp(owner)}'`);
     log.info({ tables: Object.keys(reg.tenant).length + Object.keys(reg.global).length }, 'rls applied');
     return await checkRls(owner, reg);
   } finally {

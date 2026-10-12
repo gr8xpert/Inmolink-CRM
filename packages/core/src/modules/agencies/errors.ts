@@ -18,4 +18,7 @@ export const agenciesErrors = [
   'DOCUMENT_LOCKED',
   'PAYLOAD_TOO_LARGE',
   'UNSUPPORTED_MEDIA_TYPE',
+  'PREFERRED_AGENCY_INVALID',
+  'PREFERRED_AGENCY_EXISTS',
+  'PREFERRED_AGENCY_LIMIT_REACHED',
 ] as const satisfies readonly ErrorCode[];

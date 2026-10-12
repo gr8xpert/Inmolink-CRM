@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
 import { APP_ROLE_NAMES, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS } from './rls';
@@ -59,6 +60,47 @@ select n.nspname as schema, p.proname as name, p.prosecdef as definer,
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname <> all (array[${SYSTEM_SCHEMAS.map((s) => `'${s}'`).join(', ')}])
    and ${NOT_EXTENSION('pg_proc', 'p')}`;
+
+/**
+ * Policy predicates and helper bodies, as the catalog holds them (S1-07: closes the S0-05 audit gap before
+ * the first NETWORK_READ table). Names, commands and roles are compared above; the predicate text and the
+ * helper bodies are compared with a fingerprint `pnpm db:rls` records right after applying the generated
+ * SQL. A hand-edited policy (`alter policy … using (true)`) or helper body no longer matches it. Trigger
+ * definitions and their functions' bodies (guard triggers, the directory sync) are part of it too: a
+ * hand-edited guard fails the guard until a migration changes it and `pnpm db:rls` runs (deploy order).
+ */
+const CATALOG_SQL = `
+select coalesce(string_agg(x, E'\\n' order by x), '') as catalog from (
+  select format('policy %s.%s %s %s %s using(%s) check(%s)', tablename, policyname, cmd, permissive,
+                roles::text, coalesce(qual, ''), coalesce(with_check, '')) as x
+    from pg_policies where schemaname = 'public'
+  union all
+  select 'function ' || pg_get_functiondef(p.oid)
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = any($1::text[])
+  union all
+  select format('trigger %s %s %s', pg_get_triggerdef(t.oid), t.tgenabled, pg_get_functiondef(t.tgfoid))
+    from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and not t.tgisinternal
+) s`;
+
+/** Non-constraint triggers on public tables, with their state (`D` = disabled). */
+const TRIGGERS_SQL = `
+select c.relname as table, t.tgname as name, t.tgenabled::text as enabled
+  from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public' and not t.tgisinternal`;
+
+/** Where `pnpm db:rls` keeps the fingerprint (the SQL stamp lives on `app_agency()`). */
+export const CATALOG_STAMP_FUNCTION = 'public.app_user_id()';
+const CATALOG_STAMP_SQL = `select obj_description(to_regprocedure('${CATALOG_STAMP_FUNCTION}'), 'pg_proc') as stamp`;
+
+/** Fingerprint of every public policy's predicates and the generated helpers' definitions. */
+export async function rlsCatalogStamp(client: pg.ClientBase): Promise<string> {
+  const { rows } = await client.query<{ catalog: string }>(CATALOG_SQL, [[...HELPER_FUNCTIONS]]);
+  return `rls catalog sha256:${createHash('sha256')
+    .update(rows[0]?.catalog ?? '')
+    .digest('hex')}`;
+}
 
 function lookup(registry: TenantRegistry, name: string): { tenant?: TenantTable; global?: GlobalTable } {
   return {
@@ -156,6 +198,32 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     const ours = f.schema === 'public' && helpers.has(f.name);
     if (f.executable && !ours) problems.push(`${label}(): executable by an app role but not a generated helper`);
     if (f.definer && !ours) problems.push(`${label}(): SECURITY DEFINER outside the generated helpers`);
+  }
+
+  // Guard triggers carry the rules RLS cannot express (S1-07 review): each registered one must exist and
+  // fire; a trigger the registry does not list is unexpected.
+  const triggers = await client.query<{ table: string; name: string; enabled: string }>(TRIGGERS_SQL);
+  for (const name of seen) {
+    const { tenant, global } = lookup(registry, name);
+    const def = tenant ?? global;
+    if (!def) continue;
+    const want = 'kind' in def ? (def.triggers ?? []) : [];
+    const have = triggers.rows.filter((t) => t.table === name);
+    for (const trigger of want) {
+      const found = have.find((t) => t.name === trigger);
+      if (!found) problems.push(`${name}: missing trigger ${trigger} (run pnpm db:migrate)`);
+      else if (found.enabled === 'D') problems.push(`${name}: trigger ${trigger} is disabled`);
+    }
+    for (const t of have) {
+      if (!want.includes(t.name)) problems.push(`${name}: unexpected trigger ${t.name}`);
+    }
+  }
+
+  const recorded = (await client.query<{ stamp: string | null }>(CATALOG_STAMP_SQL)).rows[0]?.stamp ?? null;
+  if (recorded !== (await rlsCatalogStamp(client))) {
+    problems.push(
+      'app_user_id(): policy predicates, helper bodies or triggers differ from the last pnpm db:rls (run it again)',
+    );
   }
   return [...new Set(problems)].sort();
 }

@@ -4,6 +4,7 @@ import {
   boolean,
   char,
   check,
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -270,5 +271,79 @@ export const agencyVerificationDocuments = pgTable(
     // FK + a request's documents (staff detail): where request_id = ?
     index('agency_verification_documents_request_idx').on(t.requestId).where(sql`request_id is not null`),
     uniqueIndex('agency_verification_documents_key_uq').on(t.storageKey),
+  ],
+);
+
+/**
+ * Directory of agencies other verified agencies may find (S1-07): name and kind only, one row per
+ * agency that has ever been VERIFIED; `listed` while it is VERIFIED. Kept in step with `agencies` by a
+ * trigger in the transaction that changes its status, name or kind (migration 0022), never written by tenants.
+ * NETWORK_READ: verified agencies read the listed rows (to find an agency to add as preferred, and
+ * to show partner names); the owner sees its own row.
+ *
+ * No search index: ≤ 5,000 agencies (PLAN §1), a substring scan of this narrow table is well under the
+ * 10k-row Seq Scan budget. Add a `pg_trgm` index if the directory grows past it.
+ */
+export const agencyDirectory = pgTable('agency_directory', {
+  agencyId: uuid('agency_id')
+    .primaryKey()
+    .references(() => agencies.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  kind: agencyKindEnum('kind').notNull(),
+  /** The agency is VERIFIED now. Unlisted agencies are invisible to others and stop receiving PREFERRED shares. */
+  listed: boolean('listed').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Preferred agencies (S1-07, PLAN §3 #57): agency `agency_id` trusts `preferred_agency_id` with listings
+ * shared to PREFERRED only. The relationship alone — no private columns: NETWORK_READ lets the preferred
+ * agency read the rows that name it (that is what `app_preferring_agencies()` returns to listing
+ * policies). The owner's note lives in `preferred_agency_notes` (STRICT).
+ */
+export const preferredAgencies = pgTable(
+  'preferred_agencies',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    preferredAgencyId: uuid('preferred_agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.preferredAgencyId] }),
+    // the owner's list: where agency_id = ? order by created_at, preferred_agency_id (keyset)
+    index('preferred_agencies_list_idx').on(t.agencyId, t.createdAt, t.preferredAgencyId),
+    // FK + app_preferring_agencies(): where preferred_agency_id = app_agency()
+    index('preferred_agencies_preferred_idx').on(t.preferredAgencyId, t.agencyId),
+    check('preferred_agencies_not_self_ck', sql`${t.agencyId} <> ${t.preferredAgencyId}`),
+  ],
+);
+
+/**
+ * The owner's private side of a preferred agency (S1-07): its internal note, the partner's name when
+ * it was added (shown if the partner later leaves the directory), and who added it. STRICT — never
+ * visible to the preferred agency. Deleted with the relationship.
+ */
+export const preferredAgencyNotes = pgTable(
+  'preferred_agency_notes',
+  {
+    agencyId: uuid('agency_id').notNull(),
+    preferredAgencyId: uuid('preferred_agency_id').notNull(),
+    nameWhenAdded: text('name_when_added').notNull(),
+    note: text('note'),
+    createdBy: uuid('created_by').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.preferredAgencyId] }),
+    foreignKey({
+      name: 'preferred_agency_notes_relationship_fk',
+      columns: [t.agencyId, t.preferredAgencyId],
+      foreignColumns: [preferredAgencies.agencyId, preferredAgencies.preferredAgencyId],
+    }).onDelete('cascade'),
+    check('preferred_agency_notes_note_ck', sql`${t.note} is null or char_length(${t.note}) between 1 and 1000`),
   ],
 );
