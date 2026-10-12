@@ -1,5 +1,8 @@
 import {
+  AGENCY_LOGO_TYPES,
   AgencyDto,
+  AgencyProfileDto,
+  AgencySettingsDto,
   AgencyVerificationDto,
   ApiKeyPage,
   type CreateApiKeyInput,
@@ -15,6 +18,8 @@ import {
   MemberPage,
   SignedUrlDto,
   type UpdateAgencyDetailsInput,
+  type UpdateAgencyProfileInput,
+  type UpdateAgencySettingsInput,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
   VerificationDocumentDto,
@@ -160,6 +165,54 @@ export function fetchMyAgency(session: SessionRef): Promise<ApiResult<AgencyDto>
 
 export function saveAgencyDetails(session: SessionRef, body: UpdateAgencyDetailsInput): Promise<ApiResult<AgencyDto>> {
   return apiRequest(session, '/v1/agency/details', AgencyDto, { method: 'PUT', body });
+}
+
+// ── Profile and settings (S1-06) ────────────────────────────────────────────────────────────────
+
+export function fetchAgencyProfile(session: SessionRef): Promise<ApiResult<AgencyProfileDto>> {
+  return apiRequest(session, '/v1/agency/profile', AgencyProfileDto);
+}
+
+export function saveAgencyProfile(
+  session: SessionRef,
+  body: UpdateAgencyProfileInput,
+): Promise<ApiResult<AgencyProfileDto>> {
+  return apiRequest(session, '/v1/agency/profile', AgencyProfileDto, { method: 'PUT', body });
+}
+
+export function fetchAgencyLogoUrl(session: SessionRef): Promise<ApiResult<SignedUrlDto>> {
+  return apiRequest(session, '/v1/agency/profile/logo/url', SignedUrlDto);
+}
+
+/** The image goes to the API as the raw body; the API checks its real type and size. */
+export function uploadAgencyLogo(
+  session: SessionRef,
+  file: { bytes: Uint8Array; contentType: string },
+): Promise<ApiResult<AgencyProfileDto>> {
+  // Only types the API's body parser accepts; anything else is sent as octet-stream and sniffed.
+  const contentType = (AGENCY_LOGO_TYPES as readonly string[]).includes(file.contentType)
+    ? file.contentType
+    : 'application/octet-stream';
+  return apiRequest(session, '/v1/agency/profile/logo', AgencyProfileDto, {
+    method: 'PUT',
+    raw: { bytes: file.bytes, contentType },
+    timeoutMs: 15_000,
+  });
+}
+
+export function removeAgencyLogo(session: SessionRef): Promise<ApiResult<AgencyProfileDto>> {
+  return apiRequest(session, '/v1/agency/profile/logo', AgencyProfileDto, { method: 'DELETE' });
+}
+
+export function fetchAgencySettings(session: SessionRef): Promise<ApiResult<AgencySettingsDto>> {
+  return apiRequest(session, '/v1/agency/settings', AgencySettingsDto);
+}
+
+export function saveAgencySettings(
+  session: SessionRef,
+  body: UpdateAgencySettingsInput,
+): Promise<ApiResult<AgencySettingsDto>> {
+  return apiRequest(session, '/v1/agency/settings', AgencySettingsDto, { method: 'PUT', body });
 }
 
 /**

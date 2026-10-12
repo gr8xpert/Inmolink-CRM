@@ -1,0 +1,81 @@
+{
+  "back": "Back to the dashboard",
+  "readOnly": "Only an administrator of your agency can change these.",
+  "detailsLink": "Company name, tax id, address and register number are under your company details.",
+  "detailsLinkLabel": "Edit company details",
+  "profile": {
+    "title": "Agency profile",
+    "intro": "How your agency appears to clients: on your websites, selections and brochures. Clients never see Inmolink's name or other agencies.",
+    "logo": {
+      "title": "Logo",
+      "current": "Current logo",
+      "none": "No logo yet.",
+      "file": "Logo file (PNG, JPEG or WebP, up to 512 KB)",
+      "upload": "Upload logo",
+      "remove": "Remove logo"
+    },
+    "fields": {
+      "primaryColor": "Main brand colour",
+      "accentColor": "Accent colour",
+      "contactEmail": "Contact email",
+      "contactPhone": "Contact phone",
+      "websiteUrl": "Website",
+      "texts": "Texts per language",
+      "tagline": "Tagline ({language})",
+      "description": "About the agency ({language})"
+    },
+    "submit": "Save profile",
+    "saved": "Profile saved.",
+    "notices": {
+      "logoUploaded": "Logo uploaded.",
+      "logoRemoved": "Logo removed."
+    }
+  },
+  "settings": {
+    "title": "Agency settings",
+    "intro": "Defaults for how your agency works with clients and other agencies.",
+    "commission": {
+      "title": "Default commission for new listings",
+      "type": "Commission",
+      "types": {
+        "NONE": "Not set",
+        "PCT": "Percentage",
+        "FIXED": "Fixed amount"
+      },
+      "percent": "Percentage (%)",
+      "amount": "Amount",
+      "currency": "Currency",
+      "currencyPlaceholder": "EUR",
+      "includesVat": "Includes VAT (IVA)",
+      "hidden": "Commission is hidden in Client Mode."
+    },
+    "fields": {
+      "registrationValidityDays": "Client registration valid for (days)",
+      "viewingResponseDays": "Days to answer a viewing request",
+      "enabledLocales": "Languages your listings and website are published in"
+    },
+    "whiteLabel": {
+      "title": "White label",
+      "referencePrefix": "Reference prefix shown to clients (e.g. CH)",
+      "showPoweredBy": "Show \"powered by Inmolink\" on client pages",
+      "emailSenderName": "Sender name of client emails (your agency name if empty)"
+    },
+    "clientMode": {
+      "title": "Client Mode",
+      "intro": "Client Mode hides commission, the listing owner and internal notes so you can show your screen to a buyer. A PIN ends it.",
+      "pinMinLength": "Minimum PIN length",
+      "pinMaxAttempts": "Wrong PINs before signing in again"
+    },
+    "submit": "Save settings",
+    "saved": "Settings saved."
+  },
+  "errors": {
+    "invalidInput": "Please check the highlighted fields.",
+    "conflict": "Someone else changed this meanwhile. Reload the page and try again.",
+    "forbidden": "Only an administrator of your agency can change this (and not while support is signed in as you).",
+    "UNSUPPORTED_MEDIA_TYPE": "The logo must be a PNG, JPEG or WebP image.",
+    "PAYLOAD_TOO_LARGE": "The logo is larger than 512 KB.",
+    "RATE_LIMITED": "Too many uploads. Please wait a few minutes and try again.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

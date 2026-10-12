@@ -1,3 +1,4 @@
+import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
 import type onboarding from '../messages/en/onboarding.json';
@@ -12,6 +13,7 @@ import type verification from '../messages/en/verification.json';
  * file is added here too.
  */
 export interface Messages {
+  agency: typeof agency;
   'api-keys': typeof apiKeys;
   auth: typeof auth;
   onboarding: typeof onboarding;

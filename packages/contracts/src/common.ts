@@ -19,3 +19,11 @@ export type PageQuery = z.infer<typeof PageQuery>;
 export function pageOf<T extends z.ZodType>(item: T) {
   return z.object({ items: z.array(item), nextCursor: Cursor.nullable() });
 }
+
+/** ISO 4217 currency code (`EUR`). */
+export const CurrencyCode = z.string().regex(/^[A-Z]{3}$/, 'an ISO 4217 code such as EUR');
+export type CurrencyCode = z.infer<typeof CurrencyCode>;
+
+/** Money on the wire (`.claude/rules/api.md`): integer cents plus currency. */
+export const Money = z.object({ amountCents: z.number().int(), currency: CurrencyCode });
+export type Money = z.infer<typeof Money>;

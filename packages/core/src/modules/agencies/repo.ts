@@ -24,6 +24,7 @@ const dtoColumns = {
   city: agencies.city,
   postalCode: agencies.postalCode,
   region: agencies.region,
+  registerNumber: agencies.registerNumber,
   languages: agencies.languages,
   onboardedAt: agencies.onboardedAt,
   version: agencies.version,
@@ -93,7 +94,13 @@ export async function lockStatus(tx: Tx, id: string, mode: 'share' | 'update') {
 /** What an edit of the company details needs to know about the current row. */
 export async function getDetailsState(tx: Tx, id: string) {
   const [row] = await tx
-    .select({ status: agencies.status, name: agencies.name, taxId: agencies.taxId, onboardedAt: agencies.onboardedAt })
+    .select({
+      status: agencies.status,
+      name: agencies.name,
+      taxId: agencies.taxId,
+      registerNumber: agencies.registerNumber,
+      onboardedAt: agencies.onboardedAt,
+    })
     .from(agencies)
     .where(eq(agencies.id, id));
   return row ?? null;
@@ -101,7 +108,8 @@ export async function getDetailsState(tx: Tx, id: string) {
 
 /**
  * Company details (onboarding). Optimistic: null when `version` is stale. Sets `onboarded_at` once.
- * Name and tax id change only while PENDING (the row filter re-checks what the service decided).
+ * Name, tax id and register number change only while PENDING (the row filter re-checks name and tax
+ * id; the guard trigger, migration 0020, all three).
  */
 export async function updateDetails(
   tx: Tx,
@@ -114,6 +122,8 @@ export async function updateDetails(
     city: string;
     postalCode: string;
     region: string;
+    /** Omitted: unchanged. */
+    registerNumber?: string | null;
     languages: string[];
   },
   now: Date,

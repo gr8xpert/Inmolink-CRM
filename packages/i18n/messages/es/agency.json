@@ -1,0 +1,81 @@
+{
+  "back": "Volver al panel",
+  "readOnly": "Solo un administrador de tu agencia puede cambiar esto.",
+  "detailsLink": "El nombre de la empresa, el NIF/CIF, la dirección y el número de registro están en los datos de tu empresa.",
+  "detailsLinkLabel": "Editar los datos de la empresa",
+  "profile": {
+    "title": "Perfil de la agencia",
+    "intro": "Cómo ven tu agencia los clientes: en tus webs, selecciones y folletos. Los clientes nunca ven el nombre de Inmolink ni el de otras agencias.",
+    "logo": {
+      "title": "Logotipo",
+      "current": "Logotipo actual",
+      "none": "Todavía no hay logotipo.",
+      "file": "Archivo del logotipo (PNG, JPEG o WebP, hasta 512 KB)",
+      "upload": "Subir logotipo",
+      "remove": "Quitar logotipo"
+    },
+    "fields": {
+      "primaryColor": "Color principal de la marca",
+      "accentColor": "Color de acento",
+      "contactEmail": "Email de contacto",
+      "contactPhone": "Teléfono de contacto",
+      "websiteUrl": "Web",
+      "texts": "Textos por idioma",
+      "tagline": "Eslogan ({language})",
+      "description": "Sobre la agencia ({language})"
+    },
+    "submit": "Guardar perfil",
+    "saved": "Perfil guardado.",
+    "notices": {
+      "logoUploaded": "Logotipo subido.",
+      "logoRemoved": "Logotipo quitado."
+    }
+  },
+  "settings": {
+    "title": "Ajustes de la agencia",
+    "intro": "Valores por defecto de cómo trabaja tu agencia con clientes y con otras agencias.",
+    "commission": {
+      "title": "Comisión por defecto de los nuevos inmuebles",
+      "type": "Comisión",
+      "types": {
+        "NONE": "Sin definir",
+        "PCT": "Porcentaje",
+        "FIXED": "Importe fijo"
+      },
+      "percent": "Porcentaje (%)",
+      "amount": "Importe",
+      "currency": "Moneda",
+      "currencyPlaceholder": "EUR",
+      "includesVat": "IVA incluido",
+      "hidden": "La comisión está oculta en el Modo Cliente."
+    },
+    "fields": {
+      "registrationValidityDays": "Validez del registro de un cliente (días)",
+      "viewingResponseDays": "Días para responder a una solicitud de visita",
+      "enabledLocales": "Idiomas en los que se publican tus inmuebles y tu web"
+    },
+    "whiteLabel": {
+      "title": "Marca blanca",
+      "referencePrefix": "Prefijo de referencia que ven los clientes (p. ej. CH)",
+      "showPoweredBy": "Mostrar «powered by Inmolink» en las páginas para clientes",
+      "emailSenderName": "Remitente de los emails a clientes (el nombre de tu agencia si se deja vacío)"
+    },
+    "clientMode": {
+      "title": "Modo Cliente",
+      "intro": "El Modo Cliente oculta la comisión, el propietario del inmueble y las notas internas para que puedas enseñar la pantalla a un comprador. Se sale con un PIN.",
+      "pinMinLength": "Longitud mínima del PIN",
+      "pinMaxAttempts": "PIN incorrectos antes de volver a iniciar sesión"
+    },
+    "submit": "Guardar ajustes",
+    "saved": "Ajustes guardados."
+  },
+  "errors": {
+    "invalidInput": "Revisa los campos marcados.",
+    "conflict": "Otra persona ha cambiado esto mientras tanto. Recarga la página e inténtalo de nuevo.",
+    "forbidden": "Solo un administrador de tu agencia puede cambiar esto (y no mientras el soporte haya entrado como tú).",
+    "UNSUPPORTED_MEDIA_TYPE": "El logotipo debe ser una imagen PNG, JPEG o WebP.",
+    "PAYLOAD_TOO_LARGE": "El logotipo supera los 512 KB.",
+    "RATE_LIMITED": "Demasiadas subidas. Espera unos minutos e inténtalo de nuevo.",
+    "generic": "Algo ha ido mal. Inténtalo de nuevo."
+  }
+}

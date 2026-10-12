@@ -1,5 +1,19 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  boolean,
+  char,
+  check,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 /**
  * Tables owned by the agencies module (PATTERNS §2, PLAN §3 #1 #3, §6 Identity). The agency is the
@@ -26,6 +40,11 @@ export const agencies = pgTable(
     postalCode: text('postal_code'),
     /** ISO 3166-2:ES autonomous community (`ES-AN`). */
     region: text('region'),
+    /**
+     * Regional estate-agent register number where the region requires one (PLAN §3 #3). A company
+     * detail staff verify: locked with name and tax id once verified (S1-06, guard migration 0020).
+     */
+    registerNumber: text('register_number'),
     /** Content locale codes the agency works in. */
     languages: text('languages').array().notNull().default(sql`'{}'::text[]`),
     /** Company details complete; staff verification can start. */
@@ -40,20 +59,116 @@ export const agencies = pgTable(
   ],
 );
 
-/** Per-agency settings, one row per agency (S1-06 adds commission, white-label and Client Mode options). */
-export const agencySettings = pgTable('agency_settings', {
-  agencyId: uuid('agency_id')
-    .primaryKey()
-    .references(() => agencies.id, { onDelete: 'cascade' }),
-  /** Locales listings and the website are published in (PLAN §3 #14). */
-  enabledLocales: text('enabled_locales').array().notNull(),
-  /** Client registration validity (PLAN §3 #8, default 6 months). */
-  registrationValidityDays: integer('registration_validity_days').notNull().default(180),
-  version: integer('version').notNull().default(1),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+/** How a commission is expressed (PLAN §3 #7): a percentage (basis points) or a fixed amount. */
+export const commissionTypeEnum = pgEnum('commission_type', ['PCT', 'FIXED']);
 
-/** Localized agency texts (about, tagline) per content locale; edited in the profile (S1-06). */
+/**
+ * Per-agency settings, one row per agency (S1-01; S1-06 adds commission, viewing, white-label and
+ * Client Mode options). Other modules read it through the agencies module's cached
+ * `getAgencySettings`; every change emits `agencies.settings.changed`, which invalidates that cache.
+ * Ranges are CHECK constraints, so a direct table write cannot store what the service would refuse.
+ */
+export const agencySettings = pgTable(
+  'agency_settings',
+  {
+    agencyId: uuid('agency_id')
+      .primaryKey()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    /** Locales listings and the website are published in (PLAN §3 #14). */
+    enabledLocales: text('enabled_locales').array().notNull(),
+    /** Client registration validity (PLAN §3 #8, default 6 months). */
+    registrationValidityDays: integer('registration_validity_days').notNull().default(180),
+    /**
+     * Default shareable commission for new listings (PLAN §3 #7); null until the agency sets one.
+     * PCT → `default_commission_bp`; FIXED → `default_commission_fixed_cents` + currency.
+     */
+    defaultCommissionType: commissionTypeEnum('default_commission_type'),
+    defaultCommissionBp: integer('default_commission_bp'),
+    defaultCommissionFixedCents: bigint('default_commission_fixed_cents', { mode: 'number' }),
+    defaultCommissionCurrency: char('default_commission_currency', { length: 3 }),
+    defaultCommissionIncludesVat: boolean('default_commission_includes_vat').notNull().default(false),
+    /** Days the agency has to answer a viewing request from another agency (M10). */
+    viewingResponseDays: integer('viewing_response_days').notNull().default(3),
+    /** White-label (PLAN §3 #6): prefix of listing references shown to clients (`CH-1234`). */
+    whiteLabelReferencePrefix: text('white_label_reference_prefix'),
+    /** White-label: show "powered by Inmolink" on client-facing outputs. */
+    whiteLabelShowPoweredBy: boolean('white_label_show_powered_by').notNull().default(true),
+    /** White-label: sender name of client emails; the agency name when null. */
+    whiteLabelEmailSenderName: text('white_label_email_sender_name'),
+    /** Client Mode (PLAN §3 #56): minimum length of the PIN that ends Client Mode. */
+    clientModePinMinLength: integer('client_mode_pin_min_length').notNull().default(4),
+    /** Client Mode: wrong PINs before the session must log in again. */
+    clientModePinMaxAttempts: integer('client_mode_pin_max_attempts').notNull().default(5),
+    version: integer('version').notNull().default(1),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('agency_settings_locales_ck', sql`cardinality(${t.enabledLocales}) between 1 and 20`),
+    check('agency_settings_registration_days_ck', sql`${t.registrationValidityDays} between 1 and 1095`),
+    check('agency_settings_viewing_days_ck', sql`${t.viewingResponseDays} between 1 and 30`),
+    check(
+      'agency_settings_commission_ck',
+      sql`(${t.defaultCommissionType} is null and ${t.defaultCommissionBp} is null and ${t.defaultCommissionFixedCents} is null and ${t.defaultCommissionCurrency} is null) or (${t.defaultCommissionType} = 'PCT' and ${t.defaultCommissionBp} between 1 and 10000 and ${t.defaultCommissionFixedCents} is null and ${t.defaultCommissionCurrency} is null) or (${t.defaultCommissionType} = 'FIXED' and ${t.defaultCommissionBp} is null and ${t.defaultCommissionFixedCents} between 1 and 100000000000 and ${t.defaultCommissionCurrency} ~ '^[A-Z]{3}$')`,
+    ),
+    check(
+      'agency_settings_reference_prefix_ck',
+      sql`${t.whiteLabelReferencePrefix} is null or ${t.whiteLabelReferencePrefix} ~ '^[A-Z0-9]{1,6}$'`,
+    ),
+    check(
+      'agency_settings_sender_name_ck',
+      sql`${t.whiteLabelEmailSenderName} is null or char_length(${t.whiteLabelEmailSenderName}) between 2 and 80`,
+    ),
+    check('agency_settings_pin_length_ck', sql`${t.clientModePinMinLength} between 4 and 8`),
+    check('agency_settings_pin_attempts_ck', sql`${t.clientModePinMaxAttempts} between 3 and 10`),
+  ],
+);
+
+/**
+ * The agency's public face (S1-06): logo, brand colours and contact details for client-facing outputs
+ * (websites, selections, PDFs — white-labelled, PLAN §3 #6). One row per agency, created by the first
+ * save. Its own `version`: profile edits must not make a pending verification stale (S1-03 binds an
+ * approval to `agencies.version`).
+ */
+export const agencyProfiles = pgTable(
+  'agency_profiles',
+  {
+    agencyId: uuid('agency_id')
+      .primaryKey()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    /**
+     * Logo object. Until the media pipeline (S3-03) it is the uploaded file itself (type checked by magic
+     * bytes) in the private bucket under `agency-logos/<agency_id>/` — the CHECK keeps a direct write from
+     * pointing it at another agency's or another feature's object.
+     */
+    logoStorageKey: text('logo_storage_key'),
+    logoContentType: text('logo_content_type'),
+    logoSizeBytes: integer('logo_size_bytes'),
+    logoUpdatedAt: timestamp('logo_updated_at', { withTimezone: true }),
+    /** Brand colours, `#rrggbb` (lower case). */
+    primaryColor: text('primary_color'),
+    accentColor: text('accent_color'),
+    /** Public contact details shown to clients. */
+    contactEmail: text('contact_email'),
+    contactPhone: text('contact_phone'),
+    websiteUrl: text('website_url'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'agency_profiles_logo_ck',
+      sql`(${t.logoStorageKey} is null and ${t.logoContentType} is null and ${t.logoSizeBytes} is null) or (starts_with(${t.logoStorageKey}, 'agency-logos/' || ${t.agencyId}::text || '/') and ${t.logoContentType} in ('image/png', 'image/jpeg', 'image/webp') and ${t.logoSizeBytes} > 0)`,
+    ),
+    check(
+      'agency_profiles_colors_ck',
+      sql`(${t.primaryColor} is null or ${t.primaryColor} ~ '^#[0-9a-f]{6}$') and (${t.accentColor} is null or ${t.accentColor} ~ '^#[0-9a-f]{6}$')`,
+    ),
+    check('agency_profiles_website_ck', sql`${t.websiteUrl} is null or ${t.websiteUrl} ~ '^https?://'`),
+  ],
+);
+
+/** Localized agency texts (tagline, about) per content locale; edited with the profile (S1-06). */
 export const agencyTranslations = pgTable(
   'agency_translations',
   {
@@ -65,7 +180,13 @@ export const agencyTranslations = pgTable(
     description: text('description'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.agencyId, t.locale] })],
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.locale] }),
+    check(
+      'agency_translations_length_ck',
+      sql`(${t.tagline} is null or char_length(${t.tagline}) <= 160) and (${t.description} is null or char_length(${t.description}) <= 5000)`,
+    ),
+  ],
 );
 
 /** A verification request moves SUBMITTED → APPROVED | REJECTED once (guard trigger, migration 0011). */

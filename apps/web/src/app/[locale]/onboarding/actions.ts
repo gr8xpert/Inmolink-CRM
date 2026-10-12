@@ -10,7 +10,7 @@ import { saveAgencyDetails, sessionRef } from '@/server/api';
  * values are i18n keys under `onboarding.errors`.
  */
 export interface OnboardingState {
-  error?: 'invalidInput' | 'taxIdFormat' | 'taxIdControl' | 'conflict' | 'forbidden' | 'generic';
+  error?: 'invalidInput' | 'taxIdFormat' | 'taxIdControl' | 'conflict' | 'forbidden' | 'locked' | 'generic';
   fields?: string[];
   done?: boolean;
   /** The saved version, so a second save in the same page does not conflict. */
@@ -34,6 +34,8 @@ export interface OnboardingValues {
   city: string;
   postalCode: string;
   region: string;
+  /** Empty: none (S1-06). */
+  registerNumber: string;
   languages: string[];
 }
 
@@ -52,6 +54,7 @@ export async function saveDetailsAction(prev: OnboardingState, form: FormData): 
     city: text(form, 'city') ?? '',
     postalCode: text(form, 'postalCode') ?? '',
     region: text(form, 'region') ?? '',
+    registerNumber: text(form, 'registerNumber') ?? '',
     languages: form.getAll('languages').filter((v): v is string => typeof v === 'string'),
   };
   const version = prev.version ?? Number(text(form, 'version'));
@@ -64,7 +67,8 @@ async function save(
   values: OnboardingValues,
   user: Parameters<typeof sessionRef>[0],
 ): Promise<OnboardingState> {
-  const parsed = UpdateAgencyDetailsBody.safeParse({ version: prev.version, ...values });
+  const registerNumber = values.registerNumber.trim() === '' ? null : values.registerNumber;
+  const parsed = UpdateAgencyDetailsBody.safeParse({ version: prev.version, ...values, registerNumber });
   if (!parsed.success) {
     const fields = [...new Set(parsed.error.issues.map((i) => String(i.path[0])))];
     const taxIssue = parsed.error.issues.find((i) => i.path[0] === 'taxId');
@@ -78,6 +82,7 @@ async function save(
   const code = res.error?.code;
   if (code === 'VERSION_CONFLICT') return { ...prev, error: 'conflict', done: false };
   if (code === 'FORBIDDEN') return { ...prev, error: 'forbidden', done: false };
+  if (code === 'AGENCY_DETAILS_LOCKED') return { ...prev, error: 'locked', done: false };
   if (code === 'VALIDATION_FAILED') return { ...prev, error: 'invalidInput', done: false };
   return { ...prev, error: 'generic', done: false };
 }

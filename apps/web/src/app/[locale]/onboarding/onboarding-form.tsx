@@ -4,13 +4,16 @@ import { Button, Input, Label } from '@inmolink/ui';
 import { useActionState, useEffect } from 'react';
 import { type OnboardingState, saveDetailsAction } from './actions';
 
-type TextField = 'name' | 'taxId' | 'addressLine' | 'city' | 'postalCode';
+type TextField = 'name' | 'taxId' | 'addressLine' | 'city' | 'postalCode' | 'registerNumber';
 
 interface Props {
   version: number;
   values: Record<TextField, string> & { region: string; languages: string[] };
   /** Labels translated on the server (no catalogs in the client bundle). */
-  labels: Record<TextField | 'region' | 'languages' | 'submit', string> & { taxIdHint: string };
+  labels: Record<TextField | 'region' | 'languages' | 'submit', string> & {
+    taxIdHint: string;
+    registerNumberHint: string;
+  };
   regions: { value: string; label: string }[];
   languages: { value: string; label: string }[];
   errors: Record<NonNullable<OnboardingState['error']>, string>;
@@ -18,12 +21,18 @@ interface Props {
   loginHref: string;
 }
 
-const TEXT_FIELDS: { name: TextField; autoComplete?: string }[] = [
+const TEXT_FIELDS: {
+  name: TextField;
+  autoComplete?: string;
+  optional?: true;
+  hint?: 'taxIdHint' | 'registerNumberHint';
+}[] = [
   { name: 'name', autoComplete: 'organization' },
-  { name: 'taxId' },
+  { name: 'taxId', hint: 'taxIdHint' },
   { name: 'addressLine', autoComplete: 'street-address' },
   { name: 'city', autoComplete: 'address-level2' },
   { name: 'postalCode', autoComplete: 'postal-code' },
+  { name: 'registerNumber', optional: true, hint: 'registerNumberHint' },
 ];
 
 /** Company details (S1-01). Progressive enhancement: a plain form posting to a server action. */
@@ -62,12 +71,12 @@ export function OnboardingForm(props: Props) {
             defaultValue={values[f.name]}
             autoComplete={f.autoComplete}
             aria-invalid={invalid(f.name)}
-            aria-describedby={f.name === 'taxId' ? 'taxId-hint' : undefined}
-            required
+            aria-describedby={f.hint ? `${f.name}-hint` : undefined}
+            required={!f.optional}
           />
-          {f.name === 'taxId' ? (
-            <p id="taxId-hint" className="text-xs text-muted-foreground">
-              {props.labels.taxIdHint}
+          {f.hint ? (
+            <p id={`${f.name}-hint`} className="text-xs text-muted-foreground">
+              {props.labels[f.hint]}
             </p>
           ) : null}
         </div>

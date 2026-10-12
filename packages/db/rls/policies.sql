@@ -14,7 +14,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -67,6 +67,14 @@ create policy auth_insert on public."agency_members" for insert to app_auth
 create policy auth_update on public."agency_members" for update to app_auth
   using (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())) with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
 grant select, insert, update on table public."agency_members" to app_auth;
+
+-- agency_profiles: STRICT
+alter table public."agency_profiles" enable row level security;
+alter table public."agency_profiles" force row level security;
+create policy own_rows on public."agency_profiles" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."agency_profiles" to app_user, app_system;
 
 -- agency_settings: STRICT
 alter table public."agency_settings" enable row level security;

@@ -14,7 +14,9 @@
     "city": "Ciudad",
     "postalCode": "Código postal",
     "region": "Comunidad autónoma",
-    "languages": "Idiomas en los que trabajas"
+    "languages": "Idiomas en los que trabajas",
+    "registerNumber": "Número de registro (opcional)",
+    "registerNumberHint": "Tu número en el registro autonómico de agentes inmobiliarios si tu comunidad lo exige (p. ej. AICAT en Cataluña). No se puede cambiar tras la verificación."
   },
   "regions": {
     "ES-AN": "Andalucía",
@@ -53,6 +55,7 @@
     "taxIdControl": "El último dígito o letra no corresponde al número. Revisa si hay errores.",
     "conflict": "Otra persona ha cambiado estos datos mientras tanto. Recarga la página e inténtalo de nuevo.",
     "forbidden": "Solo un administrador de tu empresa puede cambiar estos datos.",
-    "generic": "Algo ha ido mal. Inténtalo de nuevo."
+    "generic": "Algo ha ido mal. Inténtalo de nuevo.",
+    "locked": "Tu empresa está verificada: el nombre, el NIF/CIF y el número de registro solo los puede cambiar nuestro equipo."
   }
 }

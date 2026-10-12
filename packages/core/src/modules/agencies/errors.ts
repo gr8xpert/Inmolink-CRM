@@ -17,4 +17,5 @@ export const agenciesErrors = [
   'DOCUMENT_LIMIT_REACHED',
   'DOCUMENT_LOCKED',
   'PAYLOAD_TOO_LARGE',
+  'UNSUPPORTED_MEDIA_TYPE',
 ] as const satisfies readonly ErrorCode[];

@@ -14,7 +14,9 @@
     "city": "City",
     "postalCode": "Postal code",
     "region": "Region",
-    "languages": "Languages you work in"
+    "languages": "Languages you work in",
+    "registerNumber": "Register number (optional)",
+    "registerNumberHint": "Your regional estate-agent register number where your region requires one (e.g. AICAT in Catalonia). It cannot change after verification."
   },
   "regions": {
     "ES-AN": "Andalusia",
@@ -53,6 +55,7 @@
     "taxIdControl": "The last digit or letter does not match the number. Please check it for typos.",
     "conflict": "Someone else changed these details meanwhile. Reload the page and try again.",
     "forbidden": "Only an administrator of your company can change these details.",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "locked": "Your company is verified: its name, tax id and register number can only change through our team."
   }
 }

@@ -39,6 +39,12 @@ export default async function HomePage() {
             <Link href="/api-keys" className="text-sm font-medium underline-offset-4 hover:underline">
               {t('home.apiKeys')}
             </Link>
+            <Link href="/profile" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.profile')}
+            </Link>
+            <Link href="/settings" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.settings')}
+            </Link>
           </>
         ) : (
           // No agency: staff (or a user without one). The page 404s for non-staff (S1-03).

@@ -37,7 +37,15 @@ const AGENCY_COLUMNS = [
   'created_at',
   'updated_at',
 ];
-const SETTINGS_COLUMNS = ['agency_id', 'enabled_locales', 'updated_at'];
+/** S1-06: seeded agencies share 3 % (300 bp, VAT excluded) as their default commission; other settings keep the column defaults. */
+const SETTINGS_COLUMNS = [
+  'agency_id',
+  'enabled_locales',
+  'default_commission_type',
+  'default_commission_bp',
+  'updated_at',
+];
+const SEED_COMMISSION_BP = 300;
 const MEMBER_COLUMNS = ['user_id', 'agency_id', 'role', 'name', 'email', 'created_at', 'updated_at'];
 
 const CITIES: readonly [string, string, (typeof SPANISH_REGIONS)[number]][] = [
@@ -100,7 +108,7 @@ async function writeRows(
     client,
     'agency_settings',
     SETTINGS_COLUMNS,
-    agencies.map((r) => [r[0] as string, r[9] as string, SEEDED_AT]),
+    agencies.map((r) => [r[0] as string, r[9] as string, 'PCT', SEED_COMMISSION_BP, SEEDED_AT]),
   );
   await copyNewRows(client, 'agency_members', MEMBER_COLUMNS, members);
   return { agencies: inserted };

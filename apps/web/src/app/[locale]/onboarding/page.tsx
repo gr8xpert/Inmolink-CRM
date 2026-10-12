@@ -43,12 +43,15 @@ export default async function OnboardingPage() {
           city: agency.city ?? '',
           postalCode: agency.postalCode ?? '',
           region: agency.region ?? '',
+          registerNumber: agency.registerNumber ?? '',
           languages: agency.languages.length > 0 ? agency.languages : [locale],
         }}
         labels={{
           name: t('fields.name'),
           taxId: t('fields.taxId'),
           taxIdHint: t('fields.taxIdHint'),
+          registerNumber: t('fields.registerNumber'),
+          registerNumberHint: t('fields.registerNumberHint'),
           addressLine: t('fields.addressLine'),
           city: t('fields.city'),
           postalCode: t('fields.postalCode'),
@@ -65,6 +68,7 @@ export default async function OnboardingPage() {
           taxIdControl: t('errors.taxIdControl'),
           conflict: t('errors.conflict'),
           forbidden: t('errors.forbidden'),
+          locked: t('errors.locked'),
           generic: t('errors.generic'),
         }}
         savedMessage={t('saved')}

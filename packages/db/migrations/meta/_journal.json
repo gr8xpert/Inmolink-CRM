@@ -134,6 +134,20 @@
       "when": 1791760340692,
       "tag": "0018_api_keys_guard_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791762781819,
+      "tag": "0019_agency_profile_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791762797303,
+      "tag": "0020_agencies_guard_v3",
+      "breakpoints": true
     }
   ]
 }

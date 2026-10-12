@@ -25,6 +25,11 @@ export interface SignedUrlOptions {
   expiresInSeconds: number;
   /** Served as `Content-Disposition: attachment; filename=…`, so a browser downloads instead of rendering. */
   downloadName?: string;
+  /**
+   * Served as this `Content-Type` (`response-content-type`), whatever metadata the object carries: pin it
+   * to the type checked at upload so a browser never renders the object as something else (S1-06 logos).
+   */
+  responseContentType?: string;
 }
 
 export interface ObjectStore {
@@ -68,6 +73,8 @@ export function assertObjectKey(key: string): void {
 }
 
 const MAX_SIGNED_SECONDS = 3_600;
+/** `type/subtype` only: no parameters, nothing a header could be injected with. */
+const CONTENT_TYPE_RE = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/;
 
 /** `attachment; filename="…"; filename*=UTF-8''…` with the ASCII fallback stripped of quotes and controls. */
 export function attachmentDisposition(name: string): string {
@@ -139,6 +146,10 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       if (options.downloadName) {
         url.searchParams.set('response-content-disposition', attachmentDisposition(options.downloadName));
       }
+      if (options.responseContentType) {
+        if (!CONTENT_TYPE_RE.test(options.responseContentType)) throw new TypeError('storage: invalid content type');
+        url.searchParams.set('response-content-type', options.responseContentType);
+      }
       const signed = await aws.sign(url.href, { method: 'GET', aws: { signQuery: true } });
       return signed.url;
     },
@@ -169,7 +180,8 @@ export function createMemoryStore(): MemoryStore {
       return o ? { sizeBytes: o.body.byteLength } : null;
     },
     async signedGetUrl(bucket, key, options) {
-      return `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}`;
+      const type = options.responseContentType ? `&type=${encodeURIComponent(options.responseContentType)}` : '';
+      return `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}${type}`;
     },
   };
 }

@@ -6,7 +6,11 @@ export type AgenciesAction =
   | 'agencies.read'
   | 'agencies.updateDetails'
   | 'agencies.verification.read'
-  | 'agencies.verification.manage';
+  | 'agencies.verification.manage'
+  | 'agencies.profile.update'
+  | 'agencies.settings.update'
+  | 'agencies.settings.read'
+  | 'agencies.commission.read';
 
 /** Roles that administer their agency (PLAN §3 #2). */
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -17,10 +21,20 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
   switch (action) {
     case 'agencies.read':
       return sameAgency;
+    case 'agencies.settings.read':
+    case 'agencies.commission.read':
+      // Commission and the Client Mode PIN policy are never shown to a client (PLAN §3 #56).
+      return sameAgency && !ctx.clientMode;
     case 'agencies.updateDetails':
     case 'agencies.verification.manage':
-      // Client Mode is read-only (PATTERNS §6).
+    case 'agencies.profile.update':
+      // Client Mode is read-only (PATTERNS §6). Staff impersonating an admin may fix the profile
+      // (logo, contact); the event records both of them.
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
+    case 'agencies.settings.update':
+      // Settings carry commission terms and the Client Mode PIN policy: the agency's own admins decide
+      // them, never staff impersonating one (like API keys and 2FA, `.claude/rules/security.md`).
+      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role) && ctx.actor.impersonatedBy === undefined;
     case 'agencies.verification.read':
       // Company documents: admins only, never in Client Mode.
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);

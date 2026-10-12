@@ -46,6 +46,19 @@ describe('storage', () => {
     await expect(store.signedGetUrl('private', 'k', { expiresInSeconds: 0 })).rejects.toThrow(RangeError);
   });
 
+  it('[S1-06] signed GET URLs can pin the response content type', async () => {
+    const url = new URL(
+      await store.signedGetUrl('private', 'agency-logos/a/logo', {
+        expiresInSeconds: 300,
+        responseContentType: 'image/png',
+      }),
+    );
+    expect(url.searchParams.get('response-content-type')).toBe('image/png');
+    await expect(
+      store.signedGetUrl('private', 'k', { expiresInSeconds: 300, responseContentType: 'text/html\r\nx: y' }),
+    ).rejects.toThrow(TypeError);
+  });
+
   it('[S1-03] content disposition strips controls and non-ASCII from the fallback name', () => {
     expect(attachmentDisposition('añ\r\nb.pdf')).toBe(
       `attachment; filename="a___b.pdf"; filename*=UTF-8''a%C3%B1%0D%0Ab.pdf`,

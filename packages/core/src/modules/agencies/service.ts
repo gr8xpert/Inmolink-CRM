@@ -86,6 +86,7 @@ export function toAgencyDto(row: NonNullable<Awaited<ReturnType<typeof repo.getA
     city: row.city,
     postalCode: row.postalCode,
     region: row.region as SpanishRegion | null,
+    registerNumber: row.registerNumber,
     languages: row.languages,
     onboarded: row.onboardedAt !== null,
     version: row.version,
@@ -102,8 +103,9 @@ export async function getMyAgency(ctx: Ctx): Promise<AgencyDto> {
 }
 
 /**
- * Onboarding form (and later edits): company name, CIF/NIF, address, region, languages. Admins only.
- * Once verified, name and tax id are locked (`AGENCY_DETAILS_LOCKED`); address and languages stay editable.
+ * Onboarding form (and later edits): company name, CIF/NIF, address, region, register number,
+ * languages. Admins only. Once verified, name, tax id and register number are locked
+ * (`AGENCY_DETAILS_LOCKED`); address and languages stay editable. An omitted register number is unchanged.
  * The tax id arrives validated and normalized by the contract (Spanish control-digit rules).
  */
 export async function updateAgencyDetails(ctx: Ctx, input: UpdateAgencyDetailsBody): Promise<AgencyDto> {
@@ -118,9 +120,11 @@ export async function updateAgencyDetails(ctx: Ctx, input: UpdateAgencyDetailsBo
   }
   const before = await repo.getDetailsState(ctx.tx, ctx.tenant.agencyId);
   if (!before) throw new AppError('NOT_FOUND');
-  // Staff verified this company under its name and tax id: changing either needs re-verification
-  // (S1-03), or a verified agency could take on another company's identity.
-  const locked = (['name', 'taxId'] as const).filter((f) => before.status !== 'PENDING' && input[f] !== before[f]);
+  // Staff verified this company under its name, tax id and register number: changing any needs
+  // re-verification (S1-03), or a verified agency could take on another company's identity.
+  const locked = (['name', 'taxId', 'registerNumber'] as const).filter(
+    (f) => before.status !== 'PENDING' && input[f] !== undefined && input[f] !== before[f],
+  );
   if (locked.length > 0) throw new AppError('AGENCY_DETAILS_LOCKED', { fields: locked });
   const { version, ...patch } = input;
   const row = await repo.updateDetails(ctx.tx, ctx.tenant.agencyId, version, patch, clock.now());

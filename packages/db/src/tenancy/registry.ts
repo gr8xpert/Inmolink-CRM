@@ -147,7 +147,15 @@ export const tenantTables: Record<string, TenantTable> = {
       update: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
     },
   },
-  agency_settings: { kind: 'STRICT', singleRow: true, auth: { insert: 'agency_id = app_agency()' } },
+  // S1-06: CHECK constraints bound every setting, so the suite's invented row needs a valid locale list.
+  agency_settings: {
+    kind: 'STRICT',
+    singleRow: true,
+    auth: { insert: 'agency_id = app_agency()' },
+    base: { enabled_locales: '{es}' },
+  },
+  // Logo, colours, contact (S1-06). Created by the agency's first profile save (app_user).
+  agency_profiles: { kind: 'STRICT', singleRow: true },
   agency_translations: { kind: 'STRICT' },
   // Membership + role (S1-01, S1-02). app_auth reads only the user it is signing in, and writes only
   // the membership of the user it is signing up or who accepts an invite. Tenant sessions change only

@@ -12,4 +12,5 @@ export const MODULES = { identity, agencies, billing } as const;
 /** Outbox subscriptions of every module. Called once at start-up. */
 export function registerSubscriptions(): void {
   identity.registerIdentitySubscriptions();
+  agencies.registerAgenciesSubscriptions();
 }

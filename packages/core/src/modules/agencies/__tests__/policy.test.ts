@@ -47,6 +47,30 @@ describe('agencies policy', () => {
     }
   });
 
+  it('[S1-06] admins edit the profile and settings, never in Client Mode; staff impersonating one only the profile', () => {
+    for (const action of ['agencies.profile.update', 'agencies.settings.update'] as const) {
+      expect(can(as('AGENCY_ADMIN'), action)).toBe(true);
+      expect(can(as('DEVELOPER_ADMIN'), action)).toBe(true);
+      for (const role of ['AGENT', 'DEVELOPER_AGENT', 'PARTNER']) expect(can(as(role), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN', { clientMode: true }), action)).toBe(false);
+      expect(can(as('AGENCY_ADMIN'), action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+    }
+    const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: USER });
+    expect(can(impersonated, 'agencies.profile.update')).toBe(true);
+    expect(can(impersonated, 'agencies.settings.update')).toBe(false);
+  });
+
+  it('[S1-06] members read settings and the default commission, never in Client Mode', () => {
+    for (const action of ['agencies.settings.read', 'agencies.commission.read'] as const) {
+      expect(can(as('AGENT'), action)).toBe(true);
+      expect(can(as('AGENCY_ADMIN'), action)).toBe(true);
+      expect(can(as('AGENT', { clientMode: true }), action)).toBe(false);
+      expect(can(as('AGENT'), action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+    }
+  });
+
   it('[S1-03] verification documents and submission are for admins only, never in Client Mode', () => {
     for (const action of ['agencies.verification.read', 'agencies.verification.manage'] as const) {
       expect(can(as('AGENCY_ADMIN'), action)).toBe(true);

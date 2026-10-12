@@ -157,6 +157,14 @@ const AddressText = z
   .trim()
   .regex(/^[^\p{Cc}<>]*$/u, 'no control characters or < >');
 
+/** Regional estate-agent register number (e.g. `AICAT 1234`): letters, digits, spaces and . / - only. */
+export const RegisterNumber = z
+  .string()
+  .trim()
+  .min(2)
+  .max(40)
+  .regex(/^[\p{L}\p{N} ./-]+$/u, 'letters, digits, spaces and . / - only');
+
 /** Languages the agency works in: content locale codes; the service checks them against i18n config. */
 export const AgencyLanguages = z
   .array(z.string().regex(/^[a-z]{2}$/))
@@ -174,6 +182,8 @@ export const AgencyDto = z.object({
   city: z.string().nullable(),
   postalCode: z.string().nullable(),
   region: SpanishRegion.nullable(),
+  /** Regional estate-agent register number, where required (S1-06). Locked once verified. */
+  registerNumber: z.string().nullable(),
   languages: z.array(z.string()),
   /** Company details complete (onboarding done); staff verification can start (S1-03). */
   onboarded: z.boolean(),
@@ -192,6 +202,11 @@ export const UpdateAgencyDetailsBody = z
     city: AddressText.pipe(z.string().min(2).max(100)),
     postalCode: SpanishPostalCode,
     region: SpanishRegion,
+    /**
+     * Optional (S1-06): omitted leaves it unchanged, null clears it. Locked with name and tax id once
+     * the agency is verified.
+     */
+    registerNumber: RegisterNumber.nullable().optional(),
     languages: AgencyLanguages,
   })
   .strict();
