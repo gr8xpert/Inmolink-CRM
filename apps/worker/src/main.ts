@@ -26,7 +26,6 @@ try {
       APP_ROLE: 'worker',
       DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER,
       DATABASE_URL_APP_SYSTEM: config.DATABASE_URL_APP_SYSTEM,
-      DATABASE_URL_LISTEN: config.DATABASE_URL_LISTEN,
     },
     { logger },
   );
@@ -40,7 +39,7 @@ try {
     logger,
     pools: config.WORKER_POOLS,
     jobs: POOL_JOBS,
-    createDispatcher: () => createOutboxDispatcher({ logger, useListen: config.DATABASE_URL_LISTEN !== undefined }),
+    createDispatcher: () => createOutboxDispatcher({ logger }),
     trustProxy: config.TRUST_PROXY,
     checks: { db: () => pingDb('app_system'), redisQueue: redisCheck(producerConnection) },
   });

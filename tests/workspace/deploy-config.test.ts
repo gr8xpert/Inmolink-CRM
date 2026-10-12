@@ -165,6 +165,17 @@ describe('edge and access', () => {
     }
   });
 
+  it('[S1-F2] apps reach Postgres only through PgBouncer: no app_system path in pg_hba, no 5432 firewall hole', () => {
+    // The direct LISTEN connection (app_system from app hosts and the kamal network) went with ADR 0014.
+    const hba = read('infra', 'ansible', 'roles', 'postgres', 'templates', 'pg_hba.conf.j2');
+    expect(hba.split('\n').filter((l) => /^host\s/.test(l) && l.includes('app_system'))).toEqual([]);
+    expect(hba).not.toContain('kamal_network_subnet');
+    const base = read('infra', 'ansible', 'roles', 'base', 'tasks', 'main.yml');
+    expect(base).toContain('loop: ["{{ pgbouncer_port }}", "{{ redis_queue_port }}"]');
+    expect(base).not.toContain('{{ postgres_port }}');
+    for (const app of APPS) expect(kamal(app).env.secret, app).not.toContain('DATABASE_URL_LISTEN');
+  });
+
   it('[S1-F5] redis-cache needs a password; request apps get the Meilisearch search key, never the master key', () => {
     const api = kamal('api') as Kamal & {
       accessories: Record<string, { cmd?: string; env?: { secret?: string[] } }>;

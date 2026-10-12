@@ -2,19 +2,14 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import { sql } from 'drizzle-orm';
 import type { Logger } from '../logger';
 import { withConsumerSpan } from '../telemetry/context';
-import type { SqlExecutor } from './emit';
+import { PLATFORM_AGENCY_ID, type SqlExecutor } from './emit';
 import { defaultSubscribers, type EventMeta, isDeclaredEvent, type SubscriberRegistry } from './events';
 
 /** `withSystem` from `@inmolink/db`, injected so platform does not depend on db. */
 export type RunSystem = <T>(reason: string, fn: (tx: SqlExecutor) => Promise<T>) => Promise<T>;
 
-/** `(onNotify) => listen(OUTBOX_CHANNEL, onNotify)` from `@inmolink/db`. */
-export type ListenFn = (onNotify: () => void) => Promise<{ close(): Promise<void> }>;
-
 export interface DispatcherOptions {
   runSystem: RunSystem;
-  /** Wake-up on commit. Without it the dispatcher only polls. */
-  listen?: ListenFn;
   logger: Pick<Logger, 'info' | 'warn' | 'error'>;
   subscribers?: SubscriberRegistry;
   /**
@@ -26,6 +21,13 @@ export interface DispatcherOptions {
   /** Rows claimed per round. */
   batchSize?: number;
   /**
+   * Agencies a claim shares its batch between (per-tenant fair share). Bounds the claim's cost: each agency
+   * costs an enumeration probe, a count probe and a locking scan. With more agencies due than this, a lane
+   * serves the next ones on its next claim (rotating cursor), so every agency is reached within
+   * ceil(due agencies / this) claims.
+   */
+  maxAgenciesPerClaim?: number;
+  /**
    * Claim → deliver → ack loops per process. Several overlap one batch's database round trips with the
    * next batch's Redis fan-out; more dispatcher processes scale further (SKIP LOCKED keeps them apart).
    */
@@ -36,7 +38,7 @@ export interface DispatcherOptions {
   deliveryTimeoutMs?: number;
   /** A claimed row is invisible to other dispatchers this long; a crash mid-batch redelivers after it. */
   leaseMs?: number;
-  /** Idle poll interval (fallback when a NOTIFY is missed or LISTEN is unavailable). */
+  /** Idle poll interval (ADR 0014: no LISTEN/NOTIFY). A lane with a non-empty batch claims again at once. */
   pollMs?: number;
   /** Attempts before an event is dead-lettered (`dead_at`), replayable with `scripts/ops/replay-outbox.ts`. */
   maxAttempts?: number;
@@ -60,8 +62,8 @@ export interface Dispatcher {
   start(): Promise<void>;
   /** Stops claiming, waits for the batch in flight. */
   stop(): Promise<void>;
-  /** One claim → deliver → acknowledge round. */
-  runOnce(): Promise<DispatchStats>;
+  /** One claim → deliver → acknowledge round. `lane` selects the agency cursor (default: lane 0's). */
+  runOnce(lane?: number): Promise<DispatchStats>;
   /** Deletes processed rows past retention, in batches. Returns rows deleted. */
   prune(): Promise<number>;
 }
@@ -75,6 +77,8 @@ interface ClaimedRow {
   attempts: number;
   created_at: Date | string;
   trace_parent: string | null;
+  /** Position of the row's agency in this claim's rotation (1-based); the lane resumes after the highest. */
+  ord: number;
 }
 
 interface Outcome {
@@ -121,10 +125,12 @@ async function mapLimit<T>(items: readonly T[], limit: number, fn: (item: T) => 
 /**
  * Outbox dispatcher (PATTERNS §8, worker pool `outbox`). Each round:
  *   1. claim — one short `withSystem` transaction leases up to `batchSize` due rows
- *      (`FOR UPDATE SKIP LOCKED`, so several dispatchers never take the same row);
+ *      (`FOR UPDATE SKIP LOCKED`, so several dispatchers never take the same row), shared fairly
+ *      between the agencies that have due rows (see `claim`);
  *   2. deliver — subscribers run outside any transaction (they enqueue jobs over the network);
  *   3. acknowledge — one transaction marks successes processed and schedules retries / dead letters.
- * Delivery is at least once: a crash between 2 and 3 redelivers after the lease expires.
+ * Delivery is at least once: a crash between 2 and 3 redelivers after the lease expires. A retry
+ * re-runs every subscriber of the event, so each subscriber is idempotent on its own (PATTERNS §8).
  */
 export function createDispatcher(options: DispatcherOptions): Dispatcher {
   const {
@@ -133,11 +139,12 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     subscribers = defaultSubscribers,
     isKnown = isDeclaredEvent,
     batchSize = 500,
+    maxAgenciesPerClaim = 64,
     lanes = 4,
     concurrency = 200,
     deliveryTimeoutMs = 15_000,
     leaseMs = 60_000,
-    pollMs = 1_000,
+    pollMs = 250,
     maxAttempts = 10,
     backoffMs = defaultBackoff,
     retentionMs = 7 * 24 * 3_600_000,
@@ -156,19 +163,13 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
 
   let running = false;
   let loops: Promise<void>[] = [];
-  let listener: { close(): Promise<void> } | undefined;
-  // Bumped by every NOTIFY; a lane that saw a bump since its last claim skips its idle sleep.
-  let generation = 0;
   const wakers = new Set<() => void>();
+  // Per lane: the agency the last claim's rotation ended on; the next claim starts after it (wrapping).
+  const cursors: string[] = [];
 
-  const signal = () => {
-    generation++;
-    for (const wake of [...wakers]) wake();
-  };
-
-  const sleep = (ms: number, seen: number) =>
+  const sleep = (ms: number) =>
     new Promise<void>((resolve) => {
-      if (generation !== seen || !running) return resolve();
+      if (!running) return resolve();
       const timer = setTimeout(done, ms);
       function done() {
         clearTimeout(timer);
@@ -178,23 +179,131 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
       wakers.add(done);
     });
 
-  async function claim(): Promise<ClaimedRow[]> {
+  /**
+   * Per-tenant fair claim: one agency's burst must not delay another agency's events by more than one
+   * batch. Instead of the oldest `batchSize` rows overall (a 50,000-row import would fill the next 100
+   * batches), the claim first enumerates the agencies that have due rows — a loose index scan over
+   * `outbox_events_pending_idx (agency_id, available_at, id)`, one probe per agency, at most
+   * `maxAgenciesPerClaim` agencies per claim, starting after the lane's cursor and wrapping so no agency is
+   * starved — then shares
+   * the batch between them (water-filling: small agencies take all they have, the rest split the remainder
+   * equally), takes each agency's oldest rows and interleaves them round-robin. One agency alone still gets
+   * whole batches, so throughput is unchanged.
+   *
+   * Cost: at most `maxAgenciesPerClaim` enumeration probes; the count probes stop at the equal share
+   * `ceil(batchSize / agencies)`, then at the level the small agencies leave the others, so one claim reads
+   * about 2 × `batchSize` index entries for counting plus `batchSize` rows for locking — O(batchSize +
+   * maxAgenciesPerClaim), never O(backlog) or O(agencies). Two caveats, both bounded: the enumeration probe walks past an agency whose
+   * pending rows are all leased or in backoff (O(that agency's pending rows) once per claim), and the counts
+   * include rows another lane holds locked, which the lateral pick then skips — the batch comes out
+   * under-full, never unfair, and the lane claims again at once.
+   */
+  async function claim(lane: number): Promise<ClaimedRow[]> {
+    const cursor = cursors[lane] ?? PLATFORM_AGENCY_ID;
     const { rows } = await runSystem('outbox.claim', (tx) =>
       tx.execute(sql`
-        with due as (
-          select id from outbox_events
-           where processed_at is null and available_at <= now()
-           order by available_at, id
-           limit ${batchSize}
-           for update skip locked
-        )
+        with recursive after_cursor(agency_id, n) as (
+          select (select agency_id from outbox_events
+                   where processed_at is null and available_at <= now() and agency_id > ${cursor}::uuid
+                   order by agency_id limit 1), 1
+          union all
+          select (select agency_id from outbox_events
+                   where processed_at is null and available_at <= now() and agency_id > a.agency_id
+                   order by agency_id limit 1), a.n + 1
+            from after_cursor a
+           where a.agency_id is not null and a.n < ${maxAgenciesPerClaim}::int
+        ),
+        found_after as (select agency_id, n from after_cursor where agency_id is not null),
+        up_to_cursor(agency_id, n) as (
+          select (select agency_id from outbox_events
+                   where processed_at is null and available_at <= now() and agency_id <= ${cursor}::uuid
+                   order by agency_id limit 1), 1
+           where (select count(*) from found_after) < ${maxAgenciesPerClaim}::int
+          union all
+          select (select agency_id from outbox_events
+                   where processed_at is null and available_at <= now()
+                     and agency_id > a.agency_id and agency_id <= ${cursor}::uuid
+                   order by agency_id limit 1), a.n + 1
+            from up_to_cursor a
+           where a.agency_id is not null and a.n + (select count(*) from found_after) < ${maxAgenciesPerClaim}::int
+        ),
+        agencies as (
+          select agency_id, n as ord from found_after
+          union all
+          select agency_id, n + (select count(*) from found_after) from up_to_cursor where agency_id is not null
+        ),
+        -- Due rows per agency, counted only as far as the water-filling needs: first up to the equal share
+        -- (an agency at the share has "at least its share"), then the agencies at the share are recounted up
+        -- to the level the smaller ones leave them. Both passes together read about 2 × batchSize index entries
+        -- whatever the backlog. Materialized so each probe runs once.
+        share as (select ceil(${batchSize}::float8 / greatest(count(*), 1))::int as rows from agencies),
+        first_count as materialized (
+          select a.agency_id, a.ord, s.rows as share,
+                 (select count(*) from (
+                    select 1 from outbox_events e
+                     where e.processed_at is null and e.available_at <= now() and e.agency_id = a.agency_id
+                     limit s.rows) c) as due_count
+            from agencies a, share s
+        ),
+        refine as (
+          select greatest(share, ceil((${batchSize}::int - coalesce(sum(due_count) filter (where due_count < share), 0))::float8
+                                      / greatest(count(*) filter (where due_count >= share), 1))::int) as probe
+            from first_count group by share
+        ),
+        counted as materialized (
+          select f.agency_id, f.ord, r.probe,
+                 case when f.due_count >= f.share and r.probe > f.share
+                      then (select count(*) from (
+                             select 1 from outbox_events e
+                              where e.processed_at is null and e.available_at <= now() and e.agency_id = f.agency_id
+                              limit r.probe) c)
+                      else f.due_count end as due_count
+            from first_count f, refine r
+        ),
+        ranked as (
+          select agency_id, ord, probe, due_count,
+                 coalesce(sum(due_count) over (order by due_count, ord rows between unbounded preceding and 1 preceding), 0) as smaller,
+                 count(*) over () - row_number() over (order by due_count, ord) + 1 as remaining
+            from counted
+        ),
+        -- Water-filling: agencies sorted by due rows; the smaller ones take everything they have, the rest
+        -- split what is left equally. The level is set by the first agency that reaches it (or the probe limit).
+        level as (
+          select (select ceil((${batchSize}::int - smaller)::float8 / remaining)::int from ranked
+                   where due_count >= probe or due_count * remaining + smaller >= ${batchSize}::int
+                   order by due_count, ord limit 1) as cap
+        ),
+        quota as (
+          select r.agency_id, r.ord,
+                 case when l.cap is null then r.due_count            -- fewer due rows than the batch: take all
+                      when r.due_count >= r.probe then l.cap         -- big: its count was capped, so trust the level
+                      else least(r.due_count, l.cap) end as quota_rows
+            from ranked r, level l
+        ),
+        due as (
+          select p.id, p.available_at, q.ord, row_number() over (partition by q.ord order by p.available_at, p.id) as rn
+            from quota q
+           cross join lateral (
+             select e.id, e.available_at from outbox_events e
+              where e.processed_at is null and e.available_at <= now() and e.agency_id = q.agency_id
+              order by e.available_at, e.id
+              limit q.quota_rows
+              for update skip locked) p
+        ),
+        -- Round-robin cut: one row per agency in rotation order, then the second row of each, …; so with more
+        -- agencies than rows the lane's cursor moves on to the agencies that were left out.
+        picked as (select id, ord from due order by rn, ord limit ${batchSize}::int)
         update outbox_events o
            set available_at = now() + ${leaseMs}::float8 * interval '1 millisecond', attempts = o.attempts + 1
-          from due
-         where o.id = due.id
-        returning o.id, o.agency_id, o.type, o.version, o.payload, o.attempts, o.created_at, o.trace_parent`),
+          from picked
+         where o.id = picked.id
+        returning o.id, o.agency_id, o.type, o.version, o.payload, o.attempts, o.created_at, o.trace_parent, picked.ord`),
     );
-    return (rows as unknown as ClaimedRow[]).sort((a, b) => (a.id < b.id ? -1 : 1));
+    const claimed = rows as unknown as ClaimedRow[];
+    let last: ClaimedRow | undefined;
+    for (const row of claimed) if (!last || row.ord > last.ord) last = row;
+    cursors[lane] = last ? last.agency_id : PLATFORM_AGENCY_ID;
+    return claimed.sort((a, b) => (a.id < b.id ? -1 : 1));
   }
 
   /** Delivery continues the emitter's trace: request → outbox → subscriber → job (S0-10). */
@@ -284,8 +393,8 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     });
   }
 
-  async function runOnce(): Promise<DispatchStats> {
-    const rows = await claim();
+  async function runOnce(lane = 0): Promise<DispatchStats> {
+    const rows = await claim(lane);
     if (rows.length === 0) return { claimed: 0, delivered: 0, retried: 0, dead: 0 };
     const done: Outcome[] = [];
     const retry: Outcome[] = [];
@@ -327,21 +436,21 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     let lastPrune = Date.now();
     let failures = 0;
     while (running) {
-      const seen = generation;
       try {
-        const stats = await runOnce();
+        const stats = await runOnce(lane);
         failures = 0;
         if (lane === 0 && Date.now() - lastPrune >= pruneEveryMs) {
           lastPrune = Date.now();
           const pruned = await prune();
           if (pruned > 0) logger.info({ pruned }, 'outbox pruned');
         }
-        if (stats.claimed === batchSize) continue; // backlog: go again immediately
-        await sleep(pollMs, seen);
+        // Work was found: drain without a pause (a fair batch can be under-full while rows are due).
+        if (stats.claimed > 0) continue;
+        await sleep(pollMs);
       } catch (err) {
         failures++;
         logger.warn({ err, failures, lane }, 'outbox dispatch round failed');
-        await sleep(Math.min(pollMs * 2 ** failures, 30_000), generation);
+        await sleep(Math.min(pollMs * 2 ** failures, 30_000));
       }
     }
   }
@@ -350,13 +459,6 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     async start() {
       if (running) return;
       running = true;
-      if (options.listen) {
-        try {
-          listener = await options.listen(signal);
-        } catch (err) {
-          logger.warn({ err }, 'outbox LISTEN unavailable; polling only');
-        }
-      }
       loops = Array.from({ length: lanes }, (_, lane) => run(lane));
     },
     async stop() {
@@ -364,8 +466,6 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
       for (const wake of [...wakers]) wake();
       await Promise.all(loops);
       loops = [];
-      await listener?.close();
-      listener = undefined;
     },
     runOnce,
     prune,

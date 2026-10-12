@@ -54,7 +54,7 @@ async function waitReady(port: number, child: ChildProcess, output: () => string
 describe('app entry points', () => {
   for (const app of APPS) {
     it(`[S0-08] [S0-10] ${app.name} boots from main.ts with telemetry, reports ready, serves /metrics and exits on SIGTERM`, async () => {
-      const { DATABASE_URL_LISTEN: _listen, ...env } = stackEnv();
+      const env = stackEnv();
       // The same preload as the app's `dev`/`start` scripts.
       const args = [
         TSX,

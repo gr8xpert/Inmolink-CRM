@@ -6,6 +6,8 @@
  * `tenantTables`, everything else under `globalTables`. The guard fails on anything unregistered,
  * and an unregistered table gets no grants, so access fails closed.
  */
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
+
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
 /** Column overrides (DB column names) for rows the isolation suite seeds. */
@@ -164,7 +166,7 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     appendOnly: true,
     authAppend: { column: 'type', prefix: 'identity.' },
-    staff: { insert: `starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid` },
+    staff: { insert: `starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid` },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
   // unconfirmed email may rename it while it is still PENDING and not onboarded. Status changes are
@@ -302,7 +304,7 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { type: 'iso.fixture', actor_kind: 'user' },
     userInsert: `actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff' and impersonated_by is not distinct from app_impersonated_by()`,
     auth: {
-      insert: `agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '00000000-0000-0000-0000-000000000000'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id()`,
+      insert: `agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '${PLATFORM_AGENCY_ID}'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id()`,
     },
     staff: {
       select: 'true',

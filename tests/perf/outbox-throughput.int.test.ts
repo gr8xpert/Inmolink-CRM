@@ -64,7 +64,7 @@ describe('outbox dispatcher throughput', () => {
   });
   afterAll(() => teardownQueueTest([POOL]));
 
-  it('[S0-06] dispatcher sustains ≥ 2,000 events/s locally with zero loss across a Redis restart (AOF)', async () => {
+  it('[S0-06] [S1-F2] dispatcher sustains ≥ 2,000 events/s locally with zero loss across a Redis restart (AOF)', async () => {
     // 1) Throughput: a 30,000-event backlog through claim → enqueue (grouped, batched) → ack, timed per
     //    10,000-event window. On a shared dev machine one window can catch autovacuum, an AOF rewrite or
     //    desktop load, so the check is the best sustained window; all three and the overall rate are reported.

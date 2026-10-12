@@ -1,6 +1,6 @@
 # ADR 0014 — Outbox wake-up without NOTIFY in business transactions
 
-- **Status:** Accepted — option 1, poll only (approved by Shahzaib, 2026-10-11); implemented in S1-F2
+- **Status:** Accepted — option 1, poll only (approved by Shahzaib, 2026-10-11); implemented in S1-F2 (2026-10-12)
 - **Date:** 2026-10-11
 - **Task:** S0 review; changes S0-06 (outbox), decide before S6 (imports)
 
@@ -12,7 +12,7 @@ S0-06 built the dispatcher with a LISTEN/NOTIFY wake-up: `emit()` runs `notify o
 
 **Accepted: option 1 (poll only).** The options considered:
 
-1. **Poll only (recommended).** `emit()` no longer sends NOTIFY. Each dispatcher lane polls every 250 ms through the existing index `outbox_events_pending_idx`, and keeps going without a pause while batches are full. Event latency is ≤ 250 ms, compared with about 10 ms with NOTIFY. `DATABASE_URL_LISTEN` and `packages/db/src/listen.ts` are removed.
+1. **Poll only (recommended).** `emit()` no longer sends NOTIFY. Each dispatcher lane polls every 250 ms through the index `outbox_events_pending_idx` (S1-F2 re-keyed it to `(agency_id, available_at, id)` for the per-tenant fair claim), and keeps going without a pause while it finds work. Event latency is ≤ 250 ms, compared with about 10 ms with NOTIFY. `DATABASE_URL_LISTEN` and `packages/db/src/listen.ts` are removed.
 2. **Coalesced NOTIFY.** A small process sends at most one `pg_notify` per 100 ms when new rows exist, outside any business transaction. This keeps low latency, but adds a moving part that also has to poll.
 3. **Keep NOTIFY.** First measure commit throughput with NOTIFY against polling in the S6 import load test, and decide then.
 

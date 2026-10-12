@@ -1,3 +1,4 @@
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 import type pg from 'pg';
 import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable } from './registry';
 
@@ -15,9 +16,6 @@ import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable 
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
 const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff';
-
-/** `agency_id` of platform-wide outbox events (`PLATFORM_AGENCY_ID` in platform/outbox). */
-const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
 export const HELPER_FUNCTIONS = [

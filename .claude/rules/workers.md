@@ -23,5 +23,6 @@ paths:
 
 ## Outbox
 - Producers call `emit(tx, event)` inside the business transaction. Event types are declared in the module's `events.ts` with a Zod payload schema and a version.
-- The dispatcher claims events with `FOR UPDATE SKIP LOCKED`, fans out to subscriber queues, and marks them processed. Consumers must tolerate duplicates and out-of-order delivery (compare `version`/`updatedAt`).
+- The dispatcher polls every 250 ms (no LISTEN/NOTIFY, ADR 0014), claims events with `FOR UPDATE SKIP LOCKED` shared fairly between agencies, fans out to subscriber queues, and marks them processed. Consumers must tolerate duplicates and out-of-order delivery (compare `version`/`updatedAt`).
+- Delivery is tracked per event, not per subscriber: a failing subscriber makes the retry re-run every subscriber of that event. Each subscriber must be idempotent on its own (stable `jobId`, upsert, check-then-act).
 - Debounce high-frequency events (listing edits) per entity before expensive work (reindex, read-model rebuild, matching).

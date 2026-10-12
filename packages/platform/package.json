@@ -109,6 +109,11 @@
       "types": "./dist/telemetry/register.d.ts",
       "default": "./dist/telemetry/register.js"
     },
+    "./tenancy": {
+      "@inmolink/source": "./src/tenancy/index.ts",
+      "types": "./dist/tenancy/index.d.ts",
+      "default": "./dist/tenancy/index.js"
+    },
     "./turnstile": {
       "@inmolink/source": "./src/turnstile/index.ts",
       "types": "./dist/turnstile/index.d.ts",

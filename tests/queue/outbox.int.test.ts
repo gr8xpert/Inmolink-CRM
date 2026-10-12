@@ -1,10 +1,9 @@
-import { listen, withSystem, withTenant } from '@inmolink/db';
+import { withSystem, withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import {
   createDispatcher,
   defineEvent,
   emit,
-  OUTBOX_CHANNEL,
   PLATFORM_AGENCY_ID,
   replayOutboxBatch,
   SubscriberRegistry,
@@ -29,6 +28,26 @@ const platformWide = defineEvent(`test.${run}.platform`, 1, z.object({ n: z.numb
 const types = [noted.type, platformWide.type];
 
 class Rollback extends Error {}
+
+/** Agencies with due rows of other suites' types: each takes a slot in the claim's agency rotation. */
+async function foreignDueAgencies(): Promise<number> {
+  const { rows } = await withSystem('test.foreign', (tx) =>
+    tx.execute(sql`select count(distinct agency_id)::int as n from outbox_events
+                    where processed_at is null and available_at <= now()
+                      and type not in (select jsonb_array_elements_text(${JSON.stringify(types)}::jsonb))`),
+  );
+  return Number(rows[0]?.n);
+}
+
+/** Due rows of other suites' types (never dispatched by anyone): they take their share of a batch too. */
+async function foreignDue(): Promise<number> {
+  const { rows } = await withSystem('test.foreign', (tx) =>
+    tx.execute(sql`select count(*)::int as n from outbox_events
+                    where processed_at is null and available_at <= now()
+                      and type not in (select jsonb_array_elements_text(${JSON.stringify(types)}::jsonb))`),
+  );
+  return Number(rows[0]?.n);
+}
 
 async function drain(dispatcher: ReturnType<typeof createDispatcher>): Promise<void> {
   // Rows of other suites (isolation fixtures) may be claimed too; loop until ours are done.
@@ -164,29 +183,126 @@ describe('outbox', () => {
     expect(String(rows[0]?.last_error)).toContain('is not defined in this process');
   });
 
-  it('[S0-06] NOTIFY wakes an idle dispatcher immediately (polling is only a fallback)', async () => {
+  it('[S1-F2] an idle dispatcher picks up a new event within one 250 ms poll interval (ADR 0014; < 500 ms end to end)', async () => {
     const agencyId = newId();
     const subscribers = new SubscriberRegistry();
-    const seen: number[] = [];
+    const seenAt = new Map<number, number>();
     subscribers.add(noted, (p) => {
-      seen.push(p.n);
+      seenAt.set(p.n, performance.now());
     });
+    const dispatcher = createDispatcher({ runSystem, logger: log, subscribers });
+    await dispatcher.start();
+    try {
+      await waitFor(async () => (await pendingOf(types)) === 0, 10_000); // initial catch-up round
+      await new Promise((r) => setTimeout(r, 300)); // every lane is now idle, sleeping its poll interval
+      const t0 = performance.now();
+      await withTenant({ agencyId }, (tx) => emit(tx, noted({ agencyId, n: 42 })));
+      await waitFor(() => seenAt.has(42), 5_000, 5);
+      // One poll interval plus the claim, delivery and the test's own polling step.
+      expect((seenAt.get(42) as number) - t0).toBeLessThan(250 + 250);
+    } finally {
+      await dispatcher.stop();
+    }
+  });
+
+  it('[S1-F2] one agency emitting 50,000 events delays another agency by at most one batch', async () => {
+    const burst = newId();
+    const others = Array.from({ length: 9 }, () => newId());
+    const subscribers = new SubscriberRegistry();
+    const seen = new Map<string, number>();
+    subscribers.add(noted, (p) => {
+      seen.set(p.agencyId, (seen.get(p.agencyId) ?? 0) + 1);
+    });
+    await waitFor(async () => (await pendingOf(types)) === 0); // nothing of ours left from earlier tests
+    // Earlier suites leave due rows of many agencies in the shared table; a large agency cap keeps our ten
+    // in the first rotation (the cap itself is covered by the next test).
     const dispatcher = createDispatcher({
       runSystem,
       logger: log,
       subscribers,
-      pollMs: 60_000,
-      listen: (cb) => listen(OUTBOX_CHANNEL, cb),
+      batchSize: 500,
+      maxAgenciesPerClaim: 5_000,
     });
-    await dispatcher.start();
+
     try {
-      await waitFor(async () => (await pendingOf(types)) === 0, 10_000); // initial catch-up round
-      const t0 = Date.now();
-      await withTenant({ agencyId }, (tx) => emit(tx, noted({ agencyId, n: 42 })));
-      await waitFor(() => seen.includes(42), 5_000, 10);
-      expect(Date.now() - t0).toBeLessThan(2_000);
+      for (let i = 0; i < 50_000; i += 1_000) {
+        const batch = Array.from({ length: 1_000 }, (_, j) => noted({ agencyId: burst, n: i + j }));
+        await withSystem('test.burst', (tx) => emit(tx, batch));
+      }
+      // Emitted after the burst, so a FIFO claim would deliver them only after 100 full batches.
+      for (const agencyId of others) await withTenant({ agencyId }, (tx) => emit(tx, noted({ agencyId, n: 1 })));
+
+      // Other suites leave due rows of their own types in the shared database; fair share hands those
+      // small agencies their rows first, so the burst agency gets the batch minus everyone else's.
+      let foreign = await foreignDue();
+      const first = await dispatcher.runOnce();
+      expect(first.claimed).toBe(500);
+      for (const agencyId of others) expect(seen.get(agencyId)).toBe(1);
+      expect(seen.get(burst)).toBeGreaterThanOrEqual(500 - others.length - foreign);
+
+      // With the others drained, the burst agency gets whole batches again.
+      const before = seen.get(burst) as number;
+      foreign = await foreignDue();
+      const second = await dispatcher.runOnce();
+      expect(second.claimed).toBe(500);
+      expect((seen.get(burst) as number) - before).toBeGreaterThanOrEqual(500 - foreign);
     } finally {
-      await dispatcher.stop();
+      await withSystem('test.cleanup', (tx) => tx.execute(sql`delete from outbox_events where type = ${noted.type}`));
+    }
+  });
+
+  it('[S1-F2] more agencies than one claim serves: each claim takes the next agencies in rotation, none twice before all once', async () => {
+    const agencies = Array.from({ length: 150 }, () => newId()).sort();
+    const subscribers = new SubscriberRegistry();
+    const servedBy = new Map<string, number[]>();
+    let claimNo = 0;
+    subscribers.add(noted, (p) => {
+      servedBy.set(p.agencyId, [...(servedBy.get(p.agencyId) ?? []), claimNo]);
+    });
+    await waitFor(async () => (await pendingOf(types)) === 0);
+    // 64 agencies per claim (3 rows each fit the equal share), so 150 agencies take three claims.
+    const dispatcher = createDispatcher({
+      runSystem,
+      logger: log,
+      subscribers,
+      batchSize: 500,
+      maxAgenciesPerClaim: 64,
+    });
+    try {
+      for (let n = 0; n < 3; n++) {
+        for (let i = 0; i < agencies.length; i += 75) {
+          const batch = agencies.slice(i, i + 75).map((agencyId) => noted({ agencyId, n }));
+          await withSystem('test.many', (tx) => emit(tx, batch));
+        }
+      }
+      // Other suites' agencies take rotation slots too (one claim serves 64 agencies), so the ideal three
+      // claims grow with them; one more for rows that come due or get leased meanwhile.
+      const maxClaims = Math.ceil((agencies.length + (await foreignDueAgencies())) / 64) + 1;
+      const claims: number[] = [];
+      while (servedBy.size < agencies.length) {
+        claimNo++;
+        claims.push((await dispatcher.runOnce()).claimed);
+        if (claimNo > maxClaims + 5) {
+          throw new Error(`rotation did not reach every agency: ${servedBy.size} / ${agencies.length}`);
+        }
+      }
+      expect(claimNo).toBeLessThanOrEqual(maxClaims);
+      expect(claims.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(agencies.length * 3);
+      // Every agency was served by exactly one claim, which took all three of its rows at once.
+      for (const agencyId of agencies) {
+        const by = servedBy.get(agencyId) ?? [];
+        expect(by, agencyId).toHaveLength(3);
+        expect(new Set(by).size, agencyId).toBe(1);
+      }
+      // Rotation: the agencies of claim k all sort after the agencies of claim k-1 (the cursor moved on).
+      const firstOf = (k: number) => agencies.filter((a) => servedBy.get(a)?.[0] === k);
+      for (let k = 2; k <= claimNo; k++) {
+        const prev = firstOf(k - 1);
+        const cur = firstOf(k);
+        if (prev.length && cur.length) expect((cur[0] as string) > (prev.at(-1) as string), `claim ${k}`).toBe(true);
+      }
+    } finally {
+      await withSystem('test.cleanup', (tx) => tx.execute(sql`delete from outbox_events where type = ${noted.type}`));
     }
   });
 });

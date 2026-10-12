@@ -56,7 +56,6 @@ export const workerEnv = {
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   // Required here (optional in platform): the outbox and cross-tenant jobs run `withSystem`.
   DATABASE_URL_APP_SYSTEM: databaseEnv.DATABASE_URL_APP_SYSTEM.unwrap(),
-  DATABASE_URL_LISTEN: databaseEnv.DATABASE_URL_LISTEN,
   ...redisEnv,
   ...cryptoEnv,
   ...emailEnv,

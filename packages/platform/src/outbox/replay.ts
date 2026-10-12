@@ -1,5 +1,5 @@
 import { type SQL, sql } from 'drizzle-orm';
-import { OUTBOX_CHANNEL, type SqlExecutor } from './emit';
+import type { SqlExecutor } from './emit';
 
 export interface ReplayFilter {
   ids?: string[];
@@ -68,7 +68,6 @@ export async function replayOutboxBatch(
      where o.id = picked.id
     returning o.id`);
   if (rows.length === 0) return { replayed: 0 };
-  await tx.execute(sql.raw(`notify ${OUTBOX_CHANNEL}`));
   const lastId = rows
     .map((r) => String(r.id))
     .sort()

@@ -34,11 +34,6 @@ export const databaseEnv = {
   DATABASE_URL_APP_AUTH: url(['postgres', 'postgresql']).optional(),
   /** Staff request paths (`withStaff`, S1-03, ADR 0015) — `api` only. */
   DATABASE_URL_APP_STAFF: url(['postgres', 'postgresql']).optional(),
-  /**
-   * Direct (non-PgBouncer) session connection for LISTEN — the outbox dispatcher's wake-up.
-   * Workers only (app_system credential); without it the dispatcher polls.
-   */
-  DATABASE_URL_LISTEN: url(['postgres', 'postgresql']).optional(),
 };
 
 /** Migrations and ops scripts only — never loaded by app runtimes. */
@@ -318,12 +313,6 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
     problems.push({
       key: 'DATABASE_URL_APP_SYSTEM',
       message: 'must not be set for APP_ROLE=http in production (BYPASSRLS credential; workers and scripts only)',
-    });
-  }
-  if (production && cfg.APP_ROLE === 'http' && cfg.DATABASE_URL_LISTEN !== undefined) {
-    problems.push({
-      key: 'DATABASE_URL_LISTEN',
-      message: 'must not be set for APP_ROLE=http in production (outbox dispatcher only; runs in workers)',
     });
   }
   // Sampling every trace at feed-api's request rate would drop spans and cost CPU: choose it per deploy.

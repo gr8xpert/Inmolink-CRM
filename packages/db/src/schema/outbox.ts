@@ -31,8 +31,10 @@ export const outboxEvents = pgTable(
     traceParent: text('trace_parent'),
   },
   (t) => [
-    // dispatcher claim: where processed_at is null and available_at <= now() order by available_at, id
-    index('outbox_events_pending_idx').on(t.availableAt, t.id).where(sql`${t.processedAt} is null`),
+    // dispatcher claim (S1-F2, per-tenant fair share): a loose index scan enumerates the agencies with
+    // due rows (`agency_id > ? and available_at <= now() order by agency_id limit 1`, one probe each), then
+    // takes each agency's oldest due rows (`agency_id = ? and available_at <= now() order by available_at, id`).
+    index('outbox_events_pending_idx').on(t.agencyId, t.availableAt, t.id).where(sql`${t.processedAt} is null`),
     // retention prune: where processed_at < now() - interval
     index('outbox_events_processed_idx').on(t.processedAt).where(sql`${t.processedAt} is not null`),
     // replay by type and time window (ops script)

@@ -129,14 +129,6 @@ describe('loadConfig', () => {
     expect(() => loadConfig(shape, { ...prod, APP_ROLE: 'worker' })).not.toThrow();
   });
 
-  it('[S0-06] the LISTEN URL (outbox dispatcher) is refused for APP_ROLE=http in production', () => {
-    const prod = { ...validEnv, NODE_ENV: 'production', DATABASE_URL_APP_SYSTEM: undefined };
-    const listen = 'postgres://app_system:pw@localhost:5432/inmolink';
-    const err = problemsOf(() => loadConfig(shape, { ...prod, DATABASE_URL_LISTEN: listen }));
-    expect(err.problems.map((p) => p.key)).toEqual(['DATABASE_URL_LISTEN']);
-    expect(() => loadConfig(shape, { ...prod, APP_ROLE: 'worker', DATABASE_URL_LISTEN: listen })).not.toThrow();
-  });
-
   it('[S0-03] dev keys are refused in production', () => {
     const env = {
       ...validEnv,

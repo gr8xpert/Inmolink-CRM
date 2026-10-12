@@ -1,0 +1,2 @@
+DROP INDEX "outbox_events_pending_idx";--> statement-breakpoint
+CREATE INDEX "outbox_events_pending_idx" ON "outbox_events" USING btree ("agency_id","available_at","id") WHERE "outbox_events"."processed_at" is null;

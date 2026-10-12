@@ -11,7 +11,6 @@ export {
   type Tx,
 } from './client';
 export { loadStackEnv } from './env-file';
-export { type Listener, type ListenOptions, listen } from './listen';
 export { DB_ROLES, type DbRoleName, type RuntimeRole } from './roles';
 export { checkRls } from './tenancy/guard';
 export {

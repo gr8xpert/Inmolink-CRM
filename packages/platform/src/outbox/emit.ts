@@ -2,15 +2,12 @@ import { sql } from 'drizzle-orm';
 import { newId } from '../ids';
 import type { SqlExecutor } from '../sql';
 import { currentTraceparent } from '../telemetry/context';
+import { PLATFORM_AGENCY_ID } from '../tenancy';
 import type { OutboxMessage } from './events';
 
 export type { SqlExecutor } from '../sql';
-
-/** NOTIFY channel the dispatcher LISTENs on. Delivered at commit, never on rollback. */
-export const OUTBOX_CHANNEL = 'outbox_events';
-
-/** `agency_id` of platform-wide events (no tenant). Only `withSystem()` can write it; RLS rejects it elsewhere. */
-export const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
+/** `agency_id` of platform-wide events (no tenant); defined in `@inmolink/platform/tenancy`. */
+export { PLATFORM_AGENCY_ID };
 
 export interface EmitOptions {
   /** Defaults to `payload.agencyId`, then the transaction's tenant (`app.agency_id`), then `PLATFORM_AGENCY_ID`. */
@@ -33,6 +30,7 @@ function agencyOf(message: OutboxMessage, options: EmitOptions): string | null {
 /**
  * Writes events in the caller's transaction (PLAN §5.3 #6): they exist if and only if the change
  * commits. Never call search, email or HTTP here — subscribers do that later, in the worker.
+ * No NOTIFY (ADR 0014): it would serialise the commits of every emitting transaction; the dispatcher polls.
  */
 export async function emit(
   tx: SqlExecutor,
@@ -56,5 +54,4 @@ export async function emit(
   await tx.execute(
     sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values, sql`, `)}`,
   );
-  await tx.execute(sql.raw(`notify ${OUTBOX_CHANNEL}`));
 }

@@ -112,11 +112,12 @@
   community.general.ufw:
     rule: allow
     # Kamal apps on the `kamal` network only (deploy.sh's one-off containers use host networking).
+    # PgBouncer, never Postgres itself: the direct LISTEN connection went with ADR 0014 (S1-F2).
     from_ip: "{{ kamal_network_subnet }}"
     to_ip: "{{ wg_ip }}"
     port: "{{ item }}"
     proto: tcp
-  loop: ["{{ postgres_port }}", "{{ pgbouncer_port }}", "{{ redis_queue_port }}"]
+  loop: ["{{ pgbouncer_port }}", "{{ redis_queue_port }}"]
   when: "'app' in group_names and 'db' in group_names"
 
 - name: Enable firewall
