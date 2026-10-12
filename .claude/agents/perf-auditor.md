@@ -2,7 +2,7 @@
 name: perf-auditor
 description: Audits an Inmolink diff against performance budgets — query plans, indexes, query counts, caching, payload sizes, bundle sizes and worker throughput. Use in sprint reviews or after hot-path changes. Does not edit source files.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 color: yellow
 ---
 

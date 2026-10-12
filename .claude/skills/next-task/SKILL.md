@@ -29,7 +29,7 @@ Target task: `$ARGUMENTS` if given, otherwise the task under **Now** in `docs/bu
    - `pnpm db:generate && pnpm db:migrate && pnpm db:rls` if the schema changed.
    - `pnpm verify` until green.
    - If the task touches a hot path (feed-api, search, imports, matching, media, read models, list endpoints): run `/perf-check` and fix any budget breach.
-   - Module-sized task: run the `code-reviewer` subagent on the diff; sensitive areas (auth, RLS, keys, imports, uploads, payments, webhooks) also `security-auditor`. Fix every "must fix".
+   - Reviews: run `code-reviewer` only for ⚡ or 🔒 tasks or tasks that create a new module; run `security-auditor` only for 🔒 tasks. For every other task self-check the diff against the Definition of Done in CLAUDE.md instead of spawning reviewers. Fix every "must fix".
 
 6. **Record**
    - `docs/build/STATUS.md`: mark the task `DONE` with a one-line summary (and perf numbers for hot paths), add any assumptions under **Decisions**, put the next task under **Now**.

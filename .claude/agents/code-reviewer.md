@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Reviews an Inmolink diff for structure, module boundaries, pattern conformance, performance rules and test coverage of acceptance checks. Use after a module-sized task and in sprint reviews. Read-only.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: sonnet
 color: blue
 ---
 

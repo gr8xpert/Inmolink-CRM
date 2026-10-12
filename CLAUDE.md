@@ -10,10 +10,12 @@ AI-native MLS + CRM + website engine for Spanish estate agencies and developers.
 ## Session protocol
 1. Read `docs/build/STATUS.md`. Work on the task under **Now**. If empty, take the first `TODO` task in sprint order whose dependencies are all `DONE`.
 2. Read that task, the PLAN sections it cites, and the PATTERNS sections it needs. Nothing else unless required.
+   - Never read `PLAN.md` or the BACKLOG files whole. Grep for the task heading (e.g. `### S1-11`) and read only that block; read only the PLAN sections it cites the same way. Read only the `PATTERNS.md` section you need.
+   - Don't re-read files you just wrote; don't explore modules the task doesn't touch.
 3. Write a short plan: files to create/change, and one test per acceptance check. Then implement.
 4. Run `pnpm verify`. Fix until green. Run `/perf-check` if the task touches a hot path (see budgets).
 5. Update STATUS (task → `DONE` + one-line summary, next task under **Now**), add a CHANGELOG line, commit: `feat(<module>): <summary> [S3-02]`.
-6. One task per session where possible. When context gets long: finish, commit, then suggest `/clear`.
+6. One task per conversation: when the task is committed, stop and tell the user to run `/clear`.
 
 ## Commands (created in S0-01; add new ones to root `package.json`)
 - `pnpm dev` (starts the docker `dev` stack, then apps) · `pnpm build` · `pnpm verify` (typecheck + lint + boundaries + unit + integration + isolation for affected packages; needs Docker)
