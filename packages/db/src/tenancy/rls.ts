@@ -23,6 +23,7 @@ const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
 export const HELPER_FUNCTIONS = [
   'app_agency',
   'app_user_id',
+  'app_impersonated_by',
   'app_is_staff',
   'app_agency_verified',
   'app_preferring_agencies',
@@ -37,8 +38,8 @@ const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 /** `immutable` tables (S1-08): read and append, never change or remove. */
 const APPEND_READ: Privilege[] = ['SELECT', 'INSERT'];
 
-/** `auth` predicates start with `agency_id = app_agency()` or `user_id = app_user_id()`, then only `and …`. */
-const AUTH_PIN = /^(agency_id = app_agency\(\)|user_id = app_user_id\(\))(\s+and\s+[\s\S]+)?$/;
+/** `auth` predicates start with `agency_id = app_agency()` or `user_id` / `staff_user_id = app_user_id()` (S1-09), then only `and …`. */
+const AUTH_PIN = /^(agency_id = app_agency\(\)|(?:staff_)?user_id = app_user_id\(\))(\s+and\s+[\s\S]+)?$/;
 
 function assertValid(name: string, def: TenantTable | GlobalTable): void {
   if ('kind' in def) {
@@ -182,6 +183,10 @@ export function helperSql(): string {
   as $$ select nullif(current_setting('app.agency_id', true), '')::uuid $$;`,
     `create or replace function app_user_id() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;`,
+    // S1-09: the staff member impersonating the session's user (set by `withTenant` after the request ctx
+    // checked the open session); `audit_logs` rows of app_user must name exactly this value.
+    `create or replace function app_impersonated_by() returns uuid language sql stable parallel safe
+  as $$ select nullif(current_setting('app.impersonated_by', true), '')::uuid $$;`,
     `create or replace function app_is_staff() returns boolean language sql stable parallel safe
   as $$ select exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.deactivated_at is null) $$;`,
     `create or replace function app_agency_verified() returns boolean language sql stable parallel safe
@@ -198,8 +203,9 @@ export function helperSql(): string {
     `create or replace function app_partition_maintenance() returns void language plpgsql security definer
   set search_path = pg_catalog, pg_temp set lock_timeout = '5s'
   as $$ begin perform partman.run_maintenance(p_analyze := false, p_jobmon := false); end $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
+    `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_is_staff() to app_staff;`,
     `grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;`,
     `grant execute on function app_partition_maintenance() to app_system;`,

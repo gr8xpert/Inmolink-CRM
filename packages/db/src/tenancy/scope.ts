@@ -7,6 +7,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export interface TenantScope {
   agencyId: string;
   userId?: string;
+  /**
+   * The staff member impersonating `userId` (S1-09), set as `app.impersonated_by`: `audit_logs` rows the
+   * transaction appends must name exactly this value. Only `withMemberCtx` sets it, and checks the open
+   * session row before running the request.
+   */
+  impersonatedBy?: string;
 }
 
 /**
@@ -16,9 +22,13 @@ export interface TenantScope {
 export async function withTenant<T>(scope: TenantScope, fn: (tx: Tx) => Promise<T>): Promise<T> {
   if (!UUID.test(scope.agencyId)) throw new TypeError('withTenant: agencyId must be a UUID');
   if (scope.userId !== undefined && !UUID.test(scope.userId)) throw new TypeError('withTenant: userId must be a UUID');
+  if (scope.impersonatedBy !== undefined && (!UUID.test(scope.impersonatedBy) || scope.userId === undefined)) {
+    throw new TypeError('withTenant: impersonatedBy must be a UUID, with a userId');
+  }
   return getDb('app_user').transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.agency_id', ${scope.agencyId}, true),
-                                set_config('app.user_id', ${scope.userId ?? ''}, true)`);
+                                set_config('app.user_id', ${scope.userId ?? ''}, true),
+                                set_config('app.impersonated_by', ${scope.impersonatedBy ?? ''}, true)`);
     return fn(tx);
   });
 }

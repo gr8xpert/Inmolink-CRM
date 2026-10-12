@@ -40,6 +40,7 @@ import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { getPathname } from '@/i18n/navigation';
 import { webConfig } from './env';
+import { readImpersonation } from './impersonation';
 import { requestAuthCtx } from './request-id';
 
 const logger = createLogger({ service: 'web' });
@@ -64,6 +65,29 @@ async function toTwoFactor(): Promise<never> {
   redirect(getPathname({ href: '/two-factor', locale: await getLocale() }));
 }
 
+/**
+ * The staff member's impersonation session ended, expired or was revoked (S1-09): a route handler
+ * forgets it in the browser and sends them back to the staff console.
+ */
+function toImpersonationEnded(): never {
+  redirect('/session/impersonation-ended');
+}
+
+/**
+ * Mints the api token for a call to `path` (S1-09): staff APIs always run as the signed-in user
+ * themselves; every other call runs as the impersonated member while the staff member's session is
+ * open (the mint and the API both check it is theirs and live).
+ */
+async function mintFor(session: SessionRef, path: string): Promise<string> {
+  const impersonation = path.startsWith('/v1/staff/') ? null : await readImpersonation(session.userId);
+  const { token } = await identity.issueAccessToken(await requestAuthCtx(), {
+    ...session,
+    audience: 'api',
+    ...(impersonation ? { impersonationId: impersonation.id } : {}),
+  });
+  return token;
+}
+
 /** An api access token already minted for this render (several calls, one mint). */
 interface Token {
   token: string;
@@ -80,7 +104,7 @@ export type ApiResult<T> =
  * session and calls `path`. Responses are parsed with the contract schema. The typed SDK client
  * replaces the raw fetch once `pnpm sdk:generate` exists.
  */
-async function apiRequest<S extends z.ZodType>(
+export async function apiRequest<S extends z.ZodType>(
   session: SessionRef | Token,
   path: string,
   schema: S,
@@ -93,12 +117,21 @@ async function apiRequest<S extends z.ZodType>(
   } = {},
 ): Promise<ApiResult<z.infer<S>>> {
   const config = await webConfig();
+  const result = await apiCall(config.API_URL, session, path, schema, init);
+  if (result !== 'revoked' && !result.ok && result.error?.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+  return result;
+}
+
+async function apiCall<S extends z.ZodType>(
+  apiUrl: string,
+  session: SessionRef | Token,
+  path: string,
+  schema: S,
+  init: NonNullable<Parameters<typeof apiRequest>[3]>,
+): Promise<ApiResult<z.infer<S>>> {
   try {
-    const token =
-      'token' in session
-        ? session.token
-        : (await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' })).token;
-    const res = await fetch(`${config.API_URL}${path}`, {
+    const token = 'token' in session ? session.token : await mintFor(session, path);
+    const res = await fetch(`${apiUrl}${path}`, {
       method: init.method ?? 'GET',
       headers: {
         authorization: `Bearer ${token}`,
@@ -126,6 +159,9 @@ async function apiRequest<S extends z.ZodType>(
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') {
+      return { ok: false, status: 403, error: { code: err.code, message: err.code } };
+    }
     logger.error({ err, path }, 'api call failed');
     return { ok: false, status: 0, error: null };
   }
@@ -147,10 +183,11 @@ export async function fetchHome(
 ): Promise<'revoked' | { me: MeDto | null; agency: AgencyDto | null }> {
   let token: string;
   try {
-    ({ token } = await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' }));
+    token = await mintFor(session, '/v1/me');
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
     logger.error({ err }, 'access token mint failed');
     return { me: null, agency: null };
   }
@@ -229,10 +266,11 @@ export async function fetchTeam(
 ): Promise<'revoked' | { members: Exclude<ApiResult<MemberPage>, 'revoked'>; invites: InvitePage | null }> {
   let token: string;
   try {
-    ({ token } = await identity.issueAccessToken(await requestAuthCtx(), { ...session, audience: 'api' }));
+    token = await mintFor(session, '/v1/members');
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
     logger.error({ err }, 'access token mint failed');
     return { members: { ok: false, status: 0, error: null }, invites: null };
   }

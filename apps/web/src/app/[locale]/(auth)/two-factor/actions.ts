@@ -7,6 +7,7 @@ import { getLocale } from 'next-intl/server';
 import { auth, updateSession } from '@/auth';
 import { redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
+import { readImpersonation } from '@/server/impersonation';
 import { requestAuthCtx } from '@/server/request-id';
 import { attemptChallenge, type CodeFailure, rememberedDeviceCookie, withCodeCheck } from '@/server/two-factor';
 
@@ -60,6 +61,8 @@ export async function challengeAction(_prev: TwoFactorFormState, form: FormData)
 export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   await webConfig();
   const user = await signedIn();
+  // S1-09: no 2FA changes (enrolment included) while acting as someone else.
+  if (await readImpersonation(user.id)) return { error: 'forbidden' };
   try {
     const result = await withCodeCheck(
       { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
@@ -85,6 +88,8 @@ export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Pr
 export async function regenerateCodesAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   await webConfig();
   const user = await signedIn();
+  // S1-09: no 2FA changes while acting as someone else (it would be the staff member's own, but never mid-impersonation).
+  if (await readImpersonation(user.id)) return { error: 'forbidden' };
   const result = await withCodeCheck(
     { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
     async (code) => identity.regenerateRecoveryCodes(await requestAuthCtx(), { userId: user.id, code }),
@@ -97,6 +102,7 @@ export async function regenerateCodesAction(_prev: TwoFactorFormState, form: For
 export async function disableAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   await webConfig();
   const user = await signedIn();
+  if (await readImpersonation(user.id)) return { error: 'forbidden' };
   try {
     const result = await withCodeCheck(
       { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },

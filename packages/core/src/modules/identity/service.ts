@@ -34,8 +34,9 @@ import * as billing from '../billing';
 import * as compliance from '../compliance';
 import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
+import * as impRepo from './impersonation-repo';
 import { identityLog } from './log';
-import { assertCan, canIssueAccessToken, loginDecision, sessionNeedsSecondFactor } from './policy';
+import { assertCan, canIssueAccessToken, IMPERSONATING_ROLES, loginDecision, sessionNeedsSecondFactor } from './policy';
 import * as repo from './repo';
 import { isDeviceRemembered, isSecondFactorRequired } from './two-factor';
 
@@ -367,10 +368,14 @@ export async function issueAccessToken(
     audience: Audience;
     /** The web session passed the second factor (S1-04). */
     mfaVerified: boolean;
+    /** The staff member's open impersonation session (S1-09): mint a token that acts as its member. */
+    impersonationId?: string;
   },
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
+  if (input.impersonationId !== undefined)
+    return issueImpersonationToken(ctx, { ...input, impersonationId: input.impersonationId });
   const found = await ctx.transaction(async (tx) => {
     const subject = await loadSessionSubject(tx, input.userId);
     if (!subject || !canIssueAccessToken(subject.user, input.sessionVersion, subject.member)) return null;
@@ -386,6 +391,49 @@ export async function issueAccessToken(
     sv: found.user.sessionVersion,
     // The tenant; the role is read per request, so a role change applies at once (S1-02).
     ...(found.member ? { agency: found.member.agencyId } : {}),
+  });
+  return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * The impersonation mint (S1-09): the web session is the staff member's. They must be active staff with
+ * no agency, have passed 2FA in this session, and own the live session named; the token then acts as
+ * the session's member (`sub`) in its agency, naming the staff member (`act`) and the session (`imp`).
+ * API audience only. The API re-checks the session on every request, so ending it applies at once.
+ */
+async function issueImpersonationToken(
+  ctx: AuthCtx,
+  input: { userId: string; sessionVersion: number; audience: Audience; mfaVerified: boolean; impersonationId: string },
+): Promise<AccessTokenDto> {
+  const { signer } = identityConfig();
+  if (!signer) throw new Error('identity: no access token signer configured');
+  if (input.audience !== 'api') throw new AppError('FORBIDDEN', { reason: 'impersonation_audience' });
+  // Staff always need 2FA (S1-04): an impersonation never starts from a session that skipped it.
+  if (!input.mfaVerified) throw new AppError('MFA_REQUIRED');
+  const found = await ctx.transaction(async (tx) => {
+    const subject = await loadSessionSubject(tx, input.userId);
+    if (!subject || !canIssueAccessToken(subject.user, input.sessionVersion, subject.member)) return null;
+    const role = subject.member ? null : await repo.findStaffRole(tx, input.userId);
+    if (!role || !IMPERSONATING_ROLES.includes(role)) return 'not_staff' as const;
+    const session = await impRepo.findLiveSession(tx, input.userId, input.impersonationId);
+    if (!session) return 'ended' as const;
+    // Never act as another staff member (S1-09 review). Staff cannot see each other's `staff_users` rows,
+    // so this is checked here: app_auth reads the target's own row with the scope narrowed to them.
+    await setAuthScope(tx, { userId: session.targetUserId });
+    if (await repo.findStaffRole(tx, session.targetUserId)) return 'target_staff' as const;
+    return { sessionVersion: subject.user.sessionVersion, session };
+  });
+  if (!found) throw new AppError('SESSION_REVOKED');
+  if (found === 'not_staff') throw new AppError('FORBIDDEN', { reason: 'not_staff' });
+  if (found === 'target_staff') throw new AppError('IMPERSONATION_TARGET_INVALID');
+  if (found === 'ended') throw new AppError('IMPERSONATION_ENDED');
+  const { token, expiresAt } = await signer.sign({
+    sub: found.session.targetUserId,
+    aud: 'api',
+    sv: found.sessionVersion,
+    agency: found.session.agencyId,
+    act: input.userId,
+    imp: found.session.id,
   });
   return { token, expiresAt: expiresAt.toISOString() };
 }

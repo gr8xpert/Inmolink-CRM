@@ -1,26 +1,50 @@
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx, StaffCtx } from '../../context';
+import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /** Who may do what in agencies (PATTERNS §6). Deny by default; services call `assertCan`. */
-export type AgenciesAction =
-  | 'agencies.read'
-  | 'agencies.updateDetails'
-  | 'agencies.verification.read'
-  | 'agencies.verification.manage'
-  | 'agencies.profile.update'
-  | 'agencies.settings.update'
-  | 'agencies.settings.read'
-  | 'agencies.commission.read'
-  | 'agencies.preferred.read'
-  | 'agencies.preferred.add'
-  | 'agencies.preferred.manage'
-  | 'agencies.directory.search';
+export const AGENCIES_ACTIONS = [
+  'agencies.read',
+  'agencies.updateDetails',
+  'agencies.verification.read',
+  'agencies.verification.manage',
+  'agencies.profile.update',
+  'agencies.settings.update',
+  'agencies.settings.read',
+  'agencies.commission.read',
+  'agencies.preferred.read',
+  'agencies.preferred.add',
+  'agencies.preferred.manage',
+  'agencies.directory.search',
+] as const;
+export type AgenciesAction = (typeof AGENCIES_ACTIONS)[number];
+
+/**
+ * Staff impersonating a member (S1-09): they may read and fix the profile and notes (recorded with both
+ * names); never the verified identity (details, verification), settings (commission, PIN policy) or who
+ * sees PREFERRED listings. Removing a preferred agency only narrows access, so it stays allowed.
+ */
+export const AGENCIES_IMPERSONATION: ImpersonationRules<AgenciesAction> = {
+  'agencies.read': 'allowed',
+  'agencies.updateDetails': 'forbidden',
+  'agencies.verification.read': 'allowed',
+  'agencies.verification.manage': 'forbidden',
+  'agencies.profile.update': 'allowed',
+  'agencies.settings.update': 'forbidden',
+  'agencies.settings.read': 'allowed',
+  'agencies.commission.read': 'allowed',
+  'agencies.preferred.read': 'allowed',
+  'agencies.preferred.add': 'forbidden',
+  'agencies.preferred.manage': 'allowed',
+  'agencies.directory.search': 'allowed',
+};
 
 /** Roles that administer their agency (PLAN §3 #2). */
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
 
 export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: string }): boolean {
   if (ctx.actor.kind !== 'user') return false;
+  if (deniedByImpersonation(ctx, AGENCIES_IMPERSONATION, action)) return false;
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'agencies.read':
@@ -32,28 +56,17 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
     case 'agencies.updateDetails':
     case 'agencies.verification.manage':
     case 'agencies.profile.update':
-      // Client Mode is read-only (PATTERNS §6). Staff impersonating an admin may fix the profile
-      // (logo, contact); the event records both of them.
-      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
     case 'agencies.settings.update':
-      // Settings carry commission terms and the Client Mode PIN policy: the agency's own admins decide
-      // them, never staff impersonating one (like API keys and 2FA, `.claude/rules/security.md`).
-      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role) && ctx.actor.impersonatedBy === undefined;
+    case 'agencies.preferred.add':
+    case 'agencies.preferred.manage':
     case 'agencies.verification.read':
-      // Company documents: admins only, never in Client Mode.
+      // Admins only, never in Client Mode (read-only, PATTERNS §6).
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
     case 'agencies.preferred.read':
     case 'agencies.directory.search':
       // Members see whom their agency trusts (they choose PREFERRED sharing on listings); the list and
       // its internal notes are never shown to a client.
       return sameAgency && !ctx.clientMode;
-    case 'agencies.preferred.add':
-      // Adding widens who sees the agency's PREFERRED listings: its own admins decide, never staff
-      // impersonating one (like settings and API keys).
-      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role) && ctx.actor.impersonatedBy === undefined;
-    case 'agencies.preferred.manage':
-      // Removing (only narrows access) and editing the note: admins, also while impersonated (both recorded).
-      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
   }
 }
 
@@ -61,8 +74,11 @@ export function assertCan(...args: Parameters<typeof can>): void {
   if (!can(...args)) throw new AppError('FORBIDDEN');
 }
 
-/** Staff actions in agencies (S1-03). Verification is support work; data ops do not decide it. */
-export type StaffAgenciesAction = 'staff.verification.read' | 'staff.verification.decide';
+/**
+ * Staff actions in agencies (S1-03, S1-09). Verification is support work; data ops do not decide it.
+ * Every staff role reads the tenants list and a tenant's company details (the console's starting point).
+ */
+export type StaffAgenciesAction = 'staff.verification.read' | 'staff.verification.decide' | 'staff.tenants.read';
 
 const VERIFICATION_STAFF = new Set(['SUPER_ADMIN', 'STAFF_SUPPORT']);
 
@@ -72,6 +88,8 @@ export function canStaff(ctx: StaffCtx, action: StaffAgenciesAction): boolean {
     case 'staff.verification.read':
     case 'staff.verification.decide':
       return VERIFICATION_STAFF.has(ctx.actor.role);
+    case 'staff.tenants.read':
+      return true;
   }
 }
 

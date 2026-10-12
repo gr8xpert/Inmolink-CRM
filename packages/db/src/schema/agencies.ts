@@ -57,6 +57,8 @@ export const agencies = pgTable(
   (t) => [
     // staff console (S1-09): duplicate-company checks and search by tax id
     index('agencies_tax_id_idx').on(t.taxId).where(sql`tax_id is not null`),
+    // staff tenants list (S1-09): [where status = ?] order by created_at desc, agency_id desc (keyset)
+    index('agencies_created_idx').on(t.createdAt, t.id),
   ],
 );
 

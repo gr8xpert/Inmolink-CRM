@@ -1,4 +1,4 @@
-import { withTenant } from '@inmolink/db';
+import { withStaff, withTenant } from '@inmolink/db';
 import { DEFAULT_UI_LOCALE } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from './context';
@@ -13,34 +13,64 @@ export interface MemberInit {
   requestId: string;
   /** UI locale of the request; defaults to the agency's first enabled locale. */
   locale?: string;
+  /**
+   * Staff acting as `userId` (S1-09): the token's `imp` (session) and `act` (staff member) claims. The
+   * session is checked in this request's transaction; every write then names the staff member too.
+   */
+  impersonation?: { id: string; staffUserId: string };
 }
 
 /**
  * Opens `withTenant` for the caller's agency and builds `ctx` from the database, not from the token:
  * role and verification status are read per request (two primary-key lookups), so a role change
  * (S1-02) or a verification decision (S1-03) applies on the next request. A user who is not a
- * member, or whose agency is suspended, gets `FORBIDDEN`.
+ * member, or whose agency is suspended, gets `FORBIDDEN`. An impersonated call (S1-09) also needs its
+ * session to be live (one more primary-key lookup) and its staff member to still be impersonating staff
+ * (one `app_staff` read): ended, expired, revoked or downgraded → `IMPERSONATION_ENDED`.
  */
-export function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
-  return withTenant({ agencyId: init.agencyId, userId: init.userId }, async (tx) => {
-    const role = await identity.getMemberRole(tx, init.agencyId, init.userId);
-    if (!role) throw new AppError('FORBIDDEN', { reason: 'not_a_member' });
-    const tenant = await agencies.loadTenant(tx, init.agencyId);
-    if (!tenant) throw new AppError('FORBIDDEN', { reason: 'not_a_member' });
-    if (tenant.status === 'SUSPENDED') throw new AppError('FORBIDDEN', { reason: 'agency_suspended' });
-    return fn({
-      tx,
-      tenant: {
-        agencyId: init.agencyId,
-        verified: tenant.status === 'VERIFIED',
-        // Plans arrive with billing (S13); until then every agency is on the same footing.
-        plan: 'none',
-        locales: tenant.locales,
-      },
-      actor: { kind: 'user', userId: init.userId, role },
-      locale: init.locale ?? tenant.locales[0] ?? DEFAULT_UI_LOCALE,
-      requestId: init.requestId,
-      clientMode: false,
-    });
-  });
+export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
+  const imp = init.impersonation;
+  if (imp) {
+    // The staff member must still be active staff with a role that may impersonate (S1-09 review): a
+    // short `app_staff` read before the request's own transaction (impersonated calls only).
+    const active = await withStaff({ userId: imp.staffUserId, reason: 'identity.checkImpersonator' }, (tx) =>
+      identity.isImpersonatorActive(tx, imp.staffUserId),
+    );
+    if (!active) throw new AppError('IMPERSONATION_ENDED', { reason: 'staff_access' });
+  }
+  return withTenant(
+    { agencyId: init.agencyId, userId: init.userId, ...(imp ? { impersonatedBy: imp.staffUserId } : {}) },
+    async (tx) => {
+      if (
+        imp &&
+        !(await identity.isImpersonationLive(tx, {
+          id: imp.id,
+          agencyId: init.agencyId,
+          staffUserId: imp.staffUserId,
+          targetUserId: init.userId,
+        }))
+      ) {
+        throw new AppError('IMPERSONATION_ENDED');
+      }
+      const role = await identity.getMemberRole(tx, init.agencyId, init.userId);
+      if (!role) throw new AppError('FORBIDDEN', { reason: 'not_a_member' });
+      const tenant = await agencies.loadTenant(tx, init.agencyId);
+      if (!tenant) throw new AppError('FORBIDDEN', { reason: 'not_a_member' });
+      if (tenant.status === 'SUSPENDED') throw new AppError('FORBIDDEN', { reason: 'agency_suspended' });
+      return fn({
+        tx,
+        tenant: {
+          agencyId: init.agencyId,
+          verified: tenant.status === 'VERIFIED',
+          // Plans arrive with billing (S13); until then every agency is on the same footing.
+          plan: 'none',
+          locales: tenant.locales,
+        },
+        actor: { kind: 'user', userId: init.userId, role, ...(imp ? { impersonatedBy: imp.staffUserId } : {}) },
+        locale: init.locale ?? tenant.locales[0] ?? DEFAULT_UI_LOCALE,
+        requestId: init.requestId,
+        clientMode: false,
+      });
+    },
+  );
 }

@@ -1,5 +1,85 @@
 {
   "title": "Staff",
+  "console": {
+    "title": "Inmolink staff console",
+    "nav": "Staff console",
+    "tenants": "Agencies",
+    "verification": "Verification queue",
+    "audit": "Audit log"
+  },
+  "roles": {
+    "SUPER_ADMIN": "Super admin",
+    "STAFF_SUPPORT": "Support",
+    "STAFF_DATA_OPS": "Data operations"
+  },
+  "tenants": {
+    "title": "Agencies",
+    "search": "Name or tax id",
+    "status": "Status",
+    "anyStatus": "Any status",
+    "filter": "Filter",
+    "empty": "No agencies match.",
+    "created": "Joined {date}",
+    "open": "Open",
+    "statuses": {
+      "PENDING": "Pending verification",
+      "VERIFIED": "Verified",
+      "SUSPENDED": "Suspended"
+    }
+  },
+  "tenant": {
+    "back": "Back to agencies",
+    "company": "Company",
+    "registerNumber": "Register number",
+    "onboarded": "Company details complete",
+    "yes": "Yes",
+    "no": "No",
+    "verification": "Verification",
+    "verificationState": "{status} (submitted {date})",
+    "notSubmitted": "Not submitted",
+    "created": "Joined",
+    "members": "Members",
+    "memberStatus": {
+      "ACTIVE": "Active",
+      "DEACTIVATED": "Deactivated"
+    },
+    "recentAudit": "Latest audit entries",
+    "fullAudit": "Full audit log"
+  },
+  "impersonation": {
+    "start": "Act as {name}",
+    "reason": "Reason (support ticket, what you will check) — recorded",
+    "minutes": "For",
+    "minutesOption": "{minutes} minutes",
+    "warning": "Everything you do is recorded under your name and theirs. You cannot change their settings, API keys, billing or two-step verification.",
+    "confirm": "Start acting as this user",
+    "banner": "You are acting as {user} at {agency} until {time} ({minutes} min left). Everything you do is recorded.",
+    "end": "Stop acting as this user",
+    "bannerEnded": "Your session acting as {user} at {agency} has ended. Nothing more is done in their name.",
+    "dismiss": "Dismiss",
+    "endedNotice": "You are no longer acting as another user.",
+    "errors": {
+      "FORBIDDEN": "Your staff role cannot act as other users.",
+      "NOT_FOUND": "That agency no longer exists.",
+      "IMPERSONATION_TARGET_INVALID": "You can only act as an active member of an agency that is not suspended.",
+      "VALIDATION_FAILED": "Write a reason of 10 to 500 characters.",
+      "generic": "Something went wrong. Please try again."
+    }
+  },
+  "audit": {
+    "title": "Audit log",
+    "audited": "Every page you open here is itself recorded in the audit log.",
+    "agency": "Agency id",
+    "type": "Type",
+    "from": "From",
+    "to": "To",
+    "when": "When",
+    "actor": "Who",
+    "target": "About",
+    "via": "via staff {staff}",
+    "empty": "No entries match.",
+    "badRange": "The start date must be before the end date."
+  },
   "queue": {
     "title": "Verification queue",
     "empty": "No requests in this list.",

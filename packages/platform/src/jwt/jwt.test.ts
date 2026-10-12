@@ -1,3 +1,4 @@
+import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
 import type { Clock } from '../clock';
 import {
@@ -98,5 +99,46 @@ describe('access tokens', () => {
     expect(() => parsePublicKeys(`bad id:${pair.publicKey}`)).toThrow(/key id/);
     expect(() => privateKeyFromBase64(pair.publicKey)).toThrow();
     await expect(signer.sign({ sub: 'admin', aud: 'api', sv: 1 })).rejects.toThrow(/user id/);
+  });
+
+  it('[S1-09] an impersonation token names the staff member and session; partial or odd claims are refused', async () => {
+    const { pair, signer, verifier } = setup();
+    const STAFF = '0192a0b4-0000-7000-8000-000000000002';
+    const SESSION = '0192a0b4-0000-7000-8000-000000000003';
+    const AGENCY = '0192a0b4-0000-7000-8000-000000000004';
+    const { token } = await signer.sign({ sub: USER, aud: 'api', sv: 1, agency: AGENCY, act: STAFF, imp: SESSION });
+    expect(await verifier.verify(token, 'api')).toMatchObject({ sub: USER, agency: AGENCY, act: STAFF, imp: SESSION });
+    // The signer refuses what the verifier would refuse.
+    await expect(signer.sign({ sub: USER, aud: 'api', sv: 1, agency: AGENCY, act: STAFF })).rejects.toThrow(
+      /act and imp/,
+    );
+    await expect(signer.sign({ sub: USER, aud: 'api', sv: 1, act: STAFF, imp: SESSION })).rejects.toThrow(
+      /act and imp/,
+    );
+    await expect(
+      signer.sign({ sub: STAFF, aud: 'api', sv: 1, agency: AGENCY, act: STAFF, imp: SESSION }),
+    ).rejects.toThrow(/act and imp/);
+    // Correctly signed but with odd claims (a signer bug elsewhere): refused too.
+    const key = privateKeyFromBase64(pair.privateKey);
+    const odd: Record<string, unknown>[] = [
+      { agency: AGENCY, act: STAFF },
+      { agency: AGENCY, act: STAFF, imp: 'x' },
+      { act: STAFF, imp: SESSION },
+      { agency: AGENCY, act: USER, imp: SESSION },
+    ];
+    for (const claims of odd) {
+      const raw = await new SignJWT({ sv: 1, ...claims })
+        .setProtectedHeader({ alg: 'EdDSA', kid: 'k1', typ: 'at+jwt' })
+        .setIssuer('inmolink-web')
+        .setSubject(USER)
+        .setAudience('api')
+        .setIssuedAt(Math.floor(Date.UTC(2026, 9, 10, 12) / 1_000))
+        .setExpirationTime(Math.floor(Date.UTC(2026, 9, 10, 12, 5) / 1_000))
+        .sign(key);
+      await expect(verifier.verify(raw, 'api')).rejects.toMatchObject({
+        code: 'NOT_AUTHENTICATED',
+        details: { reason: 'bad_claims' },
+      });
+    }
   });
 });

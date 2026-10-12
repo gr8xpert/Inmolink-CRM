@@ -1,0 +1,178 @@
+import type {
+  ImpersonationDto,
+  ImpersonationParams,
+  MemberPage,
+  PageQuery,
+  StaffMeDto,
+  StartImpersonationInput,
+} from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
+import { AppError } from '@inmolink/platform/errors';
+import { newId } from '@inmolink/platform/ids';
+import type { StaffCtx } from '../../context';
+import { decodeCursor, toPage } from '../../pagination';
+import * as agencies from '../agencies';
+import * as compliance from '../compliance';
+import * as impRepo from './impersonation-repo';
+import { assertStaffCan, IMPERSONATING_ROLES } from './policy';
+import * as repo from './repo';
+
+/**
+ * Staff impersonation (S1-09, PLAN §7 M20 §12, `.claude/rules/security.md`). A staff member who passed
+ * 2FA starts a session for one active member of an agency, with a reason, for 5–60 minutes. Sessions
+ * live in `staff_impersonations` (one open per staff member), so they can be ended at once:
+ *
+ * 1. `startImpersonation` (app_staff) records the session and audits `staff.impersonation.started`.
+ * 2. The web mints an access token for it (`issueAccessToken` with `impersonationId`, app_auth): `sub`
+ *    is the member, `act` the staff member, `imp` the session; only while the session is live.
+ * 3. Every API request with that token re-checks the session in its own transaction (`withMemberCtx` →
+ *    `isImpersonationLive`, app_user) and runs with `actor.impersonatedBy` and `app.impersonated_by`
+ *    set, so every audit row and event names both people. Ending or expiry applies on the next request.
+ * 4. What an impersonated session may never do is one list (`IMPERSONATION_FORBIDDEN`).
+ */
+
+function toDto(s: impRepo.SessionRow, names: { agencyName: string; userName: string }): ImpersonationDto {
+  return {
+    id: s.id,
+    agencyId: s.agencyId,
+    agencyName: names.agencyName,
+    userId: s.targetUserId,
+    userName: names.userName,
+    startedAt: s.startedAt.toISOString(),
+    expiresAt: s.expiresAt.toISOString(),
+  };
+}
+
+/**
+ * `POST /v1/staff/impersonations`: support and super admins act as an active member of an agency that
+ * is not suspended. A previous open session of the same staff member ends first (one at a time). The
+ * reason stays on the session row; the audit row records ids and the length only.
+ */
+export async function startImpersonation(ctx: StaffCtx, input: StartImpersonationInput): Promise<ImpersonationDto> {
+  assertStaffCan(ctx, 'staff.impersonate');
+  // One start at a time per staff member (S1-09 review): a concurrent start waits here, then ends this
+  // one's session instead of hitting the one-open-session index (23505).
+  await impRepo.lockStaffSessions(ctx.tx, ctx.actor.userId);
+  const tenant = await agencies.getTenantSummary(ctx, { agencyId: input.agencyId });
+  const member = await impRepo.findMember(ctx.tx, input.agencyId, input.userId);
+  if (tenant.status === 'SUSPENDED' || !member || member.deactivatedAt || input.userId === ctx.actor.userId) {
+    throw new AppError('IMPERSONATION_TARGET_INVALID');
+  }
+  for (const ended of await impRepo.endOpenSessions(ctx.tx, ctx.actor.userId)) {
+    await compliance.auditStaff(ctx, ended.agencyId, 'staff.impersonation.ended', null, {
+      impersonationId: ended.id,
+      cause: 'replaced',
+    });
+  }
+  const session = await impRepo.insertSession(ctx.tx, {
+    id: newId(),
+    agencyId: input.agencyId,
+    staffUserId: ctx.actor.userId,
+    targetUserId: input.userId,
+    reason: input.reason,
+    minutes: input.minutes,
+  });
+  await compliance.auditStaff(
+    ctx,
+    input.agencyId,
+    'staff.impersonation.started',
+    { type: 'user', id: input.userId },
+    { impersonationId: session.id, minutes: input.minutes, reasonProvided: true },
+  );
+  return toDto(session, { agencyName: tenant.name, userName: member.name });
+}
+
+/** `POST /v1/staff/impersonations/:id/end`: ends the caller's own open session (also an expired one). */
+export async function endImpersonation(ctx: StaffCtx, input: ImpersonationParams): Promise<void> {
+  const ended = await impRepo.endSession(ctx.tx, input.id, ctx.actor.userId);
+  if (!ended) throw new AppError('NOT_FOUND', { entity: 'impersonation' });
+  await compliance.auditStaff(
+    ctx,
+    ended.agencyId,
+    'staff.impersonation.ended',
+    { type: 'user', id: ended.targetUserId },
+    { impersonationId: ended.id, cause: 'ended' },
+  );
+}
+
+/** `GET /v1/staff/me`: the caller's staff role and live impersonation session (the web banner). */
+export async function getStaffMe(ctx: StaffCtx): Promise<StaffMeDto> {
+  const session = await impRepo.findLiveSession(ctx.tx, ctx.actor.userId);
+  let impersonation: ImpersonationDto | null = null;
+  if (session) {
+    const tenant = await agencies.getTenantSummary(ctx, { agencyId: session.agencyId });
+    const member = await impRepo.findMember(ctx.tx, session.agencyId, session.targetUserId);
+    impersonation = toDto(session, { agencyName: tenant.name, userName: member?.name ?? '' });
+  }
+  return { userId: ctx.actor.userId, role: ctx.actor.role, impersonation };
+}
+
+/**
+ * `GET /v1/staff/agencies/:agencyId/members`: the agency's team (deactivated included), oldest first.
+ * Names and emails: support and super admins only, and each read is audited (`staff.members.read`).
+ */
+export async function listAgencyMembers(ctx: StaffCtx, input: { agencyId: string } & PageQuery): Promise<MemberPage> {
+  assertStaffCan(ctx, 'staff.members.read');
+  const rows = await repo.listMembers(ctx.tx, input.agencyId, {
+    limit: input.limit,
+    cursor: decodeCursor(input.cursor),
+  });
+  await compliance.auditStaff(
+    ctx,
+    input.agencyId,
+    'staff.members.read',
+    { type: 'agency', id: input.agencyId },
+    { nextPage: input.cursor !== undefined },
+  );
+  return toPage(
+    rows,
+    input.limit,
+    (r) => ({ at: r.createdAt, id: r.userId }),
+    (r) => ({
+      userId: r.userId,
+      name: r.name,
+      email: r.email,
+      role: r.role,
+      status: r.deactivatedAt ? 'DEACTIVATED' : 'ACTIVE',
+      joinedAt: r.createdAt.toISOString(),
+    }),
+  );
+}
+
+/**
+ * Inside an impersonated request's `withTenant` transaction (app_user): whether the session its token
+ * names is still live for this staff member, user and agency. `withMemberCtx` refuses the request when not.
+ */
+export async function isImpersonationLive(
+  tx: Tx,
+  s: { id: string; agencyId: string; staffUserId: string; targetUserId: string },
+): Promise<boolean> {
+  return impRepo.isSessionLive(tx, s);
+}
+
+/**
+ * Inside a `withStaff` transaction for the impersonating staff member (S1-09 review): they are still
+ * active staff with a role that may impersonate. `withMemberCtx` checks it on every impersonated request,
+ * so withdrawing or downgrading staff access ends impersonation on the next call.
+ */
+export async function isImpersonatorActive(tx: Tx, staffUserId: string): Promise<boolean> {
+  const role = await repo.findStaffRole(tx, staffUserId);
+  return role !== null && IMPERSONATING_ROLES.includes(role);
+}
+
+/**
+ * `pnpm staff:revoke` (`withSystem`): a revoked staff member's open session ends with their access.
+ * Audited per session under its agency.
+ */
+export async function endImpersonationsOf(tx: Tx, staffUserId: string): Promise<number> {
+  const ended = await impRepo.endOpenSessions(tx, staffUserId);
+  for (const s of ended) {
+    await compliance.auditSystem(tx, {
+      type: 'staff.impersonation.ended',
+      agencyId: s.agencyId,
+      target: null,
+      metadata: { impersonationId: s.id, staffUserId, cause: 'staffRevoked' },
+    });
+  }
+  return ended.length;
+}

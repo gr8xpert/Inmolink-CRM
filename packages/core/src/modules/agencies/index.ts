@@ -40,6 +40,7 @@ export {
   uploadAgencyLogo,
 } from './settings';
 export { registerAgenciesSubscriptions, unregisterAgenciesSubscriptions } from './subscriptions';
+export { getTenant, getTenantSummary, listTenants } from './tenants';
 export {
   DOCUMENT_URL_TTL_SECONDS,
   decideVerification,

@@ -10,7 +10,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx, CtxRunner } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as agencies from '../index';
 
 /** Agency profile and settings on the real test database and redis-cache (S1-06). */
@@ -40,16 +40,10 @@ interface As {
 
 /** The member's real request `ctx`, optionally in Client Mode or impersonated by staff (S1-09 sets those). */
 const as = <T>(m: { userId: string; agencyId: string }, fn: (ctx: Ctx) => Promise<T>, over: As = {}) =>
-  withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, (ctx) =>
-    fn({
-      ...ctx,
-      clientMode: over.clientMode ?? false,
-      actor:
-        ctx.actor.kind === 'user' && over.impersonatedBy
-          ? { ...ctx.actor, impersonatedBy: over.impersonatedBy }
-          : ctx.actor,
-    }),
-  );
+  withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, async (ctx) => {
+    const base = over.impersonatedBy ? await impersonatedCtx(ctx, over.impersonatedBy) : ctx;
+    return fn({ ...base, clientMode: over.clientMode ?? false });
+  });
 const runner =
   (m: Founder, over: As = {}): CtxRunner =>
   (fn) =>

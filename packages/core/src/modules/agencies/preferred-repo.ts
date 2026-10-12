@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { agencyDirectory, preferredAgencies, preferredAgencyNotes } from '@inmolink/db/schema/agencies';
-import { and, asc, count, eq, gt, ilike, isNotNull, ne, or, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { and, asc, count, eq, ilike, isNotNull, ne, sql } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
  * Preferred agencies and the agency directory (S1-07, PATTERNS §5). Runs as `app_user` under
@@ -59,15 +59,10 @@ export async function listPreferred(
     .where(
       and(
         eq(preferredAgencies.agencyId, agencyId),
-        cursor
-          ? or(
-              gt(preferredAgencies.createdAt, cursor.at),
-              and(eq(preferredAgencies.createdAt, cursor.at), gt(preferredAgencies.preferredAgencyId, cursor.id)),
-            )
-          : undefined,
+        keysetAfter(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, cursor, 'asc'),
       ),
     )
-    .orderBy(asc(preferredAgencies.createdAt), asc(preferredAgencies.preferredAgencyId))
+    .orderBy(...keysetOrder(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, 'asc'))
     .limit(page.limit + 1);
 }
 

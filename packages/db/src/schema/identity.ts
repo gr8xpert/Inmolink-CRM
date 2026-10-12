@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   pgEnum,
@@ -175,6 +176,57 @@ export const staffUsers = pgTable('staff_users', {
   /** Set when staff access is withdrawn; `app_is_staff()` is then false at once. */
   deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
 });
+
+/** Longest impersonation session (S1-09); the CHECK below and the 0026 guard enforce it too. */
+export const IMPERSONATION_MAX_MINUTES = 60;
+
+/**
+ * Staff impersonation sessions (S1-09, PLAN §7 M20, §12): a staff member acts as one member of an
+ * agency, with a reason, for a bounded time. STRICT tenant table (the agency acted on): the request
+ * `ctx` of an impersonated call reads its row (`app_user`, own agency) to check the session is still
+ * open; the access-token mint (`app_auth`) reads the staff member's own rows; staff (`app_staff`) start
+ * and end only their own. Tenants never write it (guard trigger, migration 0026). The reason stays here
+ * (free text never goes into `audit_logs`).
+ */
+export const staffImpersonations = pgTable(
+  'staff_impersonations',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    staffUserId: uuid('staff_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetUserId: uuid('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    reason: text('reason').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** Set when staff end it (or a newer session or `pnpm staff:revoke` replaces it); never reopened. */
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // one open session per staff member: start ends the previous one first; mint + `GET /v1/staff/me`
+    uniqueIndex('staff_impersonations_open_uq').on(t.staffUserId).where(sql`ended_at is null`),
+    // FK + the agency's impersonation history: where agency_id = ? order by started_at
+    index('staff_impersonations_agency_idx').on(t.agencyId, t.startedAt),
+    // FK + the staff member's history: where staff_user_id = ? order by started_at
+    index('staff_impersonations_staff_idx').on(t.staffUserId, t.startedAt),
+    // FK: removing a user
+    index('staff_impersonations_target_idx').on(t.targetUserId),
+    check('staff_impersonations_reason_ck', sql`char_length(${t.reason}) between 10 and 500`),
+    check(
+      'staff_impersonations_window_ck',
+      sql`${t.expiresAt} > ${t.startedAt} and ${t.expiresAt} <= ${t.startedAt} + interval '60 minutes'`,
+    ),
+    check('staff_impersonations_ended_ck', sql`${t.endedAt} is null or ${t.endedAt} >= ${t.startedAt}`),
+    check('staff_impersonations_not_self_ck', sql`${t.staffUserId} <> ${t.targetUserId}`),
+  ],
+);
 
 /**
  * TOTP second factor (S1-04, PLAN §3 #30). Global `access: 'auth'` table, one row per user. The secret

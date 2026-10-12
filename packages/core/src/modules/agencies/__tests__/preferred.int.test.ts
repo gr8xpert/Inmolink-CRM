@@ -7,7 +7,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as agencies from '../index';
 
 /** Preferred agencies and the agency directory on the real test database (S1-07). */
@@ -26,16 +26,10 @@ interface As {
 }
 
 const as = <T>(m: { userId: string; agencyId: string }, fn: (ctx: Ctx) => Promise<T>, over: As = {}) =>
-  withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, (ctx) =>
-    fn({
-      ...ctx,
-      clientMode: over.clientMode ?? false,
-      actor:
-        ctx.actor.kind === 'user' && over.impersonatedBy
-          ? { ...ctx.actor, impersonatedBy: over.impersonatedBy }
-          : ctx.actor,
-    }),
-  );
+  withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, async (ctx) => {
+    const base = over.impersonatedBy ? await impersonatedCtx(ctx, over.impersonatedBy) : ctx;
+    return fn({ ...base, clientMode: over.clientMode ?? false });
+  });
 
 async function refusal(promise: Promise<unknown>): Promise<string> {
   try {

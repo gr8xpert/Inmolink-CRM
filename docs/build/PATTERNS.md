@@ -221,6 +221,8 @@ Apps build `ctx` once per request (see §10). Services never construct their own
 
 **Staff** (ADR 0015): staff use cases take `StaffCtx` — `{ tx, actor: { kind: 'staff', userId, role }, locale, requestId }`, no tenant — built by `withStaffCtx({ userId, requestId, reason }, fn)` over `withStaff()` (`app_staff`, RLS on). Authorize with the module's `canStaff(ctx, action)`. Tables reach staff only through registry `staff` predicates (§2), and guard triggers say which columns staff may change.
 
+**Impersonation** (S1-09, ADR 0015 amendment): an impersonated request is an ordinary member `ctx` with `actor.impersonatedBy` set — built only by `withMemberCtx` after it checked the open session; `withTenant` then sets `app.impersonated_by`, which RLS requires on every `audit_logs` row. Services never read the field directly: record it with `impersonatorOf(ctx)` (events) or `compliance.audit(ctx, …)`. What staff may do while impersonating is decided per policy action: each module exports `<MODULE>_ACTIONS` (`as const`) and a `<MODULE>_IMPERSONATION: ImpersonationRules<Action>` map (`'allowed' | 'forbidden'` for every action — a new action does not compile without a decision), and `can()` starts with `if (deniedByImpersonation(ctx, RULES, action)) return false` (missing entries deny). The module's policy test calls `expectImpersonationRules(…)` (`packages/core/src/testing/impersonation-rules.ts`). Never a local `impersonatedBy` check. Tests that need an impersonated `ctx` without a session use `impersonatedCtx(ctx, staffId)` from `@inmolink/core/test`.
+
 ---
 
 ## §5 Repo
@@ -265,6 +267,10 @@ export async function updateWithVersion(tx: Tx, id: string, version: number, pat
   return row ?? null;                                  // null → version conflict
 }
 ```
+
+**Keyset on timestamps (S1-09 review):** Postgres keeps microseconds, a cursor (`Date`) only milliseconds — comparing the raw column skips rows (newest first) or repeats them (oldest first) when two rows share a millisecond. Use `keysetAfter(col, idCol, cursor, dir)` in the WHERE and `...keysetOrder(col, idCol, dir)` in ORDER BY (`packages/core/src/pagination.ts`): both work on `date_trunc('milliseconds', col)`. That gives up the index's order (a sort of the filtered rows), fine for per-agency lists and small staff lists; for a large hot list, write the column at millisecond precision (`date_trunc('milliseconds', now())`, like `audit_logs`) and keyset on the raw column.
+
+**Indexes on partitioned tables (S1-09 review, migration 0027):** a plain `CREATE INDEX` on a partitioned parent builds every partition's index under a lock that blocks writes. Fine while the tables are small; at scale use `CREATE INDEX … ON ONLY parent` (invalid until attached), then `CREATE INDEX CONCURRENTLY` on each partition and `ALTER INDEX parent_idx ATTACH PARTITION partition_idx`, in a custom migration (no transaction for the concurrent steps).
 
 ---
 

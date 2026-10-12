@@ -286,6 +286,14 @@ Ref §12 · Mod identity, web · Dep S1-04
 - Enrolment without an existing factor needs a fresh password check
 - The owner can still pass the challenge while another client is rate-limited
 
+### S1-F9 · Staff console follow-ups (S1-09 reviews) · 🔒
+Ref §7 M20 §12 · Mod identity, agencies, compliance, web · Dep S1-09
+**Build:** end open impersonation sessions when the staff account is disabled or its session version changes (the per-request check cannot read `users` as `app_staff`; today bounded by the 15-min token); show agency members that staff accessed their account (access history from `staff.impersonation.*` audit rows); a super admin can end another staff member's session; names instead of ids in the audit viewer; `pg_trgm` index for tenant search before agencies pass 10k (leading-`%` ILIKE scans today); countdown in the banner; run `tests/e2e/staff.spec.ts` and keep it in CI; narrow tenant read of `staff_impersonations` (members can read `reason` via RLS; no endpoint shows it).
+**Done when:**
+- Disabling a staff account ends its impersonation on the next request
+- Agency admins can see when staff accessed their account and why
+- The staff e2e spec runs green in CI
+
 ---
 
 ## S2 — Taxonomy & i18n

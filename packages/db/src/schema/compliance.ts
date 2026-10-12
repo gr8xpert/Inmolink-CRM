@@ -42,6 +42,10 @@ export const auditLogs = pgTable(
     index('audit_logs_agency_idx').on(t.agencyId, t.occurredAt, t.id),
     // history of one user / key / request (staff viewer, S1-09): where target_id = ? order by occurred_at desc
     index('audit_logs_target_idx').on(t.targetId, t.occurredAt).where(sql`${t.targetId} is not null`),
+    // staff viewer (S1-09), every agency: order by occurred_at desc, id desc (keyset; scanned backwards)
+    index('audit_logs_time_idx').on(t.occurredAt, t.id),
+    // staff viewer (S1-09), one type: where type = ? order by occurred_at desc, id desc
+    index('audit_logs_type_idx').on(t.type, t.occurredAt, t.id),
     check('audit_logs_type_ck', sql`${t.type} ~ '^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*){1,4}$'`),
     check('audit_logs_actor_kind_ck', sql`${t.actorKind} in ('user', 'staff', 'system', 'apiKey', 'anonymous')`),
     check('audit_logs_target_ck', sql`(${t.targetType} is null) = (${t.targetId} is null)`),

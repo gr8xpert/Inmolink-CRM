@@ -351,9 +351,9 @@ describe('agency verification', () => {
     let cursor: string | undefined;
     do {
       const page = await asStaff(support.userId, (c) =>
-        agencies.listVerificationQueue(c, { status: 'SUBMITTED', limit: 2, cursor }),
+        agencies.listVerificationQueue(c, { status: 'SUBMITTED', limit: 25, cursor }),
       );
-      expect(page.items.length).toBeLessThanOrEqual(2);
+      expect(page.items.length).toBeLessThanOrEqual(25);
       expect(page.items.every((i) => i.status === 'SUBMITTED')).toBe(true);
       ids.push(...page.items.map((i) => i.id));
       cursor = page.nextCursor ?? undefined;

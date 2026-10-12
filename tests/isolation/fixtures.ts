@@ -90,7 +90,14 @@ export async function setupIsolation() {
   return { ...cfg, DATABASE_URL_ADMIN: cfg.DATABASE_URL_ADMIN };
 }
 
+/**
+ * Drops the fixtures and puts the production RLS back (S1-09 review). Leaving the fixture registry's
+ * SQL (and stamp) in place made the next run's first `setupTestDb` re-apply RLS — ACCESS EXCLUSIVE on
+ * every table — while other packages' suites were already sending requests: their statements waited past
+ * the roles' 5 s statement timeout and surfaced as 500s (GET /v1/staff/agencies) and timeouts.
+ */
 export async function teardownIsolation(ownerUrl: string): Promise<void> {
   await closeDb();
   await asOwner(ownerUrl, `drop table if exists ${FIXTURE_TABLES.join(', ')}`);
+  await runRls({ DATABASE_URL_APP_OWNER: ownerUrl }, silent);
 }

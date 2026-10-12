@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx, StaffRole } from '../../../context';
-import { assertVerified, can, canStaff } from '../policy';
+import { expectImpersonationRules } from '../../../testing/impersonation-rules';
+import { AGENCIES_ACTIONS, AGENCIES_IMPERSONATION, assertVerified, can, canStaff } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -115,6 +116,24 @@ describe('agencies policy', () => {
       expect(canStaff(staff('SUPER_ADMIN'), action)).toBe(true);
       expect(canStaff(staff('STAFF_SUPPORT'), action)).toBe(true);
       expect(canStaff(staff('STAFF_DATA_OPS'), action)).toBe(false);
+    }
+  });
+
+  it('[S1-09] every action declares whether staff impersonating an admin may do it; details, verification, settings and preferred add are refused', () => {
+    expectImpersonationRules({
+      actions: AGENCIES_ACTIONS,
+      rules: AGENCIES_IMPERSONATION,
+      can: (ctx, action) => can(ctx, action),
+      admin: as('AGENCY_ADMIN'),
+      staffUserId: OTHER_AGENCY,
+    });
+    for (const action of [
+      'agencies.updateDetails',
+      'agencies.verification.manage',
+      'agencies.settings.update',
+      'agencies.preferred.add',
+    ] as const) {
+      expect(AGENCIES_IMPERSONATION[action]).toBe('forbidden');
     }
   });
 });

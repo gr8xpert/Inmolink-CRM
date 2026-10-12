@@ -16,6 +16,7 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
+import * as compliance from '../compliance';
 import { agenciesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './settings-repo';
@@ -293,6 +294,8 @@ export async function updateAgencyProfile(ctx: Ctx, input: UpdateAgencyProfileBo
   if (!row) throw new AppError('VERSION_CONFLICT');
   await repo.replaceTranslations(ctx.tx, agencyId, texts, now);
   await emit(ctx.tx, agenciesEvents.profileUpdated({ agencyId, version: row.version, logoChanged: false, ...actor }));
+  // S1-09: the profile is what staff may change while impersonating, so it is audited with both actors.
+  await compliance.audit(ctx, 'agencies.profile.updated', { type: 'agency', id: agencyId }, { logoChanged: false });
   return toProfileDto(row, await repo.listTranslations(ctx.tx, agencyId));
 }
 
@@ -315,6 +318,7 @@ async function setLogo(
     ctx.tx,
     agenciesEvents.profileUpdated({ agencyId, version: row.version, logoChanged: true, ...actorOf(ctx) }),
   );
+  await compliance.audit(ctx, 'agencies.profile.updated', { type: 'agency', id: agencyId }, { logoChanged: true });
   return {
     profile: toProfileDto(row, await repo.listTranslations(ctx.tx, agencyId)),
     previousKey: current?.logoStorageKey ?? null,

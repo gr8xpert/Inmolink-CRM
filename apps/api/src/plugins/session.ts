@@ -31,6 +31,7 @@ export function sessionPlugin(app: FastifyZod, options: { verifier: AccessTokenV
         sessionVersion: claims.sv,
         tokenExpiresAt: new Date(claims.exp * 1_000),
         agencyId: claims.agency ?? null,
+        impersonation: claims.act && claims.imp ? { id: claims.imp, staffUserId: claims.act } : null,
       };
     } catch (err) {
       reply.header('www-authenticate', 'Bearer error="invalid_token"');

@@ -4,6 +4,7 @@ import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { preferredAgencyRoutes } from './preferred';
 import { settingsRoutes } from './settings';
+import { tenantRoutes } from './tenants';
 import { verificationRoutes } from './verification';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -52,4 +53,5 @@ export async function agenciesRoutes(app: FastifyZod): Promise<void> {
   await app.register(verificationRoutes);
   await app.register(settingsRoutes);
   await app.register(preferredAgencyRoutes);
+  await app.register(tenantRoutes);
 }

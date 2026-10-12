@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { apiKeys } from '@inmolink/db/schema/identity';
-import { and, asc, count, eq, gt, isNull, or, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { and, count, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
  * `api_keys` queries (S1-05, PATTERNS §5). Kept apart from `repo.ts` (size). Runs as `app_user` under
@@ -93,12 +93,10 @@ export async function listApiKeys(
       and(
         eq(apiKeys.agencyId, agencyId),
         or(isNull(apiKeys.revokedAt), gt(apiKeys.revokedAt, revokedSince)),
-        q.cursor
-          ? or(gt(apiKeys.createdAt, q.cursor.at), and(eq(apiKeys.createdAt, q.cursor.at), gt(apiKeys.id, q.cursor.id)))
-          : undefined,
+        keysetAfter(apiKeys.createdAt, apiKeys.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(asc(apiKeys.createdAt), asc(apiKeys.id))
+    .orderBy(...keysetOrder(apiKeys.createdAt, apiKeys.id, 'asc'))
     .limit(q.limit + 1);
 }
 

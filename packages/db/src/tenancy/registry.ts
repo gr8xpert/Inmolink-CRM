@@ -194,10 +194,13 @@ export const tenantTables: Record<string, TenantTable> = {
   // Membership + role (S1-01, S1-02). app_auth reads only the user it is signing in, and writes only
   // the membership of the user it is signing up or who accepts an invite. Tenant sessions change only
   // role and deactivation, as an admin, never their own (guard trigger, migration 0008).
+  // Staff (S1-09) read every agency's members: the tenant detail lists them, and an impersonation session
+  // may only target an active member (0026 guard). Staff never write memberships.
   agency_members: {
     kind: 'STRICT',
     guardedInsert: true,
     triggers: ['agency_members_guard'],
+    staff: { select: 'true' },
     auth: {
       select: 'user_id = app_user_id()',
       // Sign-up: the agency is one app_auth can see (the PENDING, not-onboarded agency being signed
@@ -284,8 +287,9 @@ export const tenantTables: Record<string, TenantTable> = {
   // Audit log (S1-08): append-only, monthly partitions, no UPDATE/DELETE/TRUNCATE for anyone (grants, and
   // triggers for the owner, migration 0024). Rows name who acted, and each role may only name itself:
   // - members' request transactions (app_user) append their agency's rows as their own user, never as
-  //   staff. TODO(S1-09): an impersonated session's rows name the staff member in `impersonated_by`; pin it
-  //   to the session (`app.impersonated_by`) when impersonation lands.
+  //   staff. `impersonated_by` must equal the transaction's `app.impersonated_by` (S1-09: set by `withTenant`
+  //   for an impersonated session, whose row the request ctx checks first), so an impersonated request
+  //   cannot write a row without the staff member, nor a normal one name someone.
   // - login, 2FA and invite flows (app_auth) append `identity.*` rows about the user they are scoped to,
   //   under that user's membership agency (the nil agency without one) — checked here, not trusted from
   //   the caller — as that user or anonymous, never impersonated.
@@ -296,13 +300,34 @@ export const tenantTables: Record<string, TenantTable> = {
     partitioned: true,
     triggers: ['audit_logs_immutable', 'audit_logs_no_truncate'],
     base: { type: 'iso.fixture', actor_kind: 'user' },
-    userInsert: `actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff'`,
+    userInsert: `actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff' and impersonated_by is not distinct from app_impersonated_by()`,
     auth: {
       insert: `agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '00000000-0000-0000-0000-000000000000'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id()`,
     },
     staff: {
       select: 'true',
       insert: `actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')`,
+    },
+  },
+  // Staff impersonation sessions (S1-09), under the agency acted on. An impersonated request reads its own
+  // session row (app_user, own agency) to check it is still open; tenants never write it (guard 0026; a
+  // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;
+  // staff start and end only their own sessions. Rows hold the staff member's reason: no endpoint shows
+  // them to tenants.
+  staff_impersonations: {
+    kind: 'STRICT',
+    guardedInsert: true,
+    triggers: ['staff_impersonations_guard'],
+    base: {
+      reason: 'isolation fixture reason',
+      started_at: '2100-01-01T00:00:00Z',
+      expires_at: '2100-01-01T00:30:00Z',
+    },
+    auth: { select: 'staff_user_id = app_user_id()' },
+    staff: {
+      select: 'staff_user_id = app_user_id()',
+      insert: 'staff_user_id = app_user_id()',
+      update: 'staff_user_id = app_user_id()',
     },
   },
 };

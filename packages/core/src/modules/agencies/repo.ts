@@ -5,8 +5,8 @@ import {
   agencyVerificationDocuments,
   agencyVerificationRequests,
 } from '@inmolink/db/schema/agencies';
-import { and, asc, count, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { and, asc, count, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
  * agencies queries (PATTERNS §5). Runs as `app_user` under `withTenant` for dashboard work, and as
@@ -305,18 +305,10 @@ export async function listQueue(tx: Tx, q: { status: RequestStatus; limit: numbe
     .where(
       and(
         eq(agencyVerificationRequests.status, q.status),
-        q.cursor
-          ? or(
-              gt(agencyVerificationRequests.submittedAt, q.cursor.at),
-              and(
-                eq(agencyVerificationRequests.submittedAt, q.cursor.at),
-                gt(agencyVerificationRequests.id, q.cursor.id),
-              ),
-            )
-          : undefined,
+        keysetAfter(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(asc(agencyVerificationRequests.submittedAt), asc(agencyVerificationRequests.id))
+    .orderBy(...keysetOrder(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, 'asc'))
     .limit(q.limit + 1);
 }
 

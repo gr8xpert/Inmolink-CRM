@@ -24,6 +24,14 @@ export {
 } from './config';
 export { identityErrors } from './errors';
 export { identityEvents } from './events';
+export {
+  endImpersonation,
+  getStaffMe,
+  isImpersonationLive,
+  isImpersonatorActive,
+  listAgencyMembers,
+  startImpersonation,
+} from './impersonation';
 export { identityJobs } from './jobs';
 export { getMe, type SessionClaims } from './me';
 export {

@@ -1,6 +1,7 @@
 import type { InvitableRole } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx } from '../../context';
+import type { Ctx, StaffCtx } from '../../context';
+import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /**
  * Identity rules (PATTERNS §6). Auth flows have no actor yet, so `loginDecision` and
@@ -56,7 +57,25 @@ export function sessionNeedsSecondFactor(subject: { enrolled: boolean; required:
   return subject.enrolled || subject.required;
 }
 
-export type IdentityAction = 'identity.members.read' | 'identity.members.manage' | 'identity.apiKeys.manage';
+export const IDENTITY_ACTIONS = [
+  'identity.members.read',
+  'identity.members.manage',
+  'identity.apiKeys.read',
+  'identity.apiKeys.manage',
+] as const;
+export type IdentityAction = (typeof IDENTITY_ACTIONS)[number];
+
+/**
+ * Staff impersonating a member (S1-09) see the team and the keys, never change who has access: no
+ * invites, role changes, deactivations or invite revocations (an invite to their own email would outlive
+ * the session), and no key create, rotate or revoke (keys are credentials).
+ */
+export const IDENTITY_IMPERSONATION: ImpersonationRules<IdentityAction> = {
+  'identity.members.read': 'allowed',
+  'identity.members.manage': 'forbidden',
+  'identity.apiKeys.read': 'allowed',
+  'identity.apiKeys.manage': 'forbidden',
+};
 
 /** Roles that manage the agency's website API keys (S1-05): the admin of either family. */
 const API_KEY_ROLES: readonly string[] = ['AGENCY_ADMIN', 'DEVELOPER_ADMIN'];
@@ -76,6 +95,7 @@ export function can(
   resource: { agencyId?: string; userId?: string; role?: string } = {},
 ): boolean {
   if (ctx.actor.kind !== 'user') return false;
+  if (deniedByImpersonation(ctx, IDENTITY_IMPERSONATION, action)) return false;
   const sameAgency = resource.agencyId === undefined || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'identity.members.read':
@@ -87,6 +107,7 @@ export function can(
       if (!managed) return false;
       return resource.role === undefined || (managed as readonly string[]).includes(resource.role);
     }
+    case 'identity.apiKeys.read':
     case 'identity.apiKeys.manage':
       // Keys expose the agency's inventory to websites: admins only, never in Client Mode.
       return sameAgency && !ctx.clientMode && API_KEY_ROLES.includes(ctx.actor.role);
@@ -95,4 +116,25 @@ export function can(
 
 export function assertCan(...args: Parameters<typeof can>): void {
   if (!can(...args)) throw new AppError('FORBIDDEN');
+}
+
+/**
+ * Staff actions in identity (S1-09). Members' names and emails, and acting as one of them (impersonation,
+ * PLAN §12), are support work: super admins and support, not data ops. Guard 0028 repeats the role rule.
+ */
+export type StaffIdentityAction = 'staff.members.read' | 'staff.impersonate';
+
+export const IMPERSONATING_ROLES: readonly string[] = ['SUPER_ADMIN', 'STAFF_SUPPORT'];
+
+export function canStaff(ctx: StaffCtx, action: StaffIdentityAction): boolean {
+  if (ctx.actor.kind !== 'staff') return false;
+  switch (action) {
+    case 'staff.members.read':
+    case 'staff.impersonate':
+      return IMPERSONATING_ROLES.includes(ctx.actor.role);
+  }
+}
+
+export function assertStaffCan(...args: Parameters<typeof canStaff>): void {
+  if (!canStaff(...args)) throw new AppError('FORBIDDEN');
 }

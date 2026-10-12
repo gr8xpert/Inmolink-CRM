@@ -13,5 +13,6 @@ export {
   auditStaff,
   auditSystem,
   listAuditLog,
+  listAuditLogForStaff,
   MAX_AUDIT_METADATA_BYTES,
 } from './service';

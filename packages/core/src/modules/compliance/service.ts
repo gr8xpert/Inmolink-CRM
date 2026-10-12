@@ -1,10 +1,18 @@
-import type { AuditLogEntryDto, AuditLogPage, PageQuery } from '@inmolink/contracts';
+import type {
+  AuditLogEntryDto,
+  AuditLogPage,
+  PageQuery,
+  StaffAuditEntryDto,
+  StaffAuditPage,
+  StaffAuditQuery,
+} from '@inmolink/contracts';
 import { setAuthScope, type Tx } from '@inmolink/db';
+import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import type { Ctx, StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
-import { assertCan } from './policy';
+import { assertCan, assertStaffCan } from './policy';
 import * as repo from './repo';
 
 /**
@@ -38,8 +46,12 @@ export const AUDIT_TYPES = [
   'identity.apiKey.rotated',
   'identity.apiKey.revoked',
   'agencies.verification.decided',
+  'agencies.profile.updated',
   'staff.impersonation.started',
   'staff.impersonation.ended',
+  'staff.auditLog.read',
+  'staff.tenant.read',
+  'staff.members.read',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
@@ -197,4 +209,50 @@ export async function listAuditLog(ctx: Ctx, q: PageQuery): Promise<AuditLogPage
     cursor: decodeCursor(q.cursor),
   });
   return toPage(rows, q.limit, (r) => ({ at: r.occurredAt, id: r.id }), toDto);
+}
+
+function toStaffDto(row: repo.StaffAuditRow): StaffAuditEntryDto {
+  return {
+    id: row.id,
+    occurredAt: row.occurredAt.toISOString(),
+    agencyId: row.agencyId,
+    type: row.type,
+    actor: {
+      kind: row.actorKind as StaffAuditEntryDto['actor']['kind'],
+      userId: row.actorUserId,
+      impersonatedBy: row.impersonatedBy,
+    },
+    target: row.targetType && row.targetId ? { type: row.targetType, id: row.targetId } : null,
+    requestId: row.requestId,
+    metadata: row.metadata,
+  };
+}
+
+/**
+ * `GET /v1/staff/audit-logs` (S1-09): every agency's log, or one agency's, newest first, keyset ≤ 100,
+ * with both actors. Reading is itself audited (`staff.auditLog.read`, PLAN §12 "all staff actions
+ * audited"): under the agency read, or the platform row for a cross-agency read — in the same transaction,
+ * so a read that fails leaves no row and a row means the page was served.
+ */
+export async function listAuditLogForStaff(ctx: StaffCtx, q: StaffAuditQuery): Promise<StaffAuditPage> {
+  assertStaffCan(ctx, 'staff.auditLog.read');
+  const from = q.from ? new Date(q.from) : undefined;
+  const to = q.to ? new Date(q.to) : undefined;
+  if (from && to && from >= to) throw new AppError('VALIDATION_FAILED', { field: 'to' });
+  const rows = await repo.listAuditLogsForStaff(ctx.tx, {
+    agencyId: q.agencyId,
+    type: q.type,
+    from,
+    to,
+    limit: q.limit,
+    cursor: decodeCursor(q.cursor),
+  });
+  await auditStaff(
+    ctx,
+    q.agencyId ?? null,
+    'staff.auditLog.read',
+    q.agencyId ? { type: 'agency', id: q.agencyId } : null,
+    { type: q.type ?? null, from: q.from ?? null, to: q.to ?? null, nextPage: q.cursor !== undefined },
+  );
+  return toPage(rows, q.limit, (r) => ({ at: r.occurredAt, id: r.id }), toStaffDto);
 }

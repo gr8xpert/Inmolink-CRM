@@ -6,7 +6,8 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { withStaffCtx } from '../../../staff';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as compliance from '../index';
 
 /** The audit log on the real test database (S1-08): append-only, partitioned by month, read by admins. */
@@ -26,12 +27,9 @@ const as = <T>(
   fn: (ctx: Ctx) => Promise<T>,
   over: { impersonatedBy?: string; requestId?: string } = {},
 ) =>
-  withMemberCtx({ userId: f.userId, agencyId: f.agencyId, requestId: over.requestId ?? newId(), locale: 'en' }, (ctx) =>
-    fn(
-      ctx.actor.kind === 'user' && over.impersonatedBy
-        ? { ...ctx, actor: { ...ctx.actor, impersonatedBy: over.impersonatedBy } }
-        : ctx,
-    ),
+  withMemberCtx(
+    { userId: f.userId, agencyId: f.agencyId, requestId: over.requestId ?? newId(), locale: 'en' },
+    async (ctx) => fn(over.impersonatedBy ? await impersonatedCtx(ctx, over.impersonatedBy) : ctx),
   );
 
 /** Demotes the founder to AGENT (written as an admin would, without the guard trigger). */
@@ -386,6 +384,70 @@ describe('audit log', () => {
     });
     await expect(
       as(f, (ctx) => compliance.listAuditLog({ ...ctx, clientMode: true }, { limit: 10 })),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('[S1-09] staff read every agency’s log with both actors, filtered and in keyset pages; each read is audited', async () => {
+    const f = await createFounder();
+    const g = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const staffRead = <T>(userId: string, fn: (ctx: StaffCtx) => Promise<T>) =>
+      withStaffCtx({ userId, requestId: newId(), reason: 'audit viewer test' }, fn);
+    const impersonator = newId();
+    await as(f, (ctx) => compliance.audit(ctx, 'identity.member.roleChanged', { type: 'user', id: f.userId }));
+    await as(f, (ctx) => compliance.audit(ctx, 'identity.member.deactivated', null), { impersonatedBy: impersonator });
+    await as(g, (ctx) => compliance.audit(ctx, 'identity.member.deactivated', null));
+
+    // One agency, newest first, two pages; both actors visible to staff.
+    const first = await staffRead(support.userId, (ctx) =>
+      compliance.listAuditLogForStaff(ctx, { agencyId: f.agencyId, limit: 1 }),
+    );
+    expect(first.items).toEqual([
+      expect.objectContaining({
+        agencyId: f.agencyId,
+        type: 'identity.member.deactivated',
+        actor: { kind: 'user', userId: f.userId, impersonatedBy: impersonator },
+      }),
+    ]);
+    const second = await staffRead(support.userId, (ctx) =>
+      compliance.listAuditLogForStaff(ctx, { agencyId: f.agencyId, limit: 100, cursor: first.nextCursor ?? undefined }),
+    );
+    expect(second.items.map((i) => i.type)).toContain('identity.member.roleChanged');
+    expect(second.items.map((i) => i.type)).not.toContain('identity.member.deactivated');
+
+    // Across agencies by type and time window: both agencies' rows, no others of that type outside the window.
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const byType = await staffRead(support.userId, (ctx) =>
+      compliance.listAuditLogForStaff(ctx, { type: 'identity.member.deactivated', from: since, limit: 100 }),
+    );
+    expect(byType.items.map((i) => i.agencyId)).toEqual(expect.arrayContaining([f.agencyId, g.agencyId]));
+    expect(new Set(byType.items.map((i) => i.type))).toEqual(new Set(['identity.member.deactivated']));
+    const empty = await staffRead(support.userId, (ctx) =>
+      compliance.listAuditLogForStaff(ctx, { agencyId: f.agencyId, to: since, limit: 100 }),
+    );
+    expect(empty.items).toEqual([]);
+    await expect(
+      staffRead(support.userId, (ctx) => compliance.listAuditLogForStaff(ctx, { from: since, to: since, limit: 10 })),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    // Each served read left a staff row: under the agency read, or the platform for a cross-agency read.
+    const reads = await adminQuery<{ agency_id: string; target_id: string | null; metadata: Record<string, unknown> }>(
+      `select agency_id, target_id, metadata from audit_logs
+        where type = 'staff.auditLog.read' and actor_user_id = $1 order by occurred_at, id`,
+      [support.userId],
+    );
+    expect(reads.map((r) => [r.agency_id, r.target_id])).toEqual([
+      [f.agencyId, f.agencyId],
+      [f.agencyId, f.agencyId],
+      [PLATFORM_AGENCY_ID, null],
+      [f.agencyId, f.agencyId],
+    ]);
+    expect(reads[1]?.metadata).toMatchObject({ nextPage: true });
+
+    // Data ops do not read audit logs.
+    const ops = await createStaffUser('STAFF_DATA_OPS');
+    await expect(
+      staffRead(ops.userId, (ctx) => compliance.listAuditLogForStaff(ctx, { limit: 10 })),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

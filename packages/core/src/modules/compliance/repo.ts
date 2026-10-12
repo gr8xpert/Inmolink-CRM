@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { auditLogs } from '@inmolink/db/schema/compliance';
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, or, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 
 /**
@@ -83,6 +83,39 @@ export async function listAuditLogs(
     )
     .orderBy(desc(auditLogs.occurredAt), desc(auditLogs.id))
     .limit(page.limit + 1);
+}
+
+export type StaffAuditRow = AuditLogRow & { agencyId: string };
+
+/**
+ * The staff viewer (S1-09, app_staff reads every row): newest first, keyset ≤ 100, optionally one agency
+ * (`audit_logs_agency_idx`), one type (`audit_logs_type_idx`) or neither (`audit_logs_time_idx`), and a
+ * time window (`from` inclusive, `to` exclusive) — which also prunes monthly partitions.
+ */
+export async function listAuditLogsForStaff(
+  tx: Tx,
+  q: { agencyId?: string; type?: string; from?: Date; to?: Date; limit: number; cursor?: KeysetCursor },
+): Promise<StaffAuditRow[]> {
+  const { cursor } = q;
+  return tx
+    .select({ ...listColumns, agencyId: auditLogs.agencyId })
+    .from(auditLogs)
+    .where(
+      and(
+        q.agencyId ? eq(auditLogs.agencyId, q.agencyId) : undefined,
+        q.type ? eq(auditLogs.type, q.type) : undefined,
+        q.from ? gte(auditLogs.occurredAt, q.from) : undefined,
+        q.to ? lt(auditLogs.occurredAt, q.to) : undefined,
+        cursor
+          ? or(
+              lt(auditLogs.occurredAt, cursor.at),
+              and(eq(auditLogs.occurredAt, cursor.at), lt(auditLogs.id, cursor.id)),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(desc(auditLogs.occurredAt), desc(auditLogs.id))
+    .limit(q.limit + 1);
 }
 
 /** pg_partman maintenance for every partitioned table (`app_partition_maintenance()`, app_system only). */

@@ -56,9 +56,23 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
     request.log.info({ status, fastifyCode: error.code }, 'request rejected');
     return sendError(reply, FRAMEWORK_CODES[status] ?? 'BAD_REQUEST');
   }
-  request.log.error({ err: error }, 'request failed');
+  // Unmapped database errors name their SQLSTATE (e.g. 57014 statement timeout, 40P01 deadlock, 23505),
+  // so a 500 says what happened without logging the query or its values (S1-09 review).
+  request.log.error({ err: error, pgCode: sqlState(error) }, 'request failed');
   if (status !== 503) report(error, request);
   return sendError(reply, FRAMEWORK_CODES[status] ?? 'INTERNAL');
+}
+
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+
+/** The Postgres SQLSTATE of a driver error, or of the one Drizzle wraps in `cause`; undefined otherwise. */
+export function sqlState(error: unknown): string | undefined {
+  for (let e: unknown = error, depth = 0; e && typeof e === 'object' && depth < 3; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string' && SQLSTATE.test(code)) return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 /** Unexpected failures go to Sentry with the request id and route (503s are load shedding, not bugs). */

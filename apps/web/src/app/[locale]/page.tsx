@@ -50,10 +50,15 @@ export default async function HomePage() {
             </Link>
           </>
         ) : (
-          // No agency: staff (or a user without one). The page 404s for non-staff (S1-03).
-          <Link href="/staff/verification" className="text-sm font-medium underline-offset-4 hover:underline">
-            {t('home.staffVerification')}
-          </Link>
+          // No agency: staff (or a user without one). Staff pages 404 for non-staff (S1-03, S1-09).
+          <>
+            <Link href="/staff/tenants" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.staffConsole')}
+            </Link>
+            <Link href="/staff/verification" className="text-sm font-medium underline-offset-4 hover:underline">
+              {t('home.staffVerification')}
+            </Link>
+          </>
         )}
       </nav>
       {pending ? (

@@ -1,0 +1,70 @@
+import {
+  type AgencyStatus,
+  ImpersonationDto,
+  MemberPage,
+  StaffAuditPage,
+  type StaffAuditQuery,
+  StaffMeDto,
+  type StartImpersonationInput,
+  TenantDetailDto,
+  TenantPage,
+} from '@inmolink/contracts';
+import { z } from 'zod';
+import { type ApiResult, apiRequest, type SessionRef } from './api';
+
+/**
+ * Staff console calls (S1-09). Every path is under `/v1/staff/`, so the token is always the staff
+ * member's own, also while they impersonate someone. The API answers 403 to anyone else; pages turn
+ * that into a 404.
+ */
+
+export function fetchStaffMe(session: SessionRef): Promise<ApiResult<StaffMeDto>> {
+  return apiRequest(session, '/v1/staff/me', StaffMeDto);
+}
+
+export function fetchTenants(
+  session: SessionRef,
+  q: { q?: string; status?: AgencyStatus; cursor?: string },
+): Promise<ApiResult<TenantPage>> {
+  const qs = new URLSearchParams({
+    limit: '50',
+    ...(q.q ? { q: q.q } : {}),
+    ...(q.status ? { status: q.status } : {}),
+    ...(q.cursor ? { cursor: q.cursor } : {}),
+  });
+  return apiRequest(session, `/v1/staff/agencies?${qs}`, TenantPage);
+}
+
+export function fetchTenant(session: SessionRef, agencyId: string): Promise<ApiResult<TenantDetailDto>> {
+  return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}`, TenantDetailDto);
+}
+
+export function fetchTenantMembers(session: SessionRef, agencyId: string): Promise<ApiResult<MemberPage>> {
+  return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}/members?limit=100`, MemberPage);
+}
+
+/** The read is audited by the API (`staff.auditLog.read`). */
+export function fetchStaffAuditLog(
+  session: SessionRef,
+  q: Partial<Omit<StaffAuditQuery, 'limit'>> & { limit?: number },
+): Promise<ApiResult<StaffAuditPage>> {
+  const qs = new URLSearchParams({ limit: String(q.limit ?? 50) });
+  for (const key of ['agencyId', 'type', 'from', 'to', 'cursor'] as const) {
+    const v = q[key];
+    if (v) qs.set(key, v);
+  }
+  return apiRequest(session, `/v1/staff/audit-logs?${qs}`, StaffAuditPage);
+}
+
+export function startImpersonation(
+  session: SessionRef,
+  body: StartImpersonationInput,
+): Promise<ApiResult<ImpersonationDto>> {
+  return apiRequest(session, '/v1/staff/impersonations', ImpersonationDto, { method: 'POST', body });
+}
+
+export function endImpersonation(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/staff/impersonations/${encodeURIComponent(id)}/end`, z.null(), {
+    method: 'POST',
+  });
+}

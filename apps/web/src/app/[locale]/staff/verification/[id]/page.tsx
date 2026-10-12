@@ -1,10 +1,10 @@
 import { VerificationRequestParams } from '@inmolink/contracts';
 import { Button, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
-import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
-import { auth } from '@/auth';
-import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchVerificationRequest, sessionRef } from '@/server/api';
+import { getFormatter, getTranslations } from 'next-intl/server';
+import { Link } from '@/i18n/navigation';
+import { fetchVerificationRequest } from '@/server/api';
+import { requireStaff } from '@/server/staff';
 import { decideAction, openDocumentAction } from '../actions';
 
 const ERRORS = [
@@ -28,12 +28,10 @@ export default async function VerificationRequestPage({
   params: Promise<{ locale: string; id: string }>;
   searchParams: Promise<Record<string, string>>;
 }) {
-  const locale = await getLocale();
-  const session = await auth();
-  if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const { session } = await requireStaff();
   const id = VerificationRequestParams.safeParse({ id: (await params).id });
   if (!id.success) notFound();
-  const res = await fetchVerificationRequest(sessionRef(session.user), id.data.id);
+  const res = await fetchVerificationRequest(session, id.data.id);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok && (res.status === 403 || res.status === 404)) notFound();
   const t = await getTranslations('staff');

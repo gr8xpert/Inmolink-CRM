@@ -15,6 +15,7 @@ import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
 import { apiKeyRoutes } from './api-keys';
+import { staffIdentityRoutes } from './staff';
 
 const ME_LIMITS: readonly RateLimitRule[] = [
   { name: 'identity.me.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -41,6 +42,7 @@ const INVITE_LIMITS: readonly RateLimitRule[] = [
  */
 export async function identityRoutes(app: FastifyZod): Promise<void> {
   await apiKeyRoutes(app);
+  await staffIdentityRoutes(app);
 
   app.get(
     '/v1/me',

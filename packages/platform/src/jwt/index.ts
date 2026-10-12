@@ -28,6 +28,12 @@ export interface AccessClaims {
   sv: number;
   /** Agency (tenant) once memberships exist (S1-01); absent before. */
   agency?: string;
+  /**
+   * Impersonation (S1-09, after RFC 8693 `act`): the staff member acting as `sub` (`act`) and their open
+   * session (`imp`). Both or neither, only with `agency`; the API checks the session on every request.
+   */
+  act?: string;
+  imp?: string;
   exp: number;
   iat: number;
 }
@@ -38,7 +44,22 @@ export interface AccessTokenSigner {
     aud: Audience;
     sv: number;
     agency?: string;
+    act?: string;
+    imp?: string;
   }): Promise<{ token: string; expiresAt: Date }>;
+}
+
+/** `act`/`imp` together, as UUIDs, with an agency, and the staff member is not the subject. */
+function validImpersonation(c: { sub: string; agency?: unknown; act?: unknown; imp?: unknown }): boolean {
+  if (c.act === undefined && c.imp === undefined) return true;
+  return (
+    typeof c.act === 'string' &&
+    UUID.test(c.act) &&
+    typeof c.imp === 'string' &&
+    UUID.test(c.imp) &&
+    c.act !== c.sub &&
+    typeof c.agency === 'string'
+  );
 }
 
 export interface AccessTokenVerifier {
@@ -96,11 +117,14 @@ export function createAccessTokenSigner(options: {
   const clock = options.clock ?? processClock;
   const ttl = options.ttlSeconds ?? ACCESS_TOKEN_TTL_SECONDS;
   return {
-    async sign({ sub, aud, sv, agency }) {
+    async sign({ sub, aud, sv, agency, act, imp }) {
       if (!UUID.test(sub)) throw new TypeError('access token subject must be a user id');
+      if (!validImpersonation({ sub, agency, act, imp })) {
+        throw new TypeError('access token: act and imp go together, as ids, with an agency');
+      }
       const iat = Math.floor(clock.nowMs() / 1_000);
       const exp = iat + ttl;
-      const token = await new SignJWT(agency ? { sv, agency } : { sv })
+      const token = await new SignJWT({ sv, ...(agency ? { agency } : {}), ...(act && imp ? { act, imp } : {}) })
         .setProtectedHeader({ alg: ALG, kid: options.keyId, typ: 'at+jwt' })
         .setIssuer(ACCESS_TOKEN_ISSUER)
         .setSubject(sub)
@@ -142,17 +166,19 @@ export function createAccessTokenVerifier(options: {
             currentDate: new Date(clock.nowMs()),
           },
         );
-        const { sub, sv, agency, exp, iat } = payload as Record<string, unknown>;
+        const { sub, sv, agency, act, imp, exp, iat } = payload as Record<string, unknown>;
         if (typeof sub !== 'string' || !UUID.test(sub)) throw notAuthenticated('bad_subject');
         if (typeof sv !== 'number' || !Number.isInteger(sv)) throw notAuthenticated('bad_claims');
         if (agency !== undefined && (typeof agency !== 'string' || !UUID.test(agency))) {
           throw notAuthenticated('bad_claims');
         }
+        if (!validImpersonation({ sub, agency, act, imp })) throw notAuthenticated('bad_claims');
         return {
           sub,
           aud: audience,
           sv,
           ...(agency ? { agency } : {}),
+          ...(typeof act === 'string' && typeof imp === 'string' ? { act, imp } : {}),
           exp: exp as number,
           iat: iat as number,
         };

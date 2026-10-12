@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Ctx } from '../../../context';
-import { can, canIssueAccessToken, loginDecision, requiresSecondFactor, sessionNeedsSecondFactor } from '../policy';
+import type { Ctx, StaffCtx, StaffRole } from '../../../context';
+import { expectImpersonationRules } from '../../../testing/impersonation-rules';
+import {
+  can,
+  canIssueAccessToken,
+  canStaff,
+  IDENTITY_ACTIONS,
+  IDENTITY_IMPERSONATION,
+  loginDecision,
+  requiresSecondFactor,
+  sessionNeedsSecondFactor,
+} from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -96,5 +106,30 @@ describe('identity policy', () => {
     }
     expect(can(ctxAs('AGENCY_ADMIN', { clientMode: true }), 'identity.apiKeys.manage')).toBe(false);
     expect(can(ctxAs('AGENCY_ADMIN'), 'identity.apiKeys.manage', { agencyId: OTHER_AGENCY })).toBe(false);
+  });
+
+  it('[S1-09] only support and super admins read an agency’s members and impersonate', () => {
+    const staff = (role: StaffRole): StaffCtx => ({
+      tx: {} as StaffCtx['tx'],
+      actor: { kind: 'staff', userId: SELF, role },
+      locale: 'en',
+      requestId: 'test',
+    });
+    for (const role of ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS'] as const) {
+      expect(canStaff(staff(role), 'staff.members.read')).toBe(role !== 'STAFF_DATA_OPS');
+      expect(canStaff(staff(role), 'staff.impersonate')).toBe(role !== 'STAFF_DATA_OPS');
+    }
+  });
+
+  it('[S1-09] every identity action declares whether staff impersonating an admin may do it; team and key changes are refused', () => {
+    expectImpersonationRules({
+      actions: IDENTITY_ACTIONS,
+      rules: IDENTITY_IMPERSONATION,
+      can: (ctx, action) => can(ctx, action),
+      admin: ctxAs('AGENCY_ADMIN'),
+      staffUserId: COLLEAGUE,
+    });
+    expect(IDENTITY_IMPERSONATION['identity.members.manage']).toBe('forbidden');
+    expect(IDENTITY_IMPERSONATION['identity.apiKeys.manage']).toBe('forbidden');
   });
 });

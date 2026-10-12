@@ -8,7 +8,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authCtx, type Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as identity from '../index';
 import { hashLinkToken } from '../service';
 
@@ -59,12 +59,9 @@ const as = <T>(
   fn: (ctx: Ctx) => Promise<T>,
   over: { impersonatedBy?: string; requestId?: string } = {},
 ) =>
-  withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: over.requestId ?? newId(), locale: 'en' }, (ctx) =>
-    fn(
-      ctx.actor.kind === 'user' && over.impersonatedBy
-        ? { ...ctx, actor: { ...ctx.actor, impersonatedBy: over.impersonatedBy } }
-        : ctx,
-    ),
+  withMemberCtx(
+    { userId: m.userId, agencyId: m.agencyId, requestId: over.requestId ?? newId(), locale: 'en' },
+    async (ctx) => fn(over.impersonatedBy ? await impersonatedCtx(ctx, over.impersonatedBy) : ctx),
   );
 
 /** A second member of the founder's agency, written as the invite flow would leave it. */
@@ -154,13 +151,17 @@ describe('identity audit log', () => {
     expect(leaked).toBe(0);
   });
 
-  it('[S1-08] role changes and deactivations record the admin, the staff member impersonating them, and the request', async () => {
+  it('[S1-08] role changes and deactivations record the admin and the request (S1-09: never while impersonated)', async () => {
     const founder = await createFounder();
     const member = await addMember(founder);
     const staffId = newId();
     const requestId = newId();
+    await expect(
+      as(founder, (ctx) => identity.changeMemberRole(ctx, { userId: member, role: 'AGENCY_ADMIN' }), {
+        impersonatedBy: staffId,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await as(founder, (ctx) => identity.changeMemberRole(ctx, { userId: member, role: 'AGENCY_ADMIN' }), {
-      impersonatedBy: staffId,
       requestId,
     });
     await as(founder, (ctx) => identity.deactivateMember(ctx, { userId: member }));
@@ -172,7 +173,7 @@ describe('identity audit log', () => {
         type: 'identity.member.roleChanged',
         actor_kind: 'user',
         actor_user_id: founder.userId,
-        impersonated_by: staffId,
+        impersonated_by: null,
         target_type: 'user',
         target_id: member,
         request_id: requestId,

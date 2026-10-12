@@ -3,8 +3,20 @@ import { setAuthScope, withAuth } from '@inmolink/db';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
-import { authCtx } from '../context';
+import { authCtx, type Ctx } from '../context';
 import * as identity from '../modules/identity';
+
+/**
+ * `ctx` as if staff member `staffUserId` impersonated its user (S1-09), without a session row: sets
+ * `app.impersonated_by` on the transaction like `withMemberCtx` does for a live session, so audit rows
+ * may (and must) name the staff member. For unit-level tests of what an impersonated actor may do; the
+ * real path is covered in `identity/__tests__/impersonation.int.test.ts`.
+ */
+export async function impersonatedCtx(ctx: Ctx, staffUserId: string): Promise<Ctx> {
+  if (ctx.actor.kind !== 'user') throw new Error('impersonatedCtx: only a user can be impersonated');
+  await ctx.tx.execute(sql`select set_config('app.impersonated_by', ${staffUserId}, true)`);
+  return { ...ctx, actor: { ...ctx.actor, impersonatedBy: staffUserId } };
+}
 
 /**
  * Test factories (`@inmolink/core/test`, source-only: never shipped). They go through the real

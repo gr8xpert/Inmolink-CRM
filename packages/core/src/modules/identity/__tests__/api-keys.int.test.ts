@@ -12,7 +12,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import { apiKeyCacheKey } from '../api-keys';
 import * as identity from '../index';
 
@@ -272,17 +272,18 @@ describe('API keys', () => {
     expect(await refusal(authenticate(issued.secret))).toBe('API_KEY_INVALID');
   });
 
-  it('[S1-05] keys are never issued while staff impersonate an admin; events record who acted', async () => {
+  it('[S1-05] keys are never issued (S1-09: nor revoked) while staff impersonate an admin; events record who acted', async () => {
     const f = await verifiedFounder();
     const staffId = newId();
     const impersonated = <T>(fn: (ctx: Ctx) => Promise<T>) =>
-      as(f, (ctx) =>
-        fn({ ...ctx, actor: { kind: 'user', userId: f.userId, role: 'AGENCY_ADMIN', impersonatedBy: staffId } }),
-      );
+      as(f, async (ctx) => fn(await impersonatedCtx(ctx, staffId)));
     expect(await refusal(impersonated((ctx) => identity.createApiKey(ctx, SECRET_KEY)))).toBe('FORBIDDEN');
     const { key } = await as(f, (ctx) => identity.createApiKey(ctx, SECRET_KEY));
     expect(await refusal(impersonated((ctx) => identity.rotateApiKey(ctx, { keyId: key.id })))).toBe('FORBIDDEN');
-    await impersonated((ctx) => identity.revokeApiKey(ctx, { keyId: key.id }));
+    expect(await refusal(impersonated((ctx) => identity.revokeApiKey(ctx, { keyId: key.id })))).toBe('FORBIDDEN');
+    // Staff impersonating may still see the keys.
+    expect((await impersonated((ctx) => identity.listApiKeys(ctx, { limit: 10 }))).items).toHaveLength(1);
+    await as(f, (ctx) => identity.revokeApiKey(ctx, { keyId: key.id }));
     const events = await withSystem(
       'api keys test: events',
       async (tx) =>
@@ -299,7 +300,7 @@ describe('API keys', () => {
       },
       {
         type: 'identity.apiKey.revoked',
-        payload: expect.objectContaining({ actorUserId: f.userId, impersonatedBy: staffId }),
+        payload: expect.objectContaining({ actorUserId: f.userId, impersonatedBy: null }),
       },
     ]);
   });

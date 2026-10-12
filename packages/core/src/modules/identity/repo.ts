@@ -9,7 +9,7 @@ import {
   users,
 } from '@inmolink/db/schema/identity';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
  * Identity tables only (PATTERNS §5). Runs as `app_auth` in auth flows (`withAuth`), as `app_user`
@@ -279,15 +279,10 @@ export async function listMembers(
     .where(
       and(
         eq(agencyMembers.agencyId, agencyId),
-        q.cursor
-          ? or(
-              gt(agencyMembers.createdAt, q.cursor.at),
-              and(eq(agencyMembers.createdAt, q.cursor.at), gt(agencyMembers.userId, q.cursor.id)),
-            )
-          : undefined,
+        keysetAfter(agencyMembers.createdAt, agencyMembers.userId, q.cursor, 'asc'),
       ),
     )
-    .orderBy(asc(agencyMembers.createdAt), asc(agencyMembers.userId))
+    .orderBy(...keysetOrder(agencyMembers.createdAt, agencyMembers.userId, 'asc'))
     .limit(q.limit + 1);
 }
 
@@ -408,15 +403,10 @@ export async function listOpenInvites(
       and(
         eq(agencyInvites.agencyId, agencyId),
         openInvite(now),
-        q.cursor
-          ? or(
-              gt(agencyInvites.createdAt, q.cursor.at),
-              and(eq(agencyInvites.createdAt, q.cursor.at), gt(agencyInvites.id, q.cursor.id)),
-            )
-          : undefined,
+        keysetAfter(agencyInvites.createdAt, agencyInvites.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(asc(agencyInvites.createdAt), asc(agencyInvites.id))
+    .orderBy(...keysetOrder(agencyInvites.createdAt, agencyInvites.id, 'asc'))
     .limit(q.limit + 1);
 }
 

@@ -4,6 +4,8 @@ create or replace function app_agency() returns uuid language sql stable paralle
   as $$ select nullif(current_setting('app.agency_id', true), '')::uuid $$;
 create or replace function app_user_id() returns uuid language sql stable parallel safe
   as $$ select nullif(current_setting('app.user_id', true), '')::uuid $$;
+create or replace function app_impersonated_by() returns uuid language sql stable parallel safe
+  as $$ select nullif(current_setting('app.impersonated_by', true), '')::uuid $$;
 create or replace function app_is_staff() returns boolean language sql stable parallel safe
   as $$ select exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.deactivated_at is null) $$;
 create or replace function app_agency_verified() returns boolean language sql stable parallel safe
@@ -16,8 +18,9 @@ create or replace function app_preferring_agencies() returns setof uuid language
 create or replace function app_partition_maintenance() returns void language plpgsql security definer
   set search_path = pg_catalog, pg_temp set lock_timeout = '5s'
   as $$ begin perform partman.run_maintenance(p_analyze := false, p_jobmon := false); end $$;
-revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
+grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_is_staff() to app_staff;
 grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;
 grant execute on function app_partition_maintenance() to app_system;
@@ -26,7 +29,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -100,6 +103,9 @@ create policy auth_insert on public."agency_members" for insert to app_auth
 create policy auth_update on public."agency_members" for update to app_auth
   using (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())) with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
 grant select, insert, update on table public."agency_members" to app_auth;
+create policy staff_select on public."agency_members" for select to app_staff
+  using (app_is_staff() and (true));
+grant select on table public."agency_members" to app_staff;
 
 -- agency_profiles: STRICT
 alter table public."agency_profiles" enable row level security;
@@ -173,7 +179,7 @@ grant select on table public."api_keys" to app_public;
 alter table public."audit_logs" enable row level security;
 alter table public."audit_logs" force row level security;
 create policy own_rows on public."audit_logs" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency() and (actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff'));
+  using (agency_id = app_agency()) with check (agency_id = app_agency() and (actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff' and impersonated_by is not distinct from app_impersonated_by()));
 revoke all on table public."audit_logs" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select, insert on table public."audit_logs" to app_user;
 grant select, insert on table public."audit_logs" to app_system;
@@ -236,6 +242,25 @@ create policy own_rows on public."preferred_agency_notes" to app_user
 revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
+
+-- staff_impersonations: STRICT
+alter table public."staff_impersonations" enable row level security;
+alter table public."staff_impersonations" force row level security;
+create policy own_rows on public."staff_impersonations" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."staff_impersonations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."staff_impersonations" to app_user;
+grant select, insert, update, delete on table public."staff_impersonations" to app_system;
+create policy auth_select on public."staff_impersonations" for select to app_auth
+  using (staff_user_id = app_user_id());
+grant select on table public."staff_impersonations" to app_auth;
+create policy staff_select on public."staff_impersonations" for select to app_staff
+  using (app_is_staff() and (staff_user_id = app_user_id()));
+create policy staff_insert on public."staff_impersonations" for insert to app_staff
+  with check (app_is_staff() and (staff_user_id = app_user_id()));
+create policy staff_update on public."staff_impersonations" for update to app_staff
+  using (app_is_staff() and (staff_user_id = app_user_id())) with check (app_is_staff() and (staff_user_id = app_user_id()));
+grant select, insert, update on table public."staff_impersonations" to app_staff;
 
 -- staff_users: GLOBAL
 alter table public."staff_users" enable row level security;

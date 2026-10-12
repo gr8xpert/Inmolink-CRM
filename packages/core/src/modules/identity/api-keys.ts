@@ -17,6 +17,7 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { Ctx } from '../../context';
+import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
@@ -92,7 +93,7 @@ function toApiKeyDto(row: keysRepo.ApiKeyRow): ApiKeyDto {
  * revoked in the last 30 days. Never the secret or its hash.
  */
 export async function listApiKeys(ctx: Ctx, q: PageQuery): Promise<ApiKeyPage> {
-  assertCan(ctx, 'identity.apiKeys.manage');
+  assertCan(ctx, 'identity.apiKeys.read');
   const revokedSince = new Date(clock.now().getTime() - API_KEYS.REVOKED_LISTED_MS);
   const rows = await keysRepo.listApiKeys(ctx.tx, ctx.tenant.agencyId, revokedSince, {
     limit: q.limit,
@@ -102,14 +103,12 @@ export async function listApiKeys(ctx: Ctx, q: PageQuery): Promise<ApiKeyPage> {
 }
 
 /**
- * The acting admin. Keys are credentials: never issued while staff impersonate an admin (like 2FA
- * settings, `.claude/rules/security.md`); revoking stays possible and records who did it.
+ * The acting admin, and the staff member impersonating them (never set today: key changes are forbidden
+ * while impersonating, S1-09 — kept so events and audit rows stay uniform).
  */
-function actorOf(ctx: Ctx, opts: { issuing: boolean }): { actorUserId: string; impersonatedBy: string | null } {
+function actorOf(ctx: Ctx): { actorUserId: string; impersonatedBy: string | null } {
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  const impersonatedBy = ctx.actor.impersonatedBy ?? null;
-  if (opts.issuing && impersonatedBy) throw new AppError('FORBIDDEN', { reason: 'impersonating' });
-  return { actorUserId: ctx.actor.userId, impersonatedBy };
+  return { actorUserId: ctx.actor.userId, impersonatedBy: impersonatorOf(ctx) };
 }
 
 /**
@@ -129,7 +128,7 @@ async function assertAgencyVerifiedLocked(ctx: Ctx, mode: 'share' | 'update'): P
  */
 export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<IssuedApiKeyDto> {
   assertCan(ctx, 'identity.apiKeys.manage');
-  const actor = actorOf(ctx, { issuing: true });
+  const actor = actorOf(ctx);
   agencies.assertVerified(ctx, 'apiKey.create');
   await assertAgencyVerifiedLocked(ctx, 'update');
   const { agencyId } = ctx.tenant;
@@ -170,7 +169,7 @@ export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<
  */
 export async function rotateApiKey(ctx: Ctx, input: ApiKeyParams): Promise<IssuedApiKeyDto> {
   assertCan(ctx, 'identity.apiKeys.manage');
-  const actor = actorOf(ctx, { issuing: true });
+  const actor = actorOf(ctx);
   agencies.assertVerified(ctx, 'apiKey.create');
   await assertAgencyVerifiedLocked(ctx, 'share');
   const { agencyId } = ctx.tenant;
@@ -195,7 +194,7 @@ export async function rotateApiKey(ctx: Ctx, input: ApiKeyParams): Promise<Issue
 /** Revokes a key for good (allowed while unverified, suspended or impersonating). `NOT_FOUND` if not active. */
 export async function revokeApiKey(ctx: Ctx, input: ApiKeyParams): Promise<void> {
   assertCan(ctx, 'identity.apiKeys.manage');
-  const actor = actorOf(ctx, { issuing: false });
+  const actor = actorOf(ctx);
   const { agencyId } = ctx.tenant;
   const revoked = await keysRepo.revokeApiKey(ctx.tx, agencyId, input.keyId, actor.actorUserId, clock.now());
   if (!revoked) throw new AppError('NOT_FOUND');

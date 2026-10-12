@@ -1,12 +1,12 @@
 import { VerificationRequestStatus } from '@inmolink/contracts';
 import { notFound, redirect } from 'next/navigation';
-import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
-import { auth } from '@/auth';
-import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchVerificationQueue, sessionRef } from '@/server/api';
+import { getFormatter, getTranslations } from 'next-intl/server';
+import { Link } from '@/i18n/navigation';
+import { fetchVerificationQueue } from '@/server/api';
+import { requireStaff } from '@/server/staff';
 
 /**
- * Staff verification queue (S1-03, bare: the staff console shell comes with S1-09). Non-staff get a
+ * Staff verification queue (S1-03), inside the staff console shell (S1-09). Non-staff — signed out too — get a
  * 404 — the API refuses them with 403, and the page does not reveal that it exists.
  */
 export default async function VerificationQueuePage({
@@ -14,14 +14,12 @@ export default async function VerificationQueuePage({
 }: {
   searchParams: Promise<Record<string, string>>;
 }) {
-  const locale = await getLocale();
-  const session = await auth();
-  if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const { session } = await requireStaff();
   const params = await searchParams;
   const status = VerificationRequestStatus.catch('SUBMITTED').parse(params.status);
   const cursor =
     typeof params.cursor === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(params.cursor) ? params.cursor : undefined;
-  const res = await fetchVerificationQueue(sessionRef(session.user), { status, cursor });
+  const res = await fetchVerificationQueue(session, { status, cursor });
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok && res.status === 403) notFound();
   const t = await getTranslations('staff');

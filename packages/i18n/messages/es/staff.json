@@ -1,5 +1,85 @@
 {
   "title": "Staff",
+  "console": {
+    "title": "Consola de staff de Inmolink",
+    "nav": "Consola de staff",
+    "tenants": "Agencias",
+    "verification": "Cola de verificación",
+    "audit": "Registro de auditoría"
+  },
+  "roles": {
+    "SUPER_ADMIN": "Superadministrador",
+    "STAFF_SUPPORT": "Soporte",
+    "STAFF_DATA_OPS": "Operaciones de datos"
+  },
+  "tenants": {
+    "title": "Agencias",
+    "search": "Nombre o CIF/NIF",
+    "status": "Estado",
+    "anyStatus": "Cualquier estado",
+    "filter": "Filtrar",
+    "empty": "Ninguna agencia coincide.",
+    "created": "Alta el {date}",
+    "open": "Abrir",
+    "statuses": {
+      "PENDING": "Pendiente de verificación",
+      "VERIFIED": "Verificada",
+      "SUSPENDED": "Suspendida"
+    }
+  },
+  "tenant": {
+    "back": "Volver a agencias",
+    "company": "Empresa",
+    "registerNumber": "Número de registro",
+    "onboarded": "Datos de empresa completos",
+    "yes": "Sí",
+    "no": "No",
+    "verification": "Verificación",
+    "verificationState": "{status} (enviada el {date})",
+    "notSubmitted": "No enviada",
+    "created": "Alta",
+    "members": "Miembros",
+    "memberStatus": {
+      "ACTIVE": "Activo",
+      "DEACTIVATED": "Desactivado"
+    },
+    "recentAudit": "Últimas entradas de auditoría",
+    "fullAudit": "Registro completo"
+  },
+  "impersonation": {
+    "start": "Actuar como {name}",
+    "reason": "Motivo (ticket de soporte, qué vas a revisar) — queda registrado",
+    "minutes": "Durante",
+    "minutesOption": "{minutes} minutos",
+    "warning": "Todo lo que hagas queda registrado con tu nombre y el suyo. No puedes cambiar sus ajustes, claves API, facturación ni la verificación en dos pasos.",
+    "confirm": "Empezar a actuar como este usuario",
+    "banner": "Estás actuando como {user} en {agency} hasta las {time} (quedan {minutes} min). Todo lo que hagas queda registrado.",
+    "end": "Dejar de actuar como este usuario",
+    "bannerEnded": "Tu sesión actuando como {user} en {agency} ha terminado. Ya no se hace nada en su nombre.",
+    "dismiss": "Cerrar",
+    "endedNotice": "Ya no estás actuando como otro usuario.",
+    "errors": {
+      "FORBIDDEN": "Tu rol de staff no permite actuar como otros usuarios.",
+      "NOT_FOUND": "Esa agencia ya no existe.",
+      "IMPERSONATION_TARGET_INVALID": "Solo puedes actuar como un miembro activo de una agencia no suspendida.",
+      "VALIDATION_FAILED": "Escribe un motivo de 10 a 500 caracteres.",
+      "generic": "Algo ha fallado. Vuelve a intentarlo."
+    }
+  },
+  "audit": {
+    "title": "Registro de auditoría",
+    "audited": "Cada página que abres aquí queda registrada en el propio registro de auditoría.",
+    "agency": "Id de agencia",
+    "type": "Tipo",
+    "from": "Desde",
+    "to": "Hasta",
+    "when": "Cuándo",
+    "actor": "Quién",
+    "target": "Sobre",
+    "via": "vía staff {staff}",
+    "empty": "Ninguna entrada coincide.",
+    "badRange": "La fecha de inicio debe ser anterior a la de fin."
+  },
   "queue": {
     "title": "Cola de verificación",
     "empty": "No hay solicitudes en esta lista.",

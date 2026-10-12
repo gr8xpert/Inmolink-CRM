@@ -72,6 +72,11 @@ export const ErrorCodes = {
   PREFERRED_AGENCY_EXISTS: 409,
   /** The list is full: remove an agency first. */
   PREFERRED_AGENCY_LIMIT_REACHED: 409,
+  // staff console: impersonation (S1-09)
+  /** The impersonation session ended, expired or was revoked: the staff member is no longer acting as the user. */
+  IMPERSONATION_ENDED: 403,
+  /** Not an active member of an agency that is not suspended (or the staff member themselves). */
+  IMPERSONATION_TARGET_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

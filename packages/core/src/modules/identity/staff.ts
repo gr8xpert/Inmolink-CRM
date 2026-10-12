@@ -2,6 +2,7 @@ import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import * as compliance from '../compliance';
+import { endImpersonationsOf } from './impersonation';
 import * as repo from './repo';
 
 /**
@@ -26,6 +27,8 @@ export async function grantStaff(tx: Tx, input: { email: string; role: StaffRole
   if (user?.status !== 'ACTIVE') throw new AppError('NOT_FOUND', { entity: 'user' });
   if (await repo.hasMembership(tx, user.id)) throw new AppError('FORBIDDEN', { reason: 'agency_member' });
   await repo.upsertStaff(tx, user.id, input.role);
+  // A role change ends any open impersonation (S1-09 review); the request check also re-reads the role.
+  await endImpersonationsOf(tx, user.id);
   // Audit (S1-08): a platform row in the same transaction; the reason text stays in the withSystem log.
   await compliance.auditSystem(tx, {
     type: 'identity.staff.granted',
@@ -36,7 +39,10 @@ export async function grantStaff(tx: Tx, input: { email: string; role: StaffRole
   return { userId: user.id };
 }
 
-/** Withdraws staff access (`pnpm staff:revoke`); effective on the staff member's next request. Audited (S1-08). */
+/**
+ * Withdraws staff access (`pnpm staff:revoke`); effective on the staff member's next request, and their
+ * open impersonation session ends with it (S1-09). Audited (S1-08).
+ */
 export async function revokeStaff(tx: Tx, input: { email: string }): Promise<boolean> {
   const user = await repo.findUserIdByEmail(tx, input.email.trim().toLowerCase());
   if (!user || !(await repo.deactivateStaff(tx, user.id, clock.now()))) return false;
@@ -46,6 +52,7 @@ export async function revokeStaff(tx: Tx, input: { email: string }): Promise<boo
     target: { type: 'user', id: user.id },
     metadata: { reasonProvided: true },
   });
+  await endImpersonationsOf(tx, user.id);
   return true;
 }
 
