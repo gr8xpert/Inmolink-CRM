@@ -1,14 +1,8 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { hashPassword } from '@inmolink/platform/crypto/password';
 import { expect, type Page, test } from '@playwright/test';
-import pg from 'pg';
-import { testStackEnv } from './stack';
+import { SEED_PASSWORD as password, seedAgent, seedStaff } from './seed';
 import { passTwoFactor } from './two-factor';
 
 /** Staff console and impersonation in the browser (S1-09). */
-
-const env = testStackEnv();
-const password = 'correct horse battery';
 
 async function login(page: Page, email: string): Promise<void> {
   await page.goto('/login');
@@ -24,31 +18,10 @@ async function logout(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Log out' }).click();
 }
 
-/** Rows written as the database owner: a staff login, and an agency with one agent (no 2FA owed). */
+/** A staff login, and an agency with one agent (no 2FA owed). */
 async function seed(): Promise<{ staff: string; agent: string; company: string }> {
-  const tag = randomBytes(4).toString('hex');
-  const staff = `staff-${tag}@staff.inmolink.test`;
-  const agent = `agent-${tag}@example.com`;
-  const company = `Staffview ${tag} S.L.`;
-  const admin = new pg.Client({ connectionString: env.DATABASE_URL_ADMIN });
-  await admin.connect();
-  try {
-    const hash = await hashPassword(password);
-    const [staffId, agentId, agencyId] = [randomUUID(), randomUUID(), randomUUID()];
-    const user = `insert into users (id, email, password_hash, name, locale, email_verified_at) values ($1, $2, $3, $4, 'en', now())`;
-    await admin.query(user, [staffId, staff, hash, 'Support']);
-    await admin.query(`insert into staff_users (user_id, role) values ($1, 'STAFF_SUPPORT')`, [staffId]);
-    await admin.query(user, [agentId, agent, hash, 'Marta']);
-    await admin.query(`insert into agencies (agency_id, kind, name) values ($1, 'AGENCY', $2)`, [agencyId, company]);
-    await admin.query(`insert into agency_settings (agency_id, enabled_locales) values ($1, '{en}')`, [agencyId]);
-    await admin.query(
-      `insert into agency_members (agency_id, user_id, role, name, email) values ($1, $2, 'AGENT', 'Marta', $3)`,
-      [agencyId, agentId, agent],
-    );
-  } finally {
-    await admin.end();
-  }
-  return { staff, agent, company };
+  const [staff, agency] = await Promise.all([seedStaff(), seedAgent()]);
+  return { staff, agent: agency.email, company: agency.company };
 }
 
 test('[S1-09] non-staff get 404 on staff pages; staff act as a member with a reason, under a banner, and stop', async ({

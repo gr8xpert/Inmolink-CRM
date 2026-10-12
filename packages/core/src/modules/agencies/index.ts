@@ -6,7 +6,7 @@
 export { agenciesErrors } from './errors';
 export { agenciesEvents } from './events';
 export { agenciesJobs } from './jobs';
-export { assertVerified, type VerifiedAction } from './policy';
+export { type AgenciesAction, assertVerified, can, type VerifiedAction } from './policy';
 export {
   addPreferredAgency,
   listPreferredAgencies,

@@ -4,7 +4,7 @@ import { auth } from '@/auth';
 import { sessionRef } from '@/server/api';
 import { hasImpersonationCookie, readImpersonation } from '@/server/impersonation';
 import { fetchStaffMe } from '@/server/staff-api';
-import { dismissEndedImpersonationAction, endImpersonationAction } from './staff/actions';
+import { dismissEndedImpersonationAction, endImpersonationAction } from './(app)/staff/actions';
 
 /**
  * Shown on every page while a staff member acts as someone else (S1-09, PLAN §12): who, where, until

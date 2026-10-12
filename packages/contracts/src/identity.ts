@@ -123,6 +123,23 @@ export const MeDto = z.object({
 });
 export type MeDto = z.infer<typeof MeDto>;
 
+/** Dashboard areas a member may open (S1-10): the shell's navigation shows exactly these. */
+export const DashboardSection = z.enum(['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies']);
+export type DashboardSection = z.infer<typeof DashboardSection>;
+
+/**
+ * `GET /v1/me/capabilities` (S1-10): what the caller may do in their agency, computed by the module
+ * policies — the dashboard shell derives its navigation from it and holds no rules of its own.
+ */
+export const MyCapabilitiesDto = z.object({
+  role: MemberRole,
+  clientMode: z.boolean(),
+  /** A staff member is acting as this user (S1-09). */
+  impersonating: z.boolean(),
+  sections: z.array(DashboardSection),
+});
+export type MyCapabilitiesDto = z.infer<typeof MyCapabilitiesDto>;
+
 /**
  * Invite link token (S1-02): the agency id (32 hex digits, no dashes) followed by the random part, so
  * the anonymous accept flow can pin its database scope to that agency before it looks the token up.

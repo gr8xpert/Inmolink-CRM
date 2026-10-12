@@ -23,6 +23,8 @@ export const PORTS = {
   web: port(env.WEB_URL, 'WEB_URL'),
   api: port(env.API_URL, 'API_URL'),
   workerHealth: 54_112,
+  /** Lighthouse talks to its own Chromium over the DevTools protocol (S1-10). */
+  devtools: 54_113,
 };
 
 export const MAILPIT_URL = env.MAILPIT_URL ?? 'http://localhost:58025';

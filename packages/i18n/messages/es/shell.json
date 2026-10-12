@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "title": "Inmolink"
+  },
+  "brand": "Inmolink",
+  "skipToContent": "Saltar al contenido principal",
+  "nav": {
+    "label": "Navegación principal",
+    "open": "Abrir menú",
+    "close": "Cerrar menú",
+    "home": "Panel",
+    "security": "Seguridad",
+    "team": "Equipo",
+    "apiKeys": "Claves de la API",
+    "profile": "Perfil de la agencia",
+    "settings": "Ajustes de la agencia",
+    "verification": "Verificación",
+    "preferredAgencies": "Agencias preferentes",
+    "staffConsole": "Consola de staff",
+    "staffVerification": "Cola de verificación (staff)"
+  },
+  "account": {
+    "label": "Tu cuenta",
+    "logout": "Cerrar sesión"
+  },
+  "locale": {
+    "label": "Idioma"
+  },
+  "search": {
+    "open": "Buscar",
+    "title": "Buscar",
+    "input": "Busca inmuebles, contactos y agencias",
+    "comingSoon": "La búsqueda llega con los inmuebles y los contactos. Pulsa / o Ctrl K en cualquier página para abrirla.",
+    "close": "Cerrar"
+  },
+  "notifications": {
+    "open": "Notificaciones",
+    "title": "Notificaciones",
+    "empty": "Aún no hay notificaciones",
+    "emptyBody": "Aquí verás las novedades de tus inmuebles, contactos y equipo."
+  },
+  "clientMode": "El Modo Cliente está activado: la información interna se oculta en todas las páginas.",
+  "loading": "Cargando…",
+  "error": {
+    "title": "Algo ha salido mal",
+    "body": "No se ha podido cargar esta página. Vuelve a intentarlo; si sigue pasando, contacta con soporte e indica la referencia de abajo.",
+    "retry": "Reintentar",
+    "reference": "Referencia: {digest}",
+    "home": "Ir al panel"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "La página que buscas no existe o se ha movido.",
+    "home": "Ir al panel"
+  }
+}

@@ -51,6 +51,7 @@ describe('identity policy', () => {
     expect(can(ctxAs('DEVELOPER_ADMIN'), 'identity.members.manage', { role: 'AGENT' })).toBe(false);
     expect(can(admin, 'identity.members.manage', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs('AGENCY_ADMIN', { clientMode: true }), 'identity.members.manage', { role: 'AGENT' })).toBe(false);
+    expect(can(ctxAs('AGENCY_ADMIN', { clientMode: true }), 'identity.members.read')).toBe(false);
     const system = { ...admin, actor: { kind: 'system', reason: 'test' } } as Ctx;
     expect(can(system, 'identity.members.read')).toBe(false);
   });

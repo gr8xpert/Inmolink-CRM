@@ -1,0 +1,56 @@
+{
+  "meta": {
+    "title": "Inmolink"
+  },
+  "brand": "Inmolink",
+  "skipToContent": "Skip to main content",
+  "nav": {
+    "label": "Main navigation",
+    "open": "Open menu",
+    "close": "Close menu",
+    "home": "Dashboard",
+    "security": "Security",
+    "team": "Team",
+    "apiKeys": "API keys",
+    "profile": "Agency profile",
+    "settings": "Agency settings",
+    "verification": "Verification",
+    "preferredAgencies": "Preferred agencies",
+    "staffConsole": "Staff console",
+    "staffVerification": "Verification queue (staff)"
+  },
+  "account": {
+    "label": "Your account",
+    "logout": "Log out"
+  },
+  "locale": {
+    "label": "Language"
+  },
+  "search": {
+    "open": "Search",
+    "title": "Search",
+    "input": "Search listings, contacts and agencies",
+    "comingSoon": "Search arrives with listings and contacts. Press / or Ctrl K on any page to open it.",
+    "close": "Close"
+  },
+  "notifications": {
+    "open": "Notifications",
+    "title": "Notifications",
+    "empty": "No notifications yet",
+    "emptyBody": "Updates about your listings, leads and team will appear here."
+  },
+  "clientMode": "Client Mode is on: internal information is hidden on every page.",
+  "loading": "Loading…",
+  "error": {
+    "title": "Something went wrong",
+    "body": "This page could not be loaded. Try again; if it keeps happening, contact support and mention the reference below.",
+    "retry": "Try again",
+    "reference": "Reference: {digest}",
+    "home": "Go to the dashboard"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist or has moved.",
+    "home": "Go to the dashboard"
+  }
+}

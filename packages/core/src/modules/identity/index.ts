@@ -34,6 +34,7 @@ export {
 } from './impersonation';
 export { identityJobs } from './jobs';
 export { getMe, type SessionClaims } from './me';
+export { can } from './policy';
 export {
   acceptInvite,
   changeMemberRole,

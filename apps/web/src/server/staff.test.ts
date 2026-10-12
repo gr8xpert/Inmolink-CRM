@@ -60,7 +60,7 @@ describe('staff console gate', () => {
   });
 
   it('[S1-09] non-staff get 404 on /staff routes: every staff page and the layout go through requireStaff', () => {
-    const dir = join(import.meta.dirname, '..', 'app', '[locale]', 'staff');
+    const dir = join(import.meta.dirname, '..', 'app', '[locale]', '(app)', 'staff');
     const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) =>
       /(^|[\\/])(page|layout)\.tsx$/.test(f),
     );

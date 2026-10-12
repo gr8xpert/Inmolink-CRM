@@ -1,7 +1,7 @@
 import { type Ctx, closeDb, configureDb, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { createFounder } from '@inmolink/core/test';
-import { setupTestDb } from '@inmolink/db/testing';
+import { createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import {
@@ -111,6 +111,32 @@ describe('api against the test stack', () => {
         name: 'Sierra Nevada Realty',
         onboarded: false,
       });
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it('[S1-10] GET /v1/me/capabilities: the founder (agency admin) gets every dashboard section; no agency → 403', async () => {
+    const app = await build();
+    try {
+      const founder = await createFounder({ companyName: 'Capabilities Realty' });
+      const res = await app.inject({ method: 'GET', url: '/v1/me/capabilities', headers: await bearer(founder) });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        role: 'AGENCY_ADMIN',
+        clientMode: false,
+        impersonating: false,
+        sections: ['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies'],
+      });
+      // Staff have no agency, so no tenant capabilities (403): the shell then asks the staff API instead.
+      const support = await createStaffUser('STAFF_SUPPORT');
+      const staffToken = (await signer.sign({ sub: support.userId, aud: 'api', sv: 1 })).token;
+      const staff = await app.inject({
+        method: 'GET',
+        url: '/v1/me/capabilities',
+        headers: { authorization: `Bearer ${staffToken}` },
+      });
+      expect(staff.statusCode).toBe(403);
     } finally {
       await app.close();
     }

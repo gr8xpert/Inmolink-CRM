@@ -18,6 +18,7 @@ import {
   MeDto,
   MemberDto,
   MemberPage,
+  MyCapabilitiesDto,
   PreferredAgencyDto,
   PreferredAgencyPage,
   SignedUrlDto,
@@ -37,6 +38,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { createLogger } from '@inmolink/platform/logger';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
+import { cache } from 'react';
 import { z } from 'zod';
 import { getPathname } from '@/i18n/navigation';
 import { webConfig } from './env';
@@ -78,15 +80,28 @@ function toImpersonationEnded(): never {
  * themselves; every other call runs as the impersonated member while the staff member's session is
  * open (the mint and the API both check it is theirs and live).
  */
-async function mintFor(session: SessionRef, path: string): Promise<string> {
-  const impersonation = path.startsWith('/v1/staff/') ? null : await readImpersonation(session.userId);
-  const { token } = await identity.issueAccessToken(await requestAuthCtx(), {
-    ...session,
-    audience: 'api',
-    ...(impersonation ? { impersonationId: impersonation.id } : {}),
-  });
-  return token;
+function mintFor(session: SessionRef, path: string): Promise<string> {
+  return mintCached(session.userId, session.sessionVersion, session.mfaVerified, path.startsWith('/v1/staff/'));
 }
+
+/**
+ * One mint per render and audience (S1-10 review): the shell, the layout and the page share the token.
+ * `cache` lives for one request and is keyed by primitives, so every caller hits the same entry; a
+ * failed mint (revoked session, second factor owed) is thrown again to each of them.
+ */
+const mintCached = cache(
+  async (userId: string, sessionVersion: number, mfaVerified: boolean, staffPath: boolean): Promise<string> => {
+    const impersonation = staffPath ? null : await readImpersonation(userId);
+    const { token } = await identity.issueAccessToken(await requestAuthCtx(), {
+      userId,
+      sessionVersion,
+      mfaVerified,
+      audience: 'api',
+      ...(impersonation ? { impersonationId: impersonation.id } : {}),
+    });
+    return token;
+  },
+);
 
 /** An api access token already minted for this render (several calls, one mint). */
 interface Token {
@@ -172,6 +187,11 @@ export async function fetchMe(session: SessionRef): Promise<MeDto | 'revoked' | 
   const res = await apiRequest(session, '/v1/me', MeDto);
   if (res === 'revoked') return res;
   return res.ok ? res.data : null;
+}
+
+/** `GET /v1/me/capabilities` (S1-10): the member's role and the dashboard sections they may open. */
+export function fetchMyCapabilities(session: SessionRef): Promise<ApiResult<MyCapabilitiesDto>> {
+  return apiRequest(session, '/v1/me/capabilities', MyCapabilitiesDto);
 }
 
 /**

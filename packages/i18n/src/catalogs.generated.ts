@@ -4,19 +4,21 @@ import m1 from '../messages/en/api-keys.json' with { type: 'json' };
 import m2 from '../messages/en/auth.json' with { type: 'json' };
 import m3 from '../messages/en/onboarding.json' with { type: 'json' };
 import m4 from '../messages/en/security.json' with { type: 'json' };
-import m5 from '../messages/en/staff.json' with { type: 'json' };
-import m6 from '../messages/en/team.json' with { type: 'json' };
-import m7 from '../messages/en/verification.json' with { type: 'json' };
-import m8 from '../messages/es/agency.json' with { type: 'json' };
-import m9 from '../messages/es/api-keys.json' with { type: 'json' };
-import m10 from '../messages/es/auth.json' with { type: 'json' };
-import m11 from '../messages/es/onboarding.json' with { type: 'json' };
-import m12 from '../messages/es/security.json' with { type: 'json' };
-import m13 from '../messages/es/staff.json' with { type: 'json' };
-import m14 from '../messages/es/team.json' with { type: 'json' };
-import m15 from '../messages/es/verification.json' with { type: 'json' };
+import m5 from '../messages/en/shell.json' with { type: 'json' };
+import m6 from '../messages/en/staff.json' with { type: 'json' };
+import m7 from '../messages/en/team.json' with { type: 'json' };
+import m8 from '../messages/en/verification.json' with { type: 'json' };
+import m9 from '../messages/es/agency.json' with { type: 'json' };
+import m10 from '../messages/es/api-keys.json' with { type: 'json' };
+import m11 from '../messages/es/auth.json' with { type: 'json' };
+import m12 from '../messages/es/onboarding.json' with { type: 'json' };
+import m13 from '../messages/es/security.json' with { type: 'json' };
+import m14 from '../messages/es/shell.json' with { type: 'json' };
+import m15 from '../messages/es/staff.json' with { type: 'json' };
+import m16 from '../messages/es/team.json' with { type: 'json' };
+import m17 from '../messages/es/verification.json' with { type: 'json' };
 
 export const CATALOGS = {
-  "en": { "agency": m0, "api-keys": m1, "auth": m2, "onboarding": m3, "security": m4, "staff": m5, "team": m6, "verification": m7 },
-  "es": { "agency": m8, "api-keys": m9, "auth": m10, "onboarding": m11, "security": m12, "staff": m13, "team": m14, "verification": m15 },
+  "en": { "agency": m0, "api-keys": m1, "auth": m2, "onboarding": m3, "security": m4, "shell": m5, "staff": m6, "team": m7, "verification": m8 },
+  "es": { "agency": m9, "api-keys": m10, "auth": m11, "onboarding": m12, "security": m13, "shell": m14, "staff": m15, "team": m16, "verification": m17 },
 };

@@ -99,7 +99,8 @@ export function can(
   const sameAgency = resource.agencyId === undefined || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'identity.members.read':
-      return sameAgency;
+      // The roster (names, emails, roles) is internal: never shown to a client at the screen.
+      return sameAgency && !ctx.clientMode;
     case 'identity.members.manage': {
       // Client Mode is read-only (PATTERNS §6); nobody changes their own membership.
       if (!sameAgency || ctx.clientMode || resource.userId === ctx.actor.userId) return false;

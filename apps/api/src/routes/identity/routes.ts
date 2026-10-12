@@ -8,8 +8,10 @@ import {
   MemberDto,
   MemberPage,
   MemberParams,
+  MyCapabilitiesDto,
   PageQuery,
 } from '@inmolink/contracts';
+import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as identity from '@inmolink/core/modules/identity';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -20,6 +22,11 @@ import { staffIdentityRoutes } from './staff';
 const ME_LIMITS: readonly RateLimitRule[] = [
   { name: 'identity.me.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
   { name: 'identity.me.user', scope: 'user', limit: 120, windowSeconds: 60 },
+];
+// The dashboard shell asks on every page render (S1-10).
+const CAPABILITIES_LIMITS: readonly RateLimitRule[] = [
+  { name: 'identity.capabilities.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+  { name: 'identity.capabilities.user', scope: 'user', limit: 300, windowSeconds: 60 },
 ];
 const TEAM_READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'identity.team.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -58,6 +65,21 @@ export async function identityRoutes(app: FastifyZod): Promise<void> {
     },
     // Read straight from the verified token: no database round trip.
     async (request) => identity.getMe(request.auth as NonNullable<typeof request.auth>),
+  );
+
+  app.get(
+    '/v1/me/capabilities',
+    {
+      schema: {
+        tags: ['identity'],
+        operationId: 'dashboard.getMyCapabilities',
+        summary: "The caller's role and the dashboard sections their policies open (S1-10)",
+        response: { 200: MyCapabilitiesDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: CAPABILITIES_LIMITS },
+    },
+    (req) => app.withCtx(req, async (ctx) => dashboard.getMyCapabilities(ctx)),
   );
 
   app.get(

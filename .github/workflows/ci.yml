@@ -38,6 +38,10 @@ jobs:
         with: { cache-key: static }
       - name: Typecheck, lint, build
         run: pnpm turbo run typecheck typecheck:root lint lint:root build $AFFECTED
+      # First-load JS per route from the builds above (S1-10): dashboard ≤ 250 KB gzip, public pages
+      # framework ≤ 149 KB + route ≤ 30 KB (ADR 0013). An app not built (not affected) is skipped.
+      - name: Bundle budgets
+        run: pnpm perf:bundle --if-present
       # Own step: unit tests with timing assertions do not compete with tsc and next build for CPU.
       - name: Unit tests
         run: pnpm turbo run test test:root $AFFECTED

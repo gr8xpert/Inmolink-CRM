@@ -48,6 +48,15 @@ describe('CI workflow', () => {
     expect(runs(required)).toMatch(/\[ "\$r" = success \] \|\| exit 1/);
   });
 
+  it('[S1-10] checks the first-load JS budgets right after the production build', () => {
+    const steps = (workflow.jobs.static as Job).steps.map((s) => s.run ?? '');
+    const build = steps.findIndex((r) => /turbo run [^\n]*\bbuild\b/.test(r));
+    const bundle = steps.findIndex((r) => /^pnpm perf:bundle\b/.test(r));
+    expect(build).toBeGreaterThanOrEqual(0);
+    expect(bundle).toBe(build + 1);
+    expect(rootPkg.scripts['perf:bundle']).toContain('scripts/perf/bundle.ts');
+  });
+
   it('[S0-14] covers every task of pnpm verify, plus i18n, build and the migration check', () => {
     const verifyTasks = rootPkg.scripts.verify?.replace('turbo run ', '').replace('--affected', '').trim().split(/\s+/);
     expect(verifyTasks?.length).toBeGreaterThan(5);

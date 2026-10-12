@@ -9,6 +9,7 @@ import {
   TenantDetailDto,
   TenantPage,
 } from '@inmolink/contracts';
+import { cache } from 'react';
 import { z } from 'zod';
 import { type ApiResult, apiRequest, type SessionRef } from './api';
 
@@ -18,9 +19,14 @@ import { type ApiResult, apiRequest, type SessionRef } from './api';
  * that into a 404.
  */
 
+/** Once per render (S1-10 review): the shell and `requireStaff` share the answer. */
 export function fetchStaffMe(session: SessionRef): Promise<ApiResult<StaffMeDto>> {
-  return apiRequest(session, '/v1/staff/me', StaffMeDto);
+  return staffMeCached(session.userId, session.sessionVersion, session.mfaVerified);
 }
+
+const staffMeCached = cache((userId: string, sessionVersion: number, mfaVerified: boolean) =>
+  apiRequest({ userId, sessionVersion, mfaVerified }, '/v1/staff/me', StaffMeDto),
+);
 
 export function fetchTenants(
   session: SessionRef,
