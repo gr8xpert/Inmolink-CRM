@@ -28,7 +28,7 @@ Contents: §0 Conventions · §1 Module layout · §2 Schema + tenant registry +
 
 ```
 packages/core/src/modules/properties/
-├── index.ts          # public API — the ONLY import path for other modules and apps
+├── index.ts          # public API — the ONLY import path for other modules and apps (audit writes: §8 exception)
 ├── service.ts        # use cases: (ctx, input) → DTO. Authorization + orchestration.
 ├── repo.ts           # Drizzle queries on THIS module's tables only
 ├── policy.ts         # can(ctx, action, resource) rules
@@ -159,6 +159,8 @@ grant select, insert, update, delete on table properties to app_user, app_system
 NETWORK_READ and PUBLIC_READ share whole rows (RLS is row-level): such tables hold only shareable columns; private fields go in a STRICT side table (`property_privates`). Forced RLS binds `app_owner` too, so data backfills belong in a `withSystem()` job, not in a migration.
 
 Write-only queues (the outbox) register as `{ kind: 'STRICT', appendOnly: true }`: `app_user` may only INSERT its own agency's rows (no SELECT/UPDATE/DELETE); reads and acknowledgements go through `withSystem()`.
+
+Append-only history (`audit_logs`, S1-08) registers as `{ kind: 'STRICT', immutable: true, partitioned: true }`: no app role — `app_system` included — gets UPDATE or DELETE (only SELECT/INSERT; `auth`/`staff` may open SELECT/INSERT, never UPDATE). Monthly partitions come from pg_partman (`partman.create_parent` in a separate custom migration after the table's, premake 4, `infinite_time_partitions`, no default partition, retention off unless a task sets one), with BEFORE UPDATE/DELETE and TRUNCATE triggers that refuse changes even for the owner; the generated `app_partition_maintenance()` (SECURITY DEFINER, owner `app_owner`, executable by `app_system` only) runs maintenance from the hourly `compliance.maintainPartitions` job. The primary key and every unique index include the partition column.
 
 Identity data (`users`, `auth_tokens`) registers as a global table with `access: 'auth'`: only `app_auth` (`withAuth()`, the anonymous auth flows) and `app_system` reach it — `app_user` cannot even read it. `authAppend: true` on the outbox lets `app_auth` append platform events (nil agency) only. Services for those flows take `AuthCtx { requestId, transaction }` and do password hashing before opening the transaction (ADR 0004).
 
@@ -366,6 +368,8 @@ subscribe(listingEvents.updated, (e) =>
 ```
 
 The dispatcher (`apps/worker` pool `outbox`, `createDispatcher({ runSystem: withSystem, logger })`; it polls every 250 ms, no LISTEN/NOTIFY — ADR 0014, implemented in S1-F2) leases rows with `FOR UPDATE SKIP LOCKED`, calls subscribers outside any transaction, then marks `processed_at` (or retries with backoff / dead-letters; `pnpm ops:replay-outbox` re-queues). Delivery is at least once: consumers must be idempotent and ignore stale versions. Use `meta.agencyId` (RLS-checked) — not a payload field — as the tenant and fair-share group. Payloads ≤ 10 KB (IDs only).
+
+**Named exception — the audit log (S1-08).** Cross-module reactions go through events, except audit rows: a module that performs a security-relevant action calls `compliance.audit(ctx, type, target, metadata)` (or `auditStaff(staffCtx, …)`, `auditSystem(tx, …)`) synchronously in the transaction of the change, so the row exists if and only if the change commits and carries the request id and both actors. One INSERT, no network. `compliance` imports no other module, so any module may call it. Anonymous auth flows use `auditAuth(tx, …)`: it narrows the `app_auth` scope to the user (RLS checks the agency is the user's own membership) for the INSERT and restores the caller's scope afterwards, so it is safe mid-transaction. Failed attempts (login, 2FA) are audited in their own short transaction before the error.
 
 ---
 

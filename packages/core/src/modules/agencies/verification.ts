@@ -20,6 +20,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner, StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as compliance from '../compliance';
 import { agenciesEvents } from './events';
 import { assertCan, assertStaffCan } from './policy';
 import * as repo from './repo';
@@ -319,6 +320,15 @@ export async function decideVerification(
       decision: approve ? 'APPROVED' : 'REJECTED',
     }),
     { agencyId: agency.id },
+  );
+  // The request row keeps reviewer, reason and version; the audit log records the decision with the
+  // request id (S1-08). The staff reason text stays on the request (no free text in audit metadata).
+  await compliance.auditStaff(
+    ctx,
+    agency.id,
+    'agencies.verification.decided',
+    { type: 'verificationRequest', id: request.id },
+    { decision: approve ? 'APPROVED' : 'REJECTED', reviewedVersion: input.agencyVersion },
   );
   return loadRequestDto(ctx.tx, request.id);
 }

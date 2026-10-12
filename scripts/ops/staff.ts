@@ -33,7 +33,8 @@ try {
   if (command !== 'grant' && command !== 'revoke')
     throw new TypeError('usage: staff.ts grant|revoke --email … --reason …');
   if (!values.email) throw new TypeError('--email is required');
-  // Who asked and why goes to the withSystem audit line (no audit log table until S1-08).
+  // The grant or revocation is an audit_logs row (S1-08, same transaction; it records that a reason was
+  // given). Who asked and why goes to the withSystem log line.
   if (!values.reason || values.reason.trim().length < 3) throw new TypeError('--reason is required');
   await configureDb(loadConfigOrExit(dbEnv));
   const reason = `ops.staff.${command}: ${values.reason.trim()}`;

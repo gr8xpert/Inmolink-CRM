@@ -68,6 +68,7 @@ async function asAppPublic(fn: (client: pg.PoolClient) => Promise<void>): Promis
 
 let admin: pg.Client;
 let ownerUrl = '';
+let systemUrl = '';
 /** An active staff member, and a user with no staff row (S1-03): app_staff acting for each. */
 const staffUserId = newId();
 const notStaffUserId = newId();
@@ -77,6 +78,7 @@ const asNotStaff = <T>(fn: (tx: Tx) => Promise<T>) => withStaff({ userId: notSta
 beforeAll(async () => {
   const cfg = await setupIsolation();
   ownerUrl = cfg.DATABASE_URL_APP_OWNER;
+  systemUrl = cfg.DATABASE_URL_APP_SYSTEM ?? '';
   admin = new pg.Client({ connectionString: cfg.DATABASE_URL_ADMIN });
   await admin.connect();
   for (const id of [staffUserId, notStaffUserId]) {
@@ -148,7 +150,11 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   });
 
   afterAll(async () => {
-    await admin.query(`delete from "${table}" where agency_id = any($1)`, [[a, b]]);
+    const cleanUp = () => admin.query(`delete from "${table}" where agency_id = any($1)`, [[a, b]]);
+    // Immutable tables refuse DELETE even for the superuser (S1-08 triggers); the suite's own rows go with
+    // triggers off (replica role).
+    if (def.immutable) await withReplicaRole(admin, cleanUp);
+    else await cleanUp();
     if (def.kind === 'NETWORK_READ') await admin.query('delete from agencies where agency_id = any($1)', [[a, b]]);
   });
 
@@ -233,20 +239,63 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
     }
 
-    it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
-      const res = await withTenant({ agencyId: b }, (tx) =>
-        tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
-      );
-      expect(res.rowCount).toBe(0);
-    });
+    if (def.immutable) {
+      // Append-only history (S1-08): no UPDATE or DELETE grant at all, so every attempt is refused.
+      it(`[S1-08] ${table}: immutable — tenants cannot update or delete any rows, even their own`, async () => {
+        for (const agencyId of [a, b]) {
+          await expectSqlState(
+            () =>
+              withTenant({ agencyId: b }, (tx) =>
+                tx.execute(
+                  sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${agencyId}`,
+                ),
+              ),
+            DENIED,
+          );
+          await expectSqlState(
+            () =>
+              withTenant({ agencyId: b }, (tx) =>
+                tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`),
+              ),
+            DENIED,
+          );
+        }
+        expect(await adminCount(a)).toBe(visible.length + hidden.length);
+        expect(await adminCount(b)).toBe(1);
+      });
 
-    it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
-      const res = await withTenant({ agencyId: b }, (tx) =>
-        tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
-      );
-      expect(res.rowCount).toBe(0);
-      expect(await adminCount(a)).toBe(visible.length + hidden.length);
-    });
+      it(`[S1-08] ${table}: immutable — app_system (workers) cannot update, delete or truncate it either`, async () => {
+        const system = new pg.Client({ connectionString: systemUrl });
+        await system.connect();
+        try {
+          for (const q of [
+            `update "${table}" set agency_id = agency_id where agency_id = '${a}'`,
+            `delete from "${table}" where agency_id = '${a}'`,
+            `truncate "${table}"`,
+          ]) {
+            await expectSqlState(() => system.query(q), DENIED);
+          }
+        } finally {
+          await system.end();
+        }
+        expect(await adminCount(a)).toBe(visible.length + hidden.length);
+      });
+    } else {
+      it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
+        const res = await withTenant({ agencyId: b }, (tx) =>
+          tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+        );
+        expect(res.rowCount).toBe(0);
+      });
+
+      it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
+        const res = await withTenant({ agencyId: b }, (tx) =>
+          tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
+        );
+        expect(res.rowCount).toBe(0);
+        expect(await adminCount(a)).toBe(visible.length + hidden.length);
+      });
+    }
 
     it(`[S0-05] ${table}: tenant B cannot insert a row for tenant A`, async () => {
       await expectSqlState(
@@ -317,6 +366,14 @@ describe.each(tenantNames)('tenant table %s', (table) => {
         () => rolledBack(b, (tx) => tx.execute(insertSql(table, build({ agency_id: b }))).then(() => undefined)),
         DENIED,
       );
+      expect(await adminCount(b)).toBe(1);
+    });
+  } else if (!def.appendOnly && def.immutable) {
+    it(`[S1-08] ${table}: positive control — tenant B can insert and read its own rows`, async () => {
+      await rolledBack(b, async (tx) => {
+        expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
+        expect(await count(tx, table, b)).toBe(2);
+      });
       expect(await adminCount(b)).toBe(1);
     });
   } else if (!def.appendOnly) {

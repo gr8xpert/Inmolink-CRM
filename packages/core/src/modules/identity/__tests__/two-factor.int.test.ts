@@ -10,6 +10,7 @@ import {
   parsePublicKeys,
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { authCtx } from '../../../context';
@@ -149,6 +150,84 @@ describe('two-factor authentication', () => {
       }),
     ).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
     expect(await eventCount(optional.userId, 'identity.twoFactor.disabled')).toBe(1);
+  });
+
+  it('[S1-08] 2FA changes and challenges are audited under the user’s agency — staff under the platform', async () => {
+    const clock = useFakeClock(T0);
+    const optional = await agent();
+    const own = await enrol(optional.userId, clock);
+    const challenge = (code: string) =>
+      identity.verifySecondFactor(anon(), { userId: optional.userId, sessionVersion: 1, code, rememberDevice: false });
+    await expect(challenge('000000')).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
+    clock.advance(30_000);
+    await challenge(codeAt(own.secret, clock));
+    clock.advance(30_000);
+    const fresh = await identity.regenerateRecoveryCodes(anon(), {
+      userId: optional.userId,
+      code: codeAt(own.secret, clock),
+    });
+    // A wrong code on a change changes nothing, so it records nothing.
+    await expect(identity.disableTwoFactor(anon(), { userId: optional.userId, code: '000000' })).rejects.toMatchObject({
+      code: 'MFA_CODE_INVALID',
+    });
+    const staff = await staffUser();
+    await enrol(staff, clock);
+
+    const audit = (userId: string) =>
+      withSystem('2fa test: read audit log', async (tx) => {
+        const r = await tx.execute<{
+          type: string;
+          agency_id: string;
+          actor_user_id: string | null;
+          metadata: unknown;
+        }>(
+          sql`select type, agency_id, actor_user_id, metadata from audit_logs where target_id = ${userId}
+               and type like 'identity.twoFactor.%' order by occurred_at, id`,
+        );
+        return r.rows;
+      });
+    const row = (type: string, metadata: unknown = {}, actor: string | null = optional.userId) => ({
+      type,
+      agency_id: optional.agencyId,
+      actor_user_id: actor,
+      metadata,
+    });
+    expect(await audit(optional.userId)).toEqual([
+      row('identity.twoFactor.enabled'),
+      row('identity.twoFactor.failed', {}, null),
+      row('identity.twoFactor.verified', { method: 'totp' }),
+      row('identity.twoFactor.recoveryCodesRegenerated'),
+    ]);
+    expect(fresh.recoveryCodes).toHaveLength(10);
+    expect(await audit(staff)).toEqual([
+      { type: 'identity.twoFactor.enabled', agency_id: PLATFORM_AGENCY_ID, actor_user_id: staff, metadata: {} },
+    ]);
+  });
+
+  it('[S1-08] disabling 2FA with a recovery code: the audit inside the code check leaves the transaction’s scope intact', async () => {
+    const clock = useFakeClock(T0);
+    const optional = await agent();
+    const own = await enrol(optional.userId, clock);
+    await identity.disableTwoFactor(anon(), {
+      userId: optional.userId,
+      code: (own.recoveryCodes[0] ?? '').replace('-', ''),
+    });
+    // The statements after the recovery-code audit (disable, retire codes) ran under the user's scope.
+    expect(await identity.getTwoFactorStatus(anon(), { userId: optional.userId })).toMatchObject({
+      enabled: false,
+      recoveryCodesLeft: 0,
+    });
+    const types = await withSystem('2fa test: read audit log', async (tx) => {
+      const r = await tx.execute<{ type: string }>(
+        sql`select type from audit_logs where target_id = ${optional.userId} order by occurred_at, id`,
+      );
+      return r.rows.map((x) => x.type);
+    });
+    expect(types).toEqual([
+      'identity.twoFactor.enabled',
+      'identity.twoFactor.recoveryCodeUsed',
+      'identity.twoFactor.disabled',
+    ]);
   });
 
   it('[S1-04] a TOTP code is accepted once; codes outside the drift window are refused', async () => {

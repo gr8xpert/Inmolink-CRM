@@ -1,5 +1,6 @@
 import * as agencies from '@inmolink/core/modules/agencies';
 import * as billing from '@inmolink/core/modules/billing';
+import * as compliance from '@inmolink/core/modules/compliance';
 import * as identity from '@inmolink/core/modules/identity';
 
 /**
@@ -7,7 +8,7 @@ import * as identity from '@inmolink/core/modules/identity';
  * outbox dispatcher knows each event type; a type it does not know is retried, never marked processed.
  * A new module is added here, and to `registerSubscriptions` if it subscribes (checked by a test).
  */
-export const MODULES = { identity, agencies, billing } as const;
+export const MODULES = { identity, agencies, billing, compliance } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
 export function registerSubscriptions(): void {

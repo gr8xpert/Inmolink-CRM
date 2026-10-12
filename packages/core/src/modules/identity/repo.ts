@@ -677,3 +677,11 @@ export async function countRecoveryCodes(tx: Tx, userId: string): Promise<number
     .where(and(eq(userRecoveryCodes.userId, userId), isNull(userRecoveryCodes.usedAt)));
   return row?.n ?? 0;
 }
+
+/**
+ * The transaction commits without waiting for its WAL flush (S1-08: failed-login audit rows). Only for
+ * writes whose loss in a crash is acceptable; never for business data.
+ */
+export async function commitWithoutFlush(tx: Tx): Promise<void> {
+  await tx.execute(sql`set local synchronous_commit = off`);
+}

@@ -101,6 +101,35 @@ async function addMember(admin: Founder, role: MemberRole = 'AGENT') {
 }
 
 describe('invites', () => {
+  it('[S1-08] an invite and its acceptance are audited with the role granted, never the email', async () => {
+    const admin = await createFounder();
+    const sent = await invite(admin, { role: 'AGENCY_ADMIN' });
+    const { userId } = await identity.acceptInvite(anon(), { token: sent.token, name: 'Luis', password: PASSWORD });
+    const rows = await withSystem('team test: audit', async (tx) => {
+      const r = await tx.execute<{ type: string; agency_id: string; actor_user_id: string; metadata: unknown }>(
+        sql`select type, agency_id, actor_user_id, metadata from audit_logs
+             where type in ('identity.member.invited', 'identity.member.joined') and agency_id = ${admin.agencyId}
+             order by occurred_at, id`,
+      );
+      return r.rows;
+    });
+    expect(rows).toEqual([
+      {
+        type: 'identity.member.invited',
+        agency_id: admin.agencyId,
+        actor_user_id: admin.userId,
+        metadata: { role: 'AGENCY_ADMIN' },
+      },
+      {
+        type: 'identity.member.joined',
+        agency_id: admin.agencyId,
+        actor_user_id: userId,
+        metadata: { role: 'AGENCY_ADMIN', inviteId: sent.id },
+      },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain(sent.email);
+  });
+
   it('[S1-02] invite accept joins the inviting agency with the chosen role', async () => {
     const admin = await verifiedFounder();
     const sent = await invite(admin, { role: 'AGENCY_ADMIN', locale: 'en' });

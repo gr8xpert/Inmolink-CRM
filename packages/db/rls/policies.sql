@@ -13,16 +13,20 @@ create or replace function app_preferring_agencies() returns setof uuid language
   as $$ select p.agency_id from public.preferred_agencies p
       join public.agency_directory d on d.agency_id = p.agency_id and d.listed
      where p.preferred_agency_id = public.app_agency() $$;
-revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies() from public;
+create or replace function app_partition_maintenance() returns void language plpgsql security definer
+  set search_path = pg_catalog, pg_temp set lock_timeout = '5s'
+  as $$ begin perform partman.run_maintenance(p_analyze := false, p_jobmon := false); end $$;
+revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_is_staff() to app_staff;
 grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;
+grant execute on function app_partition_maintenance() to app_system;
 
 do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -34,7 +38,8 @@ alter table public."agencies" force row level security;
 create policy own_rows on public."agencies" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agencies" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agencies" to app_user, app_system;
+grant select, insert, update, delete on table public."agencies" to app_user;
+grant select, insert, update, delete on table public."agencies" to app_system;
 create policy auth_select on public."agencies" for select to app_auth
   using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
 create policy auth_insert on public."agencies" for insert to app_auth
@@ -56,7 +61,8 @@ create policy own_rows on public."agency_directory" to app_user
 create policy network_read on public."agency_directory" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (listed));
 revoke all on table public."agency_directory" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_directory" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_directory" to app_user;
+grant select, insert, update, delete on table public."agency_directory" to app_system;
 create policy staff_select on public."agency_directory" for select to app_staff
   using (app_is_staff() and (true));
 create policy staff_insert on public."agency_directory" for insert to app_staff
@@ -71,7 +77,8 @@ alter table public."agency_invites" force row level security;
 create policy own_rows on public."agency_invites" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_invites" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_invites" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_invites" to app_user;
+grant select, insert, update, delete on table public."agency_invites" to app_system;
 create policy auth_select on public."agency_invites" for select to app_auth
   using (agency_id = app_agency() and coalesce(accepted_user_id, app_user_id()) is not distinct from app_user_id());
 create policy auth_update on public."agency_invites" for update to app_auth
@@ -84,7 +91,8 @@ alter table public."agency_members" force row level security;
 create policy own_rows on public."agency_members" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_members" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_members" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_members" to app_user;
+grant select, insert, update, delete on table public."agency_members" to app_system;
 create policy auth_select on public."agency_members" for select to app_auth
   using (user_id = app_user_id());
 create policy auth_insert on public."agency_members" for insert to app_auth
@@ -99,7 +107,8 @@ alter table public."agency_profiles" force row level security;
 create policy own_rows on public."agency_profiles" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_profiles" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_profiles" to app_user;
+grant select, insert, update, delete on table public."agency_profiles" to app_system;
 
 -- agency_settings: STRICT
 alter table public."agency_settings" enable row level security;
@@ -107,7 +116,8 @@ alter table public."agency_settings" force row level security;
 create policy own_rows on public."agency_settings" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_settings" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_settings" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_settings" to app_user;
+grant select, insert, update, delete on table public."agency_settings" to app_system;
 create policy auth_insert on public."agency_settings" for insert to app_auth
   with check (agency_id = app_agency());
 grant insert on table public."agency_settings" to app_auth;
@@ -118,7 +128,8 @@ alter table public."agency_translations" force row level security;
 create policy own_rows on public."agency_translations" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_translations" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_translations" to app_user;
+grant select, insert, update, delete on table public."agency_translations" to app_system;
 
 -- agency_verification_documents: STRICT
 alter table public."agency_verification_documents" enable row level security;
@@ -126,7 +137,8 @@ alter table public."agency_verification_documents" force row level security;
 create policy own_rows on public."agency_verification_documents" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_verification_documents" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_verification_documents" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_verification_documents" to app_user;
+grant select, insert, update, delete on table public."agency_verification_documents" to app_system;
 create policy staff_select on public."agency_verification_documents" for select to app_staff
   using (app_is_staff() and (true));
 grant select on table public."agency_verification_documents" to app_staff;
@@ -137,7 +149,8 @@ alter table public."agency_verification_requests" force row level security;
 create policy own_rows on public."agency_verification_requests" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_verification_requests" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."agency_verification_requests" to app_user, app_system;
+grant select, insert, update, delete on table public."agency_verification_requests" to app_user;
+grant select, insert, update, delete on table public."agency_verification_requests" to app_system;
 create policy staff_select on public."agency_verification_requests" for select to app_staff
   using (app_is_staff() and (true));
 create policy staff_update on public."agency_verification_requests" for update to app_staff
@@ -152,8 +165,26 @@ create policy own_rows on public."api_keys" to app_user
 create policy public_read on public."api_keys" for select to app_public
   using (revoked_at is null and agency_active);
 revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."api_keys" to app_user, app_system;
+grant select, insert, update, delete on table public."api_keys" to app_user;
+grant select, insert, update, delete on table public."api_keys" to app_system;
 grant select on table public."api_keys" to app_public;
+
+-- audit_logs: STRICT
+alter table public."audit_logs" enable row level security;
+alter table public."audit_logs" force row level security;
+create policy own_rows on public."audit_logs" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency() and (actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff'));
+revoke all on table public."audit_logs" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert on table public."audit_logs" to app_user;
+grant select, insert on table public."audit_logs" to app_system;
+create policy auth_insert on public."audit_logs" for insert to app_auth
+  with check (agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '00000000-0000-0000-0000-000000000000'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id());
+grant insert on table public."audit_logs" to app_auth;
+create policy staff_select on public."audit_logs" for select to app_staff
+  using (app_is_staff() and (true));
+create policy staff_insert on public."audit_logs" for insert to app_staff
+  with check (app_is_staff() and (actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')));
+grant select, insert on table public."audit_logs" to app_staff;
 
 -- auth_tokens: GLOBAL
 alter table public."auth_tokens" enable row level security;
@@ -194,7 +225,8 @@ create policy own_rows on public."preferred_agencies" to app_user
 create policy network_read on public."preferred_agencies" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (preferred_agency_id = app_agency() and exists (select 1 from public.agency_directory d where d.agency_id = preferred_agencies.agency_id and d.listed)));
 revoke all on table public."preferred_agencies" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."preferred_agencies" to app_user, app_system;
+grant select, insert, update, delete on table public."preferred_agencies" to app_user;
+grant select, insert, update, delete on table public."preferred_agencies" to app_system;
 
 -- preferred_agency_notes: STRICT
 alter table public."preferred_agency_notes" enable row level security;
@@ -202,7 +234,8 @@ alter table public."preferred_agency_notes" force row level security;
 create policy own_rows on public."preferred_agency_notes" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."preferred_agency_notes" to app_user, app_system;
+grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
+grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
 
 -- staff_users: GLOBAL
 alter table public."staff_users" enable row level security;

@@ -162,6 +162,20 @@
       "when": 1791767076001,
       "tag": "0022_preferred_agencies_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791771608737,
+      "tag": "0023_audit_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791774223413,
+      "tag": "0024_audit_logs_partman",
+      "breakpoints": true
     }
   ]
 }

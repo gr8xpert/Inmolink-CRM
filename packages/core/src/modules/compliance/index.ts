@@ -1,0 +1,17 @@
+/** compliance — public API (PATTERNS §1). The only import path for other modules and apps. */
+export { complianceErrors } from './errors';
+export { complianceEvents } from './events';
+export { complianceJobs, PARTITION_MAINTENANCE_EVERY_MS } from './jobs';
+export {
+  AUDIT_TYPES,
+  type AuditMetadata,
+  type AuditTarget,
+  type AuditType,
+  type AuthAuditInput,
+  audit,
+  auditAuth,
+  auditStaff,
+  auditSystem,
+  listAuditLog,
+  MAX_AUDIT_METADATA_BYTES,
+} from './service';

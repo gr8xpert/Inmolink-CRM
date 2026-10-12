@@ -93,3 +93,23 @@ export async function setAgencyStatus(agencyId: string, status: 'PENDING' | 'VER
     await admin.end();
   }
 }
+
+/**
+ * Runs SQL as the bootstrap superuser (S1-08): for tests that change what no app role may change, such
+ * as dropping a partition to prove the maintenance job creates it again. Returns the rows.
+ */
+export async function adminQuery<R extends Record<string, unknown>>(
+  text: string,
+  values: unknown[] = [],
+): Promise<R[]> {
+  loadStackEnv('test');
+  const cfg = loadConfig(migrateEnv);
+  if (!cfg.DATABASE_URL_ADMIN) throw new Error('adminQuery needs DATABASE_URL_ADMIN');
+  const admin = new pg.Client({ connectionString: cfg.DATABASE_URL_ADMIN });
+  await admin.connect();
+  try {
+    return (await admin.query<R>(text, values)).rows;
+  } finally {
+    await admin.end();
+  }
+}

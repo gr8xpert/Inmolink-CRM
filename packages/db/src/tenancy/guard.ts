@@ -81,14 +81,18 @@ select coalesce(string_agg(x, E'\\n' order by x), '') as catalog from (
   union all
   select format('trigger %s %s %s', pg_get_triggerdef(t.oid), t.tgenabled, pg_get_functiondef(t.tgfoid))
     from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public' and not t.tgisinternal
+   where n.nspname = 'public' and not t.tgisinternal and t.tgparentid = 0
 ) s`;
 
-/** Non-constraint triggers on public tables, with their state (`D` = disabled). */
+/**
+ * Non-constraint triggers on public tables, with their state (`D` = disabled). Clones of a partitioned
+ * parent's row triggers on its partitions (`tgparentid`, S1-08) are left out: partman adds partitions
+ * every month, and the parent's trigger is what the registry lists.
+ */
 const TRIGGERS_SQL = `
 select c.relname as table, t.tgname as name, t.tgenabled::text as enabled
   from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
- where n.nspname = 'public' and not t.tgisinternal`;
+ where n.nspname = 'public' and not t.tgisinternal and t.tgparentid = 0`;
 
 /** Where `pnpm db:rls` keeps the fingerprint (the SQL stamp lives on `app_agency()`). */
 export const CATALOG_STAMP_FUNCTION = 'public.app_user_id()';
@@ -166,6 +170,15 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     if (global && t.agency_type) problems.push(`${t.name}: has agency_id but is registered as global`);
     if (tenant && t.agency_type !== 'uuid') problems.push(`${t.name}: tenant table needs an agency_id uuid column`);
     if (tenant && t.agency_type && !t.agency_not_null) problems.push(`${t.name}: agency_id must be NOT NULL`);
+    // S1-08: a partitioned parent is registered as such (its partitions are checked above).
+    const partitioned = 'kind' in def && def.partitioned === true;
+    if (partitioned !== (t.kind === 'p')) {
+      problems.push(
+        partitioned
+          ? `${t.name}: registered as partitioned but is not`
+          : `${t.name}: partitioned but not registered so`,
+      );
+    }
     if (!t.rls) problems.push(`${t.name}: row level security is disabled`);
     if (!t.forced) problems.push(`${t.name}: row level security is not forced`);
 

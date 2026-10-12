@@ -19,6 +19,7 @@ import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as compliance from '../compliance';
 import * as keysRepo from './api-keys-repo';
 import { API_KEYS, type ApiKeyEnv, identityConfig } from './config';
 import { identityEvents } from './events';
@@ -153,6 +154,12 @@ export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<
     createdAt: clock.now(),
   });
   await emit(ctx.tx, identityEvents.apiKeyCreated({ agencyId, keyId: row.id, ...actor }));
+  await compliance.audit(
+    ctx,
+    'identity.apiKey.created',
+    { type: 'apiKey', id: row.id },
+    { kind: row.kind, prefix, scopes: row.scopes },
+  );
   return { key: toApiKeyDto(row), secret: key };
 }
 
@@ -176,6 +183,12 @@ export async function rotateApiKey(ctx: Ctx, input: ApiKeyParams): Promise<Issue
     ctx.tx,
     identityEvents.apiKeyRotated({ agencyId, keyId: row.id, retiredPrefix: current.prefix, ...actor }),
   );
+  await compliance.audit(
+    ctx,
+    'identity.apiKey.rotated',
+    { type: 'apiKey', id: row.id },
+    { prefix, retiredPrefix: current.prefix },
+  );
   return { key: toApiKeyDto(row), secret: key };
 }
 
@@ -189,6 +202,12 @@ export async function revokeApiKey(ctx: Ctx, input: ApiKeyParams): Promise<void>
   await emit(
     ctx.tx,
     identityEvents.apiKeyRevoked({ agencyId, keyId: input.keyId, retiredPrefix: revoked.prefix, ...actor }),
+  );
+  await compliance.audit(
+    ctx,
+    'identity.apiKey.revoked',
+    { type: 'apiKey', id: input.keyId },
+    { prefix: revoked.prefix },
   );
 }
 

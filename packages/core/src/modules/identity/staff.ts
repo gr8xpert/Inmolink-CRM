@@ -1,6 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
+import * as compliance from '../compliance';
 import * as repo from './repo';
 
 /**
@@ -18,20 +19,34 @@ export async function getStaffRole(tx: Tx, userId: string): Promise<StaffRole | 
 
 /**
  * Grants a staff role to an existing, confirmed account (`pnpm staff:grant`, `withSystem`). A member of
- * an agency cannot be staff: one user has one tenant, and staff have none.
+ * an agency cannot be staff: one user has one tenant, and staff have none. Audited (S1-08).
  */
 export async function grantStaff(tx: Tx, input: { email: string; role: StaffRole }): Promise<{ userId: string }> {
   const user = await repo.findUserIdByEmail(tx, input.email.trim().toLowerCase());
   if (user?.status !== 'ACTIVE') throw new AppError('NOT_FOUND', { entity: 'user' });
   if (await repo.hasMembership(tx, user.id)) throw new AppError('FORBIDDEN', { reason: 'agency_member' });
   await repo.upsertStaff(tx, user.id, input.role);
+  // Audit (S1-08): a platform row in the same transaction; the reason text stays in the withSystem log.
+  await compliance.auditSystem(tx, {
+    type: 'identity.staff.granted',
+    agencyId: null,
+    target: { type: 'user', id: user.id },
+    metadata: { role: input.role, reasonProvided: true },
+  });
   return { userId: user.id };
 }
 
-/** Withdraws staff access (`pnpm staff:revoke`); effective on the staff member's next request. */
+/** Withdraws staff access (`pnpm staff:revoke`); effective on the staff member's next request. Audited (S1-08). */
 export async function revokeStaff(tx: Tx, input: { email: string }): Promise<boolean> {
   const user = await repo.findUserIdByEmail(tx, input.email.trim().toLowerCase());
-  return user ? repo.deactivateStaff(tx, user.id, clock.now()) : false;
+  if (!user || !(await repo.deactivateStaff(tx, user.id, clock.now()))) return false;
+  await compliance.auditSystem(tx, {
+    type: 'identity.staff.revoked',
+    agencyId: null,
+    target: { type: 'user', id: user.id },
+    metadata: { reasonProvided: true },
+  });
+  return true;
 }
 
 /** Active admins of an agency (email, name, UI locale), for notices sent by jobs (`withSystem`). */

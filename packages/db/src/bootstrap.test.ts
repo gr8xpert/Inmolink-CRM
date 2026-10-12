@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { credentialFromUrl, databaseStatements, roleStatements, scramVerifier } from './bootstrap';
+import { credentialFromUrl, databaseStatements, partmanStatements, roleStatements, scramVerifier } from './bootstrap';
 import type { DbRoleName } from './roles';
 
 const esc = { literal: (v: string) => `'${v.replaceAll("'", "''")}'`, ident: (v: string) => `"${v}"` };
@@ -41,6 +41,14 @@ describe('role bootstrap', () => {
       expect(stmts(role)).toContain('set search_path = public');
     }
     expect(databaseStatements('inmolink', esc).join('\n')).toContain('revoke execute on functions from public');
+  });
+
+  it('[S1-08] pg_partman is reachable by app_owner only (migrations, partition maintenance)', () => {
+    const sql = partmanStatements().join('\n');
+    expect(databaseStatements('inmolink', esc).join('\n')).toContain(sql);
+    expect(sql).toContain("where extname = 'pg_partman'");
+    expect(sql).toMatch(/grant usage, create on schema %I to app_owner/);
+    expect(sql).not.toMatch(/to app_(?:user|system|public|auth|staff)/);
   });
 
   it('[S0-04] passwords reach the server only as a SCRAM verifier', () => {

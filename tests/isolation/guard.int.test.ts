@@ -181,6 +181,40 @@ describe('RLS guard', () => {
     expect(await checkRls(owner, isolationRegistry)).toEqual([]);
   });
 
+  it('[S1-08] a partitioned table: a reachable partition, an UPDATE grant on an immutable table, or a wrong partitioned flag fail the guard', async () => {
+    const audit: TenantRegistry = {
+      tenant: {
+        planted_audit: { kind: 'STRICT', immutable: true, partitioned: true },
+        planted_plain: { kind: 'STRICT', partitioned: true },
+      },
+      global: {},
+    };
+    const problems = await guardWith(
+      `create table planted_audit (id uuid not null, at timestamptz not null, agency_id uuid not null,
+         primary key (id, at)) partition by range (at);
+       create table planted_audit_p1 partition of planted_audit for values from ('2026-01-01') to ('2026-02-01');
+       create table planted_plain (id uuid primary key, agency_id uuid not null);
+       ${tablesSql(audit)}
+       grant update on planted_audit to app_system;
+       grant select on planted_audit_p1 to app_user;`,
+      mergeRegistries(isolationRegistry, audit),
+    );
+    expect(problems).toEqual([
+      'planted_audit: app_system has unexpected UPDATE',
+      'planted_audit_p1: partition is directly accessible to an app role',
+      'planted_plain: registered as partitioned but is not',
+    ]);
+    // The production audit log passes as registered (first test); unregistered as partitioned, it fails.
+    const loose = mergeRegistries(
+      {
+        ...isolationRegistry,
+        tenant: { ...isolationRegistry.tenant, audit_logs: { kind: 'STRICT', immutable: true } },
+      },
+      { tenant: {}, global: {} },
+    );
+    expect(await checkRls(owner, loose)).toContain('audit_logs: partitioned but not registered so');
+  });
+
   it('[S0-05] a stale registry entry and a nullable agency_id fail the guard', async () => {
     const reg = mergeRegistries(isolationRegistry, strict('planted_nullable'), strict('planted_missing'));
     const problems = await guardWith(

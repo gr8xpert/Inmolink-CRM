@@ -6,6 +6,7 @@ import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
 import { agenciesRoutes } from './routes/agencies/routes';
 import { billingRoutes } from './routes/billing/routes';
+import { complianceRoutes } from './routes/compliance/routes';
 import { identityRoutes } from './routes/identity/routes';
 
 /** Fastify dashboard API. Transport only — business logic lives in @inmolink/core. */
@@ -52,5 +53,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(identityRoutes);
   await app.register(agenciesRoutes);
   await app.register(billingRoutes);
+  await app.register(complianceRoutes);
   return app;
 }

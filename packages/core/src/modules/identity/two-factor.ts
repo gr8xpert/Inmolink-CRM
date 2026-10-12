@@ -15,8 +15,10 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import type { AuthCtx } from '../../context';
+import * as compliance from '../compliance';
 import { identityConfig, TWO_FACTOR } from './config';
 import { identityEvents } from './events';
+import { identityLog } from './log';
 import { requiresSecondFactor } from './policy';
 import * as repo from './repo';
 
@@ -73,6 +75,29 @@ function asUser<T>(ctx: AuthCtx, userId: string, fn: (tx: Tx) => Promise<T>): Pr
   return ctx.transaction(async (tx) => {
     await setAuthScope(tx, { userId });
     return fn(tx);
+  });
+}
+
+/**
+ * Audit (S1-08) of a 2FA change, under the user's agency (the platform for staff and users without one).
+ * `tx` is scoped to the user; this narrows the scope to the user and that agency.
+ */
+async function auditTwoFactor(
+  tx: Tx,
+  requestId: string,
+  userId: string,
+  type: Extract<compliance.AuditType, `identity.twoFactor.${string}`>,
+  metadata: compliance.AuditMetadata = {},
+): Promise<void> {
+  const member = await repo.findMembership(tx, userId);
+  await compliance.auditAuth(tx, {
+    type,
+    userId,
+    agencyId: member?.agencyId ?? null,
+    // A failed challenge proves nothing about who typed the code.
+    authenticated: type !== 'identity.twoFactor.failed',
+    requestId,
+    metadata,
   });
 }
 
@@ -149,6 +174,7 @@ export async function confirmEnrolment(
     }
     const codes = await replaceRecoveryCodes(tx, input.userId, now);
     await emit(tx, identityEvents.twoFactorEnabled({ userId: input.userId }), { agencyId: PLATFORM_AGENCY_ID });
+    await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.enabled');
     return codes;
   });
   return { recoveryCodes, proof: mfaProof(input.userId, input.sessionVersion, now) };
@@ -163,6 +189,7 @@ async function consumeCode(
   userId: string,
   code: TwoFactorCode,
   now: Date,
+  requestId: string,
 ): Promise<{ method: 'totp' | 'recovery'; confirmedAt: Date } | null> {
   const mfa = await repo.findMfa(tx, userId);
   if (!mfa?.confirmedAt || !mfa.totpSecret) return null;
@@ -173,6 +200,7 @@ async function consumeCode(
   }
   if (!(await repo.consumeRecoveryCode(tx, userId, hashRecoveryCode(code), now))) return null;
   await emit(tx, identityEvents.recoveryCodeUsed({ userId }), { agencyId: PLATFORM_AGENCY_ID });
+  await auditTwoFactor(tx, requestId, userId, 'identity.twoFactor.recoveryCodeUsed');
   return { method: 'recovery', confirmedAt: mfa.confirmedAt };
 }
 
@@ -185,9 +213,22 @@ export async function verifySecondFactor(
   input: { userId: string; sessionVersion: number; code: TwoFactorCode; rememberDevice: boolean },
 ): Promise<{ proof: string; device?: { token: string; expiresAt: Date }; method: 'totp' | 'recovery' }> {
   const now = clock.now();
-  const result = await asUser(ctx, input.userId, (tx) => consumeCode(tx, input.userId, input.code, now));
-  // Thrown outside the transaction: a failed check changes nothing, so there is nothing to roll back.
-  if (!result) throw new AppError('MFA_CODE_INVALID');
+  const result = await asUser(ctx, input.userId, async (tx) => {
+    const used = await consumeCode(tx, input.userId, input.code, now, ctx.requestId);
+    if (used)
+      await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.verified', { method: used.method });
+    return used;
+  });
+  // Thrown outside the transaction: a failed check changes nothing, so there is nothing to roll back. The
+  // failure is audited in its own transaction (like a failed login); a failed audit write is not fatal.
+  if (!result) {
+    await asUser(ctx, input.userId, (tx) =>
+      auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.failed'),
+    ).catch((err: unknown) =>
+      identityLog().error({ err, requestId: ctx.requestId }, 'identity: failed-2FA audit not written'),
+    );
+    throw new AppError('MFA_CODE_INVALID');
+  }
   const proof = mfaProof(input.userId, input.sessionVersion, now);
   if (!input.rememberDevice) return { proof, method: result.method };
   return {
@@ -202,10 +243,11 @@ export async function disableTwoFactor(ctx: AuthCtx, input: { userId: string; co
   const now = clock.now();
   const ok = await asUser(ctx, input.userId, async (tx) => {
     if (await isSecondFactorRequired(tx, input.userId)) throw new AppError('FORBIDDEN', { reason: 'mfa_required' });
-    if (!(await consumeCode(tx, input.userId, input.code, now))) return false;
+    if (!(await consumeCode(tx, input.userId, input.code, now, ctx.requestId))) return false;
     await repo.disableMfa(tx, input.userId, now);
     await repo.retireRecoveryCodes(tx, input.userId, now);
     await emit(tx, identityEvents.twoFactorDisabled({ userId: input.userId }), { agencyId: PLATFORM_AGENCY_ID });
+    await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.disabled');
     return true;
   });
   if (!ok) throw new AppError('MFA_CODE_INVALID');
@@ -218,8 +260,10 @@ export async function regenerateRecoveryCodes(
 ): Promise<{ recoveryCodes: string[] }> {
   const now = clock.now();
   const codes = await asUser(ctx, input.userId, async (tx) => {
-    if (!(await consumeCode(tx, input.userId, input.code, now))) return null;
-    return replaceRecoveryCodes(tx, input.userId, now);
+    if (!(await consumeCode(tx, input.userId, input.code, now, ctx.requestId))) return null;
+    const fresh = await replaceRecoveryCodes(tx, input.userId, now);
+    await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.recoveryCodesRegenerated');
+    return fresh;
   });
   if (!codes) throw new AppError('MFA_CODE_INVALID');
   return { recoveryCodes: codes };

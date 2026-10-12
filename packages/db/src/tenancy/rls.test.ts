@@ -93,7 +93,54 @@ describe('RLS generator', () => {
     );
     expect(out).toContain('drop function if exists app_is_preferred_by(uuid);');
     expect(out).toContain('grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;');
-    expect(out).not.toMatch(/security definer/i);
+    expect(out).not.toMatch(/app_preferring_agencies\(\) returns setof uuid[^;]*security definer/i);
+  });
+
+  it('[S1-08] partition maintenance is the only SECURITY DEFINER helper, executable by app_system only', () => {
+    expect(out.match(/security definer/gi)).toHaveLength(1);
+    expect(out).toContain(
+      'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
+    );
+    expect(out).toContain('set search_path = pg_catalog, pg_temp');
+    expect(out).toContain('grant execute on function app_partition_maintenance() to app_system;');
+    expect(out).not.toMatch(/app_partition_maintenance\(\) to [^;]*app_(?:user|public|auth|staff)/);
+  });
+
+  it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
+    const def = {
+      kind: 'STRICT',
+      immutable: true,
+      auth: { insert: 'agency_id = app_agency() and true' },
+      staff: { select: 'true', insert: 'true' },
+    } as const;
+    const sql = tablesSql({ tenant: { audit: def }, global: {} });
+    expect(sql).toContain('grant select, insert on table public."audit" to app_user;');
+    expect(sql).toContain('grant select, insert on table public."audit" to app_system;');
+    expect(sql).toContain('grant insert on table public."audit" to app_auth;');
+    expect(sql).toContain('grant select, insert on table public."audit" to app_staff;');
+    expect(sql).not.toMatch(/grant [^;]*(?:update|delete)[^;]*"audit"/);
+    expect(expectedPrivileges(def)).toEqual({
+      app_user: ['SELECT', 'INSERT'],
+      app_system: ['SELECT', 'INSERT'],
+      app_public: [],
+      app_auth: ['INSERT'],
+      app_staff: ['SELECT', 'INSERT'],
+    });
+    expect(() =>
+      tablesSql({ tenant: { audit: { kind: 'STRICT', immutable: true, staff: { update: 'true' } } }, global: {} }),
+    ).toThrow(/immutable/);
+    // userInsert narrows app_user's appends (only for immutable tables).
+    const narrowed = tablesSql({
+      tenant: { audit: { kind: 'STRICT', immutable: true, userInsert: 'actor = app_user_id()' } },
+      global: {},
+    });
+    expect(narrowed).toContain('with check (agency_id = app_agency() and (actor = app_user_id()));');
+    expect(() => tablesSql({ tenant: { t: { kind: 'STRICT', userInsert: 'true' } }, global: {} })).toThrow(
+      /userInsert/,
+    );
+    // The production audit log is immutable and partitioned.
+    expect(registry.tenant.audit_logs).toMatchObject({ immutable: true, partitioned: true });
+    expect(expectedPrivileges(registry.tenant.audit_logs as never).app_system).toEqual(['SELECT', 'INSERT']);
   });
 
   it('[S0-05] expected policies per kind; duplicate registrations are refused', () => {

@@ -1,3 +1,4 @@
+import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import type { JobDef } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
@@ -14,7 +15,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   matching: [],
   exports: [],
   email: [identityJobs.sendAuthEmail, identityJobs.sendInviteEmail, identityJobs.sendVerificationDecisionEmail],
-  maintenance: [identityJobs.pruneAuthTokens, identityJobs.flushApiKeyUsage, identityJobs.syncApiKeyAgencyStatus],
+  maintenance: [
+    identityJobs.pruneAuthTokens,
+    identityJobs.flushApiKeyUsage,
+    identityJobs.syncApiKeyAgencyStatus,
+    complianceJobs.maintainPartitions,
+  ],
   ai: [],
   social: [],
   pdf: [],

@@ -6,6 +6,7 @@ import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } fro
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { configureStorage, createS3Store, storageConfigFromEnv } from '@inmolink/platform/storage';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx, CtxRunner } from '../../../context';
 import { withMemberCtx } from '../../../member';
@@ -193,6 +194,40 @@ describe('agency verification', () => {
     const resubmitted = await as(f, (c) => agencies.submitVerification(c, { version: view.agencyVersion }));
     expect(resubmitted.latestRequest).toMatchObject({ status: 'SUBMITTED' });
     expect(resubmitted.documents.map((d) => d.fileName)).toEqual(['cif-clear.pdf']);
+  });
+
+  it('[S1-08] a staff decision is audited under the agency, naming the staff member; a refused one leaves no row', async () => {
+    const { f, requestId, version } = await submitted();
+    await as(f, (c) => agencies.updateAgencyDetails(c, details(version, { city: 'Estepona' })));
+    await expect(decide(requestId, { agencyVersion: version })).rejects.toMatchObject({ code: 'VERIFICATION_STALE' });
+    const current = await as(f, (c) => agencies.getMyAgency(c));
+    await decide(requestId, { decision: 'REJECT', agencyVersion: current.version, reason: 'Please resubmit the CIF.' });
+
+    // Staff read every agency's audit rows (the S1-09 viewer); the agency's admins read their own.
+    const rows = await asStaff(support.userId, (c) =>
+      c.tx.execute(
+        sql`select agency_id, type, actor_kind, actor_user_id, target_type, metadata from audit_logs where target_id = ${requestId}`,
+      ),
+    );
+    expect(rows.rows).toEqual([
+      {
+        agency_id: f.agencyId,
+        type: 'agencies.verification.decided',
+        actor_kind: 'staff',
+        actor_user_id: support.userId,
+        target_type: 'verificationRequest',
+        metadata: { decision: 'REJECTED', reviewedVersion: current.version },
+      },
+    ]);
+    // Staff cannot append a row in someone else's name.
+    await expect(
+      asStaff(support.userId, (c) =>
+        c.tx.execute(
+          sql`insert into audit_logs (id, agency_id, type, actor_kind, actor_user_id)
+              values (${newId()}, ${f.agencyId}, 'agencies.verification.decided', 'staff', ${f.userId})`,
+        ),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
   });
 
   it('[S1-03] the database refuses VERIFIED without an approved decision recorded in the same transaction', async () => {

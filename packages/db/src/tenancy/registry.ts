@@ -32,6 +32,24 @@ interface TenantBase {
    */
   appendOnly?: true;
   /**
+   * History that never changes (audit logs, S1-08): no app role — `app_system` included — gets UPDATE or
+   * DELETE. `app_user` reads and appends its own agency's rows (only appends with `appendOnly`),
+   * `app_system` reads and appends any, and `auth` / `staff` may grant SELECT and INSERT only. Removing
+   * old rows is partition retention (owner), never a statement of an app role.
+   */
+  immutable?: true;
+  /**
+   * immutable only: what an `app_user` row must also satisfy to be appended (ANDed with
+   * `agency_id = app_agency()` in `own_rows`' WITH CHECK) — e.g. it names the session's own user as the
+   * actor. One SQL predicate, reviewed like `networkReadSql`.
+   */
+  userInsert?: string;
+  /**
+   * Range-partitioned parent (pg_partman, PLAN §4.1). The guard checks the table is partitioned and that
+   * no partition is reachable directly (partitions skip their parent's policies).
+   */
+  partitioned?: true;
+  /**
    * appendOnly only: `app_auth` (anonymous auth flows, `withAuth()`) may INSERT platform rows
    * (`agency_id` = nil UUID) whose `column` starts with `prefix` — e.g. `identity.*` outbox events
    * ("send the verification email") in the sign-up transaction, and nothing else.
@@ -263,6 +281,30 @@ export const tenantTables: Record<string, TenantTable> = {
   // The owner's internal note on a preferred agency (S1-07): never visible to the preferred agency.
   // Admins only (guard trigger 0022).
   preferred_agency_notes: { kind: 'STRICT', guardedInsert: true, triggers: ['preferred_agency_notes_guard'] },
+  // Audit log (S1-08): append-only, monthly partitions, no UPDATE/DELETE/TRUNCATE for anyone (grants, and
+  // triggers for the owner, migration 0024). Rows name who acted, and each role may only name itself:
+  // - members' request transactions (app_user) append their agency's rows as their own user, never as
+  //   staff. TODO(S1-09): an impersonated session's rows name the staff member in `impersonated_by`; pin it
+  //   to the session (`app.impersonated_by`) when impersonation lands.
+  // - login, 2FA and invite flows (app_auth) append `identity.*` rows about the user they are scoped to,
+  //   under that user's membership agency (the nil agency without one) — checked here, not trusted from
+  //   the caller — as that user or anonymous, never impersonated.
+  // - staff (app_staff) append staff and agencies rows naming themselves, and read every row (S1-09).
+  audit_logs: {
+    kind: 'STRICT',
+    immutable: true,
+    partitioned: true,
+    triggers: ['audit_logs_immutable', 'audit_logs_no_truncate'],
+    base: { type: 'iso.fixture', actor_kind: 'user' },
+    userInsert: `actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff'`,
+    auth: {
+      insert: `agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '00000000-0000-0000-0000-000000000000'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id()`,
+    },
+    staff: {
+      select: 'true',
+      insert: `actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')`,
+    },
+  },
 };
 
 /**

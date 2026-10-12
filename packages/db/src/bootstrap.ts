@@ -101,6 +101,29 @@ export function databaseStatements(database: string, esc: Escape): string[] {
     `revoke connect, temporary on database ${db} from public`,
     'revoke create on schema public from public',
     'alter default privileges for role app_owner in schema public revoke execute on functions from public',
+    ...partmanStatements(),
+  ];
+}
+
+/**
+ * pg_partman (S1-08): `app_owner` creates partitioned parents in migrations (`partman.create_parent`) and
+ * runs maintenance through the generated `app_partition_maintenance()` (SECURITY DEFINER, owner
+ * `app_owner`): it needs the extension's schema, config tables and functions. App roles get nothing in
+ * `partman` (no USAGE on the schema). Skipped where the extension is not installed.
+ */
+export function partmanStatements(): string[] {
+  return [
+    `do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_partman') then
+    execute (select format('grant usage, create on schema %I to app_owner', n.nspname)
+               from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_partman');
+    execute (select format('grant select, insert, update, delete on all tables in schema %I to app_owner', n.nspname)
+               from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_partman');
+    execute (select format('grant execute on all functions in schema %1$I to app_owner; grant execute on all procedures in schema %1$I to app_owner', n.nspname)
+               from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_partman');
+  end if;
+end $$`,
   ];
 }
 

@@ -31,8 +31,10 @@ import type { AuthCtx, Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as billing from '../billing';
+import * as compliance from '../compliance';
 import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
+import { identityLog } from './log';
 import { assertCan, canIssueAccessToken, loginDecision, sessionNeedsSecondFactor } from './policy';
 import * as repo from './repo';
 import { isDeviceRemembered, isSecondFactorRequired } from './two-factor';
@@ -200,12 +202,43 @@ export async function verifyCredentials(
   const matches = found
     ? await verifyPassword(found.user.passwordHash, input.password)
     : await dummyVerify(input.password);
-  if (!found || !matches) throw new AppError('INVALID_CREDENTIALS');
+  // Audit (S1-08): failed attempts on an existing account are recorded in their own transaction, before
+  // the error; an unknown email is not (there is no account to name, and emails are not logged) but runs a
+  // transaction of the same shape, so the response time does not tell the two apart. Both commit without
+  // waiting for the WAL flush (`synchronous_commit = off`: a crash may lose the last few rows, never
+  // corrupt them), and a failed audit write is logged, never turned into another answer than
+  // INVALID_CREDENTIALS. Guessing is bounded before this by the per-IP and per-email login limits (web).
+  const failed = async (reason: string) => {
+    try {
+      await ctx.transaction(async (tx) => {
+        await repo.commitWithoutFlush(tx);
+        if (!found) return setAuthScope(tx, { agencyId: PLATFORM_AGENCY_ID, userId: newId() });
+        await compliance.auditAuth(tx, {
+          type: 'identity.login.failed',
+          userId: found.user.id,
+          agencyId: found.member?.agencyId ?? null,
+          authenticated: false,
+          requestId: ctx.requestId,
+          metadata: { reason },
+        });
+      });
+    } catch (err) {
+      identityLog().error({ err, requestId: ctx.requestId }, 'identity: failed-login audit not written');
+    }
+  };
+  if (!found || !matches) {
+    await failed('invalid_password');
+    throw new AppError('INVALID_CREDENTIALS');
+  }
   const { user, member } = found;
 
   const decision = loginDecision(user, member);
-  if (decision === 'invalid') throw new AppError('INVALID_CREDENTIALS');
+  if (decision === 'invalid') {
+    await failed(user.status !== 'ACTIVE' ? 'account_disabled' : 'member_deactivated');
+    throw new AppError('INVALID_CREDENTIALS');
+  }
   if (decision === 'unverified') {
+    await failed('email_not_verified');
     // One fresh link per user per 10 minutes, however often they try to log in (S1-F4): the first
     // attempt sends at once, the rest are covered by that email. The slot is spent before the event is
     // written: if that write fails (rare), the next link waits for the window (sliding: 10–20 min).
@@ -217,19 +250,38 @@ export async function verifyCredentials(
   const rehash = needsRehash(user.passwordHash)
     ? { from: user.passwordHash, to: await hashPassword(input.password) }
     : undefined;
-  await ctx.transaction((tx) => repo.recordLogin(tx, user.id, clock.now(), rehash));
+  const mfaVerified = isDeviceRemembered({
+    userId: user.id,
+    sessionVersion: user.sessionVersion,
+    confirmedAt: found.mfaConfirmedAt,
+    token: input.deviceToken,
+  });
+  await ctx.transaction(async (tx) => {
+    await repo.recordLogin(tx, user.id, clock.now(), rehash);
+    // The password step passed. Whether a second-factor challenge follows (S1-04) is recorded with it;
+    // the challenge itself is `identity.twoFactor.verified` / `.failed`.
+    await setAuthScope(tx, { userId: user.id });
+    const enrolled = Boolean((await repo.findMfa(tx, user.id))?.confirmedAt);
+    const required = sessionNeedsSecondFactor({
+      enrolled,
+      required: await isSecondFactorRequired(tx, user.id, member),
+    });
+    await compliance.auditAuth(tx, {
+      type: 'identity.login.succeeded',
+      userId: user.id,
+      agencyId: member?.agencyId ?? null,
+      authenticated: true,
+      requestId: ctx.requestId,
+      metadata: { secondFactor: mfaVerified ? 'remembered' : required ? 'required' : 'notRequired' },
+    });
+  });
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     locale: user.locale,
     sessionVersion: user.sessionVersion,
-    mfaVerified: isDeviceRemembered({
-      userId: user.id,
-      sessionVersion: user.sessionVersion,
-      confirmedAt: found.mfaConfirmedAt,
-      token: input.deviceToken,
-    }),
+    mfaVerified,
   };
 }
 
@@ -253,6 +305,15 @@ export async function resetPassword(ctx: AuthCtx, input: ResetPasswordInput): Pr
     const userId = await repo.consumeToken(tx, tokenHash, 'PASSWORD_RESET', now);
     // Throwing rolls the consumption back too; the link stays unusable only if the reset committed.
     if (!userId || !(await repo.setPassword(tx, userId, passwordHash, now))) throw new AppError('TOKEN_INVALID');
+    await setAuthScope(tx, { userId });
+    const member = await repo.findMembership(tx, userId);
+    await compliance.auditAuth(tx, {
+      type: 'identity.password.reset',
+      userId,
+      agencyId: member?.agencyId ?? null,
+      authenticated: true,
+      requestId: ctx.requestId,
+    });
     return { userId };
   });
 }
@@ -395,6 +456,8 @@ export async function inviteMember(ctx: Ctx, input: InviteMemberInput): Promise<
     createdAt: now,
   });
   await emit(ctx.tx, identityEvents.inviteCreated({ agencyId, inviteId: invite.id }));
+  // The role is granted when the invite is accepted (`identity.member.joined`); never the email here.
+  await compliance.audit(ctx, 'identity.member.invited', { type: 'invite', id: invite.id }, { role: input.role });
   return toInviteDto(invite);
 }
 
@@ -452,6 +515,12 @@ export async function changeMemberRole(ctx: Ctx, input: ChangeMemberRoleInput): 
     await repo.revokeInvitesBy(ctx.tx, agencyId, input.userId, now);
   }
   await emit(ctx.tx, identityEvents.memberRoleChanged({ agencyId, userId: input.userId, role: input.role }));
+  await compliance.audit(
+    ctx,
+    'identity.member.roleChanged',
+    { type: 'user', id: input.userId },
+    { from: current.role, to: input.role },
+  );
   return toMemberDto(updated);
 }
 
@@ -470,6 +539,7 @@ export async function deactivateMember(ctx: Ctx, input: MemberParams): Promise<M
   if (!updated) throw new AppError('NOT_FOUND');
   await repo.revokeInvitesBy(ctx.tx, agencyId, input.userId, now);
   await emit(ctx.tx, identityEvents.memberDeactivated({ agencyId, userId: input.userId }));
+  await compliance.audit(ctx, 'identity.member.deactivated', { type: 'user', id: input.userId });
   return toMemberDto(updated);
 }
 
@@ -504,6 +574,14 @@ export async function acceptInvite(ctx: AuthCtx, input: AcceptInviteInput): Prom
     if (!(await repo.markInviteAccepted(tx, invite.id, tokenHash, userId, now))) throw new AppError('TOKEN_INVALID');
     const member = { agencyId, userId, role: invite.role, name: input.name, email: invite.email, createdAt: now };
     await repo.insertMember(tx, member);
+    await compliance.auditAuth(tx, {
+      type: 'identity.member.joined',
+      userId,
+      agencyId,
+      authenticated: true,
+      requestId: ctx.requestId,
+      metadata: { role: invite.role, inviteId: invite.id },
+    });
     return { userId, email: invite.email };
   });
 }

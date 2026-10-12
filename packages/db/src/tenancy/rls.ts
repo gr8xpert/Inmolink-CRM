@@ -26,6 +26,7 @@ export const HELPER_FUNCTIONS = [
   'app_is_staff',
   'app_agency_verified',
   'app_preferring_agencies',
+  'app_partition_maintenance',
 ] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
@@ -33,6 +34,8 @@ export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'a
 export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'app_public', 'app_auth', 'app_staff'];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+/** `immutable` tables (S1-08): read and append, never change or remove. */
+const APPEND_READ: Privilege[] = ['SELECT', 'INSERT'];
 
 /** `auth` predicates start with `agency_id = app_agency()` or `user_id = app_user_id()`, then only `and …`. */
 const AUTH_PIN = /^(agency_id = app_agency\(\)|user_id = app_user_id\(\))(\s+and\s+[\s\S]+)?$/;
@@ -41,6 +44,11 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
   if ('kind' in def) {
     if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
     if (def.authAppend && !def.appendOnly) throw new Error(`${name}: authAppend is only valid for appendOnly tables`);
+    if (def.userInsert !== undefined && !def.immutable)
+      throw new Error(`${name}: userInsert is only valid for immutable tables`);
+    if (def.immutable && (def.auth?.update !== undefined || def.staff?.update !== undefined)) {
+      throw new Error(`${name}: an immutable table cannot open UPDATE to app_auth or app_staff`);
+    }
     if (
       def.authAppend &&
       (!IDENT.test(def.authAppend.column) || !/^[a-z][a-zA-Z0-9]*\.$/.test(def.authAppend.prefix))
@@ -77,10 +85,10 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_staff: [],
     };
   }
-  const user: Privilege[] = def.appendOnly ? ['INSERT'] : DML;
+  const user: Privilege[] = def.appendOnly ? ['INSERT'] : def.immutable ? APPEND_READ : DML;
   return {
     app_user: user,
-    app_system: DML,
+    app_system: def.immutable ? APPEND_READ : DML,
     app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [],
     app_auth: def.authAppend ? ['INSERT'] : authPrivileges(def.auth),
     app_staff: authPrivileges(def.staff),
@@ -92,6 +100,10 @@ const AUTH_COMMANDS = [
   ['insert', 'INSERT'],
   ['update', 'UPDATE'],
 ] as const satisfies readonly (readonly [keyof AuthAccess, Privilege])[];
+
+function grantList(privileges: Privilege[]): string {
+  return privileges.join(', ').toLowerCase();
+}
 
 function authPrivileges(auth: AuthAccess | StaffAccess | undefined): Privilege[] {
   return AUTH_COMMANDS.filter(([key]) => auth?.[key] !== undefined).map(([, priv]) => priv);
@@ -180,10 +192,17 @@ export function helperSql(): string {
   as $$ select p.agency_id from public.preferred_agencies p
       join public.agency_directory d on d.agency_id = p.agency_id and d.listed
      where p.preferred_agency_id = public.app_agency() $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies() from public;`,
+    // S1-08: pg_partman maintenance (create the months ahead) for `app_system`'s recurring worker job.
+    // Owned by app_owner (who owns the partitioned parents), so SECURITY DEFINER with a fixed search_path;
+    // it takes no input and only runs partman's maintenance. Partman lives in its own schema (initdb).
+    `create or replace function app_partition_maintenance() returns void language plpgsql security definer
+  set search_path = pg_catalog, pg_temp set lock_timeout = '5s'
+  as $$ begin perform partman.run_maintenance(p_analyze := false, p_jobmon := false); end $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_is_staff() to app_staff;`,
     `grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;`,
+    `grant execute on function app_partition_maintenance() to app_system;`,
   ].join('\n');
 }
 
@@ -194,7 +213,10 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     def.appendOnly
       ? `create policy own_rows on ${t} for insert to app_user
   with check (agency_id = app_agency());`
-      : `create policy own_rows on ${t} to app_user
+      : def.userInsert !== undefined
+        ? `create policy own_rows on ${t} to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency() and (${predicate(name, def.userInsert)}));`
+        : `create policy own_rows on ${t} to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
   ];
   if (def.kind === 'NETWORK_READ') {
@@ -210,10 +232,8 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   }
   out.push(
     `revoke all on table ${t} from ${APP_ROLES};`,
-    def.appendOnly
-      ? `grant insert on table ${t} to app_user;
-grant select, insert, update, delete on table ${t} to app_system;`
-      : `grant select, insert, update, delete on table ${t} to app_user, app_system;`,
+    `grant ${grantList(expectedPrivileges(def).app_user)} on table ${t} to app_user;`,
+    `grant ${grantList(expectedPrivileges(def).app_system)} on table ${t} to app_system;`,
   );
   if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);
   if (def.authAppend) {
