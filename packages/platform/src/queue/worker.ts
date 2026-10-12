@@ -7,8 +7,10 @@ import type { JobDef, StoredJob } from './jobs';
 export interface PoolOptions {
   /** Jobs in flight per process. */
   concurrency?: number;
-  /** Delay before a job retries when its group is at `concurrencyPerGroup`. */
+  /** First delay before a job retries when its group is at `concurrencyPerGroup`; doubles per retry. */
   groupRetryMs?: number;
+  /** Longest over-cap retry delay (before jitter). */
+  groupRetryMaxMs?: number;
   /** Graceful shutdown budget before in-flight jobs are abandoned (they are retried as stalled). */
   shutdownMs?: number;
 }
@@ -23,6 +25,17 @@ export interface PoolHandle {
 
 /** Waits between scheduler upsert attempts (then gives up and reports). */
 const SCHEDULE_RETRY_MS = [1_000, 5_000, 30_000, 120_000];
+
+/**
+ * Delay before the `attempt`-th (1-based) retry of a job whose group is at its cap: doubles from `baseMs`
+ * up to `maxMs`, plus up to as much again as jitter. Re-delaying at a fixed interval made every waiting
+ * job of a flooded group poll the cap in lockstep (S1-F3); growing delays keep the worker slots for
+ * groups that can run.
+ */
+export function groupRetryDelay(attempt: number, baseMs: number, maxMs: number, random = Math.random()): number {
+  const backoff = Math.min(baseMs * 2 ** Math.max(attempt - 1, 0), maxMs);
+  return backoff + Math.floor(random * backoff);
+}
 
 async function withRetry<T>(delays: readonly number[], fn: () => Promise<T>): Promise<T> {
   for (const delay of delays) {
@@ -66,10 +79,14 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   }
   const log = queueLogger().child({ pool });
   const groupRetryMs = options.groupRetryMs ?? 250;
+  const groupRetryMaxMs = Math.max(options.groupRetryMaxMs ?? 5_000, groupRetryMs);
   const controllers = new Set<AbortController>();
+  /** Over-cap retries so far per job id (this process); cleared when the job runs, dead-letters or releases. */
+  const capWaits = new Map<string, number>();
 
   let deadLettered = 0;
   async function deadLetter(job: Job<StoredJob>, error: string): Promise<void> {
+    capWaits.delete(job.id as string);
     const dlq = queueFor(deadLetterQueue(pool));
     await dlq.add(
       job.name,
@@ -89,6 +106,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
 
   /** Fair-share cleanup for a job whose payload may be invalid (best effort; leftovers expire within a day). */
   async function releaseFairness(job: Job<StoredJob>, def: JobDef | undefined): Promise<void> {
+    capWaits.delete(job.id as string);
     if (!def?.spec.group) return;
     let group: string;
     try {
@@ -119,10 +137,13 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     if (fair && group !== undefined && spec.concurrencyPerGroup) {
       const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, def.timeoutMs + 60_000);
       if (!ok) {
-        await job.moveToDelayed(Date.now() + groupRetryMs + Math.floor(Math.random() * groupRetryMs), token);
+        const attempt = (capWaits.get(job.id as string) ?? 0) + 1;
+        capWaits.set(job.id as string, attempt);
+        await job.moveToDelayed(Date.now() + groupRetryDelay(attempt, groupRetryMs, groupRetryMaxMs), token);
         throw new DelayedError();
       }
     }
+    capWaits.delete(job.id as string);
 
     const controller = new AbortController();
     controllers.add(controller);

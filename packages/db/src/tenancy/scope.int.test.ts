@@ -4,7 +4,8 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDb } from '../../test/test-db';
 import { closeDb, configureDb, dbConfig, getDb, getPgClient } from '../client';
-import { withPublicRead, withSystem, withSystemClient, withTenant } from './scope';
+import { countQueries } from '../query-count';
+import { withGlobalRead, withPublicRead, withSystem, withSystemClient, withTenant } from './scope';
 
 type Row = Record<string, unknown>;
 const first = (res: { rows: unknown[] }) => res.rows[0] as Row;
@@ -48,6 +49,64 @@ describe('withTenant', () => {
       }
     }
     expect(sameServerConnection).toBe(true);
+  });
+
+  it('[S1-F3] withTenant with one query issues one round trip plus commit: the settings ride in BEGIN', async () => {
+    const agencyId = newId();
+    const userId = newId();
+    let seen: Record<string, unknown> | undefined;
+    const statements = await countQueries(() =>
+      withTenant({ agencyId, userId }, async (tx) => {
+        const { rows } = await tx.execute(sql`select current_setting('app.agency_id', true) as agency,
+                                                 current_setting('app.user_id', true) as "user",
+                                                 current_setting('app.impersonated_by', true) as imp`);
+        seen = rows[0];
+      }),
+    );
+    expect(seen).toEqual({ agency: agencyId, user: userId, imp: '' });
+    expect(statements).toBe(1);
+    // begin + set_config as one round trip, the query, commit.
+    const roundTrips = await countQueries(() => withTenant({ agencyId }, (tx) => tx.execute(sql`select 1`)), {
+      includeTransactionControl: true,
+    });
+    expect(roundTrips).toBe(3);
+    // The pooled client comes back exactly as found: no own `query` hook (a stored bind would grow per use).
+    const client = await getPgClient('app_user');
+    try {
+      expect(Object.hasOwn(client, 'query')).toBe(false);
+    } finally {
+      client.release();
+    }
+  });
+
+  it('[S1-F3] withSystem and withStaff fold their settings the same way, with the reason escaped as a literal', async () => {
+    const reason = "test; drop table outbox_events; -- it's 'quoted' \\ back\\slash";
+    await configureDb({ ...dbConfig(), APP_ROLE: 'worker' });
+    let seen: unknown;
+    const statements = await countQueries(() =>
+      withSystem(reason, async (tx) => {
+        const { rows } = await tx.execute(sql`select current_setting('app.system_reason', true) as r`);
+        seen = rows[0]?.r;
+      }),
+    );
+    expect(seen).toBe(reason);
+    expect(statements).toBe(1);
+    // A failing transaction still rolls back cleanly and the pooled connection is reusable.
+    await expect(withSystem('test.fail', (tx) => tx.execute(sql`select 1/0`))).rejects.toThrow();
+    await expect(withSystem('test.after', (tx) => tx.execute(sql`select 1 as n`))).resolves.toBeTruthy();
+    await configureDb({ ...dbConfig(), APP_ROLE: 'http' });
+  });
+
+  it('[S1-F3] withGlobalRead is a read-only app_user transaction with no tenant', async () => {
+    await withGlobalRead(async (tx) => {
+      const { rows } = await tx.execute(
+        sql`select current_user as role, current_setting('app.agency_id', true) as agency, current_setting('transaction_read_only') as ro`,
+      );
+      expect(rows[0]).toEqual({ role: 'app_user', agency: '', ro: 'on' });
+    });
+    await expect(
+      withGlobalRead((tx) => tx.execute(sql`insert into feature_flags (key, enabled) values ('test.x', false)`)),
+    ).rejects.toThrow();
   });
 
   it('[S0-04] runs as app_user without BYPASSRLS', async () => {

@@ -11,6 +11,7 @@ export {
   type Tx,
 } from './client';
 export { loadStackEnv } from './env-file';
+export { type CountQueriesOptions, countQueries } from './query-count';
 export { DB_ROLES, type DbRoleName, type RuntimeRole } from './roles';
 export { checkRls } from './tenancy/guard';
 export {
@@ -33,6 +34,7 @@ export {
   setAuthScope,
   type TenantScope,
   withAuth,
+  withGlobalRead,
   withPublicRead,
   withStaff,
   withSystem,

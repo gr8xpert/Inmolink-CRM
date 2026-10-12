@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineJob, stableJobId } from './index';
+import { groupRetryDelay } from './worker';
 
 const payload = z.object({ id: z.string() });
 
@@ -34,5 +35,18 @@ describe('queue definitions', () => {
     );
     const def = defineJob({ name: 'search.reindex', pool: 'indexing', payload, run });
     expect(def).toMatchObject({ name: 'search.reindex', pool: 'indexing', attempts: 5, timeoutMs: 600_000 });
+  });
+});
+
+describe('fair share over-cap backoff', () => {
+  it('[S1-F3] over-cap retries back off geometrically up to the cap, with jitter below one more step', () => {
+    expect(groupRetryDelay(1, 250, 5_000, 0)).toBe(250);
+    expect(groupRetryDelay(2, 250, 5_000, 0)).toBe(500);
+    expect(groupRetryDelay(5, 250, 5_000, 0)).toBe(4_000);
+    expect(groupRetryDelay(6, 250, 5_000, 0)).toBe(5_000);
+    expect(groupRetryDelay(40, 250, 5_000, 0)).toBe(5_000); // no overflow past the cap
+    const jittered = groupRetryDelay(3, 250, 5_000, 0.999);
+    expect(jittered).toBeGreaterThanOrEqual(1_000);
+    expect(jittered).toBeLessThan(2_000);
   });
 });

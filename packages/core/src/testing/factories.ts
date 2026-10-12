@@ -6,6 +6,9 @@ import { sql } from 'drizzle-orm';
 import { authCtx, type Ctx } from '../context';
 import * as identity from '../modules/identity';
 
+/** Query budget checks (PATTERNS §20): statements sent through Drizzle while `fn` runs. */
+export { countQueries } from '@inmolink/db';
+
 /**
  * `ctx` as if staff member `staffUserId` impersonated its user (S1-09), without a session row: sets
  * `app.impersonated_by` on the transaction like `withMemberCtx` does for a live session, so audit rows

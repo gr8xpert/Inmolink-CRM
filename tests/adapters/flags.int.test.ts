@@ -1,7 +1,14 @@
-import { closeDb, type Tx, withSystem, withTenant } from '@inmolink/db';
+import { closeDb, type Tx, withGlobalRead, withSystem, withTenant } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { createFakeClock } from '@inmolink/platform/clock';
-import { configureFlags, flag, invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
+import {
+  configureFlagReader,
+  configureFlags,
+  flag,
+  invalidateFlags,
+  setFlag,
+  setFlagOverride,
+} from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import type { SqlExecutor } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
@@ -38,6 +45,48 @@ afterAll(async () => {
 });
 
 describe('feature flags', () => {
+  it("[S1-F3] a flag read during another request's failed transaction succeeds (reload on its own read)", async () => {
+    await staff((tx) => setFlag(tx, KEY, { enabled: true }));
+    // Postgres refuses every statement of a transaction after one failed; the reload must not be one of them.
+    const aborted = async (tx: Tx) => {
+      await expect(tx.execute(sql`select 1/0`)).rejects.toThrow();
+    };
+    configureFlagReader((fn) => withGlobalRead((tx) => fn(tx)));
+    try {
+      await withTenant({ agencyId: agencyC }, async (tx) => {
+        await aborted(tx);
+        expect(await flag({ tx, tenant: { agencyId: agencyC } }, KEY)).toBe(true);
+      });
+    } finally {
+      configureFlagReader(undefined);
+    }
+    // Without a reader the reload runs on the caller's transaction and fails with it (the S1-F3 bug).
+    invalidateFlags();
+    await withTenant({ agencyId: agencyC }, async (tx) => {
+      await aborted(tx);
+      await expect(flag({ tx, tenant: { agencyId: agencyC } }, KEY)).rejects.toMatchObject({
+        cause: { code: '25P02' },
+      });
+    });
+    await staff((tx) => setFlag(tx, KEY, { enabled: false })); // back to the default the other tests start from
+  });
+
+  it('[S1-F3] an expired snapshot is served while its reload runs or fails (no wait for a pool slot)', async () => {
+    await staff((tx) => setFlag(tx, KEY, { enabled: true }));
+    expect(await asTenant(agencyC)).toBe(true); // warm snapshot
+    clock.advance(61_000); // expired
+    configureFlagReader(() => new Promise(() => {})); // a reload that never completes (saturated pool)
+    try {
+      const t0 = Date.now();
+      expect(await asTenant(agencyC)).toBe(true);
+      expect(Date.now() - t0).toBeLessThan(1_000);
+    } finally {
+      configureFlagReader(undefined);
+      invalidateFlags();
+      await staff((tx) => setFlag(tx, KEY, { enabled: false }));
+    }
+  });
+
   it('[S0-07] flag override for one agency does not affect others', async () => {
     await staff((tx) => setFlagOverride(tx, KEY, agencyA, true));
     expect(await asTenant(agencyA)).toBe(true);

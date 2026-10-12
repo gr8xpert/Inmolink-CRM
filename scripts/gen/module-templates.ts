@@ -49,8 +49,12 @@ import type { Ctx } from '../../context';
 /** Who may do what in ${n.kebab} (PATTERNS §6). Deny by default; services call \`assertCan\`. */
 export type ${n.pascal}Action = '${n.camel}.read';
 
+/** Client Mode is read-only (PATTERNS §6): list every read action here, never a write. */
+export const CLIENT_MODE_ALLOWED: ReadonlySet<${n.pascal}Action> = new Set<${n.pascal}Action>(['${n.camel}.read']);
+
 export function can(ctx: Ctx, action: ${n.pascal}Action, resource?: { agencyId: string }): boolean {
   if (ctx.actor.kind !== 'user') return false;
+  if (ctx.clientMode && !CLIENT_MODE_ALLOWED.has(action)) return false;
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case '${n.camel}.read':
@@ -81,7 +85,7 @@ export const ${n.camel}Errors = [] as const satisfies readonly ErrorCode[];
 `,
     [`${dir}/__tests__/policy.test.ts`]: `import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
-import { can } from '../policy';
+import { CLIENT_MODE_ALLOWED, can } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -108,6 +112,11 @@ describe('${n.kebab} policy', () => {
   it('denies other agencies and non-user actors', () => {
     expect(can(user, '${n.camel}.read', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs({ kind: 'system', reason: 'test' }), '${n.camel}.read')).toBe(false);
+  });
+
+  it('Client Mode is read-only (PATTERNS §6): only read actions are allowed, and they still work', () => {
+    for (const action of CLIENT_MODE_ALLOWED) expect(action).toMatch(/\\.(read|list|get)$/);
+    expect(can({ ...user, clientMode: true }, '${n.camel}.read')).toBe(true);
   });
 });
 `,

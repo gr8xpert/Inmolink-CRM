@@ -1,7 +1,8 @@
 import { type Tx, withAuth, withTenant } from '@inmolink/db';
+import type { UiLocale } from '@inmolink/i18n';
 
-/** Locale code from `packages/i18n` config (S0-11 narrows this). */
-export type Locale = string;
+/** A UI locale code from `packages/i18n` (`locales.json`); validate input with `isUiLocale`. */
+export type Locale = UiLocale;
 /** Plan key from the plan catalog — plans are data, not constants (STATUS decision). */
 export type PlanTier = string;
 /** Role key; the identity module (S1) defines the set. */

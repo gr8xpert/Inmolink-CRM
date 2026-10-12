@@ -27,8 +27,12 @@ interface FlagRow {
 const KEY_RE = /^[a-z][a-z0-9_.-]{1,63}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Runs a short read-only transaction of its own (`withGlobalRead` in `@inmolink/db`). */
+export type FlagReader = <T>(fn: (tx: SqlExecutor) => Promise<T>) => Promise<T>;
+
 let ttlMs = 60_000;
 let flagClock: Clock = processClock;
+let reader: FlagReader | undefined;
 let snapshot: { flags: Map<string, FlagRow>; expiresAt: number } | undefined;
 let reloading: Promise<Map<string, FlagRow>> | undefined;
 /** Bumped by invalidation, so a reload that started before it does not store its stale rows. */
@@ -52,6 +56,17 @@ export function configureFlags(options: { ttlSeconds?: number; clock?: Clock } =
 }
 
 /**
+ * Where reloads run (S1-F3). With a reader, the 60-second reload is a short read of its own instead of a
+ * statement on the first caller's transaction: a request whose transaction has already failed (Postgres
+ * refuses every further statement in it) can still read flags, and does not fail the concurrent requests
+ * that share its reload. Apps set it at boot through `configureDb` in `@inmolink/core`; without it (unit
+ * tests, scripts) the reload runs on the caller's `ctx.tx`.
+ */
+export function configureFlagReader(read: FlagReader | undefined): void {
+  reader = read;
+}
+
+/**
  * Drops this process's copy; the next `flag()` reloads. Call it after the transaction that wrote a
  * flag has committed — inside it, a concurrent request could reload the old rows and keep them 60 s.
  */
@@ -65,13 +80,21 @@ const toSet = (v: unknown): ReadonlySet<string> =>
   new Set(Array.isArray(v) ? v.map((id) => String(id).toLowerCase()) : []);
 
 async function load(tx: SqlExecutor): Promise<Map<string, FlagRow>> {
-  if (snapshot && snapshot.expiresAt > flagClock.nowMs()) return snapshot.flags;
+  const current = snapshot;
+  if (current && current.expiresAt > flagClock.nowMs()) return current.flags;
   // Concurrent requests on an expired snapshot share one reload.
   if (!reloading) {
-    const p = fetchFlags(tx).finally(() => {
+    const read = reader;
+    const p = (read ? read((own) => fetchFlags(own)) : fetchFlags(tx)).finally(() => {
       if (reloading === p) reloading = undefined;
     });
     reloading = p;
+  }
+  // Stale while revalidating (own-read mode): an expired snapshot is served while the reload runs, so a
+  // request never waits for a pool slot the reload cannot get, and a failed reload keeps the last rows.
+  if (current && reader) {
+    reloading.catch(() => undefined);
+    return current.flags;
   }
   return reloading;
 }

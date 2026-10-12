@@ -196,6 +196,8 @@ export async function withSystem<T>(reason: string, fn: (tx: Tx) => Promise<T>) 
 export async function withPublicRead<T>(fn: (tx: Tx) => Promise<T>) { /* role app_public, read-only tx */ }
 ```
 
+The real `withTenant`, `withSystem` and `withStaff` (S1-F3) send the settings in the BEGIN round trip — `begin; select set_config(…), …` as one simple-protocol query with driver-escaped literals — so a request with one query costs three round trips (begin + settings, the query, commit), not four. `countQueries(fn)` (`@inmolink/db`, re-exported by `@inmolink/core/test`) counts the statements Drizzle sends while `fn` runs, excluding `begin`/`commit`/`rollback` unless asked (`{ includeTransactionControl: true }`); budgets in tests are written in statements. `withGlobalRead(fn)` is `app_user`, read-only, no tenant: for global tables every tenant may read (`feature_flags`), and for platform adapters that must not run on a request's transaction — the feature-flag reload uses it (`configureFlagReader`, wired by core's `configureDb`).
+
 ---
 
 ## §4 Context (`ctx`)

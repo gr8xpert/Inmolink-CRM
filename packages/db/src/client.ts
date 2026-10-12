@@ -2,6 +2,7 @@ import { type Config, coreEnv, databaseEnv, loadConfig } from '@inmolink/platfor
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
+import { queryLogger } from './query-count';
 import type { RuntimeRole } from './roles';
 
 /**
@@ -76,6 +77,8 @@ export function getDb(role: RuntimeRole): Db {
     if (!connectionString) throw new Error(`${ROLE_URL[role]} is not set; ${role} is unavailable in this process`);
     const pool = new pg.Pool({
       connectionString,
+      // Literal escaping in tenancy/scope.ts (`escapeLiteral`) is byte-safe only under UTF-8.
+      client_encoding: 'UTF8',
       max: poolOptions.max ?? 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 5_000,
@@ -89,7 +92,7 @@ export function getDb(role: RuntimeRole): Db {
     pool.on('connect', (client) => {
       client.on('error', (err) => dbLogger().warn({ err, role }, 'pg client error'));
     });
-    db = drizzle({ client: pool });
+    db = drizzle({ client: pool, logger: queryLogger() });
     dbs.set(role, db);
   }
   return db;
