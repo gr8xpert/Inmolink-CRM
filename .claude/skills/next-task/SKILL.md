@@ -1,39 +1,30 @@
 ---
 name: next-task
-description: Build the next Inmolink backlog task end to end — pick it from docs/build/STATUS.md, implement it to the Definition of Done, verify, update status and commit. Use when asked to continue the build or work on the next (or a named) task.
+description: Build the next Inmolink backlog task on Sonnet. Loads only that task via scripts/task-brief.mjs, hands hard tasks (hot-path, security, foundation) to /next-task-hard, otherwise builds, verifies, records and commits. Use when asked to continue the build.
 argument-hint: "[task-id]"
 disable-model-invocation: true
+model: sonnet
+effort: medium
 ---
 
-# Build the next task
+# Next task (routine tasks, Sonnet)
 
-Target task: `$ARGUMENTS` if given, otherwise the task under **Now** in `docs/build/STATUS.md`, otherwise the first `TODO` task (in sprint order) whose dependencies are all `DONE`.
+1. **Load the brief — nothing else.** Run `node scripts/task-brief.mjs $ARGUMENTS`.
+   It prints the task (the one under **Now** in STATUS if no ID is given), its dependency states, the recommended model, and only the PLAN.md / PATTERNS.md excerpts the task cites.
+   Do NOT open PLAN.md, BACKLOG-R1.md or BACKLOG-R2-R4.md. If you need another PATTERNS section, Grep its heading (`## §7 `) and read only that section.
 
-1. **Load only what you need**
-   - The task block in `docs/build/BACKLOG-R1.md` or `docs/build/BACKLOG-R2-R4.md`.
-   - The PLAN.md sections listed in its `Ref:` line.
-   - The `docs/build/PATTERNS.md` sections for the layers you will touch.
-   - Existing code of the module you are changing (start from its `index.ts`).
+2. **Route.** If the brief says `Recommended model: OPUS`, stop immediately and reply with exactly one line:
+   `<ID> is a hard task. Run: /next-task-hard <ID>`
+   Do nothing else in this turn.
 
-2. **Check readiness**
-   - All `Depends:` tasks are `DONE`. If not, switch to the dependency.
-   - If it needs a human input marked `[Hn]` that is missing, build against fixtures/mocks behind a feature flag, then mark it `BLOCKED-HUMAN Hn` with what is left.
+3. **Readiness.** A dependency not `DONE` → work on that dependency instead (re-run step 1 with its ID). A missing `[Hn]` input → build against fixtures/mocks behind a flag and mark the task `BLOCKED-HUMAN Hn` at the end.
 
-3. **Plan (short, in the conversation)**
-   - Files to add/change per layer (schema → repo → service → events/jobs → contracts → routes → UI → tests).
-   - One test name per acceptance check: `[<task-id>] <check>`.
+4. **Build.** Short plan (files per layer + one test name per acceptance check), then implement following the PATTERNS shapes. Read only the files of the module you are changing; don't re-read files you just wrote; don't explore unrelated modules.
 
-4. **Implement** following PATTERNS. New module → run `/new-module <name>` first.
+5. **Verify.** `pnpm verify` (quiet output: failures only). Fix until green. If you need detail on one failing test, re-run only that test.
 
-5. **Verify**
-   - `pnpm db:generate && pnpm db:migrate && pnpm db:rls` if the schema changed.
-   - `pnpm verify` until green.
-   - If the task touches a hot path (feed-api, search, imports, matching, media, read models, list endpoints): run `/perf-check` and fix any budget breach.
-   - Reviews: run `code-reviewer` only for ⚡ or 🔒 tasks or tasks that create a new module; run `security-auditor` only for 🔒 tasks. For every other task self-check the diff against the Definition of Done in CLAUDE.md instead of spawning reviewers. Fix every "must fix".
+6. **Review.** Run the `code-reviewer` subagent only if this task created a new module. Otherwise check your diff against the Definition of Done in CLAUDE.md yourself.
 
-6. **Record**
-   - `docs/build/STATUS.md`: mark the task `DONE` with a one-line summary (and perf numbers for hot paths), add any assumptions under **Decisions**, put the next task under **Now**.
-   - `CHANGELOG.md`: one line under Unreleased.
-   - Commit: `feat(<module>): <summary> [<task-id>]` (use `fix`, `chore`, `docs`, `perf`, `test` as appropriate).
+7. **Record.** STATUS.md (task → `DONE` + one-line summary, next task under **Now**), one CHANGELOG line, commit `feat(<module>): <summary> [<ID>]`.
 
-7. **Report** in three lines: what was built, verification result, next task. If context is long, suggest `/clear` before continuing.
+8. **Report** in three lines (built · verify result · next task), then end with: `Run /clear, then /next-task.`

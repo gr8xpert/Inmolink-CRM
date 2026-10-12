@@ -23,4 +23,4 @@ Output:
 - **Must fix** — correctness, boundary, security or budget violations (file:line, what, why, concrete fix)
 - **Should fix** — maintainability issues worth a follow-up task
 - **Good** — one or two lines on what is solid (keeps patterns reinforced)
-Keep it concise. If there are no must-fix items, say so explicitly.
+Report in at most 30 lines: each finding as `file:line — defect — one-line fix`, grouped must-fix / should-fix; no narrative, no restating the diff. If there are no must-fix items, say so explicitly.

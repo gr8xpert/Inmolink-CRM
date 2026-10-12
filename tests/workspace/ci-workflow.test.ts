@@ -58,7 +58,12 @@ describe('CI workflow', () => {
   });
 
   it('[S0-14] covers every task of pnpm verify, plus i18n, build and the migration check', () => {
-    const verifyTasks = rootPkg.scripts.verify?.replace('turbo run ', '').replace('--affected', '').trim().split(/\s+/);
+    // Turbo flags (`--affected`, `--output-logs=…`) are not tasks.
+    const verifyTasks = rootPkg.scripts.verify
+      ?.replace('turbo run ', '')
+      .trim()
+      .split(/\s+/)
+      .filter((token) => !token.startsWith('--'));
     expect(verifyTasks?.length).toBeGreaterThan(5);
     for (const task of verifyTasks ?? []) {
       const ran = new RegExp(`(turbo run [^\\n]*\\b${task}(?=\\s|$)|pnpm ${task}(?=\\s|$))`, 'm').test(allRuns);

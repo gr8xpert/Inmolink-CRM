@@ -17,4 +17,4 @@ Steps:
 6. Frontend: first-load JS for changed routes vs budget; heavy libraries statically imported.
 7. Workers: batch sizes, idempotency, fair-share group keys, transactions spanning network calls, memory growth.
 
-Output a table: area · finding · measured/estimated impact · budget · fix. Then a one-line verdict: PASS or FAIL against budgets.
+Output a table: area · finding · measured/estimated impact · budget · fix. Then a one-line verdict: PASS or FAIL against budgets. At most 30 lines in total; no narrative, no restating the diff or the checks that passed.

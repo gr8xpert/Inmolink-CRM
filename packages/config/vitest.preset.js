@@ -22,6 +22,9 @@ export function inmolinkProject(options = {}) {
     },
     test: {
       environment: options.environment ?? 'node',
+      // Forks (the default): a worker crash (0xC0000409 on Windows under a parallel `verify`) then
+      // kills one fork, not the whole run — with `threads` the core int suite died at startup twice.
+      // `pnpm verify` caps Turbo at 4 parallel tasks for the same reason.
       include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
       // Sized for a full, non-affected `verify` on one machine (S1-F1): boot tests and `setupTestDb`
       // hooks blew Vitest's 5 s / 10 s defaults under parallel load and passed alone. Same as the

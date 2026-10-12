@@ -51,7 +51,15 @@
       "cache": false
     },
     "//#test:isolation": {
-      "dependsOn": ["^test:int"],
+      "dependsOn": [
+        "^test:int",
+        "@inmolink/db#test:int",
+        "@inmolink/core#test:int",
+        "@inmolink/app-api#test:int",
+        "@inmolink/app-web#test:int",
+        "@inmolink/app-worker#test:int",
+        "@inmolink/app-feed-api#test:int"
+      ],
       "cache": false
     }
   }

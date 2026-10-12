@@ -20,4 +20,4 @@ Check:
 7. **Webhooks & payments**: signature verified on the raw body; idempotent by event ID.
 8. **White-label**: client-facing outputs (feed-api, selections, portal, PDFs, emails, chatbot) never include owner agency, commission, owner contacts or internal notes; Client Mode strips them server-side.
 
-Output: **Critical / High / Medium / Low** findings with file:line, exploit scenario in one sentence, and the fix. State explicitly if nothing Critical or High was found.
+Output: **Critical / High / Medium / Low** findings with file:line, exploit scenario in one sentence, and the fix. State explicitly if nothing Critical or High was found. Report in at most 30 lines: each finding as `file:line — defect — one-line fix`; no narrative, no restating the diff or the checks that passed.
