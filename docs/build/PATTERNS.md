@@ -74,8 +74,9 @@ export const properties = pgTable('properties', {
   shareScope: shareScopeEnum('share_scope').notNull().default('ALL'),
   priceCents: bigint('price_cents', { mode: 'number' }),
   currency: char('currency', { length: 3 }).notNull().default('EUR'),
-  shareCommissionBp: integer('share_commission_bp'),
-  shareCommissionFixedCents: bigint('share_commission_fixed_cents', { mode: 'number' }),
+  commissionBp: integer('commission_bp'),            // total commission, basis points of the sale price (agency default 500 = 5 %)
+  commissionFixedCents: bigint('commission_fixed_cents', { mode: 'number' }), // a fixed amount instead of a %
+  splitBp: integer('split_bp'),                      // collaborating agent's share of it (agency default 5000 = 50/50)
   builtM2: numeric('built_m2', { precision: 10, scale: 2 }),
   bedrooms: integer('bedrooms'),
   locationId: uuid('location_id').notNull(),
@@ -391,7 +392,7 @@ import { Money, Cursor, Locale } from './common';
 export const ListingDto = z.object({
   id: z.string().uuid(), ref: z.string(), status: z.enum(['DRAFT','ACTIVE','UNDER_OFFER','SOLD','RENTED','WITHDRAWN']),
   visibility: z.enum(['PRIVATE','SHARED','PUBLIC']), price: Money.nullable(),
-  shareCommission: z.object({ bp: z.number().int().nullable(), fixed: Money.nullable() }).nullable(), // null in Client Mode
+  commission: z.object({ bp: z.number().int().nullable(), fixed: Money.nullable(), splitBp: z.number().int() }).nullable(), // null in Client Mode
   version: z.number().int(), updatedAt: z.string().datetime(),
 });
 export type ListingDto = z.infer<typeof ListingDto>;

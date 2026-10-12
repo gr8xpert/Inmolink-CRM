@@ -190,7 +190,7 @@ Ref §3 #30 §9.1 · Mod identity · Dep S1-03 · 🔒
 
 ### S1-06 · Agency profile and settings
 Ref §6 Identity §3 #7 #8 · Mod agencies · Dep S1-01
-**Build:** profile (logo, colours, contact, register number, languages, translations), settings (default commission, registration validity days, viewing response days, enabled locales, white-label options, Client Mode PIN policy).
+**Build:** profile (logo, colours, contact, register number, languages, translations), settings (default commission, registration validity days, viewing response days, enabled locales, white-label options, Client Mode PIN policy). Commission defaults (5 % and a 50/50 split): S1-06-F1.
 **Done when:**
 - Settings changes emit `agencies.settings.changed` and invalidate cached settings
 - Logo upload goes through the media pipeline once S3-03 exists (stub until then)
@@ -294,6 +294,13 @@ Ref §7 M20 §12 · Mod identity, agencies, compliance, web · Dep S1-09
 - Agency admins can see when staff accessed their account and why
 - The staff e2e spec runs green in CI
 
+### S1-06-F1 · Commission defaults in agency settings
+Ref §3 #7 §6 Identity · Mod agencies · Dep S1-06
+**Build:** `AgencySettings` gains `default_commission_bp` (500 = 5 % of the sale price) and `default_split_bp` (5000 = the collaborating agent's share is 50 %); settings API and form expose them as percentages, stored as basis points; migration backfills existing agencies with the defaults. Listings copy them on create and import (S3-02).
+**Done when:**
+- A new agency's settings read 5 % commission (`default_commission_bp` 500) and a 50 % split (`default_split_bp` 5000)
+- The split accepts 0–100 % and rejects anything else
+
 ---
 
 ## S2 — Taxonomy & i18n
@@ -345,13 +352,14 @@ Ref §6 Properties · Mod properties · Dep S2-03
 
 ### S3-02 · Listing service
 Ref §3 #4 #7 #18 #34 #57 §7 M2 · Mod properties · Dep S3-01 S1-07
-**Build:** create/update/soft-delete/restore (30 days), status lifecycle, visibility + share scope (verification gate), per-listing share commission (bp or fixed, VAT flag), field locks, optimistic `version`, price/status history, events, CEE energy rating required for PUBLIC. Dashboard API routes.
+**Build:** create/update/soft-delete/restore (30 days), status lifecycle, visibility + share scope (verification gate), per-listing commission (`commission_bp` = total % of the sale price, or `commission_fixed_cents`; VAT flag) and `split_bp` (the collaborating agent's share), both defaulting from agency settings, field locks, optimistic `version`, price/status history, events, CEE energy rating required for PUBLIC. Dashboard API routes.
 **Done when:**
 - Only the owner agency writes; agents edit only their own listings unless AGENCY_ADMIN
 - PUBLIC without CEE rating fails with `ENERGY_RATING_REQUIRED`
 - Stale `version` → 409; history rows written for price and status changes
 - PREFERRED scope visible only to agencies that list the owner as preferred
 - `properties.listing.*` events emitted in the same transaction
+- New and imported listings get the agency defaults (`commission_bp` 500, `split_bp` 5000) unless the agent sets their own; `split_bp` accepts 0–100 % only
 - Note (S1-01): SHARED/PUBLIC visibility calls `agencies.assertVerified(ctx, 'listing.share' | 'listing.publish')`.
 
 ### S3-03 · Media upload pipeline
@@ -465,10 +473,11 @@ Ref §5.4 · Mod search · Dep S5-02
 
 ### S5-05 · Network search
 Ref §3 #5 #7 #57 §7 M10 · Mod search, web · Dep S5-03 S1-07 · ⚡
-**Build:** network search API + UI: commission shown, owner agency (agent-side only), filters incl. preferred agencies only, new-builds, map view (dynamic import), bookmarks; give-to-get gate (threshold from config, grace period, exemption flag).
+**Build:** network search API + UI: commission shown as the total %, the split and the viewer's own earnings, owner agency (agent-side only), filters incl. preferred agencies only, new-builds, map view (dynamic import), bookmarks; give-to-get gate (threshold from config, grace period, exemption flag).
 **Done when:**
 - Agency below the give-to-get threshold after grace sees a clear upsell state, not results
 - Results never include PRIVATE listings or PREFERRED listings from non-preferring owners
+- Each result shows the total commission %, the split and the viewer's own earnings (price × `commission_bp` × `split_bp`, or the fixed amount × `split_bp`), computed from the listing's values
 - API p95 < 300 ms on the scale seed
 
 ### S5-06 · Saved searches and alerts
@@ -724,6 +733,7 @@ Ref §3 #9 §7 M10 · Mod mls · Dep S11-01
 **Build:** request → accept/decline/reschedule → scheduled → outcome; terms snapshot (commission, split, VAT, validity) accepted by both sides; immutable; simple PDF of accepted terms via PDF service when available (stub until S12-05); expiry job.
 **Done when:**
 - Terms snapshot cannot change after both acceptances (DB constraint + test)
+- The snapshot stores `commission_bp` and `split_bp` (or the fixed amount) and the VAT flag as of acceptance
 - Unanswered requests expire after the configured days and notify both sides
 
 ### S11-03 · Chat

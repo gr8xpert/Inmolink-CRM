@@ -32,7 +32,7 @@ Ref §3 #13 §10 · Mod dedupe · Dep S3-04 R2-01 · ⚡
 Ref §3 #10 §7 M10 · Mod mls · Dep S11-02 S11-03
 **Build:** deals created from accepted viewings; stages OFFER → RESERVATION → ARRAS → COMPLETION (+ FELL_THROUGH); documents, tasks, chat thread; commission amounts computed from the snapshot; handshake at completion; dispute + staff mediation UI.
 **Done when:**
-- Commission split amounts match the snapshot to the cent (property tests)
+- Commission amounts are computed from the snapshot — total = price × `commission_bp` (or the fixed amount), the collaborating agent's share = total × `split_bp` — and match it to the cent (property tests)
 - Completed deals are immutable except via audited staff mediation
 
 ### R2-05 · Forms library and e-signature

@@ -119,7 +119,7 @@
 | 4 | Visibility | PRIVATE (owner) / SHARED (verified agents) / PUBLIC (marketplace + websites + portals) | |
 | 5 | Give-to-get | Network search requires ≥ N active SHARED listings (default 5, 30-day grace for new agencies); staff can flag buyer-only agencies as exempt | Δ |
 | 6 | Branding | Agent-to-agent surfaces show the listing owner. **Every client-facing output** (websites, selections, PDFs, window cards, client emails, chatbot) is white-labelled to the presenting agency | Δ replaces v1 #5 |
-| 7 | Commission | Per listing: shareable commission set by the owner (PCT or FIXED, IVA flag), default from agency settings. New-builds: set by developer per development or unit | Δ |
+| 7 | Commission | Per listing: `commission_bp` = total commission as a percentage of the sale price (basis points, default 500 = 5 %) and `split_bp` = the collaborating agent's share of that commission (default 5000 = 50/50); a fixed amount (`commission_fixed_cents`) stays an option; IVA flag. The defaults live in agency settings (5 % and 50 %); agents change them per listing. New-builds: set by developer per development or unit | Δ |
 | 8 | Client registration | Introducer registers a client to a property/development. Unique by (target, client fingerprint); first valid registration wins; validity configurable (default 6 months) | Δ |
 | 9 | Terms acceptance | Commission + split snapshot accepted by both sides when a viewing request is accepted. Immutable, PDF + audit trail. E-signature in R2 | Δ |
 | 10 | Deal stages | OFFER → RESERVATION → ARRAS → COMPLETION (+ FELL_THROUGH). Handshake at completion; disputes → staff mediation | Δ |
@@ -403,7 +403,7 @@ inmolink/
 > Drizzle schema lives in `packages/db/src/schema/<module>.ts` (one file per owning module). Every tenant-owned table carries `agency_id` and is registered in the tenant-table registry, which generates its RLS policy and cross-tenant tests (§3 #53). Tables marked **[P]** are range-partitioned by month from day 1. Names below are logical (PascalCase); physical tables are snake_case plural.
 
 **Identity & tenancy**
-- `Agency` (kind AGENCY/DEVELOPER/PARTNER, status PENDING/VERIFIED/SUSPENDED, cif, registerNumber, region, planTier, seats) · `AgencyTranslation` · `AgencySettings` (default commission, registration validity days, viewing response days, enabled locales, white-label options, give-to-get exemption) · `AgencyVerification` (documents, reviewer, decision)
+- `Agency` (kind AGENCY/DEVELOPER/PARTNER, status PENDING/VERIFIED/SUSPENDED, cif, registerNumber, region, planTier, seats) · `AgencyTranslation` · `AgencySettings` (default commission 5 % and default split 50 % — `default_commission_bp`, `default_split_bp` — registration validity days, viewing response days, enabled locales, white-label options, give-to-get exemption) · `AgencyVerification` (documents, reviewer, decision)
 - `User` · `UserSettings` (incl. clientModePinHash) · `AgencyInvite` · `ApiKey` (prefix, hash, scopes, allowed origins, rate tier, lastUsedAt) · `FeatureFlag` (key, scope, value)
 - `PreferredAgency` (agencyId, preferredAgencyId, note) **2.1** · `OnboardingProgress` (userId, checklist step states, tour states) **2.1**
 
@@ -412,7 +412,7 @@ inmolink/
 - `PropertyTypeGroup` · `PropertyType` · `PropertyTypeAlias` · `FeatureGroup` · `Feature` · `FeatureAlias` · uniform `*Translation` tables
 
 **Properties & media**
-- `Property` — ownerAgencyId, ownerUserId, source, externalRef, legacyId, status, visibility, transactionType, price, priceOnRequest, **shareCommissionType/Value/includesVat**, specs (built/plot/terrace m², beds, baths, year), energyRating (CEE), cadastralRef (private), lat/lng + locationPrecision (EXACT/APPROX), propertyTypeId, locationId, developmentId?, unitId?, **shareScope ALL/PREFERRED** (2.1), duplicateClusterId, isCanonical, qualityScore, lastConfirmedAt, lockedFields, version
+- `Property` — ownerAgencyId, ownerUserId, source, externalRef, legacyId, status, visibility, transactionType, price, priceOnRequest, **commission_bp (total % of the sale price, default from agency settings = 500) / commission_fixed_cents (fixed amount instead of a %) / split_bp (collaborating agent's share, default 5000 = 50/50) / includesVat**, specs (built/plot/terrace m², beds, baths, year), energyRating (CEE), cadastralRef (private), lat/lng + locationPrecision (EXACT/APPROX), propertyTypeId, locationId, developmentId?, unitId?, **shareScope ALL/PREFERRED** (2.1), duplicateClusterId, isCanonical, qualityScore, lastConfirmedAt, lockedFields, version
 - `PropertyTranslation` (title, description, slug, meta, origin HUMAN/AI_DRAFT/REVIEWED, locked) · `PropertyFeature`
 - `MediaObject` (sha256 UNIQUE, phash, bytes, mime, width, height, duration, refCount, pipelineVersion, variantsReady bitmask, aiTags, scheduledDeleteAt). Variant keys are deterministic: `v{pipeline}/{sha}/{size}.webp` — **no variant table** (saves ~4 rows per image ≈ 240M rows at ceiling)
 - `PropertyMedia` (kind IMAGE/FLOOR_PLAN/VIDEO/DOCUMENT, mediaObjectId, position, isCover, altText, roomType)
@@ -442,7 +442,7 @@ inmolink/
 **MLS collaboration**
 - `ClientRegistration` (target, introducerAgencyId, clientFingerprint = HMAC of normalized email/phone, encrypted client details, status, validUntil)
 - `ViewingRequest` (target, owner/introducer, registrationId, preferred dates, scheduledAt, status, outcome, termsSnapshot, termsAcceptedAt ×2, agreementPdfMediaId, expiresAt)
-- `Deal` (stage, agreed price, commission snapshot, computed amounts, handshake timestamps, dispute fields) · `DealEvent` · `DealDocument`
+- `Deal` (stage, agreed price, commission snapshot (`commission_bp`, `split_bp` or the fixed amount, VAT flag), computed amounts, handshake timestamps, dispute fields) · `DealEvent` · `DealDocument`
 - `NetworkPost` (type BUYER_REQUEST/PROPERTY_OFFER/DEVELOPER_ANNOUNCEMENT/DISTRESSED, criteria, body, expiresAt) · `NetworkPostReply` · `NetworkSubscription` (filters)
 
 **Chat & notifications**
