@@ -6,6 +6,7 @@ import {
   httpEnv,
   loadConfigOrExit,
   portVar,
+  rateLimitEnv,
   redisEnv,
   searchEnv,
   telemetryEnv,
@@ -21,6 +22,8 @@ export const feedApiEnv = {
   ...telemetryEnv,
   DATABASE_URL_APP_PUBLIC: databaseEnv.DATABASE_URL_APP_PUBLIC,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  /** Rate-limit counters only (S1-F6); production's ACL user reaches no queue key. */
+  ...rateLimitEnv,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,
   /** Search-only key (S1-F5) — never the master key in a request app. */

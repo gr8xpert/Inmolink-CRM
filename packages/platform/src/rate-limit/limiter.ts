@@ -27,7 +27,10 @@ export interface RateLimitResult {
 }
 
 export interface RateLimiterOptions {
-  /** redis-cache: counters are short-lived and losing them under eviction only loosens a limit. */
+  /**
+   * A Redis that never evicts (redis-queue, S1-F6). On an evicting cache, memory pressure would reset
+   * login counters, which an attacker can cause by filling the cache.
+   */
   redis: Redis;
   prefix?: string;
   logger: Logger;

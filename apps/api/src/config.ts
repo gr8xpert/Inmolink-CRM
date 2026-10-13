@@ -7,6 +7,7 @@ import {
   httpEnv,
   loadConfigOrExit,
   portVar,
+  rateLimitEnv,
   redisEnv,
   searchEnv,
   storageEnv,
@@ -15,7 +16,7 @@ import {
 
 /**
  * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
- * routes (S1-03), both Redis instances, search, object storage (verification documents).
+ * routes (S1-03), both Redis instances (rate limits on redis-queue, S1-F6), search, object storage (verification documents).
  */
 export const apiEnv = {
   ...coreEnv,
@@ -28,6 +29,7 @@ export const apiEnv = {
   DATABASE_URL_APP_STAFF: databaseEnv.DATABASE_URL_APP_STAFF.unwrap(),
   ...storageEnv,
   ...redisEnv,
+  ...rateLimitEnv,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
   MEILI_URL: searchEnv.MEILI_URL,
   /** Search-only key (S1-F5) — never the master key in a request app. */

@@ -3,7 +3,7 @@ import { withSystem, withSystemClient } from '@inmolink/db';
 import { CONTENT_LOCALES, DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { sql } from 'drizzle-orm';
 import type pg from 'pg';
-import { type CopyValue, copyNewRows } from './copy';
+import { agenciesPerChunk, type CopyValue, copyNewRows, forEachChunk } from './copy';
 import {
   DEMO_AGENCIES,
   DEMO_ROLES,
@@ -14,6 +14,7 @@ import {
   scaleEmail,
   scaleUserProfiles,
 } from './identity';
+import { PER_AGENCY } from './profile';
 import { createRng, type Rng, seededId } from './rng';
 import type { Seeder } from './seeders';
 
@@ -152,16 +153,13 @@ export const agenciesSeeder: Seeder = {
   },
 
   async scale({ agencies: count, seed, chunk, onProgress }) {
-    let inserted = 0;
-    const ids: string[] = [];
-    for (let start = 0; start < count; start += chunk) {
-      const end = Math.min(count, start + chunk);
+    const ids = Array.from({ length: count }, (_, a) => seededId(seed, 'agencies', a));
+    const write = async (start: number, end: number) => {
       const agencies: CopyValue[][] = [];
       const members: CopyValue[][] = [];
       for (let a = start; a < end; a++) {
         const rng = createRng(seed, `agencies:${a}`);
-        const id = seededId(seed, 'agencies', a);
-        ids.push(id);
+        const id = ids[a] as string;
         const kind = rng.next() < 0.05 ? 'DEVELOPER' : 'AGENCY';
         const status = rng.next() < 0.9 ? 'VERIFIED' : 'PENDING';
         agencies.push(agencyRow(id, a, `Agency ${a}`, kind, status, rng));
@@ -174,9 +172,11 @@ export const agenciesSeeder: Seeder = {
         });
       }
       const res = await withSystemClient('seed.agencies.scale', (client) => writeRows(client, agencies, members));
-      inserted += res.agencies;
-      onProgress?.(end, count);
-    }
+      return res.agencies;
+    };
+    // One agency row plus its members per agency.
+    const step = agenciesPerChunk(chunk, 1 + PER_AGENCY.users);
+    const inserted = await forEachChunk(count, step, write, onProgress);
     return { inserted, total: await countAgencies(ids) };
   },
 };

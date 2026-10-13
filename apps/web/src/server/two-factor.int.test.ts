@@ -6,6 +6,7 @@ import { setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { totpCode, totpStep } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { webConfig } from './env';
 import { LIMITS } from './limits';
@@ -18,10 +19,12 @@ beforeAll(async () => {
   await webConfig();
   // Counting, not latency (see login.int.test.ts).
   await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
 }, 120_000);
 
 afterAll(async () => {
   await closeCache();
+  await closeRateLimit();
   await closeDb();
 });
 

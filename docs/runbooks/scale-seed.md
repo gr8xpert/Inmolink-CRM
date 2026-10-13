@@ -32,9 +32,10 @@ PLAN §15 asks for 2M listings and 60M media in the full design-target dataset. 
 | Run | Where | Time | Notes |
 |---|---|---|---|
 | `--agencies=1000` | local (Windows, Docker PG 18) | 3.3 s; re-run 0.7 s | only `users` exists yet (5,000 rows). The `[S0-13]` perf test enforces < 15 min. |
+| `--agencies=5000` | local (Windows, Docker PG 18) | 4.7–5.2 s: users 1.3–1.9 s, agencies 3.2–3.4 s | S1-F6: about 5k-row chunks, four in flight, buffered COPY. Before: users 6.1 s, agencies 15.0 s (S0 review: users 15.2 s). The `[S1-F6]` perf test keeps users < 3.04 s. |
 | `--agencies=5000` | staging | — | Record the time here on the first staging run (S0-15 / load-test task). |
 
-As each module adds a seeder, re-run `--agencies=1000` and update this table. Each chunk is one transaction under `app_system`'s 60 s statement timeout, and its rows are built in memory. For high-ratio entities (media at about 5,400 rows per agency), use a smaller `--chunk` or a per-seeder chunk size, not a larger one. When a run gets close to the 15-minute budget, generate rows in SQL instead of streaming them from Node (`insert … select … from generate_series(…)`).
+As each module adds a seeder, re-run `--agencies=1000` and update this table. Each chunk is one transaction under `app_system`'s 60 s statement timeout, and its rows are built in memory. Low-ratio seeders write about 5k rows per chunk whatever `--chunk` says, and four chunks run at once (`forEachChunk`), so a run holds up to four app_system connections. For high-ratio entities (media at about 5,400 rows per agency), use a smaller `--chunk` or a per-seeder chunk size, not a larger one. When a run gets close to the 15-minute budget, generate rows in SQL instead of streaming them from Node (`insert … select … from generate_series(…)`).
 
 ### Staging procedure
 

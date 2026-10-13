@@ -18,7 +18,9 @@ const PATTERNS = read('docs/build/PATTERNS.md');
 const STATUS = read('docs/build/STATUS.md');
 const BACKLOGS = ['docs/build/BACKLOG-R1.md', 'docs/build/BACKLOG-R2-R4.md'];
 const MAX_SECTION_LINES = 70;
-const TASK_ID = /\b((?:S\d+|R\d)-\d+[a-z]?)\b/;
+// Matches S1-06, S1-06a, follow-ups S1-F6 and S1-06-F1, and R2-03.
+const ID = String.raw`(?:S\d+|R\d)-F?\d+(?:-F\d+)?[a-z]?`;
+const TASK_ID = new RegExp(String.raw`\b(${ID})\b`);
 
 // ---------- task lookup ----------
 function allTasks() {
@@ -27,7 +29,7 @@ function allTasks() {
     const lines = read(file).split('\n');
     let cur = null;
     for (const line of lines) {
-      const h = line.match(/^### ((?:S\d+|R\d)-\d+[a-z]?) · (.*)$/);
+      const h = line.match(new RegExp(`^### (${ID}) · (.*)$`));
       if (h) {
         cur = { id: h[1], title: h[2], file, lines: [line] };
         tasks.push(cur);
@@ -48,7 +50,7 @@ function statusOf(id) {
 
 function depsOf(task) {
   const m = task.text.match(/· Dep ([^·\n]*)/);
-  return m ? m[1].match(/(?:S\d+|R\d)-\d+[a-z]?/g) || [] : [];
+  return m ? m[1].match(new RegExp(ID, 'g')) || [] : [];
 }
 
 function pickTask(tasks, arg) {

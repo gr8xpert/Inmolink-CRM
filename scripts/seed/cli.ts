@@ -41,7 +41,8 @@ const log = createLogger({ service: `seed:${mode}`, level: process.env.LOG_LEVEL
 function printSummary(report: SeedReport): void {
   for (const [name, r] of Object.entries(report.results)) {
     console.log(
-      `  ${name.padEnd(24)} inserted ${String(r.inserted).padStart(9)}   total ${String(r.total).padStart(9)}`,
+      `  ${name.padEnd(24)} inserted ${String(r.inserted).padStart(9)}   total ${String(r.total).padStart(9)}` +
+        (r.seconds === undefined ? '' : `   ${r.seconds.toFixed(1).padStart(6)} s`),
     );
   }
   console.log(`done in ${report.seconds.toFixed(1)} s`);

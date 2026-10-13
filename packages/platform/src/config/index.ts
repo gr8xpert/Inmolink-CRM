@@ -51,6 +51,14 @@ export const redisEnv = {
   REDIS_CACHE_URL: url(['redis', 'rediss']),
 };
 
+/**
+ * Rate-limit counters (S1-F6): a Redis that never evicts, so memory pressure cannot reset a login limit.
+ * redis-queue in every environment; production connects as an ACL user limited to `inl:rl:*` keys.
+ */
+export const rateLimitEnv = {
+  REDIS_LIMITS_URL: url(['redis', 'rediss']),
+};
+
 /** A listen port with a per-app default; each app names its own variable (`API_PORT`, `FEED_API_PORT`, …). */
 export const portVar = (fallback: number) => z.coerce.number().int().min(0).max(65_535).default(fallback);
 

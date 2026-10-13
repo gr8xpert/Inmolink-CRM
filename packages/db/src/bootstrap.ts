@@ -62,6 +62,9 @@ export function roleStatements(database: string, role: DbRoleName, verifier: str
     spec.statementTimeout
       ? `alter role ${r} set statement_timeout = ${esc.literal(spec.statementTimeout)}`
       : `alter role ${r} reset statement_timeout`,
+    spec.idleInTransaction
+      ? `alter role ${r} set idle_in_transaction_session_timeout = ${esc.literal(spec.idleInTransaction)}`
+      : `alter role ${r} reset idle_in_transaction_session_timeout`,
     spec.readOnly
       ? `alter role ${r} set default_transaction_read_only = on`
       : `alter role ${r} reset default_transaction_read_only`,

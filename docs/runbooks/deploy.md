@@ -55,6 +55,9 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
 6. Boot the accessories: `kamal accessory boot all -c infra/kamal/api.yml -d staging`. redis-cache
    refuses to start without `REDIS_CACHE_PASSWORD` (`openssl rand -hex 32`); every app's `REDIS_CACHE_URL`
    is `redis://:<that password>@inmolink-api-redis-cache:6379`.
+   Rate-limit counters live on redis-queue, which never evicts (S1-F6): api, feed-api and web get
+   `REDIS_LIMITS_URL=redis://limits:<vault_redis_limits_password>@<db-1 WireGuard IP>:6379`. The Ansible
+   redis_queue role creates that ACL user, limited to `inl:rl:*` keys and the limiter's commands.
    Then create the Meilisearch **search-only** key for api and feed-api (they never get the master key;
    production config refuses it for http apps) and put its `key` in `MEILI_SEARCH_KEY`:
 

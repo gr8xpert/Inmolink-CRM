@@ -18,6 +18,15 @@ describe('role bootstrap', () => {
     expect(stmts('app_owner')).toContain('reset statement_timeout');
   });
 
+  it('[S1-F6] request roles cut off idle transactions after 15 s; owner and workers keep the server default', () => {
+    for (const role of ['app_user', 'app_auth', 'app_staff', 'app_public'] as const) {
+      expect(stmts(role)).toContain(`set idle_in_transaction_session_timeout = '15s'`);
+    }
+    for (const role of ['app_owner', 'app_system'] as const) {
+      expect(stmts(role)).toContain('reset idle_in_transaction_session_timeout');
+    }
+  });
+
   it('[S0-04] app_public is read-only and gets no default table grants', () => {
     const sql = stmts('app_public');
     expect(sql).toContain('default_transaction_read_only = on');

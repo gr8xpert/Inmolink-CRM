@@ -57,7 +57,9 @@ export async function runScaleSeed(
   const results: Record<string, SeedResult> = {};
   for (const seeder of SEEDERS) {
     hooks.onSeeder?.(seeder.name);
-    results[seeder.name] = await seeder.scale(options);
+    const started = performance.now();
+    const result = await seeder.scale(options);
+    results[seeder.name] = { ...result, seconds: (performance.now() - started) / 1000 };
   }
   return { seconds: (performance.now() - t0) / 1000, results, logins: [] };
 }

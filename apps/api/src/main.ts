@@ -4,7 +4,7 @@ import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
-import { rateLimiter } from '@inmolink/platform/rate-limit';
+import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
 import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
@@ -34,6 +34,7 @@ try {
   configureStorage(storageConfigFromEnv(config));
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
+  await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
   // API keys (S1-05) are issued here: stored as HMACs, `live` keys only in production.
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,
@@ -50,6 +51,8 @@ try {
     checks: {
       db: () => pingDb('app_user'),
       redisCache: redisCheck(cacheConnection),
+      // A wrong REDIS_LIMITS_URL credential would otherwise surface only as refused logins.
+      redisLimits: redisCheck(rateLimitConnection),
       redisQueue: redisCheck(producerConnection),
       search: httpCheck(new URL('/health', config.MEILI_URL).href),
     },
@@ -60,6 +63,7 @@ try {
     steps: [
       drainHttp(app, config.SHUTDOWN_DRAIN_DELAY_MS),
       { name: 'queue', run: closeQueues },
+      { name: 'rate-limit', run: closeRateLimit },
       { name: 'cache', run: closeCache },
       { name: 'db', run: closeDb },
       { name: 'telemetry', run: telemetry.shutdown },

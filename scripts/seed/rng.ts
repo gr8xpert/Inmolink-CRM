@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, hash } from 'node:crypto';
 
 /**
  * Deterministic randomness for seeds: the same `--seed` produces the same rows on every machine,
@@ -13,7 +13,8 @@ const BASE_MS = Date.UTC(2026, 0, 1);
  * of one namespace sort by index like app-generated ones; the random bits come from SHA-256.
  */
 export function seededId(seed: number, namespace: string, index: number): string {
-  const b = createHash('sha256').update(`${seed}:${namespace}:${index}`).digest().subarray(0, 16);
+  // One-shot `hash` skips the Hash object: about half the cost, and seeds call this per row (S1-F6).
+  const b = hash('sha256', `${seed}:${namespace}:${index}`, 'buffer').subarray(0, 16);
   b.writeUIntBE(BASE_MS + index, 0, 6);
   b[6] = 0x70 | ((b[6] ?? 0) & 0x0f);
   b[8] = 0x80 | ((b[8] ?? 0) & 0x3f);

@@ -6,6 +6,7 @@ import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { webConfig } from './env';
@@ -20,10 +21,12 @@ beforeAll(async () => {
   // These tests check counting, not latency: under full `verify` load a 200 ms command cut-off would
   // trip the fail-closed credential limits (S0-10 finding). Fail-closed itself is tested in tests/adapters.
   await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
 }, 120_000);
 
 afterAll(async () => {
   await closeCache();
+  await closeRateLimit();
   await closeDb();
 });
 

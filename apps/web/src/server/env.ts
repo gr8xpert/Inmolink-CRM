@@ -11,6 +11,7 @@ import {
   databaseEnv,
   httpEnv,
   loadConfig,
+  rateLimitEnv,
   redisEnv,
   turnstileEnv,
   webUrlEnv,
@@ -18,11 +19,12 @@ import {
 import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { createAccessTokenSigner, privateKeyFromBase64 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
+import { configureRateLimit } from '@inmolink/platform/rate-limit';
 import { z } from 'zod';
 
 /**
  * Server-side setup for the dashboard (S0-09): Auth.js session secret, `app_auth` pool for the auth
- * flows, redis-cache for login rate limits, the access-token signer and the keyring for TOTP secrets. Loaded once, lazily, on the
+ * flows, redis-cache, redis-queue for login rate limits (S1-F6), the access-token signer and the keyring for TOTP secrets. Loaded once, lazily, on the
  * first request that needs it — never at build time.
  */
 export const webEnv = {
@@ -32,6 +34,7 @@ export const webEnv = {
   EDGE_REQUEST_ID_HEADER: httpEnv.EDGE_REQUEST_ID_HEADER,
   DATABASE_URL_APP_AUTH: databaseEnv.DATABASE_URL_APP_AUTH.unwrap(),
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  ...rateLimitEnv,
   HMAC_KEY: cryptoEnv.HMAC_KEY,
   /** TOTP secrets are stored encrypted (S1-04). */
   ENCRYPTION_KEYS: cryptoEnv.ENCRYPTION_KEYS,
@@ -68,6 +71,7 @@ async function setup(): Promise<WebConfig> {
   const logger = createLogger({ service: 'web', level: config.LOG_LEVEL });
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_AUTH: config.DATABASE_URL_APP_AUTH }, { logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,
     signer: createAccessTokenSigner({

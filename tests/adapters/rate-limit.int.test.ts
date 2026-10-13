@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { createFakeClock } from '@inmolink/platform/clock';
 import { createLogger } from '@inmolink/platform/logger';
@@ -20,7 +22,7 @@ const userRule: RateLimitRule = { name: 'test.user', scope: 'user', limit: 2, wi
 
 beforeAll(async () => {
   loadStackEnv('test');
-  redis = new Redis(process.env.REDIS_CACHE_URL as string, { protocol: 2, maxRetriesPerRequest: 1 });
+  redis = new Redis(process.env.REDIS_LIMITS_URL as string, { protocol: 2, maxRetriesPerRequest: 1 });
   await redis.ping();
   limiter = new RateLimiter({ redis, prefix, logger: log, clock, hmacKey });
 
@@ -152,5 +154,53 @@ describe('rate limits', () => {
     expect(closed.allowed).toBe(false);
     expect(closed.retryAfterSeconds).toBeGreaterThan(0);
     dead.disconnect();
+  });
+});
+
+/** The ACL that production gives redis-queue's `limits` user (Ansible group_vars). */
+function limitsAcl(): string {
+  const vars = readFileSync(join(import.meta.dirname, '..', '..', 'infra', 'ansible', 'group_vars', 'all.yml'), 'utf8');
+  const acl = vars.match(/^redis_limits_acl: "([^"]+)"$/m)?.[1];
+  if (!acl) throw new Error('redis_limits_acl missing from infra/ansible/group_vars/all.yml');
+  return acl;
+}
+
+describe('rate-limit store', () => {
+  it('[S1-F6] counters live on a Redis that never evicts', async () => {
+    const [, policy] = (await redis.config('GET', 'maxmemory-policy')) as string[];
+    expect(policy).toBe('noeviction');
+  });
+
+  it("[S1-F6] production's limits user counts requests but reaches no queue key and no admin command", async () => {
+    const user = `limits-${Date.now().toString(36)}`;
+    const password = `pw-${Math.random().toString(36).slice(2)}`;
+    await redis.call('ACL', 'SETUSER', user, 'on', `>${password}`, ...limitsAcl().split(' '));
+    const url = new URL(process.env.REDIS_LIMITS_URL as string);
+    const scoped = new Redis({
+      host: url.hostname,
+      port: Number(url.port),
+      username: user,
+      password,
+      protocol: 2,
+      connectionName: 'inmolink-limits',
+      maxRetriesPerRequest: 1,
+    });
+    try {
+      // The default prefix `inl:rl`, as in production.
+      const asLimits = new RateLimiter({ redis: scoped, logger: log, clock, hmacKey });
+      const rule: RateLimitRule = { name: 'test.acl', scope: 'ip', limit: 2, windowSeconds: 60 };
+      const ip = `10.66.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+      expect((await asLimits.consume(rule, ip)).allowed).toBe(true);
+      expect((await asLimits.consume(rule, ip)).allowed).toBe(true);
+      expect((await asLimits.consume(rule, ip)).allowed).toBe(false);
+
+      await expect(scoped.get('inl:imports:meta')).rejects.toThrow(/NOPERM/);
+      await expect(scoped.set('inl:rl:x', '1')).rejects.toThrow(/NOPERM/);
+      await expect(scoped.call('FLUSHALL')).rejects.toThrow(/NOPERM/);
+      await expect(scoped.config('GET', 'maxmemory')).rejects.toThrow(/NOPERM/);
+    } finally {
+      scoped.disconnect();
+      await redis.call('ACL', 'DELUSER', user);
+    }
   });
 });

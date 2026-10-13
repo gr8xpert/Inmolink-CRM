@@ -53,6 +53,8 @@ env:
     - SENTRY_DSN
     # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
     - REDIS_CACHE_URL
+    # redis-queue as the `limits` ACL user: rate-limit counters only, never evicted (S1-F6).
+    - REDIS_LIMITS_URL
     - DATABASE_URL_APP_PUBLIC
     # Search-only key; the master key stays with the meilisearch accessory and the worker (S1-F5).
     - MEILI_SEARCH_KEY

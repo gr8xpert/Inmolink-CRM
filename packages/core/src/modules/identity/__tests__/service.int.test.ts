@@ -13,6 +13,7 @@ import {
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authCtx } from '../../../context';
@@ -35,6 +36,7 @@ beforeAll(async () => {
   });
   // Re-sent confirmation links are throttled per user in redis-cache (S1-F4).
   await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 beforeEach(async () => {
@@ -46,6 +48,7 @@ afterEach(() => restoreClock());
 
 afterAll(async () => {
   await closeCache();
+  await closeRateLimit();
   await closeEmail();
   await closeDb();
 });

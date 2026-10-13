@@ -29,12 +29,17 @@ postgres_uid: 999
 postgres_port: 5432
 postgres_db: inmolink
 pgbouncer_port: 6432
+# PgBouncer's server connections stay this far below max_connections (S1-F6): the gap is for
+# migrations, WAL-G, postgres_exporter, replication and an operator's psql during an incident.
+pgbouncer_max_db_connections: "{{ (postgres_max_connections | int) - 50 }}"
 postgres_exporter_port: 9187
 node_exporter_port: 9100
 # archive_timeout bounds the RPO for quiet periods (PLAN §3 #36: RPO ≤ 5 min).
 postgres_archive_timeout: 60
 postgres_backup_on_calendar: "*-*-* 02:30:00 Europe/Madrid"
 redis_queue_port: 6379
+# ACL of redis-queue's `limits` user (S1-F6). tests/adapters/rate-limit.int.test.ts runs the limiter as it.
+redis_limits_acl: "resetkeys ~inl:rl:* resetchannels -@all +ping +client|setname +get +incrby +pexpire +eval +evalsha"
 
 # Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). App hosts accept 80/443 only
 # from these (roles/docker origin lock), and the Kamal apps trust them in TRUST_PROXY — keep both in sync

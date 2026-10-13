@@ -4,6 +4,7 @@ import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authCtx, type Ctx } from '../../../context';
@@ -25,10 +26,12 @@ beforeAll(async () => {
   });
   // Re-sent confirmation links are throttled per user in redis-cache (S1-F4).
   await configureCache({ url: process.env.REDIS_CACHE_URL, commandTimeoutMs: 2_000 });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 afterAll(async () => {
   await closeCache();
+  await closeRateLimit();
   await closeDb();
 });
 

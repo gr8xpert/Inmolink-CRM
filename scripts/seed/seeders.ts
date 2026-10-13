@@ -33,6 +33,8 @@ export interface SeedResult {
   inserted: number;
   /** Rows of this seeder present after the run. */
   total: number;
+  /** Wall time of this seeder, set by the runner. */
+  seconds?: number;
   logins?: Login[];
 }
 

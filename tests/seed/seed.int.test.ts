@@ -148,18 +148,18 @@ describe('dev seed', () => {
 describe('scale seed', () => {
   it('[S0-13] scale seed writes §4.1 ratios via COPY and re-running it is idempotent', async () => {
     const first = await scale(40, 7);
-    expect(first.results['identity.users']).toEqual({ inserted: 200, total: 200 });
+    expect(first.results['identity.users']).toMatchObject({ inserted: 200, total: 200 });
     expect(first.results['agencies.agencies']).toMatchObject({ total: 40 });
     const before = await snapshot(scaleDomain);
 
     const again = await scale(40, 7);
-    expect(again.results['identity.users']).toEqual({ inserted: 0, total: 200 });
+    expect(again.results['identity.users']).toMatchObject({ inserted: 0, total: 200 });
     expect(await snapshot(scaleDomain)).toEqual(before);
 
     // A partial earlier run is completed, not duplicated: agencies a3 and a30–a39 (11 × 5 users) are missing.
     await withSystem('test.seed.partial', (tx) => tx.delete(users).where(like(users.email, `a3%-u%@s${SEED}.%`)));
     const resumed = await scale(40, 7);
-    expect(resumed.results['identity.users']).toEqual({ inserted: 55, total: 200 });
+    expect(resumed.results['identity.users']).toMatchObject({ inserted: 55, total: 200 });
     expect(await snapshot(scaleDomain)).toEqual(before);
   }, 120_000);
 

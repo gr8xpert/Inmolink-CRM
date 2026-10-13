@@ -3,7 +3,7 @@ import { staffUsers, users } from '@inmolink/db/schema/identity';
 import { DEFAULT_UI_LOCALE, UI_LOCALES } from '@inmolink/i18n';
 import { hashPassword } from '@inmolink/platform/crypto/password';
 import { sql } from 'drizzle-orm';
-import { type CopyValue, copyNewRows } from './copy';
+import { agenciesPerChunk, type CopyValue, copyNewRows, forEachChunk } from './copy';
 import { PER_AGENCY } from './profile';
 import { createRng, seededId } from './rng';
 import type { Login, Seeder } from './seeders';
@@ -123,9 +123,7 @@ export const identityUsers: Seeder = {
       'created_at',
       'updated_at',
     ];
-    let inserted = 0;
-    for (let start = 0; start < agencies; start += chunk) {
-      const end = Math.min(agencies, start + chunk);
+    const write = async (start: number, end: number) => {
       const rows: CopyValue[][] = [];
       for (let a = start; a < end; a++) {
         scaleUserProfiles(seed, a).forEach(({ name, locale }, u) => {
@@ -144,11 +142,10 @@ export const identityUsers: Seeder = {
           ]);
         });
       }
-      inserted += await withSystemClient('seed.identity.users.scale', (client) =>
-        copyNewRows(client, 'users', columns, rows),
-      );
-      onProgress?.(end, agencies);
-    }
+      return withSystemClient('seed.identity.users.scale', (client) => copyNewRows(client, 'users', columns, rows));
+    };
+    const step = agenciesPerChunk(chunk, PER_AGENCY.users);
+    const inserted = await forEachChunk(agencies, step, write, onProgress);
     return { inserted, total: await countLike(`%@s${seed}.scale.inmolink.test`) };
   },
 };

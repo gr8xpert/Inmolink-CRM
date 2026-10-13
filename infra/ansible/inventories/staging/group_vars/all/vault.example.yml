@@ -19,6 +19,7 @@ vault_replication_password: ""
 vault_pgbouncer_auth_password: ""
 vault_postgres_exporter_password: ""
 vault_redis_queue_password: ""
+vault_redis_limits_password: ""
 vault_grafana_admin_password: ""
 # Cloudflare R2 API token scoped to the backups bucket (read + write).
 vault_r2_account_id: ""
