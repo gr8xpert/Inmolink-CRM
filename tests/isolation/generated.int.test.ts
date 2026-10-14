@@ -562,7 +562,7 @@ describe.each(globalNames)('global table %s', (table) => {
   beforeAll(async () => {
     const columns = await columnsOf(admin, table);
     column = columns[0]?.name ?? '';
-    build = () => buildRow(table, columns, {});
+    build = () => buildRow(table, columns, { ...def?.base });
     ctid = await withReplicaRole(admin, () => seed(admin, table, build()));
   });
 

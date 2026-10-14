@@ -9,3 +9,4 @@ export * from './compliance';
 export * from './flags';
 export * from './identity';
 export * from './outbox';
+export * from './taxonomy';

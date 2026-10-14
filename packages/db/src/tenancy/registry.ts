@@ -164,6 +164,8 @@ export interface GlobalTable {
    * no other auth flow can read or change another user's factor.
    */
   userScoped?: true;
+  /** Values for NOT NULL columns the isolation suite cannot invent (check-constrained levels, …). */
+  base?: SampleRow;
 }
 
 export interface TenantRegistry {
@@ -372,6 +374,17 @@ export const globalTables: Record<string, GlobalTable> = {
   user_recovery_codes: { reason: '2FA recovery codes of a login identity (hashed)', access: 'auth', userScoped: true },
   // Staff have no agency (S1-03, ADR 0015). Granted by `pnpm staff:grant`; app_staff reads its own row.
   staff_users: { reason: 'Inmolink staff, who have no agency', access: 'staff' },
+  // Location tree and groups (S2-01): shared reference data; staff and import scripts write via withSystem().
+  locations: {
+    reason: 'platform location tree shared by every agency',
+    publicRead: true,
+    base: { level: 'COUNTRY', depth: 1 },
+  },
+  location_translations: { reason: 'names and slugs of locations', publicRead: true },
+  location_aliases: { reason: 'feed spellings mapped to canonical locations', publicRead: true },
+  location_groups: { reason: 'curated location groups such as Costa del Sol', publicRead: true },
+  location_group_translations: { reason: 'names and slugs of location groups', publicRead: true },
+  location_group_members: { reason: 'members of location groups', publicRead: true },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

@@ -29,7 +29,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -207,6 +207,54 @@ create policy global_read on public."feature_flags" for select to app_user using
 revoke all on table public."feature_flags" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_flags" to app_user;
 grant select, insert, update, delete on table public."feature_flags" to app_system;
+
+-- location_aliases: GLOBAL
+alter table public."location_aliases" enable row level security;
+alter table public."location_aliases" force row level security;
+create policy global_read on public."location_aliases" for select to app_user, app_public using (true);
+revoke all on table public."location_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."location_aliases" to app_user, app_public;
+grant select, insert, update, delete on table public."location_aliases" to app_system;
+
+-- location_group_members: GLOBAL
+alter table public."location_group_members" enable row level security;
+alter table public."location_group_members" force row level security;
+create policy global_read on public."location_group_members" for select to app_user, app_public using (true);
+revoke all on table public."location_group_members" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."location_group_members" to app_user, app_public;
+grant select, insert, update, delete on table public."location_group_members" to app_system;
+
+-- location_group_translations: GLOBAL
+alter table public."location_group_translations" enable row level security;
+alter table public."location_group_translations" force row level security;
+create policy global_read on public."location_group_translations" for select to app_user, app_public using (true);
+revoke all on table public."location_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."location_group_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."location_group_translations" to app_system;
+
+-- location_groups: GLOBAL
+alter table public."location_groups" enable row level security;
+alter table public."location_groups" force row level security;
+create policy global_read on public."location_groups" for select to app_user, app_public using (true);
+revoke all on table public."location_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."location_groups" to app_user, app_public;
+grant select, insert, update, delete on table public."location_groups" to app_system;
+
+-- location_translations: GLOBAL
+alter table public."location_translations" enable row level security;
+alter table public."location_translations" force row level security;
+create policy global_read on public."location_translations" for select to app_user, app_public using (true);
+revoke all on table public."location_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."location_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."location_translations" to app_system;
+
+-- locations: GLOBAL
+alter table public."locations" enable row level security;
+alter table public."locations" force row level security;
+create policy global_read on public."locations" for select to app_user, app_public using (true);
+revoke all on table public."locations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."locations" to app_user, app_public;
+grant select, insert, update, delete on table public."locations" to app_system;
 
 -- outbox_events: STRICT
 alter table public."outbox_events" enable row level security;

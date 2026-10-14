@@ -77,6 +77,15 @@ export const ErrorCodes = {
   IMPERSONATION_ENDED: 403,
   /** Not an active member of an agency that is not suspended (or the staff member themselves). */
   IMPERSONATION_TARGET_INVALID: 422,
+  // taxonomy: locations (S2-01)
+  /** No such location, group or alias. */
+  LOCATION_NOT_FOUND: 404,
+  /** The parent is missing, or not exactly one level above the new location. */
+  LOCATION_PARENT_INVALID: 422,
+  /** Another location under the same parent already uses this slug in this locale. */
+  LOCATION_SLUG_TAKEN: 409,
+  /** The spelling (or group key) already maps to another location or group. */
+  LOCATION_ALIAS_TAKEN: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

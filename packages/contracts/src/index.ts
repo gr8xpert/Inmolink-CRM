@@ -12,4 +12,5 @@ export * from './http';
 export * from './identity';
 export * from './preferred-agencies';
 export * from './staff';
+export * from './taxonomy';
 export * from './verification';
