@@ -32,12 +32,27 @@ export interface SignedUrlOptions {
   responseContentType?: string;
 }
 
+export interface ListOptions {
+  limit: number;
+  after?: string;
+}
+
+export interface ListPage {
+  objects: { key: string; lastModified: Date }[];
+  next: string | null;
+}
+
 export interface ObjectStore {
   put(bucket: BucketName, key: string, body: Uint8Array, options: PutOptions): Promise<void>;
   /** Idempotent: deleting a missing object succeeds. */
   delete(bucket: BucketName, key: string): Promise<void>;
   /** Size of the object, or null when it does not exist. */
   head(bucket: BucketName, key: string): Promise<{ sizeBytes: number } | null>;
+  /**
+   * One page of objects whose key starts with `prefix` (key order), at most `limit` (1–1000). Pass the
+   * previous page's `next` as `after` to continue; `next` is null on the last page.
+   */
+  list(bucket: BucketName, prefix: string, options: ListOptions): Promise<ListPage>;
   /** A time-limited GET URL. Local signing only: no network call. */
   signedGetUrl(bucket: BucketName, key: string, options: SignedUrlOptions): Promise<string>;
 }
@@ -80,6 +95,38 @@ const CONTENT_TYPE_RE = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/;
 export function attachmentDisposition(name: string): string {
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/** A key prefix: `assertObjectKey` rules, with a trailing slash allowed (`verification/`). */
+function assertListPrefix(prefix: string): void {
+  assertObjectKey(prefix.endsWith('/') ? prefix.slice(0, -1) : prefix);
+}
+
+const unescapeXml = (v: string) =>
+  v
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+const xmlText = (xml: string, tag: string): string | null => {
+  const m = new RegExp(`<${tag}>([^<]*)</${tag}>`).exec(xml);
+  return m?.[1] === undefined ? null : unescapeXml(m[1]);
+};
+
+/**
+ * ListObjectsV2 answer → page. The XML is flat, with fixed tags, from our own bucket: it is read with
+ * patterns, not an XML parser (no entities or DTDs are ever resolved).
+ */
+export function parseListPage(xml: string): ListPage {
+  const objects: ListPage['objects'] = [];
+  for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+    const key = xmlText(m[1] ?? '', 'Key');
+    const modified = xmlText(m[1] ?? '', 'LastModified');
+    if (key && modified) objects.push({ key, lastModified: new Date(modified) });
+  }
+  const truncated = xmlText(xml, 'IsTruncated') === 'true';
+  return { objects, next: truncated ? xmlText(xml, 'NextContinuationToken') : null };
 }
 
 export function createS3Store(config: S3StoreConfig): ObjectStore {
@@ -136,6 +183,18 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       if (!res.ok) throw new StorageError(`storage HEAD failed (${res.status})`, res.status);
       return { sizeBytes: Number(res.headers.get('content-length') ?? 0) };
     },
+    async list(bucket, prefix, options) {
+      assertListPrefix(prefix);
+      const limit = Math.min(Math.max(Math.floor(options.limit), 1), 1_000);
+      const url = new URL(`${endpoint}/${encodeURIComponent(config.buckets[bucket])}`);
+      url.searchParams.set('list-type', '2');
+      url.searchParams.set('prefix', prefix);
+      url.searchParams.set('max-keys', String(limit));
+      if (options.after) url.searchParams.set('continuation-token', options.after);
+      const res = await send(url, { method: 'GET' });
+      if (!res.ok) throw new StorageError(`storage LIST failed (${res.status})`, res.status);
+      return parseListPage(await res.text());
+    },
     async signedGetUrl(bucket, key, options) {
       const seconds = Math.floor(options.expiresInSeconds);
       if (!(seconds >= 1 && seconds <= MAX_SIGNED_SECONDS)) {
@@ -158,11 +217,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
 
 /** In-memory store for unit tests. Signed URLs are fake (`memory://…`). */
 export interface MemoryStore extends ObjectStore {
-  readonly objects: Map<string, { body: Uint8Array; contentType: string }>;
+  readonly objects: Map<string, { body: Uint8Array; contentType: string; lastModified: Date }>;
 }
 
 export function createMemoryStore(): MemoryStore {
-  const objects = new Map<string, { body: Uint8Array; contentType: string }>();
+  const objects = new Map<string, { body: Uint8Array; contentType: string; lastModified: Date }>();
   const id = (bucket: BucketName, key: string) => {
     assertObjectKey(key);
     return `${bucket}/${key}`;
@@ -170,7 +229,7 @@ export function createMemoryStore(): MemoryStore {
   return {
     objects,
     async put(bucket, key, body, options) {
-      objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType });
+      objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType, lastModified: new Date() });
     },
     async delete(bucket, key) {
       objects.delete(id(bucket, key));
@@ -178,6 +237,22 @@ export function createMemoryStore(): MemoryStore {
     async head(bucket, key) {
       const o = objects.get(id(bucket, key));
       return o ? { sizeBytes: o.body.byteLength } : null;
+    },
+    async list(bucket, prefix, options) {
+      assertListPrefix(prefix);
+      const start = `${bucket}/${prefix}`;
+      const keys = [...objects.keys()]
+        .filter((k) => k.startsWith(start) && (options.after === undefined || k > `${bucket}/${options.after}`))
+        .sort();
+      const page = keys.slice(0, options.limit);
+      const last = page.at(-1);
+      return {
+        objects: page.map((k) => ({
+          key: k.slice(bucket.length + 1),
+          lastModified: objects.get(k)?.lastModified ?? new Date(0),
+        })),
+        next: keys.length > page.length && last ? last.slice(bucket.length + 1) : null,
+      };
     },
     async signedGetUrl(bucket, key, options) {
       const type = options.responseContentType ? `&type=${encodeURIComponent(options.responseContentType)}` : '';

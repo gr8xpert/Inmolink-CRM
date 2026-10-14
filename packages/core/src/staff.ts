@@ -18,7 +18,9 @@ export interface StaffInit {
  * so withdrawing it applies on the next call. A non-staff user gets `FORBIDDEN` (staff APIs answer
  * 403, S1-09). Inside, RLS lets `app_staff` reach only the registry's `staff` predicates.
  */
-export function withStaffCtx<T>(init: StaffInit, fn: (ctx: StaffCtx) => Promise<T>): Promise<T> {
+export async function withStaffCtx<T>(init: StaffInit, fn: (ctx: StaffCtx) => Promise<T>): Promise<T> {
+  // A disabled login identity has no staff access, whatever token it still holds (S1-F7).
+  if (!(await identity.isUserActive(init.userId))) throw new AppError('FORBIDDEN', { reason: 'not_staff' });
   return withStaff({ userId: init.userId, reason: init.reason }, async (tx) => {
     const role = await identity.getStaffRole(tx, init.userId);
     if (!role) throw new AppError('FORBIDDEN', { reason: 'not_staff' });

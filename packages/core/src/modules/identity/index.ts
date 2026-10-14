@@ -55,6 +55,7 @@ export {
 export {
   getStaffRole,
   grantStaff,
+  isUserActive,
   listAgencyAdmins,
   revokeStaff,
   STAFF_ROLES,

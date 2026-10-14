@@ -88,16 +88,22 @@ export async function uploadVerificationDocument(
     return ctx.tenant.agencyId;
   });
 
+  const sha256 = createHash('sha256').update(input.body).digest('hex');
   const id = newId();
   // Unguessable (UUIDv7 random bits), per agency, never derived from the file name.
   const storageKey = `verification/${agencyId}/${id}`;
   await storage().put('private', storageKey, input.body, { contentType: type.contentType });
 
   try {
-    return await run(async (ctx) => {
+    const { dto, duplicate } = await run(async (ctx) => {
       // Same agency as the check: the caller's token names one agency.
       if (ctx.tenant.agencyId !== agencyId) throw new AppError('FORBIDDEN');
       assertCan(ctx, 'agencies.verification.manage');
+      // One upload at a time per agency, so parallel uploads cannot slip past the cap (S1-F7).
+      await repo.lockDocumentCap(ctx.tx, agencyId);
+      // A retried upload (same content, still unsubmitted) answers with the document it already made.
+      const existing = await repo.findUnattachedBySha(ctx.tx, agencyId, sha256);
+      if (existing) return { dto: toDocumentDto(existing), duplicate: true };
       await assertCanAddDocuments(ctx);
       const row = await repo.insertDocument(ctx.tx, {
         id,
@@ -106,12 +112,18 @@ export async function uploadVerificationDocument(
         fileName: withExtension(input.fileName, type.extension),
         contentType: type.contentType,
         sizeBytes: input.body.byteLength,
-        sha256: createHash('sha256').update(input.body).digest('hex'),
+        sha256,
         storageKey,
         uploadedBy: userIdOf(ctx),
       });
-      return toDocumentDto(row);
+      return { dto: toDocumentDto(row), duplicate: false };
     });
+    if (duplicate) {
+      await storage()
+        .delete('private', storageKey)
+        .catch(() => {});
+    }
+    return dto;
   } catch (err) {
     await storage()
       .delete('private', storageKey)

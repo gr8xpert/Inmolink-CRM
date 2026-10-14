@@ -1,14 +1,15 @@
 import { DecideVerificationBody, UpdateAgencyDetailsBody, VERIFICATION_DOCUMENT_MAX_BYTES } from '@inmolink/contracts';
 import { closeDb, getPgClient } from '@inmolink/db';
 import { createStaffUser, loadStackEnv, setupTestDb } from '@inmolink/db/testing';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
-import { configureStorage, createS3Store, storageConfigFromEnv } from '@inmolink/platform/storage';
+import { configureStorage, createS3Store, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Ctx, CtxRunner } from '../../../context';
+import { authCtx, type Ctx, type CtxRunner } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
 import { createFounder, type Founder } from '../../../testing/factories';
@@ -313,7 +314,7 @@ describe('agency verification', () => {
 
     const doc = await upload(f, PDF, 'escritura.exe');
     expect(doc).toMatchObject({ contentType: 'application/pdf', fileName: 'escritura.exe.pdf', submitted: false });
-    const removable = await upload(f);
+    const removable = await upload(f, new TextEncoder().encode('%PDF-1.7\n% removable\n%%EOF\n'));
     await agencies.deleteVerificationDocument(runner(f), { id: removable.id });
 
     const { agencyVersion } = await as(f, (c) => agencies.getAgencyVerification(c));
@@ -375,7 +376,7 @@ describe('agency verification', () => {
     if (!event) throw new Error('no decision event');
     const before = mail.sent.length;
     await identity.identityJobs.sendVerificationDecisionEmail.spec.run(
-      { eventId: event.id, agencyId: f.agencyId, requestId },
+      { eventId: event.id, agencyId: f.agencyId, requestId, userId: f.userId },
       { log, jobId: event.id, attempt: 1, progress: async () => {}, signal: new AbortController().signal },
     );
     const sent = mail.sent.slice(before);
@@ -385,5 +386,118 @@ describe('agency verification', () => {
     expect(sent[0]?.subject).toContain('Verificación de');
     expect(sent[0]?.text).toContain('Please add the IAE registration.');
     expect(sent[0]?.text).toContain('http://web.test/es/verification');
+  });
+
+  it('[S1-F7] eleven parallel uploads leave at most ten unsubmitted documents', async () => {
+    const f = await onboarded();
+    const bodies = Array.from({ length: 11 }, (_, i) => new TextEncoder().encode(`%PDF-1.7\n% doc ${i}\n%%EOF\n`));
+    const results = await Promise.allSettled(bodies.map((b, i) => upload(f, b, `doc-${i}`)));
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(10);
+    expect(results.filter((r) => r.status === 'rejected')[0]).toMatchObject({
+      reason: { code: 'DOCUMENT_LIMIT_REACHED' },
+    });
+    const { documents } = await as(f, (c) => agencies.getAgencyVerification(c));
+    expect(documents.filter((d) => !d.submitted)).toHaveLength(10);
+  });
+
+  it('[S1-F7] a retried upload of the same content returns the document it already made', async () => {
+    const f = await onboarded();
+    const body = new TextEncoder().encode('%PDF-1.7\n% retry\n%%EOF\n');
+    const first = await upload(f, body);
+    const again = await upload(f, body);
+    expect(again.id).toBe(first.id);
+    const { documents } = await as(f, (c) => agencies.getAgencyVerification(c));
+    expect(documents).toHaveLength(1);
+  });
+
+  it('[S1-F7] an object without a document row older than 24 h is deleted by the job', async () => {
+    const f = await onboarded();
+    const kept = await upload(f);
+    const keptKey = (
+      await admin.query<{ storage_key: string }>(
+        'select storage_key from agency_verification_documents where id = $1',
+        [kept.id],
+      )
+    ).rows[0]?.storage_key;
+    if (!keptKey) throw new Error('no stored key');
+    const orphan = `verification/${f.agencyId}/${newId()}`;
+    const orphanLogo = `agency-logos/${f.agencyId}/${newId()}`;
+    await storage().put('private', orphan, PDF, { contentType: 'application/pdf' });
+    await storage().put('private', orphanLogo, PDF, { contentType: 'image/png' });
+    const run = () =>
+      agencies.agenciesJobs.pruneOrphanVerificationDocuments.spec.run(
+        {},
+        { log, jobId: 'test', attempt: 1, progress: async () => {}, signal: new AbortController().signal },
+      );
+
+    await run(); // now: every object is younger than 24 h
+    expect(await storage().head('private', orphan)).not.toBeNull();
+    expect(await storage().head('private', orphanLogo)).not.toBeNull();
+
+    useFakeClock(Date.now() + 25 * 3_600_000);
+    try {
+      await run();
+    } finally {
+      restoreClock();
+    }
+    expect(await storage().head('private', orphan)).toBeNull();
+    expect(await storage().head('private', orphanLogo)).toBeNull(); // a logo no profile points to goes too
+    expect(await storage().head('private', keptKey)).not.toBeNull(); // has a row: stays
+  });
+
+  it('[S1-F7] a retried decision email job does not email an admin who already got it', async () => {
+    const { f, requestId, version } = await submitted();
+    await decide(requestId, { decision: 'REJECT', agencyVersion: version, reason: 'Missing register number.' });
+    const event = (
+      await admin.query<{ id: string }>(
+        `select id from outbox_events where agency_id = $1 and type = 'agencies.verification.decided'`,
+        [f.agencyId],
+      )
+    ).rows[0];
+    if (!event) throw new Error('no decision event');
+    const job = identity.identityJobs.sendVerificationDecisionEmail;
+    const other = newId();
+    const ctx = { log, jobId: event.id, attempt: 1, progress: async () => {}, signal: new AbortController().signal };
+    const payload = (userId: string) => ({ eventId: event.id, agencyId: f.agencyId, requestId, userId });
+    const before = mail.sent.length;
+    // Each job emails its own recipient only: someone who is not an active admin gets nothing, and the
+    // admin's retry (attempt 2) is the only way they are emailed again.
+    await job.spec.run(payload(other), ctx);
+    expect(mail.sent.length).toBe(before);
+    await job.spec.run(payload(f.userId), ctx);
+    expect(mail.sent.slice(before).map((m) => m.to)).toEqual([f.email]);
+    // One job id per event and recipient, grouped by agency for fair share.
+    expect(job.spec.jobId?.(payload(f.userId))).not.toBe(job.spec.jobId?.(payload(other)));
+    expect(job.spec.group?.(payload(other))).toBe(f.agencyId);
+  });
+
+  it('[S1-F7] a sign-up with a staff email gives staff no agency and does not replace their password', async () => {
+    const staff = await createStaffUser('STAFF_SUPPORT');
+    await admin.query('update users set email_verified_at = null where id = $1', [staff.userId]);
+    await identity.register(authCtx(newId()), {
+      email: staff.email,
+      password: 'correct horse battery',
+      name: 'Mallory',
+      locale: 'en',
+      accountKind: 'AGENCY',
+      companyName: 'Takeover S.L.',
+    });
+    const rows = await admin.query<{ n: string; hash: string }>(
+      `select (select count(*) from agency_members where user_id = $1) as n,
+              (select password_hash from users where id = $1) as hash`,
+      [staff.userId],
+    );
+    expect(rows.rows[0]).toMatchObject({ n: '0', hash: 'not-a-hash' });
+  });
+
+  it('[S1-F7] staff access ends when the login identity is not ACTIVE', async () => {
+    const staff = await createStaffUser('STAFF_SUPPORT');
+    await expect(
+      asStaff(staff.userId, (c) => agencies.listVerificationQueue(c, { status: 'SUBMITTED', limit: 25 })),
+    ).resolves.toBeDefined();
+    await admin.query("update users set status = 'DISABLED' where id = $1", [staff.userId]);
+    await expect(
+      asStaff(staff.userId, (c) => agencies.listVerificationQueue(c, { status: 'SUBMITTED', limit: 25 })),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { agencyProfiles, agencySettings, agencyTranslations } from '@inmolink/db/schema/agencies';
-import { and, asc, eq, notInArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 
 /**
  * Profile and settings queries (S1-06, PATTERNS §5). Runs as `app_user` under `withTenant`; queries only
@@ -204,4 +204,14 @@ export async function replaceTranslations(tx: Tx, agencyId: string, rows: Transl
         updatedAt: sql`excluded.updated_at`,
       },
     });
+}
+
+/** Maintenance (`app_system`, one row per agency): which of these logo keys a profile still points to. */
+export async function existingLogoKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const rows = await tx
+    .select({ key: agencyProfiles.logoStorageKey })
+    .from(agencyProfiles)
+    .where(inArray(agencyProfiles.logoStorageKey, keys));
+  return new Set(rows.flatMap((r) => (r.key ? [r.key] : [])));
 }

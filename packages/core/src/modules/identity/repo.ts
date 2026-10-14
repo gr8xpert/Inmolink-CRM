@@ -537,9 +537,9 @@ export async function hasMembership(tx: Tx, userId: string): Promise<boolean> {
 export async function listAdminRecipients(
   tx: Tx,
   agencyId: string,
-): Promise<{ email: string; name: string; locale: string }[]> {
+): Promise<{ userId: string; email: string; name: string; locale: string }[]> {
   return tx
-    .select({ email: users.email, name: users.name, locale: users.locale })
+    .select({ userId: users.id, email: users.email, name: users.name, locale: users.locale })
     .from(agencyMembers)
     .innerJoin(users, eq(users.id, agencyMembers.userId))
     .where(

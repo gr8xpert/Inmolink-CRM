@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { assertObjectKey, attachmentDisposition, createS3Store, detectFileType } from './index';
+import {
+  assertObjectKey,
+  attachmentDisposition,
+  createMemoryStore,
+  createS3Store,
+  detectFileType,
+  parseListPage,
+} from './index';
 
 const store = createS3Store({
   endpoint: 'http://localhost:9000/',
@@ -63,5 +70,36 @@ describe('storage', () => {
     expect(attachmentDisposition('añ\r\nb.pdf')).toBe(
       `attachment; filename="a___b.pdf"; filename*=UTF-8''a%C3%B1%0D%0Ab.pdf`,
     );
+  });
+});
+
+describe('storage list (S1-F7)', () => {
+  it('reads a ListObjectsV2 page and its continuation token', () => {
+    const xml = `<?xml version="1.0"?><ListBucketResult><IsTruncated>true</IsTruncated>
+      <Contents><Key>verification/a/1</Key><LastModified>2026-10-01T10:00:00.000Z</LastModified></Contents>
+      <Contents><Key>verification/a/2&amp;3</Key><LastModified>2026-10-02T10:00:00.000Z</LastModified></Contents>
+      <NextContinuationToken>tok</NextContinuationToken></ListBucketResult>`;
+    expect(parseListPage(xml)).toEqual({
+      objects: [
+        { key: 'verification/a/1', lastModified: new Date('2026-10-01T10:00:00.000Z') },
+        { key: 'verification/a/2&3', lastModified: new Date('2026-10-02T10:00:00.000Z') },
+      ],
+      next: 'tok',
+    });
+    expect(parseListPage('<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>')).toEqual({
+      objects: [],
+      next: null,
+    });
+  });
+
+  it('pages the memory store by key order under a prefix', async () => {
+    const mem = createMemoryStore();
+    for (const k of ['verification/a/1', 'verification/a/2', 'verification/b/1', 'other/x'])
+      await mem.put('private', k, new Uint8Array([1]), { contentType: 'application/pdf' });
+    const first = await mem.list('private', 'verification/', { limit: 2 });
+    expect(first.objects.map((o) => o.key)).toEqual(['verification/a/1', 'verification/a/2']);
+    const second = await mem.list('private', 'verification/', { limit: 2, after: first.next ?? undefined });
+    expect(second.objects.map((o) => o.key)).toEqual(['verification/b/1']);
+    expect(second.next).toBeNull();
   });
 });

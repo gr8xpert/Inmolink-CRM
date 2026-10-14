@@ -107,9 +107,12 @@ export async function register(ctx: AuthCtx, input: RegisterInput): Promise<void
     }
     const existing = await repo.findSignupState(tx, input.email);
     if (existing?.status !== 'ACTIVE') return;
+    // Staff have no agency and never get one (S1-F7): a sign-up with a staff email is a duplicate.
+    await setAuthScope(tx, { userId: existing.id });
+    const isStaff = (await repo.findStaffRole(tx, existing.id)) !== null;
     // Security review L3 (S1-01): the password is replaced only together with an untouched sign-up
     // agency, never for an account whose agency was onboarded or verified.
-    if (!existing.emailVerifiedAt && (await replaceSignupAgency(tx, existing.id, input, now))) {
+    if (!isStaff && !existing.emailVerifiedAt && (await replaceSignupAgency(tx, existing.id, input, now))) {
       await repo.replaceUnverifiedSignup(tx, existing.id, profile, now);
       await emit(tx, identityEvents.registered({ userId: existing.id }), { agencyId: PLATFORM_AGENCY_ID });
       return;

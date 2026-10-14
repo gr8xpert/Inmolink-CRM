@@ -1,3 +1,4 @@
+import { withSystem } from '@inmolink/db';
 import { cache } from '@inmolink/platform/cache';
 import { type EventDef, subscribe } from '@inmolink/platform/outbox';
 import { agenciesEvents } from '../agencies';
@@ -5,6 +6,7 @@ import { apiKeyCacheKey, isApiKeyPrefix } from './api-keys';
 import type { AuthEmailKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
+import * as repo from './repo';
 
 const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
   [identityEvents.registered, 'VERIFY_EMAIL'],
@@ -17,7 +19,7 @@ let unsubscribe: (() => void)[] | undefined;
 
 /**
  * Outbox → `identity.sendAuthEmail` / `identity.sendInviteEmail` / `identity.sendVerificationDecisionEmail`,
- * one job per event; API key cache invalidation and `identity.syncApiKeyAgencyStatus` (S1-05). Called once
+ * one job per event (per admin for the verification decision); API key cache invalidation and `identity.syncApiKeyAgencyStatus` (S1-05). Called once
  * by the worker; idempotent.
  */
 export function registerIdentitySubscriptions(): void {
@@ -42,12 +44,20 @@ export function registerIdentitySubscriptions(): void {
     ),
     subscribe(
       agenciesEvents.verificationDecided,
-      (payload, meta) =>
-        identityJobs.sendVerificationDecisionEmail.enqueue({
-          eventId: meta.eventId,
-          agencyId: payload.agencyId,
-          requestId: payload.requestId,
-        }),
+      async (payload, meta) => {
+        // One job per admin (S1-F7). Enqueueing again for the same event is a no-op (`jobId`).
+        const admins = await withSystem('identity.email.VERIFICATION_DECISION', (tx) =>
+          repo.listAdminRecipients(tx, payload.agencyId),
+        );
+        for (const admin of admins) {
+          await identityJobs.sendVerificationDecisionEmail.enqueue({
+            eventId: meta.eventId,
+            agencyId: payload.agencyId,
+            requestId: payload.requestId,
+            userId: admin.userId,
+          });
+        }
+      },
       { name: 'identity.email.VERIFICATION_DECISION' },
     ),
     // API keys (S1-05): a revoked or rotated prefix leaves the shared lookup cache when the event is

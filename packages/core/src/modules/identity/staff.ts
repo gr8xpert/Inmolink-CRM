@@ -1,4 +1,4 @@
-import type { Tx } from '@inmolink/db';
+import { type Tx, withAuth } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import * as compliance from '../compliance';
@@ -12,6 +12,14 @@ import * as repo from './repo';
  */
 export type StaffRole = repo.StaffRole;
 export const STAFF_ROLES = ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS'] as const satisfies readonly StaffRole[];
+
+/**
+ * Whether the login identity is ACTIVE (S1-F7): staff access ends when `users.status` is not ACTIVE.
+ * A short `app_auth` read (`app_staff` cannot see `users`), before the staff request's own transaction.
+ */
+export function isUserActive(userId: string): Promise<boolean> {
+  return withAuth(async (tx) => (await repo.findUserForToken(tx, userId))?.status === 'ACTIVE');
+}
 
 /** The caller's active staff role inside a `withStaff` transaction, or null. */
 export async function getStaffRole(tx: Tx, userId: string): Promise<StaffRole | null> {

@@ -5,7 +5,7 @@ import {
   agencyVerificationDocuments,
   agencyVerificationRequests,
 } from '@inmolink/db/schema/agencies';
-import { and, asc, count, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -375,4 +375,35 @@ export async function getDecision(tx: Tx, requestId: string) {
     .innerJoin(agencies, eq(agencies.id, agencyVerificationRequests.agencyId))
     .where(eq(agencyVerificationRequests.id, requestId));
   return row ?? null;
+}
+
+/** Serialises the document cap per agency until the transaction ends (advisory, no table lock). */
+export async function lockDocumentCap(tx: Tx, agencyId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`verification_documents:${agencyId}`}, 0))`);
+}
+
+/** A document with the same content that waits to be submitted: a retried upload finds it again. */
+export async function findUnattachedBySha(tx: Tx, agencyId: string, sha256: string): Promise<DocumentRow | null> {
+  const [row] = await tx
+    .select(documentColumns)
+    .from(agencyVerificationDocuments)
+    .where(
+      and(
+        eq(agencyVerificationDocuments.agencyId, agencyId),
+        eq(agencyVerificationDocuments.sha256, sha256),
+        isNull(agencyVerificationDocuments.requestId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Maintenance (`app_system`): which of these storage keys still have a document row. */
+export async function existingStorageKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const rows = await tx
+    .select({ key: agencyVerificationDocuments.storageKey })
+    .from(agencyVerificationDocuments)
+    .where(inArray(agencyVerificationDocuments.storageKey, keys));
+  return new Set(rows.map((r) => r.key));
 }

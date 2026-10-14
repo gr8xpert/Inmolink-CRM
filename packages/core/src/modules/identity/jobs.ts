@@ -130,36 +130,42 @@ export const identityJobs = {
   }),
 
   /**
-   * Tells the agency's admins that staff approved or rejected its verification (S1-03), with staff's
-   * reason. Identity owns the member list, so it sends agency notices; the decision comes from
-   * agencies. A retry may email an admin twice; never someone who is no longer an active admin.
+   * Tells one admin of the agency that staff approved or rejected its verification (S1-03, S1-F7), with
+   * staff's reason. One job per event and recipient (`jobId`), fair-share group = agency, so a retry
+   * re-sends only to the admin whose send failed — never to one who already got it — and never to
+   * someone who is no longer an active admin. Identity owns the member list, so it sends agency
+   * notices; the decision comes from agencies.
    */
   sendVerificationDecisionEmail: defineJob({
     name: 'identity.sendVerificationDecisionEmail',
     pool: 'email',
-    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), requestId: z.uuid() }),
-    jobId: (p) => p.eventId,
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), requestId: z.uuid(), userId: z.uuid() }),
+    jobId: (p) => `${p.eventId}.${p.userId}`,
+    group: (p) => p.agencyId,
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 30_000,
     async run(p, { log }) {
       const { webUrl } = identityConfig();
       if (!webUrl) throw new Error('identity: webUrl is not configured');
-      const messages = await withSystem('identity.sendVerificationDecisionEmail', async (tx) => {
+      const message = await withSystem('identity.sendVerificationDecisionEmail', async (tx) => {
         const decision = await agencies.getVerificationDecision(tx, p.requestId);
-        if (!decision || decision.agencyId !== p.agencyId || decision.status === 'SUBMITTED') return [];
-        const admins = await repo.listAdminRecipients(tx, p.agencyId);
-        return admins.map((admin) =>
-          renderVerificationDecisionEmail(
-            admin,
-            { approved: decision.status === 'APPROVED', agency: decision.agencyName, reason: decision.reason },
-            new URL(`/${emailLocale(admin.locale)}/verification`, webUrl).href,
-          ),
+        if (!decision || decision.agencyId !== p.agencyId || decision.status === 'SUBMITTED') return null;
+        const admin = (await repo.listAdminRecipients(tx, p.agencyId)).find((a) => a.userId === p.userId);
+        if (!admin) return null;
+        return renderVerificationDecisionEmail(
+          admin,
+          { approved: decision.status === 'APPROVED', agency: decision.agencyName, reason: decision.reason },
+          new URL(`/${emailLocale(admin.locale)}/verification`, webUrl).href,
         );
       });
+      if (!message) {
+        log.info('verification decision email skipped (recipient is no longer an active admin)');
+        return;
+      }
       // Outside the transaction (CLAUDE.md rule 6).
-      for (const message of messages) await mailer().send(message);
-      log.info({ recipients: messages.length }, 'verification decision email sent');
+      await mailer().send(message);
+      log.info('verification decision email sent');
     },
   }),
 
