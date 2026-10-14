@@ -27,6 +27,7 @@
     "infra:down": "docker compose --profile dev --profile test down",
     "infra:health": "tsx scripts/ops/health.ts",
     "infra:health:test": "tsx scripts/ops/health.ts --test",
+    "legacy:taxonomy": "tsx --conditions=@inmolink/source scripts/legacy-migration/taxonomy.ts",
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
     "staff:grant": "tsx --conditions=@inmolink/source scripts/ops/staff.ts grant",

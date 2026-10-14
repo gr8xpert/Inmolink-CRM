@@ -420,6 +420,11 @@ export const globalTables: Record<string, GlobalTable> = {
     staffWrite: true,
     base: { kind: 'location' },
   },
+  // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
+  legacy_id_maps: {
+    reason: 'every legacy ID and the v2 ID it became (ADR 0006), permanent',
+    base: { entity: 'location', method: 'exact' },
+  },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

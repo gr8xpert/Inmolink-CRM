@@ -29,7 +29,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -272,6 +272,14 @@ create policy staff_insert on public."features" for insert to app_staff with che
 create policy staff_update on public."features" for update to app_staff using (app_is_staff()) with check (app_is_staff());
 create policy staff_delete on public."features" for delete to app_staff using (app_is_staff());
 grant select, insert, update, delete on table public."features" to app_staff;
+
+-- legacy_id_maps: GLOBAL
+alter table public."legacy_id_maps" enable row level security;
+alter table public."legacy_id_maps" force row level security;
+create policy global_read on public."legacy_id_maps" for select to app_user using (true);
+revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."legacy_id_maps" to app_user;
+grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
 
 -- location_aliases: GLOBAL
 alter table public."location_aliases" enable row level security;
