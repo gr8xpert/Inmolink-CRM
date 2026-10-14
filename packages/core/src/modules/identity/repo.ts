@@ -497,6 +497,22 @@ export async function markInviteAccepted(
 
 export type StaffRole = (typeof staffUsers.$inferSelect)['role'];
 
+/**
+ * An impersonating staff member's login and active staff role in one read (S2-F1), as `app_auth` scoped to
+ * that user (`staff_users` policy `auth_self`). Null when either row is missing or the staff role is withdrawn.
+ */
+export async function findImpersonatorLogin(
+  tx: Tx,
+  userId: string,
+): Promise<{ status: string; sessionVersion: number; role: StaffRole } | null> {
+  const [row] = await tx
+    .select({ status: users.status, sessionVersion: users.sessionVersion, role: staffUsers.role })
+    .from(users)
+    .innerJoin(staffUsers, and(eq(staffUsers.userId, users.id), isNull(staffUsers.deactivatedAt)))
+    .where(eq(users.id, userId));
+  return row ?? null;
+}
+
 /** The user's active staff role (primary key). As `app_staff`, policy `staff_self` shows only that row. */
 export async function findStaffRole(tx: Tx, userId: string): Promise<StaffRole | null> {
   const [row] = await tx

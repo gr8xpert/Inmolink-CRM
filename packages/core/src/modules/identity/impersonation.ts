@@ -19,6 +19,8 @@ import * as impRepo from './impersonation-repo';
 import { assertCan, assertStaffCan, IMPERSONATING_ROLES } from './policy';
 import * as repo from './repo';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Live sessions listed at most (one open per staff member, so the staff team's size bounds it). */
 const MAX_LIVE_SESSIONS = 100;
 
@@ -44,7 +46,7 @@ export async function userNames(ctx: StaffCtx, ids: readonly string[]): Promise<
  * 2. The web mints an access token for it (`issueAccessToken` with `impersonationId`, app_auth): `sub`
  *    is the member, `act` the staff member, `imp` the session; only while the session is live.
  * 3. Every API request with that token re-checks the session in its own transaction (`withMemberCtx` →
- *    `isImpersonationLive`, app_user) and runs with `actor.impersonatedBy` and `app.impersonated_by`
+ *    `getMemberAccess`, app_user) and runs with `actor.impersonatedBy` and `app.impersonated_by`
  *    set, so every audit row and event names both people. Ending or expiry applies on the next request.
  * 4. What an impersonated session may never do is one list (`IMPERSONATION_FORBIDDEN`).
  */
@@ -234,24 +236,36 @@ export async function listAgencyMembers(ctx: StaffCtx, input: { agencyId: string
 }
 
 /**
- * Inside an impersonated request's `withTenant` transaction (app_user): whether the session its token
- * names is still live for this user and agency (not readable per staff member by app_user, S1-F10). `withMemberCtx` refuses the request when not.
+ * The request ctx's read inside its `withTenant` transaction (app_user, S2-F1): the caller's active role
+ * and, when `impersonationId` is set, whether that session is still live for this user and agency (not
+ * readable per staff member by app_user, S1-F10). One statement; `withMemberCtx` refuses the request when
+ * the session is not live or the caller is not a member.
  */
-export async function isImpersonationLive(
+export async function getMemberAccess(
   tx: Tx,
-  s: { id: string; agencyId: string; staffUserId: string; targetUserId: string },
-): Promise<boolean> {
-  return impRepo.isSessionLive(tx, s);
+  s: { agencyId: string; userId: string; impersonationId?: string },
+): Promise<{ role: impRepo.MemberRole | null; live: boolean }> {
+  return impRepo.findMemberAccess(tx, s);
 }
 
 /**
- * Inside a `withStaff` transaction for the impersonating staff member (S1-09 review): they are still
- * active staff with a role that may impersonate. `withMemberCtx` checks it on every impersonated request,
- * so withdrawing or downgrading staff access ends impersonation on the next call.
+ * Before an impersonated request's own transaction (S1-09 review, S1-F9; one read since S2-F1): the staff
+ * member is still active staff with a role that may impersonate, and their login is ACTIVE with the session
+ * version the token was minted for (a password reset, 2FA change or "sign out everywhere" bumps it). One
+ * `app_auth` read scoped to the staff member (`app_staff` cannot read `users`), so withdrawing or
+ * downgrading staff access ends impersonation on the next call.
  */
-export async function isImpersonatorActive(tx: Tx, staffUserId: string): Promise<boolean> {
-  const role = await repo.findStaffRole(tx, staffUserId);
-  return role !== null && IMPERSONATING_ROLES.includes(role);
+export async function isImpersonatorCurrent(staffUserId: string, sessionVersion: number): Promise<boolean> {
+  if (!UUID.test(staffUserId)) return false; // a malformed claim ends the session, never a 500
+  return withAuth({ userId: staffUserId }, async (tx) => {
+    const login = await repo.findImpersonatorLogin(tx, staffUserId);
+    return (
+      login !== null &&
+      login.status === 'ACTIVE' &&
+      login.sessionVersion === sessionVersion &&
+      IMPERSONATING_ROLES.includes(login.role)
+    );
+  });
 }
 
 /**

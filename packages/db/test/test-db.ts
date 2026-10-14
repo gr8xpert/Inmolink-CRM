@@ -94,6 +94,34 @@ export async function setAgencyStatus(agencyId: string, status: 'PENDING' | 'VER
   }
 }
 
+export type AdminQuery = <R extends Record<string, unknown>>(text: string, values?: unknown[]) => Promise<R[]>;
+
+/**
+ * One superuser connection in a transaction that is always rolled back (S2-F1): for query-plan tests that
+ * seed volume, `ANALYZE` it (app roles hold no MAINTAIN) and EXPLAIN as an app role (`set local role`).
+ * Nothing stays behind but dead tuples; the statistics are re-analysed after the rollback, since
+ * `pg_class.reltuples` is updated in place and would otherwise keep the seeded row counts.
+ */
+export async function withAdminRollback<T>(tables: readonly string[], fn: (q: AdminQuery) => Promise<T>): Promise<T> {
+  loadStackEnv('test');
+  const cfg = loadConfig(migrateEnv);
+  if (!cfg.DATABASE_URL_ADMIN) throw new Error('withAdminRollback needs DATABASE_URL_ADMIN');
+  const admin = new pg.Client({ connectionString: cfg.DATABASE_URL_ADMIN });
+  await admin.connect();
+  const q: AdminQuery = async (text, values = []) => (await admin.query(text, values)).rows;
+  try {
+    await admin.query('begin');
+    try {
+      return await fn(q);
+    } finally {
+      await admin.query('rollback');
+      for (const t of tables) await admin.query(`analyze ${pg.escapeIdentifier(t)}`);
+    }
+  } finally {
+    await admin.end();
+  }
+}
+
 /**
  * Runs SQL as the bootstrap superuser (S1-08): for tests that change what no app role may change, such
  * as dropping a partition to prove the maintenance job creates it again. Returns the rows.

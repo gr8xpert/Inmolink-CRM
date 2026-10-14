@@ -450,15 +450,6 @@ async function issueImpersonationToken(
   });
   return { token, expiresAt: expiresAt.toISOString() };
 }
-
-/**
- * The caller's role in the agency named by their access token, inside the request's `withTenant`
- * transaction (RLS: own agency only). Null when the user is not (or no longer) an active member.
- */
-export async function getMemberRole(tx: Tx, agencyId: string, userId: string): Promise<MemberRole | null> {
-  return repo.findMemberRole(tx, agencyId, userId);
-}
-
 // ── Team (S1-02) ────────────────────────────────────────────────────────────────────────────────
 
 function toMemberDto(row: repo.MemberRow): MemberDto {

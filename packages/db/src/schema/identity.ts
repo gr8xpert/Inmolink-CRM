@@ -212,8 +212,13 @@ export const staffImpersonations = pgTable(
   (t) => [
     // one open session per staff member: start ends the previous one first; mint + `GET /v1/staff/me`
     uniqueIndex('staff_impersonations_open_uq').on(t.staffUserId).where(sql`ended_at is null`),
-    // FK + the agency's impersonation history: where agency_id = ? order by started_at
-    index('staff_impersonations_agency_idx').on(t.agencyId, t.startedAt),
+    // FK + the agency's staff access list (S2-F1): where agency_id = ? order by the keyset time desc, id desc
+    // (`keysetOrder`: `date_trunc('milliseconds', started_at, 'UTC')`); scanned backwards, no sort
+    index('staff_impersonations_agency_idx').on(
+      t.agencyId,
+      sql`date_trunc('milliseconds', ${t.startedAt}, 'UTC')`,
+      t.id,
+    ),
     // FK + the staff member's history: where staff_user_id = ? order by started_at
     index('staff_impersonations_staff_idx').on(t.staffUserId, t.startedAt),
     // FK: removing a user

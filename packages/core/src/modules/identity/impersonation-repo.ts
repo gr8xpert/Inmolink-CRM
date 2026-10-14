@@ -115,28 +115,31 @@ export async function findLiveSession(tx: Tx, staffUserId: string, id?: string):
   return row ?? null;
 }
 
+export type MemberRole = (typeof agencyMembers.$inferSelect)['role'];
+
 /**
- * An impersonated request's check, in its own `withTenant` transaction (app_user, own agency, as the target
- * member — the only row `user_select` shows it): the session the token names is still open, for this user and
- * agency. One primary-key probe. `staff_user_id` is not readable by app_user (S1-F10, ADR 0016); the signed
- * token carries it from the row the mint read, and a session id never changes hands (guard 0028).
+ * The request ctx's one read (S2-F1, `withTenant`, app_user, own agency): the caller's active role in the
+ * agency and, for an impersonated call, whether the session its token names is still open for this user and
+ * agency (as the target member — the only row `user_select` shows it). `staff_user_id` is not readable by
+ * app_user (S1-F10, ADR 0016); the signed token carries it from the row the mint read, and a session id
+ * never changes hands (guard 0028). Always one row; `live` is true when no session is named.
  */
-export async function isSessionLive(
+export async function findMemberAccess(
   tx: Tx,
-  s: { id: string; agencyId: string; targetUserId: string },
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: staffImpersonations.id })
-    .from(staffImpersonations)
-    .where(
-      and(
-        eq(staffImpersonations.id, s.id),
-        eq(staffImpersonations.agencyId, s.agencyId),
-        eq(staffImpersonations.targetUserId, s.targetUserId),
-        live(),
-      ),
-    );
-  return row !== undefined;
+  s: { agencyId: string; userId: string; impersonationId?: string },
+): Promise<{ role: MemberRole | null; live: boolean }> {
+  const m = agencyMembers;
+  const i = staffImpersonations;
+  const sessionLive = s.impersonationId
+    ? sql`exists (select 1 from ${i} where ${i.id} = ${s.impersonationId} and ${i.agencyId} = ${s.agencyId}
+                    and ${i.targetUserId} = ${s.userId} and ${live()})`
+    : sql`true`;
+  const res = await tx.execute<{ role: MemberRole | null; live: boolean }>(sql`
+    select (select ${m.role} from ${m} where ${m.agencyId} = ${s.agencyId} and ${m.userId} = ${s.userId}
+              and ${m.deactivatedAt} is null) as role,
+           ${sessionLive} as live`);
+  const row = res.rows[0];
+  return { role: row?.role ?? null, live: row?.live === true };
 }
 
 export interface StaffAccessRow {

@@ -112,14 +112,80 @@ describe('audit log', () => {
     expect(row?.n).toBe(1);
   });
 
-  it('[S1-08] retention stays off and there is no default partition (pg_partman config)', async () => {
-    const [config] = await adminQuery<{ retention: string | null; premake: number; infinite: boolean; dflt: number }>(
-      `select retention, premake, infinite_time_partitions as infinite,
+  it('[S1-08] [S2-F1] months older than 24 are archived, never dropped, and there is no default partition (pg_partman config)', async () => {
+    const [config] = await adminQuery<{
+      retention: string | null;
+      keep: boolean;
+      archive: string | null;
+      premake: number;
+      infinite: boolean;
+      dflt: number;
+    }>(
+      `select retention, retention_keep_table as keep, retention_schema as archive, premake,
+              infinite_time_partitions as infinite,
               (select count(*)::int from pg_inherits i join pg_class c on c.oid = i.inhrelid
                 where i.inhparent = 'public.audit_logs'::regclass and c.relname = 'audit_logs_default') as dflt
          from partman.part_config where parent_table = 'public.audit_logs'`,
     );
-    expect(config).toEqual({ retention: null, premake: 4, infinite: true, dflt: 0 });
+    expect(config).toEqual({
+      retention: '24 months',
+      keep: true,
+      archive: 'audit_archive',
+      premake: 4,
+      infinite: true,
+      dflt: 0,
+    });
+    // pg_partman skips the whole set (new months too) when the archive schema has another owner.
+    const [owners] = await adminQuery<{ same: boolean }>(
+      `select (select nspowner from pg_namespace where nspname = 'audit_archive')
+            = (select relowner from pg_class where oid = 'public.audit_logs'::regclass) as same`,
+    );
+    expect(owners?.same).toBe(true);
+  });
+
+  it('[S2-F1] maintenance moves a month past retention to audit_archive, unreachable by every app role', async () => {
+    // A month from before the database existed, owned like every partition maintenance creates.
+    const [made] = await adminQuery<{ name: string }>(
+      `select 'audit_logs_p' || to_char(date_trunc('month', now() - interval '26 months'), 'YYYYMMDD') as name,
+              partman.create_partition_time('public.audit_logs', array[date_trunc('month', now() - interval '26 months')]) as created`,
+    );
+    const name = made?.name as string;
+    await adminQuery(`alter table public."${name}" owner to app_owner`);
+    const where = async () =>
+      (
+        await adminQuery<{ schema: string }>(
+          `select n.nspname as schema from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relname = $1`,
+          [name],
+        )
+      ).map((r) => r.schema);
+    try {
+      expect(await where()).toEqual(['public']);
+      await compliance.complianceJobs.maintainPartitions.spec.run({}, {} as never);
+      expect(await where()).toEqual(['audit_archive']);
+      const [attached] = await adminQuery<{ n: number }>(
+        `select count(*)::int as n from pg_inherits i join pg_class c on c.oid = i.inhrelid
+          where i.inhparent = 'public.audit_logs'::regclass and c.relname = $1`,
+        [name],
+      );
+      expect(attached?.n).toBe(0);
+      // Still append-only once archived (the cloned triggers go with the detach; maintenance re-creates them).
+      // The month is empty, so the row trigger is checked by name; TRUNCATE (statement level) is refused.
+      const triggers = await adminQuery<{ name: string }>(
+        `select tgname as name from pg_trigger where tgrelid = ('audit_archive.' || quote_ident($1))::regclass order by 1`,
+        [name],
+      );
+      expect(triggers.map((t) => t.name)).toEqual(['audit_logs_immutable', 'audit_logs_no_truncate']);
+      await expect(adminQuery(`truncate audit_archive."${name}"`)).rejects.toThrow(/append-only/);
+      const [grants] = await adminQuery<{ n: number }>(
+        `select count(*)::int as n from (select unnest($1::text[]) as r) roles
+          where has_schema_privilege(roles.r, 'audit_archive', 'USAGE')
+             or has_table_privilege(roles.r, 'audit_archive.' || quote_ident($2), 'SELECT')`,
+        [APP_ROLES, name],
+      );
+      expect(grants?.n).toBe(0);
+    } finally {
+      await adminQuery(`drop table if exists audit_archive."${name}"; drop table if exists public."${name}"`);
+    }
   });
 
   it('[S1-08] partitions for the current and the next 3 months exist (pg_partman, premake 4)', async () => {

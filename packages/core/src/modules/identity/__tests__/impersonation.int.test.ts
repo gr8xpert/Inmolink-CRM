@@ -1,4 +1,4 @@
-import { closeDb, withAuth, withStaff, withSystem, withTenant } from '@inmolink/db';
+import { closeDb, countQueries, withAuth, withStaff, withSystem, withTenant } from '@inmolink/db';
 import { createStaffUser, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey, newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
@@ -645,5 +645,24 @@ describe('staff impersonation', () => {
       compliance.listAuditLogForStaff(ctx, { agencyId: f.agencyId, limit: 100 }),
     );
     expect(log.items.map((i) => i.type)).toContain('staff.impersonation.started');
+  });
+
+  it('[S2-F1] an impersonated dashboard request runs ≤ 3 queries before the handler', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const session = await start(support.userId, f);
+    const noop = () => asImpersonated(f, { id: session.id, staffUserId: support.userId }, async () => 'ok');
+    expect(await noop()).toBe('ok'); // pools warm
+    expect(await countQueries(noop)).toBeLessThanOrEqual(3);
+    // The same three statements still refuse: an ended session, then a withdrawn staff role.
+    await asStaff(support.userId, (ctx) => identity.endImpersonation(ctx, { id: session.id }));
+    expect(await refusal(noop())).toBe('IMPERSONATION_ENDED');
+    const again = await start(support.userId, f);
+    await withSystem('impersonation test: staff withdrawn', (tx) =>
+      tx.execute(sql`update staff_users set deactivated_at = now() where user_id = ${support.userId}`),
+    );
+    expect(await refusal(asImpersonated(f, { id: again.id, staffUserId: support.userId }, async () => 'ok'))).toBe(
+      'IMPERSONATION_ENDED',
+    );
   });
 });

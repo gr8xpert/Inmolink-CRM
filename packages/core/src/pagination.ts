@@ -32,11 +32,13 @@ export function decodeCursor(cursor: string | undefined): KeysetCursor | undefin
  * The sort time as the cursor can hold it. Postgres keeps microseconds, a cursor (JS `Date`) only
  * milliseconds: comparing the raw column with a cursor skips rows (newest first) or repeats them (oldest
  * first) when timestamps share a millisecond. Lists order and compare on the millisecond-truncated time,
- * then the id (S1-09 review, PATTERNS §5). Tables written with millisecond times (`audit_logs`) may use
- * the raw column and keep their index order.
+ * then the id (S1-09 review, PATTERNS §5). The three-argument form is IMMUTABLE (the two-argument one on
+ * `timestamptz` is only STABLE), so an index on `(…, date_trunc('milliseconds', col, 'UTC'), id)` serves
+ * the order without a sort (S2-F1). Tables written with millisecond times (`audit_logs`) may use the raw
+ * column and keep their index order.
  */
 export function keysetTime(at: AnyColumn): SQL {
-  return sql`date_trunc('milliseconds', ${at})`;
+  return sql`date_trunc('milliseconds', ${at}, 'UTC')`;
 }
 
 /** `WHERE` part of a keyset page after `cursor` (none on the first page). */

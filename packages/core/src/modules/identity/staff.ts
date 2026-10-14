@@ -21,19 +21,6 @@ export function isUserActive(userId: string): Promise<boolean> {
   return withAuth(async (tx) => (await repo.findUserForToken(tx, userId))?.status === 'ACTIVE');
 }
 
-/**
- * Whether the staff login behind an impersonation token is still the one it was minted for (S1-F9): the
- * account is ACTIVE and its `session_version` is the token's `sv` (a password reset, 2FA change or
- * "sign out everywhere" bumps it). `app_staff` cannot read `users`, so this is the same short `app_auth`
- * read as `isUserActive`; `withMemberCtx` runs it on impersonated requests only.
- */
-export function isStaffLoginCurrent(userId: string, sessionVersion: number): Promise<boolean> {
-  return withAuth(async (tx) => {
-    const user = await repo.findUserForToken(tx, userId);
-    return user?.status === 'ACTIVE' && user.sessionVersion === sessionVersion;
-  });
-}
-
 /** The caller's active staff role inside a `withStaff` transaction, or null. */
 export async function getStaffRole(tx: Tx, userId: string): Promise<StaffRole | null> {
   return repo.findStaffRole(tx, userId);

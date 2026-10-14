@@ -57,8 +57,10 @@ export const agencies = pgTable(
   (t) => [
     // staff console (S1-09): duplicate-company checks and search by tax id
     index('agencies_tax_id_idx').on(t.taxId).where(sql`tax_id is not null`),
-    // staff tenants list (S1-09): [where status = ?] order by created_at desc, agency_id desc (keyset)
-    index('agencies_created_idx').on(t.createdAt, t.id),
+    // staff tenants list (S1-09, S2-F1): [where status = ?] order by the keyset time desc, agency_id desc
+    // (`keysetOrder`), no sort. No (status, …) index: under app_staff RLS the enum `=` is not leakproof, so a
+    // status filter is never an index condition; it filters this ordered scan (5,000 agencies at most).
+    index('agencies_created_idx').on(sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`, t.id),
     // staff tenant search (S1-F9): `name ilike '%q%'` — a leading wildcard cannot use a btree; trigram GIN (pg_trgm, initdb)
     index('agencies_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
   ],

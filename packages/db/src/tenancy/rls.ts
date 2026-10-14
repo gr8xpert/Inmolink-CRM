@@ -226,10 +226,29 @@ export function helperSql(): string {
      where p.preferred_agency_id = public.app_agency() $$;`,
     // S1-08: pg_partman maintenance (create the months ahead) for `app_system`'s recurring worker job.
     // Owned by app_owner (who owns the partitioned parents), so SECURITY DEFINER with a fixed search_path;
-    // it takes no input and only runs partman's maintenance. Partman lives in its own schema (initdb).
+    // it takes no input and only runs partman's maintenance, then re-arms the append-only triggers on archived
+    // audit months (S2-F1). Partman lives in its own schema (initdb).
     `create or replace function app_partition_maintenance() returns void language plpgsql security definer
   set search_path = pg_catalog, pg_temp set lock_timeout = '5s'
-  as $$ begin perform partman.run_maintenance(p_analyze := false, p_jobmon := false); end $$;`,
+  as $$
+declare t record;
+begin
+  perform partman.run_maintenance(p_analyze := false, p_jobmon := false);
+  -- S2-F1: a month moved to audit_archive by retention loses the triggers cloned from the parent; it stays
+  -- append-only (and untruncatable) until the runbook's export step drops it.
+  for t in select c.oid::regclass as rel,
+                  not exists (select 1 from pg_trigger g where g.tgrelid = c.oid and g.tgname = 'audit_logs_immutable') as no_row,
+                  not exists (select 1 from pg_trigger g where g.tgrelid = c.oid and g.tgname = 'audit_logs_no_truncate') as no_trunc
+             from pg_class c join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'audit_archive' and c.relkind = 'r' loop
+    if t.no_row then
+      execute format('create trigger audit_logs_immutable before update or delete on %s for each row execute function public.audit_logs_immutable()', t.rel);
+    end if;
+    if t.no_trunc then
+      execute format('create trigger audit_logs_no_truncate before truncate on %s for each statement execute function public.audit_logs_immutable()', t.rel);
+    end if;
+  end loop;
+end $$;`,
     `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,

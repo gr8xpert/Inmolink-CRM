@@ -27,9 +27,9 @@ export { identityEvents } from './events';
 export {
   endImpersonation,
   endImpersonationAsSuperAdmin,
+  getMemberAccess,
   getStaffMe,
-  isImpersonationLive,
-  isImpersonatorActive,
+  isImpersonatorCurrent,
   listAgencyMembers,
   listLiveImpersonations,
   listStaffAccess,
@@ -43,7 +43,6 @@ export {
   acceptInvite,
   changeMemberRole,
   deactivateMember,
-  getMemberRole,
   inviteMember,
   isSessionValid,
   issueAccessToken,
@@ -59,7 +58,6 @@ export {
 export {
   getStaffRole,
   grantStaff,
-  isStaffLoginCurrent,
   isUserActive,
   listAgencyAdmins,
   revokeStaff,

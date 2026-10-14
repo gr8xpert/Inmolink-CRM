@@ -342,7 +342,7 @@ export const tenantTables: Record<string, TenantTable> = {
   // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;
   // staff start only their own sessions and end their own; super admins also see and end anyone's (S1-F9).
   // Rows hold the staff member's reason: `app_user` reads a row only as the member it targets (the per-request
-  // `isSessionLive` check) or as an admin of the agency (`GET /v1/staff-access`), and never `staff_user_id`
+  // `findMemberAccess` check) or as an admin of the agency (`GET /v1/staff-access`), and never `staff_user_id`
   // (S1-F10, ADR 0016). The admin side is tested in the identity module.
   staff_impersonations: {
     kind: 'STRICT',
