@@ -106,6 +106,41 @@ describe('RLS generator', () => {
     expect(out).not.toMatch(/app_partition_maintenance\(\) to [^;]*app_(?:user|public|auth|staff)/);
   });
 
+  it('[S1-F10] userSelect: app_user reads through a user predicate and a column list without the hidden columns', () => {
+    const userSelect = {
+      sql: 'owner_user_id = app_user_id()',
+      hiddenColumns: ['secret'],
+      samples: { visible: [], hidden: [] },
+    };
+    const def = { kind: 'STRICT', userSelect } as const;
+    const sql = tablesSql({ tenant: { notes: def }, global: {} });
+    expect(sql).toContain(`create policy user_select on public."notes" for select to app_user
+  using (agency_id = app_agency() and (owner_user_id = app_user_id()));`);
+    for (const cmd of ['insert', 'update', 'delete'])
+      expect(sql).toContain(`create policy own_${cmd} on public."notes" for ${cmd} to app_user`);
+    expect(sql).not.toContain('create policy own_rows');
+    expect(sql).toContain(`attname <> all (array['secret'])`);
+    expect(sql).toContain('grant insert, update, delete on table public."notes" to app_user;');
+    expect(sql).not.toMatch(/grant select, insert[^;]*"notes" to app_user/);
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_insert:INSERT',
+      'own_update:UPDATE',
+      'own_delete:DELETE',
+      'user_select:SELECT',
+    ]);
+    expect(expectedPrivileges(def).app_user).toEqual(['SELECT', 'INSERT', 'UPDATE', 'DELETE']);
+  });
+
+  it('[S1-F10] userSelect is refused on non-STRICT, append-only and immutable tables', () => {
+    const userSelect = { sql: 'true', samples: { visible: [], hidden: [] } };
+    const bad = (tenant: TenantRegistry['tenant'][string]) => () => tablesSql({ tenant: { t: tenant }, global: {} });
+    expect(bad({ kind: 'STRICT', appendOnly: true, userSelect })).toThrow(/userSelect/);
+    expect(bad({ kind: 'STRICT', immutable: true, userSelect })).toThrow(/userSelect/);
+    expect(bad({ kind: 'STRICT', userSelect: { ...userSelect, hiddenColumns: ['agency_id'] } })).toThrow(
+      /hidden column/,
+    );
+  });
+
   it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
     const def = {
       kind: 'STRICT',

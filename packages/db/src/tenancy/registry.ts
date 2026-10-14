@@ -23,6 +23,9 @@ export type SampleRow = Record<string, unknown>;
  */
 export const SAMPLE_READER = '{reader}';
 
+/** Like `SAMPLE_READER`, for the reading *user* (`app_user_id()`): `userSelect` samples such as `target_user_id = app_user_id()`. */
+export const SAMPLE_USER = '{user}';
+
 /** Rows that satisfy (`visible`) and fail (`hidden`) a read predicate, so the suite can test both sides. */
 export interface PredicateSamples {
   visible: SampleRow[];
@@ -50,6 +53,15 @@ interface TenantBase {
    * actor. One SQL predicate, reviewed like `networkReadSql`.
    */
   userInsert?: string;
+  /**
+   * STRICT only (S1-F10): `app_user` reads its own agency's rows only where `sql` holds — a predicate about
+   * the reading user (`app_user_id()`), ANDed with `agency_id = app_agency()` — instead of every row
+   * (`own_rows` then covers INSERT, UPDATE and DELETE only). `hiddenColumns` are not readable by `app_user`
+   * at all: the generator grants SELECT on the other columns only (ADR 0016), so a new column stays
+   * unreadable until `pnpm db:rls` runs. `samples` hold rows the suite's reading user (`SAMPLE_USER`) can
+   * and cannot read; branches that need other rows (an admin of the agency) are tested in the owning module.
+   */
+  userSelect?: { sql: string; hiddenColumns?: readonly string[]; samples: PredicateSamples };
   /**
    * Range-partitioned parent (pg_partman, PLAN §4.1). The guard checks the table is partitioned and that
    * no partition is reachable directly (partitions skip their parent's policies).
@@ -319,10 +331,17 @@ export const tenantTables: Record<string, TenantTable> = {
   // session row (app_user, own agency) to check it is still open; tenants never write it (guard 0026; a
   // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;
   // staff start only their own sessions and end their own; super admins also see and end anyone's (S1-F9).
-  // Rows hold the staff member's reason: only the agency's admins see it (`GET /v1/staff-access`).
+  // Rows hold the staff member's reason: `app_user` reads a row only as the member it targets (the per-request
+  // `isSessionLive` check) or as an admin of the agency (`GET /v1/staff-access`), and never `staff_user_id`
+  // (S1-F10, ADR 0016). The admin side is tested in the identity module.
   staff_impersonations: {
     kind: 'STRICT',
     guardedInsert: true,
+    userSelect: {
+      sql: `target_user_id = app_user_id() or exists (select 1 from public.agency_members m where m.agency_id = app_agency() and m.user_id = app_user_id() and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN') and m.deactivated_at is null)`,
+      hiddenColumns: ['staff_user_id'],
+      samples: { visible: [{ target_user_id: SAMPLE_USER }], hidden: [{}] },
+    },
     triggers: ['staff_impersonations_guard'],
     base: {
       reason: 'isolation fixture reason',

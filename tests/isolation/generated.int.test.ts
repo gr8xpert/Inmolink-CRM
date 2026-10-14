@@ -1,6 +1,7 @@
 import {
   getPgClient,
   SAMPLE_READER,
+  SAMPLE_USER,
   setAuthScope,
   type TenantTable,
   type Tx,
@@ -39,8 +40,8 @@ const PASSED_RLS = ['23503', '23505'];
 
 /** Runs `fn` as the tenant and rolls the transaction back (positive controls leave no rows). */
 class Rollback extends Error {}
-async function rolledBack(agencyId: string, fn: (tx: Tx) => Promise<void>): Promise<void> {
-  await withTenant({ agencyId }, async (tx) => {
+async function rolledBack(agencyId: string, fn: (tx: Tx) => Promise<void>, userId?: string): Promise<void> {
+  await withTenant({ agencyId, userId }, async (tx) => {
     await fn(tx);
     throw new Rollback();
   }).catch((err) => {
@@ -117,7 +118,7 @@ async function seedNetworkMember(agencyId: string): Promise<void> {
 }
 
 function samplesOf(def: TenantTable): { visible: Row[]; hidden: Row[] } {
-  if (def.kind === 'STRICT') return { visible: [], hidden: [{}] };
+  if (def.kind === 'STRICT') return def.userSelect ? def.userSelect.samples : { visible: [], hidden: [{}] };
   return def.samples;
 }
 
@@ -131,9 +132,17 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   const b = newId();
   let build: (overrides: Row) => Row;
 
+  /** `userSelect` tables (S1-F10): tenants read as a member, the user the samples name (`SAMPLE_USER`). */
+  const reader = newId();
+  const as = (agencyId: string) => ({ agencyId, userId: def.userSelect ? reader : undefined });
+  const rb = (agencyId: string, fn: (tx: Tx) => Promise<void>) =>
+    rolledBack(agencyId, fn, def.userSelect ? reader : undefined);
+
   /** Sample values naming the reader (`SAMPLE_READER`) become tenant B, which reads the network below. */
   const forReader = (sample: Row): Row =>
-    Object.fromEntries(Object.entries(sample).map(([k, v]) => [k, v === SAMPLE_READER ? b : v]));
+    Object.fromEntries(
+      Object.entries(sample).map(([k, v]) => [k, v === SAMPLE_READER ? b : v === SAMPLE_USER ? reader : v]),
+    );
 
   beforeAll(async () => {
     const columns = await columnsOf(admin, table);
@@ -142,7 +151,8 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       for (const sample of [...visible, ...hidden]) {
         await seed(admin, table, build({ ...forReader(sample), agency_id: a }));
       }
-      await seed(admin, table, build({ agency_id: b }));
+      // A `userSelect` table's own row is one its reader may read, so the positive controls can update it.
+      await seed(admin, table, build({ ...forReader(def.userSelect ? (visible[0] ?? {}) : {}), agency_id: b }));
       // Only verified agencies read the network (the generator's `app_agency_verified()`, S1-07), and
       // rows of an owner that left the directory may be hidden: both tenants are network members.
       if (def.kind === 'NETWORK_READ') for (const id of [a, b]) await seedNetworkMember(id);
@@ -165,17 +175,17 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     // Write-only for tenants (e.g. the outbox): every read, update and delete is denied, even on own rows.
     it(`[S0-06] ${table}: append-only — tenants cannot select, update or delete any rows, even their own`, async () => {
       for (const agencyId of [a, b]) {
-        await expectSqlState(() => withTenant({ agencyId: b }, (tx) => count(tx, table, agencyId)), DENIED);
+        await expectSqlState(() => withTenant(as(b), (tx) => count(tx, table, agencyId)), DENIED);
         await expectSqlState(
           () =>
-            withTenant({ agencyId: b }, (tx) =>
+            withTenant(as(b), (tx) =>
               tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${agencyId}`),
             ),
           DENIED,
         );
         await expectSqlState(
           () =>
-            withTenant({ agencyId: b }, (tx) =>
+            withTenant(as(b), (tx) =>
               tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`),
             ),
           DENIED,
@@ -187,7 +197,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
 
     it(`[S0-06] ${table}: append-only — tenant B cannot insert a row for tenant A`, async () => {
       await expectSqlState(
-        () => withTenant({ agencyId: b }, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
+        () => withTenant(as(b), (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
         DENIED,
       );
     });
@@ -204,19 +214,45 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     });
 
     it(`[S0-06] ${table}: positive control — tenant B can insert its own rows`, async () => {
-      await rolledBack(b, async (tx) => {
+      await rb(b, async (tx) => {
         expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
       });
       expect(await adminCount(b)).toBe(1);
     });
   } else {
     it(`[S0-05] ${table}: tenant A reads all of its own rows`, async () => {
-      expect(await withTenant({ agencyId: a }, (tx) => count(tx, table, a))).toBe(visible.length + hidden.length);
+      const readable = def.userSelect ? visible.length : visible.length + hidden.length;
+      expect(await withTenant(as(a), (tx) => count(tx, table, a))).toBe(readable);
     });
+
+    if (def.userSelect) {
+      const { hiddenColumns = [] } = def.userSelect;
+      it(`[S1-F10] ${table}: userSelect — a member reads only the rows the predicate shows them, never another member's`, async () => {
+        expect(await withTenant({ agencyId: a }, (tx) => count(tx, table, a))).toBe(0);
+        expect(await withTenant({ agencyId: a, userId: newId() }, (tx) => count(tx, table, a))).toBe(0);
+        expect(await withTenant({ agencyId: b, userId: reader }, (tx) => count(tx, table, a))).toBe(0);
+        expect(await adminCount(a)).toBe(visible.length + hidden.length);
+      });
+
+      it(`[S1-F10] ${table}: userSelect — the hidden columns (${hiddenColumns.join(', ')}) cannot be read, selected, filtered or returned`, async () => {
+        for (const column of hiddenColumns) {
+          const id = sql.identifier(column);
+          const t = sql.identifier(table);
+          for (const read of [
+            sql`select ${id} from ${t} where agency_id = ${a}`,
+            sql`select * from ${t} where agency_id = ${a}`,
+            sql`select count(*) from ${t} where agency_id = ${a} and ${id} is not null`,
+            sql`select agency_id from ${t} where agency_id = ${a} order by ${id}`,
+          ]) {
+            await expectSqlState(() => withTenant(as(a), (tx) => tx.execute(read)), DENIED);
+          }
+        }
+      });
+    }
 
     if (def.kind === 'NETWORK_READ') {
       it(`[S0-05] ${table}: tenant B reads tenant A's rows only where the network predicate holds`, async () => {
-        expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(visible.length);
+        expect(await withTenant(as(b), (tx) => count(tx, table, a))).toBe(visible.length);
       });
 
       it(`[S1-07] ${table}: an agency that is not verified reads none of tenant A's rows`, async () => {
@@ -226,7 +262,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
           );
         await setStatus('SUSPENDED');
         try {
-          expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(0);
+          expect(await withTenant(as(b), (tx) => count(tx, table, a))).toBe(0);
         } finally {
           await setStatus('VERIFIED');
         }
@@ -235,7 +271,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
     } else {
       it(`[S0-05] ${table}: tenant B cannot select tenant A's rows`, async () => {
-        expect(await withTenant({ agencyId: b }, (tx) => count(tx, table, a))).toBe(0);
+        expect(await withTenant(as(b), (tx) => count(tx, table, a))).toBe(0);
       });
     }
 
@@ -245,7 +281,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
         for (const agencyId of [a, b]) {
           await expectSqlState(
             () =>
-              withTenant({ agencyId: b }, (tx) =>
+              withTenant(as(b), (tx) =>
                 tx.execute(
                   sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${agencyId}`,
                 ),
@@ -254,7 +290,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
           );
           await expectSqlState(
             () =>
-              withTenant({ agencyId: b }, (tx) =>
+              withTenant(as(b), (tx) =>
                 tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`),
               ),
             DENIED,
@@ -282,14 +318,14 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
     } else {
       it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
-        const res = await withTenant({ agencyId: b }, (tx) =>
+        const res = await withTenant(as(b), (tx) =>
           tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
         );
         expect(res.rowCount).toBe(0);
       });
 
       it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
-        const res = await withTenant({ agencyId: b }, (tx) =>
+        const res = await withTenant(as(b), (tx) =>
           tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
         );
         expect(res.rowCount).toBe(0);
@@ -299,7 +335,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
 
     it(`[S0-05] ${table}: tenant B cannot insert a row for tenant A`, async () => {
       await expectSqlState(
-        () => withTenant({ agencyId: b }, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
+        () => withTenant(as(b), (tx) => tx.execute(insertSql(table, build({ agency_id: a })))),
         DENIED,
       );
     });
@@ -307,7 +343,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     it(`[S0-05] ${table}: tenant B cannot move its own row to tenant A`, async () => {
       await expectSqlState(
         () =>
-          withTenant({ agencyId: b }, (tx) =>
+          withTenant(as(b), (tx) =>
             tx.execute(sql`update ${sql.identifier(table)} set agency_id = ${a} where agency_id = ${b}`),
           ),
         DENIED,
@@ -345,7 +381,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   if (!def.appendOnly && def.singleRow) {
     it(`[S1-01] ${table}: positive control — tenant B can update its own (single) row`, async () => {
       // One row per agency: inserting a second one would hit the key, so prove the grant by updating.
-      await rolledBack(b, async (tx) => {
+      await rb(b, async (tx) => {
         const res = await tx.execute(
           sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
         );
@@ -356,21 +392,21 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     it(`[S1-02] ${table}: positive control — tenant B can update its own rows; its guard trigger refuses tenant inserts`, async () => {
       // Rows arrive through another role (sign-up, invite accept) or need an admin the suite does not
       // create, so the grant is proven by updating the seeded row.
-      await rolledBack(b, async (tx) => {
+      await rb(b, async (tx) => {
         const res = await tx.execute(
           sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
         );
         expect(res.rowCount).toBe(1);
       });
       await expectSqlState(
-        () => rolledBack(b, (tx) => tx.execute(insertSql(table, build({ agency_id: b }))).then(() => undefined)),
+        () => rb(b, (tx) => tx.execute(insertSql(table, build({ agency_id: b }))).then(() => undefined)),
         DENIED,
       );
       expect(await adminCount(b)).toBe(1);
     });
   } else if (!def.appendOnly && def.immutable) {
     it(`[S1-08] ${table}: positive control — tenant B can insert and read its own rows`, async () => {
-      await rolledBack(b, async (tx) => {
+      await rb(b, async (tx) => {
         expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
         expect(await count(tx, table, b)).toBe(2);
       });
@@ -379,12 +415,13 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   } else if (!def.appendOnly) {
     it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
       // Proves the cross-tenant denials above come from the policies, not from a missing grant.
-      await rolledBack(b, async (tx) => {
+      const ownReadable = build({ ...forReader(def.userSelect ? (visible[0] ?? {}) : {}), agency_id: b });
+      await rb(b, async (tx) => {
         // In a savepoint: a table whose parents the suite does not create (FK to agencies, users)
         // fails the insert with 23503 — which the FK trigger raises only after RLS let the row through —
         // and a partial unique index the seeded row already fills fails with 23505, also after RLS.
         const inserted = await tx
-          .transaction(async (sp) => (await sp.execute(insertSql(table, build({ agency_id: b })))).rowCount)
+          .transaction(async (sp) => (await sp.execute(insertSql(table, ownReadable))).rowCount)
           .catch((err: unknown) => {
             if (PASSED_RLS.includes(sqlState(err) ?? '')) return 0;
             throw err;

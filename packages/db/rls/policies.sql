@@ -246,10 +246,23 @@ grant select, insert, update, delete on table public."preferred_agency_notes" to
 -- staff_impersonations: STRICT
 alter table public."staff_impersonations" enable row level security;
 alter table public."staff_impersonations" force row level security;
-create policy own_rows on public."staff_impersonations" to app_user
+create policy own_insert on public."staff_impersonations" for insert to app_user
+  with check (agency_id = app_agency());
+create policy own_update on public."staff_impersonations" for update to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_delete on public."staff_impersonations" for delete to app_user
+  using (agency_id = app_agency());
+create policy user_select on public."staff_impersonations" for select to app_user
+  using (agency_id = app_agency() and (target_user_id = app_user_id() or exists (select 1 from public.agency_members m where m.agency_id = app_agency() and m.user_id = app_user_id() and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN') and m.deactivated_at is null)));
 revoke all on table public."staff_impersonations" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select, insert, update, delete on table public."staff_impersonations" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."staff_impersonations"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['staff_user_id']);
+  execute format('grant select (%s) on table public."staff_impersonations" to app_user', cols);
+end $$;
+grant insert, update, delete on table public."staff_impersonations" to app_user;
 grant select, insert, update, delete on table public."staff_impersonations" to app_system;
 create policy auth_select on public."staff_impersonations" for select to app_auth
   using (staff_user_id = app_user_id());

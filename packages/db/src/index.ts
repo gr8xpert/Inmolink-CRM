@@ -22,6 +22,7 @@ export {
   type PredicateSamples,
   registry,
   SAMPLE_READER,
+  SAMPLE_USER,
   type SampleRow,
   type StaffAccess,
   type TenantRegistry,

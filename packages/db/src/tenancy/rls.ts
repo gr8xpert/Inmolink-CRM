@@ -43,6 +43,15 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
   if ('kind' in def) {
     if (def.appendOnly && def.kind !== 'STRICT') throw new Error(`${name}: appendOnly is only valid for STRICT tables`);
     if (def.authAppend && !def.appendOnly) throw new Error(`${name}: authAppend is only valid for appendOnly tables`);
+    if (def.userSelect) {
+      if (def.kind !== 'STRICT') throw new Error(`${name}: userSelect is only valid for STRICT tables`);
+      if (def.appendOnly || def.immutable) {
+        throw new Error(`${name}: userSelect is not valid for appendOnly or immutable tables`);
+      }
+      for (const c of def.userSelect.hiddenColumns ?? []) {
+        if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
+      }
+    }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
     if (def.immutable && (def.auth?.update !== undefined || def.staff?.update !== undefined)) {
@@ -111,7 +120,7 @@ function authPrivileges(auth: AuthAccess | StaffAccess | undefined): Privilege[]
 export interface PolicySpec {
   name: string;
   /** pg_policies.cmd */
-  cmd: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE';
+  cmd: 'ALL' | 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
   roles: string[];
 }
 
@@ -127,7 +136,14 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     }
     return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
   }
-  const out: PolicySpec[] = [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
+  const out: PolicySpec[] = def.userSelect
+    ? [
+        { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
+        { name: 'own_update', cmd: 'UPDATE', roles: ['app_user'] },
+        { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
+        { name: 'user_select', cmd: 'SELECT', roles: ['app_user'] },
+      ]
+    : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   for (const [key, cmd] of AUTH_COMMANDS) {
     if (def.auth?.[key] !== undefined) out.push({ name: `auth_${key}`, cmd, roles: ['app_auth'] });
@@ -210,18 +226,56 @@ export function helperSql(): string {
   ].join('\n');
 }
 
+/**
+ * `app_user`'s grant. With `userSelect.hiddenColumns` the table-level SELECT becomes a column list of every
+ * other column, read from the catalog when the SQL runs (ADR 0016); INSERT, UPDATE and DELETE stay table-wide.
+ */
+function userGrantSql(t: string, def: TenantTable): string {
+  const hidden = def.userSelect?.hiddenColumns ?? [];
+  const privileges = expectedPrivileges(def).app_user;
+  if (hidden.length === 0) return `grant ${grantList(privileges)} on table ${t} to app_user;`;
+  const others = privileges.filter((p) => p !== 'SELECT');
+  const literals = hidden.map((c) => `'${c}'`).join(', ');
+  return [
+    `do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = '${t}'::regclass and attnum > 0 and not attisdropped and attname <> all (array[${literals}]);
+  execute format('grant select (%s) on table ${t} to app_user', cols);
+end $$;`,
+    others.length ? `grant ${grantList(others)} on table ${t} to app_user;` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function tenantTableSql(name: string, def: TenantTable): string[] {
   const t = ident(name);
   assertValid(name, def);
   const out = [
-    def.appendOnly
-      ? `create policy own_rows on ${t} for insert to app_user
-  with check (agency_id = app_agency());`
-      : def.userInsert !== undefined
-        ? `create policy own_rows on ${t} to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency() and (${predicate(name, def.userInsert)}));`
-        : `create policy own_rows on ${t} to app_user
+    ...(def.userSelect
+      ? [
+          // S1-F10: writes stay on the agency's rows; reads are narrowed to what the reading user may see.
+          `create policy own_insert on ${t} for insert to app_user
+  with check (agency_id = app_agency());`,
+          `create policy own_update on ${t} for update to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
+          `create policy own_delete on ${t} for delete to app_user
+  using (agency_id = app_agency());`,
+          `create policy user_select on ${t} for select to app_user
+  using (agency_id = app_agency() and (${predicate(name, def.userSelect.sql)}));`,
+        ]
+      : [
+          def.appendOnly
+            ? `create policy own_rows on ${t} for insert to app_user
+  with check (agency_id = app_agency());`
+            : def.userInsert !== undefined
+              ? `create policy own_rows on ${t} to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency() and (${predicate(name, def.userInsert)}));`
+              : `create policy own_rows on ${t} to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());`,
+        ]),
   ];
   if (def.kind === 'NETWORK_READ') {
     // Only a tenant reads the network: a connection with no agency set sees nothing at all. Only a
@@ -236,7 +290,7 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   }
   out.push(
     `revoke all on table ${t} from ${APP_ROLES};`,
-    `grant ${grantList(expectedPrivileges(def).app_user)} on table ${t} to app_user;`,
+    userGrantSql(t, def),
     `grant ${grantList(expectedPrivileges(def).app_system)} on table ${t} to app_system;`,
   );
   if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);

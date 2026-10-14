@@ -1,4 +1,4 @@
-import { closeDb, mergeRegistries, registry, type TenantRegistry } from '@inmolink/db';
+import { closeDb, mergeRegistries, registry, SAMPLE_USER, type TenantRegistry } from '@inmolink/db';
 import { runRls } from '@inmolink/db/migrate';
 import { setupTestDb } from '@inmolink/db/testing';
 import pg from 'pg';
@@ -38,6 +38,15 @@ export const fixtureRegistry: TenantRegistry = {
         hidden: [{ share_scope: 'PREFERRED' }, { share_scope: 'PRIVATE' }],
       },
     },
+    // S1-F10: STRICT with a narrowed app_user read (the rows naming the reading user) and a column it never reads.
+    iso_fx_user_read: {
+      kind: 'STRICT',
+      userSelect: {
+        sql: 'owner_user_id = app_user_id()',
+        hiddenColumns: ['secret'],
+        samples: { visible: [{ owner_user_id: SAMPLE_USER }], hidden: [{}] },
+      },
+    },
     iso_fx_public: {
       kind: 'PUBLIC_READ',
       publicReadSql: 'published',
@@ -61,6 +70,8 @@ create table iso_fx_network (
   id uuid primary key, agency_id uuid not null, visibility text not null, status text not null,
   deleted_at timestamptz);
 create table iso_fx_preferred (id uuid primary key, agency_id uuid not null, share_scope text not null);
+create table iso_fx_user_read (
+  id uuid primary key, agency_id uuid not null, owner_user_id uuid not null, secret text not null default 'x');
 create table iso_fx_public (id uuid primary key, agency_id uuid not null, published boolean not null);
 create table iso_fx_global (id uuid primary key, code text not null unique);
 create table iso_fx_global_public (id uuid primary key, code text not null unique);

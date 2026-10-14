@@ -116,12 +116,14 @@ export async function findLiveSession(tx: Tx, staffUserId: string, id?: string):
 }
 
 /**
- * An impersonated request's check, in its own `withTenant` transaction (app_user, own agency): the
- * session the token names is still open, for this staff member, user and agency. One primary-key probe.
+ * An impersonated request's check, in its own `withTenant` transaction (app_user, own agency, as the target
+ * member — the only row `user_select` shows it): the session the token names is still open, for this user and
+ * agency. One primary-key probe. `staff_user_id` is not readable by app_user (S1-F10, ADR 0016); the signed
+ * token carries it from the row the mint read, and a session id never changes hands (guard 0028).
  */
 export async function isSessionLive(
   tx: Tx,
-  s: { id: string; agencyId: string; staffUserId: string; targetUserId: string },
+  s: { id: string; agencyId: string; targetUserId: string },
 ): Promise<boolean> {
   const [row] = await tx
     .select({ id: staffImpersonations.id })
@@ -130,7 +132,6 @@ export async function isSessionLive(
       and(
         eq(staffImpersonations.id, s.id),
         eq(staffImpersonations.agencyId, s.agencyId),
-        eq(staffImpersonations.staffUserId, s.staffUserId),
         eq(staffImpersonations.targetUserId, s.targetUserId),
         live(),
       ),

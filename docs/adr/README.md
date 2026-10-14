@@ -24,5 +24,6 @@ One file per decision: `NNNN-short-title.md` with **Status**, **Context**, **Dec
 | [0013](0013-public-page-js-budget.md) | Public page JavaScript budget | Accepted |
 | [0014](0014-outbox-wake-up.md) | Outbox wake-up without NOTIFY in business transactions | Accepted |
 | [0015](0015-staff-access-role.md) | Staff access: `app_staff` login role and `staff_users` | Accepted |
+| [0016](0016-narrowed-tenant-read.md) | Narrowed tenant read: `userSelect` and column grants | Accepted |
 
 "Accepted (design)" means the decision is settled but the code lands with a later task, which the ADR names.

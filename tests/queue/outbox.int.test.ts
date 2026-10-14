@@ -234,18 +234,25 @@ describe('outbox', () => {
 
       // Other suites leave due rows of their own types in the shared database; fair share hands those
       // small agencies their rows first, so the burst agency gets the batch minus everyone else's.
+      // Rows of other suites that another transaction locks or deletes while the claim runs (suites share this
+      // database in a full verify) are skipped, and their quota is not handed to anyone else: a claim falls
+      // short by at most that many rows (S1-F10: it claimed 442 of 500 next to a parallel suite).
       let foreign = await foreignDue();
       const first = await dispatcher.runOnce();
-      expect(first.claimed).toBe(500);
+      foreign = Math.max(foreign, await foreignDue());
+      expect(first.claimed).toBeGreaterThanOrEqual(500 - foreign);
+      expect(first.claimed).toBeLessThanOrEqual(500);
       for (const agencyId of others) expect(seen.get(agencyId)).toBe(1);
-      expect(seen.get(burst)).toBeGreaterThanOrEqual(500 - others.length - foreign);
+      expect(seen.get(burst)).toBeGreaterThanOrEqual(first.claimed - others.length - foreign);
 
       // With the others drained, the burst agency gets whole batches again.
       const before = seen.get(burst) as number;
       foreign = await foreignDue();
       const second = await dispatcher.runOnce();
-      expect(second.claimed).toBe(500);
-      expect((seen.get(burst) as number) - before).toBeGreaterThanOrEqual(500 - foreign);
+      foreign = Math.max(foreign, await foreignDue());
+      expect(second.claimed).toBeGreaterThanOrEqual(500 - foreign);
+      expect(second.claimed).toBeLessThanOrEqual(500);
+      expect((seen.get(burst) as number) - before).toBeGreaterThanOrEqual(second.claimed - foreign);
     } finally {
       await withSystem('test.cleanup', (tx) => tx.execute(sql`delete from outbox_events where type = ${noted.type}`));
     }

@@ -235,7 +235,7 @@ export async function listAgencyMembers(ctx: StaffCtx, input: { agencyId: string
 
 /**
  * Inside an impersonated request's `withTenant` transaction (app_user): whether the session its token
- * names is still live for this staff member, user and agency. `withMemberCtx` refuses the request when not.
+ * names is still live for this user and agency (not readable per staff member by app_user, S1-F10). `withMemberCtx` refuses the request when not.
  */
 export async function isImpersonationLive(
   tx: Tx,

@@ -539,11 +539,59 @@ describe('staff impersonation', () => {
     expect(await insert(newId(), staffId)).toBe('42501'); // names another staff member
   });
 
+  it('[S1-F10] RLS: an admin and the targeted member read a session, another member does not; nobody reads staff_user_id', async () => {
+    const f = await createFounder(); // AGENCY_ADMIN
+    const target = await addMember(f);
+    const colleague = await addMember(f);
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const session = await start(support.userId, { agencyId: f.agencyId, userId: target });
+    const as = (userId: string | undefined) => ({ agencyId: f.agencyId, ...(userId ? { userId } : {}) });
+    const visibleTo = (userId: string | undefined) =>
+      withTenant(as(userId), async (tx) => {
+        const r = await tx.execute<{ id: string }>(
+          sql`select id from staff_impersonations where agency_id = ${f.agencyId}`,
+        );
+        return r.rows.map((row) => row.id);
+      });
+    expect(await visibleTo(f.userId)).toEqual([session.id]); // admin of the agency
+    expect(await visibleTo(target)).toEqual([session.id]); // the member it targets
+    expect(await visibleTo(colleague)).toEqual([]); // another agent
+    expect(await visibleTo(undefined)).toEqual([]); // no user in the transaction
+    // The reason is a column of the same row: the colleague gets it from neither a filter nor a join.
+    const reasons = await withTenant(as(colleague), (tx) =>
+      tx.execute(sql`select reason from staff_impersonations where id = ${session.id}`),
+    );
+    expect(reasons.rows).toEqual([]);
+    // staff_user_id is unreadable to every member, admin and target included: select, star, filter, order.
+    for (const userId of [f.userId, target, colleague]) {
+      for (const query of [
+        sql`select staff_user_id from staff_impersonations where id = ${session.id}`,
+        sql`select * from staff_impersonations where id = ${session.id}`,
+        sql`select id from staff_impersonations where staff_user_id = ${support.userId}`,
+        sql`select id from staff_impersonations where id = ${session.id} order by staff_user_id`,
+      ]) {
+        expect(await refusal(withTenant(as(userId), (tx) => tx.execute(query)))).toBe('42501');
+      }
+    }
+    // The per-request check still works as the target, and an admin reads the access record.
+    expect(
+      await asImpersonated(
+        { agencyId: f.agencyId, userId: target },
+        { id: session.id, staffUserId: support.userId },
+        async (ctx) => (ctx.actor.kind === 'user' ? ctx.actor.userId : null),
+      ),
+    ).toBe(target);
+    const record = await withMemberCtx({ userId: f.userId, agencyId: f.agencyId, requestId: newId() }, (ctx) =>
+      identity.listStaffAccess(ctx, { limit: 10 }),
+    );
+    expect(record.items.map((i) => i.id)).toEqual([session.id]);
+  });
+
   it('[S1-09] guard: tenants never write sessions; staff start only their own, now, ≤ 60 minutes, and only end them', async () => {
     const f = await createFounder();
     const support = await createStaffUser('STAFF_SUPPORT');
     const session = await start(support.userId, f);
-    // Tenants read their agency's sessions (the request ctx check) but cannot write them.
+    // Tenants read the sessions they may see (S1-F10) but cannot write them.
     expect(
       await refusal(
         withTenant({ agencyId: f.agencyId, userId: f.userId }, (tx) =>

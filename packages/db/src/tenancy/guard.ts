@@ -232,6 +232,25 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     }
   }
 
+  // S1-F10: a table with `userSelect` grants app_user SELECT on every column except the hidden ones.
+  for (const [name, def] of Object.entries(registry.tenant)) {
+    if (!def.userSelect || !seen.has(name)) continue;
+    const hidden = def.userSelect.hiddenColumns ?? [];
+    const cols = await client.query<{ column: string; readable: boolean }>(
+      `select a.attname as column, has_column_privilege('app_user', c.oid, a.attnum, 'SELECT') as readable
+         from pg_attribute a join pg_class c on c.oid = a.attrelid
+        where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
+      [`public."${name}"`],
+    );
+    for (const c of cols.rows) {
+      if (hidden.includes(c.column) && c.readable)
+        problems.push(`${name}: app_user can read hidden column ${c.column}`);
+      if (!hidden.includes(c.column) && !c.readable) {
+        problems.push(`${name}: app_user cannot read column ${c.column} (run pnpm db:rls)`);
+      }
+    }
+  }
+
   const recorded = (await client.query<{ stamp: string | null }>(CATALOG_STAMP_SQL)).rows[0]?.stamp ?? null;
   if (recorded !== (await rlsCatalogStamp(client))) {
     problems.push(
