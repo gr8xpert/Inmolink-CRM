@@ -5,7 +5,17 @@
  * Locations are shared reference data: reads take a tenant `ctx`; writes take the `tx` of a
  * `withSystem()` call (staff tooling and import scripts), which is how global tables are written.
  */
-import type { CreateLocationGroupInput, CreateLocationInput, LocationDto, LocationLevel } from '@inmolink/contracts';
+import type {
+  CreateFeatureInput,
+  CreateLocationGroupInput,
+  CreateLocationInput,
+  CreatePropertyTypeInput,
+  CreateTypeGroupInput,
+  FeatureDto,
+  LocationDto,
+  LocationLevel,
+  PropertyTypeDto,
+} from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -30,7 +40,10 @@ function pgCode(err: unknown): string | undefined {
   return e?.cause?.code ?? e?.code;
 }
 
-async function uniqueOr<T>(fn: () => Promise<T>, code: 'LOCATION_SLUG_TAKEN' | 'LOCATION_ALIAS_TAKEN'): Promise<T> {
+async function uniqueOr<T>(
+  fn: () => Promise<T>,
+  code: 'LOCATION_SLUG_TAKEN' | 'LOCATION_ALIAS_TAKEN' | 'TAXONOMY_KEY_TAKEN' | 'TAXONOMY_ALIAS_TAKEN',
+): Promise<T> {
   try {
     return await fn();
   } catch (err) {
@@ -106,4 +119,78 @@ export async function resolveLocationAlias(ctx: Ctx, spelling: string): Promise<
   assertCan(ctx, 'taxonomy.read');
   const id = await repo.findByAliasKey(ctx.tx, aliasKey(spelling));
   return id ? toDto(await repo.localized(ctx.tx, id, ctx.locale)) : null;
+}
+
+// ---- Property types and features (S2-02) --------------------------------------------------------------------
+// Reference data like locations: writes take the `tx` of a `withSystem()` call, reads take a tenant `ctx`.
+
+async function createGroup(tx: Tx, kind: repo.CatalogKind, input: CreateTypeGroupInput): Promise<string> {
+  const id = newId();
+  await uniqueOr(
+    () => repo.insertCatalogGroup(tx, kind, { id, key: input.key, sort: input.sort }, input.translations),
+    'TAXONOMY_KEY_TAKEN',
+  );
+  return id;
+}
+
+async function createItem(
+  tx: Tx,
+  kind: repo.CatalogKind,
+  input: CreatePropertyTypeInput,
+  icon?: string,
+): Promise<string> {
+  if (!(await repo.catalogGroupExists(tx, kind, input.groupId))) throw new AppError('TAXONOMY_NOT_FOUND');
+  const id = newId();
+  await uniqueOr(
+    () =>
+      repo.insertCatalogItem(
+        tx,
+        kind,
+        { id, groupId: input.groupId, key: input.key, sort: input.sort, ...(icon ? { icon } : {}) },
+        input.translations,
+      ),
+    'TAXONOMY_KEY_TAKEN',
+  );
+  return id;
+}
+
+async function addAlias(tx: Tx, kind: repo.CatalogKind, ownerId: string, alias: string): Promise<string> {
+  if (!(await repo.catalogItemExists(tx, kind, ownerId))) throw new AppError('TAXONOMY_NOT_FOUND');
+  const key = aliasKey(alias);
+  if (!key) throw new AppError('VALIDATION_FAILED');
+  const id = newId();
+  await uniqueOr(
+    () => repo.insertCatalogAlias(tx, kind, { id, ownerId, alias, aliasKey: key }),
+    'TAXONOMY_ALIAS_TAKEN',
+  );
+  return id;
+}
+
+async function resolveAlias(ctx: Ctx, kind: repo.CatalogKind, spelling: string) {
+  assertCan(ctx, 'taxonomy.read');
+  const id = await repo.findCatalogByAliasKey(ctx.tx, kind, aliasKey(spelling));
+  return id ? repo.localizedCatalogItem(ctx.tx, kind, id, ctx.locale) : null;
+}
+
+export const createPropertyTypeGroup = (tx: Tx, input: CreateTypeGroupInput) => createGroup(tx, 'propertyType', input);
+export const createPropertyType = (tx: Tx, input: CreatePropertyTypeInput) => createItem(tx, 'propertyType', input);
+export const addPropertyTypeAlias = (tx: Tx, typeId: string, alias: string) =>
+  addAlias(tx, 'propertyType', typeId, alias);
+
+export const createFeatureGroup = (tx: Tx, input: CreateTypeGroupInput) => createGroup(tx, 'feature', input);
+export const createFeature = (tx: Tx, input: CreateFeatureInput) => createItem(tx, 'feature', input, input.icon);
+export const addFeatureAlias = (tx: Tx, featureId: string, alias: string) => addAlias(tx, 'feature', featureId, alias);
+
+/** The canonical property type for a feed spelling, or null (the caller queues it for mapping). */
+export async function resolvePropertyTypeAlias(ctx: Ctx, spelling: string): Promise<PropertyTypeDto | null> {
+  const row = await resolveAlias(ctx, 'propertyType', spelling);
+  return row ? { id: row.id, groupId: row.groupId, key: row.key, name: row.name, slug: row.slug } : null;
+}
+
+/** The canonical feature (with its Lucide icon) for a feed spelling, or null. */
+export async function resolveFeatureAlias(ctx: Ctx, spelling: string): Promise<FeatureDto | null> {
+  const row = await resolveAlias(ctx, 'feature', spelling);
+  return row
+    ? { id: row.id, groupId: row.groupId, key: row.key, name: row.name, slug: row.slug, icon: row.icon ?? '' }
+    : null;
 }

@@ -57,3 +57,36 @@ export const CreateLocationGroupInput = z.object({
   memberIds: z.array(z.uuid()).max(500).default([]),
 });
 export type CreateLocationGroupInput = z.infer<typeof CreateLocationGroupInput>;
+
+const Key = Slug.max(80);
+
+export const CreateTypeGroupInput = z.object({
+  key: Key,
+  sort: z.number().int().min(0).max(32000).default(0),
+  translations: z.array(TranslationInput).min(1).max(40),
+});
+export type CreateTypeGroupInput = z.infer<typeof CreateTypeGroupInput>;
+
+export const CreatePropertyTypeInput = CreateTypeGroupInput.extend({ groupId: z.uuid() });
+export type CreatePropertyTypeInput = z.infer<typeof CreatePropertyTypeInput>;
+
+/** A Lucide icon name, kebab-case. */
+export const LucideIcon = z
+  .string()
+  .max(60)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+
+export const CreateFeatureInput = CreatePropertyTypeInput.extend({ icon: LucideIcon });
+export type CreateFeatureInput = z.infer<typeof CreateFeatureInput>;
+
+export const PropertyTypeDto = z.object({
+  id: z.uuid(),
+  groupId: z.uuid(),
+  key: z.string(),
+  name: z.string(),
+  slug: z.string(),
+});
+export type PropertyTypeDto = z.infer<typeof PropertyTypeDto>;
+
+export const FeatureDto = PropertyTypeDto.extend({ icon: z.string() });
+export type FeatureDto = z.infer<typeof FeatureDto>;

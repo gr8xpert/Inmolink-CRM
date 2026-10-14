@@ -29,7 +29,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_flags', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -200,6 +200,14 @@ revoke all on table public."auth_tokens" from public, app_user, app_system, app_
 grant select, insert, update on table public."auth_tokens" to app_auth;
 grant select, insert, update, delete on table public."auth_tokens" to app_system;
 
+-- feature_aliases: GLOBAL
+alter table public."feature_aliases" enable row level security;
+alter table public."feature_aliases" force row level security;
+create policy global_read on public."feature_aliases" for select to app_user, app_public using (true);
+revoke all on table public."feature_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."feature_aliases" to app_user, app_public;
+grant select, insert, update, delete on table public."feature_aliases" to app_system;
+
 -- feature_flags: GLOBAL
 alter table public."feature_flags" enable row level security;
 alter table public."feature_flags" force row level security;
@@ -207,6 +215,38 @@ create policy global_read on public."feature_flags" for select to app_user using
 revoke all on table public."feature_flags" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_flags" to app_user;
 grant select, insert, update, delete on table public."feature_flags" to app_system;
+
+-- feature_group_translations: GLOBAL
+alter table public."feature_group_translations" enable row level security;
+alter table public."feature_group_translations" force row level security;
+create policy global_read on public."feature_group_translations" for select to app_user, app_public using (true);
+revoke all on table public."feature_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."feature_group_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."feature_group_translations" to app_system;
+
+-- feature_groups: GLOBAL
+alter table public."feature_groups" enable row level security;
+alter table public."feature_groups" force row level security;
+create policy global_read on public."feature_groups" for select to app_user, app_public using (true);
+revoke all on table public."feature_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."feature_groups" to app_user, app_public;
+grant select, insert, update, delete on table public."feature_groups" to app_system;
+
+-- feature_translations: GLOBAL
+alter table public."feature_translations" enable row level security;
+alter table public."feature_translations" force row level security;
+create policy global_read on public."feature_translations" for select to app_user, app_public using (true);
+revoke all on table public."feature_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."feature_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."feature_translations" to app_system;
+
+-- features: GLOBAL
+alter table public."features" enable row level security;
+alter table public."features" force row level security;
+create policy global_read on public."features" for select to app_user, app_public using (true);
+revoke all on table public."features" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."features" to app_user, app_public;
+grant select, insert, update, delete on table public."features" to app_system;
 
 -- location_aliases: GLOBAL
 alter table public."location_aliases" enable row level security;
@@ -290,6 +330,46 @@ create policy own_rows on public."preferred_agency_notes" to app_user
 revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
+
+-- property_type_aliases: GLOBAL
+alter table public."property_type_aliases" enable row level security;
+alter table public."property_type_aliases" force row level security;
+create policy global_read on public."property_type_aliases" for select to app_user, app_public using (true);
+revoke all on table public."property_type_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."property_type_aliases" to app_user, app_public;
+grant select, insert, update, delete on table public."property_type_aliases" to app_system;
+
+-- property_type_group_translations: GLOBAL
+alter table public."property_type_group_translations" enable row level security;
+alter table public."property_type_group_translations" force row level security;
+create policy global_read on public."property_type_group_translations" for select to app_user, app_public using (true);
+revoke all on table public."property_type_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."property_type_group_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."property_type_group_translations" to app_system;
+
+-- property_type_groups: GLOBAL
+alter table public."property_type_groups" enable row level security;
+alter table public."property_type_groups" force row level security;
+create policy global_read on public."property_type_groups" for select to app_user, app_public using (true);
+revoke all on table public."property_type_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."property_type_groups" to app_user, app_public;
+grant select, insert, update, delete on table public."property_type_groups" to app_system;
+
+-- property_type_translations: GLOBAL
+alter table public."property_type_translations" enable row level security;
+alter table public."property_type_translations" force row level security;
+create policy global_read on public."property_type_translations" for select to app_user, app_public using (true);
+revoke all on table public."property_type_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."property_type_translations" to app_user, app_public;
+grant select, insert, update, delete on table public."property_type_translations" to app_system;
+
+-- property_types: GLOBAL
+alter table public."property_types" enable row level security;
+alter table public."property_types" force row level security;
+create policy global_read on public."property_types" for select to app_user, app_public using (true);
+revoke all on table public."property_types" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."property_types" to app_user, app_public;
+grant select, insert, update, delete on table public."property_types" to app_system;
 
 -- staff_impersonations: STRICT
 alter table public."staff_impersonations" enable row level security;

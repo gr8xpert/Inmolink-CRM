@@ -6,4 +6,7 @@ export const taxonomyErrors = [
   'LOCATION_PARENT_INVALID',
   'LOCATION_SLUG_TAKEN',
   'LOCATION_ALIAS_TAKEN',
+  'TAXONOMY_NOT_FOUND',
+  'TAXONOMY_KEY_TAKEN',
+  'TAXONOMY_ALIAS_TAKEN',
 ] as const satisfies readonly ErrorCode[];

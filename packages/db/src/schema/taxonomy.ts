@@ -6,6 +6,7 @@
 
 import { sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   check,
   customType,
   foreignKey,
@@ -145,3 +146,106 @@ export const locationGroupMembers = pgTable(
     index('location_group_members_location_idx').on(t.locationId),
   ],
 );
+
+// ---- Property types and features (S2-02) ----------------------------------------------------------------
+// Global reference data, same shape twice: group → item, uniform translation tables (name + slug per locale)
+// and feed-spelling aliases. Built by factories so the two families cannot drift apart.
+
+const SLUG_RE = sql.raw(`'^[a-z0-9]+(-[a-z0-9]+)*$'`);
+
+function groupTable(name: string) {
+  return pgTable(
+    name,
+    {
+      id: uuid('id').primaryKey(),
+      key: text('key').notNull().unique(),
+      sort: smallint('sort').notNull().default(0),
+      createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    () => [],
+  );
+}
+
+function translationTable(name: string, ownerCol: string, owner: () => AnyPgColumn) {
+  return pgTable(
+    name,
+    {
+      ownerId: uuid(ownerCol).notNull().references(owner, { onDelete: 'cascade' }),
+      locale: text('locale').notNull(),
+      name: text('name').notNull(),
+      slug: text('slug').notNull(),
+    },
+    (t) => [
+      primaryKey({ columns: [t.ownerId, t.locale], name: `${name}_pk` }),
+      uniqueIndex(`${name}_slug_uq`).on(t.locale, t.slug),
+      check(`${name}_slug_ck`, sql`${t.slug} ~ ${SLUG_RE}`),
+    ],
+  );
+}
+
+function aliasTable(name: string, owner: () => AnyPgColumn) {
+  return pgTable(
+    name,
+    {
+      id: uuid('id').primaryKey(),
+      ownerId: uuid('owner_id').notNull().references(owner, { onDelete: 'cascade' }),
+      alias: text('alias').notNull(),
+      /** Normalised spelling: lowercase, no accents, single-spaced. */
+      aliasKey: text('alias_key').notNull(),
+      createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (t) => [uniqueIndex(`${name}_key_uq`).on(t.aliasKey), index(`${name}_owner_idx`).on(t.ownerId)],
+  );
+}
+
+export const propertyTypeGroups = groupTable('property_type_groups');
+export const propertyTypeGroupTranslations = translationTable(
+  'property_type_group_translations',
+  'group_id',
+  () => propertyTypeGroups.id,
+);
+
+export const propertyTypes = pgTable(
+  'property_types',
+  {
+    id: uuid('id').primaryKey(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => propertyTypeGroups.id, { onDelete: 'restrict' }),
+    key: text('key').notNull().unique(),
+    sort: smallint('sort').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('property_types_group_idx').on(t.groupId)],
+);
+export const propertyTypeTranslations = translationTable(
+  'property_type_translations',
+  'type_id',
+  () => propertyTypes.id,
+);
+export const propertyTypeAliases = aliasTable('property_type_aliases', () => propertyTypes.id);
+
+export const featureGroups = groupTable('feature_groups');
+export const featureGroupTranslations = translationTable(
+  'feature_group_translations',
+  'group_id',
+  () => featureGroups.id,
+);
+
+export const features = pgTable(
+  'features',
+  {
+    id: uuid('id').primaryKey(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => featureGroups.id, { onDelete: 'restrict' }),
+    key: text('key').notNull().unique(),
+    /** Lucide icon name, kebab-case (e.g. `waves`, `car-front`). */
+    icon: text('icon').notNull(),
+    sort: smallint('sort').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('features_group_idx').on(t.groupId), check('features_icon_ck', sql`${t.icon} ~ ${SLUG_RE}`)],
+);
+export const featureTranslations = translationTable('feature_translations', 'feature_id', () => features.id);
+export const featureAliases = aliasTable('feature_aliases', () => features.id);

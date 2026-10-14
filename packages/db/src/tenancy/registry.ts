@@ -385,6 +385,17 @@ export const globalTables: Record<string, GlobalTable> = {
   location_groups: { reason: 'curated location groups such as Costa del Sol', publicRead: true },
   location_group_translations: { reason: 'names and slugs of location groups', publicRead: true },
   location_group_members: { reason: 'members of location groups', publicRead: true },
+  // Property types and features (S2-02): shared reference data, written via withSystem().
+  property_type_groups: { reason: 'property type groups (Apartment, House, …)', publicRead: true },
+  property_type_group_translations: { reason: 'names and slugs of property type groups', publicRead: true },
+  property_types: { reason: 'platform property types', publicRead: true },
+  property_type_translations: { reason: 'names and slugs of property types', publicRead: true },
+  property_type_aliases: { reason: 'feed spellings mapped to property types', publicRead: true },
+  feature_groups: { reason: 'feature groups (Pool, Security, …)', publicRead: true },
+  feature_group_translations: { reason: 'names and slugs of feature groups', publicRead: true },
+  features: { reason: 'platform features with Lucide icon names', publicRead: true, base: { icon: 'waves' } },
+  feature_translations: { reason: 'names and slugs of features', publicRead: true },
+  feature_aliases: { reason: 'feed spellings mapped to features', publicRead: true },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

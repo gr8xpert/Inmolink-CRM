@@ -86,6 +86,13 @@ export const ErrorCodes = {
   LOCATION_SLUG_TAKEN: 409,
   /** The spelling (or group key) already maps to another location or group. */
   LOCATION_ALIAS_TAKEN: 409,
+  // taxonomy: property types and features (S2-02)
+  /** No such property type, feature or group. */
+  TAXONOMY_NOT_FOUND: 404,
+  /** The key, or a slug in that locale, is already used. */
+  TAXONOMY_KEY_TAKEN: 409,
+  /** The spelling already maps to another property type or feature. */
+  TAXONOMY_ALIAS_TAKEN: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;
