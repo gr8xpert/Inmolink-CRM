@@ -10,7 +10,7 @@ import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limi
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { webConfig } from './env';
 import { LIMITS } from './limits';
-import { attemptChallenge, readCookie } from './two-factor';
+import { attemptChallenge, readCookie, withPasswordCheck } from './two-factor';
 
 /** Second-factor limits against the real test stack (Postgres via app_auth, redis-cache counters). */
 
@@ -33,7 +33,10 @@ const randomIp = () => `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 25
 /** An agency admin with 2FA enabled; returns the secret of their authenticator app. */
 async function enrolledAdmin() {
   const founder = await createFounder();
-  const { secret } = await identity.startEnrolment(authCtx(newId()), { userId: founder.userId });
+  const { secret } = await identity.startEnrolment(authCtx(newId()), {
+    userId: founder.userId,
+    password: founder.password,
+  });
   // The step before now: the challenge below can still use the current one.
   const code = totpCode(secret, totpStep(new Date()) - 1);
   await identity.confirmEnrolment(authCtx(newId()), { userId: founder.userId, sessionVersion: 1, code });
@@ -41,28 +44,65 @@ async function enrolledAdmin() {
 }
 
 describe('two-factor rate limits', () => {
-  it('[S1-04] verification attempts are rate-limited per user: after the limit even the right code is refused', async () => {
+  it('[S1-04] verification attempts are rate-limited per user and client: after the limit even the right code is refused', async () => {
     const { session, secret } = await enrolledAdmin();
-    for (let i = 0; i < LIMITS.mfaUser.limit; i++) {
-      // Different networks: the per-user limit holds wherever the guesses come from.
-      const r = await attemptChallenge(session, { code: '000000', rememberDevice: false, forwardedFor: randomIp() });
+    const ip = randomIp();
+    for (let i = 0; i < LIMITS.mfaUserIp.limit; i++) {
+      const r = await attemptChallenge(session, { code: '000000', rememberDevice: false, forwardedFor: ip });
       expect(r).toEqual({ ok: false, code: 'invalid' });
     }
     const right = totpCode(secret, totpStep(new Date()));
-    expect(await attemptChallenge(session, { code: right, rememberDevice: false, forwardedFor: randomIp() })).toEqual({
+    expect(await attemptChallenge(session, { code: right, rememberDevice: false, forwardedFor: ip })).toEqual({
       ok: false,
       code: 'rate_limited',
     });
   }, 60_000);
 
+  it('[S1-F8] someone with the password cannot lock the owner out: another client still passes the challenge', async () => {
+    const { session, secret } = await enrolledAdmin();
+    const attacker = randomIp();
+    for (let i = 0; i < LIMITS.mfaUserIp.limit; i++) {
+      await attemptChallenge(session, { code: '000000', rememberDevice: false, forwardedFor: attacker });
+    }
+    expect(await attemptChallenge(session, { code: '000000', rememberDevice: false, forwardedFor: attacker })).toEqual({
+      ok: false,
+      code: 'rate_limited',
+    });
+    const owner = await attemptChallenge(session, {
+      code: totpCode(secret, totpStep(new Date())),
+      rememberDevice: false,
+      forwardedFor: randomIp(),
+    });
+    expect(owner.ok).toBe(true);
+  }, 60_000);
+
+  it('[S1-F8] a password check before enrolment is counted in the same buckets', async () => {
+    const founder = await createFounder();
+    const ip = randomIp();
+    const check = (password: string) =>
+      withPasswordCheck({ userId: founder.userId, password, forwardedFor: ip }, async (p) =>
+        identity.startEnrolment(authCtx(newId()), { userId: founder.userId, password: p }),
+      );
+    expect(await check('')).toEqual({ ok: false, code: 'input' });
+    for (let i = 0; i < LIMITS.mfaUserIp.limit; i++)
+      expect(await check('wrong password')).toEqual({ ok: false, code: 'password' });
+    expect(await check(founder.password)).toEqual({ ok: false, code: 'rate_limited' });
+    // Another client with the right password gets through.
+    const other = await withPasswordCheck(
+      { userId: founder.userId, password: founder.password, forwardedFor: randomIp() },
+      async (p) => identity.startEnrolment(authCtx(newId()), { userId: founder.userId, password: p }),
+    );
+    expect(other.ok).toBe(true);
+  }, 60_000);
+
   it('[S1-04] verification attempts are rate-limited per IP across users', async () => {
     const ip = randomIp();
     const users = await Promise.all(
-      Array.from({ length: Math.ceil(LIMITS.mfaIp.limit / LIMITS.mfaUser.limit) }, () => createFounder()),
+      Array.from({ length: Math.ceil(LIMITS.mfaIp.limit / LIMITS.mfaUserIp.limit) }, () => createFounder()),
     );
     let attempts = 0;
     for (const user of users) {
-      for (let i = 0; i < LIMITS.mfaUser.limit && attempts < LIMITS.mfaIp.limit; i++, attempts++) {
+      for (let i = 0; i < LIMITS.mfaUserIp.limit && attempts < LIMITS.mfaIp.limit; i++, attempts++) {
         const session = { userId: user.userId, sessionVersion: 1 };
         // Not enrolled: every code is invalid, but each attempt still counts.
         const r = await attemptChallenge(session, { code: '123456', rememberDevice: false, forwardedFor: ip });

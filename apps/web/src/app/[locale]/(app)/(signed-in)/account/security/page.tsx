@@ -1,22 +1,27 @@
 import * as identity from '@inmolink/core/modules/identity';
+import { Button } from '@inmolink/ui';
 import { getLocale, getTranslations } from 'next-intl/server';
-import { disableAction, regenerateCodesAction } from '@/app/[locale]/(auth)/two-factor/actions';
+import { disableAction, forgetBrowsersAction, regenerateCodesAction } from '@/app/[locale]/(auth)/two-factor/actions';
 import { CodeForm } from '@/app/[locale]/(auth)/two-factor/code-form';
 import { auth } from '@/auth';
 import { getPathname, Link, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { twoFactorErrors } from '@/server/form-errors';
+import { readImpersonation } from '@/server/impersonation';
 import { requestAuthCtx } from '@/server/request-id';
 
 /**
  * Account security (S1-04): two-step verification status, new recovery codes, and turning it off
- * (opted-in users only). A session that still owes its second factor is sent to the challenge first.
+ * (opted-in users only), and forgetting remembered browsers. A session that still owes its second
+ * factor is sent to the challenge first; none of it is reachable while impersonating (S1-09).
  */
-export default async function SecurityPage() {
+export default async function SecurityPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return redirect({ href: '/login', locale });
   await webConfig();
+  if (await readImpersonation(session.user.id)) return redirect({ href: '/', locale });
+  const forgotten = (await searchParams).forgotten === '1';
   const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId: session.user.id });
   if ((status.enabled || status.required) && !session.user.mfaVerified)
     return redirect({ href: '/two-factor', locale });
@@ -61,6 +66,22 @@ export default async function SecurityPage() {
               continueHref: here,
             }}
           />
+        </section>
+      ) : null}
+      {status.enabled ? (
+        <section className="flex flex-col gap-3 rounded-md border p-4">
+          <h2 className="font-semibold">{t('account.forgetTitle')}</h2>
+          <p className="text-sm text-muted-foreground">{t('account.forgetIntro')}</p>
+          {forgotten ? (
+            <p role="status" data-testid="devices-forgotten" className="rounded-md bg-muted p-3 text-sm">
+              {t('account.forgotten')}
+            </p>
+          ) : null}
+          <form action={forgetBrowsersAction}>
+            <Button type="submit" variant="outline">
+              {t('account.forget')}
+            </Button>
+          </form>
         </section>
       ) : null}
       {status.enabled && !status.required ? (

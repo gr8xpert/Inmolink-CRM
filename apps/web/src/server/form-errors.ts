@@ -26,6 +26,7 @@ export async function twoFactorErrors(): Promise<Record<NonNullable<TwoFactorFor
     input: t('input'),
     rate_limited: t('rateLimited'),
     forbidden: t('forbidden'),
+    password: t('password'),
     generic: t('generic'),
   };
 }

@@ -15,6 +15,7 @@ import {
   emailLocale,
   renderAuthEmail,
   renderInviteEmail,
+  renderTwoFactorNoticeEmail,
   renderVerificationDecisionEmail,
 } from './emails';
 import * as repo from './repo';
@@ -84,6 +85,41 @@ export const identityJobs = {
       // Outside the transaction (CLAUDE.md rule 6). Never log the message: it holds a one-time link.
       await mailer().send(message);
       log.info({ kind: p.kind }, 'auth email sent');
+    },
+  }),
+
+  /**
+   * Notice to the owner that their second factor changed (S1-F8): turned on or off, a recovery code
+   * used, a browser remembered. One job per event; skipped for an inactive user. No secret in the mail.
+   */
+  sendTwoFactorNotice: defineJob({
+    name: 'identity.sendTwoFactorNotice',
+    pool: 'email',
+    payload: z.object({
+      eventId: z.uuid(),
+      userId: z.uuid(),
+      kind: z.enum(['enabled', 'disabled', 'recoveryUsed', 'deviceRemembered']),
+    }),
+    jobId: (p) => p.eventId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const { webUrl } = identityConfig();
+      if (!webUrl) throw new Error('identity: webUrl is not configured');
+      const message = await withSystem(`identity.sendTwoFactorNotice ${p.kind}`, async (tx) => {
+        const user = await repo.findUserForEmail(tx, p.userId);
+        if (user?.status !== 'ACTIVE') return null;
+        const link = new URL(`/${emailLocale(user.locale)}/account/security`, webUrl).href;
+        return renderTwoFactorNoticeEmail(p.kind, user, link);
+      });
+      if (!message) {
+        log.info({ kind: p.kind }, 'two-factor notice skipped (user inactive)');
+        return;
+      }
+      // Outside the transaction (CLAUDE.md rule 6).
+      await mailer().send(message);
+      log.info({ kind: p.kind }, 'two-factor notice sent');
     },
   }),
 

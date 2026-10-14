@@ -38,13 +38,27 @@ export const LIMITS = {
   resetSubmitIp: { name: 'password.reset.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
   inviteAcceptIp: { name: 'invite.accept.ip', scope: 'ip', limit: 20, windowSeconds: 60 * 60, failClosed: true },
   /**
-   * Second-factor codes (S1-04; challenge, enrolment, new recovery codes and turning 2FA off share these
-   * buckets), counted before any check: 5 per user per 5 minutes leaves a guesser
-   * (who already has the password) about one chance in 70,000 per window against 3 valid TOTP codes.
+   * Second-factor checks (S1-04; challenge, enrolment password and code, new recovery codes and turning
+   * 2FA off share these buckets), counted before any check. Keyed by user **and** client (S1-F8, like
+   * `loginEmailIp`): 5 per 5 minutes leaves one client who already has the password about one chance in
+   * 70,000 per window against 3 valid TOTP codes, and burning them locks out that client only — the
+   * owner, from another network, is not in the same bucket.
    */
-  mfaUser: { name: 'auth.mfa.user', scope: 'user', limit: 5, windowSeconds: 5 * 60, failClosed: true },
-  /** Daily ceiling per user (security review M1): a slow, steady guesser stops at 20 a day. */
-  mfaUserDay: { name: 'auth.mfa.user-day', scope: 'user', limit: 20, windowSeconds: 24 * 60 * 60, failClosed: true },
+  mfaUserIp: { name: 'auth.mfa.user-ip', scope: 'user', limit: 5, windowSeconds: 5 * 60, failClosed: true },
+  /** Daily ceiling per user and client (security review M1): a slow, steady guesser stops at 20 a day. */
+  mfaUserIpDay: {
+    name: 'auth.mfa.user-ip-day',
+    scope: 'user',
+    limit: 20,
+    windowSeconds: 24 * 60 * 60,
+    failClosed: true,
+  },
+  /**
+   * Ceiling for one user across all clients, against guessing spread over many networks: 200 a day is
+   * 0.06% odds per day, and takes at least ten networks to reach (each is held to 20). Past it the owner
+   * waits for the window — the cost of not letting one client lock the owner out earlier.
+   */
+  mfaUserDay: { name: 'auth.mfa.user-day', scope: 'user', limit: 200, windowSeconds: 24 * 60 * 60, failClosed: true },
   mfaIp: { name: 'auth.mfa.ip', scope: 'ip', limit: 30, windowSeconds: 15 * 60, failClosed: true },
   tokenUser: { name: 'session.token.user', scope: 'user', limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;

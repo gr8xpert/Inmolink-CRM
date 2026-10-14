@@ -9,7 +9,13 @@ import { redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { readImpersonation } from '@/server/impersonation';
 import { requestAuthCtx } from '@/server/request-id';
-import { attemptChallenge, type CodeFailure, rememberedDeviceCookie, withCodeCheck } from '@/server/two-factor';
+import {
+  attemptChallenge,
+  type CodeFailure,
+  rememberedDeviceCookie,
+  withCodeCheck,
+  withPasswordCheck,
+} from '@/server/two-factor';
 
 /**
  * Two-factor forms (S1-04, transport only): the login challenge, enrolment, and the security page's
@@ -55,6 +61,37 @@ export async function challengeAction(_prev: TwoFactorFormState, form: FormData)
     (await cookies()).set(cookie.name, device.token, { ...cookie.options, expires: device.expiresAt });
   }
   return redirect({ href: '/', locale: await getLocale() });
+}
+
+/**
+ * Enrolment's first step (S1-F8): the account password again, then the pending secret is created here —
+ * a POST — and the page only reads it. Staff and admins enrol the same way.
+ */
+export async function startEnrolmentAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
+  await webConfig();
+  const user = await signedIn();
+  if (await readImpersonation(user.id)) return { error: 'forbidden' };
+  try {
+    const result = await withPasswordCheck(
+      { userId: user.id, password: text(form, 'password'), forwardedFor: await forwardedFor() },
+      async (password) => identity.startEnrolment(await requestAuthCtx(), { userId: user.id, password }),
+    );
+    if (!result.ok) return { error: result.code };
+  } catch (err) {
+    if (isAppError(err) && err.code === 'MFA_ALREADY_ENABLED') return { error: 'generic' };
+    throw err;
+  }
+  return redirect({ href: { pathname: '/two-factor', query: { setup: '1' } }, locale: await getLocale() });
+}
+
+/** Security page: forgets every remembered browser (S1-F8); each asks for a code again at its next login. */
+export async function forgetBrowsersAction(): Promise<void> {
+  await webConfig();
+  const user = await signedIn();
+  const locale = await getLocale();
+  if (await readImpersonation(user.id)) return redirect({ href: '/', locale });
+  await identity.forgetRememberedBrowsers(await requestAuthCtx(), { userId: user.id });
+  return redirect({ href: { pathname: '/account/security', query: { forgotten: '1' } }, locale });
 }
 
 /** Enrolment's first code: turns 2FA on and shows the recovery codes once. */

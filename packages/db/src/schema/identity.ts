@@ -241,6 +241,8 @@ export const userMfa = pgTable('user_mfa', {
   totpSecret: text('totp_secret'),
   confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   lastUsedStep: bigint('last_used_step', { mode: 'number' }),
+  /** Part of every "remember this browser" signature: bumping it forgets all remembered browsers (S1-F8). */
+  deviceEpoch: integer('device_epoch').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

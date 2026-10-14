@@ -2,6 +2,8 @@ import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { createKeyring, generateKey, newToken, totpCode, totpStep } from '@inmolink/platform/crypto';
+import { hashPassword } from '@inmolink/platform/crypto/password';
+import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import {
   createAccessTokenSigner,
@@ -10,9 +12,10 @@ import {
   parsePublicKeys,
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
+import { createLogger } from '@inmolink/platform/logger';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authCtx } from '../../../context';
 import { createFounder } from '../../../testing/factories';
 import * as identity from '../index';
@@ -22,6 +25,9 @@ import * as identity from '../index';
 const pair = generateAccessKeyPair();
 const verifier = createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${pair.publicKey}`) });
 const anon = () => authCtx(newId());
+const PASSWORD = 'correct horse battery'; // createFounder's
+const log = createLogger({ service: 'identity-test', level: 'silent' });
+let mail: MemoryMailer;
 const T0 = Date.UTC(2026, 9, 11, 12, 0, 0);
 
 beforeAll(async () => {
@@ -34,9 +40,15 @@ beforeAll(async () => {
   });
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
+beforeEach(async () => {
+  mail = createMemoryMailer();
+  await configureEmail(mail);
+});
+
 afterEach(() => restoreClock());
 
 afterAll(async () => {
+  await closeEmail();
   await closeDb();
 });
 
@@ -61,7 +73,7 @@ async function staffUser(): Promise<string> {
   await withSystem('2fa test: staff user', async (tx) => {
     await tx.execute(
       sql`insert into users (id, email, password_hash, name, locale, email_verified_at)
-          values (${id}, ${`staff-${newToken(6).toLowerCase()}@staff.inmolink.test`}, 'x', 'Support', 'en', now())`,
+          values (${id}, ${`staff-${newToken(6).toLowerCase()}@staff.inmolink.test`}, ${await hashPassword(PASSWORD)}, 'Support', 'en', now())`,
     );
     await tx.execute(sql`insert into staff_users (user_id, role) values (${id}, 'STAFF_SUPPORT')`);
   });
@@ -70,7 +82,7 @@ async function staffUser(): Promise<string> {
 
 /** Enrols `userId` at the fake clock's time and returns the secret and recovery codes. */
 async function enrol(userId: string, clock: { now(): Date }) {
-  const { secret, uri } = await identity.startEnrolment(anon(), { userId });
+  const { secret, uri } = await identity.startEnrolment(anon(), { userId, password: PASSWORD });
   expect(uri).toMatch(/^otpauth:\/\/totp\/Inmolink:/);
   const done = await identity.confirmEnrolment(anon(), { userId, sessionVersion: 1, code: codeAt(secret, clock) });
   expect(identity.checkMfaProof({ userId, sessionVersion: 1, proof: done.proof })).toBe(true);
@@ -112,7 +124,7 @@ describe('two-factor authentication', () => {
     // A new session (not yet challenged) is refused again.
     await expect(mint(admin.userId, false)).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
     clock.advance(30_000);
-    const { secret } = await identity.startEnrolment(anon(), { userId: optional.userId });
+    const { secret } = await identity.startEnrolment(anon(), { userId: optional.userId, password: PASSWORD });
     await identity.confirmEnrolment(anon(), {
       userId: optional.userId,
       sessionVersion: 1,
@@ -333,5 +345,140 @@ describe('two-factor authentication', () => {
     expect(identity.checkMfaProof({ userId: newId(), sessionVersion: 1, proof: again.proof })).toBe(false);
     clock.advance(3 * 60_000);
     expect(identity.checkMfaProof({ userId: admin.userId, sessionVersion: 1, proof: again.proof })).toBe(false);
+  });
+});
+
+const pendingRows = (userId: string) =>
+  withSystem('2fa test: read user_mfa', async (tx) => {
+    const r = await tx.execute<{ n: number }>(sql`select count(*)::int as n from user_mfa where user_id = ${userId}`);
+    return r.rows[0]?.n ?? 0;
+  });
+
+/** Runs the notice job for the user's latest event of `type`; returns the email it sent. */
+async function sendNotice(
+  userId: string,
+  type: string,
+  kind: 'enabled' | 'disabled' | 'recoveryUsed' | 'deviceRemembered',
+) {
+  const eventId = await withSystem('2fa test: read outbox', async (tx) => {
+    const r = await tx.execute<{ id: string }>(
+      sql`select id from outbox_events where type = ${type} and payload->>'userId' = ${userId} order by created_at desc, id desc limit 1`,
+    );
+    return r.rows[0]?.id;
+  });
+  if (!eventId) throw new Error(`no ${type} event`);
+  const before = mail.sent.length;
+  await identity.identityJobs.sendTwoFactorNotice.spec.run(
+    { eventId, userId, kind },
+    { log, jobId: eventId, attempt: 1, progress: async () => {}, signal: new AbortController().signal },
+  );
+  expect(mail.sent.length).toBe(before + 1);
+  return mail.sent[before] as MemoryMailer['sent'][number];
+}
+
+describe('two-factor follow-ups (S1-F8)', () => {
+  it('[S1-F8] enrolment needs a fresh password check; viewing the page creates no secret', async () => {
+    const clock = useFakeClock(T0);
+    const admin = await createFounder();
+    // The page's read: nothing pending, and nothing written.
+    expect(await identity.getPendingEnrolment(anon(), { userId: admin.userId })).toBeNull();
+    expect(await pendingRows(admin.userId)).toBe(0);
+    await expect(
+      identity.startEnrolment(anon(), { userId: admin.userId, password: 'not the password' }),
+    ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+    expect(await pendingRows(admin.userId)).toBe(0);
+    // Without a secret there is nothing to confirm.
+    await expect(
+      identity.confirmEnrolment(anon(), { userId: admin.userId, sessionVersion: 1, code: '123456' }),
+    ).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
+
+    const started = await identity.startEnrolment(anon(), { userId: admin.userId, password: PASSWORD });
+    expect(await identity.getPendingEnrolment(anon(), { userId: admin.userId })).toEqual(started);
+    await identity.confirmEnrolment(anon(), {
+      userId: admin.userId,
+      sessionVersion: 1,
+      code: codeAt(started.secret, clock),
+    });
+    expect(await identity.getPendingEnrolment(anon(), { userId: admin.userId })).toBeNull();
+  });
+
+  it('[S1-F8] each 2FA change emails the account owner, in their language', async () => {
+    const clock = useFakeClock(T0);
+    const optional = await agent(); // Spanish (createFounder's default)
+    const own = await enrol(optional.userId, clock);
+    const enabled = await sendNotice(optional.userId, 'identity.twoFactor.enabled', 'enabled');
+    expect(enabled.to).toBe(optional.email);
+    expect(enabled.subject).toBe('Se activó la verificación en dos pasos');
+    expect(enabled.text).toContain('http://web.test/es/account/security');
+
+    // A recovery code at the challenge, and "remember this browser".
+    await identity.verifySecondFactor(anon(), {
+      userId: optional.userId,
+      sessionVersion: 1,
+      code: (own.recoveryCodes[0] ?? '').replace('-', ''),
+      rememberDevice: true,
+    });
+    expect((await sendNotice(optional.userId, 'identity.twoFactor.recoveryCodeUsed', 'recoveryUsed')).subject).toBe(
+      'Se usó un código de recuperación en tu cuenta',
+    );
+    expect((await sendNotice(optional.userId, 'identity.twoFactor.deviceRemembered', 'deviceRemembered')).subject).toBe(
+      'Se recordó un navegador nuevo en tu cuenta',
+    );
+    // No device event when the box was not ticked.
+    clock.advance(30_000);
+    await identity.verifySecondFactor(anon(), {
+      userId: optional.userId,
+      sessionVersion: 1,
+      code: codeAt(own.secret, clock),
+      rememberDevice: false,
+    });
+    expect(await eventCount(optional.userId, 'identity.twoFactor.deviceRemembered')).toBe(1);
+
+    clock.advance(30_000);
+    await identity.disableTwoFactor(anon(), { userId: optional.userId, code: codeAt(own.secret, clock) });
+    expect((await sendNotice(optional.userId, 'identity.twoFactor.disabled', 'disabled')).subject).toBe(
+      'Se desactivó la verificación en dos pasos',
+    );
+
+    const english = await createFounder({ locale: 'en' });
+    await enrol(english.userId, clock);
+    const en = await sendNotice(english.userId, 'identity.twoFactor.enabled', 'enabled');
+    expect(en.subject).toBe('Two-step verification was turned on');
+    expect(en.text).toContain('http://web.test/en/account/security');
+  });
+
+  it('[S1-F8] forgetting remembered browsers ends every remembered browser, and only those', async () => {
+    const clock = useFakeClock(T0);
+    const admin = await createFounder();
+    const { secret } = await enrol(admin.userId, clock);
+    const remember = async () => {
+      clock.advance(30_000);
+      const r = await identity.verifySecondFactor(anon(), {
+        userId: admin.userId,
+        sessionVersion: 1,
+        code: codeAt(secret, clock),
+        rememberDevice: true,
+      });
+      return r.device?.token;
+    };
+    const login = (token?: string) =>
+      identity.verifyCredentials(anon(), { email: admin.email, password: admin.password, deviceToken: token });
+    const a = await remember();
+    const b = await remember();
+    expect((await login(a)).mfaVerified).toBe(true);
+    expect((await login(b)).mfaVerified).toBe(true);
+
+    await identity.forgetRememberedBrowsers(anon(), { userId: admin.userId });
+    expect((await login(a)).mfaVerified).toBe(false);
+    expect((await login(b)).mfaVerified).toBe(false);
+    // The account itself still works, and a browser remembered afterwards is good again.
+    expect((await login(await remember())).mfaVerified).toBe(true);
+    const types = await withSystem('2fa test: read audit log', async (tx) => {
+      const r = await tx.execute<{ type: string }>(
+        sql`select type from audit_logs where target_id = ${admin.userId} and type = 'identity.twoFactor.devicesForgotten'`,
+      );
+      return r.rows.length;
+    });
+    expect(types).toBe(1);
   });
 });

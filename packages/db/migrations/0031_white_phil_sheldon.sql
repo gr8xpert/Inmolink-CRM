@@ -1,0 +1,1 @@
+ALTER TABLE "user_mfa" ADD COLUMN "device_epoch" integer DEFAULT 0 NOT NULL;

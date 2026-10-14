@@ -36,7 +36,14 @@ import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
 import * as impRepo from './impersonation-repo';
 import { identityLog } from './log';
-import { assertCan, canIssueAccessToken, IMPERSONATING_ROLES, loginDecision, sessionNeedsSecondFactor } from './policy';
+import {
+  assertCan,
+  canIssueAccessToken,
+  IMPERSONATING_ROLES,
+  loginDecision,
+  requiresSecondFactor,
+  sessionNeedsSecondFactor,
+} from './policy';
 import * as repo from './repo';
 import { isDeviceRemembered, isSecondFactorRequired } from './two-factor';
 
@@ -201,7 +208,12 @@ export async function verifyCredentials(
     if (!user) return null;
     await setAuthScope(tx, { userId: user.id });
     const mfa = input.deviceToken ? await repo.findMfa(tx, user.id) : null;
-    return { user, member: await repo.findMembership(tx, user.id), mfaConfirmedAt: mfa?.confirmedAt ?? null };
+    return {
+      user,
+      member: await repo.findMembership(tx, user.id),
+      mfaConfirmedAt: mfa?.confirmedAt ?? null,
+      deviceEpoch: mfa?.deviceEpoch ?? 0,
+    };
   });
   const matches = found
     ? await verifyPassword(found.user.passwordHash, input.password)
@@ -258,6 +270,7 @@ export async function verifyCredentials(
     userId: user.id,
     sessionVersion: user.sessionVersion,
     confirmedAt: found.mfaConfirmedAt,
+    deviceEpoch: found.deviceEpoch,
     token: input.deviceToken,
   });
   await ctx.transaction(async (tx) => {
@@ -336,12 +349,9 @@ async function needsSecondFactor(
   userId: string,
   member: { role: string; deactivatedAt: Date | null } | null,
 ): Promise<boolean> {
-  const enrolled = Boolean((await repo.findMfa(tx, userId))?.confirmedAt);
-  // Enrolled users need it whatever their role: skip the role lookup.
-  return sessionNeedsSecondFactor({
-    enrolled,
-    required: !enrolled && (await isSecondFactorRequired(tx, userId, member)),
-  });
+  // One query for enrolment and staff state (S1-F8); the membership is already loaded.
+  const { enrolled, isStaff } = await repo.findSecondFactorState(tx, userId);
+  return sessionNeedsSecondFactor({ enrolled, required: !enrolled && requiresSecondFactor(member, isStaff) });
 }
 
 /**

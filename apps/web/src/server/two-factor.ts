@@ -9,7 +9,7 @@ import { requestAuthCtx } from './request-id';
  * Second-factor code checks for the web (S1-04): validate, rate-limit per user and per IP (fail closed,
  * counted before any check), then call identity. Used by the challenge, enrolment and security forms.
  */
-export type CodeFailure = 'input' | 'rate_limited' | 'invalid';
+export type CodeFailure = 'input' | 'rate_limited' | 'invalid' | 'password';
 export type CodeResult<T> = { ok: true; value: T } | { ok: false; code: CodeFailure };
 
 export async function withCodeCheck<T>(
@@ -19,22 +19,53 @@ export async function withCodeCheck<T>(
 ): Promise<CodeResult<T>> {
   const parsed = TwoFactorCode.safeParse(input.code);
   if (!parsed.success) return { ok: false, code: 'input' };
-  const ip = await clientIp(input.forwardedFor);
-  const wait = await checkLimits(
-    [
-      [LIMITS.mfaUser, input.userId],
-      [LIMITS.mfaUserDay, input.userId],
-      [LIMITS.mfaIp, ip],
-    ],
-    limiter,
-  );
-  if (wait > 0) return { ok: false, code: 'rate_limited' };
+  if (!(await withinLimits(input, limiter))) return { ok: false, code: 'rate_limited' };
   try {
     return { ok: true, value: await check(parsed.data) };
   } catch (err) {
     if (isAppError(err) && err.code === 'MFA_CODE_INVALID') return { ok: false, code: 'invalid' };
     throw err;
   }
+}
+
+/**
+ * A fresh-password check before an account setting changes (enrolment, S1-F8), under the same limits as
+ * code checks: a session someone left open must not become a password-guessing oracle.
+ */
+export async function withPasswordCheck<T>(
+  input: { userId: string; password: unknown; forwardedFor: string | null },
+  check: (password: string) => Promise<T>,
+  limiter?: RateLimiter,
+): Promise<CodeResult<T>> {
+  if (typeof input.password !== 'string' || input.password === '' || input.password.length > 1_024) {
+    return { ok: false, code: 'input' };
+  }
+  if (!(await withinLimits(input, limiter))) return { ok: false, code: 'rate_limited' };
+  try {
+    return { ok: true, value: await check(input.password) };
+  } catch (err) {
+    if (isAppError(err) && err.code === 'INVALID_CREDENTIALS') return { ok: false, code: 'password' };
+    throw err;
+  }
+}
+
+/** Counts the attempt against the per-client, per-user and per-IP buckets; false when any is spent. */
+async function withinLimits(
+  input: { userId: string; forwardedFor: string | null },
+  limiter?: RateLimiter,
+): Promise<boolean> {
+  const ip = await clientIp(input.forwardedFor);
+  const client = `${input.userId}|${ip}`;
+  const wait = await checkLimits(
+    [
+      [LIMITS.mfaUserIp, client],
+      [LIMITS.mfaUserIpDay, client],
+      [LIMITS.mfaUserDay, input.userId],
+      [LIMITS.mfaIp, ip],
+    ],
+    limiter,
+  );
+  return wait === 0;
 }
 
 /** The login challenge: TOTP or recovery code, optionally remembering this browser for 30 days. */

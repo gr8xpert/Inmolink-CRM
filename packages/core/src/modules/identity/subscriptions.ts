@@ -3,7 +3,7 @@ import { cache } from '@inmolink/platform/cache';
 import { type EventDef, subscribe } from '@inmolink/platform/outbox';
 import { agenciesEvents } from '../agencies';
 import { apiKeyCacheKey, isApiKeyPrefix } from './api-keys';
-import type { AuthEmailKind } from './emails';
+import type { AuthEmailKind, TwoFactorNoticeKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
 import * as repo from './repo';
@@ -13,6 +13,13 @@ const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
   [identityEvents.verificationRequested, 'VERIFY_EMAIL'],
   [identityEvents.passwordResetRequested, 'PASSWORD_RESET'],
   [identityEvents.signupDuplicated, 'ACCOUNT_EXISTS'],
+];
+
+const TWO_FACTOR_NOTICE_FOR: [EventDef, TwoFactorNoticeKind][] = [
+  [identityEvents.twoFactorEnabled, 'enabled'],
+  [identityEvents.twoFactorDisabled, 'disabled'],
+  [identityEvents.recoveryCodeUsed, 'recoveryUsed'],
+  [identityEvents.deviceRemembered, 'deviceRemembered'],
 ];
 
 let unsubscribe: (() => void)[] | undefined;
@@ -35,6 +42,18 @@ export function registerIdentitySubscriptions(): void {
             kind,
           }),
         { name: `identity.email.${kind}` },
+      ),
+    ),
+    ...TWO_FACTOR_NOTICE_FOR.map(([def, kind]) =>
+      subscribe(
+        def,
+        (payload, meta) =>
+          identityJobs.sendTwoFactorNotice.enqueue({
+            eventId: meta.eventId,
+            userId: (payload as { userId: string }).userId,
+            kind,
+          }),
+        { name: `identity.email.twoFactor.${kind}` },
       ),
     ),
     subscribe(

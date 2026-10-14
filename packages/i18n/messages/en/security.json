@@ -18,7 +18,10 @@
     "submit": "Turn on two-step verification",
     "codesTitle": "Save your recovery codes",
     "codesIntro": "Each code works once, if you lose your phone. Store them somewhere safe — they will not be shown again.",
-    "continue": "Continue"
+    "continue": "Continue",
+    "passwordIntro": "Confirm your password to start. This protects you if someone else is using your open session.",
+    "password": "Your password",
+    "start": "Continue"
   },
   "account": {
     "title": "Security",
@@ -34,13 +37,18 @@
     "disableTitle": "Turn off two-step verification",
     "disable": "Turn off",
     "code": "Current code",
-    "disabled": "Two-step verification is off."
+    "disabled": "Two-step verification is off.",
+    "forgetTitle": "Remembered browsers",
+    "forgetIntro": "Browsers you chose to remember skip the code for 30 days. Forget them all if you lost a device.",
+    "forget": "Forget all remembered browsers",
+    "forgotten": "All remembered browsers were forgotten."
   },
   "errors": {
     "invalid": "That code is not valid. Check your app's time, or use a recovery code.",
     "input": "Enter a 6-digit code or a recovery code (xxxxx-xxxxx).",
     "rateLimited": "Too many attempts. Please wait a few minutes and try again.",
     "forbidden": "Your role requires two-step verification.",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "password": "That password is not correct."
   }
 }

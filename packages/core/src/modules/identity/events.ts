@@ -34,6 +34,8 @@ export const identityEvents = {
   twoFactorEnabled: defineEvent('identity.twoFactor.enabled', 1, UserRef),
   twoFactorDisabled: defineEvent('identity.twoFactor.disabled', 1, UserRef),
   recoveryCodeUsed: defineEvent('identity.twoFactor.recoveryCodeUsed', 1, UserRef),
+  /** "Remember this browser" was ticked at a challenge: the owner gets a notice (S1-F8). */
+  deviceRemembered: defineEvent('identity.twoFactor.deviceRemembered', 1, UserRef),
   /**
    * API keys (S1-05). Revocation and rotation retire a prefix: a subscriber drops its shared cache entry
    * (other processes' copies expire within 15 s). Who acted, and the staff member impersonating them if

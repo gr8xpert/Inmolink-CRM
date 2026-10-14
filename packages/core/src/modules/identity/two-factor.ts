@@ -11,6 +11,7 @@ import {
   safeEqual,
   totpUri,
 } from '@inmolink/platform/crypto';
+import { dummyVerify, verifyPassword } from '@inmolink/platform/crypto/password';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
@@ -130,14 +131,25 @@ export async function getTwoFactorStatus(ctx: AuthCtx, input: { userId: string }
   });
 }
 
+const enrolmentOf = (email: string, secret: string) => ({
+  secret,
+  uri: totpUri({ issuer: TWO_FACTOR.ISSUER, account: email, secret }),
+});
+
 /**
- * Starts (or resumes) enrolment: the secret for the authenticator app and its `otpauth://` URI. A
- * pending secret is kept until it is confirmed, so reloading the page does not invalidate a scan.
+ * Starts (or resumes) enrolment: the secret for the authenticator app and its `otpauth://` URI. Needs
+ * the account password again (S1-F8): an unattended session alone cannot enrol its own authenticator
+ * and so lock the owner out. A POST creates the pending secret; the enrolment page only reads it
+ * (`getPendingEnrolment`). A pending secret is kept until it is confirmed, so reloading does not
+ * invalidate a scan. The password is checked outside the transaction (hashing is slow).
  */
 export async function startEnrolment(
   ctx: AuthCtx,
-  input: { userId: string },
+  input: { userId: string; password: string },
 ): Promise<{ secret: string; uri: string }> {
+  const hash = await asUser(ctx, input.userId, (tx) => repo.findPasswordHash(tx, input.userId));
+  const matches = hash ? await verifyPassword(hash, input.password) : await dummyVerify(input.password);
+  if (!matches) throw new AppError('INVALID_CREDENTIALS');
   return asUser(ctx, input.userId, async (tx) => {
     const user = await repo.findUserForEmail(tx, input.userId);
     if (!user) throw new AppError('NOT_FOUND', { entity: 'user' });
@@ -151,7 +163,20 @@ export async function startEnrolment(
         throw new AppError('MFA_ALREADY_ENABLED');
       }
     }
-    return { secret, uri: totpUri({ issuer: TWO_FACTOR.ISSUER, account: user.email, secret }) };
+    return enrolmentOf(user.email, secret);
+  });
+}
+
+/** The pending enrolment started by `startEnrolment`, or null — a read, so a GET never creates a secret. */
+export async function getPendingEnrolment(
+  ctx: AuthCtx,
+  input: { userId: string },
+): Promise<{ secret: string; uri: string } | null> {
+  return asUser(ctx, input.userId, async (tx) => {
+    const mfa = await repo.findMfa(tx, input.userId);
+    if (mfa?.confirmedAt || !mfa?.totpSecret) return null;
+    const user = await repo.findUserForEmail(tx, input.userId);
+    return user ? enrolmentOf(user.email, decryptSecret(input.userId, mfa.totpSecret)) : null;
   });
 }
 
@@ -190,18 +215,18 @@ async function consumeCode(
   code: TwoFactorCode,
   now: Date,
   requestId: string,
-): Promise<{ method: 'totp' | 'recovery'; confirmedAt: Date } | null> {
+): Promise<{ method: 'totp' | 'recovery'; confirmedAt: Date; deviceEpoch: number } | null> {
   const mfa = await repo.findMfa(tx, userId);
   if (!mfa?.confirmedAt || !mfa.totpSecret) return null;
   if (/^\d{6}$/.test(code)) {
     const step = matchTotp(decryptSecret(userId, mfa.totpSecret), code, now);
     const used = step !== null && (await repo.useTotpStep(tx, userId, step, now));
-    return used ? { method: 'totp', confirmedAt: mfa.confirmedAt } : null;
+    return used ? { method: 'totp', confirmedAt: mfa.confirmedAt, deviceEpoch: mfa.deviceEpoch } : null;
   }
   if (!(await repo.consumeRecoveryCode(tx, userId, hashRecoveryCode(code), now))) return null;
   await emit(tx, identityEvents.recoveryCodeUsed({ userId }), { agencyId: PLATFORM_AGENCY_ID });
   await auditTwoFactor(tx, requestId, userId, 'identity.twoFactor.recoveryCodeUsed');
-  return { method: 'recovery', confirmedAt: mfa.confirmedAt };
+  return { method: 'recovery', confirmedAt: mfa.confirmedAt, deviceEpoch: mfa.deviceEpoch };
 }
 
 /**
@@ -215,8 +240,12 @@ export async function verifySecondFactor(
   const now = clock.now();
   const result = await asUser(ctx, input.userId, async (tx) => {
     const used = await consumeCode(tx, input.userId, input.code, now, ctx.requestId);
-    if (used)
+    if (used) {
       await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.verified', { method: used.method });
+      // A new remembered browser is an access path worth telling the owner about (S1-F8).
+      if (input.rememberDevice)
+        await emit(tx, identityEvents.deviceRemembered({ userId: input.userId }), { agencyId: PLATFORM_AGENCY_ID });
+    }
     return used;
   });
   // Thrown outside the transaction: a failed check changes nothing, so there is nothing to roll back. The
@@ -234,7 +263,7 @@ export async function verifySecondFactor(
   return {
     proof,
     method: result.method,
-    device: deviceToken(input.userId, input.sessionVersion, result.confirmedAt, now),
+    device: deviceToken(input.userId, input.sessionVersion, result.confirmedAt, result.deviceEpoch, now),
   };
 }
 
@@ -251,6 +280,19 @@ export async function disableTwoFactor(ctx: AuthCtx, input: { userId: string; co
     return true;
   });
   if (!ok) throw new AppError('MFA_CODE_INVALID');
+}
+
+/**
+ * "Forget all remembered browsers" (S1-F8): bumps the per-user epoch in every browser token's signature,
+ * so the next login on each of them asks for the code again. Needs a signed-in session only — it can
+ * never weaken anything.
+ */
+export async function forgetRememberedBrowsers(ctx: AuthCtx, input: { userId: string }): Promise<void> {
+  const now = clock.now();
+  await asUser(ctx, input.userId, async (tx) => {
+    await repo.bumpDeviceEpoch(tx, input.userId, now);
+    await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.devicesForgotten');
+  });
 }
 
 /** A fresh set of 10 recovery codes (the old ones stop working). Needs a current code. */
@@ -299,22 +341,30 @@ function deviceToken(
   userId: string,
   sessionVersion: number,
   confirmedAt: Date,
+  deviceEpoch: number,
   now: Date,
 ): { token: string; expiresAt: Date } {
   const exp = now.getTime() + TWO_FACTOR.REMEMBER_DEVICE_MS;
-  const mac = sign('mfa-device', [userId, sessionVersion, confirmedAt.getTime(), exp]);
+  const mac = sign('mfa-device', [userId, sessionVersion, confirmedAt.getTime(), deviceEpoch, exp]);
   return { token: `${exp}.${mac}`, expiresAt: new Date(exp) };
 }
 
-/** Whether a "remember this browser" token is valid for this user, session version and enrolment. */
+/** Whether a "remember this browser" token is valid for this user, session version, enrolment and device epoch. */
 export function isDeviceRemembered(input: {
   userId: string;
   sessionVersion: number;
   confirmedAt: Date | null;
+  deviceEpoch: number;
   token: unknown;
 }): boolean {
   const parsed = parseSigned(input.token);
   if (!parsed || !input.confirmedAt || parsed.exp <= clock.now().getTime()) return false;
-  const expected = sign('mfa-device', [input.userId, input.sessionVersion, input.confirmedAt.getTime(), parsed.exp]);
+  const expected = sign('mfa-device', [
+    input.userId,
+    input.sessionVersion,
+    input.confirmedAt.getTime(),
+    input.deviceEpoch,
+    parsed.exp,
+  ]);
   return safeEqual(expected, parsed.mac);
 }

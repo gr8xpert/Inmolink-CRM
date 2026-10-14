@@ -66,6 +66,8 @@ export {
   checkMfaProof,
   confirmEnrolment,
   disableTwoFactor,
+  forgetRememberedBrowsers,
+  getPendingEnrolment,
   getTwoFactorStatus,
   regenerateRecoveryCodes,
   startEnrolment,

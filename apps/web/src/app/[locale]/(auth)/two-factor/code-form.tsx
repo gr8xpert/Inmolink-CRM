@@ -10,6 +10,8 @@ interface Props {
   submitLabel: string;
   /** Messages for `TwoFactorFormState.error` codes, translated on the server. */
   errors: Record<NonNullable<TwoFactorFormState['error']>, string>;
+  /** Ask for the account password instead of a code (enrolment's fresh-password step, S1-F8). */
+  password?: boolean;
   /** Offer "remember this browser" (login challenge). */
   rememberLabel?: string;
   /** After recovery codes are shown: their title, intro, and the link to go on. */
@@ -57,17 +59,28 @@ export function CodeForm(props: Props) {
         </p>
       ) : null}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="code">{props.codeLabel}</Label>
-        <Input
-          id="code"
-          name="code"
-          inputMode="text"
-          autoComplete="one-time-code"
-          autoCapitalize="none"
-          spellCheck={false}
-          maxLength={32}
-          aria-invalid={state.error === 'invalid' || state.error === 'input'}
-        />
+        <Label htmlFor={props.password ? 'password' : 'code'}>{props.codeLabel}</Label>
+        {props.password ? (
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            maxLength={1024}
+            aria-invalid={state.error === 'password' || state.error === 'input'}
+          />
+        ) : (
+          <Input
+            id="code"
+            name="code"
+            inputMode="text"
+            autoComplete="one-time-code"
+            autoCapitalize="none"
+            spellCheck={false}
+            maxLength={32}
+            aria-invalid={state.error === 'invalid' || state.error === 'input'}
+          />
+        )}
       </div>
       {props.rememberLabel ? (
         <label className="flex items-center gap-2 text-sm">

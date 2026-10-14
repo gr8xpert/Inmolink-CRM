@@ -36,6 +36,7 @@ export const AUDIT_TYPES = [
   'identity.twoFactor.failed',
   'identity.twoFactor.recoveryCodeUsed',
   'identity.twoFactor.recoveryCodesRegenerated',
+  'identity.twoFactor.devicesForgotten',
   'identity.member.invited',
   'identity.member.joined',
   'identity.member.roleChanged',

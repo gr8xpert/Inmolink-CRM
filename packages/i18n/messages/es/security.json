@@ -18,7 +18,10 @@
     "submit": "Activar la verificación en dos pasos",
     "codesTitle": "Guarda tus códigos de recuperación",
     "codesIntro": "Cada código sirve una sola vez, por si pierdes el móvil. Guárdalos en un lugar seguro: no se volverán a mostrar.",
-    "continue": "Continuar"
+    "continue": "Continuar",
+    "passwordIntro": "Confirma tu contraseña para empezar. Así te proteges si otra persona usa tu sesión abierta.",
+    "password": "Tu contraseña",
+    "start": "Continuar"
   },
   "account": {
     "title": "Seguridad",
@@ -34,13 +37,18 @@
     "disableTitle": "Desactivar la verificación en dos pasos",
     "disable": "Desactivar",
     "code": "Código actual",
-    "disabled": "La verificación en dos pasos está desactivada."
+    "disabled": "La verificación en dos pasos está desactivada.",
+    "forgetTitle": "Navegadores recordados",
+    "forgetIntro": "Los navegadores que elegiste recordar no piden el código durante 30 días. Olvídalos todos si perdiste un dispositivo.",
+    "forget": "Olvidar todos los navegadores recordados",
+    "forgotten": "Se olvidaron todos los navegadores recordados."
   },
   "errors": {
     "invalid": "Ese código no es válido. Comprueba la hora de tu app o usa un código de recuperación.",
     "input": "Introduce un código de 6 dígitos o un código de recuperación (xxxxx-xxxxx).",
     "rateLimited": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.",
     "forbidden": "Tu rol exige la verificación en dos pasos.",
-    "generic": "Algo ha fallado. Inténtalo de nuevo."
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "password": "La contraseña no es correcta."
   }
 }

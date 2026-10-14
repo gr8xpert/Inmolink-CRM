@@ -575,14 +575,49 @@ export interface MfaRow {
   totpSecret: string | null;
   confirmedAt: Date | null;
   lastUsedStep: number | null;
+  /** Bumped by "forget all remembered browsers"; part of the browser token's signature. */
+  deviceEpoch: number;
 }
 
 export async function findMfa(tx: Tx, userId: string): Promise<MfaRow | null> {
   const [row] = await tx
-    .select({ totpSecret: userMfa.totpSecret, confirmedAt: userMfa.confirmedAt, lastUsedStep: userMfa.lastUsedStep })
+    .select({
+      totpSecret: userMfa.totpSecret,
+      confirmedAt: userMfa.confirmedAt,
+      lastUsedStep: userMfa.lastUsedStep,
+      deviceEpoch: userMfa.deviceEpoch,
+    })
     .from(userMfa)
     .where(eq(userMfa.userId, userId));
   return row ?? null;
+}
+
+/**
+ * 2FA enrolment and staff state in one query (S1-F8: the token mint ran two). `app_auth`, scope = the
+ * user; staff rows are visible to their own user only.
+ */
+export async function findSecondFactorState(tx: Tx, userId: string): Promise<{ enrolled: boolean; isStaff: boolean }> {
+  const [row] = await tx
+    .select({ confirmedAt: userMfa.confirmedAt, staffUserId: staffUsers.userId })
+    .from(users)
+    .leftJoin(userMfa, eq(userMfa.userId, users.id))
+    .leftJoin(staffUsers, and(eq(staffUsers.userId, users.id), isNull(staffUsers.deactivatedAt)))
+    .where(eq(users.id, userId));
+  return { enrolled: Boolean(row?.confirmedAt), isStaff: Boolean(row?.staffUserId) };
+}
+
+/** The stored password hash, for a fresh-password check before an account setting changes. */
+export async function findPasswordHash(tx: Tx, userId: string): Promise<string | null> {
+  const [row] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, userId));
+  return row?.passwordHash ?? null;
+}
+
+/** Invalidates every remembered browser: the epoch is part of their signature. */
+export async function bumpDeviceEpoch(tx: Tx, userId: string, now: Date): Promise<void> {
+  await tx
+    .update(userMfa)
+    .set({ deviceEpoch: sql`${userMfa.deviceEpoch} + 1`, updatedAt: now })
+    .where(eq(userMfa.userId, userId));
 }
 
 /** Stores a new, unconfirmed secret — unless 2FA is enabled (then false: disable it first). */

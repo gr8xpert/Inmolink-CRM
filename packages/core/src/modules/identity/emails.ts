@@ -67,6 +67,33 @@ export function renderInviteEmail(
   );
 }
 
+/** What changed about a user's second factor (S1-F8). */
+export type TwoFactorNoticeKind = 'enabled' | 'disabled' | 'recoveryUsed' | 'deviceRemembered';
+
+/**
+ * Notice to the account owner that their 2FA changed, a recovery code was used or a browser was
+ * remembered (S1-F8). No secret in it; the link opens the security page.
+ */
+export function renderTwoFactorNoticeEmail(
+  kind: TwoFactorNoticeKind,
+  user: { email: string; name: string; locale: string },
+  link: string,
+): EmailMessage {
+  const t = translator(emailLocale(user.locale), 'auth');
+  return message(
+    user.email,
+    `identity.two-factor-${kind.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`,
+    {
+      subject: t(`email.twoFactor.${kind}.subject`),
+      greeting: t('email.twoFactor.greeting', { name: user.name }),
+      body: t(`email.twoFactor.${kind}.body`),
+      action: t('email.twoFactor.action'),
+      ignore: t('email.twoFactor.ignore'),
+    },
+    link,
+  );
+}
+
 export function renderAuthEmail(
   kind: AuthEmailKind,
   user: { email: string; name: string; locale: string },

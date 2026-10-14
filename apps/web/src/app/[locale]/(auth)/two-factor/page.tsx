@@ -7,15 +7,18 @@ import { auth } from '@/auth';
 import { getPathname, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { twoFactorErrors } from '@/server/form-errors';
+import { readImpersonation } from '@/server/impersonation';
 import { requestAuthCtx } from '@/server/request-id';
 import { logoutAction } from '../actions';
-import { challengeAction, enrolAction } from './actions';
+import { challengeAction, enrolAction, startEnrolmentAction } from './actions';
 import { CodeForm } from './code-form';
 
 /**
  * Second factor (S1-04). Enabled → the login challenge. Not enabled → enrolment: required for staff
  * and admins (their mints are refused until then), optional for others (`?setup=1` from the security
- * page). A session that already passed goes on to the dashboard.
+ * page). Enrolment starts with the account password (a POST creates the pending secret, S1-F8); this page
+ * only reads it. A session that already passed goes on to the dashboard. No 2FA settings while
+ * impersonating (S1-09).
  */
 export default async function TwoFactorPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const locale = await getLocale();
@@ -23,6 +26,7 @@ export default async function TwoFactorPage({ searchParams }: { searchParams: Pr
   if (!session?.user?.id) return redirect({ href: '/login', locale });
   await webConfig();
   const userId = session.user.id;
+  if (await readImpersonation(userId)) return redirect({ href: '/', locale });
   const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId });
   const setup = (await searchParams).setup === '1';
   // The render that follows a server action on this page (it carries `Next-Action`) never redirects:
@@ -51,16 +55,18 @@ export default async function TwoFactorPage({ searchParams }: { searchParams: Pr
     continueLabel: t('enrol.continue'),
     continueHref: getPathname({ href: '/', locale }),
   };
-  const enrolment = status.enabled ? null : await identity.startEnrolment(await requestAuthCtx(), { userId });
+  const enrolment = status.enabled ? null : await identity.getPendingEnrolment(await requestAuthCtx(), { userId });
+  const needsPassword = !status.enabled && !enrolment;
   const qr = enrolment
     ? await QRCode.toString(enrolment.uri, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' })
     : null;
   return (
     <>
-      <h1 className="mb-2 text-xl font-semibold">{enrolment ? t('enrol.title') : t('challenge.title')}</h1>
+      <h1 className="mb-2 text-xl font-semibold">{status.enabled ? t('challenge.title') : t('enrol.title')}</h1>
       <p className="mb-4 text-sm text-muted-foreground">
-        {enrolment ? (status.required ? t('enrol.intro') : t('enrol.introOptional')) : t('challenge.intro')}
+        {status.enabled ? t('challenge.intro') : status.required ? t('enrol.intro') : t('enrol.introOptional')}
       </p>
+      {needsPassword ? <p className="mb-4 text-sm">{t('enrol.passwordIntro')}</p> : null}
       {enrolment && qr ? (
         <div>
           <p className="mb-2 text-sm">{t('enrol.scan')}</p>
@@ -80,7 +86,15 @@ export default async function TwoFactorPage({ searchParams }: { searchParams: Pr
           </p>
         </div>
       ) : null}
-      {enrolment ? (
+      {needsPassword ? (
+        <CodeForm
+          action={startEnrolmentAction}
+          codeLabel={t('enrol.password')}
+          submitLabel={t('enrol.start')}
+          errors={errors}
+          password
+        />
+      ) : enrolment ? (
         <CodeForm
           action={enrolAction}
           codeLabel={t('enrol.code')}
