@@ -90,3 +90,83 @@ export type PropertyTypeDto = z.infer<typeof PropertyTypeDto>;
 
 export const FeatureDto = PropertyTypeDto.extend({ icon: z.string() });
 export type FeatureDto = z.infer<typeof FeatureDto>;
+
+// ---- Localized taxonomy tree (S2-03): one cached read for the dashboard UI and the website API ----------------
+
+const TreeLocation = z.object({
+  id: z.uuid(),
+  level: LocationLevel,
+  code: z.string().nullable(),
+  name: z.string(),
+  slug: z.string(),
+});
+/** AREA → CITY → REGION → COUNTRY: the depth is fixed at 4, so each level is its own schema (no recursion). */
+export const TaxonomyArea = TreeLocation;
+export const TaxonomyCity = TreeLocation.extend({ children: z.array(TaxonomyArea) });
+export const TaxonomyRegion = TreeLocation.extend({ children: z.array(TaxonomyCity) });
+export const TaxonomyCountry = TreeLocation.extend({ children: z.array(TaxonomyRegion) });
+export type TaxonomyCountry = z.infer<typeof TaxonomyCountry>;
+
+export const TaxonomyLocationGroup = z.object({
+  id: z.uuid(),
+  key: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  locationIds: z.array(z.uuid()),
+});
+
+const TreeItem = z.object({ id: z.uuid(), key: z.string(), name: z.string(), slug: z.string() });
+export const TaxonomyPropertyTypeGroup = TreeItem.extend({ types: z.array(TreeItem) });
+export const TaxonomyFeatureGroup = TreeItem.extend({ features: z.array(TreeItem.extend({ icon: z.string() })) });
+
+/** Locations (tree) and location groups. Names and slugs in `locale`, else the fallback content locale, else any. */
+export const TaxonomyLocationsDto = z.object({
+  locale: z.string(),
+  locations: z.array(TaxonomyCountry),
+  locationGroups: z.array(TaxonomyLocationGroup),
+});
+export type TaxonomyLocationsDto = z.infer<typeof TaxonomyLocationsDto>;
+
+/** Property types and features, grouped and sorted (`sort`, then key). */
+export const TaxonomyCatalogDto = z.object({
+  locale: z.string(),
+  propertyTypes: z.array(TaxonomyPropertyTypeGroup),
+  features: z.array(TaxonomyFeatureGroup),
+});
+export type TaxonomyCatalogDto = z.infer<typeof TaxonomyCatalogDto>;
+
+/** The whole localized taxonomy (dashboard UI). */
+export const TaxonomyDto = TaxonomyLocationsDto.extend(TaxonomyCatalogDto.shape);
+export type TaxonomyDto = z.infer<typeof TaxonomyDto>;
+
+// Website API: the tree is served one level at a time, so every response stays small however many
+// locations there are (feed-api budget ≤ 150 KB gzip; a Spain-sized tree is ~330 KB gzip whole).
+
+/** A location with the number of its children (0 for areas): fetch them with `/v2/taxonomy/locations/{id}/children`. */
+export const WebsiteLocation = TreeLocation.extend({ childCount: z.number().int().min(0) });
+
+/** Countries with their regions, and the location groups. */
+export const WebsiteLocationsDto = z.object({
+  locale: z.string(),
+  locations: z.array(WebsiteLocation.extend({ children: z.array(WebsiteLocation) })),
+  locationGroups: z.array(TaxonomyLocationGroup),
+});
+export type WebsiteLocationsDto = z.infer<typeof WebsiteLocationsDto>;
+
+/** The direct children of one location (a region's cities, a city's areas). */
+export const WebsiteLocationChildrenDto = z.object({
+  locale: z.string(),
+  parentId: z.uuid(),
+  children: z.array(WebsiteLocation),
+});
+export type WebsiteLocationChildrenDto = z.infer<typeof WebsiteLocationChildrenDto>;
+
+/** `?lang=` of the website API: a content locale (unsupported → 422); absent → the default content locale. */
+export const TaxonomyLangQuery = z.object({
+  lang: z
+    .string()
+    .regex(/^[a-z]{2,3}(-[A-Z]{2})?$/)
+    .optional(),
+});
+
+export const LocationParams = z.object({ id: z.uuid() }).strict();

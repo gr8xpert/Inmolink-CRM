@@ -2,6 +2,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { apiKeyPlugin } from './plugins/api-key';
+import { taxonomyRoutes } from './routes/taxonomy/routes';
 
 /** Website API (v1 shim, v2, XML feeds) — read-only, isolated. Transport only. */
 export const APP_NAME = 'feed-api';
@@ -39,5 +40,6 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     identify: { ip: (r) => ipBucket(r.ip), key: (r) => r.apiKey?.keyId, tenant: (r) => r.apiKey?.agencyId },
   });
   healthRoutes(app, { checks: deps.checks });
+  await app.register(taxonomyRoutes);
   return app;
 }

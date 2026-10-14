@@ -8,6 +8,7 @@ import { agenciesRoutes } from './routes/agencies/routes';
 import { billingRoutes } from './routes/billing/routes';
 import { complianceRoutes } from './routes/compliance/routes';
 import { identityRoutes } from './routes/identity/routes';
+import { taxonomyRoutes } from './routes/taxonomy/routes';
 
 /** Fastify dashboard API. Transport only — business logic lives in @inmolink/core. */
 export const APP_NAME = 'api';
@@ -54,5 +55,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(agenciesRoutes);
   await app.register(billingRoutes);
   await app.register(complianceRoutes);
+  await app.register(taxonomyRoutes);
   return app;
 }

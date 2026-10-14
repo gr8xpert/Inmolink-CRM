@@ -1,0 +1,76 @@
+import {
+  LocationParams,
+  TaxonomyCatalogDto,
+  TaxonomyLangQuery,
+  WebsiteLocationChildrenDto,
+  WebsiteLocationsDto,
+} from '@inmolink/contracts';
+import * as taxonomy from '@inmolink/core/modules/taxonomy';
+import { cacheControl, weakCompareEtag } from '@inmolink/platform/http';
+import type { FastifyZod } from '@inmolink/platform/server';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+
+/** Taxonomy changes rarely; the CDN keeps it 10 min and revalidates with the ETag. */
+const CDN_SECONDS = 600;
+
+/** The body is already JSON (serialized once per cached copy), so it skips the response serializer. */
+function send(req: FastifyRequest, reply: FastifyReply, doc: taxonomy.Serialized) {
+  reply
+    .header('Cache-Control', cacheControl.feed({ sMaxAge: CDN_SECONDS }))
+    .header('ETag', doc.etag)
+    .header('Vary', 'Accept-Encoding');
+  if (weakCompareEtag(req.headers['if-none-match'], doc.etag)) return reply.code(304).send();
+  return reply.type('application/json; charset=utf-8').send(doc.json);
+}
+
+/**
+ * Website API taxonomy (S2-03): platform reference data, the same for every site; no query when warm.
+ * Locations come one level at a time (countries with regions, then any location's children).
+ */
+export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
+  app.get(
+    '/v2/taxonomy/locations',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.getTaxonomyLocations',
+        summary: 'Countries with their regions, and the location groups, in `lang`',
+        querystring: TaxonomyLangQuery,
+        response: { 200: WebsiteLocationsDto },
+      },
+      onRequest: [app.requireApiKey('taxonomy:read')],
+    },
+    async (req, reply) => send(req, reply, await taxonomy.getWebsiteLocations(req.query.lang)),
+  );
+
+  app.get(
+    '/v2/taxonomy/locations/:id/children',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.getTaxonomyLocationChildren',
+        summary: "A location's direct children (a region's cities, a city's areas) in `lang`",
+        params: LocationParams,
+        querystring: TaxonomyLangQuery,
+        response: { 200: WebsiteLocationChildrenDto },
+      },
+      onRequest: [app.requireApiKey('taxonomy:read')],
+    },
+    async (req, reply) => send(req, reply, await taxonomy.getWebsiteLocationChildren(req.params.id, req.query.lang)),
+  );
+
+  app.get(
+    '/v2/taxonomy/catalog',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.getTaxonomyCatalog',
+        summary: 'Property types and features (with Lucide icon names), grouped, in `lang`',
+        querystring: TaxonomyLangQuery,
+        response: { 200: TaxonomyCatalogDto },
+      },
+      onRequest: [app.requireApiKey('taxonomy:read')],
+    },
+    async (req, reply) => send(req, reply, await taxonomy.getWebsiteCatalog(req.query.lang)),
+  );
+}

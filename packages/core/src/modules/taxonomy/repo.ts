@@ -21,7 +21,9 @@ import {
   propertyTypes,
   propertyTypeTranslations,
 } from '@inmolink/db/schema/taxonomy';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
+import { eq, inArray, type SQLWrapper, sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export interface NewLocation {
   id: string;
@@ -93,7 +95,7 @@ export async function deepestAt(tx: Tx, lon: number, lat: number): Promise<strin
   return rows[0]?.id ?? null;
 }
 
-/** Name and slug in the wanted locale, else English, else any. */
+/** Name and slug in the wanted locale, else the fallback content locale, else any. */
 export async function localized(tx: Tx, id: string, locale: string) {
   const [row] = await tx
     .select({
@@ -107,7 +109,9 @@ export async function localized(tx: Tx, id: string, locale: string) {
     .from(locations)
     .innerJoin(locationTranslations, eq(locationTranslations.locationId, locations.id))
     .where(eq(locations.id, id))
-    .orderBy(sql`(${locationTranslations.locale} = ${locale}) desc, (${locationTranslations.locale} = 'en') desc`)
+    .orderBy(
+      sql`(${locationTranslations.locale} = ${locale}) desc, (${locationTranslations.locale} = ${FALLBACK_CONTENT_LOCALE}) desc`,
+    )
     .limit(1);
   return row ?? null;
 }
@@ -208,7 +212,89 @@ export async function localizedCatalogItem(tx: Tx, kind: CatalogKind, id: string
     .from(f.items)
     .innerJoin(f.itemTr, eq(f.itemTr.ownerId, f.items.id))
     .where(eq(f.items.id, id))
-    .orderBy(sql`(${f.itemTr.locale} = ${locale}) desc, (${f.itemTr.locale} = 'en') desc`)
+    .orderBy(sql`(${f.itemTr.locale} = ${locale}) desc, (${f.itemTr.locale} = ${FALLBACK_CONTENT_LOCALE}) desc`)
     .limit(1);
   return row ?? null;
+}
+
+// ---- Localized taxonomy (S2-03): three statements load everything for one locale -----------------------------
+// Full reads of small reference tables, run only on a cache miss (then cached per locale for an hour).
+// The translation per row: the wanted locale, else the fallback content locale, else the first alphabetically.
+
+const pick = (locale: AnyPgColumn, wanted: string) => [
+  sql`(${locale} = ${wanted}) desc`,
+  sql`(${locale} = ${FALLBACK_CONTENT_LOCALE}) desc`,
+  sql`${locale}`,
+];
+
+/** Every location with its localized name and slug (statement 1). No geometry. */
+export async function localizedLocations(tx: Tx, locale: string) {
+  return tx
+    .selectDistinctOn([locations.id], {
+      id: locations.id,
+      parentId: locations.parentId,
+      depth: locations.depth,
+      level: locations.level,
+      code: locations.code,
+      name: locationTranslations.name,
+      slug: locationTranslations.slug,
+    })
+    .from(locations)
+    .innerJoin(locationTranslations, eq(locationTranslations.locationId, locations.id))
+    .orderBy(locations.id, ...pick(locationTranslations.locale, locale));
+}
+
+/** Every location group, localized, with its member ids (statement 2). */
+export async function localizedLocationGroups(tx: Tx, locale: string) {
+  const m = locationGroupMembers;
+  return tx
+    .selectDistinctOn([locationGroups.id], {
+      id: locationGroups.id,
+      key: locationGroups.key,
+      name: locationGroupTranslations.name,
+      slug: locationGroupTranslations.slug,
+      locationIds: sql<string[]>`coalesce((select array_agg(${m.locationId} order by ${m.locationId})::text[]
+        from ${m} where ${m.groupId} = ${locationGroups.id}), '{}'::text[])`,
+    })
+    .from(locationGroups)
+    .innerJoin(locationGroupTranslations, eq(locationGroupTranslations.groupId, locationGroups.id))
+    .orderBy(locationGroups.id, ...pick(locationGroupTranslations.locale, locale));
+}
+
+export type CatalogRowKind = 'TYPE_GROUP' | 'TYPE' | 'FEATURE_GROUP' | 'FEATURE';
+
+export type CatalogRow = {
+  kind: CatalogRowKind;
+  id: string;
+  group_id: string | null;
+  key: string;
+  sort: number;
+  icon: string | null;
+  name: string;
+  slug: string;
+};
+
+/** Property type groups, types, feature groups and features, localized, in one UNION ALL (statement 3). */
+export async function localizedCatalog(tx: Tx, locale: string): Promise<CatalogRow[]> {
+  type Owner = SQLWrapper & { id: AnyPgColumn; key: AnyPgColumn; sort: AnyPgColumn };
+  type Tr = SQLWrapper & { ownerId: AnyPgColumn; locale: AnyPgColumn; name: AnyPgColumn; slug: AnyPgColumn };
+  const part = (kind: CatalogRowKind, p: { table: Owner; tr: Tr; groupId?: AnyPgColumn; icon?: AnyPgColumn }) =>
+    sql`(select distinct on (${p.table.id}) ${kind}::text as kind, ${p.table.id} as id,
+      ${p.groupId ?? sql`null::uuid`} as group_id, ${p.table.key} as key, ${p.table.sort} as sort,
+      ${p.icon ?? sql`null::text`} as icon, ${p.tr.name} as name, ${p.tr.slug} as slug
+    from ${p.table} inner join ${p.tr} on ${p.tr.ownerId} = ${p.table.id}
+    order by ${p.table.id}, ${sql.join(pick(p.tr.locale, locale), sql`, `)})`;
+  const { propertyType: t, feature: f } = FAMILIES;
+  const r = await tx.execute<CatalogRow>(
+    sql.join(
+      [
+        part('TYPE_GROUP', { table: t.groups, tr: t.groupTr }),
+        part('TYPE', { table: propertyTypes, tr: t.itemTr, groupId: propertyTypes.groupId }),
+        part('FEATURE_GROUP', { table: f.groups, tr: f.groupTr }),
+        part('FEATURE', { table: features, tr: f.itemTr, groupId: features.groupId, icon: features.icon }),
+      ],
+      sql` union all `,
+    ),
+  );
+  return r.rows;
 }

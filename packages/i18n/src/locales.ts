@@ -12,7 +12,11 @@ export interface LocaleConfig {
     /** Written by hand for every key (EN and ES); the others are drafted by `pnpm i18n:draft`. */
     handwritten: string[];
   };
-  content: { default: string; locales: string[] };
+  /**
+   * `fallback`: the translation shown when a record has none in the wanted locale (taxonomy names and
+   * slugs); defaults to `default`.
+   */
+  content: { default: string; fallback: string; locales: string[] };
   /** IANA zone for date formatting when the user has none. */
   timeZone: string;
 }
@@ -46,6 +50,8 @@ export function parseLocaleConfig(input: unknown): LocaleConfig {
   if (!handwritten.includes(uiDefault)) fail('ui.default must be handwritten');
   if (handwritten.some((l) => !ui.includes(l))) fail('ui.handwritten must be a subset of ui.locales');
   if (!content.includes(contentDefault)) fail('content.default must be one of content.locales');
+  const contentFallback = c?.content?.fallback ?? contentDefault;
+  if (!content.includes(contentFallback)) fail('content.fallback must be one of content.locales');
   const timeZone = c?.timeZone ?? '';
   try {
     new Intl.DateTimeFormat('en', { timeZone });
@@ -54,7 +60,7 @@ export function parseLocaleConfig(input: unknown): LocaleConfig {
   }
   return {
     ui: { default: uiDefault, locales: ui, handwritten },
-    content: { default: contentDefault, locales: content },
+    content: { default: contentDefault, fallback: contentFallback, locales: content },
     timeZone,
   };
 }
@@ -71,6 +77,8 @@ export const DEFAULT_UI_LOCALE: UiLocale = localeConfig.ui.default;
 export const HANDWRITTEN_UI_LOCALES: readonly UiLocale[] = localeConfig.ui.handwritten;
 export const CONTENT_LOCALES: readonly ContentLocale[] = localeConfig.content.locales;
 export const DEFAULT_CONTENT_LOCALE: ContentLocale = localeConfig.content.default;
+/** The translation used when a record has none in the wanted locale (then any other). */
+export const FALLBACK_CONTENT_LOCALE: ContentLocale = localeConfig.content.fallback;
 export const DEFAULT_TIME_ZONE: string = localeConfig.timeZone;
 
 export function isUiLocale(value: unknown): value is UiLocale {

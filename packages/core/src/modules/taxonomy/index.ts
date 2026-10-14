@@ -1,6 +1,6 @@
 /** taxonomy — public API (PATTERNS §1). The only import path for other modules and apps. */
 export { taxonomyErrors } from './errors';
-export { taxonomyEvents } from './events';
+export { TAXONOMY_ENTITIES, type TaxonomyEntity, taxonomyEvents } from './events';
 export { taxonomyJobs } from './jobs';
 export {
   addFeatureAlias,
@@ -18,3 +18,17 @@ export {
   resolveLocationAlias,
   resolvePropertyTypeAlias,
 } from './service';
+export { registerTaxonomySubscriptions, unregisterTaxonomySubscriptions } from './subscriptions';
+export {
+  getTaxonomy,
+  getTaxonomyDocument,
+  getWebsiteCatalog,
+  getWebsiteLocationChildren,
+  getWebsiteLocations,
+  invalidateTaxonomyCache,
+  type Serialized,
+  TAXONOMY_CACHE_TAG,
+  TAXONOMY_CACHE_TTL_SECONDS,
+  type Tagged,
+  taxonomyCacheKey,
+} from './tree';

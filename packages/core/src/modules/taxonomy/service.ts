@@ -19,7 +19,9 @@ import type {
 import type { Tx } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
+import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { type TaxonomyEntity, taxonomyEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
 
@@ -52,6 +54,12 @@ async function uniqueOr<T>(
   }
 }
 
+/** Every write ends here: same transaction, so the event exists if and only if the write commits. */
+async function changed(tx: Tx, entity: TaxonomyEntity, id: string): Promise<string> {
+  await emit(tx, taxonomyEvents.changed({ entity, id }));
+  return id;
+}
+
 /** Creates a location with its translations. The parent must be exactly one level above. */
 export async function createLocation(tx: Tx, input: CreateLocationInput): Promise<string> {
   const depth = DEPTH[input.level];
@@ -79,7 +87,7 @@ export async function createLocation(tx: Tx, input: CreateLocationInput): Promis
       ),
     'LOCATION_SLUG_TAKEN',
   );
-  return id;
+  return changed(tx, 'location', id);
 }
 
 /** Maps a feed spelling to a location. One spelling maps to one location. */
@@ -89,7 +97,7 @@ export async function addLocationAlias(tx: Tx, locationId: string, alias: string
   if (!key) throw new AppError('VALIDATION_FAILED');
   const id = newId();
   await uniqueOr(() => repo.insertAlias(tx, { id, locationId, alias, aliasKey: key }), 'LOCATION_ALIAS_TAKEN');
-  return id;
+  return changed(tx, 'locationAlias', id);
 }
 
 export async function createLocationGroup(tx: Tx, input: CreateLocationGroupInput): Promise<string> {
@@ -100,7 +108,7 @@ export async function createLocationGroup(tx: Tx, input: CreateLocationGroupInpu
     () => repo.insertGroup(tx, { id, key: input.key }, input.translations, [...new Set(input.memberIds)]),
     'LOCATION_ALIAS_TAKEN',
   );
-  return id;
+  return changed(tx, 'locationGroup', id);
 }
 
 function toDto(row: Awaited<ReturnType<typeof repo.localized>>): LocationDto | null {
@@ -130,7 +138,7 @@ async function createGroup(tx: Tx, kind: repo.CatalogKind, input: CreateTypeGrou
     () => repo.insertCatalogGroup(tx, kind, { id, key: input.key, sort: input.sort }, input.translations),
     'TAXONOMY_KEY_TAKEN',
   );
-  return id;
+  return changed(tx, `${kind}Group`, id);
 }
 
 async function createItem(
@@ -151,7 +159,7 @@ async function createItem(
       ),
     'TAXONOMY_KEY_TAKEN',
   );
-  return id;
+  return changed(tx, kind, id);
 }
 
 async function addAlias(tx: Tx, kind: repo.CatalogKind, ownerId: string, alias: string): Promise<string> {
@@ -163,7 +171,7 @@ async function addAlias(tx: Tx, kind: repo.CatalogKind, ownerId: string, alias: 
     () => repo.insertCatalogAlias(tx, kind, { id, ownerId, alias, aliasKey: key }),
     'TAXONOMY_ALIAS_TAKEN',
   );
-  return id;
+  return changed(tx, `${kind}Alias`, id);
 }
 
 async function resolveAlias(ctx: Ctx, kind: repo.CatalogKind, spelling: string) {

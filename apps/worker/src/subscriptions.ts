@@ -16,4 +16,5 @@ export const MODULES = { identity, agencies, billing, compliance, dashboard, tax
 export function registerSubscriptions(): void {
   identity.registerIdentitySubscriptions();
   agencies.registerAgenciesSubscriptions();
+  taxonomy.registerTaxonomySubscriptions();
 }
