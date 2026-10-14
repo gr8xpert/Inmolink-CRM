@@ -38,7 +38,6 @@
       "title": "Comisión por defecto de los nuevos inmuebles",
       "type": "Comisión",
       "types": {
-        "NONE": "Sin definir",
         "PCT": "Porcentaje",
         "FIXED": "Importe fijo"
       },
@@ -47,6 +46,8 @@
       "currency": "Moneda",
       "currencyPlaceholder": "EUR",
       "includesVat": "IVA incluido",
+      "split": "Parte del agente colaborador (%)",
+      "splitHint": "Parte de la comisión que cobra el agente que aporta el comprador: 50 significa un reparto al 50 %.",
       "hidden": "La comisión está oculta en el Modo Cliente."
     },
     "fields": {

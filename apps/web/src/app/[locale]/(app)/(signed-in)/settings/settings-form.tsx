@@ -15,6 +15,8 @@ export interface SettingsLabels {
     currency: string;
     currencyPlaceholder: string;
     includesVat: string;
+    split: string;
+    splitHint: string;
   };
   registrationValidityDays: string;
   viewingResponseDays: string;
@@ -81,7 +83,7 @@ export function SettingsForm(props: Props) {
               defaultValue={v.commissionType}
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
-              {(['NONE', 'PCT', 'FIXED'] as const).map((t) => (
+              {(['PCT', 'FIXED'] as const).map((t) => (
                 <option key={t} value={t}>
                   {l.commission.types[t]}
                 </option>
@@ -119,6 +121,12 @@ export function SettingsForm(props: Props) {
           <input type="checkbox" name="commissionIncludesVat" defaultChecked={v.commissionIncludesVat} />
           {l.commission.includesVat}
         </label>
+        <Field id="splitPercent" label={l.commission.split} invalid={invalid('defaultSplitBp')}>
+          {(aria) => <Input {...aria} inputMode="decimal" aria-describedby="splitHint" defaultValue={v.splitPercent} />}
+        </Field>
+        <p id="splitHint" className="text-xs text-muted-foreground">
+          {l.commission.splitHint}
+        </p>
       </fieldset>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

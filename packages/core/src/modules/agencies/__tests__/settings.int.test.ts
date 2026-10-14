@@ -1,4 +1,4 @@
-import type { UpdateAgencySettingsBody } from '@inmolink/contracts';
+import { UpdateAgencySettingsBody } from '@inmolink/contracts';
 import { closeDb, withSystem, withTenant } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
@@ -114,6 +114,7 @@ function settingsBody(
   return {
     version: current.version,
     defaultCommission: { type: 'PCT', basisPoints: 300, includesVat: false },
+    defaultSplitBp: 5000,
     registrationValidityDays: 180,
     viewingResponseDays: 3,
     enabledLocales: ['es', 'en'],
@@ -132,11 +133,40 @@ const PNG = Uint8Array.from(
 );
 const PDF = new TextEncoder().encode('%PDF-1.7\n%âãÏÓ\n');
 
+/** PLAN §3 #7: what a new agency starts from (the `agency_settings` column defaults). */
+const NEW_AGENCY_DEFAULTS = { commission: { type: 'PCT', basisPoints: 500, includesVat: false }, splitBp: 5000 };
+
 describe('agency settings', () => {
+  it('[S1-06-F1] a new agency reads 5 % commission (500 bp) and a 50 % split (5000 bp)', async () => {
+    const f = await createFounder();
+    const settings = await as(f, (ctx) => agencies.getMyAgencySettings(ctx));
+    expect(settings.defaultCommission).toEqual({ type: 'PCT', basisPoints: 500, includesVat: false });
+    expect(settings.defaultSplitBp).toBe(5000);
+    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual(NEW_AGENCY_DEFAULTS);
+  });
+
+  it('[S1-06-F1] the split accepts 0–100 % and rejects anything else', async () => {
+    const f = await createFounder();
+    let current = await as(f, (ctx) => agencies.getMyAgencySettings(ctx));
+    for (const splitBp of [0, 10_000, 3_333]) {
+      current = await as(f, (ctx) =>
+        agencies.updateAgencySettings(ctx, settingsBody(current, { defaultSplitBp: splitBp })),
+      );
+      expect(current.defaultSplitBp).toBe(splitBp);
+    }
+    for (const splitBp of [-1, 10_001, 50.5]) {
+      const parsed = UpdateAgencySettingsBody.safeParse(settingsBody(current, { defaultSplitBp: splitBp }));
+      expect(parsed.success, String(splitBp)).toBe(false);
+    }
+    // A commission is always set now: "none" is refused.
+    const none = { ...settingsBody(current), defaultCommission: null };
+    expect(UpdateAgencySettingsBody.safeParse(none).success).toBe(false);
+  });
+
   it('[S1-06] settings changes emit agencies.settings.changed and invalidate cached settings', async () => {
     const f = await createFounder();
     const before = await as(f, (ctx) => agencies.getAgencySettings(ctx)); // cached now
-    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toBeNull();
+    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual(NEW_AGENCY_DEFAULTS);
     const key = `${CACHE_PREFIX}:${agencies.agencySettingsCacheKey(f.agencyId)}`;
     expect(await cacheConnection().exists(key)).toBe(1);
     // Bounded: the entry expires on its own even if an event were lost.
@@ -164,9 +194,12 @@ describe('agency settings', () => {
     // …and the subscriber makes every process miss.
     await deliver('agencies.settings.changed', event as OutboxRow);
     const after = await as(f, (ctx) => agencies.getAgencySettings(ctx));
-    const { defaultCommission, ...shared } = saved;
+    const { defaultCommission, defaultSplitBp, ...shared } = saved;
     expect(after).toEqual(shared);
-    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual(defaultCommission);
+    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual({
+      commission: defaultCommission,
+      splitBp: defaultSplitBp,
+    });
   });
 
   it('[S1-06] a transaction that wrote settings never caches its uncommitted value', async () => {
@@ -184,7 +217,7 @@ describe('agency settings', () => {
     });
     const committed = await as(f, (ctx) => agencies.getAgencySettings(ctx));
     expect(committed.version).toBe(1);
-    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toBeNull();
+    expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual(NEW_AGENCY_DEFAULTS);
   });
 
   it('[S1-06] the dashboard read is never stale for the admin who saved', async () => {
@@ -240,6 +273,7 @@ describe('agency settings', () => {
     // The shared read other modules use has no commission at all (also absent from its type).
     const shared = await as(f, (ctx) => agencies.getAgencySettings(ctx), client);
     expect('defaultCommission' in shared).toBe(false);
+    expect('defaultSplitBp' in shared).toBe(false);
     expect(JSON.stringify(shared)).not.toContain('basisPoints');
     expect(await refusal(as(f, (ctx) => agencies.updateAgencySettings(ctx, settingsBody(saved)), client))).toBe(
       'FORBIDDEN',
@@ -265,6 +299,8 @@ describe('agency settings', () => {
     expect(await sqlState(write(sql`default_commission_type = 'PCT', default_commission_bp = 20000`))).toBe('23514');
     expect(await sqlState(write(sql`default_commission_type = 'FIXED', default_commission_bp = 300`))).toBe('23514');
     expect(await sqlState(write(sql`client_mode_pin_min_length = 2`))).toBe('23514');
+    expect(await sqlState(write(sql`default_split_bp = 10001`))).toBe('23514');
+    expect(await sqlState(write(sql`default_split_bp = -1`))).toBe('23514');
     expect(await sqlState(write(sql`enabled_locales = '{}'`))).toBe('23514');
   });
 });

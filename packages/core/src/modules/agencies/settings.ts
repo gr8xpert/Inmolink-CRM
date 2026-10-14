@@ -36,7 +36,7 @@ import * as repo from './settings-repo';
 export const AGENCY_SETTINGS_CACHE_TTL_SECONDS = 300;
 
 export function agencySettingsCacheKey(agencyId: string): CacheKey {
-  return cacheKey({ v: 1, module: 'agencies', entity: 'settings', scope: { agencyId } });
+  return cacheKey({ v: 2, module: 'agencies', entity: 'settings', scope: { agencyId } });
 }
 
 /**
@@ -54,7 +54,7 @@ export async function invalidateAgencySettings(agencyId: string): Promise<void> 
 
 // ── Settings ────────────────────────────────────────────────────────────────────────────────────
 
-function toCommission(row: repo.SettingsRow): Commission | null {
+function toCommission(row: repo.SettingsRow): Commission {
   if (row.defaultCommissionType === 'PCT' && row.defaultCommissionBp !== null) {
     return { type: 'PCT', basisPoints: row.defaultCommissionBp, includesVat: row.defaultCommissionIncludesVat };
   }
@@ -69,12 +69,14 @@ function toCommission(row: repo.SettingsRow): Commission | null {
       includesVat: row.defaultCommissionIncludesVat,
     };
   }
-  return null;
+  // `agency_settings_commission_ck` rules this out.
+  throw new Error('agency_settings: inconsistent default commission');
 }
 
 export function toSettingsDto(row: repo.SettingsRow): AgencySettingsDto {
   return {
     defaultCommission: toCommission(row),
+    defaultSplitBp: row.defaultSplitBp,
     registrationValidityDays: row.registrationValidityDays,
     viewingResponseDays: row.viewingResponseDays,
     enabledLocales: row.enabledLocales,
@@ -94,11 +96,12 @@ function toSettingsPatch(input: UpdateAgencySettingsBody): repo.SettingsPatch {
   return {
     enabledLocales: input.enabledLocales,
     registrationValidityDays: input.registrationValidityDays,
-    defaultCommissionType: c?.type ?? null,
-    defaultCommissionBp: c?.type === 'PCT' ? c.basisPoints : null,
-    defaultCommissionFixedCents: c?.type === 'FIXED' ? c.amount.amountCents : null,
-    defaultCommissionCurrency: c?.type === 'FIXED' ? c.amount.currency : null,
-    defaultCommissionIncludesVat: c?.includesVat ?? false,
+    defaultCommissionType: c.type,
+    defaultCommissionBp: c.type === 'PCT' ? c.basisPoints : null,
+    defaultCommissionFixedCents: c.type === 'FIXED' ? c.amount.amountCents : null,
+    defaultCommissionCurrency: c.type === 'FIXED' ? c.amount.currency : null,
+    defaultCommissionIncludesVat: c.includesVat,
+    defaultSplitBp: input.defaultSplitBp,
     viewingResponseDays: input.viewingResponseDays,
     whiteLabelReferencePrefix: input.whiteLabel.referencePrefix,
     whiteLabelShowPoweredBy: input.whiteLabel.showPoweredBy,
@@ -110,6 +113,7 @@ function toSettingsPatch(input: UpdateAgencySettingsBody): repo.SettingsPatch {
 
 const SETTINGS_FIELDS = [
   'defaultCommission',
+  'defaultSplitBp',
   'registrationValidityDays',
   'viewingResponseDays',
   'enabledLocales',
@@ -124,10 +128,17 @@ function changedFields(before: AgencySettingsDto, after: AgencySettingsDto): str
 
 /**
  * Settings other modules may read and pass on (registration validity, viewing deadlines, locales,
- * white-label, Client Mode policy). No commission: it is not even in the type, so a client-facing
- * serializer cannot leak it by accident; `getAgencyDefaultCommission` (policy-checked) returns it.
+ * white-label, Client Mode policy). No commission or split: they are not even in the type, so a
+ * client-facing serializer cannot leak them by accident; `getAgencyDefaultCommission` (policy-checked)
+ * returns them.
  */
-export type AgencySettings = Omit<AgencySettingsDto, 'defaultCommission'>;
+export type AgencySettings = Omit<AgencySettingsDto, 'defaultCommission' | 'defaultSplitBp'>;
+
+/** A new listing's commission defaults (PLAN §3 #7): the total and the collaborating agent's share. */
+export interface AgencyCommissionDefaults {
+  commission: Commission;
+  splitBp: number;
+}
 
 /**
  * Transactions that wrote the agency's settings: their reads bypass the shared cache, so an uncommitted
@@ -160,17 +171,19 @@ async function loadSettings(ctx: Ctx): Promise<AgencySettingsDto> {
  * callers authorize their own use case. Loaded under `ctx`'s RLS and cached under that agency only.
  */
 export async function getAgencySettings(ctx: Ctx): Promise<AgencySettings> {
-  const { defaultCommission: _commission, ...settings } = await loadSettings(ctx);
+  const { defaultCommission: _commission, defaultSplitBp: _split, ...settings } = await loadSettings(ctx);
   return settings;
 }
 
 /**
- * The agency's default commission (PLAN §3 #7) for agent-facing use cases (a new listing's default):
- * members of the agency only, never in Client Mode (`FORBIDDEN`). Same cache as `getAgencySettings`.
+ * The agency's default commission and split (PLAN §3 #7) for agent-facing use cases (a new or imported
+ * listing's defaults, S3-02): members of the agency only, never in Client Mode (`FORBIDDEN`). Same
+ * cache as `getAgencySettings`.
  */
-export async function getAgencyDefaultCommission(ctx: Ctx): Promise<Commission | null> {
+export async function getAgencyDefaultCommission(ctx: Ctx): Promise<AgencyCommissionDefaults> {
   assertCan(ctx, 'agencies.commission.read');
-  return (await loadSettings(ctx)).defaultCommission;
+  const settings = await loadSettings(ctx);
+  return { commission: settings.defaultCommission, splitBp: settings.defaultSplitBp };
 }
 
 /**

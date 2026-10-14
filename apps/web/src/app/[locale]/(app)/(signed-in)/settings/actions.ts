@@ -32,11 +32,12 @@ const text = (form: FormData, name: string) => {
 function valuesOf(form: FormData): SettingsValues {
   const commissionType = text(form, 'commissionType');
   return {
-    commissionType: commissionType === 'PCT' || commissionType === 'FIXED' ? commissionType : 'NONE',
+    commissionType: commissionType === 'FIXED' ? 'FIXED' : 'PCT',
     commissionPercent: text(form, 'commissionPercent'),
     commissionAmount: text(form, 'commissionAmount'),
     commissionCurrency: text(form, 'commissionCurrency').toUpperCase(),
     commissionIncludesVat: form.get('commissionIncludesVat') === 'on',
+    splitPercent: text(form, 'splitPercent'),
     registrationValidityDays: text(form, 'registrationValidityDays'),
     viewingResponseDays: text(form, 'viewingResponseDays'),
     enabledLocales: form.getAll('enabledLocales').filter((v): v is string => typeof v === 'string'),
@@ -54,16 +55,15 @@ function bodyOf(version: number, v: SettingsValues): unknown {
   const commission =
     v.commissionType === 'PCT'
       ? { type: 'PCT', basisPoints: hundredths(v.commissionPercent), includesVat: v.commissionIncludesVat }
-      : v.commissionType === 'FIXED'
-        ? {
-            type: 'FIXED',
-            amount: { amountCents: hundredths(v.commissionAmount), currency: v.commissionCurrency },
-            includesVat: v.commissionIncludesVat,
-          }
-        : null;
+      : {
+          type: 'FIXED',
+          amount: { amountCents: hundredths(v.commissionAmount), currency: v.commissionCurrency },
+          includesVat: v.commissionIncludesVat,
+        };
   return {
     version,
     defaultCommission: commission,
+    defaultSplitBp: hundredths(v.splitPercent),
     registrationValidityDays: Number(v.registrationValidityDays),
     viewingResponseDays: Number(v.viewingResponseDays),
     enabledLocales: v.enabledLocales,

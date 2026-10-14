@@ -42,7 +42,6 @@ export default async function SettingsPage() {
               title: t('settings.commission.title'),
               type: t('settings.commission.type'),
               types: {
-                NONE: t('settings.commission.types.NONE'),
                 PCT: t('settings.commission.types.PCT'),
                 FIXED: t('settings.commission.types.FIXED'),
               },
@@ -51,6 +50,8 @@ export default async function SettingsPage() {
               currency: t('settings.commission.currency'),
               currencyPlaceholder: t('settings.commission.currencyPlaceholder'),
               includesVat: t('settings.commission.includesVat'),
+              split: t('settings.commission.split'),
+              splitHint: t('settings.commission.splitHint'),
             },
             registrationValidityDays: t('settings.fields.registrationValidityDays'),
             viewingResponseDays: t('settings.fields.viewingResponseDays'),

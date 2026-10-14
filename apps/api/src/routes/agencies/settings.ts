@@ -101,13 +101,17 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags: ['agencies'],
         operationId: 'agencies.getAgencySettings',
-        summary: "The agency's settings (no commission in Client Mode)",
+        summary: "The agency's settings: commission, split, PIN policy (members; refused in Client Mode)",
         response: { 200: AgencySettingsDto },
       },
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    (req) => app.withCtx(req, (ctx) => agencies.getMyAgencySettings(ctx)),
+    // Commission, split and PIN policy: never kept by a browser or proxy cache.
+    (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => agencies.getMyAgencySettings(ctx));
+    },
   );
 
   app.put(
@@ -123,7 +127,10 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    (req) => app.withCtx(req, (ctx) => agencies.updateAgencySettings(ctx, req.body)),
+    (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => agencies.updateAgencySettings(ctx, req.body));
+    },
   );
 }
 

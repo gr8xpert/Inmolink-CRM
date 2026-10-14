@@ -347,6 +347,28 @@ Ref §14 · Mod migration · Dep S2-05 · [H1]
 **Build:** script mapping legacy locations/types/features into the new taxonomy, writing aliases for every legacy spelling and `legacy_id_maps` rows.
 **Done when:** every legacy taxonomy ID maps to a new ID or is listed in a report with a reason
 
+### S2-F1 · Identity query and index follow-ups (S1 review) · ⚡
+Ref §15 · Mod identity, agencies, compliance · Dep S1-F10
+**Build:** `staff_impersonations_agency_idx` gains `id` (the staff access list orders by `started_at desc, id desc`); `(status, created_at, id)` index on `agencies` for the staff tenants list filtered by status; audit log `(type, occurred_at)` index if the staff view filters by type, plus a per-partition archive/retention policy before ~12 months of partitions; an impersonated request runs 5 auth queries on 3 pools (`isImpersonatorActive`, `isStaffLoginCurrent`, `isImpersonationLive` + member + tenant) — merge the two pre-checks into one `app_auth` query or cache them 5–10 s per session id.
+**Done when:**
+- An impersonated dashboard request runs ≤ 3 queries before the handler (`countQueries()`)
+- EXPLAIN on the scale seed: staff access list and status-filtered tenants list use an index with no separate sort node
+
+### S2-F2 · Settings and impersonation hardening (S1 review) · 🔒
+Ref §3 #56 §12 · Mod agencies, identity, platform · Dep S1-06-F1
+**Build:** `AgencySettings` (the shared read) drops `clientMode`; a separate internal `getClientModePolicy` serves the one server-side consumer, so no client-facing serializer can pass the PIN policy on. Decide and record whether staff impersonating a member may read the commission, split and PIN policy (today `allowed`); if not, `forbidden` while impersonating. Per-user rate-limit bucket keyed on `act ?? sub`, so staff acting as a member neither exhaust that member's quota nor go uncounted. Logger `REDACT_KEYS` add `contactEmail`, `contactPhone`, `websiteUrl` and invite/verification-document fields.
+**Done when:**
+- `getAgencySettings`' type and output have no `clientMode`, `defaultCommission` or `defaultSplitBp`
+- A test logs a profile DTO and finds the contact fields censored
+- Staff impersonating a member use their own rate-limit bucket
+
+### S2-F3 · Test hygiene (S1 review)
+Ref §15 · Mod tests · Dep S1-F2
+**Build:** the S1-F2 idle-dispatcher latency test failed once under full `verify:all` load (577 ms vs 500 ms) and passed 3/3 alone: measure pickup from the dispatcher's own poll timestamps, or allow one extra poll under load, keeping the 250 ms interval check. `test:int:root` chains its projects with `&&`, so one failure silently skips the rest (adapters, apps, seed, ci, ops): run them all and fail at the end. Name the S1-10 budget checks `[S1-10]` (`scripts/perf/bundle-budget.ts`, `tests/e2e/shell.spec.ts`). A migration test for data backfills (0033: a NULL-commission row becomes 500 bp / 5000 bp). `toCommission` throws an internal `AppError` instead of `Error`.
+**Done when:**
+- `pnpm verify:all` passes twice in a row with the outbox latency test included
+- A planted failure in the `queue` project still runs and reports the other root projects
+
 ---
 
 ## S3 — Properties & media

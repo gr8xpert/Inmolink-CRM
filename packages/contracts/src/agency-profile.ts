@@ -113,6 +113,8 @@ export type UpdateAgencyProfileInput = z.input<typeof UpdateAgencyProfileBody>;
 
 /** 100 % in basis points. */
 export const MAX_COMMISSION_BP = 10_000;
+/** The collaborating agent's share of a commission: 100 % in basis points. */
+export const MAX_SPLIT_BP = 10_000;
 /** €1,000,000,000.00: far above any real fee, below what a bigint of cents could misrepresent. */
 export const MAX_FIXED_COMMISSION_CENTS = 100_000_000_000;
 
@@ -168,8 +170,10 @@ export const AgencySettingsLimits = {
 } as const;
 
 const settingsFields = {
-  /** Default shareable commission of new listings; null until set. */
-  defaultCommission: Commission.nullable(),
+  /** Total commission of new listings; a new agency starts from the `agency_settings` column defaults. */
+  defaultCommission: Commission,
+  /** The collaborating agent's share of that commission, 0–100 % in basis points (5000 = 50/50). */
+  defaultSplitBp: z.number().int().min(0).max(MAX_SPLIT_BP),
   /** Client registration validity (PLAN §3 #8). */
   registrationValidityDays: z
     .number()
@@ -193,8 +197,8 @@ const settingsFields = {
 };
 
 /**
- * The agency's settings. `defaultCommission` is null in Client Mode responses (the server strips it,
- * PLAN §3 #56) as well as when none is set.
+ * The agency's settings. Never served in Client Mode: they hold the commission and the PIN policy
+ * (PLAN §3 #56).
  */
 export const AgencySettingsDto = z.object({
   ...settingsFields,

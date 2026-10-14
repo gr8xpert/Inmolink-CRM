@@ -26,6 +26,7 @@ export {
 } from './service';
 export {
   AGENCY_SETTINGS_CACHE_TTL_SECONDS,
+  type AgencyCommissionDefaults,
   type AgencySettings,
   agencySettingsCacheKey,
   getAgencyDefaultCommission,

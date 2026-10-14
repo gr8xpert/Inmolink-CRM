@@ -61,12 +61,19 @@ describe('agency settings routes', () => {
     const headers = await bearer(f.userId, f.agencyId);
     const got = await app.inject({ method: 'GET', url: '/v1/agency/settings', headers });
     expect(got.statusCode).toBe(200);
+    expect(got.headers['cache-control']).toBe('no-store');
     const current = got.json();
-    expect(current).toMatchObject({ defaultCommission: null, registrationValidityDays: 180, version: 1 });
+    expect(current).toMatchObject({
+      defaultCommission: { type: 'PCT', basisPoints: 500, includesVat: false },
+      defaultSplitBp: 5000,
+      registrationValidityDays: 180,
+      version: 1,
+    });
 
     const body = {
       version: current.version,
       defaultCommission: { type: 'PCT', basisPoints: 250, includesVat: true },
+      defaultSplitBp: 4000,
       registrationValidityDays: 365,
       viewingResponseDays: 2,
       enabledLocales: current.enabledLocales,
@@ -75,11 +82,21 @@ describe('agency settings routes', () => {
     };
     const saved = await app.inject({ method: 'PUT', url: '/v1/agency/settings', headers, payload: body });
     expect(saved.statusCode).toBe(200);
+    expect(saved.headers['cache-control']).toBe('no-store');
     expect(saved.json()).toMatchObject({
       version: 2,
       whiteLabel: { referencePrefix: 'CH' },
       registrationValidityDays: 365,
+      defaultSplitBp: 4000,
     });
+
+    const splitTooHigh = await app.inject({
+      method: 'PUT',
+      url: '/v1/agency/settings',
+      headers,
+      payload: { ...body, version: 2, defaultSplitBp: 10_001 },
+    });
+    expect(splitTooHigh.statusCode).toBe(422);
 
     const bad = await app.inject({
       method: 'PUT',

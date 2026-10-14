@@ -17,6 +17,7 @@ const settingsColumns = {
   defaultCommissionFixedCents: agencySettings.defaultCommissionFixedCents,
   defaultCommissionCurrency: agencySettings.defaultCommissionCurrency,
   defaultCommissionIncludesVat: agencySettings.defaultCommissionIncludesVat,
+  defaultSplitBp: agencySettings.defaultSplitBp,
   viewingResponseDays: agencySettings.viewingResponseDays,
   whiteLabelReferencePrefix: agencySettings.whiteLabelReferencePrefix,
   whiteLabelShowPoweredBy: agencySettings.whiteLabelShowPoweredBy,
@@ -30,11 +31,12 @@ const settingsColumns = {
 export interface SettingsRow {
   enabledLocales: string[];
   registrationValidityDays: number;
-  defaultCommissionType: 'PCT' | 'FIXED' | null;
+  defaultCommissionType: 'PCT' | 'FIXED';
   defaultCommissionBp: number | null;
   defaultCommissionFixedCents: number | null;
   defaultCommissionCurrency: string | null;
   defaultCommissionIncludesVat: boolean;
+  defaultSplitBp: number;
   viewingResponseDays: number;
   whiteLabelReferencePrefix: string | null;
   whiteLabelShowPoweredBy: boolean;

@@ -38,7 +38,6 @@
       "title": "Default commission for new listings",
       "type": "Commission",
       "types": {
-        "NONE": "Not set",
         "PCT": "Percentage",
         "FIXED": "Fixed amount"
       },
@@ -47,6 +46,8 @@
       "currency": "Currency",
       "currencyPlaceholder": "EUR",
       "includesVat": "Includes VAT (IVA)",
+      "split": "Collaborating agent's share (%)",
+      "splitHint": "Share of the commission paid to the agent who brings the buyer: 50 means a 50/50 split.",
       "hidden": "Commission is hidden in Client Mode."
     },
     "fields": {

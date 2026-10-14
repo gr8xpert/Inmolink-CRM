@@ -2,11 +2,12 @@ import type { AgencySettingsDto } from '@inmolink/contracts';
 
 /** The settings form's field values (strings as typed), from the API's settings or a refused submission. */
 export interface SettingsValues {
-  commissionType: 'NONE' | 'PCT' | 'FIXED';
+  commissionType: 'PCT' | 'FIXED';
   commissionPercent: string;
   commissionAmount: string;
   commissionCurrency: string;
   commissionIncludesVat: boolean;
+  splitPercent: string;
   registrationValidityDays: string;
   viewingResponseDays: string;
   enabledLocales: string[];
@@ -35,11 +36,12 @@ const fromHundredths = (n: number) => String(n / 100);
 export function settingsValues(s: AgencySettingsDto): SettingsValues {
   const c = s.defaultCommission;
   return {
-    commissionType: c?.type ?? 'NONE',
-    commissionPercent: c?.type === 'PCT' ? fromHundredths(c.basisPoints) : '',
-    commissionAmount: c?.type === 'FIXED' ? fromHundredths(c.amount.amountCents) : '',
-    commissionCurrency: c?.type === 'FIXED' ? c.amount.currency : '',
-    commissionIncludesVat: c?.includesVat ?? false,
+    commissionType: c.type,
+    commissionPercent: c.type === 'PCT' ? fromHundredths(c.basisPoints) : '',
+    commissionAmount: c.type === 'FIXED' ? fromHundredths(c.amount.amountCents) : '',
+    commissionCurrency: c.type === 'FIXED' ? c.amount.currency : '',
+    commissionIncludesVat: c.includesVat,
+    splitPercent: fromHundredths(s.defaultSplitBp),
     registrationValidityDays: String(s.registrationValidityDays),
     viewingResponseDays: String(s.viewingResponseDays),
     enabledLocales: s.enabledLocales,

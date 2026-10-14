@@ -84,14 +84,16 @@ export const agencySettings = pgTable(
     /** Client registration validity (PLAN §3 #8, default 6 months). */
     registrationValidityDays: integer('registration_validity_days').notNull().default(180),
     /**
-     * Default shareable commission for new listings (PLAN §3 #7); null until the agency sets one.
-     * PCT → `default_commission_bp`; FIXED → `default_commission_fixed_cents` + currency.
+     * Default commission of new listings (PLAN §3 #7, S1-06-F1): the total, 5 % of the sale price unless
+     * the agency changes it. PCT → `default_commission_bp`; FIXED → `default_commission_fixed_cents` + currency.
      */
-    defaultCommissionType: commissionTypeEnum('default_commission_type'),
-    defaultCommissionBp: integer('default_commission_bp'),
+    defaultCommissionType: commissionTypeEnum('default_commission_type').notNull().default('PCT'),
+    defaultCommissionBp: integer('default_commission_bp').default(500),
     defaultCommissionFixedCents: bigint('default_commission_fixed_cents', { mode: 'number' }),
     defaultCommissionCurrency: char('default_commission_currency', { length: 3 }),
     defaultCommissionIncludesVat: boolean('default_commission_includes_vat').notNull().default(false),
+    /** The collaborating agent's share of that commission (PLAN §3 #7): 5000 = 50/50, 0–10000. */
+    defaultSplitBp: integer('default_split_bp').notNull().default(5000),
     /** Days the agency has to answer a viewing request from another agency (M10). */
     viewingResponseDays: integer('viewing_response_days').notNull().default(3),
     /** White-label (PLAN §3 #6): prefix of listing references shown to clients (`CH-1234`). */
@@ -109,11 +111,12 @@ export const agencySettings = pgTable(
   },
   (t) => [
     check('agency_settings_locales_ck', sql`cardinality(${t.enabledLocales}) between 1 and 20`),
+    check('agency_settings_split_ck', sql`${t.defaultSplitBp} between 0 and 10000`),
     check('agency_settings_registration_days_ck', sql`${t.registrationValidityDays} between 1 and 1095`),
     check('agency_settings_viewing_days_ck', sql`${t.viewingResponseDays} between 1 and 30`),
     check(
       'agency_settings_commission_ck',
-      sql`(${t.defaultCommissionType} is null and ${t.defaultCommissionBp} is null and ${t.defaultCommissionFixedCents} is null and ${t.defaultCommissionCurrency} is null) or (${t.defaultCommissionType} = 'PCT' and ${t.defaultCommissionBp} between 1 and 10000 and ${t.defaultCommissionFixedCents} is null and ${t.defaultCommissionCurrency} is null) or (${t.defaultCommissionType} = 'FIXED' and ${t.defaultCommissionBp} is null and ${t.defaultCommissionFixedCents} between 1 and 100000000000 and ${t.defaultCommissionCurrency} ~ '^[A-Z]{3}$')`,
+      sql`(${t.defaultCommissionType} = 'PCT' and ${t.defaultCommissionBp} between 1 and 10000 and ${t.defaultCommissionFixedCents} is null and ${t.defaultCommissionCurrency} is null) or (${t.defaultCommissionType} = 'FIXED' and ${t.defaultCommissionBp} is null and ${t.defaultCommissionFixedCents} between 1 and 100000000000 and ${t.defaultCommissionCurrency} ~ '^[A-Z]{3}$')`,
     ),
     check(
       'agency_settings_reference_prefix_ck',
