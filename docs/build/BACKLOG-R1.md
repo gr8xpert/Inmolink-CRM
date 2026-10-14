@@ -294,6 +294,14 @@ Ref §7 M20 §12 · Mod identity, agencies, compliance, web · Dep S1-09
 - Agency admins can see when staff accessed their account and why
 - The staff e2e spec runs green in CI
 
+### S1-F10 · Narrow the tenant read of staff sessions (S1-F9 review) · 🔒
+Ref §12 · Mod db, identity · Dep S1-F9
+**Build:** today every member of an agency (agents too) can SELECT its `staff_impersonations` rows through RLS (`own_rows`), including `reason` and `staff_user_id`; only the service limits the record to admins (`GET /v1/staff-access`). Add a registry option for a narrowed `app_user` SELECT on STRICT tables (the generator, the guard and the isolation suite learn it), and use it here: a row is visible to the member it targets (the per-request `isSessionLive` check) or to an admin of the agency; `staff_user_id` is not readable by `app_user` at all (column grant or a `SECURITY DEFINER` reader — the guard currently refuses column grants, so decide in an ADR). Fix the flaky `[S1-F2]` outbox fair-share test seen in S1-F9 runs (442/500 claimed after a full verify; passes alone).
+**Done when:**
+- An agent cannot read another member's staff sessions; an admin can; the impersonated member can read their own open session
+- No app_user query can read `staff_user_id`
+- Isolation suite covers the narrowed policy
+
 ### S1-06-F1 · Commission defaults in agency settings
 Ref §3 #7 §6 Identity · Mod agencies · Dep S1-06
 **Build:** `AgencySettings` gains `default_commission_bp` (500 = 5 % of the sale price) and `default_split_bp` (5000 = the collaborating agent's share is 50 %); settings API and form expose them as percentages, stored as basis points; migration backfills existing agencies with the defaults. Listings copy them on create and import (S3-02).

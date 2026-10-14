@@ -5,6 +5,7 @@ import type onboarding from '../messages/en/onboarding.json';
 import type security from '../messages/en/security.json';
 import type shell from '../messages/en/shell.json';
 import type staff from '../messages/en/staff.json';
+import type staffAccess from '../messages/en/staff-access.json';
 import type team from '../messages/en/team.json';
 import type verification from '../messages/en/verification.json';
 
@@ -20,6 +21,7 @@ export interface Messages {
   onboarding: typeof onboarding;
   security: typeof security;
   shell: typeof shell;
+  'staff-access': typeof staffAccess;
   staff: typeof staff;
   team: typeof team;
   verification: typeof verification;

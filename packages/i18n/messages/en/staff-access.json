@@ -1,0 +1,18 @@
+{
+  "title": "Staff access",
+  "intro": "Whenever Inmolink staff act as one of your members to help with a support request, it is recorded here: when, as whom, and the reason they gave. While acting, staff cannot change your team, API keys, settings or billing.",
+  "empty": "Inmolink staff have not accessed your account.",
+  "when": "Started",
+  "member": "Acted as",
+  "reason": "Reason given",
+  "status": "Status",
+  "statuses": {
+    "ACTIVE": "In progress",
+    "ENDED": "Ended {date}",
+    "EXPIRED": "Expired {date}"
+  },
+  "next": "Older entries",
+  "errors": {
+    "generic": "We could not load the staff access record. Please try again."
+  }
+}

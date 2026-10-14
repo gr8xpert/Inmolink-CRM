@@ -10,7 +10,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
-  await passTwoFactor(page, email);
+  await passTwoFactor(page, email, password);
 }
 
 async function logout(page: Page): Promise<void> {
@@ -53,6 +53,11 @@ test('[S1-09] non-staff get 404 on staff pages; staff act as a member with a rea
   // Every page shows the banner while the session is open; the dashboard is the agent's.
   const banner = page.getByTestId('impersonation-banner');
   await expect(banner).toContainText(`You are acting as Marta at ${company}`);
+  // The banner counts down to the end of the session (S1-F9) and keeps ticking.
+  const countdown = banner.getByTestId('impersonation-countdown');
+  await expect(countdown).toHaveText(/^\d+:\d{2} left$/);
+  const before = await countdown.innerText();
+  await expect.poll(() => countdown.innerText(), { timeout: 5_000 }).not.toBe(before);
   await expect(page.getByTestId('api-check')).toBeVisible();
   await page.goto('/en/team');
   await expect(banner).toBeVisible();

@@ -28,6 +28,7 @@ try {
       APP_ROLE: 'http',
       DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER,
       DATABASE_URL_APP_STAFF: config.DATABASE_URL_APP_STAFF,
+      DATABASE_URL_APP_AUTH: config.DATABASE_URL_APP_AUTH,
     },
     { logger },
   );

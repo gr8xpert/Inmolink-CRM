@@ -78,6 +78,7 @@ const STAFF_ROUTES = (agencyId: string, impersonationId: string) => [
   { method: 'GET' as const, url: `/v1/staff/agencies/${agencyId}` },
   { method: 'GET' as const, url: `/v1/staff/agencies/${agencyId}/members` },
   { method: 'GET' as const, url: '/v1/staff/audit-logs' },
+  { method: 'GET' as const, url: '/v1/staff/impersonations' },
   { method: 'GET' as const, url: '/v1/staff/verification-requests' },
   {
     method: 'POST' as const,
@@ -245,7 +246,7 @@ describe('staff console API', () => {
     expect(log.statusCode).toBe(200);
     const types = log.json().items.map((i: { type: string }) => i.type);
     expect(types).toEqual(expect.arrayContaining(['agencies.profile.updated', 'staff.impersonation.started']));
-    expect(log.json().items.find((i: { type: string }) => i.type === 'agencies.profile.updated').actor).toEqual({
+    expect(log.json().items.find((i: { type: string }) => i.type === 'agencies.profile.updated').actor).toMatchObject({
       kind: 'user',
       userId: f.userId,
       impersonatedBy: support.userId,
@@ -269,5 +270,41 @@ describe('staff console API', () => {
     await expect(impersonationHeaders(support.userId, session.id)).rejects.toMatchObject({
       code: 'IMPERSONATION_ENDED',
     });
+  });
+
+  it('[S1-F9] admins read the staff access record over HTTP; disabling the staff login ends the session on the next request', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/staff/impersonations',
+      headers: await bearer(support.userId),
+      payload: { agencyId: f.agencyId, userId: f.userId, reason: REASON },
+    });
+    expect(started.statusCode).toBe(201);
+    const session = started.json();
+
+    // The agency's admin sees when and why — and never which staff member.
+    const record = await app.inject({
+      method: 'GET',
+      url: '/v1/staff-access',
+      headers: await bearer(f.userId, f.agencyId),
+    });
+    expect(record.statusCode, record.body).toBe(200);
+    expect(record.json().items).toEqual([
+      expect.objectContaining({ id: session.id, memberUserId: f.userId, reason: REASON, status: 'ACTIVE' }),
+    ]);
+    expect(record.body).not.toContain(support.userId);
+    expect((await app.inject({ method: 'GET', url: '/v1/staff-access' })).statusCode).toBe(401);
+
+    // The impersonated token works until the staff login is disabled; then the next request is refused.
+    const headers = await impersonationHeaders(support.userId, session.id);
+    expect((await app.inject({ method: 'GET', url: '/v1/agency', headers })).statusCode).toBe(200);
+    // Not even the staff member can read the record while acting as the admin.
+    expect((await app.inject({ method: 'GET', url: '/v1/staff-access', headers })).statusCode).toBe(403);
+    await adminQuery(`update users set status = 'DISABLED' where id = $1`, [support.userId]);
+    const after = await app.inject({ method: 'GET', url: '/v1/agency', headers });
+    expect(after.statusCode).toBe(403);
+    expect(after.json().error.code).toBe('IMPERSONATION_ENDED');
   });
 });

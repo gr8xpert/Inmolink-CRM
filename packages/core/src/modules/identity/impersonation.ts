@@ -1,21 +1,39 @@
 import type {
   ImpersonationDto,
   ImpersonationParams,
+  LiveImpersonationList,
   MemberPage,
   PageQuery,
+  StaffAccessPage,
   StaffMeDto,
   StartImpersonationInput,
 } from '@inmolink/contracts';
-import type { Tx } from '@inmolink/db';
+import { type Tx, withAuth } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import type { StaffCtx } from '../../context';
+import type { Ctx, StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
 import * as impRepo from './impersonation-repo';
-import { assertStaffCan, IMPERSONATING_ROLES } from './policy';
+import { assertCan, assertStaffCan, IMPERSONATING_ROLES } from './policy';
 import * as repo from './repo';
+
+/** Live sessions listed at most (one open per staff member, so the staff team's size bounds it). */
+const MAX_LIVE_SESSIONS = 100;
+
+/**
+ * Names of login identities for staff-facing pages (the audit viewer, live sessions): one `app_auth` read,
+ * since `app_staff` cannot see `users`. Unknown ids are absent from the map. Names are member data:
+ * super admins and support only (`staff.members.read`), like the members list.
+ */
+export async function userNames(ctx: StaffCtx, ids: readonly string[]): Promise<Map<string, string>> {
+  assertStaffCan(ctx, 'staff.members.read');
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await withAuth((tx) => repo.findUserNames(tx, unique));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
 
 /**
  * Staff impersonation (S1-09, PLAN §7 M20 §12, `.claude/rules/security.md`). A staff member who passed
@@ -85,6 +103,8 @@ export async function startImpersonation(ctx: StaffCtx, input: StartImpersonatio
 /** `POST /v1/staff/impersonations/:id/end`: ends the caller's own open session (also an expired one). */
 export async function endImpersonation(ctx: StaffCtx, input: ImpersonationParams): Promise<void> {
   const ended = await impRepo.endSession(ctx.tx, input.id, ctx.actor.userId);
+  // Not the caller's own: a super admin may end a colleague's live session (S1-F9).
+  if (!ended && ctx.actor.role === 'SUPER_ADMIN') return endImpersonationAsSuperAdmin(ctx, input);
   if (!ended) throw new AppError('NOT_FOUND', { entity: 'impersonation' });
   await compliance.auditStaff(
     ctx,
@@ -92,6 +112,80 @@ export async function endImpersonation(ctx: StaffCtx, input: ImpersonationParams
     'staff.impersonation.ended',
     { type: 'user', id: ended.targetUserId },
     { impersonationId: ended.id, cause: 'ended' },
+  );
+}
+
+/**
+ * `POST /v1/staff/impersonations/:id/end` for a session that is not the caller's own (S1-F9): a super admin
+ * ends any staff member's live session, e.g. of a colleague who is no longer trusted. Audited under the
+ * agency with the cause `endedBySuperAdmin`; the staff member's next request answers `IMPERSONATION_ENDED`.
+ */
+export async function endImpersonationAsSuperAdmin(ctx: StaffCtx, input: ImpersonationParams): Promise<void> {
+  assertStaffCan(ctx, 'staff.impersonation.manage');
+  const ended = await impRepo.endAnySession(ctx.tx, input.id);
+  if (!ended) throw new AppError('NOT_FOUND', { entity: 'impersonation' });
+  await compliance.auditStaff(
+    ctx,
+    ended.agencyId,
+    'staff.impersonation.ended',
+    { type: 'user', id: ended.targetUserId },
+    { impersonationId: ended.id, cause: 'endedBySuperAdmin', staffUserId: ended.staffUserId },
+  );
+}
+
+/** `GET /v1/staff/impersonations`: every live session with both people's names (super admins only). */
+export async function listLiveImpersonations(ctx: StaffCtx): Promise<LiveImpersonationList> {
+  assertStaffCan(ctx, 'staff.impersonation.manage');
+  const sessions = await impRepo.listLiveSessions(ctx.tx, MAX_LIVE_SESSIONS);
+  const [names, agencyNames] = await Promise.all([
+    userNames(
+      ctx,
+      sessions.flatMap((s) => [s.staffUserId, s.targetUserId]),
+    ),
+    agencies.agencyNames(
+      ctx,
+      sessions.map((s) => s.agencyId),
+    ),
+  ]);
+  return {
+    items: sessions.map((s) => ({
+      id: s.id,
+      agencyId: s.agencyId,
+      agencyName: agencyNames.get(s.agencyId) ?? '',
+      userId: s.targetUserId,
+      userName: names.get(s.targetUserId) ?? '',
+      startedAt: s.startedAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      staffUserId: s.staffUserId,
+      staffName: names.get(s.staffUserId) ?? '',
+    })),
+  };
+}
+
+/**
+ * `GET /v1/staff-access` (S1-F9): the agency's admins see when Inmolink staff acted as one of their
+ * members, and the reason the staff member gave — newest first, keyset pages. Staff identities stay out.
+ */
+export async function listStaffAccess(ctx: Ctx, q: PageQuery): Promise<StaffAccessPage> {
+  assertCan(ctx, 'identity.staffAccess.read');
+  const rows = await impRepo.listStaffAccess(ctx.tx, ctx.tenant.agencyId, {
+    limit: q.limit,
+    cursor: decodeCursor(q.cursor),
+  });
+  return toPage(
+    rows,
+    q.limit,
+    (r) => ({ at: r.startedAt, id: r.id }),
+    (r) => ({
+      id: r.id,
+      startedAt: r.startedAt.toISOString(),
+      expiresAt: r.expiresAt.toISOString(),
+      endedAt: r.endedAt?.toISOString() ?? null,
+      status: r.status,
+      memberUserId: r.memberUserId,
+      memberName: r.memberName,
+      reason: r.reason,
+    }),
   );
 }
 

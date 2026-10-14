@@ -10,6 +10,7 @@ import {
   MemberParams,
   MyCapabilitiesDto,
   PageQuery,
+  StaffAccessPage,
 } from '@inmolink/contracts';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as identity from '@inmolink/core/modules/identity';
@@ -80,6 +81,25 @@ export async function identityRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: CAPABILITIES_LIMITS },
     },
     (req) => app.withCtx(req, async (ctx) => dashboard.getMyCapabilities(ctx)),
+  );
+
+  app.get(
+    '/v1/staff-access',
+    {
+      schema: {
+        tags: ['identity'],
+        operationId: 'identity.listStaffAccess',
+        summary: 'When Inmolink staff acted as one of the agency’s members, and why, newest first (admins)',
+        querystring: PageQuery,
+        response: { 200: StaffAccessPage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: TEAM_READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => identity.listStaffAccess(ctx, req.query));
+    },
   );
 
   app.get(

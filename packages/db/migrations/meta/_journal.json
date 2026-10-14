@@ -225,6 +225,13 @@
       "when": 1791964720710,
       "tag": "0031_white_phil_sheldon",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791968235815,
+      "tag": "0032_open_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

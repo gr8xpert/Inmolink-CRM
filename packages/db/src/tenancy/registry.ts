@@ -8,6 +8,10 @@
  */
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 
+/** A staff member's own row, or any row for an active super admin (their own `staff_users` row, policy staff_self). */
+const SUPER_ADMIN_OR_OWN_SESSION =
+  "staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
+
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
 /** Column overrides (DB column names) for rows the isolation suite seeds. */
@@ -314,8 +318,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // Staff impersonation sessions (S1-09), under the agency acted on. An impersonated request reads its own
   // session row (app_user, own agency) to check it is still open; tenants never write it (guard 0026; a
   // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;
-  // staff start and end only their own sessions. Rows hold the staff member's reason: no endpoint shows
-  // them to tenants.
+  // staff start only their own sessions and end their own; super admins also see and end anyone's (S1-F9).
+  // Rows hold the staff member's reason: only the agency's admins see it (`GET /v1/staff-access`).
   staff_impersonations: {
     kind: 'STRICT',
     guardedInsert: true,
@@ -327,9 +331,9 @@ export const tenantTables: Record<string, TenantTable> = {
     },
     auth: { select: 'staff_user_id = app_user_id()' },
     staff: {
-      select: 'staff_user_id = app_user_id()',
+      select: SUPER_ADMIN_OR_OWN_SESSION,
       insert: 'staff_user_id = app_user_id()',
-      update: 'staff_user_id = app_user_id()',
+      update: SUPER_ADMIN_OR_OWN_SESSION,
     },
   },
 };

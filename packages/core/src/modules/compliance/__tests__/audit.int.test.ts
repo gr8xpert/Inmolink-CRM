@@ -406,7 +406,7 @@ describe('audit log', () => {
       expect.objectContaining({
         agencyId: f.agencyId,
         type: 'identity.member.deactivated',
-        actor: { kind: 'user', userId: f.userId, impersonatedBy: impersonator },
+        actor: expect.objectContaining({ kind: 'user', userId: f.userId, impersonatedBy: impersonator }),
       }),
     ]);
     const second = await staffRead(support.userId, (ctx) =>

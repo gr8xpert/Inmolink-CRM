@@ -25,7 +25,7 @@ function ctxAs(role: string, over: { clientMode?: boolean; impersonatedBy?: stri
 
 describe('getMyCapabilities', () => {
   it('[S1-10] role-based navigation: admins of either family see every section, agents only the shared ones', () => {
-    const all = ['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies'];
+    const all = ['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies', 'staffAccess'];
     for (const role of ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']) {
       const caps = getMyCapabilities(ctxAs(role));
       expect(MyCapabilitiesDto.parse(caps)).toEqual({ role, clientMode: false, impersonating: false, sections: all });
@@ -45,7 +45,7 @@ describe('getMyCapabilities', () => {
   it('[S1-10] while impersonating, sections follow the impersonation rules and the flag is set', () => {
     const caps = getMyCapabilities(ctxAs('AGENCY_ADMIN', { impersonatedBy: STAFF }));
     expect(caps.impersonating).toBe(true);
-    // Read-only areas stay visible; nothing forbidden to staff is offered.
+    // Read-only areas stay visible; nothing forbidden to staff is offered (not the agency's staff-access record).
     expect(caps.sections).toEqual(['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies']);
   });
 

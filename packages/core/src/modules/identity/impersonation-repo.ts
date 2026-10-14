@@ -1,6 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { agencyMembers, staffImpersonations } from '@inmolink/db/schema/identity';
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
  * `staff_impersonations` queries (S1-09, PATTERNS §5). Kept apart from `repo.ts` (size). Runs as
@@ -135,4 +136,104 @@ export async function isSessionLive(
       ),
     );
   return row !== undefined;
+}
+
+export interface StaffAccessRow {
+  id: string;
+  startedAt: Date;
+  expiresAt: Date;
+  endedAt: Date | null;
+  status: 'ACTIVE' | 'ENDED' | 'EXPIRED';
+  memberUserId: string;
+  memberName: string;
+  reason: string;
+}
+
+/**
+ * The agency's record of staff access (S1-F9, `app_user`, own agency by RLS), newest first, keyset on
+ * `(started_at, id)` over `staff_impersonations_agency_idx`, with the member's name in the same query
+ * (`agency_members` primary key). The staff member's id is not selected: staff identities stay with Inmolink.
+ */
+export async function listStaffAccess(
+  tx: Tx,
+  agencyId: string,
+  page: { limit: number; cursor?: KeysetCursor },
+): Promise<StaffAccessRow[]> {
+  const { cursor } = page;
+  return tx
+    .select({
+      id: staffImpersonations.id,
+      startedAt: staffImpersonations.startedAt,
+      expiresAt: staffImpersonations.expiresAt,
+      endedAt: staffImpersonations.endedAt,
+      status: sql<StaffAccessRow['status']>`case when ${staffImpersonations.endedAt} is not null then 'ENDED'
+        when ${staffImpersonations.expiresAt} <= now() then 'EXPIRED' else 'ACTIVE' end`,
+      memberUserId: staffImpersonations.targetUserId,
+      memberName: sql<string>`coalesce(${agencyMembers.name}, '')`,
+      reason: staffImpersonations.reason,
+    })
+    .from(staffImpersonations)
+    .leftJoin(
+      agencyMembers,
+      and(
+        eq(agencyMembers.agencyId, staffImpersonations.agencyId),
+        eq(agencyMembers.userId, staffImpersonations.targetUserId),
+      ),
+    )
+    .where(
+      and(
+        eq(staffImpersonations.agencyId, agencyId),
+        // Millisecond-truncated keys (PATTERNS §5): `started_at` is microseconds, the cursor a JS Date.
+        keysetAfter(staffImpersonations.startedAt, staffImpersonations.id, cursor, 'desc'),
+      ),
+    )
+    .orderBy(...keysetOrder(staffImpersonations.startedAt, staffImpersonations.id, 'desc'))
+    .limit(page.limit + 1);
+}
+
+export interface OpenSessionRow {
+  id: string;
+  agencyId: string;
+  staffUserId: string;
+  targetUserId: string;
+  startedAt: Date;
+  expiresAt: Date;
+}
+
+/**
+ * Every live session across staff (super admins, `app_staff` with the widened `staff_impersonations_open_uq`
+ * read, S1-F9): at most one per staff member, so the list is as long as the staff team is — bounded.
+ */
+export async function listLiveSessions(tx: Tx, limit: number): Promise<OpenSessionRow[]> {
+  return tx
+    .select({
+      id: staffImpersonations.id,
+      agencyId: staffImpersonations.agencyId,
+      staffUserId: staffImpersonations.staffUserId,
+      targetUserId: staffImpersonations.targetUserId,
+      startedAt: staffImpersonations.startedAt,
+      expiresAt: staffImpersonations.expiresAt,
+    })
+    .from(staffImpersonations)
+    .where(live())
+    .orderBy(desc(staffImpersonations.startedAt), desc(staffImpersonations.id))
+    .limit(limit);
+}
+
+/** Ends any open session by id (super admin, S1-F9); null if it is already ended. */
+export async function endAnySession(
+  tx: Tx,
+  id: string,
+): Promise<{ id: string; agencyId: string; staffUserId: string; targetUserId: string } | null> {
+  const [row] = await tx
+    .update(staffImpersonations)
+    .set({ endedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(and(eq(staffImpersonations.id, id), isNull(staffImpersonations.endedAt)))
+    .returning({
+      id: staffImpersonations.id,
+      agencyId: staffImpersonations.agencyId,
+      staffUserId: staffImpersonations.staffUserId,
+      targetUserId: staffImpersonations.targetUserId,
+    });
+  return row ?? null;
 }

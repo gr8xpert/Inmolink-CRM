@@ -6,3 +6,4 @@ export * from './impersonation';
 export * from './member';
 export * from './runtime';
 export * from './staff';
+export * from './staff-audit';

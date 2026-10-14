@@ -99,17 +99,42 @@ export default async function StaffAuditPage({ searchParams }: { searchParams: P
                     {format.dateTime(new Date(e.occurredAt), { dateStyle: 'short', timeStyle: 'medium' })}
                   </td>
                   <td className="p-2 font-mono">{e.type}</td>
-                  <td className="p-2 font-mono">
-                    <Link href={`/staff/tenants/${e.agencyId}`} className="underline-offset-4 hover:underline">
-                      {e.agencyId.slice(0, 8)}
-                    </Link>
+                  <td className="p-2">
+                    {e.agencyName ? (
+                      <Link
+                        href={`/staff/tenants/${e.agencyId}`}
+                        title={e.agencyId}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {e.agencyName}
+                      </Link>
+                    ) : (
+                      <span title={e.agencyId} className="text-muted-foreground">
+                        {t('audit.platform')}
+                      </span>
+                    )}
                   </td>
-                  <td className="p-2 font-mono">
-                    {e.actor.kind}
-                    {e.actor.userId ? ` ${e.actor.userId.slice(0, 8)}` : ''}
-                    {e.actor.impersonatedBy ? ` ${t('audit.via', { staff: e.actor.impersonatedBy.slice(0, 8) })}` : ''}
+                  <td className="p-2">
+                    <span className="font-mono">{e.actor.kind}</span>
+                    {e.actor.userId ? (
+                      <span title={e.actor.userId}> {e.actor.userName ?? e.actor.userId.slice(0, 8)}</span>
+                    ) : null}
+                    {e.actor.impersonatedBy ? (
+                      <span title={e.actor.impersonatedBy}>
+                        {' '}
+                        {t('audit.via', { staff: e.actor.impersonatedByName ?? e.actor.impersonatedBy.slice(0, 8) })}
+                      </span>
+                    ) : null}
                   </td>
-                  <td className="p-2 font-mono">{e.target ? `${e.target.type} ${e.target.id.slice(0, 8)}` : '—'}</td>
+                  <td className="p-2">
+                    {e.target ? (
+                      <span title={e.target.id}>
+                        <span className="font-mono">{e.target.type}</span> {e.target.name ?? e.target.id.slice(0, 8)}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

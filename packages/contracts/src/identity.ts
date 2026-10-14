@@ -124,7 +124,15 @@ export const MeDto = z.object({
 export type MeDto = z.infer<typeof MeDto>;
 
 /** Dashboard areas a member may open (S1-10): the shell's navigation shows exactly these. */
-export const DashboardSection = z.enum(['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies']);
+export const DashboardSection = z.enum([
+  'team',
+  'apiKeys',
+  'profile',
+  'settings',
+  'verification',
+  'preferredAgencies',
+  'staffAccess',
+]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 
 /**
@@ -197,3 +205,27 @@ export type InviteParams = z.infer<typeof InviteParams>;
 /** Accepting an invite creates the account: the link proves the email, so it is confirmed at once. */
 export const AcceptInviteInput = z.object({ token: InviteToken, name: PersonName, password: Password });
 export type AcceptInviteInput = z.infer<typeof AcceptInviteInput>;
+
+/**
+ * `GET /v1/staff-access` (S1-F9): when Inmolink staff acted as one of the agency's members, and why — for
+ * the agency's admins. Staff identities stay with Inmolink: the agency sees the member that was acted as,
+ * the staff member's stated reason and the window, never who it was.
+ */
+export const StaffAccessStatus = z.enum(['ACTIVE', 'ENDED', 'EXPIRED']);
+export type StaffAccessStatus = z.infer<typeof StaffAccessStatus>;
+
+export const StaffAccessDto = z.object({
+  id: z.uuid(),
+  startedAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+  endedAt: z.iso.datetime().nullable(),
+  status: StaffAccessStatus,
+  /** The member that was acted as. */
+  memberUserId: z.uuid(),
+  memberName: z.string(),
+  /** The staff member's reason (10–500 characters), as they wrote it. */
+  reason: z.string(),
+});
+export type StaffAccessDto = z.infer<typeof StaffAccessDto>;
+export const StaffAccessPage = pageOf(StaffAccessDto);
+export type StaffAccessPage = z.infer<typeof StaffAccessPage>;

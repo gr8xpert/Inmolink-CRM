@@ -64,3 +64,13 @@ export async function getTenant(ctx: StaffCtx, input: { agencyId: string }): Pro
       : null,
   };
 }
+
+/**
+ * Names of the agencies on a page of staff-facing records (the audit viewer), one query. Not audited:
+ * the caller's own read is.
+ */
+export async function agencyNames(ctx: StaffCtx, ids: readonly string[]): Promise<Map<string, string>> {
+  assertStaffCan(ctx, 'staff.tenants.read');
+  const rows = await tenantsRepo.agencyNames(ctx.tx, [...new Set(ids)]);
+  return new Map(rows.map((r) => [r.id, r.name]));
+}

@@ -1,6 +1,6 @@
 'use server';
 
-import { StartImpersonationBody, TenantParams } from '@inmolink/contracts';
+import { ImpersonationParams, StartImpersonationBody, TenantParams } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
@@ -83,4 +83,15 @@ export async function dismissEndedImpersonationAction(): Promise<void> {
   const live = me.ok && stored !== null && me.data.impersonation?.id === stored.id;
   if (!live && (me.ok || me.status === 403)) await forgetImpersonation();
   redirect(getPathname({ href: live ? '/' : '/staff/tenants', locale: await getLocale() }));
+}
+
+/** A super admin ends another staff member's live session (S1-F9); the API refuses every other role. */
+export async function endSessionAsSuperAdminAction(form: FormData): Promise<void> {
+  const params = ImpersonationParams.safeParse({ id: text(form, 'id') });
+  if (!params.success) redirect(getPathname({ href: '/staff/sessions', locale: await getLocale() }));
+  const s = await session();
+  const res = await endImpersonation(s, params.data.id);
+  if (res === 'revoked') redirect('/session/expired');
+  const path = getPathname({ href: '/staff/sessions', locale: await getLocale() });
+  redirect(res.ok || res.status === 404 ? `${path}?notice=ended` : path);
 }

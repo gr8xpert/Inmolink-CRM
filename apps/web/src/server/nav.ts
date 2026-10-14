@@ -27,6 +27,7 @@ const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
   ['settings', '/settings'],
   ['verification', '/verification'],
   ['apiKeys', '/api-keys'],
+  ['staffAccess', '/staff-access'],
 ];
 
 /**

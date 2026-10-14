@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authCtx, type Ctx, type StaffCtx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
+import { listStaffAuditLog } from '../../../staff-audit';
 import { createFounder, type Founder } from '../../../testing/factories';
 import * as agencies from '../../agencies';
 import * as compliance from '../../compliance';
@@ -56,7 +57,7 @@ const refusal = (p: Promise<unknown>) =>
 /** The request ctx an impersonation token builds in the API (`withCtx`). */
 const asImpersonated = <T>(
   f: { agencyId: string; userId: string },
-  s: { id: string; staffUserId: string },
+  s: { id: string; staffUserId: string; sessionVersion?: number },
   fn: (ctx: Ctx) => Promise<T>,
 ) =>
   withMemberCtx(
@@ -64,7 +65,7 @@ const asImpersonated = <T>(
       userId: f.userId,
       agencyId: f.agencyId,
       requestId: newId(),
-      impersonation: { id: s.id, staffUserId: s.staffUserId },
+      impersonation: { id: s.id, staffUserId: s.staffUserId, sessionVersion: s.sessionVersion ?? 1 },
     },
     fn,
   );
@@ -317,6 +318,155 @@ describe('staff impersonation', () => {
       tx.execute(sql`insert into staff_users (user_id, role) values (${f.userId}, 'STAFF_SUPPORT')`),
     );
     expect(await refusal(mint(support.userId, next.id))).toBe('IMPERSONATION_TARGET_INVALID');
+  });
+
+  it('[S1-F9] disabling the staff login, or bumping its session version, ends the session on the next request', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const session = await start(support.userId, f);
+    const read = (sessionVersion = 1) =>
+      refusal(
+        asImpersonated(f, { id: session.id, staffUserId: support.userId, sessionVersion }, (ctx) =>
+          agencies.getMyAgency(ctx),
+        ),
+      );
+    const setLogin = (set: ReturnType<typeof sql>) =>
+      withSystem('impersonation test: staff login', (tx) =>
+        tx.execute(sql`update users set ${set} where id = ${support.userId}`),
+      );
+    expect(await read()).toBe('resolved');
+
+    // "Sign out everywhere", a password reset or a 2FA change bump the version: the old token stops at once.
+    await setLogin(sql`session_version = session_version + 1`);
+    expect(await read(1)).toBe('IMPERSONATION_ENDED');
+    expect(await read(2)).toBe('resolved');
+
+    await setLogin(sql`status = 'DISABLED'`);
+    expect(await read(2)).toBe('IMPERSONATION_ENDED');
+    await setLogin(sql`status = 'ACTIVE'`);
+    expect(await read(2)).toBe('resolved');
+  });
+
+  it('[S1-F9] agency admins see when staff acted and why; agents, other agencies and impersonators do not', async () => {
+    const f = await createFounder();
+    const other = await createFounder();
+    const agent = await addMember(f);
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const asAdmin = <T>(who: { agencyId: string; userId: string }, fn: (ctx: Ctx) => Promise<T>) =>
+      withMemberCtx({ userId: who.userId, agencyId: who.agencyId, requestId: newId() }, fn);
+    const list = (who: { agencyId: string; userId: string }) =>
+      asAdmin(who, (ctx) => identity.listStaffAccess(ctx, { limit: 25 }));
+
+    const session = await start(support.userId, { agencyId: f.agencyId, userId: agent });
+    const page = await list(f);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      id: session.id,
+      memberUserId: agent,
+      memberName: 'Luis',
+      reason: REASON,
+      status: 'ACTIVE',
+      endedAt: null,
+    });
+    // Staff identities stay with Inmolink.
+    expect(JSON.stringify(page)).not.toContain(support.userId);
+    expect(await list(other).then((p) => p.items)).toEqual([]);
+    // An agent cannot read it; neither can staff acting as the admin.
+    expect(
+      await refusal(
+        asAdmin({ agencyId: f.agencyId, userId: agent }, (ctx) => identity.listStaffAccess(ctx, { limit: 25 })),
+      ),
+    ).toBe('FORBIDDEN');
+    const asAdminSession = await start(support.userId, f);
+    expect(
+      await refusal(
+        asImpersonated(f, { id: asAdminSession.id, staffUserId: support.userId }, (ctx) =>
+          identity.listStaffAccess(ctx, { limit: 25 }),
+        ),
+      ),
+    ).toBe('FORBIDDEN');
+    const after = await list(f);
+    expect(after.items.map((i) => [i.id, i.status])).toEqual([
+      [asAdminSession.id, 'ACTIVE'],
+      [session.id, 'ENDED'],
+    ]);
+  });
+
+  it('[S1-F9] the staff access record pages without skipping sessions started in the same millisecond', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const ids = [newId(), newId()];
+    await withSystem('impersonation test: same-millisecond sessions', async (tx) => {
+      for (const [i, id] of ids.entries()) {
+        await tx.execute(
+          sql`insert into staff_impersonations (id, agency_id, staff_user_id, target_user_id, reason, started_at, expires_at, ended_at)
+              values (${id}, ${f.agencyId}, ${support.userId}, ${f.userId}, ${REASON},
+                      ${`2026-01-01T10:00:00.12300${i + 1}Z`}::timestamptz, '2026-01-01T10:30:00Z', '2026-01-01T10:10:00Z')`,
+        );
+      }
+    });
+    const page = (cursor?: string) =>
+      withMemberCtx({ userId: f.userId, agencyId: f.agencyId, requestId: newId() }, (ctx) =>
+        identity.listStaffAccess(ctx, { limit: 1, ...(cursor ? { cursor } : {}) }),
+      );
+    const first = await page();
+    expect(first.nextCursor).not.toBeNull();
+    const second = await page(first.nextCursor ?? undefined);
+    expect([...first.items, ...second.items].map((i) => i.id).sort()).toEqual([...ids].sort());
+    expect(second.items[0]?.status).toBe('ENDED');
+  });
+
+  it('[S1-F9] a super admin lists and ends another staff member’s session; support cannot', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const colleague = await createStaffUser('STAFF_SUPPORT');
+    const admin = await createStaffUser('SUPER_ADMIN');
+    const session = await start(support.userId, f);
+    const read = () =>
+      refusal(asImpersonated(f, { id: session.id, staffUserId: support.userId }, (ctx) => agencies.getMyAgency(ctx)));
+    expect(await read()).toBe('resolved');
+
+    expect(await refusal(asStaff(colleague.userId, (ctx) => identity.listLiveImpersonations(ctx)))).toBe('FORBIDDEN');
+    expect(await refusal(asStaff(colleague.userId, (ctx) => identity.endImpersonation(ctx, { id: session.id })))).toBe(
+      'NOT_FOUND',
+    );
+    expect(await read()).toBe('resolved');
+
+    const live = await asStaff(admin.userId, (ctx) => identity.listLiveImpersonations(ctx));
+    expect(live.items.find((s) => s.id === session.id)).toMatchObject({
+      staffUserId: support.userId,
+      userId: f.userId,
+      agencyName: 'Costa Homes S.L.',
+      userName: 'Ana',
+    });
+    await asStaff(admin.userId, (ctx) => identity.endImpersonation(ctx, { id: session.id }));
+    expect(await read()).toBe('IMPERSONATION_ENDED');
+    expect(await refusal(asStaff(admin.userId, (ctx) => identity.endImpersonation(ctx, { id: session.id })))).toBe(
+      'NOT_FOUND',
+    );
+    const ended = await auditRows(f.agencyId, 'staff.impersonation.ended');
+    expect(ended.find((r) => r.metadata.impersonationId === session.id)).toMatchObject({
+      actor_kind: 'staff',
+      actor_user_id: admin.userId,
+      metadata: { cause: 'endedBySuperAdmin', staffUserId: support.userId },
+    });
+  });
+
+  it('[S1-F9] the staff audit viewer shows names instead of ids', async () => {
+    const f = await createFounder();
+    const support = await createStaffUser('STAFF_SUPPORT');
+    const admin = await createStaffUser('SUPER_ADMIN');
+    await start(support.userId, f);
+    const page = await asStaff(admin.userId, (ctx) =>
+      listStaffAuditLog(ctx, { agencyId: f.agencyId, type: 'staff.impersonation.started', limit: 25 }),
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      agencyName: 'Costa Homes S.L.',
+      actor: { kind: 'staff', userId: support.userId },
+      target: { type: 'user', id: f.userId, name: 'Ana' },
+    });
+    expect(typeof page.items[0]?.actor.userName).toBe('string');
   });
 
   it('[S1-09] an ended, expired or revoked session stops working on the next request', async () => {

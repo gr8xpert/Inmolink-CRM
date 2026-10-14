@@ -69,7 +69,9 @@ export function ctxPlugin(app: FastifyZod): void {
         userId: auth.userId,
         agencyId: auth.agencyId,
         requestId: request.id,
-        ...(auth.impersonation ? { impersonation: auth.impersonation } : {}),
+        ...(auth.impersonation
+          ? { impersonation: { ...auth.impersonation, sessionVersion: auth.sessionVersion } }
+          : {}),
       },
       fn,
     );

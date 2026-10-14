@@ -5,7 +5,8 @@
     "nav": "Staff console",
     "tenants": "Agencies",
     "verification": "Verification queue",
-    "audit": "Audit log"
+    "audit": "Audit log",
+    "sessions": "Live sessions"
   },
   "roles": {
     "SUPER_ADMIN": "Super admin",
@@ -48,12 +49,13 @@
   },
   "impersonation": {
     "start": "Act as {name}",
-    "reason": "Reason (support ticket, what you will check) — recorded",
+    "reason": "Reason (support ticket, what you will check) — recorded and shown to the agency’s admins",
     "minutes": "For",
     "minutesOption": "{minutes} minutes",
     "warning": "Everything you do is recorded under your name and theirs. You cannot change their settings, API keys, billing or two-step verification.",
     "confirm": "Start acting as this user",
-    "banner": "You are acting as {user} at {agency} until {time} ({minutes} min left). Everything you do is recorded.",
+    "banner": "You are acting as {user} at {agency} until {time}. Everything you do is recorded.",
+    "left": "{time} left",
     "end": "Stop acting as this user",
     "bannerEnded": "Your session acting as {user} at {agency} has ended. Nothing more is done in their name.",
     "dismiss": "Dismiss",
@@ -66,7 +68,18 @@
       "generic": "Something went wrong. Please try again."
     }
   },
+  "live": {
+    "title": "Live sessions",
+    "intro": "Every staff member currently acting as an agency member. Ending a session stops it on the next request.",
+    "empty": "Nobody is acting as another user right now.",
+    "staff": "Staff member",
+    "actingAs": "Acting as",
+    "until": "Until",
+    "end": "End session",
+    "ended": "The session was ended."
+  },
   "audit": {
+    "platform": "Platform",
     "title": "Audit log",
     "audited": "Every page you open here is itself recorded in the audit log.",
     "agency": "Agency id",

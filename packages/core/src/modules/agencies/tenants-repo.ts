@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { agencies } from '@inmolink/db/schema/agencies';
-import { and, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -36,7 +36,7 @@ function likeEscape(q: string): string {
 /**
  * Newest agencies first, keyset on `(created_at, agency_id)` (`agencies_created_idx`, scanned backwards).
  * `q`: a name substring (case-insensitive) or the exact, normalized tax id. A few thousand agencies: the
- * name filter is applied during the index scan; add `pg_trgm` beyond that.
+ * name filter uses `agencies_name_trgm_idx` (pg_trgm GIN, S1-F9; two characters or more).
  */
 export async function listTenants(
   tx: Tx,
@@ -73,4 +73,13 @@ export async function getTenant(tx: Tx, id: string) {
     .from(agencies)
     .where(eq(agencies.id, id));
   return row ?? null;
+}
+
+/** Names for a page of ids in one query (the staff audit viewer): unknown ids are simply absent. */
+export async function agencyNames(tx: Tx, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: agencies.id, name: agencies.name })
+    .from(agencies)
+    .where(inArray(agencies.id, [...ids]));
 }

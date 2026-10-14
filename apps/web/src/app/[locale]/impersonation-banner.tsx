@@ -5,6 +5,7 @@ import { sessionRef } from '@/server/api';
 import { hasImpersonationCookie, readImpersonation } from '@/server/impersonation';
 import { fetchStaffMe } from '@/server/staff-api';
 import { dismissEndedImpersonationAction, endImpersonationAction } from './(app)/staff/actions';
+import { ImpersonationCountdown } from './impersonation-countdown';
 
 /**
  * Shown on every page while a staff member acts as someone else (S1-09, PLAN §12): who, where, until
@@ -37,7 +38,7 @@ export async function ImpersonationBanner() {
       </div>
     );
   }
-  const minutes = Math.max(0, Math.ceil((Date.parse(live.expiresAt) - Date.now()) / 60_000));
+  const seconds = Math.max(0, Math.ceil((Date.parse(live.expiresAt) - Date.now()) / 1_000));
   return (
     <div role="status" data-testid="impersonation-banner" className={className}>
       <p>
@@ -45,8 +46,12 @@ export async function ImpersonationBanner() {
           user: live.userName,
           agency: live.agencyName,
           time: format.dateTime(new Date(live.expiresAt), { timeStyle: 'short' }),
-          minutes,
-        })}
+        })}{' '}
+        <ImpersonationCountdown
+          expiresAt={live.expiresAt}
+          initialSeconds={seconds}
+          template={t('impersonation.left', { time: '{time}' })}
+        />
       </p>
       <form action={endImpersonationAction}>
         <Button type="submit" size="sm" variant="outline">

@@ -17,7 +17,7 @@ export interface MemberInit {
    * Staff acting as `userId` (S1-09): the token's `imp` (session) and `act` (staff member) claims. The
    * session is checked in this request's transaction; every write then names the staff member too.
    */
-  impersonation?: { id: string; staffUserId: string };
+  impersonation?: { id: string; staffUserId: string; sessionVersion: number };
 }
 
 /**
@@ -31,12 +31,17 @@ export interface MemberInit {
 export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
   const imp = init.impersonation;
   if (imp) {
-    // The staff member must still be active staff with a role that may impersonate (S1-09 review): a
-    // short `app_staff` read before the request's own transaction (impersonated calls only).
-    const active = await withStaff({ userId: imp.staffUserId, reason: 'identity.checkImpersonator' }, (tx) =>
-      identity.isImpersonatorActive(tx, imp.staffUserId),
-    );
-    if (!active) throw new AppError('IMPERSONATION_ENDED', { reason: 'staff_access' });
+    // The staff member must still be active staff with a role that may impersonate (S1-09 review), and
+    // their login must be ACTIVE with the session version the token was minted for (S1-F9): two short
+    // reads before the request's own transaction (impersonated calls only; `app_staff` cannot read
+    // `users`, so the login is checked as `app_auth`).
+    const [active, current] = await Promise.all([
+      withStaff({ userId: imp.staffUserId, reason: 'identity.checkImpersonator' }, (tx) =>
+        identity.isImpersonatorActive(tx, imp.staffUserId),
+      ),
+      identity.isStaffLoginCurrent(imp.staffUserId, imp.sessionVersion),
+    ]);
+    if (!active || !current) throw new AppError('IMPERSONATION_ENDED', { reason: 'staff_access' });
   }
   return withTenant(
     { agencyId: init.agencyId, userId: init.userId, ...(imp ? { impersonatedBy: imp.staffUserId } : {}) },

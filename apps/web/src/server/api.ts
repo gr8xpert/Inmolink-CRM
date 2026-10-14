@@ -22,6 +22,7 @@ import {
   PreferredAgencyDto,
   PreferredAgencyPage,
   SignedUrlDto,
+  StaffAccessPage,
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
@@ -454,4 +455,12 @@ export function removePreferredAgency(session: SessionRef, agencyId: string): Pr
   return apiRequest(session, `/v1/agency/preferred-agencies/${encodeURIComponent(agencyId)}`, z.null(), {
     method: 'DELETE',
   });
+}
+
+// ── Staff access record (S1-F9) ─────────────────────────────────────────────────────────────────
+
+/** When Inmolink staff acted as a member of this agency, and why (admins only; others get 403). */
+export function fetchStaffAccess(session: SessionRef, cursor?: string): Promise<ApiResult<StaffAccessPage>> {
+  const qs = new URLSearchParams({ limit: '50', ...(cursor ? { cursor } : {}) });
+  return apiRequest(session, `/v1/staff-access?${qs}`, StaffAccessPage);
 }

@@ -1,6 +1,7 @@
 import {
   type AgencyStatus,
   ImpersonationDto,
+  LiveImpersonationList,
   MemberPage,
   StaffAuditPage,
   type StaffAuditQuery,
@@ -73,4 +74,9 @@ export function endImpersonation(session: SessionRef, id: string): Promise<ApiRe
   return apiRequest(session, `/v1/staff/impersonations/${encodeURIComponent(id)}/end`, z.null(), {
     method: 'POST',
   });
+}
+
+/** Every staff member's live session (super admins; others get 403). */
+export function fetchLiveImpersonations(session: SessionRef): Promise<ApiResult<LiveImpersonationList>> {
+  return apiRequest(session, '/v1/staff/impersonations', LiveImpersonationList);
 }

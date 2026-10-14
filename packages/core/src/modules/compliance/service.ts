@@ -217,13 +217,17 @@ function toStaffDto(row: repo.StaffAuditRow): StaffAuditEntryDto {
     id: row.id,
     occurredAt: row.occurredAt.toISOString(),
     agencyId: row.agencyId,
+    // Names are added by `listStaffAuditLog` (core): compliance cannot read other modules' tables.
+    agencyName: null,
     type: row.type,
     actor: {
       kind: row.actorKind as StaffAuditEntryDto['actor']['kind'],
       userId: row.actorUserId,
+      userName: null,
       impersonatedBy: row.impersonatedBy,
+      impersonatedByName: null,
     },
-    target: row.targetType && row.targetId ? { type: row.targetType, id: row.targetId } : null,
+    target: row.targetType && row.targetId ? { type: row.targetType, id: row.targetId, name: null } : null,
     requestId: row.requestId,
     metadata: row.metadata,
   };

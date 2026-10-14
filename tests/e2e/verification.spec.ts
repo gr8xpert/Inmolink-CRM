@@ -18,7 +18,7 @@ async function login(page: Page, email: string): Promise<void> {
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Log in' }).click();
   // Agency admins and staff must use 2FA (S1-04).
-  await passTwoFactor(page, email);
+  await passTwoFactor(page, email, password);
 }
 
 /** A staff login (no agency): staff are granted by a script, so the test writes the rows directly. */

@@ -24,14 +24,24 @@ function nextCode(email: string): string {
   throw new Error('all codes of this window are used; wait 30 s');
 }
 
-/** After "Log in": completes enrolment or the challenge if the dashboard asks for it. */
-export async function passTwoFactor(page: Page, email: string): Promise<void> {
+/**
+ * After "Log in": completes enrolment or the challenge if the dashboard asks for it. Enrolment starts
+ * with the account password (S1-F8 step-up), so the helper needs the password the test logged in with.
+ */
+export async function passTwoFactor(page: Page, email: string, password: string): Promise<void> {
   // Login lands on `/en` first; the dashboard then redirects to `/two-factor` when 2FA is owed. Wait
   // for a page that is not about to move: the dashboard itself, or one of the two 2FA views.
   const dashboard = page.getByRole('heading', { name: 'Dashboard' });
   const twoFactor = page.getByRole('heading', { name: /two-step verification/i });
   await expect(dashboard.or(twoFactor)).toBeVisible();
   if (await dashboard.isVisible()) return;
+  // Enrolment's fresh-password step (S1-F8): the setup key appears only after it.
+  const passwordStep = page.getByLabel('Your password');
+  if (await passwordStep.isVisible()) {
+    await passwordStep.fill(password);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page.getByTestId('totp-secret')).toBeVisible();
+  }
   const setupKey = page.getByTestId('totp-secret');
   if (await setupKey.isVisible()) {
     const secret = ((await setupKey.textContent()) ?? '').replaceAll(/\s/g, '');

@@ -129,16 +129,30 @@ export const StaffAuditEntryDto = z.object({
   id: z.uuid(),
   occurredAt: z.iso.datetime(),
   agencyId: z.uuid(),
+  /** The agency's name; null for platform rows (no agency) and ids that no longer resolve. */
+  agencyName: z.string().nullable(),
   type: z.string(),
   actor: z.object({
     kind: AuditActorKind,
     userId: z.uuid().nullable(),
+    userName: z.string().nullable(),
     impersonatedBy: z.uuid().nullable(),
+    impersonatedByName: z.string().nullable(),
   }),
-  target: z.object({ type: z.string(), id: z.uuid() }).nullable(),
+  target: z.object({ type: z.string(), id: z.uuid(), name: z.string().nullable() }).nullable(),
   requestId: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()),
 });
 export type StaffAuditEntryDto = z.infer<typeof StaffAuditEntryDto>;
 export const StaffAuditPage = pageOf(StaffAuditEntryDto);
 export type StaffAuditPage = z.infer<typeof StaffAuditPage>;
+
+/** A live session of any staff member, for super admins (S1-F9): who is acting as whom, until when. */
+export const LiveImpersonationDto = ImpersonationDto.extend({
+  staffUserId: z.uuid(),
+  staffName: z.string(),
+});
+export type LiveImpersonationDto = z.infer<typeof LiveImpersonationDto>;
+/** At most one open session per staff member: the list is as long as the staff team, so it is not paged. */
+export const LiveImpersonationList = z.object({ items: z.array(LiveImpersonationDto) });
+export type LiveImpersonationList = z.infer<typeof LiveImpersonationList>;

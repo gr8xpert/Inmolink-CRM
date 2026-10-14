@@ -12,7 +12,7 @@ describe('dashboard navigation', () => {
   it('[S1-10] role-based navigation: members see exactly the sections the API grants, in a fixed order', () => {
     const admin = member({
       role: 'AGENCY_ADMIN',
-      sections: ['apiKeys', 'team', 'verification', 'settings', 'profile', 'preferredAgencies'],
+      sections: ['staffAccess', 'apiKeys', 'team', 'verification', 'settings', 'profile', 'preferredAgencies'],
     });
     expect(keys(admin)).toEqual([
       'home',
@@ -22,6 +22,7 @@ describe('dashboard navigation', () => {
       'settings',
       'verification',
       'apiKeys',
+      'staffAccess',
       'security',
     ]);
     expect(keys(member({ sections: ['team', 'settings', 'preferredAgencies'] }))).toEqual([

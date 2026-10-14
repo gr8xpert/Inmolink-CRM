@@ -710,3 +710,12 @@ export async function countRecoveryCodes(tx: Tx, userId: string): Promise<number
 export async function commitWithoutFlush(tx: Tx): Promise<void> {
   await tx.execute(sql`set local synchronous_commit = off`);
 }
+
+/** Display names of login identities, for staff-facing records (`app_auth` reads `users`). */
+export async function findUserNames(tx: Tx, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(inArray(users.id, [...ids]));
+}

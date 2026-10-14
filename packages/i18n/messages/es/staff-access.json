@@ -1,0 +1,18 @@
+{
+  "title": "Accesos del personal",
+  "intro": "Cada vez que el personal de Inmolink actúa como uno de tus miembros para atender una solicitud de soporte, queda registrado aquí: cuándo, como quién y el motivo indicado. Mientras actúa, no puede cambiar tu equipo, claves de API, ajustes ni facturación.",
+  "empty": "El personal de Inmolink no ha accedido a tu cuenta.",
+  "when": "Inicio",
+  "member": "Actuó como",
+  "reason": "Motivo indicado",
+  "status": "Estado",
+  "statuses": {
+    "ACTIVE": "En curso",
+    "ENDED": "Terminado el {date}",
+    "EXPIRED": "Caducado el {date}"
+  },
+  "next": "Entradas anteriores",
+  "errors": {
+    "generic": "No hemos podido cargar el registro de accesos. Inténtalo de nuevo."
+  }
+}

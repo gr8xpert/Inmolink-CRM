@@ -1,6 +1,7 @@
 import {
   ImpersonationDto,
   ImpersonationParams,
+  LiveImpersonationList,
   MemberPage,
   PageQuery,
   StaffMeDto,
@@ -83,13 +84,31 @@ export async function staffIdentityRoutes(app: FastifyZod): Promise<void> {
     },
   );
 
+  app.get(
+    '/v1/staff/impersonations',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'identity.listLiveImpersonations',
+        summary: "Every staff member's live impersonation session (super admins)",
+        response: { 200: LiveImpersonationList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withStaffCtx(req, 'identity.listLiveImpersonations', (ctx) => identity.listLiveImpersonations(ctx));
+    },
+  );
+
   app.post(
     '/v1/staff/impersonations/:id/end',
     {
       schema: {
         tags: ['staff'],
         operationId: 'identity.endImpersonation',
-        summary: "End the caller's impersonation session (audited)",
+        summary: "End an impersonation session: the caller's own, or any for a super admin (audited)",
         params: ImpersonationParams,
         response: { 204: z.null() },
       },

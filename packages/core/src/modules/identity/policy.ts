@@ -62,6 +62,7 @@ export const IDENTITY_ACTIONS = [
   'identity.members.manage',
   'identity.apiKeys.read',
   'identity.apiKeys.manage',
+  'identity.staffAccess.read',
 ] as const;
 export type IdentityAction = (typeof IDENTITY_ACTIONS)[number];
 
@@ -75,6 +76,8 @@ export const IDENTITY_IMPERSONATION: ImpersonationRules<IdentityAction> = {
   'identity.members.manage': 'forbidden',
   'identity.apiKeys.read': 'allowed',
   'identity.apiKeys.manage': 'forbidden',
+  // The agency's record of staff access (S1-F9): not for the staff member acting as an admin to read.
+  'identity.staffAccess.read': 'forbidden',
 };
 
 /** Roles that manage the agency's website API keys (S1-05): the admin of either family. */
@@ -108,6 +111,9 @@ export function can(
       if (!managed) return false;
       return resource.role === undefined || (managed as readonly string[]).includes(resource.role);
     }
+    case 'identity.staffAccess.read':
+      // Transparency for the agency: its admins see when staff acted as a member, and the stated reason.
+      return sameAgency && !ctx.clientMode && API_KEY_ROLES.includes(ctx.actor.role);
     case 'identity.apiKeys.read':
     case 'identity.apiKeys.manage':
       // Keys expose the agency's inventory to websites: admins only, never in Client Mode.
@@ -123,13 +129,16 @@ export function assertCan(...args: Parameters<typeof can>): void {
  * Staff actions in identity (S1-09). Members' names and emails, and acting as one of them (impersonation,
  * PLAN §12), are support work: super admins and support, not data ops. Guard 0028 repeats the role rule.
  */
-export type StaffIdentityAction = 'staff.members.read' | 'staff.impersonate';
+export type StaffIdentityAction = 'staff.members.read' | 'staff.impersonate' | 'staff.impersonation.manage';
 
 export const IMPERSONATING_ROLES: readonly string[] = ['SUPER_ADMIN', 'STAFF_SUPPORT'];
 
 export function canStaff(ctx: StaffCtx, action: StaffIdentityAction): boolean {
   if (ctx.actor.kind !== 'staff') return false;
   switch (action) {
+    case 'staff.impersonation.manage':
+      // See and end any staff member's live session (S1-F9): super admins only.
+      return ctx.actor.role === 'SUPER_ADMIN';
     case 'staff.members.read':
     case 'staff.impersonate':
       return IMPERSONATING_ROLES.includes(ctx.actor.role);

@@ -5,7 +5,8 @@
     "nav": "Consola de staff",
     "tenants": "Agencias",
     "verification": "Cola de verificación",
-    "audit": "Registro de auditoría"
+    "audit": "Registro de auditoría",
+    "sessions": "Sesiones activas"
   },
   "roles": {
     "SUPER_ADMIN": "Superadministrador",
@@ -48,12 +49,13 @@
   },
   "impersonation": {
     "start": "Actuar como {name}",
-    "reason": "Motivo (ticket de soporte, qué vas a revisar) — queda registrado",
+    "reason": "Motivo (ticket de soporte, qué vas a revisar) — queda registrado y lo verán los administradores de la agencia",
     "minutes": "Durante",
     "minutesOption": "{minutes} minutos",
     "warning": "Todo lo que hagas queda registrado con tu nombre y el suyo. No puedes cambiar sus ajustes, claves API, facturación ni la verificación en dos pasos.",
     "confirm": "Empezar a actuar como este usuario",
-    "banner": "Estás actuando como {user} en {agency} hasta las {time} (quedan {minutes} min). Todo lo que hagas queda registrado.",
+    "banner": "Estás actuando como {user} en {agency} hasta las {time}. Todo lo que hagas queda registrado.",
+    "left": "quedan {time}",
     "end": "Dejar de actuar como este usuario",
     "bannerEnded": "Tu sesión actuando como {user} en {agency} ha terminado. Ya no se hace nada en su nombre.",
     "dismiss": "Cerrar",
@@ -66,7 +68,18 @@
       "generic": "Algo ha fallado. Vuelve a intentarlo."
     }
   },
+  "live": {
+    "title": "Sesiones activas",
+    "intro": "Todo el staff que está actuando ahora como miembro de una agencia. Al terminar una sesión, deja de funcionar en la siguiente petición.",
+    "empty": "Nadie está actuando como otro usuario ahora mismo.",
+    "staff": "Miembro del staff",
+    "actingAs": "Actuando como",
+    "until": "Hasta",
+    "end": "Terminar sesión",
+    "ended": "La sesión ha terminado."
+  },
   "audit": {
+    "platform": "Plataforma",
     "title": "Registro de auditoría",
     "audited": "Cada página que abres aquí queda registrada en el propio registro de auditoría.",
     "agency": "Id de agencia",

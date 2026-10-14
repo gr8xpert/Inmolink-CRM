@@ -59,6 +59,8 @@ export const agencies = pgTable(
     index('agencies_tax_id_idx').on(t.taxId).where(sql`tax_id is not null`),
     // staff tenants list (S1-09): [where status = ?] order by created_at desc, agency_id desc (keyset)
     index('agencies_created_idx').on(t.createdAt, t.id),
+    // staff tenant search (S1-F9): `name ilike '%q%'` — a leading wildcard cannot use a btree; trigram GIN (pg_trgm, initdb)
+    index('agencies_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
   ],
 );
 

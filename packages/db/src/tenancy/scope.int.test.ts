@@ -100,7 +100,8 @@ describe('withTenant', () => {
   it('[S1-F3] withGlobalRead is a read-only app_user transaction with no tenant', async () => {
     await withGlobalRead(async (tx) => {
       const { rows } = await tx.execute(
-        sql`select current_user as role, current_setting('app.agency_id', true) as agency, current_setting('transaction_read_only') as ro`,
+        // NULL on a pooled connection that never set the GUC, '' on one an earlier `SET LOCAL` touched: both mean "no tenant".
+        sql`select current_user as role, coalesce(current_setting('app.agency_id', true), '') as agency, current_setting('transaction_read_only') as ro`,
       );
       expect(rows[0]).toEqual({ role: 'app_user', agency: '', ro: 'on' });
     });

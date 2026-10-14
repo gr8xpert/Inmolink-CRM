@@ -16,7 +16,8 @@ import {
 
 /**
  * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
- * routes (S1-03), both Redis instances (rate limits on redis-queue, S1-F6), search, object storage (verification documents).
+ * routes (S1-03), `app_auth` for staff login checks (S1-F7, S1-F9), both Redis instances (rate limits on
+ * redis-queue, S1-F6), search, object storage (verification documents).
  */
 export const apiEnv = {
   ...coreEnv,
@@ -27,6 +28,12 @@ export const apiEnv = {
   ...telemetryEnv,
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   DATABASE_URL_APP_STAFF: databaseEnv.DATABASE_URL_APP_STAFF.unwrap(),
+  /**
+   * `app_auth` for the per-request login checks `app_staff` cannot make (it cannot read `users`): a staff
+   * caller's account is ACTIVE (S1-F7), and an impersonating staff login is ACTIVE with the token's
+   * session version (S1-F9). Short reads of the caller's own `users` row only.
+   */
+  DATABASE_URL_APP_AUTH: databaseEnv.DATABASE_URL_APP_AUTH.unwrap(),
   ...storageEnv,
   ...redisEnv,
   ...rateLimitEnv,

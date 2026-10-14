@@ -1,4 +1,5 @@
 import { AuditLogPage, PageQuery, StaffAuditPage, StaffAuditQuery } from '@inmolink/contracts';
+import { listStaffAuditLog } from '@inmolink/core';
 import * as compliance from '@inmolink/core/modules/compliance';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -45,9 +46,7 @@ export async function complianceRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
-      return app.withStaffCtx(req, 'compliance.listAuditLogForStaff', (ctx) =>
-        compliance.listAuditLogForStaff(ctx, req.query),
-      );
+      return app.withStaffCtx(req, 'compliance.listAuditLogForStaff', (ctx) => listStaffAuditLog(ctx, req.query));
     },
   );
 }

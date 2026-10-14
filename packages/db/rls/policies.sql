@@ -255,11 +255,11 @@ create policy auth_select on public."staff_impersonations" for select to app_aut
   using (staff_user_id = app_user_id());
 grant select on table public."staff_impersonations" to app_auth;
 create policy staff_select on public."staff_impersonations" for select to app_staff
-  using (app_is_staff() and (staff_user_id = app_user_id()));
+  using (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
 create policy staff_insert on public."staff_impersonations" for insert to app_staff
   with check (app_is_staff() and (staff_user_id = app_user_id()));
 create policy staff_update on public."staff_impersonations" for update to app_staff
-  using (app_is_staff() and (staff_user_id = app_user_id())) with check (app_is_staff() and (staff_user_id = app_user_id()));
+  using (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null))) with check (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
 grant select, insert, update on table public."staff_impersonations" to app_staff;
 
 -- staff_users: GLOBAL

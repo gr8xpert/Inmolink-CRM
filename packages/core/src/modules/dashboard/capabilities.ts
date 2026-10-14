@@ -16,6 +16,7 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['settings', (ctx) => agencies.can(ctx, 'agencies.settings.read')],
   ['verification', (ctx) => agencies.can(ctx, 'agencies.verification.read')],
   ['preferredAgencies', (ctx) => agencies.can(ctx, 'agencies.preferred.read')],
+  ['staffAccess', (ctx) => identity.can(ctx, 'identity.staffAccess.read')],
 ];
 
 /**

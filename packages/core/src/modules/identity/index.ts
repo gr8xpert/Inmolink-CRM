@@ -26,11 +26,15 @@ export { identityErrors } from './errors';
 export { identityEvents } from './events';
 export {
   endImpersonation,
+  endImpersonationAsSuperAdmin,
   getStaffMe,
   isImpersonationLive,
   isImpersonatorActive,
   listAgencyMembers,
+  listLiveImpersonations,
+  listStaffAccess,
   startImpersonation,
+  userNames,
 } from './impersonation';
 export { identityJobs } from './jobs';
 export { getMe, type SessionClaims } from './me';
@@ -55,6 +59,7 @@ export {
 export {
   getStaffRole,
   grantStaff,
+  isStaffLoginCurrent,
   isUserActive,
   listAgencyAdmins,
   revokeStaff,
