@@ -6,8 +6,9 @@
  * Nothing is invented or guessed: the v2 taxonomy is curated, so a legacy row with no confident match is
  * not created as new data; it is listed in the report with a reason for staff (who map it, then re-run: the
  * run is idempotent). Writes take the `tx` of a `withSystem()` call (reference data, like taxonomy admin):
- * the only caller is the operator script, so there is no `ctx` and no policy check. Staff-set maps
- * (`method = 'manual'`) are never overwritten.
+ * the only caller is the operator script, so there is no `ctx` and no policy check. A staff-set map
+ * (`method = 'manual'`) wins over the resolver: it is never overwritten, its target is what the legacy
+ * children are checked against, and no alias is written for it.
  */
 import type { LegacyTaxonomyExtract, LegacyTaxonomyReport, LegacyUnmappedReason } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
@@ -90,7 +91,7 @@ async function mapEntity(
   report: LegacyTaxonomyReport,
 ): Promise<void> {
   const kind = entity as taxonomy.TaxonomyKind;
-  const counts = { total: items.length, mapped: 0, exact: 0, fuzzy: 0, unmapped: 0 };
+  const counts = { total: items.length, mapped: 0, exact: 0, fuzzy: 0, manual: 0, unmapped: 0 };
   report.counts[entity] = counts;
 
   // One batch for every distinct spelling of the kind (never a query per row).
@@ -111,6 +112,15 @@ async function mapEntity(
     levels.set(d, [...(levels.get(d) ?? []), item]);
   }
   const targetOf = new Map<string, string>(); // legacy id → v2 id
+  const before = await repo.getMaps(
+    tx,
+    entity,
+    items.map((i) => i.id),
+  );
+  const manualOf = (item: Item) => {
+    const prev = before.get(item.id);
+    return prev?.method === 'manual' ? prev.newId : undefined;
+  };
   const mapped: Mapped[] = [];
   const unmapped = (item: Item, best: Resolution[], reason: LegacyUnmappedReason) => {
     counts.unmapped++;
@@ -127,7 +137,16 @@ async function mapEntity(
   };
 
   for (const depth of [...levels.keys()].sort((x, y) => x - y)) {
-    const level = levels.get(depth) as Item[];
+    const level: Item[] = [];
+    for (const item of levels.get(depth) as Item[]) {
+      const manual = manualOf(item);
+      if (manual === undefined) level.push(item);
+      else {
+        counts.mapped++;
+        counts.manual++;
+        targetOf.set(item.id, manual);
+      }
+    }
     const own = new Map<string, Resolution[]>(
       level.map((item) => [item.id, spellings(item).map((s) => resolved.get(s.key) as Resolution)]),
     );
@@ -232,15 +251,10 @@ async function mapEntity(
     }
   }
 
-  // legacy_id_maps: upsert (manual maps kept); a map that pointed elsewhere is replaced and counted.
-  const before = await repo.getMaps(
-    tx,
-    entity,
-    mapped.map((m) => m.item.id),
-  );
+  // legacy_id_maps: upsert (manual maps are not in `mapped`); a map that pointed elsewhere is replaced and counted.
   report.remapped += mapped.filter((m) => {
     const prev = before.get(m.item.id);
-    return prev !== undefined && prev.method !== 'manual' && prev.newId !== m.targetId;
+    return prev !== undefined && prev.newId !== m.targetId;
   }).length;
   if (!opts.dryRun) {
     await repo.upsertMaps(
@@ -259,9 +273,9 @@ export async function importLegacyTaxonomy(
 ): Promise<LegacyTaxonomyReport> {
   const report: LegacyTaxonomyReport = {
     counts: {
-      location: { total: 0, mapped: 0, exact: 0, fuzzy: 0, unmapped: 0 },
-      propertyType: { total: 0, mapped: 0, exact: 0, fuzzy: 0, unmapped: 0 },
-      feature: { total: 0, mapped: 0, exact: 0, fuzzy: 0, unmapped: 0 },
+      location: { total: 0, mapped: 0, exact: 0, fuzzy: 0, manual: 0, unmapped: 0 },
+      propertyType: { total: 0, mapped: 0, exact: 0, fuzzy: 0, manual: 0, unmapped: 0 },
+      feature: { total: 0, mapped: 0, exact: 0, fuzzy: 0, manual: 0, unmapped: 0 },
     },
     aliasesAdded: 0,
     remapped: 0,

@@ -59,6 +59,8 @@ export const LegacyTaxonomyReport = z.object({
       mapped: z.number().int(),
       exact: z.number().int(),
       fuzzy: z.number().int(),
+      /** Kept on a staff-set map (`method = 'manual'`): its target is used as is, no alias is written. */
+      manual: z.number().int(),
       unmapped: z.number().int(),
     }),
   ),

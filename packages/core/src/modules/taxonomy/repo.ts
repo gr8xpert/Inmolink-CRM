@@ -86,22 +86,25 @@ export async function existingLocationIds(tx: Tx, ids: string[]): Promise<Set<st
   return new Set(rows.map((r) => r.id));
 }
 
-/** Every ancestor of each location (the tree is ≤ 4 deep): one recursive statement for the whole list. */
+/**
+ * Every ancestor of each location (the tree is ≤ 4 deep): one recursive statement per 1,000 distinct IDs
+ * (each ID is a bind parameter; Postgres allows 65,535 per statement).
+ */
 export async function locationAncestors(tx: Tx, ids: string[]): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
-  if (ids.length === 0) return out;
-  const res = await tx.execute(sql`
-    with recursive up(id, ancestor) as (
-      select l.id, l.parent_id from ${locations} l where l.id = any(${sql`array[${sql.join(
-        ids.map((i) => sql`${i}`),
-        sql`, `,
-      )}]::uuid[]`}) and l.parent_id is not null
-      union all
-      select up.id, p.parent_id from up join ${locations} p on p.id = up.ancestor where p.parent_id is not null
-    )
-    select id, ancestor from up`);
-  for (const r of rowsOf<{ id: string; ancestor: string }>(res)) {
-    out.set(r.id, (out.get(r.id) ?? new Set()).add(r.ancestor));
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 1000) {
+    const res = await tx.execute(sql`
+      with recursive up(id, ancestor) as (
+        select l.id, l.parent_id from ${locations} l
+         where l.id = any(${textArray(unique.slice(i, i + 1000))}::uuid[]) and l.parent_id is not null
+        union all
+        select up.id, p.parent_id from up join ${locations} p on p.id = up.ancestor where p.parent_id is not null
+      )
+      select id, ancestor from up`);
+    for (const r of rowsOf<{ id: string; ancestor: string }>(res)) {
+      out.set(r.id, (out.get(r.id) ?? new Set()).add(r.ancestor));
+    }
   }
   return out;
 }

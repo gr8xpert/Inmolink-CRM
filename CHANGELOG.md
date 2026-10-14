@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Fixed
+- Legacy taxonomy import (S2-06 recheck): location ancestor lookup chunked (bind-parameter limit on large legacy levels); staff-set manual maps win over the resolver and are reported as `manual`. [S2-06]
+
 ### Added
 - Legacy taxonomy import (S2-06, fixture-tested; real run waits on H1): new `migration` module, `pnpm legacy:taxonomy` script, global `legacy_id_maps` table (migration 0038), report of unmapped legacy IDs with reasons. No new dependencies.
 - Alias resolver and unmatched queue (S2-05): `resolveLocation/Type/Feature` and batch `resolveAndQueue` (alias → name → pg_trgm with accept threshold and margin, never a silent guess), `taxonomy_unmatched` staff queue with counts/examples/candidate, staff API `/v1/staff/taxonomy/unmatched` (list, map → alias, ignore); migration 0037 (queue table, trigram GIN indexes). No new dependencies. [S2-05]

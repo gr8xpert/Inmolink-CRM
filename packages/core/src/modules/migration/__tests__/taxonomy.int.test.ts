@@ -67,6 +67,8 @@ function extract() {
       L(13, `Ciclo ${X[4]}`, 14), // a cycle
       L(14, `Ciclo ${X[5]}`, 13),
       L(15, NAMES.villa, 2), // exists, but under regionB, not under the region legacy row 2 maps to
+      L(16, NAMES.region, 1), // staff mapped it to regionB by hand: the manual map wins over the exact name
+      L(17, NAMES.villa, 16), // so it is checked against regionB, where villa sits
     ],
     propertyTypes: [
       { id: lid(101), name: `Chalet ${W.type}`, names: {}, aliases: [`Chalet Indep ${W.type}`] },
@@ -145,6 +147,7 @@ beforeAll(async () => {
     await tx.insert(legacyIdMaps).values([
       { id: newId(), entity: 'feature', legacyId: lid(201), newId: newId(), method: 'exact' }, // stale
       { id: newId(), entity: 'propertyType', legacyId: lid(103), newId: MANUAL_TARGET, method: 'manual' },
+      { id: newId(), entity: 'location', legacyId: lid(16), newId: regionB, method: 'manual' },
     ]);
   });
   dry = await run({ dryRun: true });
@@ -159,7 +162,7 @@ describe('legacy taxonomy import', () => {
   it('[S2-06] dry run reports without writing aliases or maps', () => {
     expect(dry.counts.location?.mapped).toBe(first.counts.location?.mapped);
     expect(dry.aliasesAdded).toBeGreaterThan(0);
-    expect(dryMaps.size).toBe(0);
+    expect([...dryMaps.keys()]).toEqual([lid(16)]); // only the staff map seeded before the run
     expect(dryLong.status).toBe('fuzzy'); // no alias was written for it yet
   });
 
@@ -184,7 +187,8 @@ describe('legacy taxonomy import', () => {
     expect(m.get(lid(5))).toBe(ids.long);
     expect(m.get(lid(6))).toBe(ids.twinB); // its legacy parent maps to regionB
     expect(m.get(lid(7))).toBe(ids.regionB);
-    expect(first.counts.location).toMatchObject({ exact: 6, fuzzy: 1 });
+    expect(m.get(lid(17))).toBe(ids.villa);
+    expect(first.counts.location).toMatchObject({ exact: 7, fuzzy: 1, manual: 1 });
   });
 
   it('[S2-06] writes an alias for every legacy spelling that did not already resolve', async () => {
@@ -239,6 +243,15 @@ describe('legacy taxonomy import', () => {
     expect(first.remapped).toBe(1);
     expect((await mapsOf('feature', [lid(201)])).get(lid(201))).toBe(featureId);
     expect((await mapsOf('propertyType', [lid(103)])).get(lid(103))).toBe(MANUAL_TARGET);
+    expect((await mapsOf('location', [lid(16)])).get(lid(16))).toBe(ids.regionB);
+    expect(first.counts.propertyType).toMatchObject({ mapped: 2, manual: 1 });
+  });
+
+  it('[S2-06] location ancestors are looked up in chunks, past the bind-parameter limit', async () => {
+    const many = [...Array.from({ length: 70_000 }, newId), ids.area as string, ids.area as string];
+    const up = await system((tx) => taxonomy.locationAncestors(tx, many));
+    expect(up.size).toBe(1);
+    expect([...(up.get(ids.area as string) ?? [])].sort()).toEqual([ids.city, ids.region, ids.country].sort());
   });
 
   it('[S2-06] is idempotent: a re-run adds no aliases and changes no maps', async () => {
