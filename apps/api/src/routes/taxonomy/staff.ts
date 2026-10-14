@@ -6,11 +6,15 @@ import {
   CatalogKindParams,
   CreateLocationInput,
   LocationParams,
+  MapUnmatchedInput,
   ReorderCatalogInput,
   ReorderLocationsInput,
   StaffCatalogItemDto,
   StaffLocationDto,
   TaxonomyDto,
+  UnmatchedDto,
+  UnmatchedListQuery,
+  UnmatchedPageDto,
   UpdateCatalogItemInput,
   UpdateLocationInput,
 } from '@inmolink/contracts';
@@ -277,6 +281,64 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
     (req) =>
       app.withStaffCtx(req, 'taxonomy.staffRemoveCatalogAlias', (ctx) =>
         taxonomy.removeStaffCatalogAlias(ctx, req.params.kind, req.params.id, req.params.aliasId),
+      ),
+  );
+
+  app.get(
+    '/v1/staff/taxonomy/unmatched',
+    {
+      schema: {
+        tags,
+        operationId: 'taxonomy.staffListUnmatched',
+        summary: 'Feed values the resolver could not map, most-seen first (staff mapping queue)',
+        querystring: UnmatchedListQuery,
+        response: { 200: UnmatchedPageDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withStaffCtx(req, 'taxonomy.staffListUnmatched', (ctx) => taxonomy.listStaffUnmatched(ctx, req.query));
+    },
+  );
+
+  app.post(
+    '/v1/staff/taxonomy/unmatched/:id/map',
+    {
+      schema: {
+        tags,
+        operationId: 'taxonomy.staffMapUnmatched',
+        summary: 'Map a queued value to a location, property type or feature (creates the alias)',
+        params: LocationParams,
+        body: MapUnmatchedInput,
+        response: { 200: UnmatchedDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'taxonomy.staffMapUnmatched', (ctx) =>
+        taxonomy.mapStaffUnmatched(ctx, req.params.id, req.body),
+      ),
+  );
+
+  app.post(
+    '/v1/staff/taxonomy/unmatched/:id/ignore',
+    {
+      schema: {
+        tags,
+        operationId: 'taxonomy.staffIgnoreUnmatched',
+        summary: 'Hide a queued value that needs no mapping',
+        params: LocationParams,
+        response: { 200: UnmatchedDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'taxonomy.staffIgnoreUnmatched', (ctx) =>
+        taxonomy.ignoreStaffUnmatched(ctx, req.params.id),
       ),
   );
 }

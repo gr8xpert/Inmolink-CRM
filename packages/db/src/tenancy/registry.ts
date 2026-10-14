@@ -414,6 +414,12 @@ export const globalTables: Record<string, GlobalTable> = {
   },
   feature_translations: { reason: 'names and slugs of features', publicRead: true, staffWrite: true },
   feature_aliases: { reason: 'feed spellings mapped to features', publicRead: true, staffWrite: true },
+  // Unmatched feed values (S2-05): staff queue, written by import workers via withSystem().
+  taxonomy_unmatched: {
+    reason: 'feed values with no confident taxonomy match, awaiting staff mapping',
+    staffWrite: true,
+    base: { kind: 'location' },
+  },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

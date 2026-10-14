@@ -8,11 +8,15 @@
 import type {
   AddAliasInput,
   CreateLocationInput,
+  MapUnmatchedInput,
   ReorderCatalogInput,
   ReorderLocationsInput,
   StaffCatalogItemDto,
   StaffLocationDto,
   TaxonomyDto,
+  UnmatchedDto,
+  UnmatchedListQuery,
+  UnmatchedPageDto,
   UpdateCatalogItemInput,
   UpdateLocationInput,
 } from '@inmolink/contracts';
@@ -20,6 +24,7 @@ import type { Tx } from '@inmolink/db';
 import { DEFAULT_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
+import { z } from 'zod';
 import type { StaffCtx } from '../../context';
 import * as compliance from '../compliance';
 import { taxonomyEvents } from './events';
@@ -188,4 +193,90 @@ export async function removeStaffCatalogAlias(
     await emit(tx, taxonomyEvents.changed({ entity: `${kind}Alias`, id: aliasId }));
   });
   return getStaffCatalogItem(ctx, kind, 'item', id);
+}
+
+// ---- Unmatched feed values (S2-05) ---------------------------------------------------------------------------
+
+type Cursor = { count: number; id: string };
+const encodeCursor = (c: Cursor) => Buffer.from(`${c.count}:${c.id}`).toString('base64url');
+function decodeCursor(raw: string): Cursor {
+  const [count, id] = Buffer.from(raw, 'base64url').toString().split(':');
+  if (!/^\d+$/.test(count ?? '') || !id || !z.uuid().safeParse(id).success) throw new AppError('VALIDATION_FAILED');
+  return { count: Number(count), id };
+}
+
+async function toUnmatchedDtos(ctx: StaffCtx, rows: repo.UnmatchedRow[]): Promise<UnmatchedDto[]> {
+  const locale = isContentLocale(ctx.locale) ? ctx.locale : DEFAULT_CONTENT_LOCALE;
+  const names = new Map<string, Map<string, string>>();
+  for (const kind of ['location', 'propertyType', 'feature'] as const) {
+    const ids = rows.filter((r) => r.kind === kind && r.candidateId).map((r) => r.candidateId as string);
+    names.set(kind, await repo.ownerNames(ctx.tx, kind, [...new Set(ids)], locale));
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind as UnmatchedDto['kind'],
+    value: r.value,
+    count: r.count,
+    examples: r.examples,
+    candidate:
+      r.candidateId && names.get(r.kind)?.has(r.candidateId)
+        ? {
+            id: r.candidateId,
+            name: names.get(r.kind)?.get(r.candidateId) as string,
+            confidence: r.candidateScore ?? 0,
+          }
+        : null,
+    status: r.status as UnmatchedDto['status'],
+    mappedToId: r.mappedToId,
+    firstSeenAt: r.firstSeenAt.toISOString(),
+    lastSeenAt: r.lastSeenAt.toISOString(),
+  }));
+}
+
+/** The queue, most-seen value first, cursor-paginated. Three statements at most (rows, then candidate names). */
+export async function listStaffUnmatched(ctx: StaffCtx, query: UnmatchedListQuery): Promise<UnmatchedPageDto> {
+  assertStaffCan(ctx, 'staff.taxonomy.read');
+  const rows = await repo.listUnmatched(ctx.tx, {
+    status: query.status,
+    limit: query.limit,
+    ...(query.kind ? { kind: query.kind } : {}),
+    ...(query.cursor ? { after: decodeCursor(query.cursor) } : {}),
+  });
+  const page = rows.slice(0, query.limit);
+  const last = page[page.length - 1];
+  return {
+    items: await toUnmatchedDtos(ctx, page),
+    nextCursor: rows.length > query.limit && last ? encodeCursor({ count: last.count, id: last.id }) : null,
+  };
+}
+
+async function oneUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
+  const row = await repo.getUnmatched(ctx.tx, id);
+  if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
+  return (await toUnmatchedDtos(ctx, [row]))[0] as UnmatchedDto;
+}
+
+/**
+ * Maps a queued value to a location, property type or feature: the spelling becomes an alias (so the next
+ * import resolves it exactly and promotes the drafts that waited on it) and the row closes as MAPPED.
+ */
+export async function mapStaffUnmatched(ctx: StaffCtx, id: string, input: MapUnmatchedInput): Promise<UnmatchedDto> {
+  await write(ctx, 'mapUnmatched', 'unmatched', async (tx) => {
+    const row = await repo.getUnmatched(tx, id);
+    if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
+    if (row.status === 'MAPPED') return;
+    if (row.kind === 'location') await addLocationAlias(tx, input.targetId, row.value);
+    else if (row.kind === 'feature') await addFeatureAlias(tx, input.targetId, row.value);
+    else await addPropertyTypeAlias(tx, input.targetId, row.value);
+  });
+  return oneUnmatched(ctx, id);
+}
+
+/** Not worth mapping (noise in a feed): hidden from the open queue; counted again if it keeps coming. */
+export async function ignoreStaffUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
+  await write(ctx, 'ignoreUnmatched', 'unmatched', async (tx) => {
+    if (!(await repo.getUnmatched(tx, id))) throw new AppError('TAXONOMY_NOT_FOUND');
+    await repo.setUnmatchedIgnored(tx, id);
+  });
+  return oneUnmatched(ctx, id);
 }

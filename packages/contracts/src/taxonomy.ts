@@ -1,5 +1,6 @@
 /** taxonomy DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
+import { Cursor, pageOf } from './common';
 
 export const LocationLevel = z.enum(['COUNTRY', 'REGION', 'CITY', 'AREA']);
 export type LocationLevel = z.infer<typeof LocationLevel>;
@@ -247,3 +248,41 @@ export const CatalogItemParams = z
   .strict();
 export const CatalogAliasParams = z.object({ kind: CatalogKind, id: z.uuid(), aliasId: z.uuid() }).strict();
 export const CatalogKindParams = z.object({ kind: CatalogKind, id: z.uuid() }).strict();
+
+// ---- Unmatched feed values (S2-05) ---------------------------------------------------------------------------
+
+export const UnmatchedKind = z.enum(['location', 'propertyType', 'feature']);
+export type UnmatchedKind = z.infer<typeof UnmatchedKind>;
+export const UnmatchedStatus = z.enum(['OPEN', 'MAPPED', 'IGNORED']);
+export type UnmatchedStatus = z.infer<typeof UnmatchedStatus>;
+
+/** One queued feed value: how often it was seen, examples, and the closest candidate (a hint, never applied). */
+export const UnmatchedDto = z.object({
+  id: z.uuid(),
+  kind: UnmatchedKind,
+  value: z.string(),
+  count: z.number().int(),
+  examples: z.array(z.string()),
+  candidate: z.object({ id: z.uuid(), name: z.string(), confidence: z.number() }).nullable(),
+  status: UnmatchedStatus,
+  mappedToId: z.uuid().nullable(),
+  firstSeenAt: z.iso.datetime(),
+  lastSeenAt: z.iso.datetime(),
+});
+export type UnmatchedDto = z.infer<typeof UnmatchedDto>;
+
+export const UnmatchedPageDto = pageOf(UnmatchedDto);
+export type UnmatchedPageDto = z.infer<typeof UnmatchedPageDto>;
+
+/** Most-seen first. `status` defaults to the open queue. */
+export const UnmatchedListQuery = z.object({
+  kind: UnmatchedKind.optional(),
+  status: UnmatchedStatus.default('OPEN'),
+  cursor: Cursor.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type UnmatchedListQuery = z.infer<typeof UnmatchedListQuery>;
+
+/** The location, property type or feature the value means (its kind is the queue row's). */
+export const MapUnmatchedInput = z.object({ targetId: z.uuid() });
+export type MapUnmatchedInput = z.infer<typeof MapUnmatchedInput>;

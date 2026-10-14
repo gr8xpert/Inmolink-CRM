@@ -15,14 +15,16 @@ import {
   locationGroupTranslations,
   locations,
   locationTranslations,
+  nameKey,
   propertyTypeAliases,
   propertyTypeGroups,
   propertyTypeGroupTranslations,
   propertyTypes,
   propertyTypeTranslations,
+  taxonomyUnmatched,
 } from '@inmolink/db/schema/taxonomy';
 import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
-import { and, eq, inArray, isNull, notInArray, type SQLWrapper, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, type SQLWrapper, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export interface NewLocation {
@@ -506,4 +508,194 @@ export async function catalogDetail(tx: Tx, kind: CatalogKind, scope: 'group' | 
   if (translations.length === 0) return null;
   const aliases = scope === 'item' ? await catalogAliases(tx, kind, id) : [];
   return { translations, aliases };
+}
+
+// ---- Alias resolver and unmatched queue (S2-05) ---------------------------------------------------------------
+
+export type ResolveKind = 'location' | 'propertyType' | 'feature';
+export type LocationHints = { parentId?: string | null; level?: string };
+
+/** Per kind: the alias table and the translation table (with their owner columns) the resolver reads. */
+const MATCH = {
+  location: {
+    aliases: locationAliases,
+    aliasOwner: locationAliases.locationId,
+    tr: locationTranslations,
+    trName: locationTranslations.name,
+    trOwner: locationTranslations.locationId,
+    trLocale: locationTranslations.locale,
+  },
+  propertyType: {
+    aliases: propertyTypeAliases,
+    aliasOwner: propertyTypeAliases.ownerId,
+    tr: propertyTypeTranslations,
+    trName: propertyTypeTranslations.name,
+    trOwner: propertyTypeTranslations.ownerId,
+    trLocale: propertyTypeTranslations.locale,
+  },
+  feature: {
+    aliases: featureAliases,
+    aliasOwner: featureAliases.ownerId,
+    tr: featureTranslations,
+    trName: featureTranslations.name,
+    trOwner: featureTranslations.ownerId,
+    trLocale: featureTranslations.locale,
+  },
+} as const;
+
+export type KeyMatch = { key: string; id: string; score: number };
+
+const textArray = (keys: string[]) =>
+  sql`array[${sql.join(
+    keys.map((k) => sql`${k}`),
+    sql`, `,
+  )}]::text[]`;
+
+function rowsOf<T>(res: unknown): T[] {
+  return (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as T[];
+}
+
+/** Locations only: restrict candidates to the children of a parent and/or one level (the hint a feed gives). */
+function ownerScope(kind: ResolveKind, owner: SQLWrapper, hints: LocationHints) {
+  if (kind !== 'location' || (hints.parentId == null && !hints.level)) return sql``;
+  const parent = hints.parentId == null ? sql`` : sql` and ${locations.parentId} = ${hints.parentId}`;
+  const level = hints.level ? sql` and ${locations.level} = ${hints.level}` : sql``;
+  return sql` and ${owner} in (select ${locations.id} from ${locations} where true${parent}${level})`;
+}
+
+/**
+ * Exact matches of normalised spellings (`aliasKey` form): feed aliases and canonical names in any locale.
+ * One statement for the whole batch. An alias is globally unique; a name may be shared (two cities called
+ * the same), so the caller treats a key with several name matches as ambiguous.
+ */
+export async function exactMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
+  if (keys.length === 0) return [] as { key: string; id: string; viaAlias: boolean }[];
+  const m = MATCH[kind];
+  const res = await tx.execute(sql`
+    select ${m.aliases.aliasKey} as key, ${m.aliasOwner} as id, true as "viaAlias"
+      from ${m.aliases}
+     where ${m.aliases.aliasKey} = any(${textArray(keys)}) ${ownerScope(kind, m.aliasOwner, hints)}
+    union all
+    select ${nameKey(m.trName)} as key, ${m.trOwner} as id, false as "viaAlias"
+      from ${m.tr}
+     where ${nameKey(m.trName)} = any(${textArray(keys)}) ${ownerScope(kind, m.trOwner, hints)}
+     group by 1, 2`);
+  return rowsOf<{ key: string; id: string; viaAlias: boolean }>(res);
+}
+
+/**
+ * Trigram candidates (`%`, GIN) for keys with no exact match: best similarity per (key, owner) across
+ * aliases and names, at most 3 per key, best first. One statement for the whole batch.
+ */
+export async function fuzzyMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
+  if (keys.length === 0) return [] as KeyMatch[];
+  const m = MATCH[kind];
+  const res = await tx.execute(sql`
+    select key, id, score from (
+      select key, id, score, row_number() over (partition by key order by score desc) as rn from (
+        select key, id, max(score) as score from (
+          select q.k as key, ${m.aliasOwner} as id, similarity(${m.aliases.aliasKey}, q.k) as score
+            from unnest(${textArray(keys)}) as q(k)
+            join ${m.aliases} on ${m.aliases.aliasKey} % q.k ${ownerScope(kind, m.aliasOwner, hints)}
+          union all
+          select q.k, ${m.trOwner}, similarity(${nameKey(m.trName)}, q.k)
+            from unnest(${textArray(keys)}) as q(k)
+            join ${m.tr} on ${nameKey(m.trName)} % q.k ${ownerScope(kind, m.trOwner, hints)}) c
+         group by key, id) best) ranked
+     where rn <= 3 order by key, score desc`);
+  return rowsOf<{ key: string; id: string; score: number }>(res).map((r) => ({ ...r, score: Number(r.score) }));
+}
+
+export type UnmatchedUpsert = {
+  id: string;
+  kind: ResolveKind;
+  valueKey: string;
+  value: string;
+  count: number;
+  examples: string[];
+  candidateId: string | null;
+  candidateScore: number | null;
+};
+
+/** Counts the values into the queue. A value staff mapped earlier but that is unmatched again reopens. */
+export async function upsertUnmatched(tx: Tx, rows: UnmatchedUpsert[]): Promise<void> {
+  if (rows.length === 0) return;
+  const t = taxonomyUnmatched;
+  await tx
+    .insert(t)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [t.kind, t.valueKey],
+      set: {
+        count: sql`${t.count} + excluded.count`,
+        lastSeenAt: sql`now()`,
+        candidateId: sql`excluded.candidate_id`,
+        candidateScore: sql`excluded.candidate_score`,
+        examples: sql`(select coalesce(jsonb_agg(e order by e), '[]'::jsonb) from (
+          select e from (select distinct e from jsonb_array_elements_text(${t.examples} || excluded.examples) as e) d
+           order by e limit 5) l)`,
+        status: sql`case when ${t.status} = 'MAPPED' then 'OPEN' else ${t.status} end`,
+        mappedToId: sql`case when ${t.status} = 'MAPPED' then null else ${t.mappedToId} end`,
+        resolvedAt: sql`case when ${t.status} = 'MAPPED' then null else ${t.resolvedAt} end`,
+      },
+    });
+}
+
+/** A new alias answers the queued value of the same spelling: mark it mapped. Returns whether one was waiting. */
+export async function markUnmatchedMapped(tx: Tx, kind: ResolveKind, valueKey: string, targetId: string) {
+  const t = taxonomyUnmatched;
+  const rows = await tx
+    .update(t)
+    .set({ status: 'MAPPED', mappedToId: targetId, resolvedAt: sql`now()` })
+    .where(and(eq(t.kind, kind), eq(t.valueKey, valueKey), sql`${t.status} <> 'MAPPED'`))
+    .returning({ id: t.id });
+  return rows.length > 0;
+}
+
+export type UnmatchedRow = typeof taxonomyUnmatched.$inferSelect;
+
+export async function getUnmatched(tx: Tx, id: string): Promise<UnmatchedRow | null> {
+  const [row] = await tx.select().from(taxonomyUnmatched).where(eq(taxonomyUnmatched.id, id)).limit(1).for('update');
+  return row ?? null;
+}
+
+export async function setUnmatchedIgnored(tx: Tx, id: string): Promise<void> {
+  await tx
+    .update(taxonomyUnmatched)
+    .set({ status: 'IGNORED', resolvedAt: sql`now()` })
+    .where(eq(taxonomyUnmatched.id, id));
+}
+
+/** A page of the queue, most-seen first, keyset on (count desc, id). Returns `limit + 1` rows to detect a next page. */
+export async function listUnmatched(
+  tx: Tx,
+  q: { kind?: ResolveKind; status: string; after?: { count: number; id: string }; limit: number },
+): Promise<UnmatchedRow[]> {
+  const t = taxonomyUnmatched;
+  const after = q.after
+    ? sql`(${t.count} < ${q.after.count} or (${t.count} = ${q.after.count} and ${t.id} > ${q.after.id}))`
+    : undefined;
+  return tx
+    .select()
+    .from(t)
+    .where(and(eq(t.status, q.status), q.kind ? eq(t.kind, q.kind) : undefined, after))
+    .orderBy(desc(t.count), t.id)
+    .limit(q.limit + 1);
+}
+
+/** Localized names of owners (candidates), one statement: wanted locale, else fallback, else first. */
+export async function ownerNames(
+  tx: Tx,
+  kind: ResolveKind,
+  ids: string[],
+  locale: string,
+): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const m = MATCH[kind];
+  const rows = await tx
+    .selectDistinctOn([m.trOwner], { id: m.trOwner, name: m.trName })
+    .from(m.tr)
+    .where(inArray(m.trOwner, ids))
+    .orderBy(m.trOwner, ...pick(m.trLocale, locale));
+  return new Map(rows.map((r) => [r.id, r.name]));
 }

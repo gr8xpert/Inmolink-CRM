@@ -7,6 +7,9 @@ export {
   getStaffCatalogItem,
   getStaffLocation,
   getStaffTaxonomy,
+  ignoreStaffUnmatched,
+  listStaffUnmatched,
+  mapStaffUnmatched,
   removeStaffCatalogAlias,
   removeStaffLocationAlias,
   reorderStaffCatalog,
@@ -17,6 +20,19 @@ export {
 export { taxonomyErrors } from './errors';
 export { TAXONOMY_ENTITIES, type TaxonomyEntity, taxonomyEvents } from './events';
 export { taxonomyJobs } from './jobs';
+export {
+  FUZZY_ACCEPT,
+  FUZZY_MARGIN,
+  type Resolution,
+  type ResolveHints,
+  type ResolveInput,
+  resolveAndQueue,
+  resolveFeature,
+  resolveLocation,
+  resolveMany,
+  resolveType,
+  type TaxonomyKind,
+} from './resolver';
 export {
   addFeatureAlias,
   addLocationAlias,

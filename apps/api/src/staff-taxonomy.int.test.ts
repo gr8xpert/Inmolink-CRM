@@ -1,4 +1,4 @@
-import { StaffLocationDto, WebsiteLocationChildrenDto } from '@inmolink/contracts';
+import { StaffLocationDto, UnmatchedPageDto, WebsiteLocationChildrenDto } from '@inmolink/contracts';
 import { closeDb, pingDb } from '@inmolink/core';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import { createFounder } from '@inmolink/core/test';
@@ -375,5 +375,63 @@ describe('staff taxonomy admin', () => {
     }
     expect((await app.inject({ method: 'GET', url: '/v1/staff/taxonomy', headers: member })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: '/v1/staff/taxonomy' })).statusCode).toBe(401);
+  });
+  it('[S2-05] the unmatched queue over HTTP: list, map to a location, ignore; non-staff get 403', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const post = (url: string, payload?: object) => app.inject({ method: 'POST', url, headers: ops, payload });
+    const country = await post('/v1/staff/taxonomy/locations', {
+      parentId: null,
+      level: 'COUNTRY',
+      translations: [tr('en', 'Queueland', 'queueland')],
+    });
+    const countryId: string = country.json().id;
+    const spelling = `Qland Zorbo ${RUN}`;
+    // The API process cannot use withSystem (APP_ROLE=http): seed the queue as an import worker would have.
+    await adminQuery(
+      `insert into taxonomy_unmatched (id, kind, value_key, value, count, examples) values
+         ($1, 'location', lower($3), $3, 7, '["feed-1"]'), ($2, 'location', lower($4), $4, 1, '["feed-2"]')`,
+      [newId(), newId(), spelling, `Ignorable ${RUN}`],
+    );
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/v1/staff/taxonomy/unmatched?kind=location&limit=100',
+      headers: ops,
+    });
+    expect(list.statusCode, list.body).toBe(200);
+    expect(list.headers['cache-control']).toBe('no-store');
+    const items = UnmatchedPageDto.parse(list.json()).items;
+    const row = items.find((i) => i.value === spelling);
+    expect(row).toMatchObject({ count: 7, examples: ['feed-1'], status: 'OPEN' });
+
+    const mapped = await post(`/v1/staff/taxonomy/unmatched/${row?.id}/map`, { targetId: countryId });
+    expect(mapped.statusCode, mapped.body).toBe(200);
+    expect(mapped.json()).toMatchObject({ status: 'MAPPED', mappedToId: countryId });
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/v1/staff/taxonomy/locations/${countryId}`,
+      headers: ops,
+    });
+    expect(detail.json().aliases.map((a: { alias: string }) => a.alias)).toEqual([spelling]);
+
+    const other = items.find((i) => i.value === `Ignorable ${RUN}`);
+    const ignored = await post(`/v1/staff/taxonomy/unmatched/${other?.id}/ignore`);
+    expect(ignored.json().status).toBe('IGNORED');
+    const missing = await post(`/v1/staff/taxonomy/unmatched/${newId()}/ignore`);
+    expect(missing.statusCode).toBe(404);
+
+    const f = await createFounder();
+    const member = await bearer(f.userId, f.agencyId);
+    for (const url of ['/v1/staff/taxonomy/unmatched']) {
+      expect((await app.inject({ method: 'GET', url, headers: member })).statusCode).toBe(403);
+    }
+    const support = await bearer((await createStaffUser('STAFF_SUPPORT')).userId);
+    const denied = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/taxonomy/unmatched/${other?.id}/map`,
+      headers: support,
+      payload: { targetId: countryId },
+    });
+    expect(denied.statusCode).toBe(403);
   });
 });

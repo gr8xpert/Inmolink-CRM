@@ -90,13 +90,14 @@ export async function createLocation(tx: Tx, input: CreateLocationInput): Promis
   return changed(tx, 'location', id);
 }
 
-/** Maps a feed spelling to a location. One spelling maps to one location. */
+/** Maps a feed spelling to a location. One spelling maps to one location; a queued value of it is marked mapped (S2-05). */
 export async function addLocationAlias(tx: Tx, locationId: string, alias: string): Promise<string> {
   if ((await repo.getDepth(tx, locationId)) === null) throw new AppError('LOCATION_NOT_FOUND');
   const key = aliasKey(alias);
   if (!key) throw new AppError('VALIDATION_FAILED');
   const id = newId();
   await uniqueOr(() => repo.insertAlias(tx, { id, locationId, alias, aliasKey: key }), 'LOCATION_ALIAS_TAKEN');
+  await repo.markUnmatchedMapped(tx, 'location', key, locationId);
   return changed(tx, 'locationAlias', id);
 }
 
@@ -171,6 +172,7 @@ async function addAlias(tx: Tx, kind: repo.CatalogKind, ownerId: string, alias: 
     () => repo.insertCatalogAlias(tx, kind, { id, ownerId, alias, aliasKey: key }),
     'TAXONOMY_ALIAS_TAKEN',
   );
+  await repo.markUnmatchedMapped(tx, kind, key, ownerId);
   return changed(tx, `${kind}Alias`, id);
 }
 

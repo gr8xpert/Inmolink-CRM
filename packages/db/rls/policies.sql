@@ -29,7 +29,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -491,6 +491,19 @@ create policy staff_self on public."staff_users" for select to app_staff using (
 revoke all on table public."staff_users" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."staff_users" to app_auth, app_staff;
 grant select, insert, update, delete on table public."staff_users" to app_system;
+
+-- taxonomy_unmatched: GLOBAL
+alter table public."taxonomy_unmatched" enable row level security;
+alter table public."taxonomy_unmatched" force row level security;
+create policy global_read on public."taxonomy_unmatched" for select to app_user using (true);
+revoke all on table public."taxonomy_unmatched" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."taxonomy_unmatched" to app_user;
+grant select, insert, update, delete on table public."taxonomy_unmatched" to app_system;
+create policy staff_select on public."taxonomy_unmatched" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."taxonomy_unmatched" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."taxonomy_unmatched" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."taxonomy_unmatched" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."taxonomy_unmatched" to app_staff;
 
 -- user_mfa: GLOBAL
 alter table public."user_mfa" enable row level security;

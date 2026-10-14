@@ -4,15 +4,18 @@
  * `pnpm db:generate && pnpm db:migrate && pnpm db:rls`.
  */
 
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   check,
   customType,
   foreignKey,
   index,
+  integer,
+  jsonb,
   pgTable,
   primaryKey,
+  real,
   smallint,
   text,
   timestamp,
@@ -24,6 +27,13 @@ import {
 /** PostGIS geometry in WGS84. Written and read through `ST_*` SQL (GeoJSON in, GeoJSON out), never as raw hex. */
 const point = customType<{ data: string }>({ dataType: () => 'geometry(Point,4326)' });
 const multiPolygon = customType<{ data: string }>({ dataType: () => 'geometry(MultiPolygon,4326)' });
+
+/**
+ * The spelling a name is matched on in SQL (S2-05): lowercase, Latin accents folded, punctuation as single
+ * spaces — the SQL twin of `aliasKey()` for the languages we serve. Immutable, so it can back an index.
+ */
+export const nameKey = (name: AnyPgColumn | SQL) =>
+  sql`btrim(regexp_replace(translate(lower(${name}), 'áàâäãåéèêëíìîïóòôöõúùûüñçß', 'aaaaaaeeeeiiiiooooouuuunc'), '[^[:alnum:]]+', ' ', 'g'))`;
 
 export const LOCATION_LEVELS = ['COUNTRY', 'REGION', 'CITY', 'AREA'] as const;
 
@@ -88,6 +98,7 @@ export const locationTranslations = pgTable(
     uniqueIndex('location_translations_slug_uq').on(t.parentId, t.locale, t.slug).where(sql`${t.parentId} is not null`),
     uniqueIndex('location_translations_root_slug_uq').on(t.locale, t.slug).where(sql`${t.parentId} is null`),
     check('location_translations_slug_ck', sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+    index('location_translations_name_key_idx').using('gin', sql`${nameKey(t.name)} gin_trgm_ops`),
   ],
 );
 
@@ -106,6 +117,8 @@ export const locationAliases = pgTable(
   (t) => [
     uniqueIndex('location_aliases_key_uq').on(t.aliasKey),
     index('location_aliases_location_idx').on(t.locationId),
+    // fuzzy fallback of the alias resolver (S2-05): `alias_key % $1`
+    index('location_aliases_key_trgm_idx').using('gin', sql`${t.aliasKey} gin_trgm_ops`),
   ],
 );
 
@@ -168,7 +181,8 @@ function groupTable(name: string) {
   );
 }
 
-function translationTable(name: string, ownerCol: string, owner: () => AnyPgColumn) {
+/** `fuzzy`: items the alias resolver matches names of (S2-05) get a trigram index; groups do not. */
+function translationTable(name: string, ownerCol: string, owner: () => AnyPgColumn, fuzzy = false) {
   return pgTable(
     name,
     {
@@ -181,6 +195,7 @@ function translationTable(name: string, ownerCol: string, owner: () => AnyPgColu
       primaryKey({ columns: [t.ownerId, t.locale], name: `${name}_pk` }),
       uniqueIndex(`${name}_slug_uq`).on(t.locale, t.slug),
       check(`${name}_slug_ck`, sql`${t.slug} ~ ${SLUG_RE}`),
+      ...(fuzzy ? [index(`${name}_name_key_idx`).using('gin', sql`${nameKey(t.name)} gin_trgm_ops`)] : []),
     ],
   );
 }
@@ -196,7 +211,11 @@ function aliasTable(name: string, owner: () => AnyPgColumn) {
       aliasKey: text('alias_key').notNull(),
       createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     },
-    (t) => [uniqueIndex(`${name}_key_uq`).on(t.aliasKey), index(`${name}_owner_idx`).on(t.ownerId)],
+    (t) => [
+      uniqueIndex(`${name}_key_uq`).on(t.aliasKey),
+      index(`${name}_owner_idx`).on(t.ownerId),
+      index(`${name}_key_trgm_idx`).using('gin', sql`${t.aliasKey} gin_trgm_ops`),
+    ],
   );
 }
 
@@ -224,6 +243,7 @@ export const propertyTypeTranslations = translationTable(
   'property_type_translations',
   'type_id',
   () => propertyTypes.id,
+  true,
 );
 export const propertyTypeAliases = aliasTable('property_type_aliases', () => propertyTypes.id);
 
@@ -249,5 +269,41 @@ export const features = pgTable(
   },
   (t) => [index('features_group_idx').on(t.groupId), check('features_icon_ck', sql`${t.icon} ~ ${SLUG_RE}`)],
 );
-export const featureTranslations = translationTable('feature_translations', 'feature_id', () => features.id);
+export const featureTranslations = translationTable('feature_translations', 'feature_id', () => features.id, true);
 export const featureAliases = aliasTable('feature_aliases', () => features.id);
+
+// ---- Unmatched feed values (S2-05) ----------------------------------------------------------------------
+/**
+ * Feed values the resolver could not map with confidence (PLAN §7 M4: never silently dropped, never
+ * guessed). One row per (kind, normalised spelling), counted across imports; staff map it (which creates
+ * an alias) or ignore it. Global like the rest of the taxonomy; workers write via `withSystem()`.
+ */
+export const taxonomyUnmatched = pgTable(
+  'taxonomy_unmatched',
+  {
+    id: uuid('id').primaryKey(),
+    /** `location`, `propertyType` or `feature`. */
+    kind: text('kind').notNull(),
+    /** `aliasKey(value)`: the spelling the resolver matched on. */
+    valueKey: text('value_key').notNull(),
+    /** First spelling seen, as the feed wrote it. */
+    value: text('value').notNull(),
+    count: integer('count').notNull().default(1),
+    /** Up to 5 distinct source references (listing refs, feed names) to show staff what it is. */
+    examples: jsonb('examples').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Best fuzzy candidate below the accept threshold, as a hint for staff. Never applied. */
+    candidateId: uuid('candidate_id'),
+    candidateScore: real('candidate_score'),
+    status: text('status').notNull().default('OPEN'),
+    mappedToId: uuid('mapped_to_id'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => [
+    unique('taxonomy_unmatched_value_uq').on(t.kind, t.valueKey),
+    index('taxonomy_unmatched_queue_idx').on(t.status, t.kind, t.count.desc(), t.id),
+    check('taxonomy_unmatched_kind_ck', sql`${t.kind} in ('location','propertyType','feature')`),
+    check('taxonomy_unmatched_status_ck', sql`${t.status} in ('OPEN','MAPPED','IGNORED')`),
+  ],
+);
