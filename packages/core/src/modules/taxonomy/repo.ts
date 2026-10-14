@@ -86,6 +86,26 @@ export async function existingLocationIds(tx: Tx, ids: string[]): Promise<Set<st
   return new Set(rows.map((r) => r.id));
 }
 
+/** Every ancestor of each location (the tree is ≤ 4 deep): one recursive statement for the whole list. */
+export async function locationAncestors(tx: Tx, ids: string[]): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (ids.length === 0) return out;
+  const res = await tx.execute(sql`
+    with recursive up(id, ancestor) as (
+      select l.id, l.parent_id from ${locations} l where l.id = any(${sql`array[${sql.join(
+        ids.map((i) => sql`${i}`),
+        sql`, `,
+      )}]::uuid[]`}) and l.parent_id is not null
+      union all
+      select up.id, p.parent_id from up join ${locations} p on p.id = up.ancestor where p.parent_id is not null
+    )
+    select id, ancestor from up`);
+  for (const r of rowsOf<{ id: string; ancestor: string }>(res)) {
+    out.set(r.id, (out.get(r.id) ?? new Set()).add(r.ancestor));
+  }
+  return out;
+}
+
 /** The deepest location whose polygon covers the point: GiST on `polygon`, then the deepest level wins. */
 export async function deepestAt(tx: Tx, lon: number, lat: number): Promise<string | null> {
   const rows = await tx
@@ -698,4 +718,48 @@ export async function ownerNames(
     .where(inArray(m.trOwner, ids))
     .orderBy(m.trOwner, ...pick(m.trLocale, locale));
   return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+// ---- Bulk aliases (S2-06 legacy import) ----------------------------------------------------------------------
+
+/**
+ * Inserts many aliases in one statement; a spelling already owned (by anyone) is skipped, not an error, so
+ * one clash never aborts the caller's transaction. Returns the keys written and the owner of each skipped key.
+ */
+export async function insertAliasesBulk(
+  tx: Tx,
+  kind: ResolveKind,
+  rows: { id: string; ownerId: string; alias: string; aliasKey: string }[],
+): Promise<{ inserted: Set<string>; owners: Map<string, string> }> {
+  const inserted = new Set<string>();
+  const owners = new Map<string, string>();
+  const m = MATCH[kind];
+  for (let i = 0; i < rows.length; i += 1000) {
+    const chunk = rows.slice(i, i + 1000);
+    const res = await tx.execute(sql`
+      insert into ${m.aliases} (id, ${sql.raw(kind === 'location' ? 'location_id' : 'owner_id')}, alias, alias_key)
+      select * from unnest(${textArray(chunk.map((r) => r.id))}::uuid[], ${textArray(chunk.map((r) => r.ownerId))}::uuid[],
+                           ${textArray(chunk.map((r) => r.alias))}, ${textArray(chunk.map((r) => r.aliasKey))})
+      on conflict (alias_key) do nothing
+      returning alias_key as key`);
+    for (const r of rowsOf<{ key: string }>(res)) inserted.add(r.key);
+    const skipped = chunk.map((r) => r.aliasKey).filter((k) => !inserted.has(k));
+    if (skipped.length > 0) {
+      const owned = await tx
+        .select({ key: m.aliases.aliasKey, id: m.aliasOwner })
+        .from(m.aliases)
+        .where(inArray(m.aliases.aliasKey, skipped));
+      for (const r of owned) owners.set(r.key, r.id);
+    }
+    // the queued feed values these spellings answer (S2-05), marked like a staff mapping would
+    const done = chunk.filter((r) => inserted.has(r.aliasKey));
+    if (done.length > 0) {
+      await tx.execute(sql`
+        update ${taxonomyUnmatched} u
+           set status = 'MAPPED', mapped_to_id = v.owner, resolved_at = now()
+          from unnest(${textArray(done.map((r) => r.aliasKey))}, ${textArray(done.map((r) => r.ownerId))}::uuid[]) as v(key, owner)
+         where u.kind = ${kind} and u.value_key = v.key and u.status <> 'MAPPED'`);
+    }
+  }
+  return { inserted, owners };
 }

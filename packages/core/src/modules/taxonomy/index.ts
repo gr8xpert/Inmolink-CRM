@@ -45,6 +45,8 @@ export {
   createPropertyType,
   createPropertyTypeGroup,
   findLocationAtPoint,
+  importAliases,
+  locationAncestors,
   resolveFeatureAlias,
   resolveLocationAlias,
   resolvePropertyTypeAlias,

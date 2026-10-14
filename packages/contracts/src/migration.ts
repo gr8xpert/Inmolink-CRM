@@ -16,14 +16,25 @@ const LegacyItem = {
  * What the legacy dump is reduced to before import (ADR 0006: extract from a dump, never the live database).
  * The extractor for the real dump (H1) writes this shape; the importer needs nothing else from the dump.
  */
-export const LegacyTaxonomyExtract = z.object({
-  locations: z
-    .array(z.object({ ...LegacyItem, parentId: LegacyId.nullable().default(null) }))
-    .max(100_000)
-    .default([]),
-  propertyTypes: z.array(z.object(LegacyItem)).max(10_000).default([]),
-  features: z.array(z.object(LegacyItem)).max(10_000).default([]),
-});
+export const LegacyTaxonomyExtract = z
+  .object({
+    locations: z
+      .array(z.object({ ...LegacyItem, parentId: LegacyId.nullable().default(null) }))
+      .max(100_000)
+      .default([]),
+    propertyTypes: z.array(z.object(LegacyItem)).max(10_000).default([]),
+    features: z.array(z.object(LegacyItem)).max(10_000).default([]),
+  })
+  .superRefine((x, ctx) => {
+    // A legacy ID appears once per kind: two rows with one ID cannot both be mapped.
+    for (const kind of ['locations', 'propertyTypes', 'features'] as const) {
+      const seen = new Set<string>();
+      x[kind].forEach((item, i) => {
+        if (seen.has(item.id)) ctx.addIssue({ code: 'custom', path: [kind, i, 'id'], message: 'duplicate legacy id' });
+        seen.add(item.id);
+      });
+    }
+  });
 export type LegacyTaxonomyExtract = z.infer<typeof LegacyTaxonomyExtract>;
 
 export const LEGACY_UNMAPPED_REASONS = [
@@ -35,6 +46,8 @@ export const LEGACY_UNMAPPED_REASONS = [
   'ambiguous',
   /** A close candidate exists but below the accept threshold; staff decide. */
   'low_confidence',
+  /** The match does not sit under the location the legacy parent maps to; the candidate is that match. */
+  'parent_mismatch',
 ] as const;
 export type LegacyUnmappedReason = (typeof LEGACY_UNMAPPED_REASONS)[number];
 

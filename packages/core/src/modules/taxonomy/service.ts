@@ -204,3 +204,29 @@ export async function resolveFeatureAlias(ctx: Ctx, spelling: string): Promise<F
     ? { id: row.id, groupId: row.groupId, key: row.key, name: row.name, slug: row.slug, icon: row.icon ?? '' }
     : null;
 }
+
+/** Ancestors of each location (parent, grandparent, …); for imports that check a legacy parent (S2-06). */
+export const locationAncestors = (tx: Tx, ids: string[]) => repo.locationAncestors(tx, ids);
+
+const ALIAS_ENTITY = { location: 'locationAlias', propertyType: 'propertyTypeAlias', feature: 'featureAlias' } as const;
+
+/**
+ * Bulk alias write for imports (S2-06): one insert per 1,000 spellings, one queue update, one change event.
+ * The owners must exist (callers pass resolver results). A spelling owned already is skipped and returned
+ * with its owner, never an error, so one clash does not abort the import.
+ */
+export async function importAliases(
+  tx: Tx,
+  kind: repo.ResolveKind,
+  rows: readonly { ownerId: string; alias: string }[],
+): Promise<{ inserted: Set<string>; owners: Map<string, string> }> {
+  const byKey = new Map<string, { id: string; ownerId: string; alias: string; aliasKey: string }>();
+  for (const r of rows) {
+    const key = aliasKey(r.alias);
+    if (key && !byKey.has(key)) byKey.set(key, { id: newId(), ownerId: r.ownerId, alias: r.alias, aliasKey: key });
+  }
+  const result = await repo.insertAliasesBulk(tx, kind, [...byKey.values()]);
+  const first = [...byKey.values()].find((r) => result.inserted.has(r.aliasKey));
+  if (first) await changed(tx, ALIAS_ENTITY[kind], first.id);
+  return result;
+}

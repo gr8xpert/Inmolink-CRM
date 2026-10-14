@@ -5,7 +5,9 @@
  *
  * Nothing is invented or guessed: the v2 taxonomy is curated, so a legacy row with no confident match is
  * not created as new data; it is listed in the report with a reason for staff (who map it, then re-run: the
- * run is idempotent). Writes take the `tx` of a `withSystem()` call (reference data, like taxonomy admin).
+ * run is idempotent). Writes take the `tx` of a `withSystem()` call (reference data, like taxonomy admin):
+ * the only caller is the operator script, so there is no `ctx` and no policy check. Staff-set maps
+ * (`method = 'manual'`) are never overwritten.
  */
 import type { LegacyTaxonomyExtract, LegacyTaxonomyReport, LegacyUnmappedReason } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
@@ -22,12 +24,6 @@ export type ImportOptions = {
 };
 
 type Item = { id: string; name: string; names: Record<string, string>; aliases: string[]; parentId?: string | null };
-
-const ADD_ALIAS: Record<Entity, (tx: Tx, id: string, alias: string) => Promise<string>> = {
-  location: taxonomy.addLocationAlias,
-  propertyType: taxonomy.addPropertyTypeAlias,
-  feature: taxonomy.addFeatureAlias,
-};
 
 /** A spelling shared by two canonical entries resolves "unmatched" with a candidate at confidence 1. */
 const isAmbiguous = (r: Resolution) => r.status === 'unmatched' && r.candidate?.confidence === 1;
@@ -75,7 +71,16 @@ function legacyDepths(items: readonly Item[]): Map<string, number> {
   return depth;
 }
 
-type Mapped = { item: Item; targetId: string; via: Resolution; byKey: Map<string, Resolution> };
+type Mapped = { item: Item; targetId: string; via: Resolution };
+
+const unmappedReason = (best: Resolution[], invalid: boolean): LegacyUnmappedReason =>
+  invalid
+    ? 'invalid'
+    : best.some(isAmbiguous)
+      ? 'ambiguous'
+      : best.some((r) => r.candidate)
+        ? 'low_confidence'
+        : 'no_match';
 
 async function mapEntity(
   tx: Tx,
@@ -97,67 +102,105 @@ async function mapEntity(
     resolved.set(keys[i] as string, r);
   });
 
+  // Locations go level by level, so a parent is mapped before its children are checked against it.
+  // Depth 0 = invalid (missing parent or cycle); non-locations are one level.
   const depths = entity === 'location' ? legacyDepths(items) : null;
-  const order = depths ? [...items].sort((a, b) => (depths.get(a.id) ?? 99) - (depths.get(b.id) ?? 99)) : [...items];
-  const targetOf = new Map<string, string>(); // legacy id → v2 id (locations: parents for child hints)
-  const unmappedIds = new Set<string>();
+  const levels = new Map<number, Item[]>();
+  for (const item of items) {
+    const d = depths ? (depths.get(item.id) ?? 0) : 1;
+    levels.set(d, [...(levels.get(d) ?? []), item]);
+  }
+  const targetOf = new Map<string, string>(); // legacy id → v2 id
   const mapped: Mapped[] = [];
+  const unmapped = (item: Item, best: Resolution[], reason: LegacyUnmappedReason) => {
+    counts.unmapped++;
+    const cand = best.find((r) => r.candidate)?.candidate ?? null;
+    report.unmapped.push({
+      entity,
+      legacyId: item.id,
+      name: item.name,
+      reason,
+      candidateId: cand?.id ?? null,
+      candidateScore: cand ? Number(cand.confidence.toFixed(3)) : null,
+      parentUnmapped: item.parentId != null && !targetOf.has(item.parentId),
+    });
+  };
 
-  // A location whose spelling did not resolve alone (a shared name) is retried under its mapped parent.
-  for (const item of order) {
-    const sp = spellings(item);
-    let own = new Map<string, Resolution>(sp.map((s) => [s.key, resolved.get(s.key) as Resolution]));
-    const primary = sp[0];
-    const parentTarget = item.parentId ? targetOf.get(item.parentId) : undefined;
-    if (primary && own.get(primary.key)?.id == null && parentTarget) {
-      const hinted = await taxonomy.resolveMany(
-        tx,
-        'location',
-        sp.map((s) => s.text),
-        { parentId: parentTarget },
-      );
-      own = new Map(sp.map((s, i) => [s.key, hinted[i] as Resolution]));
+  for (const depth of [...levels.keys()].sort((x, y) => x - y)) {
+    const level = levels.get(depth) as Item[];
+    const own = new Map<string, Resolution[]>(
+      level.map((item) => [item.id, spellings(item).map((s) => resolved.get(s.key) as Resolution)]),
+    );
+    // A shared location name is retried under the mapped legacy parent: one call per distinct parent.
+    const retry = new Map<string, Item[]>();
+    for (const item of level) {
+      const parentTarget = item.parentId ? targetOf.get(item.parentId) : undefined;
+      const primary = own.get(item.id)?.[0];
+      if (depths && depth > 0 && parentTarget && primary && isAmbiguous(primary)) {
+        retry.set(parentTarget, [...(retry.get(parentTarget) ?? []), item]);
+      }
     }
-    const best = sp.map((s) => own.get(s.key) as Resolution);
-    const via =
-      best.find((r, i) => r.status === 'exact' && i === 0) ??
-      best.find((r) => r.status === 'exact') ??
-      best.find((r) => r.status === 'fuzzy');
-    const invalid = sp.length === 0 || (depths !== null && !depths.has(item.id));
-    if (!via || !via.id || invalid) {
-      counts.unmapped++;
-      unmappedIds.add(item.id);
-      const cand = best.find((r) => r.candidate)?.candidate ?? null;
-      const reason: LegacyUnmappedReason = invalid
-        ? 'invalid'
-        : best.some(isAmbiguous)
-          ? 'ambiguous'
-          : cand
-            ? 'low_confidence'
-            : 'no_match';
-      report.unmapped.push({
-        entity,
-        legacyId: item.id,
-        name: item.name,
-        reason,
-        candidateId: cand?.id ?? null,
-        candidateScore: cand ? Number(cand.confidence.toFixed(3)) : null,
-        parentUnmapped: item.parentId != null && (unmappedIds.has(item.parentId) || !targetOf.has(item.parentId)),
-      });
-      continue;
+    for (const [parentId, group] of retry) {
+      const texts = group.flatMap((item) => spellings(item).map((s) => s.text));
+      const hinted = await taxonomy.resolveMany(tx, 'location', texts, { parentId });
+      let i = 0;
+      for (const item of group) {
+        const n = spellings(item).length;
+        own.set(item.id, hinted.slice(i, i + n));
+        i += n;
+      }
     }
-    counts.mapped++;
-    if (via.status === 'exact') counts.exact++;
-    else counts.fuzzy++;
-    targetOf.set(item.id, via.id);
-    mapped.push({ item, targetId: via.id, via, byKey: own });
+
+    const candidates: Mapped[] = [];
+    for (const item of level) {
+      const best = own.get(item.id) as Resolution[];
+      const invalid = best.length === 0 || (depths !== null && depth === 0);
+      const primary = best[0];
+      // An ambiguous primary name is never settled by a fuzzy secondary spelling.
+      const via =
+        invalid || !primary
+          ? undefined
+          : primary.status === 'exact'
+            ? primary
+            : isAmbiguous(primary)
+              ? undefined
+              : (best.find((r) => r.status === 'exact') ?? best.find((r) => r.status === 'fuzzy'));
+      if (!via?.id) unmapped(item, best, unmappedReason(best, invalid));
+      else candidates.push({ item, targetId: via.id, via });
+    }
+
+    // The match must sit under the location the legacy parent maps to (any ancestor: legacy trees skip levels).
+    const checked = depths ? candidates.filter((c) => c.item.parentId && targetOf.has(c.item.parentId)) : [];
+    const ancestors = await taxonomy.locationAncestors(
+      tx,
+      checked.map((c) => c.targetId),
+    );
+    for (const c of candidates) {
+      const parentTarget = depths && c.item.parentId ? targetOf.get(c.item.parentId) : undefined;
+      if (parentTarget && !ancestors.get(c.targetId)?.has(parentTarget)) {
+        const hint: Resolution = {
+          status: 'unmatched',
+          id: null,
+          confidence: 0,
+          candidate: { id: c.targetId, confidence: c.via.confidence },
+        };
+        unmapped(c.item, [hint], 'parent_mismatch');
+        continue;
+      }
+      counts.mapped++;
+      if (c.via.status === 'exact') counts.exact++;
+      else counts.fuzzy++;
+      targetOf.set(c.item.id, c.targetId);
+      mapped.push(c);
+    }
   }
 
-  // Aliases: every legacy spelling that does not already resolve to its target.
+  // Aliases: every legacy spelling that does not already resolve (globally, without hints) to its target.
   const claimed = new Map<string, string>(); // alias key → owner (this run)
+  const toWrite: { ownerId: string; alias: string; legacyId: string; key: string }[] = [];
   for (const m of mapped) {
     for (const s of spellings(m.item)) {
-      const res = m.byKey.get(s.key) as Resolution;
+      const res = resolved.get(s.key) as Resolution;
       if (res.status === 'exact') {
         if (res.id !== m.targetId) {
           report.aliasConflicts.push({ entity, legacyId: m.item.id, spelling: s.text, ownerId: res.id as string });
@@ -173,12 +216,23 @@ async function mapEntity(
         continue;
       }
       claimed.set(s.key, m.targetId);
-      if (!opts.dryRun) await ADD_ALIAS[entity](tx, m.targetId, s.text);
-      report.aliasesAdded++;
+      toWrite.push({ ownerId: m.targetId, alias: s.text, legacyId: m.item.id, key: s.key });
+    }
+  }
+  if (opts.dryRun) report.aliasesAdded += toWrite.length;
+  else if (toWrite.length > 0) {
+    // One bulk write; a spelling someone else owns comes back as a conflict, never aborts the run.
+    const { inserted, owners } = await taxonomy.importAliases(tx, kind, toWrite);
+    report.aliasesAdded += inserted.size;
+    for (const w of toWrite) {
+      const owner = owners.get(w.key);
+      if (!inserted.has(w.key) && owner !== w.ownerId) {
+        report.aliasConflicts.push({ entity, legacyId: w.legacyId, spelling: w.alias, ownerId: owner ?? '' });
+      }
     }
   }
 
-  // legacy_id_maps: upsert; a map that pointed elsewhere is replaced and counted.
+  // legacy_id_maps: upsert (manual maps kept); a map that pointed elsewhere is replaced and counted.
   const before = await repo.getMaps(
     tx,
     entity,
@@ -186,7 +240,7 @@ async function mapEntity(
   );
   report.remapped += mapped.filter((m) => {
     const prev = before.get(m.item.id);
-    return prev !== undefined && prev !== m.targetId;
+    return prev !== undefined && prev.method !== 'manual' && prev.newId !== m.targetId;
   }).length;
   if (!opts.dryRun) {
     await repo.upsertMaps(

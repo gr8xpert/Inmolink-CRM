@@ -10,19 +10,26 @@ export type MapEntity = 'location' | 'propertyType' | 'feature';
 export type IdMapRow = { id: string; legacyId: string; newId: string; method: string };
 
 /** Current maps of the given legacy IDs of one entity (one statement per chunk). */
-export async function getMaps(tx: Tx, entity: MapEntity, legacyIds: readonly string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+export async function getMaps(
+  tx: Tx,
+  entity: MapEntity,
+  legacyIds: readonly string[],
+): Promise<Map<string, { newId: string; method: string }>> {
+  const out = new Map<string, { newId: string; method: string }>();
   for (let i = 0; i < legacyIds.length; i += 1000) {
     const rows = await tx
-      .select({ legacyId: legacyIdMaps.legacyId, newId: legacyIdMaps.newId })
+      .select({ legacyId: legacyIdMaps.legacyId, newId: legacyIdMaps.newId, method: legacyIdMaps.method })
       .from(legacyIdMaps)
       .where(and(eq(legacyIdMaps.entity, entity), inArray(legacyIdMaps.legacyId, legacyIds.slice(i, i + 1000))));
-    for (const r of rows) out.set(r.legacyId, r.newId);
+    for (const r of rows) out.set(r.legacyId, { newId: r.newId, method: r.method });
   }
   return out;
 }
 
-/** Idempotent: a re-run with the same pair changes nothing visible; a moved target is replaced. */
+/**
+ * Idempotent: a re-run with the same pair changes nothing visible; a moved target is replaced. A staff-set
+ * map (`method = 'manual'`) is never overwritten.
+ */
 export async function upsertMaps(tx: Tx, entity: MapEntity, rows: readonly IdMapRow[]): Promise<void> {
   for (let i = 0; i < rows.length; i += 1000) {
     await tx
@@ -31,6 +38,7 @@ export async function upsertMaps(tx: Tx, entity: MapEntity, rows: readonly IdMap
       .onConflictDoUpdate({
         target: [legacyIdMaps.entity, legacyIdMaps.legacyId],
         set: { newId: sql`excluded.new_id`, method: sql`excluded.method`, updatedAt: sql`now()` },
+        setWhere: sql`${legacyIdMaps.method} <> 'manual'`,
       });
   }
 }
