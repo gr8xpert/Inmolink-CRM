@@ -9,4 +9,6 @@ export const taxonomyErrors = [
   'TAXONOMY_NOT_FOUND',
   'TAXONOMY_KEY_TAKEN',
   'TAXONOMY_ALIAS_TAKEN',
+  'LOCATION_POLYGON_INVALID',
+  'TAXONOMY_ORDER_INVALID',
 ] as const satisfies readonly ErrorCode[];

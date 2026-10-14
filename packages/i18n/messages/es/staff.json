@@ -6,7 +6,70 @@
     "tenants": "Agencias",
     "verification": "Cola de verificación",
     "audit": "Registro de auditoría",
-    "sessions": "Sesiones activas"
+    "sessions": "Sesiones activas",
+    "taxonomy": "Taxonomía"
+  },
+  "taxonomy": {
+    "title": "Taxonomía",
+    "intro": "Ubicaciones, tipos de propiedad y características comunes a todas las agencias. Los cambios llegan a la API del sitio web en menos de un minuto.",
+    "readOnly": "Solo puedes consultar: la taxonomía la editan operaciones de datos y los superadministradores.",
+    "tabs": { "locations": "Ubicaciones", "propertyTypes": "Tipos de propiedad", "features": "Características" },
+    "selectPrompt": "Selecciona un elemento para editar sus traducciones, alias y zona.",
+    "loading": "Cargando…",
+    "saved": "Guardado.",
+    "save": "Guardar",
+    "tree": "Árbol",
+    "levels": { "COUNTRY": "País", "REGION": "Región", "CITY": "Ciudad", "AREA": "Zona" },
+    "addRoot": "Añadir un país",
+    "addChild": "Añadir {level}",
+    "createTitle": "Nuevo elemento: {level}",
+    "create": "Crear",
+    "cancel": "Cancelar",
+    "moveUp": "Subir {name}",
+    "moveDown": "Bajar {name}",
+    "dragHint": "Arrastra para reordenar, o usa las flechas.",
+    "noChildren": "Aún no hay nada aquí.",
+    "translations": {
+      "title": "Traducciones",
+      "locale": "Idioma",
+      "name": "Nombre",
+      "slug": "Slug de la URL",
+      "add": "Añadir idioma",
+      "remove": "Quitar {locale}",
+      "save": "Guardar traducciones"
+    },
+    "code": "Código",
+    "aliases": {
+      "title": "Alias de feeds",
+      "hint": "Grafías que usan los feeds para este elemento. Cada grafía apunta a un solo elemento.",
+      "placeholder": "p. ej. Milla de Oro",
+      "add": "Añadir alias",
+      "remove": "Quitar alias {alias}",
+      "empty": "Sin alias."
+    },
+    "polygon": {
+      "title": "Zona en el mapa",
+      "hint": "Haz clic para colocar vértices y doble clic para terminar. Arrastra los vértices para ajustar.",
+      "draw": "Dibujar zona",
+      "clear": "Quitar zona",
+      "save": "Guardar zona",
+      "none": "Aún no hay zona dibujada.",
+      "unavailable": "No se pudo cargar el mapa."
+    },
+    "errors": {
+      "LOCATION_SLUG_TAKEN": "Otro elemento del mismo padre ya usa este slug en este idioma.",
+      "LOCATION_ALIAS_TAKEN": "Esta grafía ya apunta a otro elemento.",
+      "TAXONOMY_ALIAS_TAKEN": "Esta grafía ya apunta a otro elemento.",
+      "TAXONOMY_KEY_TAKEN": "Este slug ya se usa en este idioma.",
+      "LOCATION_POLYGON_INVALID": "La zona se cruza consigo misma. Dibújala sin líneas que se crucen.",
+      "LOCATION_PARENT_INVALID": "Ese padre no está un nivel por encima.",
+      "TAXONOMY_ORDER_INVALID": "La lista cambió mientras tanto. Recarga e inténtalo de nuevo.",
+      "LOCATION_NOT_FOUND": "Este elemento ya no existe.",
+      "TAXONOMY_NOT_FOUND": "Este elemento ya no existe.",
+      "VALIDATION_FAILED": "Revisa los campos: nombre y slug son obligatorios; el slug usa minúsculas, dígitos y guiones.",
+      "FORBIDDEN": "No puedes modificar la taxonomía.",
+      "generic": "Algo salió mal. Inténtalo de nuevo."
+    }
   },
   "roles": {
     "SUPER_ADMIN": "Superadministrador",

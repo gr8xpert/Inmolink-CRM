@@ -6,7 +6,70 @@
     "tenants": "Agencies",
     "verification": "Verification queue",
     "audit": "Audit log",
-    "sessions": "Live sessions"
+    "sessions": "Live sessions",
+    "taxonomy": "Taxonomy"
+  },
+  "taxonomy": {
+    "title": "Taxonomy",
+    "intro": "Locations, property types and features shared by every agency. Changes reach the website API within a minute.",
+    "readOnly": "You can look but not change: taxonomy is edited by data operations and super admins.",
+    "tabs": { "locations": "Locations", "propertyTypes": "Property types", "features": "Features" },
+    "selectPrompt": "Select an item to edit its translations, aliases and area.",
+    "loading": "Loading…",
+    "saved": "Saved.",
+    "save": "Save",
+    "tree": "Tree",
+    "levels": { "COUNTRY": "Country", "REGION": "Region", "CITY": "City", "AREA": "Area" },
+    "addRoot": "Add a country",
+    "addChild": "Add {level}",
+    "createTitle": "New {level}",
+    "create": "Create",
+    "cancel": "Cancel",
+    "moveUp": "Move {name} up",
+    "moveDown": "Move {name} down",
+    "dragHint": "Drag to reorder, or use the arrows.",
+    "noChildren": "Nothing here yet.",
+    "translations": {
+      "title": "Translations",
+      "locale": "Language",
+      "name": "Name",
+      "slug": "URL slug",
+      "add": "Add language",
+      "remove": "Remove {locale}",
+      "save": "Save translations"
+    },
+    "code": "Code",
+    "aliases": {
+      "title": "Feed aliases",
+      "hint": "Spellings that feeds use for this item. Each spelling maps to one item.",
+      "placeholder": "e.g. Milla de Oro",
+      "add": "Add alias",
+      "remove": "Remove alias {alias}",
+      "empty": "No aliases."
+    },
+    "polygon": {
+      "title": "Area on the map",
+      "hint": "Click to place corners, double-click to finish. Drag corners to adjust.",
+      "draw": "Draw area",
+      "clear": "Remove area",
+      "save": "Save area",
+      "none": "No area drawn yet.",
+      "unavailable": "The map could not be loaded."
+    },
+    "errors": {
+      "LOCATION_SLUG_TAKEN": "Another item under the same parent already uses this URL slug in this language.",
+      "LOCATION_ALIAS_TAKEN": "This spelling already maps to another item.",
+      "TAXONOMY_ALIAS_TAKEN": "This spelling already maps to another item.",
+      "TAXONOMY_KEY_TAKEN": "This URL slug is already used in this language.",
+      "LOCATION_POLYGON_INVALID": "The area crosses itself. Redraw it without crossing lines.",
+      "LOCATION_PARENT_INVALID": "That parent is not one level above.",
+      "TAXONOMY_ORDER_INVALID": "The list changed meanwhile. Reload and try again.",
+      "LOCATION_NOT_FOUND": "This item no longer exists.",
+      "TAXONOMY_NOT_FOUND": "This item no longer exists.",
+      "VALIDATION_FAILED": "Check the fields: names and slugs are required, slugs use lowercase letters, digits and dashes.",
+      "FORBIDDEN": "You may not change the taxonomy.",
+      "generic": "Something went wrong. Try again."
+    }
   },
   "roles": {
     "SUPER_ADMIN": "Super admin",

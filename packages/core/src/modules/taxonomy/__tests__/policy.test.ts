@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Ctx } from '../../../context';
-import { CLIENT_MODE_ALLOWED, can } from '../policy';
+import type { Ctx, StaffCtx } from '../../../context';
+import { CLIENT_MODE_ALLOWED, can, canStaff } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -32,5 +32,23 @@ describe('taxonomy policy', () => {
   it('Client Mode is read-only (PATTERNS §6): only read actions are allowed, and they still work', () => {
     for (const action of CLIENT_MODE_ALLOWED) expect(action).toMatch(/\.(read|list|get)$/);
     expect(can({ ...user, clientMode: true }, 'taxonomy.read')).toBe(true);
+  });
+});
+
+describe('taxonomy staff policy', () => {
+  const staffCtx = (role: StaffCtx['actor']['role']): StaffCtx => ({
+    tx: {} as StaffCtx['tx'],
+    actor: { kind: 'staff', userId: '01900000-0000-7000-8000-0000000000bb', role },
+    locale: 'en',
+    requestId: 'test',
+  });
+
+  it('[S2-04] every staff role reads; only super admins and data ops write', () => {
+    for (const role of ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS'] as const) {
+      expect(canStaff(staffCtx(role), 'staff.taxonomy.read')).toBe(true);
+    }
+    expect(canStaff(staffCtx('SUPER_ADMIN'), 'staff.taxonomy.write')).toBe(true);
+    expect(canStaff(staffCtx('STAFF_DATA_OPS'), 'staff.taxonomy.write')).toBe(true);
+    expect(canStaff(staffCtx('STAFF_SUPPORT'), 'staff.taxonomy.write')).toBe(false);
   });
 });

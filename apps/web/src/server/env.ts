@@ -43,6 +43,8 @@ export const webEnv = {
   ...webUrlEnv,
   /** Dashboard API base URL for server-side calls. */
   API_URL: z.url().transform((v) => v.replace(/\/+$/, '')),
+  /** MapLibre style for the staff taxonomy editor's polygon map (S2-04). The default is MapLibre's demo style; set a real one in production. */
+  MAP_STYLE_URL: z.url().default('https://demotiles.maplibre.org/style.json'),
   ...authSessionEnv,
   /** Login challenge once the per-email ceiling is reached (S1-F5); unset keeps the hard block. */
   ...turnstileEnv,

@@ -41,6 +41,8 @@ export const locations = pgTable(
     depth: smallint('depth').notNull(),
     /** Stable machine key (e.g. ISO code or import id); optional. */
     code: text('code'),
+    /** Position among siblings, set by staff drag-and-drop (S2-04); ties break on the localized name. */
+    sort: smallint('sort').notNull().default(0),
     centroid: point('centroid'),
     polygon: multiPolygon('polygon'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

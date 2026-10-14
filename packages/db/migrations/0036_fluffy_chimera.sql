@@ -1,0 +1,1 @@
+ALTER TABLE "locations" ADD COLUMN "sort" smallint DEFAULT 0 NOT NULL;

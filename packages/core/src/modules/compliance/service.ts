@@ -53,6 +53,7 @@ export const AUDIT_TYPES = [
   'staff.auditLog.read',
   'staff.tenant.read',
   'staff.members.read',
+  'staff.taxonomy.changed',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 

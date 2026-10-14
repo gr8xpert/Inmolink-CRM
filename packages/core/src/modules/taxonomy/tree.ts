@@ -80,9 +80,10 @@ async function loadLocations(tx: Tx, locale: ContentLocale): Promise<TaxonomyLoc
   const rows = await repo.localizedLocations(tx, locale);
   const groups = await repo.localizedLocationGroups(tx, locale);
 
-  // Siblings sorted by name in the locale's collation; the depth CHECK and parent FK guarantee the tree.
+  // Siblings in staff order (`sort`, S2-04), then by name in the locale's collation; the depth CHECK and
+  // parent FK guarantee the tree.
   const collator = new Intl.Collator(locale);
-  rows.sort((a, b) => collator.compare(a.name, b.name) || (a.id < b.id ? -1 : 1));
+  rows.sort((a, b) => a.sort - b.sort || collator.compare(a.name, b.name) || (a.id < b.id ? -1 : 1));
   const nodes = new Map<string, Node>();
   for (const r of rows) {
     const { id, level, code, name, slug } = r;
@@ -144,6 +145,14 @@ export async function getTaxonomyDocument(ctx: Ctx): Promise<Tagged<TaxonomyDto>
   const locations = await locationsOf(locale, ctx.tx);
   const catalog = await catalogOf(locale, ctx.tx);
   return { etag: etagFor(locations.etag + catalog.etag), body: { ...locations.body, ...catalog.body } };
+}
+
+/**
+ * The whole taxonomy straight from the database, for the staff editor (S2-04): it must show an edit the
+ * moment it is saved, not after the cache tag is bumped. Staff-only and rare, so it skips the cache.
+ */
+export async function loadTaxonomyFresh(tx: Tx, locale: ContentLocale): Promise<TaxonomyDto> {
+  return { ...(await loadLocations(tx, locale)), ...(await loadCatalog(tx, locale)) };
 }
 
 /** The whole localized taxonomy, for other modules. ≤ 3 statements cold, none warm. */

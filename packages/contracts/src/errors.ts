@@ -93,6 +93,11 @@ export const ErrorCodes = {
   TAXONOMY_KEY_TAKEN: 409,
   /** The spelling already maps to another property type or feature. */
   TAXONOMY_ALIAS_TAKEN: 409,
+  // taxonomy: staff admin (S2-04)
+  /** The drawn polygon is not a valid, non-self-intersecting area. */
+  LOCATION_POLYGON_INVALID: 422,
+  /** The ids do not match exactly the siblings (or group members) being ordered. */
+  TAXONOMY_ORDER_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

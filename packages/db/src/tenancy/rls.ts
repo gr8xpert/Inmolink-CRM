@@ -74,6 +74,7 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     }
   } else {
     if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
+    if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
   }
 }
@@ -90,7 +91,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_system: DML,
       app_public: def.publicRead ? ['SELECT'] : [],
       app_auth: [],
-      app_staff: [],
+      app_staff: def.staffWrite ? DML : [],
     };
   }
   const user: Privilege[] = def.appendOnly ? ['INSERT'] : def.immutable ? APPEND_READ : DML;
@@ -134,7 +135,19 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
         { name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] },
       ];
     }
-    return [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
+    const read: PolicySpec = {
+      name: 'global_read',
+      cmd: 'SELECT',
+      roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'],
+    };
+    if (!def.staffWrite) return [read];
+    return [
+      read,
+      { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] },
+      { name: 'staff_insert', cmd: 'INSERT', roles: ['app_staff'] },
+      { name: 'staff_update', cmd: 'UPDATE', roles: ['app_staff'] },
+      { name: 'staff_delete', cmd: 'DELETE', roles: ['app_staff'] },
+    ];
   }
   const out: PolicySpec[] = def.userSelect
     ? [
@@ -366,11 +379,23 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
     ];
   }
   const readers = def.publicRead ? 'app_user, app_public' : 'app_user';
+  const staffWrite = def.staffWrite
+    ? [
+        // Reference data edited by the staff console (S2-04): any active staff member at the database level;
+        // which staff role may write is the service's policy (`staff.taxonomy.write`).
+        `create policy staff_select on ${t} for select to app_staff using (app_is_staff());`,
+        `create policy staff_insert on ${t} for insert to app_staff with check (app_is_staff());`,
+        `create policy staff_update on ${t} for update to app_staff using (app_is_staff()) with check (app_is_staff());`,
+        `create policy staff_delete on ${t} for delete to app_staff using (app_is_staff());`,
+        `grant select, insert, update, delete on table ${t} to app_staff;`,
+      ]
+    : [];
   return [
     `create policy global_read on ${t} for select to ${readers} using (true);`,
     `revoke all on table ${t} from ${APP_ROLES};`,
     `grant select on table ${t} to ${readers};`,
     `grant select, insert, update, delete on table ${t} to app_system;`,
+    ...staffWrite,
   ];
 }
 

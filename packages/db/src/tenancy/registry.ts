@@ -159,6 +159,12 @@ export interface GlobalTable {
    */
   access?: 'auth' | 'staff';
   /**
+   * Reference data the staff console edits (S2-04, e.g. the location tree): `app_staff` may SELECT, INSERT,
+   * UPDATE and DELETE every row, gated by `app_is_staff()` (an active staff member). Which staff role may
+   * write is the module's policy; `app_system` and the readers are unchanged. Not for `access` tables.
+   */
+  staffWrite?: true;
+  /**
    * `access: 'auth'` only: `app_auth` reaches only the rows of the user its flow is scoped to
    * (`user_id = app_user_id()`, set by `setAuthScope`) — for per-user secrets such as 2FA (S1-04), so
    * no other auth flow can read or change another user's factor.
@@ -184,7 +190,9 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     appendOnly: true,
     authAppend: { column: 'type', prefix: 'identity.' },
-    staff: { insert: `starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid` },
+    staff: {
+      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
+    },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
   // unconfirmed email may rename it while it is still PENDING and not onboarded. Status changes are
@@ -378,24 +386,34 @@ export const globalTables: Record<string, GlobalTable> = {
   locations: {
     reason: 'platform location tree shared by every agency',
     publicRead: true,
+    staffWrite: true,
     base: { level: 'COUNTRY', depth: 1 },
   },
-  location_translations: { reason: 'names and slugs of locations', publicRead: true },
-  location_aliases: { reason: 'feed spellings mapped to canonical locations', publicRead: true },
-  location_groups: { reason: 'curated location groups such as Costa del Sol', publicRead: true },
-  location_group_translations: { reason: 'names and slugs of location groups', publicRead: true },
-  location_group_members: { reason: 'members of location groups', publicRead: true },
+  location_translations: { reason: 'names and slugs of locations', publicRead: true, staffWrite: true },
+  location_aliases: { reason: 'feed spellings mapped to canonical locations', publicRead: true, staffWrite: true },
+  location_groups: { reason: 'curated location groups such as Costa del Sol', publicRead: true, staffWrite: true },
+  location_group_translations: { reason: 'names and slugs of location groups', publicRead: true, staffWrite: true },
+  location_group_members: { reason: 'members of location groups', publicRead: true, staffWrite: true },
   // Property types and features (S2-02): shared reference data, written via withSystem().
-  property_type_groups: { reason: 'property type groups (Apartment, House, …)', publicRead: true },
-  property_type_group_translations: { reason: 'names and slugs of property type groups', publicRead: true },
-  property_types: { reason: 'platform property types', publicRead: true },
-  property_type_translations: { reason: 'names and slugs of property types', publicRead: true },
-  property_type_aliases: { reason: 'feed spellings mapped to property types', publicRead: true },
-  feature_groups: { reason: 'feature groups (Pool, Security, …)', publicRead: true },
-  feature_group_translations: { reason: 'names and slugs of feature groups', publicRead: true },
-  features: { reason: 'platform features with Lucide icon names', publicRead: true, base: { icon: 'waves' } },
-  feature_translations: { reason: 'names and slugs of features', publicRead: true },
-  feature_aliases: { reason: 'feed spellings mapped to features', publicRead: true },
+  property_type_groups: { reason: 'property type groups (Apartment, House, …)', publicRead: true, staffWrite: true },
+  property_type_group_translations: {
+    reason: 'names and slugs of property type groups',
+    publicRead: true,
+    staffWrite: true,
+  },
+  property_types: { reason: 'platform property types', publicRead: true, staffWrite: true },
+  property_type_translations: { reason: 'names and slugs of property types', publicRead: true, staffWrite: true },
+  property_type_aliases: { reason: 'feed spellings mapped to property types', publicRead: true, staffWrite: true },
+  feature_groups: { reason: 'feature groups (Pool, Security, …)', publicRead: true, staffWrite: true },
+  feature_group_translations: { reason: 'names and slugs of feature groups', publicRead: true, staffWrite: true },
+  features: {
+    reason: 'platform features with Lucide icon names',
+    publicRead: true,
+    staffWrite: true,
+    base: { icon: 'waves' },
+  },
+  feature_translations: { reason: 'names and slugs of features', publicRead: true, staffWrite: true },
+  feature_aliases: { reason: 'feed spellings mapped to features', publicRead: true, staffWrite: true },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

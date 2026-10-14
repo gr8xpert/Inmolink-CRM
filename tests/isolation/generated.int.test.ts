@@ -660,7 +660,39 @@ describe.each(globalNames)('global table %s', (table) => {
     });
   }
 
-  if (def?.access !== 'staff') {
+  if (def?.staffWrite) {
+    it(`[S2-04] ${table}: staffWrite — active staff read and change it; app_staff for a non-staff user gets nothing`, async () => {
+      // Positive controls, each rolled back (an UPDATE gives the row a new ctid): an active staff member reads,
+      // updates and deletes the row.
+      const rolledBackStaff = (fn: (tx: Tx) => Promise<void>) =>
+        asStaff(async (tx) => {
+          await fn(tx);
+          throw new Rollback();
+        }).catch((err) => {
+          if (!(err instanceof Rollback)) throw err;
+        });
+      expect(await asStaff(seen)).toBe(1);
+      await rolledBackStaff(async (tx) => {
+        const up = await tx.execute(
+          sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,
+        );
+        expect(up.rowCount).toBe(1);
+      });
+      await rolledBackStaff(async (tx) => {
+        const del = await tx.execute(sql`delete from ${sql.identifier(table)} where ctid = ${ctid}::tid`);
+        expect(del.rowCount).toBe(1);
+      });
+      // `app_is_staff()` is false: no row is visible or changeable, and inserts fail the policy.
+      expect(await asNotStaff(seen)).toBe(0);
+      const none = await asNotStaff((tx) =>
+        tx.execute(
+          sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,
+        ),
+      );
+      expect(none.rowCount).toBe(0);
+      await expectSqlState(() => asNotStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);
+    });
+  } else if (def?.access !== 'staff') {
     it(`[S1-03] ${table}: app_staff cannot read or write it`, async () => {
       await expectSqlState(() => asStaff(seen), DENIED);
       await expectSqlState(() => asStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);

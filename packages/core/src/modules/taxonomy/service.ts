@@ -42,7 +42,7 @@ function pgCode(err: unknown): string | undefined {
   return e?.cause?.code ?? e?.code;
 }
 
-async function uniqueOr<T>(
+export async function uniqueOr<T>(
   fn: () => Promise<T>,
   code: 'LOCATION_SLUG_TAKEN' | 'LOCATION_ALIAS_TAKEN' | 'TAXONOMY_KEY_TAKEN' | 'TAXONOMY_ALIAS_TAKEN',
 ): Promise<T> {
@@ -55,7 +55,7 @@ async function uniqueOr<T>(
 }
 
 /** Every write ends here: same transaction, so the event exists if and only if the write commits. */
-async function changed(tx: Tx, entity: TaxonomyEntity, id: string): Promise<string> {
+export async function changed(tx: Tx, entity: TaxonomyEntity, id: string): Promise<string> {
   await emit(tx, taxonomyEvents.changed({ entity, id }));
   return id;
 }

@@ -67,3 +67,13 @@ before any token is minted; `pnpm staff:grant` in production is no longer blocke
   (`staff.tenant.read`, `staff.members.read`, `staff.auditLog.read`). The API logs one
   `staff.impersonation.request` line (ids and route only) per impersonated request. Guard 0028 limits session
   starts to SUPER_ADMIN/STAFF_SUPPORT.
+
+## Amendment (S2-04, 2026-10-14): staff edit reference data
+
+- Global reference tables may be marked `staffWrite` in the registry (the location tree, location groups, property
+  types, features and their translations and aliases). The generator grants `app_staff` SELECT, INSERT, UPDATE and
+  DELETE on them, each policy gated by `app_is_staff()`; readers and `app_system` are unchanged. Which staff role may
+  write is the module's policy (`staff.taxonomy.write`: SUPER_ADMIN and STAFF_DATA_OPS). The HTTP process still never
+  uses `withSystem`.
+- `outbox_events`: staff may also append the platform (nil-agency) `taxonomy.data.changed` event, so a staff edit, its
+  cache-invalidation event and its `staff.taxonomy.changed` audit row commit in one transaction.

@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Next.js dashboard (agency, agent, developer, staff console).",
   "scripts": {
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
+    "predev": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev --port 3100",
     "start": "next start --port 3100",
     "typecheck": "next typegen && tsc --noEmit",
@@ -19,12 +21,15 @@
     "@inmolink/i18n": "workspace:*",
     "@inmolink/platform": "workspace:*",
     "@inmolink/ui": "workspace:*",
+    "maplibre-gl": "6.14.0",
     "next": "16.4.0",
     "next-auth": "5.0.0-beta.32",
     "next-intl": "4.14.9",
     "qrcode": "1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "terra-draw": "1.37.0",
+    "terra-draw-maplibre-gl-adapter": "1.5.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

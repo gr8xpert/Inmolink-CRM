@@ -1,4 +1,19 @@
 /** taxonomy — public API (PATTERNS §1). The only import path for other modules and apps. */
+
+export {
+  addStaffCatalogAlias,
+  addStaffLocationAlias,
+  createStaffLocation,
+  getStaffCatalogItem,
+  getStaffLocation,
+  getStaffTaxonomy,
+  removeStaffCatalogAlias,
+  removeStaffLocationAlias,
+  reorderStaffCatalog,
+  reorderStaffLocations,
+  updateStaffCatalogItem,
+  updateStaffLocation,
+} from './admin';
 export { taxonomyErrors } from './errors';
 export { TAXONOMY_ENTITIES, type TaxonomyEntity, taxonomyEvents } from './events';
 export { taxonomyJobs } from './jobs';

@@ -45,3 +45,6 @@ infra/ansible/inventories/*/group_vars/all/vault.yml
 .kamal/secrets*
 !.kamal/secrets.example
 restore-drill-*.json
+
+# MapLibre worker copied by scripts/copy-maplibre-worker.mjs (S2-04)
+apps/web/public/maplibre/

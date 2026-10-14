@@ -207,6 +207,11 @@ create policy global_read on public."feature_aliases" for select to app_user, ap
 revoke all on table public."feature_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_aliases" to app_system;
+create policy staff_select on public."feature_aliases" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."feature_aliases" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."feature_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."feature_aliases" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."feature_aliases" to app_staff;
 
 -- feature_flags: GLOBAL
 alter table public."feature_flags" enable row level security;
@@ -223,6 +228,11 @@ create policy global_read on public."feature_group_translations" for select to a
 revoke all on table public."feature_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_group_translations" to app_system;
+create policy staff_select on public."feature_group_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."feature_group_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."feature_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."feature_group_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."feature_group_translations" to app_staff;
 
 -- feature_groups: GLOBAL
 alter table public."feature_groups" enable row level security;
@@ -231,6 +241,11 @@ create policy global_read on public."feature_groups" for select to app_user, app
 revoke all on table public."feature_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_groups" to app_system;
+create policy staff_select on public."feature_groups" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."feature_groups" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."feature_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."feature_groups" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."feature_groups" to app_staff;
 
 -- feature_translations: GLOBAL
 alter table public."feature_translations" enable row level security;
@@ -239,6 +254,11 @@ create policy global_read on public."feature_translations" for select to app_use
 revoke all on table public."feature_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."feature_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_translations" to app_system;
+create policy staff_select on public."feature_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."feature_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."feature_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."feature_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."feature_translations" to app_staff;
 
 -- features: GLOBAL
 alter table public."features" enable row level security;
@@ -247,6 +267,11 @@ create policy global_read on public."features" for select to app_user, app_publi
 revoke all on table public."features" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."features" to app_user, app_public;
 grant select, insert, update, delete on table public."features" to app_system;
+create policy staff_select on public."features" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."features" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."features" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."features" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."features" to app_staff;
 
 -- location_aliases: GLOBAL
 alter table public."location_aliases" enable row level security;
@@ -255,6 +280,11 @@ create policy global_read on public."location_aliases" for select to app_user, a
 revoke all on table public."location_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."location_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."location_aliases" to app_system;
+create policy staff_select on public."location_aliases" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."location_aliases" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."location_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."location_aliases" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."location_aliases" to app_staff;
 
 -- location_group_members: GLOBAL
 alter table public."location_group_members" enable row level security;
@@ -263,6 +293,11 @@ create policy global_read on public."location_group_members" for select to app_u
 revoke all on table public."location_group_members" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."location_group_members" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_members" to app_system;
+create policy staff_select on public."location_group_members" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."location_group_members" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."location_group_members" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."location_group_members" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."location_group_members" to app_staff;
 
 -- location_group_translations: GLOBAL
 alter table public."location_group_translations" enable row level security;
@@ -271,6 +306,11 @@ create policy global_read on public."location_group_translations" for select to 
 revoke all on table public."location_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."location_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_translations" to app_system;
+create policy staff_select on public."location_group_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."location_group_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."location_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."location_group_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."location_group_translations" to app_staff;
 
 -- location_groups: GLOBAL
 alter table public."location_groups" enable row level security;
@@ -279,6 +319,11 @@ create policy global_read on public."location_groups" for select to app_user, ap
 revoke all on table public."location_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."location_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."location_groups" to app_system;
+create policy staff_select on public."location_groups" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."location_groups" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."location_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."location_groups" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."location_groups" to app_staff;
 
 -- location_translations: GLOBAL
 alter table public."location_translations" enable row level security;
@@ -287,6 +332,11 @@ create policy global_read on public."location_translations" for select to app_us
 revoke all on table public."location_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."location_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_translations" to app_system;
+create policy staff_select on public."location_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."location_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."location_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."location_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."location_translations" to app_staff;
 
 -- locations: GLOBAL
 alter table public."locations" enable row level security;
@@ -295,6 +345,11 @@ create policy global_read on public."locations" for select to app_user, app_publ
 revoke all on table public."locations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."locations" to app_user, app_public;
 grant select, insert, update, delete on table public."locations" to app_system;
+create policy staff_select on public."locations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."locations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."locations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."locations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."locations" to app_staff;
 
 -- outbox_events: STRICT
 alter table public."outbox_events" enable row level security;
@@ -308,7 +363,7 @@ create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
 grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
-  with check (app_is_staff() and (starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid));
+  with check (app_is_staff() and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid)));
 grant insert on table public."outbox_events" to app_staff;
 
 -- preferred_agencies: NETWORK_READ
@@ -338,6 +393,11 @@ create policy global_read on public."property_type_aliases" for select to app_us
 revoke all on table public."property_type_aliases" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."property_type_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_aliases" to app_system;
+create policy staff_select on public."property_type_aliases" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."property_type_aliases" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."property_type_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."property_type_aliases" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."property_type_aliases" to app_staff;
 
 -- property_type_group_translations: GLOBAL
 alter table public."property_type_group_translations" enable row level security;
@@ -346,6 +406,11 @@ create policy global_read on public."property_type_group_translations" for selec
 revoke all on table public."property_type_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."property_type_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_group_translations" to app_system;
+create policy staff_select on public."property_type_group_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."property_type_group_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."property_type_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."property_type_group_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."property_type_group_translations" to app_staff;
 
 -- property_type_groups: GLOBAL
 alter table public."property_type_groups" enable row level security;
@@ -354,6 +419,11 @@ create policy global_read on public."property_type_groups" for select to app_use
 revoke all on table public."property_type_groups" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."property_type_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_groups" to app_system;
+create policy staff_select on public."property_type_groups" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."property_type_groups" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."property_type_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."property_type_groups" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."property_type_groups" to app_staff;
 
 -- property_type_translations: GLOBAL
 alter table public."property_type_translations" enable row level security;
@@ -362,6 +432,11 @@ create policy global_read on public."property_type_translations" for select to a
 revoke all on table public."property_type_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."property_type_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_translations" to app_system;
+create policy staff_select on public."property_type_translations" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."property_type_translations" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."property_type_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."property_type_translations" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."property_type_translations" to app_staff;
 
 -- property_types: GLOBAL
 alter table public."property_types" enable row level security;
@@ -370,6 +445,11 @@ create policy global_read on public."property_types" for select to app_user, app
 revoke all on table public."property_types" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."property_types" to app_user, app_public;
 grant select, insert, update, delete on table public."property_types" to app_system;
+create policy staff_select on public."property_types" for select to app_staff using (app_is_staff());
+create policy staff_insert on public."property_types" for insert to app_staff with check (app_is_staff());
+create policy staff_update on public."property_types" for update to app_staff using (app_is_staff()) with check (app_is_staff());
+create policy staff_delete on public."property_types" for delete to app_staff using (app_is_staff());
+grant select, insert, update, delete on table public."property_types" to app_staff;
 
 -- staff_impersonations: STRICT
 alter table public."staff_impersonations" enable row level security;

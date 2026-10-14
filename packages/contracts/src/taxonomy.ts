@@ -170,3 +170,80 @@ export const TaxonomyLangQuery = z.object({
 });
 
 export const LocationParams = z.object({ id: z.uuid() }).strict();
+
+// ---- Staff admin (S2-04) -----------------------------------------------------------------------------------------
+
+export const StaffLocationAlias = z.object({ id: z.uuid(), alias: z.string() });
+
+/** One location as staff edit it: every translation, aliases and geometry (GeoJSON), not the localized view. */
+export const StaffLocationDto = z.object({
+  id: z.uuid(),
+  parentId: z.uuid().nullable(),
+  level: LocationLevel,
+  code: z.string().nullable(),
+  sort: z.number().int(),
+  centroid: GeoPoint.nullable(),
+  polygon: GeoMultiPolygon.nullable(),
+  translations: z.array(TranslationInput),
+  aliases: z.array(StaffLocationAlias),
+});
+export type StaffLocationDto = z.infer<typeof StaffLocationDto>;
+
+/** Only what is sent changes. `translations` replaces the set (a locale left out is removed, one must remain). */
+export const UpdateLocationInput = z
+  .object({
+    code: z.string().trim().min(1).max(40).nullable(),
+    centroid: GeoPoint.nullable(),
+    polygon: GeoMultiPolygon.nullable(),
+    translations: z.array(TranslationInput).min(1).max(40),
+  })
+  .partial();
+export type UpdateLocationInput = z.infer<typeof UpdateLocationInput>;
+
+/** The complete, new order of one parent's children (or of the roots when `parentId` is null). */
+export const ReorderLocationsInput = z.object({
+  parentId: z.uuid().nullable(),
+  orderedIds: z.array(z.uuid()).min(1).max(2000),
+});
+export type ReorderLocationsInput = z.infer<typeof ReorderLocationsInput>;
+
+export const CatalogKind = z.enum(['propertyType', 'feature']);
+export type CatalogKind = z.infer<typeof CatalogKind>;
+
+/** The complete, new order of the groups of one kind, or of the items of one group. */
+export const ReorderCatalogInput = z.object({
+  kind: CatalogKind,
+  groupId: z.uuid().nullable(),
+  orderedIds: z.array(z.uuid()).min(1).max(1000),
+});
+export type ReorderCatalogInput = z.infer<typeof ReorderCatalogInput>;
+
+/** `scope` says whether the id is a group or an item of `kind`. */
+export const UpdateCatalogItemInput = z.object({
+  kind: CatalogKind,
+  scope: z.enum(['group', 'item']),
+  translations: z.array(TranslationInput).min(1).max(40),
+});
+export type UpdateCatalogItemInput = z.infer<typeof UpdateCatalogItemInput>;
+
+export const AddAliasInput = z.object({ alias: z.string().trim().min(1).max(200) });
+export type AddAliasInput = z.infer<typeof AddAliasInput>;
+
+export const IdDto = z.object({ id: z.uuid() });
+export const AliasParams = z.object({ id: z.uuid(), aliasId: z.uuid() }).strict();
+
+/** A property type, feature or one of their groups as staff edit it: all translations (and aliases of an item). */
+export const StaffCatalogItemDto = z.object({
+  id: z.uuid(),
+  kind: CatalogKind,
+  scope: z.enum(['group', 'item']),
+  translations: z.array(TranslationInput),
+  aliases: z.array(StaffLocationAlias),
+});
+export type StaffCatalogItemDto = z.infer<typeof StaffCatalogItemDto>;
+
+export const CatalogItemParams = z
+  .object({ kind: CatalogKind, scope: z.enum(['group', 'item']), id: z.uuid() })
+  .strict();
+export const CatalogAliasParams = z.object({ kind: CatalogKind, id: z.uuid(), aliasId: z.uuid() }).strict();
+export const CatalogKindParams = z.object({ kind: CatalogKind, id: z.uuid() }).strict();
