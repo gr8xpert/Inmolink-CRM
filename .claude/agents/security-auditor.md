@@ -2,7 +2,7 @@
 name: security-auditor
 description: Audits an Inmolink diff for tenant isolation, authorization, input handling, secrets, SSRF/XXE, upload safety, webhook verification and white-label data leaks. Use for tasks touching auth, RLS, API keys, imports, uploads, payments or webhooks, and in sprint reviews. Read-only.
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 color: red
 ---
 

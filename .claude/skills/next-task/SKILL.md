@@ -1,13 +1,13 @@
 ---
 name: next-task
-description: Build the next Inmolink backlog task on Sonnet. Loads only that task via scripts/task-brief.mjs, hands hard tasks (hot-path, security, foundation) to /next-task-hard, otherwise builds, verifies, records and commits. Use when asked to continue the build.
+description: Build the next Inmolink backlog task on Opus. Loads only that task via scripts/task-brief.mjs, hands hard tasks (hot-path, security, foundation) to /next-task-hard, otherwise builds, verifies, records and commits. Use when asked to continue the build.
 argument-hint: "[task-id]"
 disable-model-invocation: true
-model: sonnet
+model: opus
 effort: medium
 ---
 
-# Next task (routine tasks, Sonnet)
+# Next task (routine tasks, Opus)
 
 1. **Load the brief — nothing else.** Run `node scripts/task-brief.mjs $ARGUMENTS`.
    It prints the task (the one under **Now** in STATUS if no ID is given), its dependency states, the recommended model, and only the PLAN.md / PATTERNS.md excerpts the task cites.
