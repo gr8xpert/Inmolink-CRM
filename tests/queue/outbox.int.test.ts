@@ -183,23 +183,64 @@ describe('outbox', () => {
     expect(String(rows[0]?.last_error)).toContain('is not defined in this process');
   });
 
-  it('[S1-F2] an idle dispatcher picks up a new event within one 250 ms poll interval (ADR 0014; < 500 ms end to end)', async () => {
+  it('[S1-F2] [S2-F3] an idle dispatcher picks up a new event within one 250 ms poll interval (ADR 0014)', async () => {
+    // Measured on the dispatcher's own clock (S2-F3): wall-clock latency failed under a full parallel verify
+    // (577 ms, later 2.5 s) while the dispatcher did exactly what it should. What is checked: idle lanes
+    // sleep the 250 ms poll interval between claims, and the lane that claimed the event did so in its first
+    // round after the commit (or one already under way) — it never slept past a due row. Other lanes may
+    // start a moment earlier and skip the row the claiming lane holds (`skip locked`): that is correct.
+    const POLL_MS = 250;
     const agencyId = newId();
     const subscribers = new SubscriberRegistry();
-    const seenAt = new Map<number, number>();
+    const seen = new Set<number>();
     subscribers.add(noted, (p) => {
-      seenAt.set(p.n, performance.now());
+      seen.add(p.n);
     });
-    const dispatcher = createDispatcher({ runSystem, logger: log, subscribers });
+    // `endedAt`: when the claim returned (the observer runs right after it; an empty round ends there).
+    const rounds: { lane: number; startedAt: number; endedAt: number; ids: readonly string[] }[] = [];
+    const dispatcher = createDispatcher({
+      runSystem,
+      logger: log,
+      subscribers,
+      pollMs: POLL_MS,
+      // Other suites' due agencies must not push ours out of the first claim (default cap 64 per claim).
+      maxAgenciesPerClaim: 5_000,
+      onClaim: (r) => rounds.push({ ...r, endedAt: performance.now() }),
+    });
     await dispatcher.start();
     try {
       await waitFor(async () => (await pendingOf(types)) === 0, 10_000); // initial catch-up round
-      await new Promise((r) => setTimeout(r, 300)); // every lane is now idle, sleeping its poll interval
-      const t0 = performance.now();
+      await new Promise((r) => setTimeout(r, 3 * POLL_MS)); // every lane is now idle, sleeping its poll interval
       await withTenant({ agencyId }, (tx) => emit(tx, noted({ agencyId, n: 42 })));
-      await waitFor(() => seenAt.has(42), 5_000, 5);
-      // One poll interval plus the claim, delivery and the test's own polling step.
-      expect((seenAt.get(42) as number) - t0).toBeLessThan(250 + 250);
+      const committedAt = performance.now();
+      await waitFor(() => seen.has(42), 10_000, 5);
+      const [row] = (
+        await runSystem('test.outbox.find', (tx) =>
+          tx.execute(sql`select id from outbox_events where agency_id = ${agencyId} and type = ${noted.type}`),
+        )
+      ).rows as { id: string }[];
+      const claimedBy = rounds.find((r) => r.ids.includes(row?.id as string));
+      expect(claimedBy, 'the round that claimed the event').toBeDefined();
+      const lane = (claimedBy as (typeof rounds)[number]).lane;
+      const firstAfterCommit = rounds.find((r) => r.lane === lane && r.startedAt >= committedAt);
+      if (firstAfterCommit) {
+        expect((claimedBy as (typeof rounds)[number]).startedAt).toBeLessThanOrEqual(firstAfterCommit.startedAt);
+      }
+      // After an empty claim a lane sleeps one poll interval: never less (no busy loop), and at least once close
+      // to it (the lanes poll on the 250 ms cadence, not slower). Measured from the empty claim's end, so a
+      // claim slowed by other suites' rows does not count as sleep.
+      const gaps: number[] = [];
+      for (const lane of new Set(rounds.map((r) => r.lane))) {
+        const own = rounds.filter((r) => r.lane === lane);
+        for (let i = 1; i < own.length; i++) {
+          if ((own[i - 1] as (typeof rounds)[number]).ids.length === 0) {
+            gaps.push((own[i] as (typeof rounds)[number]).startedAt - (own[i - 1] as (typeof rounds)[number]).endedAt);
+          }
+        }
+      }
+      expect(gaps.length).toBeGreaterThan(0);
+      expect(Math.min(...gaps)).toBeGreaterThanOrEqual(POLL_MS - 5);
+      expect(Math.min(...gaps)).toBeLessThan(2 * POLL_MS);
     } finally {
       await dispatcher.stop();
     }

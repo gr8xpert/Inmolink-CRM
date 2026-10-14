@@ -38,7 +38,7 @@ async function admin<T>(url: string, fn: (client: pg.Client) => Promise<T>): Pro
  * A throwaway database shaped like a fresh server: created by the admin role with the extensions
  * from the Postgres image's initdb script (they are per database, so a new one starts without them).
  */
-async function freshDatabase(cfg: MigrateConfig, database: string): Promise<MigrateConfig> {
+export async function freshDatabase(cfg: MigrateConfig, database: string): Promise<MigrateConfig> {
   const adminUrl = cfg.DATABASE_URL_ADMIN;
   if (!adminUrl) throw new Error('DATABASE_URL_ADMIN is required for the migration check');
   const ident = pg.escapeIdentifier(database);
@@ -51,7 +51,7 @@ async function freshDatabase(cfg: MigrateConfig, database: string): Promise<Migr
   return scoped;
 }
 
-async function dropDatabase(cfg: MigrateConfig, database: string): Promise<void> {
+export async function dropDatabase(cfg: MigrateConfig, database: string): Promise<void> {
   await admin(cfg.DATABASE_URL_ADMIN as string, (c) =>
     c.query(`drop database if exists ${pg.escapeIdentifier(database)} with (force)`),
   );

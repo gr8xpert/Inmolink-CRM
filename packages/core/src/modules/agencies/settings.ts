@@ -71,7 +71,7 @@ function toCommission(row: repo.SettingsRow): Commission {
     };
   }
   // `agency_settings_commission_ck` rules this out.
-  throw new Error('agency_settings: inconsistent default commission');
+  throw new AppError('INTERNAL', { reason: 'agency_settings: inconsistent default commission' });
 }
 
 export function toSettingsDto(row: repo.SettingsRow): AgencySettingsDto {

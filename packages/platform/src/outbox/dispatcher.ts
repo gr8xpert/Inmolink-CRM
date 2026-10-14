@@ -49,6 +49,12 @@ export interface DispatcherOptions {
   /** Dead-lettered rows are kept this long for replay, then deleted (payloads are IDs, but keep nothing forever). */
   deadRetentionMs?: number;
   pruneEveryMs?: number;
+  /**
+   * Observer of every claim round (S2-F3): the lane, when the round started (`performance.now()`) and the
+   * ids it claimed. For tests and diagnostics that measure pickup on the dispatcher's own clock instead of
+   * wall-clock latency; it must be cheap and must not throw (errors are ignored).
+   */
+  onClaim?: (round: { lane: number; startedAt: number; ids: readonly string[] }) => void;
 }
 
 export interface DispatchStats {
@@ -150,6 +156,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     retentionMs = 7 * 24 * 3_600_000,
     deadRetentionMs = 30 * 24 * 3_600_000,
     pruneEveryMs = 10 * 60_000,
+    onClaim,
   } = options;
 
   // A batch delivers in ceil(batch / concurrency) waves of at most deliveryTimeoutMs each; the lease
@@ -394,7 +401,15 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
   }
 
   async function runOnce(lane = 0): Promise<DispatchStats> {
+    const startedAt = performance.now();
     const rows = await claim(lane);
+    if (onClaim) {
+      try {
+        onClaim({ lane, startedAt, ids: rows.map((r) => r.id) });
+      } catch {
+        // an observer never breaks dispatch
+      }
+    }
     if (rows.length === 0) return { claimed: 0, delivered: 0, retried: 0, dead: 0 };
     const done: Outcome[] = [];
     const retry: Outcome[] = [];

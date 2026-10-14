@@ -48,7 +48,9 @@ for (const { app, budget, required } of APPS) {
 }
 if (args.has('--json')) console.log(JSON.stringify(report, null, 2));
 if (failed) {
-  console.error('perf:bundle: over budget (or no build). Move heavy UI behind next/dynamic, drop the dependency, or');
+  console.error(
+    '[S1-10] perf:bundle: over budget (or no build). Move heavy UI behind next/dynamic, drop the dependency, or',
+  );
   console.error('record a reviewed exception in STATUS.');
   process.exit(1);
 }

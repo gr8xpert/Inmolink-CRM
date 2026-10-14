@@ -181,7 +181,8 @@ export function formatTable(app: string, budget: Budget, sizes: RouteSize[]): st
   const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] as string).length)));
   const line = (cells: string[]) =>
     cells.map((c, i) => (i > 0 && i < 4 ? c.padStart(widths[i] ?? 0) : c.padEnd(widths[i] ?? 0))).join('  ');
-  return [`${app} (${budget.kind}: ${limit}, gzip)`, line(head), ...rows.map(line)].join('\n');
+  // Tagged with the task whose budget it checks (S2-F3), like the tests and the e2e Lighthouse check.
+  return [`[S1-10] ${app} (${budget.kind}: ${limit}, gzip)`, line(head), ...rows.map(line)].join('\n');
 }
 
 /** Path of a build folder relative to the repo, for messages. */

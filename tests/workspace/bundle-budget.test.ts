@@ -89,6 +89,7 @@ describe('perf:bundle', () => {
     expect(heavy?.total).toBeGreaterThan(250 * KB);
     expect(heavy?.failures).toEqual([expect.stringMatching(/^first-load JS .* > 250\.0 KB$/)]);
     expect(formatTable('apps/web', BUDGETS.dashboard, routes)).toMatch(/\/\[locale\]\/heavy .*FAIL/);
+    expect(formatTable('apps/web', BUDGETS.dashboard, routes)).toMatch(/^\[S1-10\] apps\/web \(dashboard/);
   });
 
   it('[S1-10] public routes: framework ≤ 149 KB and route JS ≤ 30 KB are checked separately (ADR 0013)', () => {
