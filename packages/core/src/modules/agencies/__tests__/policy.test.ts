@@ -72,6 +72,14 @@ describe('agencies policy', () => {
     }
   });
 
+  it('[S2-F2] staff impersonating a member may read settings and commission, never change them', () => {
+    const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: USER });
+    expect(can(impersonated, 'agencies.settings.read')).toBe(true);
+    expect(can(impersonated, 'agencies.commission.read')).toBe(true);
+    expect(can(impersonated, 'agencies.settings.update')).toBe(false);
+    expect(can({ ...impersonated, clientMode: true }, 'agencies.commission.read')).toBe(false);
+  });
+
   it('[S1-03] verification documents and submission are for admins only, never in Client Mode', () => {
     for (const action of ['agencies.verification.read', 'agencies.verification.manage'] as const) {
       expect(can(as('AGENCY_ADMIN'), action)).toBe(true);

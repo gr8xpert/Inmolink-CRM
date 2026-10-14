@@ -3,6 +3,7 @@ import {
   AGENCY_LOGO_TYPES,
   type AgencyProfileDto,
   type AgencySettingsDto,
+  type ClientModePolicy,
   type Commission,
   type SignedUrlDto,
   type UpdateAgencyProfileBody,
@@ -128,11 +129,11 @@ function changedFields(before: AgencySettingsDto, after: AgencySettingsDto): str
 
 /**
  * Settings other modules may read and pass on (registration validity, viewing deadlines, locales,
- * white-label, Client Mode policy). No commission or split: they are not even in the type, so a
- * client-facing serializer cannot leak them by accident; `getAgencyDefaultCommission` (policy-checked)
- * returns them.
+ * white-label). No commission, split or Client Mode PIN policy: they are not even in the type, so a
+ * client-facing serializer cannot leak them by accident (S2-F2). `getAgencyDefaultCommission`
+ * (policy-checked) returns commission and split, `getClientModePolicy` (internal) the PIN policy.
  */
-export type AgencySettings = Omit<AgencySettingsDto, 'defaultCommission' | 'defaultSplitBp'>;
+export type AgencySettings = Omit<AgencySettingsDto, 'defaultCommission' | 'defaultSplitBp' | 'clientMode'>;
 
 /** A new listing's commission defaults (PLAN §3 #7): the total and the collaborating agent's share. */
 export interface AgencyCommissionDefaults {
@@ -171,8 +172,23 @@ async function loadSettings(ctx: Ctx): Promise<AgencySettingsDto> {
  * callers authorize their own use case. Loaded under `ctx`'s RLS and cached under that agency only.
  */
 export async function getAgencySettings(ctx: Ctx): Promise<AgencySettings> {
-  const { defaultCommission: _commission, defaultSplitBp: _split, ...settings } = await loadSettings(ctx);
+  const {
+    defaultCommission: _commission,
+    defaultSplitBp: _split,
+    clientMode: _clientMode,
+    ...settings
+  } = await loadSettings(ctx);
   return settings;
+}
+
+/**
+ * The agency's Client Mode PIN policy (PLAN §3 #56) for the one server-side consumer, the Client Mode PIN
+ * check (Client Mode session task; no caller before it). Internal (S2-F2): members only, never serialized
+ * to a client. Same cache as `getAgencySettings`.
+ */
+export async function getClientModePolicy(ctx: Ctx): Promise<ClientModePolicy> {
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  return (await loadSettings(ctx)).clientMode;
 }
 
 /**

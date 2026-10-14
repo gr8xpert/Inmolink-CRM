@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Settings and impersonation hardening (S2-F2): the shared settings read drops the Client Mode PIN policy (new internal `getClientModePolicy`); staff impersonating a member are rate-limited in their own bucket; logs redact agency contact, address, document and DTO name fields. No new dependencies. [S2-F2]
 - Identity query and index follow-ups (S2-F1): an impersonated request runs 3 statements before its handler (one `app_auth` staff-login read, one member + session read, the tenant); keyset ordering uses the indexable `date_trunc('milliseconds', col, 'UTC')` with expression indexes for the staff tenants and staff access lists (migration 0039); audit log months older than 24 months move to schema `audit_archive`, kept append-only (migration 0040, runbook `audit-archive.md`). No new dependencies. [S2-F1]
 
 ### Fixed

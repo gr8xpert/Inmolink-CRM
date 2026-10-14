@@ -21,8 +21,11 @@ export type AgenciesAction = (typeof AGENCIES_ACTIONS)[number];
 
 /**
  * Staff impersonating a member (S1-09): they may read and fix the profile and notes (recorded with both
- * names); never the verified identity (details, verification), settings (commission, PIN policy) or who
- * sees PREFERRED listings. Removing a preferred agency only narrows access, so it stays allowed.
+ * names); never change the verified identity (details, verification), settings (commission, PIN policy) or
+ * who sees PREFERRED listings. Removing a preferred agency only narrows access, so it stays allowed.
+ * Reading settings, commission and split stays allowed (S2-F2 decision): support must see what the member
+ * sees to help, these are the agency's own terms (not billing secrets or 2FA), and every impersonated
+ * request is traced with both names (request log); Client Mode still hides them.
  */
 export const AGENCIES_IMPERSONATION: ImpersonationRules<AgenciesAction> = {
   'agencies.read': 'allowed',

@@ -7,7 +7,7 @@ import { newId } from '@inmolink/platform/ids';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { configureStorage, createMemoryStore, type MemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, expectTypeOf, it } from 'vitest';
 import type { Ctx, CtxRunner } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
@@ -163,6 +163,19 @@ describe('agency settings', () => {
     expect(UpdateAgencySettingsBody.safeParse(none).success).toBe(false);
   });
 
+  it("[S2-F2] getAgencySettings' type and output have no clientMode, defaultCommission or defaultSplitBp", async () => {
+    const f = await createFounder();
+    const shared = await as(f, (ctx) => agencies.getAgencySettings(ctx));
+    for (const field of ['clientMode', 'defaultCommission', 'defaultSplitBp']) expect(shared).not.toHaveProperty(field);
+    expectTypeOf<agencies.AgencySettings>().not.toHaveProperty('clientMode');
+    expectTypeOf<agencies.AgencySettings>().not.toHaveProperty('defaultCommission');
+    expectTypeOf<agencies.AgencySettings>().not.toHaveProperty('defaultSplitBp');
+    // The PIN policy has its own internal read, for the Client Mode PIN check only.
+    expect(await as(f, (ctx) => agencies.getClientModePolicy(ctx))).toEqual(
+      (await as(f, (ctx) => agencies.getMyAgencySettings(ctx))).clientMode,
+    );
+  });
+
   it('[S1-06] settings changes emit agencies.settings.changed and invalidate cached settings', async () => {
     const f = await createFounder();
     const before = await as(f, (ctx) => agencies.getAgencySettings(ctx)); // cached now
@@ -194,8 +207,9 @@ describe('agency settings', () => {
     // …and the subscriber makes every process miss.
     await deliver('agencies.settings.changed', event as OutboxRow);
     const after = await as(f, (ctx) => agencies.getAgencySettings(ctx));
-    const { defaultCommission, defaultSplitBp, ...shared } = saved;
+    const { defaultCommission, defaultSplitBp, clientMode, ...shared } = saved;
     expect(after).toEqual(shared);
+    expect(await as(f, (ctx) => agencies.getClientModePolicy(ctx))).toEqual(clientMode);
     expect(await as(f, (ctx) => agencies.getAgencyDefaultCommission(ctx))).toEqual({
       commission: defaultCommission,
       splitBp: defaultSplitBp,

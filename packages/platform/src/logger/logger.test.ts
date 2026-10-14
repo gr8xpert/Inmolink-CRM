@@ -73,6 +73,29 @@ describe('logger', () => {
     });
   });
 
+  it('[S2-F2] a logged agency profile DTO has its contact fields censored', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info({
+      profile: {
+        displayName: 'Inmo Sol',
+        contactEmail: 'ana@inmosol.es',
+        contactPhone: '+34 600 111 222',
+        websiteUrl: 'https://ana-garcia.example',
+      },
+      document: { id: 'd1', fileName: 'NIF Ana Garcia.pdf', decisionReason: 'Blurry NIF of Ana' },
+    });
+    const text = out.raw.join('');
+    for (const pii of ['ana@inmosol.es', '+34 600 111 222', 'ana-garcia.example', 'NIF Ana Garcia', 'Blurry NIF']) {
+      expect(text).not.toContain(pii);
+    }
+    expect((out.lines[0] as { profile: Record<string, unknown> }).profile).toEqual({
+      displayName: 'Inmo Sol',
+      contactEmail: REDACTED,
+      contactPhone: REDACTED,
+      websiteUrl: REDACTED,
+    });
+  });
+
   it('[S0-03] redacts extra keys passed by the app', () => {
     const out = capture();
     createLogger({ destination: out.destination, redact: ['dni'] }).info({ dni: '12345678Z' });

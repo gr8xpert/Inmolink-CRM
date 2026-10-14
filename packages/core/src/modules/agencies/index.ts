@@ -33,6 +33,7 @@ export {
   getAgencyLogoUrl,
   getAgencyProfile,
   getAgencySettings,
+  getClientModePolicy,
   getMyAgencySettings,
   LOGO_URL_TTL_SECONDS,
   removeAgencyLogo,

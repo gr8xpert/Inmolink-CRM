@@ -154,4 +154,26 @@ describe('requireSession', () => {
     expect((await me(await app(false, recording), token)).statusCode).toBe(200);
     expect(seen).toContain(`identity.me.user=${USER}`);
   });
+
+  it('[S2-F2] staff impersonating a member use their own rate-limit bucket', async () => {
+    const seen: string[] = [];
+    const recording = {
+      consume: async (rule: { name: string }, identity: string) => {
+        seen.push(`${rule.name}=${identity}`);
+        return { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 };
+      },
+    } as unknown as RateLimiter;
+    const STAFF = '0192a0b4-0000-7000-8000-0000000000f5';
+    const { token } = await signer.sign({
+      sub: USER,
+      aud: 'api',
+      sv: 1,
+      agency: '0192a0b4-0000-7000-8000-00000000a9e1',
+      act: STAFF,
+      imp: '0192a0b4-0000-7000-8000-0000000001a1',
+    });
+    await me(await app(false, recording), token);
+    const userRules = seen.filter((s) => s.startsWith('identity.me.user='));
+    expect(userRules).toEqual([`identity.me.user=${STAFF}`]);
+  });
 });

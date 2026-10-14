@@ -47,7 +47,9 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
     defaults: DEFAULT_LIMITS,
     identify: {
       ip: (r) => ipBucket(r.ip),
-      user: (r) => r.auth?.userId,
+      // Staff acting as a member count against their own bucket (`act ?? sub`, S2-F2): they neither use up
+      // the member's quota nor go uncounted.
+      user: (r) => r.auth?.impersonation?.staffUserId ?? r.auth?.userId,
       tenant: (r) => r.auth?.agencyId ?? undefined,
     },
   });

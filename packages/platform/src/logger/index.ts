@@ -18,6 +18,21 @@ export const REDACT_KEYS = [
   'email',
   'phone',
   'mobile',
+  // Names in staff, member and invite DTOs (S2-F2); a self-employed agent's company name is their own.
+  'userName',
+  'memberName',
+  'staffName',
+  'impersonatedByName',
+  'companyName',
+  'emailSenderName',
+  // Agency contact details, address, invite and verification-document fields (S2-F2): personal for one-person
+  // agencies. Log an upload by its document id or `objectKey`, never its `fileName`.
+  'contactEmail',
+  'contactPhone',
+  'websiteUrl',
+  'addressLine',
+  'fileName',
+  'decisionReason',
   'password',
   'passwordHash',
   // CIF / NIF / NIE: a personal national id for self-employed agents (S1-01).
@@ -44,7 +59,6 @@ export const REDACT_KEYS = [
   'nie',
   'nif',
   'passport',
-  'taxId',
   'dateOfBirth',
   'x-api-key',
   'proxy-authorization',
