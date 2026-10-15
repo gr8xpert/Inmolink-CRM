@@ -18,6 +18,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 
 ## Handover
 <!-- Notes for the next session that are too long for Now. The session-start hook does not inject this section. -->
+- **Unattended run 2026-10-15 (Opus), done:** S2-06 recheck (ec57692), S2-F1 (30e7095), S2-F2 (1a61606), S2-F3 (c1f89d8), S3-01 (88e6952), S3-02 (c9d3ba2); each with reviews and verify. Stopped before S3-03 as agreed. Worth a look first: the Decisions entries of 2026-10-15 (audit retention 24 months and the legal question, PENDING CEE not allowing PUBLIC, impersonation rules for listings, the Windows vitest fork crash), and S3-02's open follow-ups.
 - **S3-01/S3-02 (2026-10-15):** migrations 0041 (listing tables) and 0042 (listing list indexes): locally `pnpm db:migrate && pnpm db:rls`. New API routes `/v1/listings*` (no web UI yet: S3-05).
 - **S2-F1 (2026-10-15):** migrations 0039 (keyset expression indexes) and 0040 (audit retention into `audit_archive`): locally `pnpm db:migrate && pnpm db:rls` (the maintenance function changed). Never run pg_partman functions as a superuser (partitions it creates are then owned by `postgres` and maintenance stops; see the runbook).
 - **S1-F9 (2026-10-14):** the api now needs `DATABASE_URL_APP_AUTH` (same credential as web's): add it to the api's Kamal secrets before the next deploy — without it every staff request fails. Locally `.env` already has it. Run `pnpm db:migrate && pnpm db:rls` for migration 0032 and the widened staff policy (the dev database was down during the task).
