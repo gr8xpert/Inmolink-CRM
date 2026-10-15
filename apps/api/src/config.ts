@@ -6,6 +6,7 @@ import {
   databaseEnv,
   httpEnv,
   loadConfigOrExit,
+  mediaEnv,
   portVar,
   rateLimitEnv,
   redisEnv,
@@ -17,7 +18,7 @@ import {
 /**
  * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
  * routes (S1-03), `app_auth` for staff login checks (S1-F7, S1-F9), both Redis instances (rate limits on
- * redis-queue, S1-F6), search, object storage (verification documents).
+ * redis-queue, S1-F6), search, object storage (verification documents, media uploads and preview URLs).
  */
 export const apiEnv = {
   ...coreEnv,
@@ -43,6 +44,8 @@ export const apiEnv = {
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
   ...cryptoEnv,
   ...authVerifyEnv,
+  /** Media preview URLs name variants by their public id (S3-06). */
+  ...mediaEnv,
 };
 export type ApiConfig = Config<typeof apiEnv>;
 

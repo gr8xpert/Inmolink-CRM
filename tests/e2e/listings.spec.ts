@@ -70,7 +70,12 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   await page.getByLabel('Bathrooms').fill('two');
   await expect(page.getByTestId('editor-error')).toContainText('Some values are not valid', { timeout: 15_000 });
   await expect(page.getByLabel('Bathrooms')).toHaveAttribute('aria-invalid', 'true');
-  await autosaved(page, () => page.getByLabel('Bathrooms').fill('2'));
+  // After an error the status stays "Not saved" through the debounce and "Saving…" may be too short to see:
+  // wait for the save itself.
+  await page.getByLabel('Bathrooms').fill('2');
+  await expect(page.getByTestId('save-status')).toHaveText('All changes saved', { timeout: 15_000 });
+  await expect(page.getByTestId('editor-error')).toHaveCount(0);
+  await expect(page.getByLabel('Bathrooms')).not.toHaveAttribute('aria-invalid', 'true');
 
   // Publish to the network: active and shared.
   await autosaved(page, async () => {

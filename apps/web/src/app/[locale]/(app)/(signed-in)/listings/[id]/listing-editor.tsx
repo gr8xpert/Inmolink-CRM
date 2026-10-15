@@ -17,6 +17,7 @@ import {
   type ListingValues,
   listingPatch,
   listingValues,
+  makeT,
   parseDecimal,
   slugOf,
   type TranslationDraft,
@@ -30,17 +31,6 @@ const PinMap = dynamic(() => import('./pin-map'), {
   ssr: false,
   loading: () => <div className="h-72 animate-pulse rounded-md bg-muted" />,
 });
-
-type T = (key: string, vars?: Record<string, string>) => string;
-
-function makeT(messages: Record<string, unknown>): T {
-  return (key, vars) => {
-    let v: unknown = messages;
-    for (const part of key.split('.')) v = (v as Record<string, unknown> | undefined)?.[part];
-    const s = typeof v === 'string' ? v : key;
-    return vars ? s.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '') : s;
-  };
-}
 
 /** Autosave waits this long after the last keystroke. */
 const AUTOSAVE_MS = 800;

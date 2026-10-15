@@ -6,5 +6,6 @@ export const mediaErrors = [
   'MEDIA_NOT_UPLOADED',
   'MEDIA_LIMIT_REACHED',
   'MEDIA_NOT_FOUND',
+  'MEDIA_ORDER_STALE',
   'PAYLOAD_TOO_LARGE',
 ] as const satisfies readonly ErrorCode[];

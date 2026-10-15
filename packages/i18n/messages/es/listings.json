@@ -84,9 +84,19 @@
         "RENT_LONG_TERM": "Alquiler larga estancia",
         "RENT_SHORT_TERM": "Alquiler vacacional"
       },
-      "pricePeriod": { "NIGHT": "Noche", "WEEK": "Semana", "MONTH": "Mes" },
-      "locationPrecision": { "EXACT": "Exacta", "APPROX": "Aproximada (aprox. 1 km)" },
-      "commissionType": { "PCT": "Porcentaje", "FIXED": "Importe fijo" },
+      "pricePeriod": {
+        "NIGHT": "Noche",
+        "WEEK": "Semana",
+        "MONTH": "Mes"
+      },
+      "locationPrecision": {
+        "EXACT": "Exacta",
+        "APPROX": "Aproximada (aprox. 1 km)"
+      },
+      "commissionType": {
+        "PCT": "Porcentaje",
+        "FIXED": "Importe fijo"
+      },
       "status": {
         "DRAFT": "Borrador",
         "ACTIVE": "Activo",
@@ -100,8 +110,14 @@
         "SHARED": "Compartido (agencias verificadas)",
         "PUBLIC": "Público (webs y portales)"
       },
-      "shareScope": { "ALL": "Todas las agencias verificadas", "PREFERRED": "Mis agencias preferentes" },
-      "energyRating": { "EXEMPT": "Exento", "PENDING": "En trámite" }
+      "shareScope": {
+        "ALL": "Todas las agencias verificadas",
+        "PREFERRED": "Mis agencias preferentes"
+      },
+      "energyRating": {
+        "EXEMPT": "Exento",
+        "PENDING": "En trámite"
+      }
     },
     "locks": {
       "price": "Precio",
@@ -123,7 +139,11 @@
       "metaDescription": "Descripción SEO",
       "locked": "Conservar este texto (la traducción automática nunca lo sobrescribe)",
       "remove": "Quitar este idioma",
-      "origin": { "HUMAN": "Escrito", "AI_DRAFT": "Borrador IA", "REVIEWED": "Revisado" }
+      "origin": {
+        "HUMAN": "Escrito",
+        "AI_DRAFT": "Borrador IA",
+        "REVIEWED": "Revisado"
+      }
     }
   },
   "fieldInvalid": "Revisa este valor.",
@@ -136,6 +156,86 @@
     "LISTING_STATUS_INVALID": "El inmueble no puede pasar a ese estado desde el actual.",
     "VERIFICATION_REQUIRED": "Tu agencia debe estar verificada para compartir o publicar inmuebles.",
     "RATE_LIMITED": "Demasiados cambios a la vez; espera un momento.",
+    "MEDIA_TYPE_NOT_ALLOWED": "Este archivo no es una imagen aceptada.",
+    "MEDIA_NOT_UPLOADED": "La subida no terminó; inténtalo de nuevo.",
+    "MEDIA_LIMIT_REACHED": "El inmueble ya tiene el número máximo de archivos.",
+    "MEDIA_NOT_FOUND": "Este archivo ya no está en el inmueble; recarga la página.",
+    "MEDIA_ORDER_STALE": "Los archivos cambiaron en otra ventana; recarga la página.",
+    "PAYLOAD_TOO_LARGE": "El archivo es demasiado grande.",
+    "NETWORK": "Falló la conexión; inténtalo de nuevo.",
     "generic": "Algo ha fallado. Inténtalo de nuevo."
+  },
+  "media": {
+    "title": "Fotos y planos",
+    "intro": "Suelta aquí las fotos o elígelas. Se omiten los archivos que ya tiene este inmueble; los que ya están guardados en la plataforma no se vuelven a subir.",
+    "drop": "Suelta aquí fotos y planos",
+    "choose": "Elegir archivos",
+    "input": "Fotos para subir",
+    "hint": "JPEG, PNG, WebP o HEIC, hasta {max} MB cada una, {limit} archivos por inmueble.",
+    "progress": "Subidas {done} de {total}",
+    "progressLabel": "Progreso de la subida",
+    "summary": "{uploaded} subidas · {skipped} omitidas · {failed} fallidas",
+    "retryFailed": "Reintentar las fallidas",
+    "clear": "Vaciar la lista",
+    "status": {
+      "hashing": "Leyendo",
+      "checking": "Comprobando",
+      "uploading": "Subiendo",
+      "registering": "Añadiendo",
+      "done": "Añadida",
+      "stored": "Añadida (ya guardada, sin subir)",
+      "skipped": "Omitida: ya está en este inmueble",
+      "duplicate": "Omitida: elegida dos veces",
+      "failed": "Fallida",
+      "queued": "En espera"
+    },
+    "reasons": {
+      "type": "No es una imagen JPEG, PNG, WebP o HEIC",
+      "size": "Supera {max} MB",
+      "limit": "El inmueble está completo ({limit} archivos)"
+    },
+    "empty": "Todavía no hay fotos.",
+    "item": "Archivo {n}",
+    "processing": "Vista previa en preparación",
+    "cover": "Portada",
+    "makeCover": "Usar como portada",
+    "earlier": "Mover antes",
+    "later": "Mover después",
+    "remove": "Quitar",
+    "kind": "Tipo",
+    "kinds": {
+      "IMAGE": "Foto",
+      "FLOOR_PLAN": "Plano",
+      "VIDEO": "Vídeo",
+      "DOCUMENT": "Documento"
+    },
+    "roomType": "Estancia",
+    "noRoom": "Sin indicar",
+    "rooms": {
+      "EXTERIOR": "Exterior",
+      "FACADE": "Fachada",
+      "LIVING_ROOM": "Salón",
+      "DINING_ROOM": "Comedor",
+      "KITCHEN": "Cocina",
+      "BEDROOM": "Dormitorio",
+      "BATHROOM": "Baño",
+      "OFFICE": "Despacho",
+      "HALL": "Recibidor",
+      "TERRACE": "Terraza",
+      "BALCONY": "Balcón",
+      "GARDEN": "Jardín",
+      "POOL": "Piscina",
+      "GARAGE": "Garaje",
+      "STORAGE": "Trastero",
+      "VIEW": "Vistas",
+      "COMMUNITY": "Zonas comunes",
+      "OTHER": "Otro"
+    },
+    "altText": "Texto alternativo",
+    "altHint": "Describe la foto para lectores de pantalla y buscadores.",
+    "dragHint": "Arrastra los archivos para ordenarlos o usa las flechas.",
+    "saving": "Guardando…",
+    "saved": "Guardado",
+    "count": "{count} de {limit} archivos"
   }
 }

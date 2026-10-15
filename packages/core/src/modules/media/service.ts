@@ -15,11 +15,13 @@ import {
   type ListingMediaList,
   MEDIA_MAX_BYTES,
   MEDIA_PER_LISTING_MAX,
+  MEDIA_THUMB_URL_TTL_SECONDS,
   MEDIA_UPLOAD_TYPES,
   MEDIA_UPLOAD_URL_TTL_SECONDS,
   type MediaCheckBody,
   type MediaCheckResult,
   type RegisterMediaBody,
+  type UpdateListingMediaBody,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
@@ -31,6 +33,7 @@ import * as properties from '../properties';
 import { mediaEvents, OBJECTS_PER_EVENT } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
+import { VARIANTS, variantKey } from './variants';
 
 /** The content-addressed key of an uploaded original (never served to browsers: variants are, S3-04). */
 export const originalKey = (sha256: string) => `originals/${sha256}`;
@@ -47,16 +50,35 @@ type MediaUploadType = (typeof MEDIA_UPLOAD_TYPES)[number];
 type VerifiedUpload = { sha256: string; sizeBytes: number; contentType: MediaUploadType };
 type ObjectChange = { sha256: string; upload: Omit<VerifiedUpload, 'sha256'> | null };
 
-function toDto(row: repo.MediaRow): ListingMediaDto {
-  return {
-    id: row.id,
-    sha256: row.sha256,
-    kind: row.kind,
-    position: row.position,
-    isCover: row.isCover,
-    altText: row.altText,
-    createdAt: row.createdAt.toISOString(),
-  };
+/**
+ * The listing's media as DTOs, each with a signed URL of its 320 px preview once the worker made it (S3-06).
+ * Signing is local (no network call). The `media` bucket is not public yet (S3-F4 limits it to variant keys at
+ * the edge), so the manager reads previews through short-lived signed URLs.
+ */
+async function toDtos(rows: repo.MediaListRow[]): Promise<ListingMediaDto[]> {
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      sha256: row.sha256,
+      kind: row.kind,
+      position: row.position,
+      isCover: row.isCover,
+      altText: row.altText,
+      roomType: row.roomType as ListingMediaDto['roomType'],
+      thumbUrl:
+        row.pipeline !== null && (row.variantsReady & VARIANTS.thumb.bit) !== 0
+          ? await storage().signedGetUrl('media', variantKey(row.sha256, 'thumb', row.pipeline), {
+              expiresInSeconds: MEDIA_THUMB_URL_TTL_SECONDS,
+              responseContentType: 'image/webp',
+            })
+          : null,
+      createdAt: row.createdAt.toISOString(),
+    })),
+  );
+}
+
+async function listDtos(ctx: Ctx, listingId: string): Promise<ListingMediaList> {
+  return { items: await toDtos(await repo.listForListing(ctx.tx, listingId)) };
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight; results in input order. */
@@ -161,21 +183,25 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
     const current = await repo.listForListing(ctx.tx, listing.id);
     const attached = new Set(current.map((m) => m.sha256));
     const fresh = input.files.filter((f) => !attached.has(f.sha256));
-    if (fresh.length === 0) return { items: current.map(toDto) };
+    if (fresh.length === 0) return { items: await toDtos(current) };
     if (current.length + fresh.length > MEDIA_PER_LISTING_MAX) {
       throw new AppError('MEDIA_LIMIT_REACHED', { max: MEDIA_PER_LISTING_MAX, current: current.length });
     }
 
     const at = Math.min(input.position ?? current.length, current.length);
     const now = clock.now();
-    const added: repo.MediaRow[] = fresh.map((f, i) => ({
+    const added: repo.MediaListRow[] = fresh.map((f, i) => ({
       id: newId(),
       sha256: f.sha256,
       kind: f.kind,
       position: at + i,
       isCover: f.cover === true,
       altText: f.altText ?? null,
+      roomType: f.roomType ?? null,
       createdAt: now,
+      // A trusted stored object may have its previews already; a new upload has none yet.
+      pipeline: stored.get(f.sha256)?.trusted ? (stored.get(f.sha256)?.pipeline ?? null) : null,
+      variantsReady: stored.get(f.sha256)?.trusted ? (stored.get(f.sha256)?.variantsReady ?? 0) : 0,
     }));
     const hadCover = current.some((m) => m.isCover);
     const newCover = added.some((m) => m.isCover);
@@ -209,14 +235,65 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
         return { sha256: m.sha256, upload: v ? { sizeBytes: v.sizeBytes, contentType: v.contentType } : null };
       }),
     );
-    return { items: merged.map(toDto) };
+    return { items: await toDtos(merged) };
   });
 }
 
 /** `GET /v1/listings/:id/media`: the listing's media in order (other agencies never see documents, RLS). */
 export async function listListingMedia(ctx: Ctx, listingId: string): Promise<ListingMediaList> {
   await properties.assertListingReadable(ctx, listingId);
-  return { items: (await repo.listForListing(ctx.tx, listingId)).map(toDto) };
+  return listDtos(ctx, listingId);
+}
+
+/**
+ * `PATCH /v1/listings/:id/media/:mediaId` (S3-06): kind (image or floor plan), cover, alt text, room type. A
+ * cover turned into a floor plan passes the cover to the first image. Answers the listing's media.
+ */
+export async function updateListingMedia(
+  ctx: Ctx,
+  input: { listingId: string; mediaId: string; patch: UpdateListingMediaBody },
+): Promise<ListingMediaList> {
+  assertCan(ctx, 'media.manage');
+  const listing = await properties.lockListingForMedia(ctx, input.listingId);
+  const { kind, cover, altText, roomType } = input.patch;
+  if (cover) {
+    // Only an image can be the cover: this row's kind after the change.
+    const current = (await repo.listForListing(ctx.tx, listing.id)).find((m) => m.id === input.mediaId);
+    if (!current) throw new AppError('MEDIA_NOT_FOUND');
+    if ((kind ?? current.kind) !== 'IMAGE') {
+      throw new AppError('VALIDATION_FAILED', { field: 'cover', reason: 'only an image can be the cover' });
+    }
+  }
+  const updated = await repo.updateMedia(ctx.tx, listing.id, input.mediaId, {
+    ...(kind !== undefined ? { kind } : {}),
+    ...(altText !== undefined ? { altText: altText === '' ? null : altText } : {}),
+    ...(roomType !== undefined ? { roomType } : {}),
+    ...(cover ? { cover } : {}),
+  });
+  if (!updated) throw new AppError('MEDIA_NOT_FOUND');
+  if (kind === 'FLOOR_PLAN') await repo.ensureCover(ctx.tx, listing.id);
+  return listDtos(ctx, listing.id);
+}
+
+/**
+ * `PUT /v1/listings/:id/media/order` (S3-06): the listing's media in the order given — every id exactly once,
+ * else `MEDIA_ORDER_STALE` (another tab added or removed one). One statement whatever the count; the cover
+ * stays where it is. Answers the listing's media.
+ */
+export async function reorderListingMedia(
+  ctx: Ctx,
+  input: { listingId: string; ids: string[] },
+): Promise<ListingMediaList> {
+  assertCan(ctx, 'media.manage');
+  const listing = await properties.lockListingForMedia(ctx, input.listingId);
+  const current = await repo.listForListing(ctx.tx, listing.id);
+  const known = new Set(current.map((m) => m.id));
+  if (input.ids.length !== current.length || !input.ids.every((id) => known.has(id))) {
+    throw new AppError('MEDIA_ORDER_STALE', { expected: current.length });
+  }
+  const changed = await repo.reorder(ctx.tx, listing.id, input.ids);
+  if (changed === 0) return { items: await toDtos(current) };
+  return listDtos(ctx, listing.id);
 }
 
 /**

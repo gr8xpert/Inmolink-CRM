@@ -23,6 +23,29 @@ export const MediaUploadType = z.enum(MEDIA_UPLOAD_TYPES);
 /** Kinds a listing's media rows take from uploads (videos and documents arrive with their own tasks). */
 export const ListingMediaKind = z.enum(['IMAGE', 'FLOOR_PLAN']);
 export type ListingMediaKind = z.infer<typeof ListingMediaKind>;
+/** Rooms an image can show (S3-06): set by the agent; AI tagging fills the same field later. */
+export const LISTING_ROOM_TYPES = [
+  'EXTERIOR',
+  'FACADE',
+  'LIVING_ROOM',
+  'DINING_ROOM',
+  'KITCHEN',
+  'BEDROOM',
+  'BATHROOM',
+  'OFFICE',
+  'HALL',
+  'TERRACE',
+  'BALCONY',
+  'GARDEN',
+  'POOL',
+  'GARAGE',
+  'STORAGE',
+  'VIEW',
+  'COMMUNITY',
+  'OTHER',
+] as const;
+export const ListingRoomType = z.enum(LISTING_ROOM_TYPES);
+export type ListingRoomType = z.infer<typeof ListingRoomType>;
 
 const uniqueHashes = (files: { sha256: string }[]) => new Set(files.map((f) => f.sha256)).size === files.length;
 
@@ -81,6 +104,7 @@ export const RegisterMediaBody = z
             /** Make this image the listing's cover. */
             cover: z.boolean().optional(),
             altText: z.string().trim().min(1).max(300).optional(),
+            roomType: ListingRoomType.optional(),
           })
           .strict(),
       )
@@ -100,6 +124,12 @@ export const ListingMediaDto = z.object({
   position: z.number().int(),
   isCover: z.boolean(),
   altText: z.string().nullable(),
+  roomType: ListingRoomType.nullable(),
+  /**
+   * The 320 px preview once the media worker has made it (S3-04), as a short-lived signed URL; null while it is
+   * processing (the media manager then shows a placeholder).
+   */
+  thumbUrl: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type ListingMediaDto = z.infer<typeof ListingMediaDto>;
@@ -110,3 +140,32 @@ export type ListingMediaList = z.infer<typeof ListingMediaList>;
 
 export const ListingMediaParams = z.object({ id: z.uuid(), mediaId: z.uuid() }).strict();
 export type ListingMediaParams = z.infer<typeof ListingMediaParams>;
+
+/** How long a media list's signed preview URLs work (the manager refetches the list after every change). */
+export const MEDIA_THUMB_URL_TTL_SECONDS = 3_600;
+
+/** `PATCH /v1/listings/:id/media/:mediaId` (S3-06): what the media manager edits on one file. */
+export const UpdateListingMediaBody = z
+  .object({
+    kind: ListingMediaKind.optional(),
+    /** `true` makes this image the cover (the old cover loses it); a cover is never unset, only passed on. */
+    cover: z.literal(true).optional(),
+    altText: z.string().trim().max(300).nullable().optional(),
+    roomType: ListingRoomType.nullable().optional(),
+  })
+  .strict()
+  .refine((b) => Object.keys(b).length > 0, 'nothing to change')
+  .refine((b) => !(b.cover && b.kind === 'FLOOR_PLAN'), 'only an image can be the cover');
+export type UpdateListingMediaBody = z.infer<typeof UpdateListingMediaBody>;
+
+/** `PUT /v1/listings/:id/media/order` (S3-06): every media id of the listing, in the new order. */
+export const ReorderListingMediaBody = z
+  .object({
+    ids: z
+      .array(z.uuid())
+      .min(1)
+      .max(MEDIA_PER_LISTING_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, 'each id once'),
+  })
+  .strict();
+export type ReorderListingMediaBody = z.infer<typeof ReorderListingMediaBody>;

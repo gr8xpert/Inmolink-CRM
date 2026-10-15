@@ -113,6 +113,8 @@ export const ErrorCodes = {
   /** The listing already has `MEDIA_PER_LISTING_MAX` media. */
   MEDIA_LIMIT_REACHED: 409,
   MEDIA_NOT_FOUND: 404,
+  /** A reorder did not name exactly the listing's media (another tab changed them): reload and retry. */
+  MEDIA_ORDER_STALE: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

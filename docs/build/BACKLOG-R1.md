@@ -477,6 +477,13 @@ Ref §3 #33 §5.3 · Mod media, worker, infra · Dep S3-04
 - The media DB role cannot read another tenant table (isolation test)
 - A request for a key outside `v<n>/…` on the public media host is refused
 
+### S3-F5 · Listing videos and documents (split from S3-06)
+Ref §7 M2 · Mod media, web · Dep S3-06
+**Build:** videos as links (YouTube, Vimeo, Matterport/virtual tours: URL allowlist, normalized embed id, no fetch of the page) and listing documents (PDF: magic bytes, size cap, scan hook) in the media manager. Documents stay out of the global content-addressed namespace (S3-03 decision 4): per-agency private keys, a STRICT table, signed GET for the owner agency only, never on websites or to other agencies. `property_media` keeps VIDEO/DOCUMENT kinds or the new tables replace them — decide and record it.
+**Done when:**
+- A YouTube or Vimeo link is added, reordered with the photos and shown as a video; other hosts are refused
+- A PDF uploads with progress and only the owner agency can open it (isolation test); a non-PDF with a `.pdf` name is refused
+
 ---
 
 ## S4 — New developments

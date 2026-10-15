@@ -18,14 +18,19 @@ import {
   IssuedApiKeyDto,
   ListingContentDto,
   ListingDto,
+  ListingMediaList,
   ListingPage,
   MeDto,
+  type MediaCheckBody,
+  MediaCheckResult,
   MemberDto,
   MemberPage,
   MyCapabilitiesDto,
   PreferredAgencyDto,
   PreferredAgencyPage,
   type PutListingTranslationBody,
+  type RegisterMediaBody,
+  type ReorderListingMediaBody,
   type SetListingFeaturesBody,
   SignedUrlDto,
   StaffAccessPage,
@@ -34,6 +39,7 @@ import {
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
   type UpdateListingBody,
+  type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
@@ -494,7 +500,7 @@ export function fetchTaxonomy(session: SessionRef): Promise<ApiResult<TaxonomyDt
 }
 
 /**
- * The listing editor: the listing, its content and the taxonomy with one minted token, in parallel.
+ * The listing editor: the listing, its content, the taxonomy and its media with one minted token, in parallel.
  * `taxonomy` is null when the API refused it (the editor then shows ids only).
  */
 export async function fetchListingEditor(
@@ -506,6 +512,7 @@ export async function fetchListingEditor(
       listing: Exclude<ApiResult<ListingDto>, 'revoked'>;
       content: ListingContentDto | null;
       taxonomy: TaxonomyDto | null;
+      media: ListingMediaList | null;
     }
 > {
   let token: string;
@@ -516,19 +523,21 @@ export async function fetchListingEditor(
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
     logger.error({ err }, 'access token mint failed');
-    return { listing: { ok: false, status: 0, error: null }, content: null, taxonomy: null };
+    return { listing: { ok: false, status: 0, error: null }, content: null, taxonomy: null, media: null };
   }
   const path = `/v1/listings/${encodeURIComponent(id)}`;
-  const [listing, content, taxonomy] = await Promise.all([
+  const [listing, content, taxonomy, media] = await Promise.all([
     apiRequest({ token }, path, ListingDto),
     apiRequest({ token }, `${path}/content`, ListingContentDto),
     apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+    apiRequest({ token }, `${path}/media`, ListingMediaList),
   ]);
   if (listing === 'revoked') return 'revoked';
   return {
     listing,
     content: content !== 'revoked' && content.ok ? content.data : null,
     taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null,
+    media: media !== 'revoked' && media.ok ? media.data : null,
   };
 }
 
@@ -580,5 +589,52 @@ export function setListingFeatures(
   return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/features`, ListingContentDto, {
     method: 'PUT',
     body,
+  });
+}
+
+// --- listing media (S3-06) ---------------------------------------------------------------------------------
+
+/** Which files (by SHA-256) are stored already, and signed upload URLs for the others. */
+export function checkMedia(session: SessionRef, body: MediaCheckBody): Promise<ApiResult<MediaCheckResult>> {
+  return apiRequest(session, '/v1/media/check', MediaCheckResult, { method: 'POST', body });
+}
+
+/** Attaches uploaded (or stored) files to a listing; registering verifies new uploads in storage. */
+export function registerMedia(session: SessionRef, body: RegisterMediaBody): Promise<ApiResult<ListingMediaList>> {
+  return apiRequest(session, '/v1/media/register', ListingMediaList, { method: 'POST', body, timeoutMs: 30_000 });
+}
+
+export function listListingMedia(session: SessionRef, id: string): Promise<ApiResult<ListingMediaList>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/media`, ListingMediaList);
+}
+
+export function updateListingMedia(
+  session: SessionRef,
+  id: string,
+  mediaId: string,
+  body: UpdateListingMediaBody,
+): Promise<ApiResult<ListingMediaList>> {
+  return apiRequest(
+    session,
+    `/v1/listings/${encodeURIComponent(id)}/media/${encodeURIComponent(mediaId)}`,
+    ListingMediaList,
+    { method: 'PATCH', body },
+  );
+}
+
+export function reorderListingMedia(
+  session: SessionRef,
+  id: string,
+  body: ReorderListingMediaBody,
+): Promise<ApiResult<ListingMediaList>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/media/order`, ListingMediaList, {
+    method: 'PUT',
+    body,
+  });
+}
+
+export function detachListingMedia(session: SessionRef, id: string, mediaId: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/media/${encodeURIComponent(mediaId)}`, z.null(), {
+    method: 'DELETE',
   });
 }

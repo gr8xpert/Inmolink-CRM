@@ -6,12 +6,14 @@
  */
 import type { Tx } from '@inmolink/db';
 import { mediaObjects, propertyMedia } from '@inmolink/db/schema/media';
-import { and, asc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 
 export type MediaRow = Pick<
   typeof propertyMedia.$inferSelect,
-  'id' | 'sha256' | 'kind' | 'position' | 'isCover' | 'altText' | 'createdAt'
+  'id' | 'sha256' | 'kind' | 'position' | 'isCover' | 'altText' | 'roomType' | 'createdAt'
 >;
+/** A listing's media row with its object's processing state (which variants exist), for preview URLs. */
+export type MediaListRow = MediaRow & { pipeline: number | null; variantsReady: number };
 export type MediaInsert = typeof propertyMedia.$inferInsert;
 export type ObjectInsert = Pick<typeof mediaObjects.$inferInsert, 'sha256' | 'sizeBytes' | 'contentType'>;
 
@@ -22,27 +24,101 @@ const mediaColumns = {
   position: propertyMedia.position,
   isCover: propertyMedia.isCover,
   altText: propertyMedia.altText,
+  roomType: propertyMedia.roomType,
   createdAt: propertyMedia.createdAt,
 };
 
-/** Stored objects among `hashes` (one PK probe each), and whether their files can be trusted to stay. */
-export async function storedObjects(tx: Tx, hashes: string[]): Promise<Map<string, { trusted: boolean }>> {
+export type StoredObject = { trusted: boolean; pipeline: number | null; variantsReady: number };
+
+/**
+ * Stored objects among `hashes` (one PK probe each), whether their files can be trusted to stay, and which
+ * variants they have.
+ */
+export async function storedObjects(tx: Tx, hashes: string[]): Promise<Map<string, StoredObject>> {
   if (hashes.length === 0) return new Map();
   const rows = await tx
-    .select({ sha256: mediaObjects.sha256, deleteAfter: mediaObjects.deleteAfter, failedAt: mediaObjects.failedAt })
+    .select({
+      sha256: mediaObjects.sha256,
+      deleteAfter: mediaObjects.deleteAfter,
+      failedAt: mediaObjects.failedAt,
+      pipeline: mediaObjects.pipeline,
+      variantsReady: mediaObjects.variantsReady,
+    })
     .from(mediaObjects)
     .where(inArray(mediaObjects.sha256, hashes));
   // Pending deletion, or processing failed: its files may be gone — never skip the upload for it.
-  return new Map(rows.map((r) => [r.sha256, { trusted: r.deleteAfter === null && r.failedAt === null }]));
+  return new Map(
+    rows.map((r) => [
+      r.sha256,
+      {
+        trusted: r.deleteAfter === null && r.failedAt === null,
+        pipeline: r.pipeline,
+        variantsReady: r.variantsReady,
+      },
+    ]),
+  );
 }
 
-/** A listing's media in order (≤ MEDIA_PER_LISTING_MAX rows; `property_media_property_idx`). */
-export async function listForListing(tx: Tx, propertyId: string): Promise<MediaRow[]> {
-  return tx
-    .select(mediaColumns)
+/**
+ * A listing's media in order with their objects' processing state (≤ MEDIA_PER_LISTING_MAX rows;
+ * `property_media_property_idx`, then one PK probe per row). An object not recorded yet has no variants.
+ */
+export async function listForListing(tx: Tx, propertyId: string): Promise<MediaListRow[]> {
+  const rows = await tx
+    .select({ ...mediaColumns, pipeline: mediaObjects.pipeline, variantsReady: mediaObjects.variantsReady })
     .from(propertyMedia)
+    .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
     .where(eq(propertyMedia.propertyId, propertyId))
     .orderBy(asc(propertyMedia.position), asc(propertyMedia.id));
+  return rows.map((r) => ({ ...r, variantsReady: r.variantsReady ?? 0 }));
+}
+
+/**
+ * Changes one media row of the listing (S3-06). `cover: true` passes the cover to it: the old cover loses it
+ * first (`property_media_cover_uq` allows one per listing); a row turned into a floor plan stops being the
+ * cover (the service then hands it on). Null when the listing has no such row.
+ */
+export async function updateMedia(
+  tx: Tx,
+  propertyId: string,
+  id: string,
+  patch: { kind?: 'IMAGE' | 'FLOOR_PLAN'; altText?: string | null; roomType?: string | null; cover?: true },
+): Promise<{ kind: string; isCover: boolean } | null> {
+  if (patch.cover) {
+    await tx
+      .update(propertyMedia)
+      .set({ isCover: false, updatedAt: sql`now()` })
+      .where(and(eq(propertyMedia.propertyId, propertyId), eq(propertyMedia.isCover, true), ne(propertyMedia.id, id)));
+  }
+  const [row] = await tx
+    .update(propertyMedia)
+    .set({
+      ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+      ...(patch.altText !== undefined ? { altText: patch.altText } : {}),
+      ...(patch.roomType !== undefined ? { roomType: patch.roomType } : {}),
+      ...(patch.cover ? { isCover: true } : patch.kind === 'FLOOR_PLAN' ? { isCover: false } : {}),
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(propertyMedia.propertyId, propertyId), eq(propertyMedia.id, id)))
+    .returning({ kind: propertyMedia.kind, isCover: propertyMedia.isCover });
+  return row ?? null;
+}
+
+/**
+ * Sets every position of the listing's media from `ids` (index = position) in one statement; returns how many
+ * rows it changed. The caller checked that `ids` are exactly the listing's media.
+ */
+export async function reorder(tx: Tx, propertyId: string, ids: string[]): Promise<number> {
+  const list = sql.join(
+    ids.map((i) => sql`${i}`),
+    sql`, `,
+  );
+  const res = await tx.execute(sql`
+    update property_media m
+       set position = o.pos - 1, updated_at = now()
+      from unnest(array[${list}]::uuid[]) with ordinality as o(id, pos)
+     where m.property_id = ${propertyId} and m.id = o.id and m.position <> o.pos - 1`);
+  return res.rowCount ?? 0;
 }
 
 /**

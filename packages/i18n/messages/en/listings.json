@@ -79,10 +79,24 @@
     },
     "options": {
       "none": "—",
-      "transactionType": { "SALE": "Sale", "RENT_LONG_TERM": "Long-term rental", "RENT_SHORT_TERM": "Holiday rental" },
-      "pricePeriod": { "NIGHT": "Night", "WEEK": "Week", "MONTH": "Month" },
-      "locationPrecision": { "EXACT": "Exact", "APPROX": "Approximate (about 1 km)" },
-      "commissionType": { "PCT": "Percentage", "FIXED": "Fixed amount" },
+      "transactionType": {
+        "SALE": "Sale",
+        "RENT_LONG_TERM": "Long-term rental",
+        "RENT_SHORT_TERM": "Holiday rental"
+      },
+      "pricePeriod": {
+        "NIGHT": "Night",
+        "WEEK": "Week",
+        "MONTH": "Month"
+      },
+      "locationPrecision": {
+        "EXACT": "Exact",
+        "APPROX": "Approximate (about 1 km)"
+      },
+      "commissionType": {
+        "PCT": "Percentage",
+        "FIXED": "Fixed amount"
+      },
       "status": {
         "DRAFT": "Draft",
         "ACTIVE": "Active",
@@ -96,8 +110,14 @@
         "SHARED": "Shared (verified agencies)",
         "PUBLIC": "Public (websites and portals)"
       },
-      "shareScope": { "ALL": "All verified agencies", "PREFERRED": "My preferred agencies" },
-      "energyRating": { "EXEMPT": "Exempt", "PENDING": "In progress" }
+      "shareScope": {
+        "ALL": "All verified agencies",
+        "PREFERRED": "My preferred agencies"
+      },
+      "energyRating": {
+        "EXEMPT": "Exempt",
+        "PENDING": "In progress"
+      }
     },
     "locks": {
       "price": "Price",
@@ -119,7 +139,11 @@
       "metaDescription": "SEO description",
       "locked": "Keep this text (machine translation never overwrites it)",
       "remove": "Remove this language",
-      "origin": { "HUMAN": "Written", "AI_DRAFT": "AI draft", "REVIEWED": "Reviewed" }
+      "origin": {
+        "HUMAN": "Written",
+        "AI_DRAFT": "AI draft",
+        "REVIEWED": "Reviewed"
+      }
     }
   },
   "fieldInvalid": "Check this value.",
@@ -132,6 +156,86 @@
     "LISTING_STATUS_INVALID": "The listing cannot move to that status from its current one.",
     "VERIFICATION_REQUIRED": "Your agency must be verified to share or publish listings.",
     "RATE_LIMITED": "Too many changes at once; wait a moment.",
+    "MEDIA_TYPE_NOT_ALLOWED": "This file is not an accepted image.",
+    "MEDIA_NOT_UPLOADED": "The upload did not finish; try again.",
+    "MEDIA_LIMIT_REACHED": "The listing already has the maximum number of files.",
+    "MEDIA_NOT_FOUND": "This file is no longer on the listing; reload the page.",
+    "MEDIA_ORDER_STALE": "The files changed in another window; reload the page.",
+    "PAYLOAD_TOO_LARGE": "The file is too large.",
+    "NETWORK": "The connection failed; try again.",
     "generic": "Something went wrong. Try again."
+  },
+  "media": {
+    "title": "Photos and floor plans",
+    "intro": "Drop photos here or choose them. Files this listing already has are skipped; files stored anywhere on the platform are not uploaded again.",
+    "drop": "Drop photos and floor plans here",
+    "choose": "Choose files",
+    "input": "Photos to upload",
+    "hint": "JPEG, PNG, WebP or HEIC, up to {max} MB each, {limit} files per listing.",
+    "progress": "Uploaded {done} of {total}",
+    "progressLabel": "Upload progress",
+    "summary": "{uploaded} uploaded · {skipped} skipped · {failed} failed",
+    "retryFailed": "Retry failed uploads",
+    "clear": "Clear the list",
+    "status": {
+      "hashing": "Reading",
+      "checking": "Checking",
+      "uploading": "Uploading",
+      "registering": "Adding",
+      "done": "Added",
+      "stored": "Added (already stored, no upload)",
+      "skipped": "Skipped: already on this listing",
+      "duplicate": "Skipped: chosen twice",
+      "failed": "Failed",
+      "queued": "Waiting"
+    },
+    "reasons": {
+      "type": "Not a JPEG, PNG, WebP or HEIC image",
+      "size": "Larger than {max} MB",
+      "limit": "The listing is full ({limit} files)"
+    },
+    "empty": "No photos yet.",
+    "item": "File {n}",
+    "processing": "Preview in preparation",
+    "cover": "Cover",
+    "makeCover": "Make cover",
+    "earlier": "Move earlier",
+    "later": "Move later",
+    "remove": "Remove",
+    "kind": "Kind",
+    "kinds": {
+      "IMAGE": "Photo",
+      "FLOOR_PLAN": "Floor plan",
+      "VIDEO": "Video",
+      "DOCUMENT": "Document"
+    },
+    "roomType": "Room",
+    "noRoom": "Not set",
+    "rooms": {
+      "EXTERIOR": "Exterior",
+      "FACADE": "Façade",
+      "LIVING_ROOM": "Living room",
+      "DINING_ROOM": "Dining room",
+      "KITCHEN": "Kitchen",
+      "BEDROOM": "Bedroom",
+      "BATHROOM": "Bathroom",
+      "OFFICE": "Office",
+      "HALL": "Hall",
+      "TERRACE": "Terrace",
+      "BALCONY": "Balcony",
+      "GARDEN": "Garden",
+      "POOL": "Pool",
+      "GARAGE": "Garage",
+      "STORAGE": "Storage room",
+      "VIEW": "View",
+      "COMMUNITY": "Community areas",
+      "OTHER": "Other"
+    },
+    "altText": "Alt text",
+    "altHint": "Describe the photo for screen readers and search engines.",
+    "dragHint": "Drag files to reorder them, or use the arrows.",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "count": "{count} of {limit} files"
   }
 }

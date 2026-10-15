@@ -1,5 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as media from '@inmolink/core/modules/media';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
@@ -41,6 +42,7 @@ try {
     hmacKey: config.HMAC_KEY,
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
+  media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
 
   const app = await buildApp({
     logger,

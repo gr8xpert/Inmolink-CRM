@@ -1,4 +1,5 @@
 import { CONTENT_LOCALES, DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
+import dynamic from 'next/dynamic';
 import { notFound, redirect } from 'next/navigation';
 import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
@@ -8,11 +9,17 @@ import { webConfig } from '@/server/env';
 import { listingTaxonomy } from '../taxonomy';
 import { ListingEditor } from './listing-editor';
 
+// Drag-and-drop and the upload pipeline load as their own chunk (frontend rules: drag-and-drop via next/dynamic).
+const MediaManager = dynamic(() => import('./media-manager'), {
+  loading: () => <div className="h-48 animate-pulse rounded-md bg-muted" />,
+});
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * The listing editor (S3-05): listing, content and taxonomy in one round of parallel calls, then the client
- * editor autosaves each change. Another agency's or a deleted listing opens read-only.
+ * The listing editor (S3-05): listing, content, taxonomy and media in one round of parallel calls, then the
+ * client editor autosaves each change; the media manager (S3-06) below it saves each media change at once.
+ * Another agency's or a deleted listing opens read-only.
  */
 export default async function ListingEditorPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -58,6 +65,14 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
           messages={messages.listings}
         />
       )}
+      {res.listing.ok ? (
+        <MediaManager
+          listingId={res.listing.data.id}
+          initial={res.media?.items ?? []}
+          readOnly={res.listing.data.private === null || res.listing.data.deletedAt !== null}
+          messages={messages.listings}
+        />
+      ) : null}
     </div>
   );
 }

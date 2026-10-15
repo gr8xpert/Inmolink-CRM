@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { CreateListingBody, MediaCheckBody, type MediaCheckResult, RegisterMediaBody } from '@inmolink/contracts';
+import {
+  CreateListingBody,
+  MediaCheckBody,
+  type MediaCheckResult,
+  RegisterMediaBody,
+  UpdateListingMediaBody,
+} from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
@@ -123,6 +129,7 @@ beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
   configureStorage(createS3Store(storageConfigFromEnv(loadConfig(storageEnv))));
+  media.configureMedia({ urlKey: `media-test-key-${RUN}-0123456789abcdef` });
   [a, b] = await Promise.all([createFounder(), createFounder()]);
   for (const f of [a, b]) await setAgencyStatus(f.agencyId, 'VERIFIED');
   ids = await system(async (tx) => {
@@ -348,5 +355,94 @@ describe('media upload pipeline', () => {
     const n = await countQueries(() => as(a, (ctx) => media.checkUploads(ctx, MediaCheckBody.parse({ files }))));
     // member context (membership + agency) and the one stored-hash probe
     expect(n).toBeLessThanOrEqual(4);
+  });
+
+  // --- media manager (S3-06) ---------------------------------------------------------------------------------
+
+  const edit = (m: Founder, listingId: string, mediaId: string, patch: unknown) =>
+    as(m, (ctx) => media.updateListingMedia(ctx, { listingId, mediaId, patch: UpdateListingMediaBody.parse(patch) }));
+  const reorder = (m: Founder, listingId: string, ids: string[]) =>
+    as(m, (ctx) => media.reorderListingMedia(ctx, { listingId, ids }));
+
+  it('[S3-06] order persists: a reorder puts every file where it was dropped; a stale order is refused', async () => {
+    const files = ['r1', 'r2', 'r3', 'r4'].map((l) => jpeg(l));
+    await upload(await check(a, files), files);
+    const id = await listing(a);
+    const listed = (await register(a, id, files)).items;
+    const [m1, m2, m3, m4] = listed.map((m) => m.id) as [string, string, string, string];
+
+    const moved = await reorder(a, id, [m3, m1, m4, m2]);
+    expect(moved.items.map((m) => [m.id, m.position])).toEqual([
+      [m3, 0],
+      [m1, 1],
+      [m4, 2],
+      [m2, 3],
+    ]);
+    // the cover stays with its file
+    expect(moved.items.find((m) => m.isCover)?.id).toBe(m1);
+    expect((await as(a, (ctx) => media.listListingMedia(ctx, id))).items.map((m) => m.id)).toEqual([m3, m1, m4, m2]);
+
+    // missing one, or naming one the listing does not have: another tab changed the media
+    expect(await refusal(reorder(a, id, [m3, m1, m4]))).toBe('MEDIA_ORDER_STALE');
+    expect(await refusal(reorder(a, id, [m3, m1, m4, newId()]))).toBe('MEDIA_ORDER_STALE');
+    // another agency cannot reorder or edit
+    expect(await refusal(reorder(b, id, [m1, m2, m3, m4]))).toBe('LISTING_NOT_FOUND');
+    expect(await refusal(edit(b, id, m1, { altText: 'x' }))).toBe('LISTING_NOT_FOUND');
+    await sync();
+  });
+
+  it('[S3-06] cover, room type, alt text and floor plans are set per file; a cover turned floor plan passes the cover on', async () => {
+    const files = ['e1', 'e2', 'e3'].map((l) => jpeg(l));
+    await upload(await check(a, files), files);
+    const id = await listing(a);
+    const [m1, m2, m3] = (await register(a, id, files)).items.map((m) => m.id) as [string, string, string];
+
+    const described = await edit(a, id, m2, { altText: ' Sea view from the terrace ', roomType: 'TERRACE' });
+    expect(described.items[1]).toMatchObject({ altText: 'Sea view from the terrace', roomType: 'TERRACE' });
+    const cleared = await edit(a, id, m2, { altText: null, roomType: null });
+    expect(cleared.items[1]).toMatchObject({ altText: null, roomType: null });
+
+    const covered = await edit(a, id, m3, { cover: true });
+    expect(covered.items.map((m) => m.isCover)).toEqual([false, false, true]);
+
+    // the cover becomes a floor plan: the first image takes the cover
+    const plan = await edit(a, id, m3, { kind: 'FLOOR_PLAN' });
+    expect(plan.items.map((m) => [m.id, m.kind, m.isCover])).toEqual([
+      [m1, 'IMAGE', true],
+      [m2, 'IMAGE', false],
+      [m3, 'FLOOR_PLAN', false],
+    ]);
+    // a floor plan cannot be the cover; an unknown file is not found
+    expect(await refusal(edit(a, id, m3, { cover: true }))).toBe('VALIDATION_FAILED');
+    expect(await refusal(edit(a, id, newId(), { altText: 'x' }))).toBe('MEDIA_NOT_FOUND');
+    await sync();
+  });
+
+  it('[S3-06] a processed file lists a signed 320 px preview; an unprocessed one none', async () => {
+    const [done, pending] = ['t1', 't2'].map((l) => jpeg(l)) as [Uint8Array, Uint8Array];
+    await upload(await check(a, [done, pending]), [done, pending]);
+    const id = await listing(a);
+    await register(a, id, [done, pending]);
+    await sync();
+    await system((tx) =>
+      tx.execute(sql`update media_objects set pipeline = 1, variants_ready = 31, width = 800, height = 600
+                      where sha256 = ${sha(done)}`),
+    );
+    const [first, second] = (await as(a, (ctx) => media.listListingMedia(ctx, id))).items;
+    expect(first?.thumbUrl).toMatch(/\/v1\/[0-9a-f]{32}\/thumb\.webp\?/);
+    expect(first?.thumbUrl).not.toContain(sha(done));
+    expect(second?.thumbUrl).toBeNull();
+  });
+
+  it('[S3-06] reordering and editing 100 files stay within the dashboard query budget', async () => {
+    const files = Array.from({ length: 100 }, (_, i) => jpeg(`order-${i}`, 64));
+    await upload(await check(a, files), files);
+    const id = await listing(a);
+    const ids = (await register(a, id, files)).items.map((m) => m.id);
+    expect(await countQueries(() => reorder(a, id, [...ids].reverse()))).toBeLessThanOrEqual(10);
+    expect(await countQueries(() => edit(a, id, ids[5] ?? '', { cover: true, roomType: 'POOL' }))).toBeLessThanOrEqual(
+      10,
+    );
+    await sync();
   });
 });

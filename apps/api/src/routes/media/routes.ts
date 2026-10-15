@@ -5,6 +5,8 @@ import {
   MediaCheckBody,
   MediaCheckResult,
   RegisterMediaBody,
+  ReorderListingMediaBody,
+  UpdateListingMediaBody,
 } from '@inmolink/contracts';
 import * as media from '@inmolink/core/modules/media';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
@@ -104,6 +106,48 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
         media.detachListingMedia(ctx, { listingId: req.params.id, mediaId: req.params.mediaId }),
       );
       return reply.code(204).send(null);
+    },
+  );
+
+  app.patch(
+    '/v1/listings/:id/media/:mediaId',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.updateListingMedia',
+        summary: "Change one file's kind, cover, alt text or room type; answers the listing's media",
+        params: ListingMediaParams,
+        body: UpdateListingMediaBody,
+        response: { 200: ListingMediaList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        media.updateListingMedia(ctx, { listingId: req.params.id, mediaId: req.params.mediaId, patch: req.body }),
+      );
+    },
+  );
+
+  app.put(
+    '/v1/listings/:id/media/order',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.reorderListingMedia',
+        summary: "Put the listing's media in this order (every id once); answers the listing's media",
+        params: ListingParams,
+        body: ReorderListingMediaBody,
+        response: { 200: ListingMediaList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => media.reorderListingMedia(ctx, { listingId: req.params.id, ids: req.body.ids }));
     },
   );
 }

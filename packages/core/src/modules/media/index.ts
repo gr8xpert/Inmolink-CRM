@@ -10,6 +10,8 @@ export {
   listListingMedia,
   originalKey,
   registerUploads,
+  reorderListingMedia,
+  updateListingMedia,
 } from './service';
 export { registerMediaSubscriptions, unregisterMediaSubscriptions } from './subscriptions';
 export {

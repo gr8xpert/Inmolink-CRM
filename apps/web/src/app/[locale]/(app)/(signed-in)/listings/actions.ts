@@ -4,23 +4,36 @@ import {
   CreateListingBody,
   type ListingContentDto,
   type ListingDto,
+  type ListingMediaList,
+  MediaCheckBody,
+  type MediaCheckResult,
   PutListingTranslationBody,
+  RegisterMediaBody,
+  ReorderListingMediaBody,
   SetListingFeaturesBody,
   UpdateListingBody,
+  UpdateListingMediaBody,
 } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
+import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
 import {
   type ApiResult,
+  checkMedia,
   createListing,
   deleteListingTranslation,
+  detachListingMedia,
+  listListingMedia,
   putListingTranslation,
+  registerMedia,
+  reorderListingMedia,
   type SessionRef,
   sessionRef,
   setListingFeatures,
   updateListing,
+  updateListingMedia,
 } from '@/server/api';
 import { inputOf } from './values';
 
@@ -81,6 +94,56 @@ export async function saveFeaturesAction(id: string, body: unknown): Promise<Edi
   const parsed = SetListingFeaturesBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => setListingFeatures(s, id, parsed.data));
+}
+
+// --- media manager (S3-06): the browser hashes and uploads straight to storage; these carry the API calls ---
+
+const Uuid = z.uuid();
+const badId = (): EditorResult<never> => invalid(['id']);
+
+/** Which of these files the platform stores already, and signed upload URLs for the others (≤ 100). */
+export async function checkMediaAction(body: unknown): Promise<EditorResult<MediaCheckResult>> {
+  const parsed = MediaCheckBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => checkMedia(s, parsed.data));
+}
+
+/** Attaches uploaded or stored files to the listing, in order; answers the listing's media. */
+export async function registerMediaAction(body: unknown): Promise<EditorResult<ListingMediaList>> {
+  const parsed = RegisterMediaBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => registerMedia(s, parsed.data));
+}
+
+export async function listMediaAction(id: string): Promise<EditorResult<ListingMediaList>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => listListingMedia(s, id));
+}
+
+export async function updateMediaAction(
+  id: string,
+  mediaId: string,
+  body: unknown,
+): Promise<EditorResult<ListingMediaList>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(mediaId).success) return badId();
+  const parsed = UpdateListingMediaBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => updateListingMedia(s, id, mediaId, parsed.data));
+}
+
+export async function reorderMediaAction(id: string, body: unknown): Promise<EditorResult<ListingMediaList>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  const parsed = ReorderListingMediaBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => reorderListingMedia(s, id, parsed.data));
+}
+
+/** Removes a file from the listing; answers the listing's media as it is now. */
+export async function detachMediaAction(id: string, mediaId: string): Promise<EditorResult<ListingMediaList>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(mediaId).success) return badId();
+  const removed = await withSession((s) => detachListingMedia(s, id, mediaId));
+  if (!removed.ok) return removed;
+  return withSession((s) => listListingMedia(s, id));
 }
 
 export interface CreateState {

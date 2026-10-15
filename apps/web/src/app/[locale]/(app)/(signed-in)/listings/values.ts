@@ -302,3 +302,15 @@ export function translationChanged(saved: TranslationDraft | undefined, draft: T
   if (body === null) return false;
   return !saved || JSON.stringify(translationBody(saved)) !== JSON.stringify(body);
 }
+
+export type T = (key: string, vars?: Record<string, string>) => string;
+
+/** Looks up `key` (dotted) in a catalog the server translated, filling `{name}` placeholders. */
+export function makeT(messages: Record<string, unknown>): T {
+  return (key, vars) => {
+    let v: unknown = messages;
+    for (const part of key.split('.')) v = (v as Record<string, unknown> | undefined)?.[part];
+    const s = typeof v === 'string' ? v : key;
+    return vars ? s.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '') : s;
+  };
+}

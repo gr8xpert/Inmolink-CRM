@@ -76,6 +76,8 @@ env:
     - ENCRYPTION_KEYS
     - ENCRYPTION_ACTIVE_KEY_ID
     - HMAC_KEY
+    # Signed media preview URLs (S3-06) name variants by their public id (S3-04).
+    - MEDIA_URL_KEY
 accessories:
   # Cache: bounded, LRU, no persistence (same flags as the local redis-cache service).
   # AUTH (S1-F5): the password goes into a 0600 config file, not the command line (visible in `ps`); the
