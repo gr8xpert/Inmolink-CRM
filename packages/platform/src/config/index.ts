@@ -213,6 +213,8 @@ const EXAMPLE_SECRETS = [
   'xOmUta9NX3C5Z_oJq3EJuq5OargPUZY27uzbpxkbv5s',
   '01c1d8e276ba8bfe3a373a947be2a96c5706827172d0449d9dac51abbe9b621b',
   '7e010e159bffe2c51832864979e6b72652776ca7ea39d1fd9b81bcfaa227b7f8',
+  '5b0e2f7c91d34a6e8f1c0b9d2a7e4f6153c8d9e0a1b2c3d4e5f60718293a4b5c',
+  'c4a91e0f6b2d47388e5f1a9c0d3b7e2f4a6c8e0b1d3f5a7c9e1b3d5f7a9c0e2f',
 ];
 const EXAMPLE_ENCRYPTION_KEYS = new Set([
   'gOid8c3Gq/xDngwo9zS6C1RbtlAac+1xxS+dcK8Kfak=',
@@ -255,6 +257,14 @@ export const cryptoEnv = {
   ENCRYPTION_ACTIVE_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, 'must be a key id from ENCRYPTION_KEYS'),
   /** Dedicated HMAC key (fingerprints, idempotency keys); at least 32 chars. */
   HMAC_KEY: z.string().min(32, 'must be at least 32 characters'),
+};
+
+/**
+ * Media variant URLs (S3-04): the key their public ids are derived with. Its own key, kept for good: rotating
+ * it moves every variant URL (bump the media pipeline version with it). At least 32 chars.
+ */
+export const mediaEnv = {
+  MEDIA_URL_KEY: z.string().min(32, 'must be at least 32 characters'),
 };
 
 export type EnvShape = Record<string, z.ZodType>;
@@ -343,6 +353,11 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
   } else if (production && typeof cfg.HMAC_KEY === 'string' && isExampleSecret(cfg.HMAC_KEY)) {
     problems.push({ key: 'HMAC_KEY', message: 'is a committed example value; generate a new one' });
+  }
+  if (production && typeof cfg.MEDIA_URL_KEY === 'string' && cfg.MEDIA_URL_KEY.startsWith('dev-')) {
+    problems.push({ key: 'MEDIA_URL_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
+  } else if (production && typeof cfg.MEDIA_URL_KEY === 'string' && isExampleSecret(cfg.MEDIA_URL_KEY)) {
+    problems.push({ key: 'MEDIA_URL_KEY', message: 'is a committed example value; generate a new one' });
   }
   // Read from the raw env: request apps do not declare the variable, so it would never reach `cfg`.
   if (production && cfg.APP_ROLE === 'http' && (env.MEILI_MASTER_KEY ?? '').trim() !== '') {

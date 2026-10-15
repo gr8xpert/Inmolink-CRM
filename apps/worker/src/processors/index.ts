@@ -12,7 +12,7 @@ import type { Pool } from '../config';
  */
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   imports: [],
-  media: [mediaJobs.syncObjects],
+  media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [],
   matching: [],
   exports: [],

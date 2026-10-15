@@ -2,6 +2,8 @@
 servers:
   workers:
     hosts: [203.0.113.50]
+  media:
+    hosts: [203.0.113.50]
 env:
   clear:
     DEPLOY_ENV: "staging"

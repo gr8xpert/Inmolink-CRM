@@ -20,6 +20,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -44,6 +45,20 @@ export const mediaObjects = pgTable(
     contentType: text('content_type').notNull(),
     /** 64-bit perceptual hash for near-duplicate detection; filled by the processing worker (S3-04). */
     phash: bigint('phash', { mode: 'bigint' }),
+    /**
+     * Processing (S3-04): the variant pipeline version the stored variants were made with (null = not
+     * processed yet), which of that version's variants exist (bit per size, `media/variants.ts`), and the
+     * normalized master's pixel size.
+     */
+    pipeline: smallint('pipeline'),
+    variantsReady: smallint('variants_ready').notNull().default(0),
+    width: integer('width'),
+    height: integer('height'),
+    /**
+     * Processing failed for good (unreadable image, original missing or not matching its hash) while listings
+     * use the object: its original is deleted and the next check asks for a fresh upload.
+     */
+    failedAt: timestamp('failed_at', { withTimezone: true }),
     refcount: integer('refcount').notNull().default(0),
     deleteAfter: timestamp('delete_after', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -52,9 +67,15 @@ export const mediaObjects = pgTable(
   (t) => [
     // orphan cleanup (S3-04): unreferenced objects, the ones due first
     index('media_objects_delete_after_idx').on(t.deleteAfter).where(sql`${t.deleteAfter} is not null`),
+    // reconciler (S3-04): recorded objects whose processing never finished
+    index('media_objects_unprocessed_idx').on(t.createdAt).where(sql`${t.pipeline} is null and ${t.failedAt} is null`),
     check('media_objects_sha256_ck', SHA256_HEX(t.sha256)),
     check('media_objects_size_ck', sql`${t.sizeBytes} > 0`),
     check('media_objects_refcount_ck', sql`${t.refcount} >= 0`),
+    check(
+      'media_objects_processed_ck',
+      sql`(${t.pipeline} is null and ${t.variantsReady} = 0) or (${t.pipeline} > 0 and ${t.variantsReady} >= 0 and ${t.width} > 0 and ${t.height} > 0)`,
+    ),
     check(
       'media_objects_content_type_ck',
       sql`${t.contentType} in ('image/jpeg', 'image/png', 'image/webp', 'image/heic')`,

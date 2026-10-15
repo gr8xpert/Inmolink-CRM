@@ -18,6 +18,13 @@ export type BucketName = keyof StorageBuckets;
 
 export interface PutOptions {
   contentType: string;
+  /** Served as `Cache-Control` (e.g. immutable media variants, S3-04). */
+  cacheControl?: string;
+}
+
+export interface GetOptions {
+  /** Refuse (`StorageError`, status 413) an object larger than this, without reading it into memory. */
+  maxBytes: number;
 }
 
 export interface SignedUrlOptions {
@@ -70,6 +77,8 @@ export interface ListPage {
 
 export interface ObjectStore {
   put(bucket: BucketName, key: string, body: Uint8Array, options: PutOptions): Promise<void>;
+  /** The whole object, or null when it does not exist (worker use: one image to process, S3-04). */
+  get(bucket: BucketName, key: string, options: GetOptions): Promise<Uint8Array | null>;
   /** Idempotent: deleting a missing object succeeds. */
   delete(bucket: BucketName, key: string): Promise<void>;
   /** Size of the object, or null when it does not exist. */
@@ -154,6 +163,27 @@ function putHeaders(options: SignedPutOptions): Record<string, string> {
   };
 }
 
+/** A header value we send: visible ASCII only (nothing a header could be injected with). */
+function assertCacheControl(value: string): string {
+  if (!/^[ -~]{1,200}$/.test(value)) throw new TypeError('storage: invalid cache-control');
+  return value;
+}
+
+function assertMaxBytes(value: number): number {
+  if (!(Number.isSafeInteger(value) && value > 0)) throw new RangeError('storage: maxBytes must be a positive integer');
+  return value;
+}
+
+function concat(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
 /** `attachment; filename="…"; filename*=UTF-8''…` with the ASCII fallback stripped of quotes and controls. */
 export function attachmentDisposition(name: string): string {
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
@@ -228,12 +258,49 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         body: body as Uint8Array<ArrayBuffer>,
         headers: {
           'content-type': options.contentType,
+          ...(options.cacheControl ? { 'cache-control': assertCacheControl(options.cacheControl) } : {}),
           // Signed payload hash: the store rejects a body altered in transit.
           'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
         },
       });
       if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
       await res.body?.cancel();
+    },
+    async get(bucket, key, options) {
+      const max = assertMaxBytes(options.maxBytes);
+      const res = await send(urlOf(bucket, key), { method: 'GET' });
+      if (res.status === 404) {
+        await res.body?.cancel();
+        return null;
+      }
+      if (!res.ok) {
+        await res.body?.cancel();
+        throw new StorageError(`storage GET failed (${res.status})`, res.status);
+      }
+      const declared = res.headers.get('content-length');
+      if (Number(declared ?? 0) > max) {
+        await res.body?.cancel();
+        throw new StorageError('storage GET: object too large', 413);
+      }
+      // Counted while streaming too: a missing or wrong Content-Length cannot make us buffer more than `max`.
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      const reader = res.body?.getReader();
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > max) {
+          await reader.cancel();
+          throw new StorageError('storage GET: object too large', 413);
+        }
+        chunks.push(value);
+      }
+      // A cut-off transfer is an error to retry, never a (shorter) object: callers hash what they get.
+      if (declared !== null && total !== Number(declared)) {
+        throw new StorageError('storage GET: incomplete body');
+      }
+      return concat(chunks, total);
     },
     async delete(bucket, key) {
       const res = await send(urlOf(bucket, key), { method: 'DELETE' });
@@ -340,7 +407,15 @@ export function createMemoryStore(): MemoryStore {
   return {
     objects,
     async put(bucket, key, body, options) {
+      if (options.cacheControl) assertCacheControl(options.cacheControl);
       objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType, lastModified: new Date() });
+    },
+    async get(bucket, key, options) {
+      const max = assertMaxBytes(options.maxBytes);
+      const o = objects.get(id(bucket, key));
+      if (!o) return null;
+      if (o.body.byteLength > max) throw new StorageError('storage GET: object too large', 413);
+      return o.body.slice();
     },
     async delete(bucket, key) {
       objects.delete(id(bucket, key));

@@ -183,7 +183,7 @@ describe('media upload pipeline', () => {
     const id = await listing(a);
     expect(await refusal(register(a, id, [fake]))).toBe('MEDIA_TYPE_NOT_ALLOWED');
     // The object is gone, nothing was attached or recorded.
-    expect(await storage().head('media', media.originalKey(sha(fake)))).toBeNull();
+    expect(await storage().head('private', media.originalKey(sha(fake)))).toBeNull();
     expect((await as(a, (ctx) => media.listListingMedia(ctx, id))).items).toEqual([]);
     await sync();
     expect(await objectOf(fake)).toBeNull();
@@ -240,7 +240,7 @@ describe('media upload pipeline', () => {
     expect(await put(jpeg('signed', 4_096))).toBeGreaterThanOrEqual(400);
     const { 'x-amz-checksum-sha256': _, ...unsigned } = entry?.upload?.headers ?? {};
     expect(await put(photo, unsigned)).toBeGreaterThanOrEqual(400);
-    expect(await storage().head('media', media.originalKey(sha(photo)))).toBeNull();
+    expect(await storage().head('private', media.originalKey(sha(photo)))).toBeNull();
     expect(await put(photo)).toBe(200);
     // Create-only: a stored original is never overwritten through a signed URL.
     expect(await put(photo)).toBe(412);

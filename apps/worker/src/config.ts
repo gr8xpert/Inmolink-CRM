@@ -6,8 +6,10 @@ import {
   emailEnv,
   httpEnv,
   loadConfigOrExit,
+  mediaEnv,
   portVar,
   redisEnv,
+  storageEnv,
   telemetryEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
@@ -58,6 +60,9 @@ export const workerEnv = {
   DATABASE_URL_APP_SYSTEM: databaseEnv.DATABASE_URL_APP_SYSTEM.unwrap(),
   ...redisEnv,
   ...cryptoEnv,
+  // Media processing and orphan sweeps (S3-04, S1-F7) read and write object storage.
+  ...storageEnv,
+  ...mediaEnv,
   ...emailEnv,
   ...webUrlEnv,
 };

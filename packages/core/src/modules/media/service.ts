@@ -5,9 +5,10 @@
  * Upload pipeline (S3-03, PLAN §3 #33): the browser hashes each file and calls `checkUploads`; hashes the
  * platform stores already need no upload at all (zero bytes); the others get a signed PUT straight to object
  * storage, bound to the file's type, exact size and SHA-256 (the store refuses anything else), under the
- * content-addressed key `originals/<sha256>`. `registerUploads` then checks each new object in storage — size,
- * and its magic bytes: non-images are deleted and refused — and attaches the files to a listing. The media
- * worker records new objects and recounts references (`media.syncObjects`).
+ * content-addressed key `originals/<sha256>` in the private bucket. `registerUploads` then checks each new
+ * object in storage — size, and its magic bytes: non-images are deleted and refused — and attaches the files to
+ * a listing. The media worker records new objects and recounts references (`media.syncObjects`), then processes
+ * them (`media.processObject`, S3-04).
  */
 import {
   type ListingMediaDto,
@@ -33,6 +34,11 @@ import * as repo from './repo';
 
 /** The content-addressed key of an uploaded original (never served to browsers: variants are, S3-04). */
 export const originalKey = (sha256: string) => `originals/${sha256}`;
+/**
+ * Originals (EXIF, GPS) are uploaded to the private bucket: the `media` bucket holds only variants, so it can
+ * be served publicly as a whole (S3-04).
+ */
+export const ORIGINALS_BUCKET = 'private' as const;
 
 /** Storage checks run at most this many at once per register call. */
 const VERIFY_CONCURRENCY = 16;
@@ -53,7 +59,8 @@ function toDto(row: repo.MediaRow): ListingMediaDto {
   };
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+/** Runs `fn` over `items` with at most `limit` in flight; results in input order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
   const lane = async () => {
@@ -86,11 +93,11 @@ export async function checkUploads(ctx: Ctx, input: MediaCheckBody): Promise<Med
   // Signing is local (no network call), so it may run inside the transaction.
   const files = await Promise.all(
     input.files.map(async (f) => {
-      // An unreferenced object awaiting deletion is uploaded again rather than trusted to survive.
-      if (stored.has(f.sha256) && !stored.get(f.sha256)?.deleteAfter) {
+      // An object awaiting deletion, or whose processing failed, is uploaded again rather than trusted.
+      if (stored.get(f.sha256)?.trusted) {
         return { sha256: f.sha256, status: 'STORED' as const, upload: null };
       }
-      const put = await storage().signedPutUrl('media', originalKey(f.sha256), {
+      const put = await storage().signedPutUrl(ORIGINALS_BUCKET, originalKey(f.sha256), {
         expiresInSeconds: MEDIA_UPLOAD_URL_TTL_SECONDS,
         contentType: f.contentType,
         contentLength: f.sizeBytes,
@@ -109,11 +116,11 @@ export async function checkUploads(ctx: Ctx, input: MediaCheckBody): Promise<Med
  */
 async function verifyUpload(sha256: string): Promise<VerifiedUpload> {
   const key = originalKey(sha256);
-  const read = await storage().getRange('media', key, 0, SNIFF_BYTES - 1);
+  const read = await storage().getRange(ORIGINALS_BUCKET, key, 0, SNIFF_BYTES - 1);
   if (!read) throw new AppError('MEDIA_NOT_UPLOADED', { sha256 });
   const discard = () =>
     storage()
-      .delete('media', key)
+      .delete(ORIGINALS_BUCKET, key)
       .catch(() => {});
   if (read.sizeBytes <= 0 || read.sizeBytes > MEDIA_MAX_BYTES) {
     await discard();
@@ -142,8 +149,8 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
     return repo.storedObjects(ctx.tx, hashes);
   });
 
-  // Objects the platform has not verified yet (or that await deletion) are checked in storage now.
-  const unverified = hashes.filter((h) => !stored.has(h) || stored.get(h)?.deleteAfter);
+  // Objects the platform has not verified yet (or awaiting deletion, or failed) are checked in storage now.
+  const unverified = hashes.filter((h) => !stored.get(h)?.trusted);
   const verified = new Map(
     (await mapLimit(unverified, VERIFY_CONCURRENCY, verifyUpload)).map((v) => [v.sha256, v] as const),
   );

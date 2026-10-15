@@ -1,0 +1,2 @@
+ALTER TABLE "media_objects" ADD COLUMN "failed_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "media_objects_unprocessed_idx" ON "media_objects" USING btree ("created_at") WHERE "media_objects"."pipeline" is null and "media_objects"."failed_at" is null;

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Media processing worker (S3-04): `media.processObject` normalizes each upload into a private master (EXIF stripped, ≤ 2560 px, HEIC → WebP) and renders deterministic variants (`v1/<hmac id>/{thumb,small,medium,large}.webp`, `og.jpg`) with a pHash and a `variants_ready` bitmask; on-demand rendering of missing sizes; hourly orphan cleanup and reprocessing of stuck objects; originals move to the private bucket; the media pool runs in its own Kamal role; new `MEDIA_URL_KEY`; storage `get` with a byte cap (migrations 0048–0049). New dependencies: sharp 0.35.5 (libvips image processing), heic-decode 2.1.0 (HEIC via libheif WASM; libheif-js pinned to 1.23.2). [S3-04]
 - Media upload pipeline (S3-03): content-addressed originals (`media_objects`, SHA-256), `POST /v1/media/check` (stored files need no upload; signed create-only PUTs bound to type, size and checksum), `POST /v1/media/register` (magic-byte check, attach in order with one cover), list and detach; reference recount job `media.syncObjects` schedules unreferenced objects for deletion after 7 days. No new dependencies. [S3-03]
 
 ### Changed

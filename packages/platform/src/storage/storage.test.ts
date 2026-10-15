@@ -117,6 +117,56 @@ describe('storage', () => {
     expect(await memory.getRange('media', 'originals/none', 0, 9)).toBeNull();
   });
 
+  it('[S3-04] whole-object reads stop at the byte cap, with or without a Content-Length', async () => {
+    const body = new Uint8Array(10).fill(7);
+    const answer = (withLength: boolean) => async () =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(body.subarray(0, 6));
+            c.enqueue(body.subarray(6));
+            c.close();
+          },
+        }),
+        { status: 200, headers: withLength ? { 'content-length': '10' } : {} },
+      );
+    const s3 = (withLength: boolean) =>
+      createS3Store({
+        endpoint: 'http://localhost:9000',
+        region: 'auto',
+        accessKeyId: 'AKIDEXAMPLE',
+        secretAccessKey: 'secret',
+        buckets: { media: 'm', exports: 'e', private: 'p' },
+        fetch: answer(withLength) as unknown as typeof fetch,
+      });
+    expect(await s3(true).get('media', 'masters/x', { maxBytes: 10 })).toEqual(body);
+    await expect(s3(true).get('media', 'masters/x', { maxBytes: 9 })).rejects.toMatchObject({ status: 413 });
+    await expect(s3(false).get('media', 'masters/x', { maxBytes: 9 })).rejects.toMatchObject({ status: 413 });
+    // A transfer cut short is an error, never a shorter object.
+    const cut = createS3Store({
+      endpoint: 'http://localhost:9000',
+      region: 'auto',
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      buckets: { media: 'm', exports: 'e', private: 'p' },
+      fetch: (async () =>
+        new Response(body.subarray(0, 6), {
+          status: 200,
+          headers: { 'content-length': '10' },
+        })) as unknown as typeof fetch,
+    });
+    await expect(cut.get('media', 'masters/x', { maxBytes: 10 })).rejects.toThrow(/incomplete/);
+
+    const memory = createMemoryStore();
+    await memory.put('media', 'masters/x', body, { contentType: 'image/webp', cacheControl: 'private' });
+    expect(await memory.get('media', 'masters/x', { maxBytes: 10 })).toEqual(body);
+    expect(await memory.get('media', 'masters/none', { maxBytes: 10 })).toBeNull();
+    await expect(memory.get('media', 'masters/x', { maxBytes: 9 })).rejects.toMatchObject({ status: 413 });
+    await expect(
+      memory.put('media', 'masters/y', body, { contentType: 'image/webp', cacheControl: 'a\r\nb' }),
+    ).rejects.toThrow(TypeError);
+  });
+
   it('[S1-03] content disposition strips controls and non-ASCII from the fallback name', () => {
     expect(attachmentDisposition('añ\r\nb.pdf')).toBe(
       `attachment; filename="a___b.pdf"; filename*=UTF-8''a%C3%B1%0D%0Ab.pdf`,

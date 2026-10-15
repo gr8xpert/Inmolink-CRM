@@ -469,6 +469,16 @@ Ref §15 · Mod tests
 
 ---
 
+### S3-F4 · Media worker least privilege (S3-04 security review) 🔒
+Ref §3 #33 §5.3 · Mod media, worker, infra · Dep S3-04
+**Build:** the `media` role (S3-04: its own container, `WORKER_POOLS=media`) still gets every worker secret, because `workerEnv` requires them whatever the pools. Make the worker's env pool-aware (SMTP only for `email`, encryption keys only for pools that decrypt), start the media container with S3, Redis, `MEDIA_URL_KEY` and a narrow DB role (`app_media`: read/write `media_objects`, read `property_media` — no BYPASSRLS on other tables) instead of `app_system`; read-only filesystem. Edge rule or bucket policy so only `v<n>/<32 hex>/…` keys of the `media` bucket are public.
+**Done when:**
+- The media container boots and processes with only the media variables; a check fails the deploy config if it gets SMTP or encryption keys
+- The media DB role cannot read another tenant table (isolation test)
+- A request for a key outside `v<n>/…` on the public media host is refused
+
+---
+
 ## S4 — New developments
 
 ### S4-01 · Development schema

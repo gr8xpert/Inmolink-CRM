@@ -2,6 +2,8 @@
 servers:
   workers:
     hosts: [203.0.113.10]
+  media:
+    hosts: [203.0.113.10]
 env:
   clear:
     DEPLOY_ENV: "production"

@@ -1,10 +1,12 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as media from '@inmolink/core/modules/media';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
+import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { startWorker } from './app';
 import { emailConfig, loadWorkerConfig } from './config';
@@ -33,6 +35,8 @@ try {
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureEmail(emailConfig(config));
   identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
+  configureStorage(storageConfigFromEnv(config));
+  media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
   registerSubscriptions();
 
   const worker = await startWorker({
