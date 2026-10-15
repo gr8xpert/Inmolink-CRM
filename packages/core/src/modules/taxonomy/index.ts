@@ -20,6 +20,8 @@ export {
 export { taxonomyErrors } from './errors';
 export { TAXONOMY_ENTITIES, type TaxonomyEntity, taxonomyEvents } from './events';
 export { taxonomyJobs } from './jobs';
+/** The resolver's statements as built SQL, for the scale plan check (`tests/perf`), never for running queries. */
+export { exactMatchesSql, fuzzyMatchesSql, fuzzyThresholdSql } from './repo';
 export {
   FUZZY_ACCEPT,
   FUZZY_MARGIN,

@@ -70,6 +70,8 @@ export const locations = pgTable(
     check('locations_root_ck', sql`(${t.level} = 'COUNTRY') = (${t.parentId} is null)`),
     uniqueIndex('locations_code_uq').on(t.code).where(sql`${t.code} is not null`),
     index('locations_parent_idx').on(t.parentId),
+    // Resolver level hint (S2-F5): `exists (select 1 from locations where id = owner and level = $1)`.
+    index('locations_level_idx').on(t.level, t.id),
     index('locations_polygon_gix').using('gist', t.polygon),
     index('locations_centroid_gix').using('gist', t.centroid),
   ],
@@ -83,6 +85,10 @@ export const locationTranslations = pgTable(
     parentId: uuid('parent_id'),
     locale: text('locale').notNull(),
     name: text('name').notNull(),
+    /** `nameKey(name)`, stored: the resolver's exact (btree) and trigram (GIN) matches read it without recomputing. */
+    nameKey: text('name_key')
+      .notNull()
+      .generatedAlwaysAs((): SQL => nameKey(sql`name`)),
     slug: text('slug').notNull(),
   },
   (t) => [
@@ -98,7 +104,12 @@ export const locationTranslations = pgTable(
     uniqueIndex('location_translations_slug_uq').on(t.parentId, t.locale, t.slug).where(sql`${t.parentId} is not null`),
     uniqueIndex('location_translations_root_slug_uq').on(t.locale, t.slug).where(sql`${t.parentId} is null`),
     check('location_translations_slug_ck', sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
-    index('location_translations_name_key_idx').using('gin', sql`${nameKey(t.name)} gin_trgm_ops`),
+    // Resolver (S2-05/S2-F5): exact names by btree; fuzzy names by GIN `%` per key (raised similarity threshold).
+    // GIN without fastupdate: a pending list (filled by a bulk alias import) is scanned on every probe (~10x).
+    index('location_translations_name_key_eq_idx').on(t.nameKey),
+    index('location_translations_name_key_idx')
+      .using('gin', sql`${t.nameKey} gin_trgm_ops`)
+      .with({ fastupdate: false }),
   ],
 );
 
@@ -118,7 +129,7 @@ export const locationAliases = pgTable(
     uniqueIndex('location_aliases_key_uq').on(t.aliasKey),
     index('location_aliases_location_idx').on(t.locationId),
     // fuzzy fallback of the alias resolver (S2-05): `alias_key % $1`
-    index('location_aliases_key_trgm_idx').using('gin', sql`${t.aliasKey} gin_trgm_ops`),
+    index('location_aliases_key_trgm_idx').using('gin', sql`${t.aliasKey} gin_trgm_ops`).with({ fastupdate: false }),
   ],
 );
 
@@ -189,13 +200,22 @@ function translationTable(name: string, ownerCol: string, owner: () => AnyPgColu
       ownerId: uuid(ownerCol).notNull().references(owner, { onDelete: 'cascade' }),
       locale: text('locale').notNull(),
       name: text('name').notNull(),
+      /** `nameKey(name)`, stored: the resolver's exact (btree) and trigram (GIN) matches read it without recomputing. */
+      nameKey: text('name_key')
+        .notNull()
+        .generatedAlwaysAs((): SQL => nameKey(sql`name`)),
       slug: text('slug').notNull(),
     },
     (t) => [
       primaryKey({ columns: [t.ownerId, t.locale], name: `${name}_pk` }),
       uniqueIndex(`${name}_slug_uq`).on(t.locale, t.slug),
       check(`${name}_slug_ck`, sql`${t.slug} ~ ${SLUG_RE}`),
-      ...(fuzzy ? [index(`${name}_name_key_idx`).using('gin', sql`${nameKey(t.name)} gin_trgm_ops`)] : []),
+      ...(fuzzy
+        ? [
+            index(`${name}_name_key_eq_idx`).on(t.nameKey),
+            index(`${name}_name_key_idx`).using('gin', sql`${t.nameKey} gin_trgm_ops`).with({ fastupdate: false }),
+          ]
+        : []),
     ],
   );
 }
@@ -214,7 +234,7 @@ function aliasTable(name: string, owner: () => AnyPgColumn) {
     (t) => [
       uniqueIndex(`${name}_key_uq`).on(t.aliasKey),
       index(`${name}_owner_idx`).on(t.ownerId),
-      index(`${name}_key_trgm_idx`).using('gin', sql`${t.aliasKey} gin_trgm_ops`),
+      index(`${name}_key_trgm_idx`).using('gin', sql`${t.aliasKey} gin_trgm_ops`).with({ fastupdate: false }),
     ],
   );
 }

@@ -444,6 +444,29 @@ Ref §3 #54 §7 M2 · Mod properties · Dep S3-02 S4-02
 - An override is used only in the overriding agency's channels
 - Removing the override falls back to the owner text
 
+### S3-F1 · Taxonomy data and queue hygiene (S2 review) · 🔒
+Ref §6 Taxonomy · Mod taxonomy, migration · Dep S2-05
+**Build:** `taxonomy_unmatched` is readable by staff and `app_system` only (registry flag that skips the `app_user` read; its examples carry agencies' listing refs and feed names), `pnpm db:rls`. Before S14 maps tenant entities, `legacy_id_maps` gets a tenant-scoped home (STRICT table with `agency_id`) or loses the `app_user` read. `staff.taxonomy.changed` audits name the changed entity id. Translation writes accept content locales only (service check against `CONTENT_LOCALES`). `GeoMultiPolygon` caps polygons, rings and vertices (e.g. 50 / 50 / 10,000 total). Queue examples keep the most recent 5, not the alphabetical first. Queue paging on a stable key (count changes during imports) with a `(status, count desc, id)` index for the unfiltered list. A catalog slug clash gets its own error code. `ReorderLocationsInput.orderedIds` max covers the largest sibling set (> 2,248 cities in one Spanish region).
+**Done when:**
+- A member session cannot select from `taxonomy_unmatched` (isolation suite)
+- A translation in a non-content locale and an over-sized polygon are refused with 422
+- An audit row for a taxonomy change names the entity
+
+### S3-F2 · Taxonomy read paths at scale (S2 review) · ⚡
+Ref §7 M5 · Mod taxonomy · Dep S2-03
+**Build:** cache reload reads only the wanted + fallback locales (the whole-tree DISTINCT ON sorts 28k × locales, 0.9 s with a disk spill) and serves the stale in-process copy while one reload runs; store the serialized website cuts + ETag in Redis (a Redis hit re-parses ~3 MB and re-serializes, 50–60 ms event-loop block per process per locale per minute); cap or cursor-page `/v2/taxonomy/locations/{id}/children` (150 KB budget breaks at ~5,300 children); pre-serialize `GET /v1/taxonomy` like feed-api (Zod parse + stringify of the whole tree, 60–100 ms per 200) and load regions on demand in `/staff/taxonomy`.
+**Done when:**
+- Cold reload of a Spain-sized tree < 300 ms with no sort spill (EXPLAIN in a test)
+- A warm Redis hit serves a website cut without re-serializing (test)
+- Children responses stay ≤ 150 KB gzip for any parent
+
+### S3-F3 · Test fixture hygiene (S2 review)
+Ref §15 · Mod tests
+**Build:** int tests that create global reference data (taxonomy `tree`, `catalog`, properties' locations) remove stale fixtures of earlier runs in `beforeAll`, as S2-F4 did for the resolver and location tests: a fork that crashes (Windows 0xC0000409) never reaches `afterAll`, and its rows then break later runs (8 failures seen). Investigate the Windows fork crash (Node 24 + native modules, `maxForks`, or `verify:all` in WSL).
+**Done when:**
+- Killing a taxonomy int test mid-run leaves the next run green
+- `pnpm verify:all` passes twice in a row on the Windows dev machine, or the crash is documented as Windows-only with CI as the gate
+
 ---
 
 ## S4 — New developments
@@ -535,6 +558,7 @@ Ref PATTERNS §13 §3 #18 · Mod imports · Dep S6-01 · ⚡
 - Re-importing an unchanged 20k-listing feed changes 0 rows and emits 0 events
 - Locked fields survive re-import
 - 100 MB feed imports in < 10 min with RSS < 512 MB
+- A listing held as DRAFT for an unmatched location, type or feature is promoted on the next run after staff map the value in the S2-05 queue (taxonomy resolved through `resolveAndQueue`, per location level with the parent as hint) — carried over from S2-05 by the S2 review
 
 ### S6-03 · Kyero connector
 Ref §3 #17 · Mod imports · Dep S6-02

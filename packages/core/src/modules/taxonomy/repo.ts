@@ -545,6 +545,7 @@ const MATCH = {
     aliasOwner: locationAliases.locationId,
     tr: locationTranslations,
     trName: locationTranslations.name,
+    trKey: locationTranslations.nameKey,
     trOwner: locationTranslations.locationId,
     trLocale: locationTranslations.locale,
   },
@@ -553,6 +554,7 @@ const MATCH = {
     aliasOwner: propertyTypeAliases.ownerId,
     tr: propertyTypeTranslations,
     trName: propertyTypeTranslations.name,
+    trKey: propertyTypeTranslations.nameKey,
     trOwner: propertyTypeTranslations.ownerId,
     trLocale: propertyTypeTranslations.locale,
   },
@@ -561,6 +563,7 @@ const MATCH = {
     aliasOwner: featureAliases.ownerId,
     tr: featureTranslations,
     trName: featureTranslations.name,
+    trKey: featureTranslations.nameKey,
     trOwner: featureTranslations.ownerId,
     trLocale: featureTranslations.locale,
   },
@@ -578,54 +581,91 @@ function rowsOf<T>(res: unknown): T[] {
   return (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as T[];
 }
 
-/** Locations only: restrict candidates to the children of a parent and/or one level (the hint a feed gives). */
+/**
+ * Locations only: keep candidates that are children of a parent and/or on one level (the hint a feed gives).
+ * A correlated primary-key probe per candidate: `owner in (select … where level = …)` read every location.
+ */
 function ownerScope(kind: ResolveKind, owner: SQLWrapper, hints: LocationHints) {
   if (kind !== 'location' || (hints.parentId == null && !hints.level)) return sql``;
   const parent = hints.parentId == null ? sql`` : sql` and ${locations.parentId} = ${hints.parentId}`;
   const level = hints.level ? sql` and ${locations.level} = ${hints.level}` : sql``;
-  return sql` and ${owner} in (select ${locations.id} from ${locations} where true${parent}${level})`;
+  return sql` and exists (select 1 from ${locations} where ${locations.id} = ${owner}${parent}${level})`;
 }
+
+/** Trigram candidates read per key, most similar first, before they are grouped per owner. */
+const FUZZY_ALIASES_PER_KEY = 10;
+/** More for names: one owner has a row per locale, often with the same name. */
+const FUZZY_NAMES_PER_KEY = 20;
+/**
+ * `pg_trgm.similarity_threshold` for `%` while resolving, set explicitly so a server default cannot move it.
+ * Below it a candidate is not even a hint for staff. On a Spain-sized tree a GIN probe costs ≈5 ms per key at
+ * 0.3 (≈2 ms at 0.5, which would drop the low-confidence hints S2-05 shows staff).
+ */
+export const FUZZY_FLOOR = 0.3;
 
 /**
  * Exact matches of normalised spellings (`aliasKey` form): feed aliases and canonical names in any locale.
- * One statement for the whole batch. An alias is globally unique; a name may be shared (two cities called
- * the same), so the caller treats a key with several name matches as ambiguous.
+ * One statement for the whole batch (alias unique btree, name-key btree). An alias is globally unique; a name
+ * may be shared (two cities called the same), so the caller treats a key with several name matches as ambiguous.
  */
-export async function exactMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
-  if (keys.length === 0) return [] as { key: string; id: string; viaAlias: boolean }[];
+export function exactMatchesSql(kind: ResolveKind, keys: string[], hints: LocationHints) {
   const m = MATCH[kind];
-  const res = await tx.execute(sql`
+  return sql`
     select ${m.aliases.aliasKey} as key, ${m.aliasOwner} as id, true as "viaAlias"
       from ${m.aliases}
      where ${m.aliases.aliasKey} = any(${textArray(keys)}) ${ownerScope(kind, m.aliasOwner, hints)}
     union all
-    select ${nameKey(m.trName)} as key, ${m.trOwner} as id, false as "viaAlias"
+    select ${m.trKey} as key, ${m.trOwner} as id, false as "viaAlias"
       from ${m.tr}
-     where ${nameKey(m.trName)} = any(${textArray(keys)}) ${ownerScope(kind, m.trOwner, hints)}
-     group by 1, 2`);
-  return rowsOf<{ key: string; id: string; viaAlias: boolean }>(res);
+     where ${m.trKey} = any(${textArray(keys)}) ${ownerScope(kind, m.trOwner, hints)}
+     group by 1, 2`;
+}
+
+export async function exactMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
+  if (keys.length === 0) return [] as { key: string; id: string; viaAlias: boolean }[];
+  return rowsOf<{ key: string; id: string; viaAlias: boolean }>(await tx.execute(exactMatchesSql(kind, keys, hints)));
 }
 
 /**
- * Trigram candidates (`%`, GIN) for keys with no exact match: best similarity per (key, owner) across
- * aliases and names, at most 3 per key, best first. One statement for the whole batch.
+ * Trigram candidates for keys with no exact match: per key (LATERAL, so each key is its own GIN `%` probe; a
+ * plain join seq-scanned the names), the most similar aliases and names, then the best similarity per
+ * (key, owner), at most 3 per key, best first. One statement for the whole batch, after `fuzzyThresholdSql`.
  */
+export function fuzzyMatchesSql(kind: ResolveKind, keys: string[], hints: LocationHints) {
+  const m = MATCH[kind];
+  return sql`
+    select key, id, score from (
+      select key, id, score, row_number() over (partition by key order by score desc, id) as rn from (
+        select key, id, max(score) as score from (
+          select q.k as key, a.id, a.score
+            from unnest(${textArray(keys)}) as q(k)
+            cross join lateral (
+              select ${m.aliasOwner} as id, similarity(${m.aliases.aliasKey}, q.k) as score
+                from ${m.aliases}
+               where ${m.aliases.aliasKey} % q.k ${ownerScope(kind, m.aliasOwner, hints)}
+               order by score desc
+               limit ${FUZZY_ALIASES_PER_KEY}) a
+          union all
+          select q.k, n.id, n.score
+            from unnest(${textArray(keys)}) as q(k)
+            cross join lateral (
+              select ${m.trOwner} as id, similarity(${m.trKey}, q.k) as score
+                from ${m.tr}
+               where ${m.trKey} % q.k ${ownerScope(kind, m.trOwner, hints)}
+               order by score desc
+               limit ${FUZZY_NAMES_PER_KEY}) n) c
+         group by key, id) best) ranked
+     where rn <= 3 order by key, score desc`;
+}
+
+/** Transaction-local: `%` keeps candidates at or above `FUZZY_FLOOR` for the rest of this transaction. */
+export const fuzzyThresholdSql = () =>
+  sql`select set_config('pg_trgm.similarity_threshold', ${String(FUZZY_FLOOR)}, true)`;
+
 export async function fuzzyMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
   if (keys.length === 0) return [] as KeyMatch[];
-  const m = MATCH[kind];
-  const res = await tx.execute(sql`
-    select key, id, score from (
-      select key, id, score, row_number() over (partition by key order by score desc) as rn from (
-        select key, id, max(score) as score from (
-          select q.k as key, ${m.aliasOwner} as id, similarity(${m.aliases.aliasKey}, q.k) as score
-            from unnest(${textArray(keys)}) as q(k)
-            join ${m.aliases} on ${m.aliases.aliasKey} % q.k ${ownerScope(kind, m.aliasOwner, hints)}
-          union all
-          select q.k, ${m.trOwner}, similarity(${nameKey(m.trName)}, q.k)
-            from unnest(${textArray(keys)}) as q(k)
-            join ${m.tr} on ${nameKey(m.trName)} % q.k ${ownerScope(kind, m.trOwner, hints)}) c
-         group by key, id) best) ranked
-     where rn <= 3 order by key, score desc`);
+  await tx.execute(fuzzyThresholdSql());
+  const res = await tx.execute(fuzzyMatchesSql(kind, keys, hints));
   return rowsOf<{ key: string; id: string; score: number }>(res).map((r) => ({ ...r, score: Number(r.score) }));
 }
 
