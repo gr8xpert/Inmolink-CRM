@@ -30,10 +30,10 @@ const multiPolygon = customType<{ data: string }>({ dataType: () => 'geometry(Mu
 
 /**
  * The spelling a name is matched on in SQL (S2-05): lowercase, Latin accents folded, punctuation as single
- * spaces — the SQL twin of `aliasKey()` for the languages we serve. Immutable, so it can back an index.
+ * spaces, `ß` as `ss` — the SQL twin of `aliasKey()` for the content locales. Immutable, so it can back an index.
  */
 export const nameKey = (name: AnyPgColumn | SQL) =>
-  sql`btrim(regexp_replace(translate(lower(${name}), 'áàâäãåéèêëíìîïóòôöõúùûüñçß', 'aaaaaaeeeeiiiiooooouuuunc'), '[^[:alnum:]]+', ' ', 'g'))`;
+  sql`btrim(regexp_replace(translate(replace(lower(${name}), 'ß', 'ss'), 'áàâäãåéèêëíìîïóòôöõúùûüÿñç', 'aaaaaaeeeeiiiiooooouuuuync'), '[^[:alnum:]]+', ' ', 'g'))`;
 
 export const LOCATION_LEVELS = ['COUNTRY', 'REGION', 'CITY', 'AREA'] as const;
 

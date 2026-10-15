@@ -640,10 +640,39 @@ export type UnmatchedUpsert = {
   candidateScore: number | null;
 };
 
-/** Counts the values into the queue. A value staff mapped earlier but that is unmatched again reopens. */
+/** The location, property type or feature an alias key already belongs to, if any. */
+export async function aliasOwner(tx: Tx, kind: ResolveKind, key: string): Promise<string | null> {
+  if (kind === 'location') return findByAliasKey(tx, key);
+  const a = FAMILIES[kind].aliases;
+  const [row] = await tx.select({ ownerId: a.ownerId }).from(a).where(eq(a.aliasKey, key)).limit(1);
+  return row?.ownerId ?? null;
+}
+
+/** Whether `excluded.value_key` is an alias of the row's kind (a mapped spelling the resolver refused under hints). */
+const aliasExists = sql`case excluded.kind
+  when 'location' then exists (select 1 from ${locationAliases} a where a.alias_key = excluded.value_key)
+  when 'propertyType' then exists (select 1 from ${propertyTypeAliases} a where a.alias_key = excluded.value_key)
+  else exists (select 1 from ${featureAliases} a where a.alias_key = excluded.value_key) end`;
+
+/** Rows per insert: ~8 bind parameters each, far below Postgres's 65,535. */
+const UPSERT_CHUNK = 1000;
+
+/**
+ * Counts the values into the queue. A value staff mapped earlier reopens only when its alias is gone; while the
+ * alias exists, staff could not map it again. Rows go in key order, so concurrent imports lock them in the same
+ * order (no deadlock).
+ */
 export async function upsertUnmatched(tx: Tx, rows: UnmatchedUpsert[]): Promise<void> {
-  if (rows.length === 0) return;
+  const sorted = [...rows].sort((a, b) =>
+    a.kind === b.kind ? (a.valueKey < b.valueKey ? -1 : a.valueKey > b.valueKey ? 1 : 0) : a.kind < b.kind ? -1 : 1,
+  );
+  for (let i = 0; i < sorted.length; i += UPSERT_CHUNK)
+    await upsertUnmatchedChunk(tx, sorted.slice(i, i + UPSERT_CHUNK));
+}
+
+async function upsertUnmatchedChunk(tx: Tx, rows: UnmatchedUpsert[]): Promise<void> {
   const t = taxonomyUnmatched;
+  const reopen = sql`${t.status} = 'MAPPED' and not ${aliasExists}`;
   await tx
     .insert(t)
     .values(rows)
@@ -657,9 +686,9 @@ export async function upsertUnmatched(tx: Tx, rows: UnmatchedUpsert[]): Promise<
         examples: sql`(select coalesce(jsonb_agg(e order by e), '[]'::jsonb) from (
           select e from (select distinct e from jsonb_array_elements_text(${t.examples} || excluded.examples) as e) d
            order by e limit 5) l)`,
-        status: sql`case when ${t.status} = 'MAPPED' then 'OPEN' else ${t.status} end`,
-        mappedToId: sql`case when ${t.status} = 'MAPPED' then null else ${t.mappedToId} end`,
-        resolvedAt: sql`case when ${t.status} = 'MAPPED' then null else ${t.resolvedAt} end`,
+        status: sql`case when ${reopen} then 'OPEN' else ${t.status} end`,
+        mappedToId: sql`case when ${reopen} then null else ${t.mappedToId} end`,
+        resolvedAt: sql`case when ${reopen} then null else ${t.resolvedAt} end`,
       },
     });
 }

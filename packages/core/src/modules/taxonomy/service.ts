@@ -33,6 +33,7 @@ export function aliasKey(spelling: string): string {
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
     .toLowerCase()
+    .replace(/ß/g, 'ss')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
@@ -69,6 +70,9 @@ export async function createLocation(tx: Tx, input: CreateLocationInput): Promis
     const parentDepth = await repo.getDepth(tx, input.parentId);
     if (parentDepth === null || parentDepth !== depth - 1) throw new AppError('LOCATION_PARENT_INVALID');
   }
+  // An invalid geometry makes `ST_Covers` in the point lookup fail for everyone.
+  const polygonGeoJson = input.polygon ? JSON.stringify(input.polygon) : null;
+  if (polygonGeoJson && !(await repo.polygonValid(tx, polygonGeoJson))) throw new AppError('LOCATION_POLYGON_INVALID');
   const id = newId();
   await uniqueOr(
     () =>
@@ -81,7 +85,7 @@ export async function createLocation(tx: Tx, input: CreateLocationInput): Promis
           depth,
           code: input.code ?? null,
           centroidGeoJson: input.centroid ? JSON.stringify(input.centroid) : null,
-          polygonGeoJson: input.polygon ? JSON.stringify(input.polygon) : null,
+          polygonGeoJson,
         },
         input.translations,
       ),

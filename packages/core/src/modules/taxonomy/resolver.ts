@@ -23,6 +23,11 @@ export const FUZZY_MARGIN = 0.15;
 const EXAMPLES_MAX = 5;
 /** Distinct values resolved per statement; larger lists are split. */
 const CHUNK = 500;
+/** Longest value resolved or queued (an alias is at most this long): longer text is free text, not a name. */
+const VALUE_MAX = 200;
+
+/** The key a value resolves on; '' (never matched, never queued) when empty or too long. */
+const valueKey = (text: string) => (text.trim().length > VALUE_MAX ? '' : aliasKey(text));
 
 export type TaxonomyKind = repo.ResolveKind;
 /** Location feeds say where a value sits: its parent and/or level narrows the candidates. */
@@ -99,7 +104,7 @@ export async function resolveMany(
   values: readonly string[],
   hints: ResolveHints = {},
 ): Promise<Resolution[]> {
-  const keys = values.map(aliasKey);
+  const keys = values.map(valueKey);
   const resolved = await resolveKeys(tx, kind, [...new Set(keys.filter(Boolean))], hints);
   return keys.map((k) => (k ? (resolved.get(k) ?? UNMATCHED) : UNMATCHED));
 }
@@ -135,14 +140,14 @@ export async function resolveAndQueue(
   );
   const queue = new Map<string, repo.UnmatchedUpsert>();
   values.forEach((v, i) => {
-    const key = aliasKey(v.text);
+    const key = valueKey(v.text);
     const r = results[i] as Resolution;
     if (!key || r.status !== 'unmatched') return;
     const row = queue.get(key) ?? {
       id: newId(),
       kind,
       valueKey: key,
-      value: v.text.trim().slice(0, 200),
+      value: v.text.trim(),
       count: 0,
       examples: [],
       candidateId: r.candidate?.id ?? null,
@@ -150,7 +155,7 @@ export async function resolveAndQueue(
     };
     row.count += Math.max(1, v.count ?? 1);
     if (v.example && row.examples.length < EXAMPLES_MAX && !row.examples.includes(v.example)) {
-      row.examples.push(v.example.slice(0, 200));
+      row.examples.push(v.example.slice(0, VALUE_MAX));
     }
     queue.set(key, row);
   });

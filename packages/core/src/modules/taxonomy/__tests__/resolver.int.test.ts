@@ -1,4 +1,5 @@
 import { closeDb, withSystem } from '@inmolink/db';
+import { nameKey } from '@inmolink/db/schema/taxonomy';
 import { createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
@@ -41,6 +42,7 @@ beforeAll(async () => {
   await setupTestDb('worker');
   founder = await createFounder();
   staffId = (await createStaffUser('STAFF_DATA_OPS')).userId;
+  await purge('%');
   await system(async (tx) => {
     spainId = await taxonomy.createLocation(tx, {
       level: 'COUNTRY',
@@ -132,22 +134,31 @@ beforeAll(async () => {
   });
 }, 120_000);
 
-afterAll(async () => {
-  await system(async (tx) => {
+/**
+ * Removes this file's fixtures: those of `run`, or with '%' those of every earlier run. Names are not unique per
+ * run (trigram scores stay real), so a run that never reached `afterAll` (a crashed fork) would make the next
+ * run's names ambiguous.
+ */
+const purge = (run: string) =>
+  system(async (tx) => {
+    const own = `res-%-${run}`;
     await tx.execute(sql`delete from taxonomy_unmatched where value_key like '%quartz%' or value_key like '%zorbo%'
       or value_key like '%chaletazu%' or value_key like '%calahonda%' or value_key like '%piscinaa%' or value_key like '%springfieldia%'
-      or value_key like '%${sql.raw(RUN)}%' or value_key like '%nonsensia%'`);
-    await tx.execute(sql`delete from locations where depth = 4 and code like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from locations where depth = 3 and code like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from locations where depth = 2 and code like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from locations where depth = 1 and code like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from property_types where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from property_type_groups where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from features where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from feature_groups where key like ${`%-${RUN}`}`);
+      or (${run !== '%'} and value_key like ${`%${run.toLowerCase()}%`}) or value_key like '%nonsensia%' or value_key like '%zqxjf%' or value_key like '%vwkqp%'`);
+    for (const depth of [4, 3, 2, 1])
+      await tx.execute(sql`delete from locations where depth = ${depth} and code like ${own}`);
+    await tx.execute(sql`delete from property_types where key like ${own}`);
+    await tx.execute(sql`delete from property_type_groups where key like ${own}`);
+    await tx.execute(sql`delete from features where key like ${own}`);
+    await tx.execute(sql`delete from feature_groups where key like ${own}`);
   });
+
+afterAll(async () => {
+  await purge(RUN);
   await closeDb();
 });
+
+const rowsOf = <T>(res: unknown): T[] => (Array.isArray(res) ? res : (res as { rows: T[] }).rows) as T[];
 
 const queued = (kind: string, valueKey: string) =>
   system(async (tx) => {
@@ -313,5 +324,120 @@ describe('unmatched queue', () => {
       taxonomy.listStaffUnmatched(ctx, { kind: 'feature', status: 'OPEN', limit: 1 }),
     );
     expect(readable.items).toHaveLength(1);
+  });
+});
+
+describe('sprint S2 review fixes', () => {
+  it('[S2-F4] aliasKey and the SQL nameKey fold the content locales the same way (ß → ss)', async () => {
+    const samples = [
+      'Außenpool',
+      'STRAßE Groß',
+      'Château Forêt',
+      'Niño Pequeña',
+      'Ålesund Göteborg',
+      'Coëvorden Ĳssel',
+      "L'Haÿ-les-Roses",
+    ];
+    const sqlKeys = await system(async (tx) => {
+      const res = await tx.execute(
+        sql`select ${nameKey(sql`s`)} as k from unnest(${`{${samples.map((x) => `"${x}"`).join(',')}}`}::text[]) with ordinality as u(s, n) order by n`,
+      );
+      return rowsOf<{ k: string }>(res).map((r) => r.k);
+    });
+    expect(sqlKeys).toEqual(samples.map(taxonomy.aliasKey));
+    expect(taxonomy.aliasKey('Außenpool')).toBe('aussenpool');
+
+    const id = await system(async (tx) => {
+      const group = await taxonomy.createFeatureGroup(tx, {
+        key: code('res-de'),
+        sort: 0,
+        translations: tr('Draußen', 'draussen'),
+      });
+      return taxonomy.createFeature(tx, {
+        groupId: group,
+        key: code('res-aussen'),
+        sort: 0,
+        icon: 'waves',
+        translations: [{ locale: 'de', name: `Außenvwkqp ${RUN}`, slug: code('aussenvwkqp') }],
+      });
+    });
+    const r = await asMember((ctx) => taxonomy.resolveFeature(ctx, `AUSSENVWKQP ${RUN}`));
+    expect(r).toMatchObject({ status: 'exact', id });
+  });
+
+  it('[S2-F4] a mapped value stays mapped while its alias exists; staff can close a row whose alias already exists', async () => {
+    const text = `Zqxjf Mapped ${RUN}`;
+    const key = taxonomy.aliasKey(text);
+    await system((tx) => taxonomy.resolveAndQueue(tx, 'location', [{ text }], { parentId: costaId, level: 'CITY' }));
+    const row = await queued('location', key);
+    await asStaff((ctx) => taxonomy.mapStaffUnmatched(ctx, row?.id as string, { targetId: sanPedroId }));
+    // The next run's hint excludes the alias owner (an AREA, not a CITY): still unmatched, but the row stays mapped.
+    const [again] = await system((tx) =>
+      taxonomy.resolveAndQueue(tx, 'location', [{ text }], { parentId: costaId, level: 'CITY' }),
+    );
+    expect(again?.status).toBe('unmatched');
+    expect(await queued('location', key)).toMatchObject({ status: 'MAPPED', mappedToId: sanPedroId, count: 2 });
+
+    // A row reopened while the alias exists (e.g. before this fix): mapping it to the alias owner just closes it.
+    await system((tx) =>
+      tx.execute(sql`update taxonomy_unmatched set status = 'OPEN', mapped_to_id = null where id = ${row?.id}`),
+    );
+    const closed = await asStaff((ctx) => taxonomy.mapStaffUnmatched(ctx, row?.id as string, { targetId: sanPedroId }));
+    expect(closed).toMatchObject({ status: 'MAPPED', mappedToId: sanPedroId });
+    // Ignoring a mapped value changes nothing.
+    expect((await asStaff((ctx) => taxonomy.ignoreStaffUnmatched(ctx, row?.id as string))).status).toBe('MAPPED');
+
+    // Once the alias is gone, the value reopens on the next run.
+    await system((tx) => tx.execute(sql`delete from location_aliases where alias_key = ${key}`));
+    await system((tx) => taxonomy.resolveAndQueue(tx, 'location', [{ text }]));
+    expect(await queued('location', key)).toMatchObject({ status: 'OPEN', mappedToId: null });
+  });
+
+  it('[S2-F4] a run with more than 8,190 unmatched values is queued in chunks (bind-parameter limit)', async () => {
+    const values = Array.from({ length: 9000 }, (_, i) => ({ text: `zqxjf ${i.toString(36)} ${RUN}` }));
+    const results = await system((tx) => taxonomy.resolveAndQueue(tx, 'feature', values));
+    expect(results).toHaveLength(9000);
+    const n = await system(async (tx) => {
+      const res = await tx.execute(
+        sql`select count(*)::int as n from taxonomy_unmatched where kind = 'feature' and value_key like ${`zqxjf % ${RUN.toLowerCase()}`}`,
+      );
+      return rowsOf<{ n: number }>(res)[0]?.n;
+    });
+    expect(n).toBe(9000);
+  }, 120_000);
+
+  it('[S2-F4] a value longer than an alias may be is unmatched and never queued', async () => {
+    const text = `vwkqp ${RUN} ${'x'.repeat(300)}`;
+    const [r] = await system((tx) => taxonomy.resolveAndQueue(tx, 'location', [{ text }]));
+    expect(r?.status).toBe('unmatched');
+    expect(await queued('location', taxonomy.aliasKey(text))).toBeUndefined();
+  });
+
+  it('[S2-F4] creating a location with a self-intersecting polygon is refused', async () => {
+    const bowTie = {
+      type: 'MultiPolygon' as const,
+      coordinates: [
+        [
+          [
+            [0, 0],
+            [1, 1],
+            [1, 0],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+      ] as [number, number][][][],
+    };
+    await expect(
+      system((tx) =>
+        taxonomy.createLocation(tx, {
+          level: 'AREA',
+          parentId: marbellaId,
+          code: code('res-bowtie'),
+          polygon: bowTie,
+          translations: tr('Bowtie', 'bowtie'),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'LOCATION_POLYGON_INVALID' });
   });
 });

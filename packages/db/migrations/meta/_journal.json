@@ -302,6 +302,13 @@
       "when": 1792023636607,
       "tag": "0042_lively_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792046500519,
+      "tag": "0043_rapid_warpath",
+      "breakpoints": true
     }
   ]
 }

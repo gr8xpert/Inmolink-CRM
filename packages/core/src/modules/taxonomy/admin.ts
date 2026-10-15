@@ -265,6 +265,12 @@ export async function mapStaffUnmatched(ctx: StaffCtx, id: string, input: MapUnm
     const row = await repo.getUnmatched(tx, id);
     if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
     if (row.status === 'MAPPED') return;
+    const kind = row.kind as repo.ResolveKind;
+    // Already this target's alias (an import reopened the row, or the alias came in another way): just close it.
+    if ((await repo.aliasOwner(tx, kind, row.valueKey)) === input.targetId) {
+      await repo.markUnmatchedMapped(tx, kind, row.valueKey, input.targetId);
+      return;
+    }
     if (row.kind === 'location') await addLocationAlias(tx, input.targetId, row.value);
     else if (row.kind === 'feature') await addFeatureAlias(tx, input.targetId, row.value);
     else await addPropertyTypeAlias(tx, input.targetId, row.value);
@@ -272,11 +278,15 @@ export async function mapStaffUnmatched(ctx: StaffCtx, id: string, input: MapUnm
   return oneUnmatched(ctx, id);
 }
 
-/** Not worth mapping (noise in a feed): hidden from the open queue; counted again if it keeps coming. */
+/**
+ * Not worth mapping (noise in a feed): hidden from the open queue; counted again if it keeps coming. Only an
+ * OPEN value can be ignored; a MAPPED one keeps its alias and status.
+ */
 export async function ignoreStaffUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
   await write(ctx, 'ignoreUnmatched', 'unmatched', async (tx) => {
-    if (!(await repo.getUnmatched(tx, id))) throw new AppError('TAXONOMY_NOT_FOUND');
-    await repo.setUnmatchedIgnored(tx, id);
+    const row = await repo.getUnmatched(tx, id);
+    if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
+    if (row.status === 'OPEN') await repo.setUnmatchedIgnored(tx, id);
   });
   return oneUnmatched(ctx, id);
 }

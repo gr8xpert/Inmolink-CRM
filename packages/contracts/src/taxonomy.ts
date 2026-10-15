@@ -17,6 +17,13 @@ export const TranslationInput = z.object({
 });
 export type TranslationInput = z.infer<typeof TranslationInput>;
 
+/** A set of translations as staff write it: each locale once (a repeat would collide on the (id, locale) key). */
+const Translations = z
+  .array(TranslationInput)
+  .min(1)
+  .max(40)
+  .refine((ts) => new Set(ts.map((t) => t.locale)).size === ts.length, { message: 'Each locale once' });
+
 const Position = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]);
 
 /** GeoJSON in WGS84 (lon, lat). */
@@ -32,7 +39,7 @@ export const CreateLocationInput = z.object({
   code: z.string().trim().min(1).max(40).optional(),
   centroid: GeoPoint.optional(),
   polygon: GeoMultiPolygon.optional(),
-  translations: z.array(TranslationInput).min(1).max(40),
+  translations: Translations,
 });
 export type CreateLocationInput = z.infer<typeof CreateLocationInput>;
 
@@ -54,7 +61,7 @@ export type PointLookupQuery = z.infer<typeof PointLookupQuery>;
 
 export const CreateLocationGroupInput = z.object({
   key: Slug.max(80),
-  translations: z.array(TranslationInput).min(1).max(40),
+  translations: Translations,
   memberIds: z.array(z.uuid()).max(500).default([]),
 });
 export type CreateLocationGroupInput = z.infer<typeof CreateLocationGroupInput>;
@@ -64,7 +71,7 @@ const Key = Slug.max(80);
 export const CreateTypeGroupInput = z.object({
   key: Key,
   sort: z.number().int().min(0).max(32000).default(0),
-  translations: z.array(TranslationInput).min(1).max(40),
+  translations: Translations,
 });
 export type CreateTypeGroupInput = z.infer<typeof CreateTypeGroupInput>;
 
@@ -196,7 +203,7 @@ export const UpdateLocationInput = z
     code: z.string().trim().min(1).max(40).nullable(),
     centroid: GeoPoint.nullable(),
     polygon: GeoMultiPolygon.nullable(),
-    translations: z.array(TranslationInput).min(1).max(40),
+    translations: Translations,
   })
   .partial();
 export type UpdateLocationInput = z.infer<typeof UpdateLocationInput>;
@@ -223,7 +230,7 @@ export type ReorderCatalogInput = z.infer<typeof ReorderCatalogInput>;
 export const UpdateCatalogItemInput = z.object({
   kind: CatalogKind,
   scope: z.enum(['group', 'item']),
-  translations: z.array(TranslationInput).min(1).max(40),
+  translations: Translations,
 });
 export type UpdateCatalogItemInput = z.infer<typeof UpdateCatalogItemInput>;
 

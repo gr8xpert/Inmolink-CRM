@@ -1,0 +1,11 @@
+DROP INDEX "feature_translations_name_key_idx";--> statement-breakpoint
+DROP INDEX "location_translations_name_key_idx";--> statement-breakpoint
+DROP INDEX "property_type_translations_name_key_idx";--> statement-breakpoint
+CREATE INDEX "feature_translations_name_key_idx" ON "feature_translations" USING gin (btrim(regexp_replace(translate(replace(lower("name"), 'ß', 'ss'), 'áàâäãåéèêëíìîïóòôöõúùûüÿñç', 'aaaaaaeeeeiiiiooooouuuuync'), '[^[:alnum:]]+', ' ', 'g')) gin_trgm_ops);--> statement-breakpoint
+CREATE INDEX "location_translations_name_key_idx" ON "location_translations" USING gin (btrim(regexp_replace(translate(replace(lower("name"), 'ß', 'ss'), 'áàâäãåéèêëíìîïóòôöõúùûüÿñç', 'aaaaaaeeeeiiiiooooouuuuync'), '[^[:alnum:]]+', ' ', 'g')) gin_trgm_ops);--> statement-breakpoint
+CREATE INDEX "property_type_translations_name_key_idx" ON "property_type_translations" USING gin (btrim(regexp_replace(translate(replace(lower("name"), 'ß', 'ss'), 'áàâäãåéèêëíìîïóòôöõúùûüÿñç', 'aaaaaaeeeeiiiiooooouuuuync'), '[^[:alnum:]]+', ' ', 'g')) gin_trgm_ops);--> statement-breakpoint
+-- aliasKey() now folds ß to ss (sprint S2 review): re-key stored spellings. A key whose ss twin already exists keeps its old spelling (it can no longer match; staff see it in the editor).
+UPDATE "location_aliases" a SET "alias_key" = replace(a."alias_key", 'ß', 'ss') WHERE a."alias_key" LIKE '%ß%' AND NOT EXISTS (SELECT 1 FROM "location_aliases" b WHERE b."alias_key" = replace(a."alias_key", 'ß', 'ss'));--> statement-breakpoint
+UPDATE "property_type_aliases" a SET "alias_key" = replace(a."alias_key", 'ß', 'ss') WHERE a."alias_key" LIKE '%ß%' AND NOT EXISTS (SELECT 1 FROM "property_type_aliases" b WHERE b."alias_key" = replace(a."alias_key", 'ß', 'ss'));--> statement-breakpoint
+UPDATE "feature_aliases" a SET "alias_key" = replace(a."alias_key", 'ß', 'ss') WHERE a."alias_key" LIKE '%ß%' AND NOT EXISTS (SELECT 1 FROM "feature_aliases" b WHERE b."alias_key" = replace(a."alias_key", 'ß', 'ss'));--> statement-breakpoint
+UPDATE "taxonomy_unmatched" a SET "value_key" = replace(a."value_key", 'ß', 'ss') WHERE a."value_key" LIKE '%ß%' AND NOT EXISTS (SELECT 1 FROM "taxonomy_unmatched" b WHERE b."kind" = a."kind" AND b."value_key" = replace(a."value_key", 'ß', 'ss'));

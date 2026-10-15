@@ -45,11 +45,12 @@ let areaId: string;
 beforeAll(async () => {
   await setupTestDb('worker');
   founder = await createFounder();
+  await purge('S201-%');
   await system(async (tx) => {
     countryId = await taxonomy.createLocation(tx, {
       parentId: null,
       level: 'COUNTRY',
-      code: `ES-${RUN}`,
+      code: `S201-${RUN}`,
       polygon: square(-10, 35, 20),
       translations: tr('Spain', 'spain'),
     });
@@ -75,21 +76,26 @@ beforeAll(async () => {
   });
 }, 120_000);
 
+/**
+ * Removes trees whose country code matches (deepest level first, parents are RESTRICT) and this file's groups.
+ * `beforeAll` also removes those of earlier runs that never reached `afterAll` (a crashed fork): their polygons
+ * cover the same points and would win the lookup.
+ */
+const purge = (countryCode: string, groupKey?: string) =>
+  system(async (tx) => {
+    if (groupKey) await tx.execute(sql`delete from location_groups where key like ${groupKey}`);
+    for (const depth of [4, 3, 2, 1]) {
+      await tx.execute(sql`
+        delete from locations where depth = ${depth} and id in (
+          with recursive t as (
+            select id from locations where depth = 1 and code like ${countryCode}
+            union all select l.id from locations l join t on l.parent_id = t.id
+          ) select id from t)`);
+    }
+  });
+
 afterAll(async () => {
-  // Reference data is global: remove this run's tree (deepest level first, parents are RESTRICT) and groups.
-  if (countryId) {
-    await system(async (tx) => {
-      await tx.execute(sql`delete from location_groups where key like ${`%-${RUN}`}`);
-      for (const depth of [4, 3, 2, 1]) {
-        await tx.execute(sql`
-          delete from locations where depth = ${depth} and id in (
-            with recursive t as (
-              select id from locations where id = ${countryId}::uuid
-              union all select l.id from locations l join t on l.parent_id = t.id
-            ) select id from t)`);
-      }
-    });
-  }
+  await purge(`S201-${RUN}`, `%-${RUN}`);
   await closeDb();
 });
 
