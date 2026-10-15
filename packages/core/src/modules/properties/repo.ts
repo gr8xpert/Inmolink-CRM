@@ -6,11 +6,13 @@
 import type { Tx } from '@inmolink/db';
 import {
   properties,
+  propertyFeatures,
   propertyPriceHistories,
   propertyPrivates,
   propertyStatusHistories,
+  propertyTranslations,
 } from '@inmolink/db/schema/properties';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, notInArray, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ListingRow = typeof properties.$inferSelect;
@@ -144,4 +146,95 @@ export async function listOwn(
     )
     .orderBy(...keysetOrder(properties.createdAt, properties.id, 'desc'))
     .limit(q.limit + 1);
+}
+
+// ---- Content (S3-05): translations and features -------------------------------------------------------------
+
+export type TranslationRow = typeof propertyTranslations.$inferSelect;
+export type TranslationInsert = typeof propertyTranslations.$inferInsert;
+
+const translationColumns = {
+  locale: propertyTranslations.locale,
+  title: propertyTranslations.title,
+  description: propertyTranslations.description,
+  slug: propertyTranslations.slug,
+  metaTitle: propertyTranslations.metaTitle,
+  metaDescription: propertyTranslations.metaDescription,
+  origin: propertyTranslations.origin,
+  locked: propertyTranslations.locked,
+  updatedAt: propertyTranslations.updatedAt,
+};
+export type TranslationView = { [K in keyof typeof translationColumns]: TranslationRow[K] };
+
+/** A listing's translations by locale (primary key `(property_id, locale)`). */
+export async function listTranslations(tx: Tx, propertyId: string): Promise<TranslationView[]> {
+  return tx
+    .select(translationColumns)
+    .from(propertyTranslations)
+    .where(eq(propertyTranslations.propertyId, propertyId))
+    .orderBy(asc(propertyTranslations.locale));
+}
+
+/** Inserts or replaces one locale's text. */
+export async function upsertTranslation(tx: Tx, row: TranslationInsert): Promise<TranslationView> {
+  const { propertyId: _p, agencyId: _a, locale: _l, ...changes } = row;
+  const [saved] = await tx
+    .insert(propertyTranslations)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [propertyTranslations.propertyId, propertyTranslations.locale],
+      set: { ...changes, updatedAt: sql`now()` },
+    })
+    .returning(translationColumns);
+  return saved as TranslationView;
+}
+
+/** True when a row was deleted. */
+export async function deleteTranslation(tx: Tx, propertyId: string, locale: string): Promise<boolean> {
+  const rows = await tx
+    .delete(propertyTranslations)
+    .where(and(eq(propertyTranslations.propertyId, propertyId), eq(propertyTranslations.locale, locale)))
+    .returning({ locale: propertyTranslations.locale });
+  return rows.length > 0;
+}
+
+/** A listing's feature ids (primary key `(property_id, feature_id)`). */
+export async function listFeatureIds(tx: Tx, propertyId: string): Promise<string[]> {
+  const rows = await tx
+    .select({ featureId: propertyFeatures.featureId })
+    .from(propertyFeatures)
+    .where(eq(propertyFeatures.propertyId, propertyId))
+    .orderBy(asc(propertyFeatures.featureId));
+  return rows.map((r) => r.featureId);
+}
+
+/** Replaces the listing's features with `featureIds`: one delete of the dropped, one insert of the new. */
+export async function replaceFeatures(
+  tx: Tx,
+  ref: { propertyId: string; agencyId: string },
+  featureIds: readonly string[],
+): Promise<void> {
+  await tx
+    .delete(propertyFeatures)
+    .where(
+      and(
+        eq(propertyFeatures.propertyId, ref.propertyId),
+        featureIds.length > 0 ? notInArray(propertyFeatures.featureId, [...featureIds]) : undefined,
+      ),
+    );
+  if (featureIds.length === 0) return;
+  await tx
+    .insert(propertyFeatures)
+    .values(featureIds.map((featureId) => ({ ...ref, featureId })))
+    .onConflictDoNothing();
+}
+
+/** Bumps the listing's `version` (content changes count as listing changes); null when `version` is stale. */
+export async function bumpVersion(tx: Tx, id: string, version: number): Promise<number | null> {
+  const [row] = await tx
+    .update(properties)
+    .set({ version: sql`${properties.version} + 1`, updatedAt: sql`now()` })
+    .where(and(eq(properties.id, id), eq(properties.version, version)))
+    .returning({ version: properties.version });
+  return row?.version ?? null;
 }

@@ -1,9 +1,14 @@
 import {
   CreateListingBody,
+  ListingContentDto,
   ListingDto,
   ListingPage,
   ListingParams,
+  ListingTranslationParams,
+  ListingVersionQuery,
   ListListingsQuery,
+  PutListingTranslationBody,
+  SetListingFeaturesBody,
   UpdateListingBody,
 } from '@inmolink/contracts';
 import * as properties from '@inmolink/core/modules/properties';
@@ -139,6 +144,91 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => properties.restoreListing(ctx, req.params.id));
+    },
+  );
+
+  // ---- Content (S3-05): the listing editor's translations and features ----
+
+  app.get(
+    '/v1/listings/:id/content',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.getListingContent',
+        summary: "A listing's translations (per content locale, with origin) and feature ids",
+        params: ListingParams,
+        response: { 200: ListingContentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.getListingContent(ctx, req.params.id));
+    },
+  );
+
+  app.put(
+    '/v1/listings/:id/translations/:locale',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.putListingTranslation',
+        summary: "Write one locale's title, description and SEO text (optimistic listing `version`)",
+        params: ListingTranslationParams,
+        body: PutListingTranslationBody,
+        response: { 200: ListingContentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        properties.saveListingTranslation(ctx, req.params.id, req.params.locale, req.body),
+      );
+    },
+  );
+
+  app.delete(
+    '/v1/listings/:id/translations/:locale',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.deleteListingTranslation',
+        summary: "Remove one locale's text (optimistic listing `version`)",
+        params: ListingTranslationParams,
+        querystring: ListingVersionQuery,
+        response: { 200: ListingContentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        properties.deleteListingTranslation(ctx, req.params.id, req.params.locale, req.query.version),
+      );
+    },
+  );
+
+  app.put(
+    '/v1/listings/:id/features',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.setListingFeatures',
+        summary: "Replace the listing's features (optimistic listing `version`)",
+        params: ListingParams,
+        body: SetListingFeaturesBody,
+        response: { 200: ListingContentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.setListingFeatures(ctx, req.params.id, req.body));
     },
   );
 }

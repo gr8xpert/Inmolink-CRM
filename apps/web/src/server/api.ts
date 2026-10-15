@@ -7,6 +7,7 @@ import {
   AgencyVerificationDto,
   ApiKeyPage,
   type CreateApiKeyInput,
+  type CreateListingBody,
   type DecideVerificationBody,
   DirectorySearchResult,
   ErrorBody,
@@ -15,17 +16,24 @@ import {
   type InviteMemberInput,
   InvitePage,
   IssuedApiKeyDto,
+  ListingContentDto,
+  ListingDto,
+  ListingPage,
   MeDto,
   MemberDto,
   MemberPage,
   MyCapabilitiesDto,
   PreferredAgencyDto,
   PreferredAgencyPage,
+  type PutListingTranslationBody,
+  type SetListingFeaturesBody,
   SignedUrlDto,
   StaffAccessPage,
+  TaxonomyDto,
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
+  type UpdateListingBody,
   type UpdatePreferredAgencyBody,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
@@ -463,4 +471,114 @@ export function removePreferredAgency(session: SessionRef, agencyId: string): Pr
 export function fetchStaffAccess(session: SessionRef, cursor?: string): Promise<ApiResult<StaffAccessPage>> {
   const qs = new URLSearchParams({ limit: '50', ...(cursor ? { cursor } : {}) });
   return apiRequest(session, `/v1/staff-access?${qs}`, StaffAccessPage);
+}
+
+// ── Listings (S3-05) ──────────────────────────────────────────────────────────────────────────
+
+/** The agency's listings, newest first (or the caller's own with `mine`). */
+export function fetchListings(
+  session: SessionRef,
+  q: { cursor?: string; mine?: boolean } = {},
+): Promise<ApiResult<ListingPage>> {
+  const qs = new URLSearchParams({
+    limit: '50',
+    ...(q.cursor ? { cursor: q.cursor } : {}),
+    ...(q.mine ? { mine: 'true' } : {}),
+  });
+  return apiRequest(session, `/v1/listings?${qs}`, ListingPage);
+}
+
+/** The localized taxonomy (types, locations, features) for the listing forms. */
+export function fetchTaxonomy(session: SessionRef): Promise<ApiResult<TaxonomyDto>> {
+  return apiRequest(session, '/v1/taxonomy', TaxonomyDto);
+}
+
+/**
+ * The listing editor: the listing, its content and the taxonomy with one minted token, in parallel.
+ * `taxonomy` is null when the API refused it (the editor then shows ids only).
+ */
+export async function fetchListingEditor(
+  session: SessionRef,
+  id: string,
+): Promise<
+  | 'revoked'
+  | {
+      listing: Exclude<ApiResult<ListingDto>, 'revoked'>;
+      content: ListingContentDto | null;
+      taxonomy: TaxonomyDto | null;
+    }
+> {
+  let token: string;
+  try {
+    token = await mintFor(session, '/v1/listings');
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    return { listing: { ok: false, status: 0, error: null }, content: null, taxonomy: null };
+  }
+  const path = `/v1/listings/${encodeURIComponent(id)}`;
+  const [listing, content, taxonomy] = await Promise.all([
+    apiRequest({ token }, path, ListingDto),
+    apiRequest({ token }, `${path}/content`, ListingContentDto),
+    apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+  ]);
+  if (listing === 'revoked') return 'revoked';
+  return {
+    listing,
+    content: content !== 'revoked' && content.ok ? content.data : null,
+    taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null,
+  };
+}
+
+export function createListing(session: SessionRef, body: CreateListingBody): Promise<ApiResult<ListingDto>> {
+  return apiRequest(session, '/v1/listings', ListingDto, { method: 'POST', body });
+}
+
+export function updateListing(
+  session: SessionRef,
+  id: string,
+  body: UpdateListingBody,
+): Promise<ApiResult<ListingDto>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}`, ListingDto, { method: 'PATCH', body });
+}
+
+export function putListingTranslation(
+  session: SessionRef,
+  id: string,
+  locale: string,
+  body: PutListingTranslationBody,
+): Promise<ApiResult<ListingContentDto>> {
+  return apiRequest(
+    session,
+    `/v1/listings/${encodeURIComponent(id)}/translations/${encodeURIComponent(locale)}`,
+    ListingContentDto,
+    { method: 'PUT', body },
+  );
+}
+
+export function deleteListingTranslation(
+  session: SessionRef,
+  id: string,
+  locale: string,
+  version: number,
+): Promise<ApiResult<ListingContentDto>> {
+  return apiRequest(
+    session,
+    `/v1/listings/${encodeURIComponent(id)}/translations/${encodeURIComponent(locale)}?version=${version}`,
+    ListingContentDto,
+    { method: 'DELETE' },
+  );
+}
+
+export function setListingFeatures(
+  session: SessionRef,
+  id: string,
+  body: SetListingFeaturesBody,
+): Promise<ApiResult<ListingContentDto>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/features`, ListingContentDto, {
+    method: 'PUT',
+    body,
+  });
 }

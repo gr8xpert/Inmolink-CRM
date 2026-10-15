@@ -351,10 +351,12 @@ describe('media processing worker', () => {
       expect(await queuedFor(upload.sha256)).toHaveLength(1);
       expect(await queuedFor(known)).toHaveLength(0);
 
-      // Recorded two hours ago and never processed: the reconciler queues it again.
+      // Recorded long ago and never processed: the reconciler queues it again. The shared test database keeps
+      // earlier runs' unprocessed objects and the reconciler takes the oldest 500 first, so this run's object is
+      // dated before every earlier run's (the later the run, the older the date).
       await system((tx) =>
         tx.execute(sql`insert into media_objects (sha256, size_bytes, content_type, created_at)
-                       values (${known}, 1, 'image/jpeg', now() - interval '2 hours')`),
+                       values (${known}, 1, 'image/jpeg', timestamptz '2000-01-01' - (now() - timestamptz '2000-01-01'))`),
       );
       await media.mediaJobs.reprocessStale.spec.run({}, jobCtx());
       expect(await queuedFor(known)).toHaveLength(1);

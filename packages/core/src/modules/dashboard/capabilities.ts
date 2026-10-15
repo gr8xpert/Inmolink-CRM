@@ -4,12 +4,14 @@ import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
+import * as properties from '../properties';
 
 /**
  * Which dashboard areas each module's policy opens to the caller (S1-10). A section is listed when the
  * caller may at least read it — Client Mode and impersonation already narrow the answers inside `can`.
  */
 const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boolean]> = [
+  ['listings', (ctx) => properties.can(ctx, 'listing.read')],
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
   ['apiKeys', (ctx) => identity.can(ctx, 'identity.apiKeys.read')],
   ['profile', (ctx) => agencies.can(ctx, 'agencies.profile.update')],

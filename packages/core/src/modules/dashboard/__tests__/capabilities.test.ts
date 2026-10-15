@@ -25,28 +25,52 @@ function ctxAs(role: string, over: { clientMode?: boolean; impersonatedBy?: stri
 
 describe('getMyCapabilities', () => {
   it('[S1-10] role-based navigation: admins of either family see every section, agents only the shared ones', () => {
-    const all = ['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies', 'staffAccess'];
+    const all = [
+      'listings',
+      'team',
+      'apiKeys',
+      'profile',
+      'settings',
+      'verification',
+      'preferredAgencies',
+      'staffAccess',
+    ];
     for (const role of ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']) {
       const caps = getMyCapabilities(ctxAs(role));
       expect(MyCapabilitiesDto.parse(caps)).toEqual({ role, clientMode: false, impersonating: false, sections: all });
     }
     for (const role of ['AGENT', 'DEVELOPER_AGENT']) {
-      expect(getMyCapabilities(ctxAs(role)).sections).toEqual(['team', 'settings', 'preferredAgencies']);
+      expect(getMyCapabilities(ctxAs(role)).sections).toEqual(['listings', 'team', 'settings', 'preferredAgencies']);
     }
   });
 
   it('[S1-10] Client Mode hides everything a client must not see (team, keys, settings, partners)', () => {
+    // Listings stay: Client Mode shows properties, and the API strips commission and private fields (S3-02).
     expect(getMyCapabilities(ctxAs('AGENCY_ADMIN', { clientMode: true }))).toMatchObject({
       clientMode: true,
-      sections: [],
+      sections: ['listings'],
     });
+  });
+
+  it('[S3-05] every member, partners included, gets the listings section', () => {
+    for (const role of ['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_AGENT', 'PARTNER']) {
+      expect(getMyCapabilities(ctxAs(role)).sections[0]).toBe('listings');
+    }
   });
 
   it('[S1-10] while impersonating, sections follow the impersonation rules and the flag is set', () => {
     const caps = getMyCapabilities(ctxAs('AGENCY_ADMIN', { impersonatedBy: STAFF }));
     expect(caps.impersonating).toBe(true);
     // Read-only areas stay visible; nothing forbidden to staff is offered (not the agency's staff-access record).
-    expect(caps.sections).toEqual(['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies']);
+    expect(caps.sections).toEqual([
+      'listings',
+      'team',
+      'apiKeys',
+      'profile',
+      'settings',
+      'verification',
+      'preferredAgencies',
+    ]);
   });
 
   it('[S1-10] only user actors have capabilities', () => {

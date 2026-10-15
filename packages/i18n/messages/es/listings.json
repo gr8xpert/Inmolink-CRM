@@ -1,0 +1,141 @@
+{
+  "title": "Inmuebles",
+  "intro": "Los inmuebles de tu agencia, los más recientes primero.",
+  "new": "Nuevo inmueble",
+  "mine": "Solo los míos",
+  "all": "Todos los inmuebles",
+  "empty": "Aún no hay inmuebles.",
+  "more": "Página siguiente",
+  "columns": {
+    "ref": "Referencia",
+    "type": "Tipo",
+    "location": "Ubicación",
+    "price": "Precio",
+    "status": "Estado",
+    "visibility": "Visibilidad",
+    "created": "Creado"
+  },
+  "priceOnRequest": "A consultar",
+  "create": {
+    "title": "Nuevo inmueble",
+    "intro": "Elige qué es y dónde está; el resto lo completas en el editor.",
+    "submit": "Crear inmueble",
+    "choose": "Elegir…"
+  },
+  "editor": {
+    "title": "Inmueble {ref}",
+    "back": "Volver a inmuebles",
+    "saving": "Guardando…",
+    "saved": "Todos los cambios guardados",
+    "unsaved": "Cambios sin guardar",
+    "failed": "No guardado",
+    "retry": "Reintentar",
+    "reload": "Recargar el inmueble",
+    "lock": "Bloquear frente a importaciones de feeds",
+    "locked": "Bloqueado",
+    "sections": {
+      "basics": "Datos básicos",
+      "location": "Ubicación",
+      "specs": "Características",
+      "features": "Extras",
+      "price": "Precio y comisión",
+      "visibility": "Estado y visibilidad",
+      "private": "Interno",
+      "translations": "Textos y traducciones"
+    },
+    "fields": {
+      "transactionType": "Operación",
+      "propertyTypeId": "Tipo de inmueble",
+      "locationId": "Ubicación",
+      "lat": "Latitud",
+      "lng": "Longitud",
+      "locationPrecision": "Posición mostrada",
+      "mapHint": "Haz clic en el mapa para colocar la chincheta.",
+      "mapFailed": "El mapa no se ha podido cargar; introduce las coordenadas.",
+      "clearPin": "Quitar chincheta",
+      "builtM2": "Superficie construida (m²)",
+      "plotM2": "Parcela (m²)",
+      "terraceM2": "Terraza (m²)",
+      "bedrooms": "Dormitorios",
+      "bathrooms": "Baños",
+      "yearBuilt": "Año de construcción",
+      "energyRating": "Certificado energético (consumo)",
+      "energyEmissionsRating": "Certificado energético (emisiones)",
+      "price": "Precio",
+      "currency": "Moneda",
+      "pricePeriod": "Por",
+      "priceOnRequest": "Precio a consultar",
+      "commissionType": "Comisión",
+      "commissionPercent": "Comisión (%)",
+      "commissionAmount": "Comisión (importe)",
+      "commissionIncludesVat": "IVA incluido",
+      "splitPercent": "Reparto para el agente colaborador (%)",
+      "status": "Estado",
+      "visibility": "Visibilidad",
+      "shareScope": "Compartido con",
+      "cadastralRef": "Referencia catastral",
+      "internalNotes": "Notas internas",
+      "keysInfo": "Llaves"
+    },
+    "options": {
+      "none": "—",
+      "transactionType": {
+        "SALE": "Venta",
+        "RENT_LONG_TERM": "Alquiler larga estancia",
+        "RENT_SHORT_TERM": "Alquiler vacacional"
+      },
+      "pricePeriod": { "NIGHT": "Noche", "WEEK": "Semana", "MONTH": "Mes" },
+      "locationPrecision": { "EXACT": "Exacta", "APPROX": "Aproximada (aprox. 1 km)" },
+      "commissionType": { "PCT": "Porcentaje", "FIXED": "Importe fijo" },
+      "status": {
+        "DRAFT": "Borrador",
+        "ACTIVE": "Activo",
+        "UNDER_OFFER": "Con oferta",
+        "SOLD": "Vendido",
+        "RENTED": "Alquilado",
+        "WITHDRAWN": "Retirado"
+      },
+      "visibility": {
+        "PRIVATE": "Privado (mi agencia)",
+        "SHARED": "Compartido (agencias verificadas)",
+        "PUBLIC": "Público (webs y portales)"
+      },
+      "shareScope": { "ALL": "Todas las agencias verificadas", "PREFERRED": "Mis agencias preferentes" },
+      "energyRating": { "EXEMPT": "Exento", "PENDING": "En trámite" }
+    },
+    "locks": {
+      "price": "Precio",
+      "commission": "Comisión",
+      "split": "Reparto",
+      "status": "Estado",
+      "specs": "Características",
+      "energyRating": "Certificado energético",
+      "coordinates": "Posición",
+      "propertyType": "Tipo de inmueble",
+      "location": "Ubicación"
+    },
+    "translations": {
+      "missing": "Sin escribir",
+      "titleField": "Título",
+      "description": "Descripción",
+      "slug": "Slug de la URL",
+      "metaTitle": "Título SEO",
+      "metaDescription": "Descripción SEO",
+      "locked": "Conservar este texto (la traducción automática nunca lo sobrescribe)",
+      "remove": "Quitar este idioma",
+      "origin": { "HUMAN": "Escrito", "AI_DRAFT": "Borrador IA", "REVIEWED": "Revisado" }
+    }
+  },
+  "fieldInvalid": "Revisa este valor.",
+  "errors": {
+    "VALIDATION_FAILED": "Algunos valores no son válidos; revisa los campos marcados.",
+    "VERSION_CONFLICT": "Otra persona ha cambiado este inmueble. Recárgalo para ver sus cambios.",
+    "FORBIDDEN": "No puedes cambiar este inmueble.",
+    "LISTING_NOT_FOUND": "Este inmueble no existe o se ha eliminado.",
+    "ENERGY_RATING_REQUIRED": "Un inmueble público necesita certificado energético (A–G o exento).",
+    "LISTING_STATUS_INVALID": "El inmueble no puede pasar a ese estado desde el actual.",
+    "VERIFICATION_REQUIRED": "Tu agencia debe estar verificada para compartir o publicar inmuebles.",
+    "RATE_LIMITED": "Demasiados cambios a la vez; espera un momento.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo."
+  }
+}

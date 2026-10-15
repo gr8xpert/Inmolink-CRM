@@ -12,10 +12,20 @@ describe('dashboard navigation', () => {
   it('[S1-10] role-based navigation: members see exactly the sections the API grants, in a fixed order', () => {
     const admin = member({
       role: 'AGENCY_ADMIN',
-      sections: ['staffAccess', 'apiKeys', 'team', 'verification', 'settings', 'profile', 'preferredAgencies'],
+      sections: [
+        'staffAccess',
+        'apiKeys',
+        'team',
+        'verification',
+        'settings',
+        'profile',
+        'preferredAgencies',
+        'listings',
+      ],
     });
     expect(keys(admin)).toEqual([
       'home',
+      'listings',
       'team',
       'preferredAgencies',
       'profile',
@@ -33,6 +43,7 @@ describe('dashboard navigation', () => {
       'security',
     ]);
     expect(buildNav(admin).find((i) => i.key === 'apiKeys')?.href).toBe('/api-keys');
+    expect(buildNav(admin).find((i) => i.key === 'listings')?.href).toBe('/listings');
   });
 
   it('[S1-10] staff links only for staff; none while impersonating, and no account security then', () => {

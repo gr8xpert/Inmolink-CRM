@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
 import { hashPassword } from '@inmolink/platform/crypto/password';
 import pg from 'pg';
 import { testStackEnv } from './stack';
@@ -51,4 +52,69 @@ export async function seedAgent(): Promise<{ email: string; company: string; age
     );
     return { email, company, agencyId };
   });
+}
+
+/**
+ * A verified agency (it may share listings) with one agent, and a small taxonomy to list in: a country, a
+ * property type and a feature, named with a random tag (S3-05). The taxonomy cache is invalidated so the API
+ * serves the new rows at once.
+ */
+export async function seedListingAgent(): Promise<{
+  email: string;
+  agencyId: string;
+  location: string;
+  propertyType: string;
+  feature: string;
+}> {
+  const tag = randomBytes(4).toString('hex');
+  const agent = await seedAgent();
+  const names = { location: `Listland ${tag}`, propertyType: `Villa ${tag}`, feature: `Pool ${tag}` };
+  await asOwner(async (admin) => {
+    await admin.query(`update agencies set status = 'VERIFIED' where agency_id = $1`, [agent.agencyId]);
+    const [location, typeGroup, type, featureGroup, feature] = Array.from({ length: 5 }, () => randomUUID());
+    await admin.query(`insert into locations (id, parent_id, level, depth, code) values ($1, null, 'COUNTRY', 1, $2)`, [
+      location,
+      `e2e-${tag}`,
+    ]);
+    await admin.query(
+      `insert into location_translations (location_id, parent_id, locale, name, slug) values ($1, null, 'en', $2, $3)`,
+      [location, names.location, `listland-${tag}`],
+    );
+    await admin.query(`insert into property_type_groups (id, key) values ($1, $2)`, [typeGroup, `e2e-houses-${tag}`]);
+    await admin.query(
+      `insert into property_type_group_translations (group_id, locale, name, slug) values ($1, 'en', $2, $3)`,
+      [typeGroup, `Houses ${tag}`, `houses-${tag}`],
+    );
+    await admin.query(`insert into property_types (id, group_id, key) values ($1, $2, $3)`, [
+      type,
+      typeGroup,
+      `e2e-villa-${tag}`,
+    ]);
+    await admin.query(
+      `insert into property_type_translations (type_id, locale, name, slug) values ($1, 'en', $2, $3)`,
+      [type, names.propertyType, `villa-${tag}`],
+    );
+    await admin.query(`insert into feature_groups (id, key) values ($1, $2)`, [featureGroup, `e2e-outdoor-${tag}`]);
+    await admin.query(
+      `insert into feature_group_translations (group_id, locale, name, slug) values ($1, 'en', $2, $3)`,
+      [featureGroup, `Outdoor ${tag}`, `outdoor-${tag}`],
+    );
+    await admin.query(`insert into features (id, group_id, key, icon) values ($1, $2, $3, 'waves')`, [
+      feature,
+      featureGroup,
+      `e2e-pool-${tag}`,
+    ]);
+    await admin.query(`insert into feature_translations (feature_id, locale, name, slug) values ($1, 'en', $2, $3)`, [
+      feature,
+      names.feature,
+      `pool-${tag}`,
+    ]);
+  });
+  await configureCache({ url: testStackEnv().REDIS_CACHE_URL });
+  try {
+    await cache.invalidateTag('taxonomy');
+  } finally {
+    await closeCache();
+  }
+  return { email: agent.email, agencyId: agent.agencyId, ...names };
 }

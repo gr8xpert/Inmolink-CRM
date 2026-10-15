@@ -126,7 +126,16 @@ describe('api against the test stack', () => {
         role: 'AGENCY_ADMIN',
         clientMode: false,
         impersonating: false,
-        sections: ['team', 'apiKeys', 'profile', 'settings', 'verification', 'preferredAgencies', 'staffAccess'],
+        sections: [
+          'listings',
+          'team',
+          'apiKeys',
+          'profile',
+          'settings',
+          'verification',
+          'preferredAgencies',
+          'staffAccess',
+        ],
       });
       // Staff have no agency, so no tenant capabilities (403): the shell then asks the staff API instead.
       const support = await createStaffUser('STAFF_SUPPORT');

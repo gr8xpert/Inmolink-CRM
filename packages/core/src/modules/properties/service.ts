@@ -298,7 +298,7 @@ export async function createListing(
  * The caller's own listing for a change. Another agency's listing the caller can see (shared) is FORBIDDEN —
  * only the owner agency writes — and anything else, deleted ones included, is LISTING_NOT_FOUND.
  */
-async function ownForChange(ctx: Ctx, id: string, action: PropertiesAction): Promise<repo.ListingRow> {
+export async function ownForChange(ctx: Ctx, id: string, action: PropertiesAction): Promise<repo.ListingRow> {
   // The role check first (Client Mode, partners, impersonation): a refused caller locks nothing, learns nothing.
   assertCan(ctx, action);
   const row = await repo.getOwnForUpdate(ctx.tx, ctx.tenant.agencyId, id);

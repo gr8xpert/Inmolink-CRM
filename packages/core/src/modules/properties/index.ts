@@ -1,4 +1,12 @@
 /** properties — public API (PATTERNS §1). The only import path for other modules and apps. */
+
+export {
+  deleteListingTranslation,
+  getListingContent,
+  saveListingTranslation,
+  setListingFeatures,
+  slugOf,
+} from './content';
 export { propertiesErrors } from './errors';
 export { propertiesEvents } from './events';
 export { propertiesJobs } from './jobs';

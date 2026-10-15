@@ -183,3 +183,78 @@ export const ListingSummaryDto = z.object({
 export type ListingSummaryDto = z.infer<typeof ListingSummaryDto>;
 export const ListingPage = pageOf(ListingSummaryDto);
 export type ListingPage = z.infer<typeof ListingPage>;
+
+// ---- Listing content (S3-05): translations per content locale and features, edited by the listing editor ------
+
+/** HUMAN: written by a person; AI_DRAFT: machine translation not yet checked; REVIEWED: a person checked a draft. */
+export const TranslationOrigin = z.enum(['HUMAN', 'AI_DRAFT', 'REVIEWED']);
+export type TranslationOrigin = z.infer<typeof TranslationOrigin>;
+
+/** A content locale code; the service accepts only the configured content locales (`VALIDATION_FAILED`). */
+export const ContentLocaleCode = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/);
+const ListingSlug = z
+  .string()
+  .max(120)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+
+export const ListingTranslationDto = z.object({
+  locale: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  slug: z.string(),
+  metaTitle: z.string().nullable(),
+  metaDescription: z.string().nullable(),
+  origin: TranslationOrigin,
+  /** A person fixed this text: machine translation never overwrites it. */
+  locked: z.boolean(),
+  updatedAt: z.iso.datetime(),
+});
+export type ListingTranslationDto = z.infer<typeof ListingTranslationDto>;
+
+/** `GET /v1/listings/:id/content`: translations (by locale) and the feature ids; `version` is the listing's. */
+export const ListingContentDto = z.object({
+  listingId: z.uuid(),
+  version: z.number().int(),
+  translations: z.array(ListingTranslationDto),
+  featureIds: z.array(z.uuid()),
+});
+export type ListingContentDto = z.infer<typeof ListingContentDto>;
+
+export const ListingTranslationParams = z.object({ id: z.uuid(), locale: ContentLocaleCode }).strict();
+export type ListingTranslationParams = z.infer<typeof ListingTranslationParams>;
+
+/**
+ * `PUT /v1/listings/:id/translations/:locale`: a person writes the text (an AI draft becomes REVIEWED). The slug
+ * follows the title when not sent. Optimistic on the listing `version`, which the save bumps.
+ */
+export const PutListingTranslationBody = z
+  .object({
+    version: z.number().int().min(1),
+    title: z.string().trim().min(1).max(200),
+    description: z.string().max(20_000).nullable().optional(),
+    slug: ListingSlug.optional(),
+    metaTitle: z.string().trim().max(70).nullable().optional(),
+    metaDescription: z.string().trim().max(160).nullable().optional(),
+    locked: z.boolean().optional(),
+  })
+  .strict();
+export type PutListingTranslationBody = z.infer<typeof PutListingTranslationBody>;
+
+/** `DELETE /v1/listings/:id/translations/:locale?version=`. */
+export const ListingVersionQuery = z.object({ version: z.coerce.number().int().min(1) }).strict();
+export type ListingVersionQuery = z.infer<typeof ListingVersionQuery>;
+
+/** Most features a listing carries. */
+export const LISTING_FEATURES_MAX = 200;
+
+/** `PUT /v1/listings/:id/features`: the whole set (taxonomy feature ids), replacing the current one. */
+export const SetListingFeaturesBody = z
+  .object({
+    version: z.number().int().min(1),
+    featureIds: z
+      .array(z.uuid())
+      .max(LISTING_FEATURES_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, 'duplicate'),
+  })
+  .strict();
+export type SetListingFeaturesBody = z.infer<typeof SetListingFeaturesBody>;
