@@ -407,8 +407,15 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   } else if (!def.appendOnly && def.immutable) {
     it(`[S1-08] ${table}: positive control — tenant B can insert and read its own rows`, async () => {
       await rb(b, async (tx) => {
-        expect((await tx.execute(insertSql(table, build({ agency_id: b })))).rowCount).toBe(1);
-        expect(await count(tx, table, b)).toBe(2);
+        // In a savepoint, like the positive control below: a history row whose parent the suite does not
+        // create (S3-01: listing history → properties) fails with 23503 only after RLS let it through.
+        const inserted = await tx
+          .transaction(async (sp) => (await sp.execute(insertSql(table, build({ agency_id: b })))).rowCount)
+          .catch((err: unknown) => {
+            if (PASSED_RLS.includes(sqlState(err) ?? '')) return 0;
+            throw err;
+          });
+        expect(await count(tx, table, b)).toBe(1 + (inserted ?? 0));
       });
       expect(await adminCount(b)).toBe(1);
     });

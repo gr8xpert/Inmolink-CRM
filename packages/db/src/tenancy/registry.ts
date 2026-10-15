@@ -365,6 +365,57 @@ export const tenantTables: Record<string, TenantTable> = {
       update: SUPER_ADMIN_OR_OWN_SESSION,
     },
   },
+  // Listings (S3-01, PLAN §6, §3 #57). Other verified agencies read a listing that is SHARED or PUBLIC,
+  // ACTIVE and not deleted, while its owner is listed in the directory (VERIFIED: a suspended owner's
+  // listings leave the network) — and with share scope PREFERRED only if the owner prefers the reader.
+  // Only shareable columns: private ones live in `property_privates`. S3-08 extends the predicate with
+  // "hidden after 120 days unconfirmed" (`last_confirmed_at`).
+  properties: {
+    kind: 'NETWORK_READ',
+    networkReadSql: `visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null
+      and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed)
+      and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))`,
+    samples: {
+      visible: [
+        { visibility: 'SHARED', status: 'ACTIVE' },
+        { visibility: 'PUBLIC', status: 'ACTIVE' },
+      ],
+      hidden: [
+        { visibility: 'PRIVATE', status: 'ACTIVE' },
+        { visibility: 'SHARED', status: 'DRAFT' },
+        { visibility: 'SHARED', status: 'SOLD' },
+        { visibility: 'SHARED', status: 'ACTIVE', deleted_at: new Date() },
+        { visibility: 'SHARED', status: 'ACTIVE', share_scope: 'PREFERRED' },
+      ],
+    },
+  },
+  // A listing's private fields (cadastral reference, seller, internal notes, keys): owner agency only.
+  property_privates: { kind: 'STRICT' },
+  // A listing's translations, features and media: readable wherever the listing itself is (the `exists`
+  // runs under the reader's RLS on `properties`; the composite FK keeps the row's agency the listing's).
+  // The generated suite seeds no parent listing, so these rows are hidden there; the readable side is
+  // tested in the properties module (`schema.int.test.ts`).
+  property_translations: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'exists (select 1 from public.properties p where p.id = property_translations.property_id)',
+    base: { locale: 'es' },
+    samples: { visible: [], hidden: [{}] },
+  },
+  property_features: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'exists (select 1 from public.properties p where p.id = property_features.property_id)',
+    samples: { visible: [], hidden: [{}] },
+  },
+  property_media: {
+    kind: 'NETWORK_READ',
+    // Documents (nota simple, contracts: seller names, DNI, cadastral data) never leave the owner agency.
+    networkReadSql:
+      "kind <> 'DOCUMENT' and exists (select 1 from public.properties p where p.id = property_media.property_id)",
+    samples: { visible: [], hidden: [{}] },
+  },
+  // Price and status history: the owner's, not shared, append-only (members read and append, never rewrite).
+  property_price_histories: { kind: 'STRICT', immutable: true },
+  property_status_histories: { kind: 'STRICT', immutable: true },
 };
 
 /**

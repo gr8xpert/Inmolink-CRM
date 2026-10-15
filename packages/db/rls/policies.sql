@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -411,6 +411,77 @@ create policy own_rows on public."preferred_agency_notes" to app_user
 revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
+
+-- properties: NETWORK_READ
+alter table public."properties" enable row level security;
+alter table public."properties" force row level security;
+create policy own_rows on public."properties" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."properties" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed) and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))));
+revoke all on table public."properties" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."properties" to app_user;
+grant select, insert, update, delete on table public."properties" to app_system;
+
+-- property_features: NETWORK_READ
+alter table public."property_features" enable row level security;
+alter table public."property_features" force row level security;
+create policy own_rows on public."property_features" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."property_features" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.properties p where p.id = property_features.property_id)));
+revoke all on table public."property_features" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."property_features" to app_user;
+grant select, insert, update, delete on table public."property_features" to app_system;
+
+-- property_media: NETWORK_READ
+alter table public."property_media" enable row level security;
+alter table public."property_media" force row level security;
+create policy own_rows on public."property_media" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."property_media" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (kind <> 'DOCUMENT' and exists (select 1 from public.properties p where p.id = property_media.property_id)));
+revoke all on table public."property_media" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."property_media" to app_user;
+grant select, insert, update, delete on table public."property_media" to app_system;
+
+-- property_price_histories: STRICT
+alter table public."property_price_histories" enable row level security;
+alter table public."property_price_histories" force row level security;
+create policy own_rows on public."property_price_histories" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."property_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert on table public."property_price_histories" to app_user;
+grant select, insert on table public."property_price_histories" to app_system;
+
+-- property_privates: STRICT
+alter table public."property_privates" enable row level security;
+alter table public."property_privates" force row level security;
+create policy own_rows on public."property_privates" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."property_privates" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."property_privates" to app_user;
+grant select, insert, update, delete on table public."property_privates" to app_system;
+
+-- property_status_histories: STRICT
+alter table public."property_status_histories" enable row level security;
+alter table public."property_status_histories" force row level security;
+create policy own_rows on public."property_status_histories" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."property_status_histories" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert on table public."property_status_histories" to app_user;
+grant select, insert on table public."property_status_histories" to app_system;
+
+-- property_translations: NETWORK_READ
+alter table public."property_translations" enable row level security;
+alter table public."property_translations" force row level security;
+create policy own_rows on public."property_translations" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."property_translations" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.properties p where p.id = property_translations.property_id)));
+revoke all on table public."property_translations" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."property_translations" to app_user;
+grant select, insert, update, delete on table public."property_translations" to app_system;
 
 -- property_type_aliases: GLOBAL
 alter table public."property_type_aliases" enable row level security;

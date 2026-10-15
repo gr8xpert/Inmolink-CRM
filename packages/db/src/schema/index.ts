@@ -10,4 +10,5 @@ export * from './flags';
 export * from './identity';
 export * from './migration';
 export * from './outbox';
+export * from './properties';
 export * from './taxonomy';

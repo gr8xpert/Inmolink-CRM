@@ -12,6 +12,7 @@ export * from './http';
 export * from './identity';
 export * from './migration';
 export * from './preferred-agencies';
+export * from './properties';
 export * from './staff';
 export * from './taxonomy';
 export * from './verification';
