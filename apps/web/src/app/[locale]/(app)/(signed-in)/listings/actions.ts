@@ -2,15 +2,19 @@
 
 import {
   CreateListingBody,
+  type ListingBulkDto,
   type ListingContentDto,
   type ListingDto,
   type ListingMediaList,
+  ListingViewBody,
+  type ListingViewDto,
   MediaCheckBody,
   type MediaCheckResult,
   PutListingTranslationBody,
   RegisterMediaBody,
   ReorderListingMediaBody,
   SetListingFeaturesBody,
+  StartListingBulkBody,
   UpdateListingBody,
   UpdateListingMediaBody,
 } from '@inmolink/contracts';
@@ -23,8 +27,11 @@ import {
   type ApiResult,
   checkMedia,
   createListing,
+  createListingView,
   deleteListingTranslation,
+  deleteListingView,
   detachListingMedia,
+  fetchListingBulkAction,
   listListingMedia,
   putListingTranslation,
   registerMedia,
@@ -32,6 +39,7 @@ import {
   type SessionRef,
   sessionRef,
   setListingFeatures,
+  startListingBulkAction,
   updateListing,
   updateListingMedia,
 } from '@/server/api';
@@ -166,4 +174,30 @@ export async function createListingAction(_prev: CreateState, form: FormData): P
   const res = await withSession((s) => createListing(s, parsed.data));
   if (!res.ok) return { code: res.code, fields: res.fields, ...(res.revoked ? { revoked: true } : {}) };
   redirect(getPathname({ href: `/listings/${res.data.id}`, locale: await getLocale() }));
+}
+
+// --- listing list (S3-07): saved views and bulk actions ---
+
+/** Saves the list as it is now (filters, sort, columns) under a name. */
+export async function saveViewAction(body: unknown): Promise<EditorResult<ListingViewDto>> {
+  const parsed = ListingViewBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => createListingView(s, parsed.data));
+}
+
+export async function deleteViewAction(id: string): Promise<EditorResult<null>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => deleteListingView(s, id));
+}
+
+/** Queues a bulk action; the list then polls `bulkProgressAction` until it is DONE or FAILED. */
+export async function startBulkAction(body: unknown): Promise<EditorResult<ListingBulkDto>> {
+  const parsed = StartListingBulkBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => startListingBulkAction(s, parsed.data));
+}
+
+export async function bulkProgressAction(id: string): Promise<EditorResult<ListingBulkDto>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => fetchListingBulkAction(s, id));
 }

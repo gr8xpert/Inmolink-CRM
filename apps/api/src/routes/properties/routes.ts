@@ -1,14 +1,21 @@
 import {
   CreateListingBody,
+  ListingBulkDto,
+  ListingBulkParams,
   ListingContentDto,
   ListingDto,
   ListingPage,
   ListingParams,
   ListingTranslationParams,
   ListingVersionQuery,
+  ListingViewBody,
+  ListingViewDto,
+  ListingViewList,
+  ListingViewParams,
   ListListingsQuery,
   PutListingTranslationBody,
   SetListingFeaturesBody,
+  StartListingBulkBody,
   UpdateListingBody,
 } from '@inmolink/contracts';
 import * as properties from '@inmolink/core/modules/properties';
@@ -24,6 +31,13 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'properties.write.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
   { name: 'properties.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
   { name: 'properties.write.tenant', scope: 'tenant', limit: 1_200, windowSeconds: 60 },
+];
+
+/** Bulk actions are heavy (up to 5,000 listings each): a few per minute per member. */
+const BULK_LIMITS: readonly RateLimitRule[] = [
+  { name: 'properties.bulk.ip', scope: 'ip', limit: 60, windowSeconds: 60 },
+  { name: 'properties.bulk.user', scope: 'user', limit: 10, windowSeconds: 60 },
+  { name: 'properties.bulk.tenant', scope: 'tenant', limit: 30, windowSeconds: 60 },
 ];
 
 /**
@@ -56,7 +70,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags: ['properties'],
         operationId: 'properties.listListings',
-        summary: "The agency's listings, newest first (cursor, ≤ 100); `mine`, `status` and `deleted` filter",
+        summary: "The agency's listings: filters, sort (newest, oldest, updated, price), cursor ≤ 100, tags",
         querystring: ListListingsQuery,
         response: { 200: ListingPage },
       },
@@ -229,6 +243,123 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => properties.setListingFeatures(ctx, req.params.id, req.body));
+    },
+  );
+
+  // ---- Saved views and bulk actions (S3-07) ----
+
+  app.get(
+    '/v1/listing-views',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.listListingViews',
+        summary: "The caller's saved listing views (filters, sort, columns), by name",
+        response: { 200: ListingViewList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.listListingViews(ctx));
+    },
+  );
+
+  app.post(
+    '/v1/listing-views',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.createListingView',
+        summary: 'Save a listing view (≤ 50 per member, names unique)',
+        body: ListingViewBody,
+        response: { 201: ListingViewDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createListingView(ctx, req.body)));
+    },
+  );
+
+  app.put(
+    '/v1/listing-views/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.updateListingView',
+        summary: "Replace a saved view's name, filters, sort and columns",
+        params: ListingViewParams,
+        body: ListingViewBody,
+        response: { 200: ListingViewDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.updateListingView(ctx, req.params.id, req.body));
+    },
+  );
+
+  app.delete(
+    '/v1/listing-views/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.deleteListingView',
+        summary: 'Delete a saved view',
+        params: ListingViewParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      await app.withCtx(req, (ctx) => properties.deleteListingView(ctx, req.params.id));
+      return reply.code(204).send(null);
+    },
+  );
+
+  app.post(
+    '/v1/listing-bulk-actions',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.startListingBulkAction',
+        summary: 'Change status, visibility, share scope, price (%), owner or tags of many listings (≤ 5,000) in a job',
+        body: StartListingBulkBody,
+        response: { 202: ListingBulkDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: BULK_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(202).send(await app.withCtx(req, (ctx) => properties.startBulkAction(ctx, req.body)));
+    },
+  );
+
+  app.get(
+    '/v1/listing-bulk-actions/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.getListingBulkAction',
+        summary: "A bulk action's progress: counters and the first failures",
+        params: ListingBulkParams,
+        response: { 200: ListingBulkDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.getBulkAction(ctx, req.params.id));
     },
   );
 }

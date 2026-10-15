@@ -31,4 +31,5 @@ export function registerSubscriptions(): void {
   agencies.registerAgenciesSubscriptions();
   taxonomy.registerTaxonomySubscriptions();
   media.registerMediaSubscriptions();
+  properties.registerPropertiesSubscriptions();
 }

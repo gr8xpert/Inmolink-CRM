@@ -20,6 +20,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -141,6 +142,12 @@ export const properties = pgTable(
     index('properties_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
     // FK to the owner's membership + an agent's own listings (`mine`), newest first: keyset like the agency list
     index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId, keysetTime(t.createdAt), t.id),
+    // the dashboard list sorted by last change (S3-07 `sort=updated`), keyset like the created order
+    index('properties_agency_updated_idx').on(t.agencyId, keysetTime(t.updatedAt), t.id),
+    // the dashboard list sorted by price (S3-07), listings without a price last: `sort=price_asc` walks the first
+    // forwards; `sort=price_desc` needs its own (a backward scan of the first puts them first)
+    index('properties_agency_price_idx').on(t.agencyId, t.priceCents, t.id),
+    index('properties_agency_price_desc_idx').on(t.agencyId, t.priceCents.desc().nullsLast(), t.id.desc()),
     // the restorable (soft-deleted) listings of an agency, newest first: few rows, so a partial index
     index('properties_agency_deleted_idx')
       .on(t.agencyId, keysetTime(t.createdAt), t.id)
@@ -323,5 +330,113 @@ export const propertyStatusHistories = pgTable(
     }).onDelete('cascade'),
     // FK + a listing's status history, newest first
     index('property_status_histories_property_idx').on(t.propertyId, t.changedAt, t.id),
+  ],
+);
+
+/** An agency's own labels on its listings (S3-07: bulk "add tag", list filter); internal, never shared. */
+export const propertyTags = pgTable(
+  'property_tags',
+  {
+    propertyId: uuid('property_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    /** Lower-case, trimmed (`ListingTag`). */
+    tag: text('tag').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.propertyId, t.tag] }),
+    foreignKey({
+      name: 'property_tags_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    // the list filter `tag=` (the agency's listings with this tag)
+    index('property_tags_agency_tag_idx').on(t.agencyId, t.tag, t.propertyId),
+    check('property_tags_tag_ck', sql`char_length(${t.tag}) between 1 and 40 and ${t.tag} = lower(btrim(${t.tag}))`),
+  ],
+);
+
+/** A member's saved listing list: filters, sort and columns (S3-07). Private to the member. */
+export const listingViews = pgTable(
+  'listing_views',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    name: text('name').notNull(),
+    /** The list query (`ListingViewQuery`): filters and sort, validated by the contract on write and read. */
+    query: jsonb('query').notNull(),
+    /** Shown columns, in order (`ListingColumn`). */
+    columns: text('columns').array().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'listing_views_member_fk',
+      columns: [t.agencyId, t.userId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }).onDelete('cascade'),
+    // FK + a member's views by name (one name once)
+    uniqueIndex('listing_views_member_name_uq').on(t.agencyId, t.userId, t.name),
+    check('listing_views_name_ck', sql`char_length(${t.name}) between 1 and 60`),
+  ],
+);
+
+export const listingBulkActionTypeEnum = pgEnum('listing_bulk_action_type', [
+  'STATUS',
+  'VISIBILITY',
+  'SHARE_SCOPE',
+  'PRICE_CHANGE',
+  'ASSIGN',
+  'ADD_TAG',
+]);
+export const listingBulkStateEnum = pgEnum('listing_bulk_state', ['QUEUED', 'RUNNING', 'DONE', 'FAILED']);
+
+/**
+ * A bulk change of listings (S3-07), run by the worker in chunks (`properties.runBulkAction`). The counters
+ * and `processed` move in the transaction of each chunk, so a retried job resumes where it stopped and never
+ * applies a chunk twice.
+ */
+export const listingBulkActions = pgTable(
+  'listing_bulk_actions',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The member who asked; the job acts as them (role re-read per chunk). */
+    createdByUserId: uuid('created_by_user_id').notNull(),
+    type: listingBulkActionTypeEnum('type').notNull(),
+    /** The action's parameters (`ListingBulkAction` without `type`), validated by the contract. */
+    params: jsonb('params').notNull(),
+    /** The listings, in the order they are processed (≤ `LISTING_BULK_MAX`). */
+    listingIds: uuid('listing_ids').array().notNull(),
+    state: listingBulkStateEnum('state').notNull().default('QUEUED'),
+    total: integer('total').notNull(),
+    processed: integer('processed').notNull().default(0),
+    succeeded: integer('succeeded').notNull().default(0),
+    unchanged: integer('unchanged').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    /** The first failures (listing id + error code), capped (`LISTING_BULK_FAILURES_KEPT`). */
+    failures: jsonb('failures').notNull().default(sql`'[]'::jsonb`),
+    /** Why the whole action stopped (state FAILED). */
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [
+    // FK + the agency's recent bulk actions
+    index('listing_bulk_actions_agency_created_idx').on(t.agencyId, t.createdAt),
+    // one waiting or running action per member (S3-07 security review): a member cannot queue thousands of writes
+    uniqueIndex('listing_bulk_actions_member_active_uq')
+      .on(t.agencyId, t.createdByUserId)
+      .where(sql`${t.state} in ('QUEUED', 'RUNNING')`),
+    check(
+      'listing_bulk_actions_counts_ck',
+      sql`${t.total} = cardinality(${t.listingIds}) and ${t.processed} between 0 and ${t.total}
+        and ${t.succeeded} + ${t.unchanged} + ${t.failed} = ${t.processed}`,
+    ),
   ],
 );

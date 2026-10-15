@@ -420,6 +420,11 @@ export const tenantTables: Record<string, TenantTable> = {
   // Price and status history: the owner's, not shared, append-only (members read and append, never rewrite).
   property_price_histories: { kind: 'STRICT', immutable: true },
   property_status_histories: { kind: 'STRICT', immutable: true },
+  // S3-07: the agency's tags on its listings (internal), members' saved list views and bulk action records.
+  property_tags: { kind: 'STRICT', base: { tag: 'isolation' } },
+  listing_views: { kind: 'STRICT', base: { name: 'isolation view', columns: '{ref}' } },
+  // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
+  listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
 };
 
 /**

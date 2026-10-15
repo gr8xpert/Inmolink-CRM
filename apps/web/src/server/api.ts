@@ -16,10 +16,16 @@ import {
   type InviteMemberInput,
   InvitePage,
   IssuedApiKeyDto,
+  ListingBulkDto,
   ListingContentDto,
   ListingDto,
+  type ListingFilter,
   ListingMediaList,
   ListingPage,
+  type ListingSort,
+  type ListingViewBody,
+  ListingViewDto,
+  ListingViewList,
   MeDto,
   type MediaCheckBody,
   MediaCheckResult,
@@ -34,6 +40,7 @@ import {
   type SetListingFeaturesBody,
   SignedUrlDto,
   StaffAccessPage,
+  type StartListingBulkBody,
   TaxonomyDto,
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
@@ -481,17 +488,77 @@ export function fetchStaffAccess(session: SessionRef, cursor?: string): Promise<
 
 // ── Listings (S3-05) ──────────────────────────────────────────────────────────────────────────
 
-/** The agency's listings, newest first (or the caller's own with `mine`). */
-export function fetchListings(
+/** The listing list's query (S3-07): filters, sort and cursor, as the API names them. */
+export interface ListingsQuery {
+  filter: ListingFilter;
+  sort: ListingSort;
+  cursor: string | undefined;
+}
+
+function listingsPath(q: ListingsQuery): string {
+  const qs = new URLSearchParams({ limit: '50' });
+  for (const [key, value] of Object.entries(q.filter)) {
+    if (value !== undefined && value !== '' && value !== false) qs.set(key, String(value));
+  }
+  if (q.sort !== 'newest') qs.set('sort', q.sort);
+  if (q.cursor) qs.set('cursor', q.cursor);
+  return `/v1/listings?${qs}`;
+}
+
+/**
+ * The listings page (S3-07): a page of listings, the taxonomy, the caller's saved views and the team (owner
+ * names, the assign picker) with one minted token, in parallel. Everything but the listings is null when refused.
+ */
+export async function fetchListingsPage(
   session: SessionRef,
-  q: { cursor?: string; mine?: boolean } = {},
-): Promise<ApiResult<ListingPage>> {
-  const qs = new URLSearchParams({
-    limit: '50',
-    ...(q.cursor ? { cursor: q.cursor } : {}),
-    ...(q.mine ? { mine: 'true' } : {}),
-  });
-  return apiRequest(session, `/v1/listings?${qs}`, ListingPage);
+  q: ListingsQuery,
+): Promise<
+  | 'revoked'
+  | {
+      listings: Exclude<ApiResult<ListingPage>, 'revoked'>;
+      taxonomy: TaxonomyDto | null;
+      views: ListingViewList | null;
+      members: MemberDto[] | null;
+    }
+> {
+  let token: string;
+  try {
+    token = await mintFor(session, '/v1/listings');
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    return { listings: { ok: false, status: 0, error: null }, taxonomy: null, views: null, members: null };
+  }
+  const [listings, taxonomy, views, members] = await Promise.all([
+    apiRequest({ token }, listingsPath(q), ListingPage),
+    apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+    apiRequest({ token }, '/v1/listing-views', ListingViewList),
+    apiRequest({ token }, '/v1/members?limit=100', MemberPage),
+  ]);
+  if (listings === 'revoked') return 'revoked';
+  const ok = <T>(r: ApiResult<T>) => (r !== 'revoked' && r.ok ? r.data : null);
+  return { listings, taxonomy: ok(taxonomy), views: ok(views), members: ok(members)?.items ?? null };
+}
+
+export function createListingView(session: SessionRef, body: ListingViewBody): Promise<ApiResult<ListingViewDto>> {
+  return apiRequest(session, '/v1/listing-views', ListingViewDto, { method: 'POST', body });
+}
+
+export function deleteListingView(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/listing-views/${encodeURIComponent(id)}`, z.null(), { method: 'DELETE' });
+}
+
+export function startListingBulkAction(
+  session: SessionRef,
+  body: StartListingBulkBody,
+): Promise<ApiResult<ListingBulkDto>> {
+  return apiRequest(session, '/v1/listing-bulk-actions', ListingBulkDto, { method: 'POST', body });
+}
+
+export function fetchListingBulkAction(session: SessionRef, id: string): Promise<ApiResult<ListingBulkDto>> {
+  return apiRequest(session, `/v1/listing-bulk-actions/${encodeURIComponent(id)}`, ListingBulkDto);
 }
 
 /** The localized taxonomy (types, locations, features) for the listing forms. */

@@ -1,28 +1,77 @@
+import type { ListingColumn, ListingSummaryDto } from '@inmolink/contracts';
 import { buttonVariants, EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
-import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
+import { getFormatter, getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchListings, fetchTaxonomy, sessionRef } from '@/server/api';
+import { fetchListingsPage, sessionRef } from '@/server/api';
+import { listSearch, parseListState } from './list-query';
+import { type ListingRowView, ListingsTable } from './listings-table';
+import { ListingsToolbar } from './listings-toolbar';
 import { listingTaxonomy } from './taxonomy';
 
 /**
- * The agency's listings (S3-05): newest first, 50 per page (keyset cursor), optionally only the caller's own.
- * Each row opens the editor.
+ * The agency's listings (S3-05, S3-07): filters, sort, saved views and a column chooser — all in the URL, so a
+ * view is a link — 50 per page (keyset cursor), and bulk actions on the selected rows or on every listing
+ * matching the filters, run as a job with progress. Cells are formatted here; the client parts only select.
  */
-export default async function ListingsPage(props: { searchParams: Promise<{ cursor?: string; mine?: string }> }) {
+export default async function ListingsPage(props: { searchParams: Promise<Record<string, string | string[]>> }) {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const q = await props.searchParams;
-  const cursor = typeof q.cursor === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(q.cursor) ? q.cursor : undefined;
-  const mine = q.mine === '1';
-  const ref = sessionRef(session.user);
-  const [res, tax] = await Promise.all([fetchListings(ref, { cursor, mine }), fetchTaxonomy(ref)]);
-  if (res === 'revoked' || tax === 'revoked') redirect('/session/expired');
+  const state = parseListState(await props.searchParams);
+  const res = await fetchListingsPage(sessionRef(session.user), state);
+  if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('listings');
   const format = await getFormatter();
-  const names = listingTaxonomy(tax.ok ? tax.data : null);
+  const messages = (await getMessages()) as unknown as { listings: Record<string, unknown> };
+  const names = listingTaxonomy(res.taxonomy);
+  const members = res.members ?? [];
+  const memberName = new Map(members.map((m) => [m.userId, m.name]));
+  const dash = '—';
+
+  const cell = (l: ListingSummaryDto, column: ListingColumn): string => {
+    switch (column) {
+      case 'ref':
+        return l.ref;
+      case 'type':
+        return names.typeName(l.propertyTypeId) ?? dash;
+      case 'location':
+        return names.locationName(l.locationId)?.split(' › ').at(-1) ?? dash;
+      case 'price':
+        return l.price
+          ? format.number(l.price.amountCents / 100, { style: 'currency', currency: l.price.currency })
+          : dash;
+      case 'status':
+        return t(`editor.options.status.${l.status}`);
+      case 'visibility':
+        return t(`editor.options.visibility.${l.visibility}`);
+      case 'shareScope':
+        return t(`editor.options.shareScope.${l.shareScope}`);
+      case 'bedrooms':
+        return l.bedrooms === null ? dash : format.number(l.bedrooms);
+      case 'bathrooms':
+        return l.bathrooms === null ? dash : format.number(l.bathrooms);
+      case 'builtM2':
+        return l.builtM2 === null ? dash : t('units.m2', { value: format.number(l.builtM2) });
+      case 'owner':
+        return memberName.get(l.ownerUserId) ?? dash;
+      case 'tags':
+        return l.tags.join(', ') || dash;
+      case 'created':
+        return format.dateTime(new Date(l.createdAt), { dateStyle: 'medium' });
+      case 'updated':
+        return format.dateTime(new Date(l.updatedAt), { dateStyle: 'medium' });
+    }
+  };
+  const rows: ListingRowView[] = res.listings.ok
+    ? res.listings.data.items.map((l) => ({
+        id: l.id,
+        cells: Object.fromEntries(state.columns.map((c) => [c, cell(l, c)])) as Record<ListingColumn, string>,
+      }))
+    : [];
+  const next = res.listings.ok ? res.listings.data.nextCursor : null;
+  const filtered = Object.keys(state.filter).length > 0;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -31,69 +80,45 @@ export default async function ListingsPage(props: { searchParams: Promise<{ curs
           <h1 className="text-xl font-semibold">{t('title')}</h1>
           <p className="text-sm text-muted-foreground">{t('intro')}</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href={mine ? '/listings' : '/listings?mine=1'} className="text-sm underline-offset-4 hover:underline">
-            {mine ? t('all') : t('mine')}
-          </Link>
-          <Link href="/listings/new" className={buttonVariants()}>
-            {t('new')}
-          </Link>
-        </div>
+        <Link href="/listings/new" className={buttonVariants()}>
+          {t('new')}
+        </Link>
       </div>
-      {!res.ok ? (
+      <ListingsToolbar
+        state={{ filter: state.filter, sort: state.sort, columns: state.columns }}
+        propertyTypes={names.propertyTypes}
+        locations={names.locations}
+        members={members.map((m) => ({ id: m.userId, label: m.name }))}
+        views={res.views?.items ?? []}
+        messages={messages.listings}
+      />
+      {!res.listings.ok ? (
         <p role="alert" className="text-sm text-destructive">
-          {res.status === 403 ? t('errors.FORBIDDEN') : t('errors.generic')}
+          {res.listings.status === 403
+            ? t('errors.FORBIDDEN')
+            : res.listings.status === 422
+              ? t('errors.VALIDATION_FAILED')
+              : t('errors.generic')}
         </p>
-      ) : res.data.items.length === 0 ? (
-        <EmptyState title={t('empty')} />
+      ) : rows.length === 0 ? (
+        <EmptyState title={filtered ? t('filters.none') : t('empty')} />
       ) : (
-        <>
-          <div className="overflow-x-auto rounded-md border">
-            <table className="w-full text-sm" data-testid="listings-table">
-              <thead className="bg-muted text-left">
-                <tr>
-                  <th className="p-2 font-medium">{t('columns.ref')}</th>
-                  <th className="p-2 font-medium">{t('columns.type')}</th>
-                  <th className="p-2 font-medium">{t('columns.location')}</th>
-                  <th className="p-2 font-medium">{t('columns.price')}</th>
-                  <th className="p-2 font-medium">{t('columns.status')}</th>
-                  <th className="p-2 font-medium">{t('columns.visibility')}</th>
-                  <th className="p-2 font-medium">{t('columns.created')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {res.data.items.map((l) => (
-                  <tr key={l.id} className="border-t">
-                    <td className="p-2 font-mono">
-                      <Link href={`/listings/${l.id}`} className="underline-offset-4 hover:underline">
-                        {l.ref}
-                      </Link>
-                    </td>
-                    <td className="p-2">{names.typeName(l.propertyTypeId) ?? '—'}</td>
-                    <td className="p-2">{names.locationName(l.locationId)?.split(' › ').at(-1) ?? '—'}</td>
-                    <td className="p-2">
-                      {l.price
-                        ? format.number(l.price.amountCents / 100, { style: 'currency', currency: l.price.currency })
-                        : '—'}
-                    </td>
-                    <td className="p-2">{t(`editor.options.status.${l.status}`)}</td>
-                    <td className="p-2">{t(`editor.options.visibility.${l.visibility}`)}</td>
-                    <td className="p-2">{format.dateTime(new Date(l.createdAt), { dateStyle: 'medium' })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {res.data.nextCursor ? (
-            <Link
-              href={`/listings?${new URLSearchParams({ cursor: res.data.nextCursor, ...(mine ? { mine: '1' } : {}) })}`}
-              className="self-end text-sm underline-offset-4 hover:underline"
-            >
-              {t('more')}
-            </Link>
-          ) : null}
-        </>
+        <ListingsTable
+          rows={rows}
+          columns={state.columns}
+          filter={state.filter}
+          members={members.filter((m) => m.status === 'ACTIVE').map((m) => ({ id: m.userId, label: m.name }))}
+          messages={messages.listings}
+        />
       )}
+      {next ? (
+        <Link
+          href={`/listings?${listSearch(state, next)}`}
+          className="self-end text-sm underline-offset-4 hover:underline"
+        >
+          {t('more')}
+        </Link>
+      ) : null}
     </div>
   );
 }

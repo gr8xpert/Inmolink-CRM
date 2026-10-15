@@ -1,6 +1,6 @@
 {
   "title": "Inmuebles",
-  "intro": "Los inmuebles de tu agencia, los más recientes primero.",
+  "intro": "Los inmuebles de tu agencia: filtra, ordena, guarda vistas y cambia muchos a la vez.",
   "new": "Nuevo inmueble",
   "mine": "Solo los míos",
   "all": "Todos los inmuebles",
@@ -13,7 +13,15 @@
     "price": "Precio",
     "status": "Estado",
     "visibility": "Visibilidad",
-    "created": "Creado"
+    "created": "Creado",
+    "shareScope": "Compartido con",
+    "bedrooms": "Dormitorios",
+    "bathrooms": "Baños",
+    "builtM2": "Superficie construida",
+    "owner": "Agente",
+    "tags": "Etiquetas",
+    "updated": "Modificado",
+    "choose": "Columnas"
   },
   "priceOnRequest": "A consultar",
   "create": {
@@ -163,7 +171,15 @@
     "MEDIA_ORDER_STALE": "Los archivos cambiaron en otra ventana; recarga la página.",
     "PAYLOAD_TOO_LARGE": "El archivo es demasiado grande.",
     "NETWORK": "Falló la conexión; inténtalo de nuevo.",
-    "generic": "Algo ha fallado. Inténtalo de nuevo."
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "LISTING_PRICE_MISSING": "El inmueble no tiene precio",
+    "LISTING_VIEW_NOT_FOUND": "Esta vista ya no existe.",
+    "LISTING_VIEW_LIMIT": "Ya tienes 50 vistas guardadas. Elimina una primero.",
+    "LISTING_VIEW_NAME_TAKEN": "Ya tienes una vista con este nombre.",
+    "LISTING_BULK_NOT_FOUND": "Esta acción masiva ya no existe.",
+    "LISTING_BULK_TOO_MANY": "Coinciden más de 5.000 inmuebles. Acota los filtros primero.",
+    "INTERNAL": "Algo ha fallado. Inténtalo de nuevo.",
+    "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión."
   },
   "media": {
     "title": "Fotos y planos",
@@ -237,5 +253,65 @@
     "saving": "Guardando…",
     "saved": "Guardado",
     "count": "{count} de {limit} archivos"
+  },
+  "filters": {
+    "q": "Referencia",
+    "any": "Cualquiera",
+    "priceMin": "Precio desde (€)",
+    "priceMax": "Precio hasta (€)",
+    "bedroomsMin": "Dormitorios (mín.)",
+    "tag": "Etiqueta",
+    "apply": "Aplicar filtros",
+    "clear": "Limpiar",
+    "none": "Ningún inmueble coincide con estos filtros."
+  },
+  "sort": {
+    "label": "Ordenar por",
+    "newest": "Más recientes",
+    "oldest": "Más antiguos",
+    "updated": "Modificados recientemente",
+    "price_asc": "Precio, de menor a mayor",
+    "price_desc": "Precio, de mayor a menor"
+  },
+  "views": {
+    "title": "Vistas guardadas",
+    "name": "Guardar esta vista como",
+    "save": "Guardar vista",
+    "delete": "Eliminar la vista {name}"
+  },
+  "bulk": {
+    "selected": "{count} seleccionados",
+    "allMatching": "Todos los inmuebles que coinciden con los filtros (hasta 5.000)",
+    "selectAllMatching": "Seleccionar todos los que coinciden",
+    "selectPage": "Seleccionar todos en esta página",
+    "selectRow": "Seleccionar {ref}",
+    "action": "Acción masiva",
+    "choose": "Elige…",
+    "apply": "Aplicar",
+    "progressLabel": "Progreso de la acción masiva",
+    "running": "Procesando… {processed} de {total} inmuebles",
+    "done": "Hecho: {succeeded} cambiados, {unchanged} ya estaban así, {failed} sin cambiar.",
+    "failedAll": "La acción masiva se detuvo. Los inmuebles cambiados antes conservan el cambio.",
+    "failureLine": "{reason} ({count})",
+    "types": {
+      "STATUS": "Cambiar estado",
+      "VISIBILITY": "Cambiar visibilidad",
+      "SHARE_SCOPE": "Cambiar con quién se comparte",
+      "PRICE_CHANGE": "Cambiar precio en %",
+      "ASSIGN": "Asignar a un agente",
+      "ADD_TAG": "Añadir etiqueta"
+    },
+    "values": {
+      "STATUS": "Nuevo estado",
+      "VISIBILITY": "Nueva visibilidad",
+      "SHARE_SCOPE": "Compartido con",
+      "PRICE_CHANGE": "Cambio (%)",
+      "ASSIGN": "Agente",
+      "ADD_TAG": "Etiqueta"
+    },
+    "stillRunning": "Sigue en curso ({processed} de {total}). Recarga la página más tarde para ver el resultado."
+  },
+  "units": {
+    "m2": "{value} m²"
   }
 }

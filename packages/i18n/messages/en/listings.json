@@ -1,6 +1,6 @@
 {
   "title": "Listings",
-  "intro": "Your agency's listings, newest first.",
+  "intro": "Your agency's listings: filter, sort, save views and change many at once.",
   "new": "New listing",
   "mine": "Only mine",
   "all": "All listings",
@@ -13,7 +13,15 @@
     "price": "Price",
     "status": "Status",
     "visibility": "Visibility",
-    "created": "Created"
+    "created": "Created",
+    "shareScope": "Shared with",
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "builtM2": "Built area",
+    "owner": "Agent",
+    "tags": "Tags",
+    "updated": "Updated",
+    "choose": "Columns"
   },
   "priceOnRequest": "On request",
   "create": {
@@ -163,7 +171,15 @@
     "MEDIA_ORDER_STALE": "The files changed in another window; reload the page.",
     "PAYLOAD_TOO_LARGE": "The file is too large.",
     "NETWORK": "The connection failed; try again.",
-    "generic": "Something went wrong. Try again."
+    "generic": "Something went wrong. Try again.",
+    "LISTING_PRICE_MISSING": "The listing has no price",
+    "LISTING_VIEW_NOT_FOUND": "This view no longer exists.",
+    "LISTING_VIEW_LIMIT": "You already have 50 saved views. Delete one first.",
+    "LISTING_VIEW_NAME_TAKEN": "You already have a view with this name.",
+    "LISTING_BULK_NOT_FOUND": "This bulk action no longer exists.",
+    "LISTING_BULK_TOO_MANY": "More than 5,000 listings match. Narrow the filters first.",
+    "INTERNAL": "Something went wrong. Try again.",
+    "SESSION_REVOKED": "Your session ended. Sign in again."
   },
   "media": {
     "title": "Photos and floor plans",
@@ -237,5 +253,65 @@
     "saving": "Saving…",
     "saved": "Saved",
     "count": "{count} of {limit} files"
+  },
+  "filters": {
+    "q": "Reference",
+    "any": "Any",
+    "priceMin": "Price from (€)",
+    "priceMax": "Price to (€)",
+    "bedroomsMin": "Bedrooms (min.)",
+    "tag": "Tag",
+    "apply": "Apply filters",
+    "clear": "Clear",
+    "none": "No listings match these filters."
+  },
+  "sort": {
+    "label": "Sort by",
+    "newest": "Newest first",
+    "oldest": "Oldest first",
+    "updated": "Recently changed",
+    "price_asc": "Price, low to high",
+    "price_desc": "Price, high to low"
+  },
+  "views": {
+    "title": "Saved views",
+    "name": "Save this view as",
+    "save": "Save view",
+    "delete": "Delete view {name}"
+  },
+  "bulk": {
+    "selected": "{count} selected",
+    "allMatching": "Every listing matching the filters (up to 5,000)",
+    "selectAllMatching": "Select every matching listing",
+    "selectPage": "Select all on this page",
+    "selectRow": "Select {ref}",
+    "action": "Bulk action",
+    "choose": "Choose…",
+    "apply": "Apply",
+    "progressLabel": "Bulk action progress",
+    "running": "Working… {processed} of {total} listings",
+    "done": "Done: {succeeded} changed, {unchanged} already as asked, {failed} not changed.",
+    "failedAll": "The bulk action stopped. Listings changed before it stopped keep their change.",
+    "failureLine": "{reason} ({count})",
+    "types": {
+      "STATUS": "Change status",
+      "VISIBILITY": "Change visibility",
+      "SHARE_SCOPE": "Change who it is shared with",
+      "PRICE_CHANGE": "Change price by %",
+      "ASSIGN": "Assign to agent",
+      "ADD_TAG": "Add tag"
+    },
+    "values": {
+      "STATUS": "New status",
+      "VISIBILITY": "New visibility",
+      "SHARE_SCOPE": "Shared with",
+      "PRICE_CHANGE": "Change (%)",
+      "ASSIGN": "Agent",
+      "ADD_TAG": "Tag"
+    },
+    "stillRunning": "Still working ({processed} of {total}). Reload the page later to see the result."
+  },
+  "units": {
+    "m2": "{value} m²"
   }
 }

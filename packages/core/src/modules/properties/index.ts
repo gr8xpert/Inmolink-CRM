@@ -1,5 +1,6 @@
 /** properties — public API (PATTERNS §1). The only import path for other modules and apps. */
 
+export { BULK_CHUNK, changedPrice, getBulkAction, runBulkChunk, startBulkAction } from './bulk';
 export {
   deleteListingTranslation,
   getListingContent,
@@ -22,4 +23,6 @@ export {
   restoreListing,
   updateListing,
 } from './service';
+export { registerPropertiesSubscriptions, unregisterPropertiesSubscriptions } from './subscriptions';
+export { createListingView, deleteListingView, listListingViews, updateListingView } from './views';
 // Never export repo or schema.

@@ -99,21 +99,66 @@ export type UpdateListingBody = z.infer<typeof UpdateListingBody>;
 export const ListingParams = z.object({ id: z.uuid() }).strict();
 export type ListingParams = z.infer<typeof ListingParams>;
 
-export const ListListingsQuery = z
+/** An agency's own label on a listing (S3-07): trimmed, lower-case, no control characters. */
+export const ListingTag = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(40)
+  .regex(/^[^\p{C}]+$/u);
+export type ListingTag = z.infer<typeof ListingTag>;
+
+/** A flag in a query string (`true`/`false`) or in a JSON body or saved view (a boolean). */
+const Flag = z.union([z.boolean(), z.stringbool()]);
+const CentsFilter = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * The listing list's filters (S3-07), shared by `GET /v1/listings`, saved views and bulk "all matching". Every
+ * filter narrows the agency's own listings; `q` matches the start of the reference.
+ */
+export const ListingFilter = z
   .object({
-    cursor: z
-      .string()
-      .max(200)
-      .regex(/^[A-Za-z0-9_-]+$/)
-      .optional(),
-    limit: z.coerce.number().int().min(1).max(100).default(25),
     status: ListingStatus.optional(),
-    /** Only the caller's own listings (agents' default view). */
-    mine: z.stringbool().optional(),
-    /** Deleted listings that can still be restored (30 days). */
-    deleted: z.stringbool().optional(),
+    visibility: Visibility.optional(),
+    transactionType: TransactionType.optional(),
+    propertyTypeId: z.uuid().optional(),
+    locationId: z.uuid().optional(),
+    /** One member's listings (admins); `mine` is the caller's own (agents' default view). */
+    ownerUserId: z.uuid().optional(),
+    mine: Flag.optional(),
+    /** Price range in cents, inclusive; listings without a price never match a range. */
+    priceMin: CentsFilter.optional(),
+    priceMax: CentsFilter.optional(),
+    bedroomsMin: z.coerce.number().int().min(0).max(1000).optional(),
+    tag: ListingTag.optional(),
+    /** The start of the reference, case-insensitive. */
+    q: z
+      .string()
+      .trim()
+      .max(16)
+      .regex(/^[A-Za-z0-9]*$/)
+      .optional(),
   })
   .strict();
+export type ListingFilter = z.infer<typeof ListingFilter>;
+
+/** List orders: by creation (default newest first), last change, or price (listings without a price last). */
+export const LISTING_SORTS = ['newest', 'oldest', 'updated', 'price_asc', 'price_desc'] as const;
+export const ListingSort = z.enum(LISTING_SORTS);
+export type ListingSort = z.infer<typeof ListingSort>;
+
+export const ListListingsQuery = ListingFilter.extend({
+  cursor: z
+    .string()
+    .max(200)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  sort: ListingSort.default('newest'),
+  /** Deleted listings that can still be restored (30 days), newest first (`sort` does not apply). */
+  deleted: z.stringbool().optional(),
+}).strict();
 export type ListListingsQuery = z.infer<typeof ListListingsQuery>;
 
 /** Fields only the owner agency sees (never other agencies, never a client). */
@@ -174,15 +219,159 @@ export const ListingSummaryDto = z.object({
   visibility: Visibility,
   transactionType: TransactionType,
   price: Money.nullable(),
+  shareScope: ShareScope,
   bedrooms: z.number().int().nullable(),
+  bathrooms: z.number().int().nullable(),
+  builtM2: z.number().nullable(),
   propertyTypeId: z.uuid(),
   locationId: z.uuid(),
+  /** The agency's tags, sorted. */
+  tags: z.array(z.string()),
   createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
   deletedAt: z.iso.datetime().nullable(),
 });
 export type ListingSummaryDto = z.infer<typeof ListingSummaryDto>;
 export const ListingPage = pageOf(ListingSummaryDto);
 export type ListingPage = z.infer<typeof ListingPage>;
+
+// ---- Saved views (S3-07): a member's named filters, sort and columns -----------------------------------------
+
+/** Columns the listing list can show, in their default order; a view picks and orders them. */
+export const LISTING_COLUMNS = [
+  'ref',
+  'type',
+  'location',
+  'price',
+  'status',
+  'visibility',
+  'shareScope',
+  'bedrooms',
+  'bathrooms',
+  'builtM2',
+  'owner',
+  'tags',
+  'created',
+  'updated',
+] as const;
+export const ListingColumn = z.enum(LISTING_COLUMNS);
+export type ListingColumn = z.infer<typeof ListingColumn>;
+export const DEFAULT_LISTING_COLUMNS: readonly ListingColumn[] = [
+  'ref',
+  'type',
+  'location',
+  'price',
+  'status',
+  'visibility',
+  'created',
+];
+/** Saved views per member. */
+export const LISTING_VIEWS_MAX = 50;
+
+export const ListingViewQuery = ListingFilter.extend({ sort: ListingSort.optional() }).strict();
+export type ListingViewQuery = z.infer<typeof ListingViewQuery>;
+
+/** `POST /v1/listing-views`, `PUT /v1/listing-views/:id`. */
+export const ListingViewBody = z
+  .object({
+    name: z.string().trim().min(1).max(60),
+    query: ListingViewQuery,
+    columns: z
+      .array(ListingColumn)
+      .min(1)
+      .max(LISTING_COLUMNS.length)
+      .refine((c) => new Set(c).size === c.length, 'duplicate column'),
+  })
+  .strict();
+export type ListingViewBody = z.infer<typeof ListingViewBody>;
+
+export const ListingViewDto = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  query: ListingViewQuery,
+  columns: z.array(ListingColumn),
+  updatedAt: z.iso.datetime(),
+});
+export type ListingViewDto = z.infer<typeof ListingViewDto>;
+export const ListingViewList = z.object({ items: z.array(ListingViewDto) });
+export type ListingViewList = z.infer<typeof ListingViewList>;
+export const ListingViewParams = z.object({ id: z.uuid() }).strict();
+
+// ---- Bulk actions (S3-07): one change to many listings, run as a job with progress ----------------------------
+
+/** Listings one bulk action may change (an agency's whole inventory at the R1 scale). */
+export const LISTING_BULK_MAX = 5_000;
+/** Failures a bulk action keeps (listing + code); the counters cover all of them. */
+export const LISTING_BULK_FAILURES_KEPT = 100;
+
+/**
+ * What to do to every listing. A price change is a percentage in basis points (−90 % … +100 %), rounded to a
+ * whole unit of the listing's currency; listings without a price fail with LISTING_PRICE_MISSING.
+ */
+export const ListingBulkAction = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('STATUS'), status: ListingStatus }).strict(),
+  z.object({ type: z.literal('VISIBILITY'), visibility: Visibility }).strict(),
+  z.object({ type: z.literal('SHARE_SCOPE'), shareScope: ShareScope }).strict(),
+  z
+    .object({
+      type: z.literal('PRICE_CHANGE'),
+      percentBp: z
+        .number()
+        .int()
+        .min(-9_000)
+        .max(10_000)
+        .refine((v) => v !== 0, 'zero change'),
+    })
+    .strict(),
+  z.object({ type: z.literal('ASSIGN'), ownerUserId: z.uuid() }).strict(),
+  z.object({ type: z.literal('ADD_TAG'), tag: ListingTag }).strict(),
+]);
+export type ListingBulkAction = z.infer<typeof ListingBulkAction>;
+export type ListingBulkActionType = ListingBulkAction['type'];
+
+/** `POST /v1/listing-bulk-actions`: the listings by id, or every listing matching a filter (≤ 5,000). */
+export const StartListingBulkBody = z
+  .object({
+    action: ListingBulkAction,
+    target: z.union([
+      z
+        .object({
+          ids: z
+            .array(z.uuid())
+            .min(1)
+            .max(LISTING_BULK_MAX)
+            .refine((ids) => new Set(ids).size === ids.length, 'duplicate id'),
+        })
+        .strict(),
+      z.object({ filter: ListingFilter }).strict(),
+    ]),
+  })
+  .strict();
+export type StartListingBulkBody = z.infer<typeof StartListingBulkBody>;
+
+export const ListingBulkState = z.enum(['QUEUED', 'RUNNING', 'DONE', 'FAILED']);
+export type ListingBulkState = z.infer<typeof ListingBulkState>;
+
+export const ListingBulkDto = z.object({
+  id: z.uuid(),
+  action: ListingBulkAction,
+  state: ListingBulkState,
+  total: z.number().int(),
+  processed: z.number().int(),
+  /** Changed listings. */
+  succeeded: z.number().int(),
+  /** Listings that already were as asked. */
+  unchanged: z.number().int(),
+  failed: z.number().int(),
+  /** The first `LISTING_BULK_FAILURES_KEPT` failures. */
+  failures: z.array(z.object({ listingId: z.uuid(), code: z.string() })),
+  /** Why the action stopped (state FAILED): FORBIDDEN (the member left), STALLED or INTERNAL. */
+  error: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type ListingBulkDto = z.infer<typeof ListingBulkDto>;
+export const ListingBulkParams = z.object({ id: z.uuid() }).strict();
 
 // ---- Listing content (S3-05): translations per content locale and features, edited by the listing editor ------
 

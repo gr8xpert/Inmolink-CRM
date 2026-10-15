@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "listing_bulk_actions_member_active_uq" ON "listing_bulk_actions" USING btree ("agency_id","created_by_user_id") WHERE "listing_bulk_actions"."state" in ('QUEUED', 'RUNNING');--> statement-breakpoint
+CREATE INDEX "properties_agency_price_desc_idx" ON "properties" USING btree ("agency_id","price_cents" DESC NULLS LAST,"id" DESC NULLS LAST);

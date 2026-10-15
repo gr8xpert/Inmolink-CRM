@@ -105,6 +105,19 @@ export const ErrorCodes = {
   LISTING_STATUS_INVALID: 409,
   /** Restore after the 30-day window (PLAN §3 #34), or of a listing that is not deleted. */
   LISTING_RESTORE_UNAVAILABLE: 409,
+  // properties: list and bulk actions (S3-07)
+  /** A price change on a listing without a price. */
+  LISTING_PRICE_MISSING: 409,
+  LISTING_VIEW_NOT_FOUND: 404,
+  /** The member already has `LISTING_VIEWS_MAX` saved views. */
+  LISTING_VIEW_LIMIT: 409,
+  /** The member already has a saved view with this name. */
+  LISTING_VIEW_NAME_TAKEN: 409,
+  LISTING_BULK_NOT_FOUND: 404,
+  /** The member already has a bulk action waiting or running: one at a time. */
+  LISTING_BULK_BUSY: 409,
+  /** A bulk action's filter matches more than `LISTING_BULK_MAX` listings: narrow it. */
+  LISTING_BULK_TOO_MANY: 422,
   // media (S3-03)
   /** The stored bytes are not an accepted image type (magic bytes), whatever the name or header said. */
   MEDIA_TYPE_NOT_ALLOWED: 415,

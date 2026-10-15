@@ -24,4 +24,10 @@ export const propertiesEvents = {
   ),
   deleted: defineEvent('properties.listing.deleted', 1, z.object(listing)),
   restored: defineEvent('properties.listing.restored', 1, z.object(listing)),
+  /** A member asked for a bulk action (S3-07); the subscription queues `properties.runBulkAction`. */
+  bulkRequested: defineEvent(
+    'properties.bulkAction.requested',
+    1,
+    z.object({ bulkActionId: z.uuid(), agencyId: z.uuid(), userId: z.uuid() }),
+  ),
 };

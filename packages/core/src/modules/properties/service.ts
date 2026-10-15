@@ -10,7 +10,9 @@ import type {
   Commission,
   CreateListingBody,
   ListingDto,
+  ListingFilter,
   ListingPage,
+  ListingSort,
   ListingStatus,
   ListListingsQuery,
   LockableListingField,
@@ -22,9 +24,10 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
+import { z } from 'zod';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
-import { decodeCursor, toPage } from '../../pagination';
+import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
 import { propertiesEvents } from './events';
@@ -48,7 +51,16 @@ const STATUS_FLOW: Record<ListingStatus, readonly ListingStatus[]> = {
 };
 
 /** A CEE rating that allows advertising: A–G or EXEMPT (PENDING is "in progress", PLAN §13). */
-const hasCeeRating = (r: CeeRating | null) => r !== null && r !== 'PENDING';
+export const hasCeeRating = (r: CeeRating | null) => r !== null && r !== 'PENDING';
+
+/** A status change the lifecycle allows for this kind of listing (SOLD is for sales, RENTED for rentals). */
+export function statusChangeAllowed(from: ListingStatus, to: ListingStatus, transactionType: TransactionType): boolean {
+  return (
+    STATUS_FLOW[from].includes(to) &&
+    (to !== 'SOLD' || transactionType === 'SALE') &&
+    (to !== 'RENTED' || transactionType !== 'SALE')
+  );
+}
 
 /** References: 8 characters without look-alikes (0/O, 1/I), unique per agency. */
 const REF_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -147,7 +159,7 @@ function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow | null
   };
 }
 
-function actorId(ctx: Ctx): string {
+export function actorId(ctx: Ctx): string {
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   return ctx.actor.userId;
 }
@@ -178,7 +190,7 @@ function assertPricePeriod(transactionType: TransactionType, pricePeriod: string
 }
 
 /** SHARED needs a verified agency (S1-01); PUBLIC also a CEE rating. */
-function assertVisibilityAllowed(ctx: Ctx, visibility: Visibility, energyRating: CeeRating | null): void {
+export function assertVisibilityAllowed(ctx: Ctx, visibility: Visibility, energyRating: CeeRating | null): void {
   if (visibility === 'SHARED') agencies.assertVerified(ctx, 'listing.share');
   if (visibility === 'PUBLIC') {
     agencies.assertVerified(ctx, 'listing.publish');
@@ -334,35 +346,101 @@ export async function assertListingReadable(ctx: Ctx, id: string): Promise<void>
   if (!row || (row.deletedAt && row.agencyId !== ctx.tenant.agencyId)) throw new AppError('LISTING_NOT_FOUND');
 }
 
-/** `GET /v1/listings`: the agency's listings (or the caller's own with `mine`), newest first, keyset ≤ 100. */
-export async function listListings(ctx: Ctx, q: ListListingsQuery): Promise<ListingPage> {
+/** The contract's filters as the repo takes them (`mine` → the caller; `q` → an upper-case reference prefix). */
+export function listFilterOf(ctx: Ctx, f: ListingFilter): repo.ListFilter {
+  const q = f.q?.toUpperCase();
+  return {
+    ...(f.status ? { status: f.status } : {}),
+    ...(f.visibility ? { visibility: f.visibility } : {}),
+    ...(f.transactionType ? { transactionType: f.transactionType } : {}),
+    ...(f.propertyTypeId ? { propertyTypeId: f.propertyTypeId } : {}),
+    ...(f.locationId ? { locationId: f.locationId } : {}),
+    ...(f.mine ? { ownerUserId: actorId(ctx) } : f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
+    ...(f.priceMin !== undefined ? { priceMin: f.priceMin } : {}),
+    ...(f.priceMax !== undefined ? { priceMax: f.priceMax } : {}),
+    ...(f.bedroomsMin !== undefined ? { bedroomsMin: f.bedroomsMin } : {}),
+    ...(f.tag ? { tag: f.tag } : {}),
+    ...(q ? { refPrefix: q } : {}),
+  };
+}
+
+const PRICE_CURSOR = 'p';
+
+/** A page's cursor for `sort`: the time cursor of `pagination.ts`, or `["p", price | null, id]` for price sorts. */
+function decodeListCursor(sort: ListingSort, cursor: string | undefined): repo.ListCursor | undefined {
+  if (cursor === undefined) return undefined;
+  if (sort !== 'price_asc' && sort !== 'price_desc') {
+    const c = decodeCursor(cursor);
+    return c && { kind: 'time', at: c.at, id: c.id };
+  }
+  try {
+    const [tag, price, id] = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown[];
+    const priceOk = price === null || (typeof price === 'number' && Number.isSafeInteger(price) && price >= 0);
+    if (tag === PRICE_CURSOR && priceOk && typeof id === 'string' && z.uuid().safeParse(id).success) {
+      return { kind: 'price', price: price as number | null, id };
+    }
+  } catch {
+    // falls through to the error below
+  }
+  throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
+}
+
+function encodeListCursor(sort: ListingSort, row: repo.ListingSummaryRow): string {
+  if (sort === 'price_asc' || sort === 'price_desc') {
+    return Buffer.from(JSON.stringify([PRICE_CURSOR, row.priceCents, row.id])).toString('base64url');
+  }
+  return encodeCursor({ at: sort === 'updated' ? row.updatedAt : row.createdAt, id: row.id });
+}
+
+/**
+ * `GET /v1/listings`: the agency's own listings, filtered and sorted (S3-07), keyset ≤ 100, with their tags.
+ * Two statements after the member context: the page and its tags.
+ */
+export async function listListings(
+  ctx: Ctx,
+  q: Omit<ListListingsQuery, 'sort'> & { sort?: ListingSort },
+): Promise<ListingPage> {
   assertCan(ctx, 'listing.read');
+  const sort: ListingSort = q.deleted ? 'newest' : (q.sort ?? 'newest');
+  const cursor = decodeListCursor(sort, q.cursor);
   const rows = await repo.listOwn(ctx.tx, ctx.tenant.agencyId, {
     limit: q.limit,
-    cursor: decodeCursor(q.cursor),
-    ...(q.status ? { status: q.status } : {}),
-    ...(q.mine ? { ownerUserId: actorId(ctx) } : {}),
+    sort,
+    filter: listFilterOf(ctx, q),
+    ...(cursor ? { cursor } : {}),
     ...(q.deleted ? { deletedSince: new Date(clock.now().getTime() - LISTING_RESTORE_DAYS * 86_400_000) } : {}),
   });
-  return toPage(
-    rows,
-    q.limit,
-    (r) => ({ at: r.createdAt, id: r.id }),
-    (r) => ({
+  const items = rows.slice(0, q.limit);
+  const tags = ctx.clientMode
+    ? new Map<string, string[]>()
+    : await repo.tagsOf(
+        ctx.tx,
+        items.map((r) => r.id),
+      );
+  const last = items.at(-1);
+  return {
+    items: items.map((r) => ({
       id: r.id,
       ref: r.ref,
       ownerUserId: r.ownerUserId,
       status: r.status,
       visibility: r.visibility,
+      shareScope: r.shareScope,
       transactionType: r.transactionType,
       price: r.priceCents === null ? null : { amountCents: r.priceCents, currency: r.currency },
       bedrooms: r.bedrooms,
+      bathrooms: r.bathrooms,
+      builtM2: num(r.builtM2),
       propertyTypeId: r.propertyTypeId,
       locationId: r.locationId,
+      // Tags are the agency's internal labels: never shown to a client (Client Mode).
+      tags: ctx.clientMode ? [] : (tags.get(r.id) ?? []),
       createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
       deletedAt: r.deletedAt?.toISOString() ?? null,
-    }),
-  );
+    })),
+    nextCursor: rows.length > q.limit && last ? encodeListCursor(sort, last) : null,
+  };
 }
 
 /**
