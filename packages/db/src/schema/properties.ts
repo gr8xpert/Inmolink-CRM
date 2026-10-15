@@ -398,6 +398,63 @@ export const listingViews = pgTable(
   ],
 );
 
+/** A member's bookmark folder (S3-09): saved listings with notes, private to the member; one click to a selection. */
+export const bookmarkFolders = pgTable(
+  'bookmark_folders',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'bookmark_folders_member_fk',
+      columns: [t.agencyId, t.userId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }).onDelete('cascade'),
+    // FK + a member's folders by name (one name once)
+    uniqueIndex('bookmark_folders_member_name_uq').on(t.agencyId, t.userId, t.name),
+    // target of the bookmarks' composite foreign key (a bookmark sits in a folder of the same member)
+    unique('bookmark_folders_id_member_uq').on(t.id, t.agencyId, t.userId),
+    check('bookmark_folders_name_ck', sql`char_length(${t.name}) between 1 and 60`),
+  ],
+);
+
+/**
+ * A saved listing in a member's folder (S3-09). `property_id` has no foreign key: the listing may be another
+ * agency's, and a bookmark outlives the listing leaving the caller's view (sold, unshared, deleted) — it then
+ * reads as unavailable instead of disappearing.
+ */
+export const listingBookmarks = pgTable(
+  'listing_bookmarks',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    folderId: uuid('folder_id').notNull(),
+    propertyId: uuid('property_id').notNull(),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'listing_bookmarks_folder_fk',
+      columns: [t.folderId, t.agencyId, t.userId],
+      foreignColumns: [bookmarkFolders.id, bookmarkFolders.agencyId, bookmarkFolders.userId],
+    }).onDelete('cascade'),
+    // FK + a folder's bookmarks, newest first (keyset `keysetOrder`); a listing once per folder
+    index('listing_bookmarks_folder_created_idx').on(t.agencyId, t.folderId, keysetTime(t.createdAt), t.id),
+    uniqueIndex('listing_bookmarks_folder_property_uq').on(t.agencyId, t.folderId, t.propertyId),
+    // the caller's bookmarks of one listing (the editor's bookmark button)
+    index('listing_bookmarks_member_property_idx').on(t.agencyId, t.userId, t.propertyId),
+    check('listing_bookmarks_note_ck', sql`char_length(${t.note}) <= 1000`),
+  ],
+);
+
 export const listingBulkActionTypeEnum = pgEnum('listing_bulk_action_type', [
   'STATUS',
   'VISIBILITY',

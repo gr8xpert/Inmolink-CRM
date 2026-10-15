@@ -80,9 +80,14 @@ export default async function ListingsPage(props: { searchParams: Promise<Record
           <h1 className="text-xl font-semibold">{t('title')}</h1>
           <p className="text-sm text-muted-foreground">{t('intro')}</p>
         </div>
-        <Link href="/listings/new" className={buttonVariants()}>
-          {t('new')}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/bookmarks" className={buttonVariants({ variant: 'outline' })}>
+            {t('bookmarks.open')}
+          </Link>
+          <Link href="/listings/new" className={buttonVariants()}>
+            {t('new')}
+          </Link>
+        </div>
       </div>
       <ListingsToolbar
         state={{ filter: state.filter, sort: state.sort, columns: state.columns }}

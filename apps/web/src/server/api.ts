@@ -6,7 +6,13 @@ import {
   AgencySettingsDto,
   AgencyVerificationDto,
   ApiKeyPage,
+  BookmarkDto,
+  type BookmarkFolderBody,
+  BookmarkFolderDto,
+  BookmarkFolderList,
+  BookmarkPage,
   type CreateApiKeyInput,
+  type CreateBookmarkBody,
   type CreateListingBody,
   type DecideVerificationBody,
   DirectorySearchResult,
@@ -16,6 +22,7 @@ import {
   type InviteMemberInput,
   InvitePage,
   IssuedApiKeyDto,
+  ListingBookmarkList,
   ListingBulkDto,
   ListingContentDto,
   ListingDto,
@@ -46,6 +53,7 @@ import {
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
+  type UpdateBookmarkBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
@@ -724,4 +732,91 @@ export function detachListingMedia(session: SessionRef, id: string, mediaId: str
   return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/media/${encodeURIComponent(mediaId)}`, z.null(), {
     method: 'DELETE',
   });
+}
+
+// ---- Bookmarks (S3-09) ----
+
+/**
+ * The bookmarks page: the caller's folders, the taxonomy (type and location names) and, when a folder is open,
+ * a page of its bookmarks — one minted token, in parallel. `bookmarks` is null without an open folder.
+ */
+export async function fetchBookmarksPage(
+  session: SessionRef,
+  folderId: string | undefined,
+  cursor: string | undefined,
+): Promise<
+  | 'revoked'
+  | {
+      folders: Exclude<ApiResult<BookmarkFolderList>, 'revoked'>;
+      bookmarks: Exclude<ApiResult<BookmarkPage>, 'revoked'> | null;
+      taxonomy: TaxonomyDto | null;
+    }
+> {
+  let token: string;
+  try {
+    token = await mintFor(session, '/v1/bookmark-folders');
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    return { folders: { ok: false, status: 0, error: null }, bookmarks: null, taxonomy: null };
+  }
+  const qs = new URLSearchParams({ limit: '50', ...(cursor ? { cursor } : {}) });
+  const [folders, bookmarks, taxonomy] = await Promise.all([
+    apiRequest({ token }, '/v1/bookmark-folders', BookmarkFolderList),
+    folderId
+      ? apiRequest({ token }, `/v1/bookmark-folders/${encodeURIComponent(folderId)}/bookmarks?${qs}`, BookmarkPage)
+      : Promise.resolve(null),
+    apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+  ]);
+  if (folders === 'revoked' || bookmarks === 'revoked') return 'revoked';
+  return { folders, bookmarks, taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null };
+}
+
+export function fetchBookmarkFolders(session: SessionRef): Promise<ApiResult<BookmarkFolderList>> {
+  return apiRequest(session, '/v1/bookmark-folders', BookmarkFolderList);
+}
+
+export function createBookmarkFolder(
+  session: SessionRef,
+  body: BookmarkFolderBody,
+): Promise<ApiResult<BookmarkFolderDto>> {
+  return apiRequest(session, '/v1/bookmark-folders', BookmarkFolderDto, { method: 'POST', body });
+}
+
+export function renameBookmarkFolder(
+  session: SessionRef,
+  id: string,
+  body: BookmarkFolderBody,
+): Promise<ApiResult<BookmarkFolderDto>> {
+  return apiRequest(session, `/v1/bookmark-folders/${encodeURIComponent(id)}`, BookmarkFolderDto, {
+    method: 'PUT',
+    body,
+  });
+}
+
+export function deleteBookmarkFolder(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/bookmark-folders/${encodeURIComponent(id)}`, z.null(), { method: 'DELETE' });
+}
+
+/** Which of the caller's folders hold this listing (the editor's bookmark button). */
+export function fetchListingBookmarks(session: SessionRef, listingId: string): Promise<ApiResult<ListingBookmarkList>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(listingId)}/bookmarks`, ListingBookmarkList);
+}
+
+export function createBookmark(session: SessionRef, body: CreateBookmarkBody): Promise<ApiResult<BookmarkDto>> {
+  return apiRequest(session, '/v1/bookmarks', BookmarkDto, { method: 'POST', body });
+}
+
+export function updateBookmark(
+  session: SessionRef,
+  id: string,
+  body: UpdateBookmarkBody,
+): Promise<ApiResult<BookmarkDto>> {
+  return apiRequest(session, `/v1/bookmarks/${encodeURIComponent(id)}`, BookmarkDto, { method: 'PATCH', body });
+}
+
+export function deleteBookmark(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/bookmarks/${encodeURIComponent(id)}`, z.null(), { method: 'DELETE' });
 }

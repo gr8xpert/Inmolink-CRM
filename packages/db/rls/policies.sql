@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'listing_bulk_actions', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -218,6 +218,15 @@ revoke all on table public."auth_tokens" from public, app_user, app_system, app_
 grant select, insert, update on table public."auth_tokens" to app_auth;
 grant select, insert, update, delete on table public."auth_tokens" to app_system;
 
+-- bookmark_folders: STRICT
+alter table public."bookmark_folders" enable row level security;
+alter table public."bookmark_folders" force row level security;
+create policy own_rows on public."bookmark_folders" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."bookmark_folders" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."bookmark_folders" to app_user;
+grant select, insert, update, delete on table public."bookmark_folders" to app_system;
+
 -- feature_aliases: GLOBAL
 alter table public."feature_aliases" enable row level security;
 alter table public."feature_aliases" force row level security;
@@ -298,6 +307,15 @@ create policy global_read on public."legacy_id_maps" for select to app_user usin
 revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select on table public."legacy_id_maps" to app_user;
 grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
+
+-- listing_bookmarks: STRICT
+alter table public."listing_bookmarks" enable row level security;
+alter table public."listing_bookmarks" force row level security;
+create policy own_rows on public."listing_bookmarks" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."listing_bookmarks" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select, insert, update, delete on table public."listing_bookmarks" to app_user;
+grant select, insert, update, delete on table public."listing_bookmarks" to app_system;
 
 -- listing_bulk_actions: STRICT
 alter table public."listing_bulk_actions" enable row level security;

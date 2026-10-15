@@ -372,6 +372,13 @@
       "when": 1792095665440,
       "tag": "0052_listing_freshness",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792100223131,
+      "tag": "0053_bookmarks",
+      "breakpoints": true
     }
   ]
 }

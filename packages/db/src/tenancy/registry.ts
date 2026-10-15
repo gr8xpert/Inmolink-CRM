@@ -425,6 +425,9 @@ export const tenantTables: Record<string, TenantTable> = {
   // S3-07: the agency's tags on its listings (internal), members' saved list views and bulk action records.
   property_tags: { kind: 'STRICT', base: { tag: 'isolation' } },
   listing_views: { kind: 'STRICT', base: { name: 'isolation view', columns: '{ref}' } },
+  // S3-09: members' bookmark folders and the listings saved in them (private to the member).
+  bookmark_folders: { kind: 'STRICT', base: { name: 'isolation folder' } },
+  listing_bookmarks: { kind: 'STRICT' },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
 };

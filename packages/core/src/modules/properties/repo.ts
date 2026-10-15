@@ -5,6 +5,8 @@
  */
 import type { Tx } from '@inmolink/db';
 import {
+  bookmarkFolders,
+  listingBookmarks,
   listingBulkActions,
   listingViews,
   properties,
@@ -16,7 +18,7 @@ import {
   propertyTranslations,
 } from '@inmolink/db/schema/properties';
 import { and, asc, eq, gte, inArray, isNull, lt, lte, notInArray, type SQL, sql } from 'drizzle-orm';
-import { keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ListingRow = typeof properties.$inferSelect;
 export type ListingInsert = typeof properties.$inferInsert;
@@ -724,4 +726,258 @@ export async function hideFromNetwork(tx: Tx, before: Date, limit: number): Prom
       order by last_confirmed_at limit ${limit} for update skip locked)
     returning p.id, p.agency_id as "agencyId", p.version, p.visibility, p.share_scope as "shareScope"`);
   return res.rows;
+}
+
+// ---- Bookmarks (S3-09) ---------------------------------------------------------------------------------------
+
+/** A member's own rows: every bookmark query is pinned to the caller, not only to the agency. */
+export type MemberRef = { agencyId: string; userId: string };
+
+const folderColumns = {
+  id: bookmarkFolders.id,
+  name: bookmarkFolders.name,
+  updatedAt: bookmarkFolders.updatedAt,
+  // Outer columns spelled out: Drizzle leaves a one-table select's columns unqualified, which would bind to `b`.
+  count: sql<number>`(select count(*) from ${listingBookmarks} b
+    where b.agency_id = bookmark_folders.agency_id and b.folder_id = bookmark_folders.id)::int`.as('count'),
+};
+export type FolderRow = { id: string; name: string; updatedAt: Date; count: number };
+
+const ownFolder = (ref: MemberRef & { id: string }) =>
+  and(
+    eq(bookmarkFolders.id, ref.id),
+    eq(bookmarkFolders.agencyId, ref.agencyId),
+    eq(bookmarkFolders.userId, ref.userId),
+  );
+
+/** A member's folders by name with their sizes (`bookmark_folders_member_name_uq`; ≤ `BOOKMARK_FOLDERS_MAX`). */
+export async function listFolders(tx: Tx, member: MemberRef, limit: number): Promise<FolderRow[]> {
+  return tx
+    .select(folderColumns)
+    .from(bookmarkFolders)
+    .where(and(eq(bookmarkFolders.agencyId, member.agencyId), eq(bookmarkFolders.userId, member.userId)))
+    .orderBy(asc(bookmarkFolders.name))
+    .limit(limit);
+}
+
+/** Inserts the folder unless the member already has `max` (a soft cap, like saved views). */
+export async function insertFolder(
+  tx: Tx,
+  row: MemberRef & { id: string; name: string },
+  max: number,
+): Promise<FolderRow | null> {
+  const [{ n } = { n: 0 }] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(bookmarkFolders)
+    .where(and(eq(bookmarkFolders.agencyId, row.agencyId), eq(bookmarkFolders.userId, row.userId)));
+  if (n >= max) return null;
+  const [saved] = await tx
+    .insert(bookmarkFolders)
+    .values(row)
+    .returning({ id: bookmarkFolders.id, name: bookmarkFolders.name, updatedAt: bookmarkFolders.updatedAt });
+  return saved ? { ...saved, count: 0 } : null;
+}
+
+/** True when the member's folder was renamed. */
+export async function renameFolder(tx: Tx, ref: MemberRef & { id: string }, name: string): Promise<boolean> {
+  const rows = await tx
+    .update(bookmarkFolders)
+    .set({ name, updatedAt: sql`now()` })
+    .where(ownFolder(ref))
+    .returning({ id: bookmarkFolders.id });
+  return rows.length > 0;
+}
+
+export async function getFolder(tx: Tx, ref: MemberRef & { id: string }): Promise<FolderRow | null> {
+  const [row] = await tx.select(folderColumns).from(bookmarkFolders).where(ownFolder(ref));
+  return row ?? null;
+}
+
+/**
+ * The member's folder, row-locked, with its size: adding to a folder holds the lock, so two adds at once
+ * cannot pass `BOOKMARKS_PER_FOLDER_MAX`. Null when it is not the member's.
+ */
+export async function lockFolder(tx: Tx, ref: MemberRef & { id: string }): Promise<{ count: number } | null> {
+  const [row] = await tx.select({ id: bookmarkFolders.id }).from(bookmarkFolders).where(ownFolder(ref)).for('update');
+  if (!row) return null;
+  const [{ n } = { n: 0 }] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(listingBookmarks)
+    .where(and(eq(listingBookmarks.agencyId, ref.agencyId), eq(listingBookmarks.folderId, ref.id)));
+  return { count: n };
+}
+
+/** Deletes the folder and (cascade) its bookmarks; true when a row was deleted. */
+export async function deleteFolder(tx: Tx, ref: MemberRef & { id: string }): Promise<boolean> {
+  const rows = await tx.delete(bookmarkFolders).where(ownFolder(ref)).returning({ id: bookmarkFolders.id });
+  return rows.length > 0;
+}
+
+const bookmarkColumns = {
+  id: listingBookmarks.id,
+  folderId: listingBookmarks.folderId,
+  propertyId: listingBookmarks.propertyId,
+  note: listingBookmarks.note,
+  createdAt: listingBookmarks.createdAt,
+};
+export type BookmarkRow = { id: string; folderId: string; propertyId: string; note: string | null; createdAt: Date };
+
+const ownBookmark = (ref: MemberRef & { id: string }) =>
+  and(
+    eq(listingBookmarks.id, ref.id),
+    eq(listingBookmarks.agencyId, ref.agencyId),
+    eq(listingBookmarks.userId, ref.userId),
+  );
+
+export async function insertBookmark(
+  tx: Tx,
+  row: MemberRef & { id: string; folderId: string; propertyId: string; note: string | null },
+): Promise<BookmarkRow> {
+  const [saved] = await tx.insert(listingBookmarks).values(row).returning(bookmarkColumns);
+  return saved as BookmarkRow;
+}
+
+export async function getBookmark(tx: Tx, ref: MemberRef & { id: string }): Promise<BookmarkRow | null> {
+  const [row] = await tx.select(bookmarkColumns).from(listingBookmarks).where(ownBookmark(ref));
+  return row ?? null;
+}
+
+export async function updateBookmark(
+  tx: Tx,
+  ref: MemberRef & { id: string },
+  patch: { folderId?: string; note?: string | null },
+): Promise<BookmarkRow | null> {
+  const [saved] = await tx
+    .update(listingBookmarks)
+    .set({ ...patch, updatedAt: sql`now()` })
+    .where(ownBookmark(ref))
+    .returning(bookmarkColumns);
+  return saved ?? null;
+}
+
+/** True when a row was deleted. */
+export async function deleteBookmark(tx: Tx, ref: MemberRef & { id: string }): Promise<boolean> {
+  const rows = await tx.delete(listingBookmarks).where(ownBookmark(ref)).returning({ id: listingBookmarks.id });
+  return rows.length > 0;
+}
+
+const bookmarkWithListing = {
+  ...bookmarkColumns,
+  listing: {
+    id: properties.id,
+    agencyId: properties.agencyId,
+    ref: properties.ref,
+    status: properties.status,
+    transactionType: properties.transactionType,
+    priceCents: properties.priceCents,
+    currency: properties.currency,
+    bedrooms: properties.bedrooms,
+    builtM2: properties.builtM2,
+    propertyTypeId: properties.propertyTypeId,
+    locationId: properties.locationId,
+    deletedAt: properties.deletedAt,
+  },
+};
+
+/**
+ * A folder's bookmarks, newest first (keyset, `listing_bookmarks_folder_created_idx`), each with its listing as
+ * the caller sees it now: the left join runs under the caller's RLS on `properties`, so a listing that left
+ * their view (unshared, off the market, hidden by freshness) comes back as nulls, never an error.
+ */
+export async function listFolderBookmarks(
+  tx: Tx,
+  ref: MemberRef & { folderId: string },
+  cursor: KeysetCursor | undefined,
+  limit: number,
+): Promise<FolderBookmarkRow[]> {
+  return tx
+    .select(bookmarkWithListing)
+    .from(listingBookmarks)
+    .leftJoin(properties, eq(properties.id, listingBookmarks.propertyId))
+    .where(
+      and(
+        eq(listingBookmarks.agencyId, ref.agencyId),
+        eq(listingBookmarks.folderId, ref.folderId),
+        eq(listingBookmarks.userId, ref.userId),
+        keysetAfter(listingBookmarks.createdAt, listingBookmarks.id, cursor, 'desc'),
+      ),
+    )
+    .orderBy(...keysetOrder(listingBookmarks.createdAt, listingBookmarks.id, 'desc'))
+    .limit(limit + 1);
+}
+
+/** One of the member's bookmarks with its listing as they see it now (the list query's join, one row). */
+export async function getBookmarkWithListing(
+  tx: Tx,
+  ref: MemberRef & { id: string },
+): Promise<FolderBookmarkRow | null> {
+  const [row] = await tx
+    .select(bookmarkWithListing)
+    .from(listingBookmarks)
+    .leftJoin(properties, eq(properties.id, listingBookmarks.propertyId))
+    .where(ownBookmark(ref));
+  return row ?? null;
+}
+export type FolderBookmarkRow = BookmarkRow & {
+  listing: {
+    id: string;
+    agencyId: string;
+    ref: string;
+    status: ListingStatus;
+    transactionType: ListingRow['transactionType'];
+    priceCents: number | null;
+    currency: string;
+    bedrooms: number | null;
+    builtM2: string | null;
+    propertyTypeId: string;
+    locationId: string;
+    deletedAt: Date | null;
+  } | null;
+};
+
+/**
+ * The listings of a folder the caller can still see (not deleted), oldest bookmark first: the seed of a
+ * selection (S12-04). Bounded by the folder cap.
+ */
+export async function visibleFolderListingIds(
+  tx: Tx,
+  ref: MemberRef & { folderId: string },
+  limit: number,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: properties.id })
+    .from(listingBookmarks)
+    .innerJoin(properties, eq(properties.id, listingBookmarks.propertyId))
+    .where(
+      and(
+        eq(listingBookmarks.agencyId, ref.agencyId),
+        eq(listingBookmarks.folderId, ref.folderId),
+        eq(listingBookmarks.userId, ref.userId),
+        isNull(properties.deletedAt),
+      ),
+    )
+    .orderBy(...keysetOrder(listingBookmarks.createdAt, listingBookmarks.id, 'asc'))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/** The member's bookmarks of one listing (one per folder at most). */
+export async function listListingBookmarks(
+  tx: Tx,
+  member: MemberRef,
+  propertyId: string,
+  limit: number,
+): Promise<{ id: string; folderId: string; note: string | null }[]> {
+  return tx
+    .select({ id: listingBookmarks.id, folderId: listingBookmarks.folderId, note: listingBookmarks.note })
+    .from(listingBookmarks)
+    .where(
+      and(
+        eq(listingBookmarks.agencyId, member.agencyId),
+        eq(listingBookmarks.userId, member.userId),
+        eq(listingBookmarks.propertyId, propertyId),
+      ),
+    )
+    .orderBy(asc(listingBookmarks.folderId))
+    .limit(limit);
 }

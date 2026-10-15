@@ -118,6 +118,17 @@ export const ErrorCodes = {
   LISTING_BULK_BUSY: 409,
   /** A bulk action's filter matches more than `LISTING_BULK_MAX` listings: narrow it. */
   LISTING_BULK_TOO_MANY: 422,
+  // properties: bookmarks (S3-09)
+  BOOKMARK_FOLDER_NOT_FOUND: 404,
+  /** The member already has `BOOKMARK_FOLDERS_MAX` folders. */
+  BOOKMARK_FOLDER_LIMIT: 409,
+  /** The member already has a folder with this name. */
+  BOOKMARK_FOLDER_NAME_TAKEN: 409,
+  /** The folder already holds `BOOKMARKS_PER_FOLDER_MAX` listings. */
+  BOOKMARK_FOLDER_FULL: 409,
+  BOOKMARK_NOT_FOUND: 404,
+  /** The listing is already in this folder. */
+  BOOKMARK_EXISTS: 409,
   // media (S3-03)
   /** The stored bytes are not an accepted image type (magic bytes), whatever the name or header said. */
   MEDIA_TYPE_NOT_ALLOWED: 415,

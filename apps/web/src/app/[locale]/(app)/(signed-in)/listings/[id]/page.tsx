@@ -7,6 +7,7 @@ import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchListingEditor, sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
 import { listingTaxonomy } from '../taxonomy';
+import { BookmarkButton } from './bookmark-button';
 import { ListingEditor } from './listing-editor';
 import { QualityPanel } from './quality-panel';
 
@@ -21,7 +22,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * The listing editor (S3-05): listing, content, taxonomy and media in one round of parallel calls, then the
  * client editor autosaves each change; the media manager (S3-06) below it saves each media change at once. The
  * quality panel (S3-08) above them shows the score and fix-it hints, refreshed after each saved change.
- * Another agency's or a deleted listing opens read-only.
+ * Another agency's or a deleted listing opens read-only. The bookmark button (S3-09) files it into the member's folders.
  */
 export default async function ListingEditorPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -46,9 +47,14 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
         <h1 className="text-xl font-semibold">
           {t('editor.title', { ref: res.listing.ok ? (res.listing.data.ref ?? '') : '' })}
         </h1>
-        <Link href="/listings" className="text-sm underline-offset-4 hover:underline">
-          {t('editor.back')}
-        </Link>
+        <div className="flex items-center gap-3">
+          {res.listing.ok && res.listing.data.deletedAt === null ? (
+            <BookmarkButton listingId={res.listing.data.id} messages={messages.listings} />
+          ) : null}
+          <Link href="/listings" className="text-sm underline-offset-4 hover:underline">
+            {t('editor.back')}
+          </Link>
+        </div>
       </div>
       {!res.listing.ok ? (
         <p role="alert" className="text-sm text-destructive">

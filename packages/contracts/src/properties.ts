@@ -467,3 +467,90 @@ export const SetListingFeaturesBody = z
   })
   .strict();
 export type SetListingFeaturesBody = z.infer<typeof SetListingFeaturesBody>;
+
+// ---- Bookmarks (S3-09): a member's folders of saved listings, with notes -------------------------------------
+
+/** Folders per member. */
+export const BOOKMARK_FOLDERS_MAX = 100;
+/** Listings per folder: also the most a selection made from a folder starts with (S12-04). */
+export const BOOKMARKS_PER_FOLDER_MAX = 500;
+
+/** `POST /v1/bookmark-folders`, `PUT /v1/bookmark-folders/:id`. */
+export const BookmarkFolderBody = z.object({ name: z.string().trim().min(1).max(60) }).strict();
+export type BookmarkFolderBody = z.infer<typeof BookmarkFolderBody>;
+
+export const BookmarkFolderDto = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** Bookmarks in the folder, unavailable ones included. */
+  count: z.number().int(),
+  updatedAt: z.iso.datetime(),
+});
+export type BookmarkFolderDto = z.infer<typeof BookmarkFolderDto>;
+export const BookmarkFolderList = z.object({ items: z.array(BookmarkFolderDto) });
+export type BookmarkFolderList = z.infer<typeof BookmarkFolderList>;
+export const BookmarkFolderParams = z.object({ id: z.uuid() }).strict();
+
+const BookmarkNote = z.string().trim().max(1000);
+
+/** `POST /v1/bookmarks`: save a listing the caller can see into one of their folders. */
+export const CreateBookmarkBody = z
+  .object({ folderId: z.uuid(), listingId: z.uuid(), note: BookmarkNote.nullable().optional() })
+  .strict();
+export type CreateBookmarkBody = z.infer<typeof CreateBookmarkBody>;
+
+/** `PATCH /v1/bookmarks/:id`: change the note or move it to another folder. */
+export const UpdateBookmarkBody = z
+  .object({ folderId: z.uuid().optional(), note: BookmarkNote.nullable().optional() })
+  .strict()
+  .refine((b) => b.folderId !== undefined || b.note !== undefined, 'nothing to change');
+export type UpdateBookmarkBody = z.infer<typeof UpdateBookmarkBody>;
+export const BookmarkParams = z.object({ id: z.uuid() }).strict();
+
+/** The saved listing as the caller sees it now; the owner agency is never named. */
+export const BookmarkedListingDto = z.object({
+  ref: z.string(),
+  status: ListingStatus,
+  transactionType: TransactionType,
+  price: Money.nullable(),
+  bedrooms: z.number().int().nullable(),
+  builtM2: z.number().nullable(),
+  propertyTypeId: z.uuid(),
+  locationId: z.uuid(),
+  /** The caller's agency owns it. */
+  own: z.boolean(),
+});
+export type BookmarkedListingDto = z.infer<typeof BookmarkedListingDto>;
+
+export const BookmarkDto = z.object({
+  id: z.uuid(),
+  folderId: z.uuid(),
+  listingId: z.uuid(),
+  note: z.string().nullable(),
+  /** False when the listing left the caller's view (unshared, sold off the network, deleted): `listing` is null. */
+  available: z.boolean(),
+  listing: BookmarkedListingDto.nullable(),
+  createdAt: z.iso.datetime(),
+});
+export type BookmarkDto = z.infer<typeof BookmarkDto>;
+export const BookmarkPage = pageOf(BookmarkDto);
+export type BookmarkPage = z.infer<typeof BookmarkPage>;
+
+/** `GET /v1/bookmark-folders/:id/bookmarks`: newest first, keyset. */
+export const ListBookmarksQuery = z
+  .object({
+    cursor: z
+      .string()
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+export type ListBookmarksQuery = z.infer<typeof ListBookmarksQuery>;
+
+/** `GET /v1/listings/:id/bookmarks`: the caller's bookmarks of one listing (one per folder at most). */
+export const ListingBookmarkDto = z.object({ id: z.uuid(), folderId: z.uuid(), note: z.string().nullable() });
+export type ListingBookmarkDto = z.infer<typeof ListingBookmarkDto>;
+export const ListingBookmarkList = z.object({ items: z.array(ListingBookmarkDto) });
+export type ListingBookmarkList = z.infer<typeof ListingBookmarkList>;

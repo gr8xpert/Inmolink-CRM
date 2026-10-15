@@ -1,7 +1,13 @@
 'use server';
 
 import {
+  type BookmarkDto,
+  BookmarkFolderBody,
+  type BookmarkFolderDto,
+  type BookmarkFolderList,
+  CreateBookmarkBody,
   CreateListingBody,
+  type ListingBookmarkList,
   type ListingBulkDto,
   type ListingContentDto,
   type ListingDto,
@@ -16,6 +22,7 @@ import {
   ReorderListingMediaBody,
   SetListingFeaturesBody,
   StartListingBulkBody,
+  UpdateBookmarkBody,
   UpdateListingBody,
   UpdateListingMediaBody,
 } from '@inmolink/contracts';
@@ -28,21 +35,29 @@ import {
   type ApiResult,
   checkMedia,
   confirmListing,
+  createBookmark,
+  createBookmarkFolder,
   createListing,
   createListingView,
+  deleteBookmark,
+  deleteBookmarkFolder,
   deleteListingTranslation,
   deleteListingView,
   detachListingMedia,
+  fetchBookmarkFolders,
+  fetchListingBookmarks,
   fetchListingBulkAction,
   fetchListingQuality,
   listListingMedia,
   putListingTranslation,
   registerMedia,
+  renameBookmarkFolder,
   reorderListingMedia,
   type SessionRef,
   sessionRef,
   setListingFeatures,
   startListingBulkAction,
+  updateBookmark,
   updateListing,
   updateListingMedia,
 } from '@/server/api';
@@ -215,4 +230,54 @@ export async function startBulkAction(body: unknown): Promise<EditorResult<Listi
 export async function bulkProgressAction(id: string): Promise<EditorResult<ListingBulkDto>> {
   if (!Uuid.safeParse(id).success) return badId();
   return withSession((s) => fetchListingBulkAction(s, id));
+}
+
+// --- bookmarks (S3-09): folders of saved listings with notes ---
+
+/** The caller's folders and which of them hold `listingId` (the editor's bookmark button). */
+export async function listingBookmarksAction(
+  listingId: string,
+): Promise<EditorResult<{ folders: BookmarkFolderList; bookmarks: ListingBookmarkList }>> {
+  if (!Uuid.safeParse(listingId).success) return badId();
+  const folders = await withSession((s) => fetchBookmarkFolders(s));
+  if (!folders.ok) return folders;
+  const bookmarks = await withSession((s) => fetchListingBookmarks(s, listingId));
+  if (!bookmarks.ok) return bookmarks;
+  return { ok: true, data: { folders: folders.data, bookmarks: bookmarks.data } };
+}
+
+export async function createFolderAction(body: unknown): Promise<EditorResult<BookmarkFolderDto>> {
+  const parsed = BookmarkFolderBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => createBookmarkFolder(s, parsed.data));
+}
+
+export async function renameFolderAction(id: string, body: unknown): Promise<EditorResult<BookmarkFolderDto>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  const parsed = BookmarkFolderBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => renameBookmarkFolder(s, id, parsed.data));
+}
+
+export async function deleteFolderAction(id: string): Promise<EditorResult<null>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => deleteBookmarkFolder(s, id));
+}
+
+export async function createBookmarkAction(body: unknown): Promise<EditorResult<BookmarkDto>> {
+  const parsed = CreateBookmarkBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => createBookmark(s, parsed.data));
+}
+
+export async function updateBookmarkAction(id: string, body: unknown): Promise<EditorResult<BookmarkDto>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  const parsed = UpdateBookmarkBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => updateBookmark(s, id, parsed.data));
+}
+
+export async function deleteBookmarkAction(id: string): Promise<EditorResult<null>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => deleteBookmark(s, id));
 }

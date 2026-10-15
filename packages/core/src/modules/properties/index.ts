@@ -1,5 +1,17 @@
 /** properties — public API (PATTERNS §1). The only import path for other modules and apps. */
 
+export {
+  bookmarkFolderListingIds,
+  createBookmark,
+  createBookmarkFolder,
+  deleteBookmark,
+  deleteBookmarkFolder,
+  listBookmarkFolders,
+  listBookmarks,
+  listListingBookmarks,
+  renameBookmarkFolder,
+  updateBookmark,
+} from './bookmarks';
 export { BULK_CHUNK, changedPrice, getBulkAction, runBulkChunk, startBulkAction } from './bulk';
 export {
   deleteListingTranslation,

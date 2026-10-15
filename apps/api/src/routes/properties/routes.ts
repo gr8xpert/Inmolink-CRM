@@ -1,5 +1,15 @@
 import {
+  BookmarkDto,
+  BookmarkFolderBody,
+  BookmarkFolderDto,
+  BookmarkFolderList,
+  BookmarkFolderParams,
+  BookmarkPage,
+  BookmarkParams,
+  CreateBookmarkBody,
   CreateListingBody,
+  ListBookmarksQuery,
+  ListingBookmarkList,
   ListingBulkDto,
   ListingBulkParams,
   ListingContentDto,
@@ -16,6 +26,7 @@ import {
   PutListingTranslationBody,
   SetListingFeaturesBody,
   StartListingBulkBody,
+  UpdateBookmarkBody,
   UpdateListingBody,
 } from '@inmolink/contracts';
 import * as properties from '@inmolink/core/modules/properties';
@@ -379,6 +390,183 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => properties.getBulkAction(ctx, req.params.id));
+    },
+  );
+
+  // ---- Bookmarks (S3-09) ----
+
+  app.get(
+    '/v1/bookmark-folders',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.listBookmarkFolders',
+        summary: "The caller's bookmark folders by name, with their sizes",
+        response: { 200: BookmarkFolderList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.listBookmarkFolders(ctx));
+    },
+  );
+
+  app.post(
+    '/v1/bookmark-folders',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.createBookmarkFolder',
+        summary: 'Create a bookmark folder (≤ 100 per member, names unique)',
+        body: BookmarkFolderBody,
+        response: { 201: BookmarkFolderDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createBookmarkFolder(ctx, req.body)));
+    },
+  );
+
+  app.put(
+    '/v1/bookmark-folders/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.renameBookmarkFolder',
+        summary: 'Rename a bookmark folder',
+        params: BookmarkFolderParams,
+        body: BookmarkFolderBody,
+        response: { 200: BookmarkFolderDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.renameBookmarkFolder(ctx, req.params.id, req.body));
+    },
+  );
+
+  app.delete(
+    '/v1/bookmark-folders/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.deleteBookmarkFolder',
+        summary: 'Delete a bookmark folder and its bookmarks',
+        params: BookmarkFolderParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      await app.withCtx(req, (ctx) => properties.deleteBookmarkFolder(ctx, req.params.id));
+      return reply.code(204).send(null);
+    },
+  );
+
+  app.get(
+    '/v1/bookmark-folders/:id/bookmarks',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.listBookmarks',
+        summary: "A folder's bookmarks, newest first; listings no longer visible are marked unavailable",
+        params: BookmarkFolderParams,
+        querystring: ListBookmarksQuery,
+        response: { 200: BookmarkPage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.listBookmarks(ctx, req.params.id, req.query));
+    },
+  );
+
+  app.get(
+    '/v1/listings/:id/bookmarks',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.listListingBookmarks',
+        summary: "The caller's bookmarks of one listing (which folders hold it)",
+        params: ListingParams,
+        response: { 200: ListingBookmarkList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.listListingBookmarks(ctx, req.params.id));
+    },
+  );
+
+  app.post(
+    '/v1/bookmarks',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.createBookmark',
+        summary: 'Bookmark a visible listing into one of your folders, with a note (≤ 500 per folder)',
+        body: CreateBookmarkBody,
+        response: { 201: BookmarkDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createBookmark(ctx, req.body)));
+    },
+  );
+
+  app.patch(
+    '/v1/bookmarks/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.updateBookmark',
+        summary: "Change a bookmark's note or move it to another folder",
+        params: BookmarkParams,
+        body: UpdateBookmarkBody,
+        response: { 200: BookmarkDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.updateBookmark(ctx, req.params.id, req.body));
+    },
+  );
+
+  app.delete(
+    '/v1/bookmarks/:id',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.deleteBookmark',
+        summary: 'Remove a bookmark',
+        params: BookmarkParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      await app.withCtx(req, (ctx) => properties.deleteBookmark(ctx, req.params.id));
+      return reply.code(204).send(null);
     },
   );
 }
