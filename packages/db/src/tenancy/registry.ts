@@ -371,11 +371,12 @@ export const tenantTables: Record<string, TenantTable> = {
   // Listings (S3-01, PLAN §6, §3 #57). Other verified agencies read a listing that is SHARED or PUBLIC,
   // ACTIVE and not deleted, while its owner is listed in the directory (VERIFIED: a suspended owner's
   // listings leave the network) — and with share scope PREFERRED only if the owner prefers the reader.
-  // Only shareable columns: private ones live in `property_privates`. S3-08 extends the predicate with
-  // "hidden after 120 days unconfirmed" (`last_confirmed_at`).
+  // Only shareable columns: private ones live in `property_privates`. A listing unconfirmed for 120 days leaves
+  // the network (S3-08: `network_hidden_at`, set by the freshness sweep, cleared by a confirmation).
   properties: {
     kind: 'NETWORK_READ',
     networkReadSql: `visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null
+      and network_hidden_at is null
       and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed)
       and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))`,
     samples: {
@@ -389,6 +390,7 @@ export const tenantTables: Record<string, TenantTable> = {
         { visibility: 'SHARED', status: 'SOLD' },
         { visibility: 'SHARED', status: 'ACTIVE', deleted_at: new Date() },
         { visibility: 'SHARED', status: 'ACTIVE', share_scope: 'PREFERRED' },
+        { visibility: 'SHARED', status: 'ACTIVE', network_hidden_at: new Date() },
       ],
     },
   },

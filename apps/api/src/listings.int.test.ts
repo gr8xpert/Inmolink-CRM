@@ -94,4 +94,18 @@ describe('listing routes', () => {
     expect(stale.statusCode).toBe(404);
     expect((await app.inject({ method: 'DELETE', url: `/v1/listings/${newId()}`, headers })).statusCode).toBe(404);
   });
+
+  it('[S3-08] quality and confirm routes need a session, validate input and map service errors', async () => {
+    const id = newId();
+    expect((await app.inject({ method: 'GET', url: `/v1/listings/${id}/quality` })).statusCode).toBe(401);
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const quality = await app.inject({ method: 'GET', url: `/v1/listings/${id}/quality`, headers });
+    expect(quality.statusCode).toBe(404);
+    expect(quality.json().error.code).toBe('LISTING_NOT_FOUND');
+    expect((await app.inject({ method: 'GET', url: '/v1/listings/nope/quality', headers })).statusCode).toBe(422);
+    const confirm = await app.inject({ method: 'POST', url: `/v1/listings/${id}/confirm`, headers });
+    expect(confirm.statusCode).toBe(404);
+    expect(confirm.json().error.code).toBe('LISTING_NOT_FOUND');
+  });
 });

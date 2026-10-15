@@ -74,6 +74,19 @@ export async function listForListing(tx: Tx, propertyId: string): Promise<MediaL
 }
 
 /**
+ * The pixel size of each photo (`IMAGE`) of a listing, null while its object is unprocessed (S3-08 quality score;
+ * `property_media_property_idx`, then one PK probe per row, ≤ MEDIA_PER_LISTING_MAX rows).
+ */
+export async function imageSizes(tx: Tx, propertyId: string): Promise<({ width: number; height: number } | null)[]> {
+  const rows = await tx
+    .select({ width: mediaObjects.width, height: mediaObjects.height })
+    .from(propertyMedia)
+    .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
+    .where(and(eq(propertyMedia.propertyId, propertyId), eq(propertyMedia.kind, 'IMAGE')));
+  return rows.map((r) => (r.width !== null && r.height !== null ? { width: r.width, height: r.height } : null));
+}
+
+/**
  * Changes one media row of the listing (S3-06). `cover: true` passes the cover to it: the old cover loses it
  * first (`property_media_cover_uq` allows one per listing); a row turned into a floor plan stops being the
  * cover (the service then hands it on). Null when the listing has no such row.

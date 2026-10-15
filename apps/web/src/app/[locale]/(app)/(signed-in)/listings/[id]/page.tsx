@@ -8,6 +8,7 @@ import { fetchListingEditor, sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
 import { listingTaxonomy } from '../taxonomy';
 import { ListingEditor } from './listing-editor';
+import { QualityPanel } from './quality-panel';
 
 // Drag-and-drop and the upload pipeline load as their own chunk (frontend rules: drag-and-drop via next/dynamic).
 const MediaManager = dynamic(() => import('./media-manager'), {
@@ -18,7 +19,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The listing editor (S3-05): listing, content, taxonomy and media in one round of parallel calls, then the
- * client editor autosaves each change; the media manager (S3-06) below it saves each media change at once.
+ * client editor autosaves each change; the media manager (S3-06) below it saves each media change at once. The
+ * quality panel (S3-08) above them shows the score and fix-it hints, refreshed after each saved change.
  * Another agency's or a deleted listing opens read-only.
  */
 export default async function ListingEditorPage(props: { params: Promise<{ id: string }> }) {
@@ -53,17 +55,21 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
           {res.listing.status === 403 ? t('errors.FORBIDDEN') : t('errors.generic')}
         </p>
       ) : (
-        <ListingEditor
-          listing={res.listing.data}
-          content={res.content}
-          propertyTypes={tax.propertyTypes}
-          locations={tax.locations}
-          features={tax.features}
-          // Every content locale has a label in the onboarding catalog.
-          contentLocales={locales.map((l) => ({ code: l, label: lang(`languages.${l}` as never) }))}
-          mapStyleUrl={config.MAP_STYLE_URL}
-          messages={messages.listings}
-        />
+        <>
+          <QualityPanel listingId={res.listing.data.id} initial={res.quality} messages={messages.listings} />
+          <ListingEditor
+            listing={res.listing.data}
+            content={res.content}
+            propertyTypes={tax.propertyTypes}
+            locations={tax.locations}
+            features={tax.features}
+            // Every content locale has a label in the onboarding catalog.
+            contentLocales={locales.map((l) => ({ code: l, label: lang(`languages.${l}` as never) }))}
+            mapStyleUrl={config.MAP_STYLE_URL}
+            locale={locale}
+            messages={messages.listings}
+          />
+        </>
       )}
       {res.listing.ok ? (
         <MediaManager

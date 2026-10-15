@@ -6,6 +6,7 @@ import {
   type ListingContentDto,
   type ListingDto,
   type ListingMediaList,
+  type ListingQualityDto,
   ListingViewBody,
   type ListingViewDto,
   MediaCheckBody,
@@ -26,12 +27,14 @@ import { getPathname } from '@/i18n/navigation';
 import {
   type ApiResult,
   checkMedia,
+  confirmListing,
   createListing,
   createListingView,
   deleteListingTranslation,
   deleteListingView,
   detachListingMedia,
   fetchListingBulkAction,
+  fetchListingQuality,
   listListingMedia,
   putListingTranslation,
   registerMedia,
@@ -108,6 +111,18 @@ export async function saveFeaturesAction(id: string, body: unknown): Promise<Edi
 
 const Uuid = z.uuid();
 const badId = (): EditorResult<never> => invalid(['id']);
+
+/** The listing's live quality score and hints (S3-08), for the panel's refresh after a saved change. */
+export async function listingQualityAction(id: string): Promise<EditorResult<ListingQualityDto>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => fetchListingQuality(s, id));
+}
+
+/** "Still on the market" (S3-08); answers the confirmed listing. */
+export async function confirmListingAction(id: string): Promise<EditorResult<ListingDto>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => confirmListing(s, id));
+}
 
 /** Which of these files the platform stores already, and signed upload URLs for the others (≤ 100). */
 export async function checkMediaAction(body: unknown): Promise<EditorResult<MediaCheckResult>> {

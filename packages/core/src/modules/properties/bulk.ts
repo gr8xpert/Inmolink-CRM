@@ -28,7 +28,7 @@ import * as identity from '../identity';
 import { propertiesEvents } from './events';
 import { assertCan, can, type PropertiesAction } from './policy';
 import * as repo from './repo';
-import { actorId, assertVisibilityAllowed, listFilterOf, statusChangeAllowed } from './service';
+import { actorId, assertVisibilityAllowed, listFilterOf, reconfirmed, statusChangeAllowed } from './service';
 
 /** Listings per chunk (one transaction): a few statements each, well inside the dashboard statement timeout. */
 export const BULK_CHUNK = 250;
@@ -266,6 +266,11 @@ export async function runBulkChunk(ctx: Ctx, bulkActionId: string): Promise<Bulk
           shareScope: action.type === 'SHARE_SCOPE' ? action.shareScope : row.shareScope,
         }),
       );
+    } else if (action.type === 'STATUS' && action.status === 'ACTIVE' && row.networkHiddenAt !== null) {
+      // Going ACTIVE confirmed it (S3-08): back on the network.
+      events.push(
+        propertiesEvents.visibilityChanged({ ...base, visibility: row.visibility, shareScope: row.shareScope }),
+      );
     }
     events.push(propertiesEvents.updated({ ...base, changed: [CHANGED_FIELD[action.type]] }));
   }
@@ -292,7 +297,11 @@ async function applyChanges(
   let updated: { id: string; version: number }[];
   switch (action.type) {
     case 'STATUS':
-      updated = await repo.updateMany(ctx.tx, ids, { status: action.status });
+      // Going ACTIVE again confirms the listings (S3-08), as an edit does.
+      updated = await repo.updateMany(ctx.tx, ids, {
+        status: action.status,
+        ...(action.status === 'ACTIVE' ? reconfirmed() : {}),
+      });
       break;
     case 'VISIBILITY':
       updated = await repo.updateMany(ctx.tx, ids, { visibility: action.visibility });

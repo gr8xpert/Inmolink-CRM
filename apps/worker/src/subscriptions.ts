@@ -6,6 +6,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as properties from '@inmolink/core/modules/properties';
+import * as quality from '@inmolink/core/modules/quality';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 
 /**
@@ -23,6 +24,7 @@ export const MODULES = {
   migration,
   properties,
   media,
+  quality,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -32,4 +34,5 @@ export function registerSubscriptions(): void {
   taxonomy.registerTaxonomySubscriptions();
   media.registerMediaSubscriptions();
   properties.registerPropertiesSubscriptions();
+  quality.registerQualitySubscriptions();
 }

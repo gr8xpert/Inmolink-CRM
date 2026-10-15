@@ -5,6 +5,7 @@ import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { withMemberCtx } from '../../member';
 import { runBulkChunk } from './bulk';
+import { sweepFreshnessBatch } from './freshness';
 import * as repo from './repo';
 
 const BULK_ATTEMPTS = 5;
@@ -15,6 +16,9 @@ const BULK_TIMEOUT_MS = 30 * 60_000;
  * then the member's one-at-a-time slot stays taken.
  */
 export const BULK_STALE_MS = 2 * 3_600_000;
+/** Freshness sweep: rows per transaction (each kind), and at most this many transactions per run. */
+const FRESHNESS_BATCH = 500;
+const FRESHNESS_MAX_BATCHES = 40;
 
 /**
  * properties worker jobs (PATTERNS §12). Idempotent, batched, per-tenant fair share.
@@ -29,6 +33,11 @@ export const BULK_STALE_MS = 2 * 3_600_000;
  *
  * `properties.failStaleBulkActions` (every 10 minutes, pool `maintenance`): marks FAILED (`STALLED`) the actions
  * that have not moved for `BULK_STALE_MS` — a job lost to a crash or a timeout never marks its own record.
+ *
+ * `properties.sweepFreshness` (S3-08; every hour, pool `maintenance`, all agencies via `withSystem`): hides from the
+ * network the active listings unconfirmed for 120 days and prompts (`properties.listing.confirmationDue`) those
+ * unconfirmed for 90, `FRESHNESS_BATCH` of each per transaction with their events, until a batch comes back short
+ * (≤ 20,000 of each per run; the next run continues). Idempotent: hidden or prompted rows are not selected again.
  */
 export const propertiesJobs = {
   runBulkAction: defineJob({
@@ -77,6 +86,29 @@ export const propertiesJobs = {
       const failed = await withSystem('properties.failStaleBulkActions', (tx) => repo.failStaleBulks(tx, before));
       if (failed > 0) log.warn({ failed }, 'stale bulk actions marked FAILED');
       return { failed };
+    },
+  }),
+
+  sweepFreshness: defineJob({
+    name: 'properties.sweepFreshness',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 3_600_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      let hidden = 0;
+      let prompted = 0;
+      for (let i = 0; i < FRESHNESS_MAX_BATCHES && !signal.aborted; i++) {
+        const step = await withSystem('properties.sweepFreshness', (tx) =>
+          sweepFreshnessBatch(tx, clock.now(), FRESHNESS_BATCH),
+        );
+        hidden += step.hidden;
+        prompted += step.prompted;
+        if (step.hidden < FRESHNESS_BATCH && step.prompted < FRESHNESS_BATCH) break;
+      }
+      if (hidden + prompted > 0) log.info({ hidden, prompted }, 'listing freshness swept');
+      return { hidden, prompted };
     },
   }),
 };

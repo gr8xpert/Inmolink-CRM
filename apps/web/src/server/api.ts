@@ -22,6 +22,7 @@ import {
   type ListingFilter,
   ListingMediaList,
   ListingPage,
+  ListingQualityDto,
   type ListingSort,
   type ListingViewBody,
   ListingViewDto,
@@ -580,6 +581,7 @@ export async function fetchListingEditor(
       content: ListingContentDto | null;
       taxonomy: TaxonomyDto | null;
       media: ListingMediaList | null;
+      quality: ListingQualityDto | null;
     }
 > {
   let token: string;
@@ -590,14 +592,21 @@ export async function fetchListingEditor(
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
     logger.error({ err }, 'access token mint failed');
-    return { listing: { ok: false, status: 0, error: null }, content: null, taxonomy: null, media: null };
+    return {
+      listing: { ok: false, status: 0, error: null },
+      content: null,
+      taxonomy: null,
+      media: null,
+      quality: null,
+    };
   }
   const path = `/v1/listings/${encodeURIComponent(id)}`;
-  const [listing, content, taxonomy, media] = await Promise.all([
+  const [listing, content, taxonomy, media, quality] = await Promise.all([
     apiRequest({ token }, path, ListingDto),
     apiRequest({ token }, `${path}/content`, ListingContentDto),
     apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
     apiRequest({ token }, `${path}/media`, ListingMediaList),
+    apiRequest({ token }, `${path}/quality`, ListingQualityDto),
   ]);
   if (listing === 'revoked') return 'revoked';
   return {
@@ -605,7 +614,18 @@ export async function fetchListingEditor(
     content: content !== 'revoked' && content.ok ? content.data : null,
     taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null,
     media: media !== 'revoked' && media.ok ? media.data : null,
+    quality: quality !== 'revoked' && quality.ok ? quality.data : null,
   };
+}
+
+/** The listing's quality score and fix-it hints (S3-08), computed now; refused for other agencies' listings. */
+export function fetchListingQuality(session: SessionRef, id: string): Promise<ApiResult<ListingQualityDto>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/quality`, ListingQualityDto);
+}
+
+/** The listing is still on the market (S3-08): restarts the 90/120-day clock. */
+export function confirmListing(session: SessionRef, id: string): Promise<ApiResult<ListingDto>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/confirm`, ListingDto, { method: 'POST' });
 }
 
 export function createListing(session: SessionRef, body: CreateListingBody): Promise<ApiResult<ListingDto>> {

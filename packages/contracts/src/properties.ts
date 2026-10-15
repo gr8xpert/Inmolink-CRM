@@ -173,6 +173,22 @@ export const ListingPrivateDto = z.object({
 });
 export type ListingPrivateDto = z.infer<typeof ListingPrivateDto>;
 
+/** Freshness (S3-08): the agent is prompted 90 days after the last confirmation; at 120 the network hides it. */
+export const LISTING_CONFIRM_PROMPT_DAYS = 90;
+export const LISTING_NETWORK_HIDE_DAYS = 120;
+
+/** When the listing was last confirmed as still on the market, and what follows when. */
+export const ListingFreshnessDto = z.object({
+  lastConfirmedAt: z.iso.datetime(),
+  /** The confirmation prompt shows from here. */
+  confirmDueAt: z.iso.datetime(),
+  /** The listing leaves the network from here unless confirmed. */
+  hideAt: z.iso.datetime(),
+  /** Set while the listing is hidden from the network for want of a confirmation. */
+  networkHiddenAt: z.iso.datetime().nullable(),
+});
+export type ListingFreshnessDto = z.infer<typeof ListingFreshnessDto>;
+
 export const ListingDto = z.object({
   id: z.uuid(),
   /** Null in Client Mode for another agency's listing (white label): the client never learns the owner. */
@@ -204,6 +220,10 @@ export const ListingDto = z.object({
   locationId: z.uuid(),
   /** Owner agency only (null for other agencies and in Client Mode). */
   private: ListingPrivateDto.nullable(),
+  /** 0–100 (S3-08), recomputed in the background after each change; null until first computed or in Client Mode. */
+  qualityScore: z.number().int().min(0).max(100).nullable(),
+  /** Owner agency only (null for other agencies and in Client Mode). */
+  freshness: ListingFreshnessDto.nullable(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),

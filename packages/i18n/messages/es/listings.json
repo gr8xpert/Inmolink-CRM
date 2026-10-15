@@ -152,6 +152,12 @@
         "AI_DRAFT": "Borrador IA",
         "REVIEWED": "Revisado"
       }
+    },
+    "freshness": {
+      "fresh": "Confirmado en el mercado el {confirmed}. Próxima confirmación: {due}.",
+      "due": "Sin confirmar desde el {confirmed}. Confirma que sigue en el mercado o saldrá de la red el {hide}.",
+      "hidden": "Oculto en la red desde el {hidden}: las demás agencias ya no lo ven. Confirma que sigue en el mercado para volver a mostrarlo.",
+      "confirm": "Sigue en el mercado"
     }
   },
   "fieldInvalid": "Revisa este valor.",
@@ -313,5 +319,23 @@
   },
   "units": {
     "m2": "{value} m²"
+  },
+  "quality": {
+    "title": "Calidad del anuncio",
+    "score": "{score} / 100",
+    "gain": "+{points}",
+    "complete": "Nada que mejorar: este anuncio tiene todo lo que buscan los compradores.",
+    "pendingPhotos": "{count} foto(s) aún en proceso: su resolución contará cuando estén listas.",
+    "hints": {
+      "PHOTOS_FEW": "Añade fotos: {count} de {target} recomendadas",
+      "PHOTOS_LOW_RES": "Sustituye {count} foto(s) de baja resolución (menos de {minPx} px en el lado largo)",
+      "DESCRIPTION_SHORT": "Escribe una descripción más larga: {length} de {target} caracteres",
+      "TRANSLATIONS_MISSING": "Añade una descripción en {locales}",
+      "LOCATION_MISSING": "Sitúa el inmueble en el mapa",
+      "LOCATION_APPROX": "Muestra la ubicación exacta si el propietario está de acuerdo",
+      "ENERGY_RATING_MISSING": "Añade la calificación del certificado energético (CEE)",
+      "CONFIRMATION_DUE": "Confirma que el inmueble sigue en el mercado (última confirmación hace {days} días)",
+      "NETWORK_HIDDEN": "Oculto en la red: confirma que el inmueble sigue en el mercado"
+    }
   }
 }

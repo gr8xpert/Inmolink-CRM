@@ -550,6 +550,7 @@ const bulkTargetColumns = {
   priceCents: properties.priceCents,
   currency: properties.currency,
   energyRating: properties.energyRating,
+  networkHiddenAt: properties.networkHiddenAt,
   version: properties.version,
 };
 export type BulkTargetRow = { [K in keyof typeof bulkTargetColumns]: ListingRow[K] };
@@ -569,7 +570,18 @@ export async function lockOwnMany(tx: Tx, agencyId: string, ids: string[]): Prom
 export async function updateMany(
   tx: Tx,
   ids: string[],
-  patch: Partial<Pick<ListingInsert, 'status' | 'visibility' | 'shareScope' | 'ownerUserId'>>,
+  patch: Partial<
+    Pick<
+      ListingInsert,
+      | 'status'
+      | 'visibility'
+      | 'shareScope'
+      | 'ownerUserId'
+      | 'lastConfirmedAt'
+      | 'confirmPromptedAt'
+      | 'networkHiddenAt'
+    >
+  >,
 ): Promise<{ id: string; version: number }[]> {
   if (ids.length === 0) return [];
   return tx
@@ -633,4 +645,83 @@ export async function insertStatusHistories(
   rows: (typeof propertyStatusHistories.$inferInsert)[],
 ): Promise<void> {
   if (rows.length > 0) await tx.insert(propertyStatusHistories).values(rows);
+}
+
+// ---- Quality and freshness (S3-08) ---------------------------------------------------------------------------
+
+const qualityColumns = {
+  agencyId: properties.agencyId,
+  status: properties.status,
+  energyRating: properties.energyRating,
+  lat: properties.lat,
+  locationPrecision: properties.locationPrecision,
+  lastConfirmedAt: properties.lastConfirmedAt,
+  networkHiddenAt: properties.networkHiddenAt,
+  qualityScore: properties.qualityScore,
+};
+export type QualityRow = { [K in keyof typeof qualityColumns]: ListingRow[K] };
+
+/** What the quality score reads of a listing visible to the caller (primary key); null if none. */
+export async function qualityRow(tx: Tx, id: string): Promise<QualityRow | null> {
+  const [row] = await tx.select(qualityColumns).from(properties).where(eq(properties.id, id));
+  return row ?? null;
+}
+
+/** Each translation's locale and description length (characters, trimmed); `property_translations` PK. */
+export async function descriptionLengths(tx: Tx, propertyId: string): Promise<{ locale: string; length: number }[]> {
+  return tx
+    .select({
+      locale: propertyTranslations.locale,
+      length: sql<number>`coalesce(char_length(btrim(${propertyTranslations.description})), 0)::int`,
+    })
+    .from(propertyTranslations)
+    .where(eq(propertyTranslations.propertyId, propertyId));
+}
+
+/** Stores a recomputed score (no `version` bump: derived data); true when it changed. */
+export async function setQualityScore(tx: Tx, id: string, score: number): Promise<boolean> {
+  const rows = await tx
+    .update(properties)
+    .set({ qualityScore: score })
+    .where(and(eq(properties.id, id), sql`${properties.qualityScore} is distinct from ${score}`))
+    .returning({ id: properties.id });
+  return rows.length > 0;
+}
+
+export type SweptRow = { id: string; agencyId: string; version: number; visibility: string; shareScope: string };
+
+/**
+ * Freshness sweep (all agencies, `withSystem`): marks up to `limit` active listings last confirmed before `before`
+ * as prompted (`confirm_prompted_at`), oldest first, skipping rows locked by an edit
+ * (`properties_confirm_prompt_idx`). No version bump: the listing itself did not change.
+ */
+export async function markConfirmPrompted(tx: Tx, before: Date, limit: number): Promise<SweptRow[]> {
+  const res = await tx.execute<SweptRow>(sql`
+    update ${properties} p set confirm_prompted_at = now()
+    where p.id in (
+      select id from ${properties}
+      where status = 'ACTIVE' and deleted_at is null and confirm_prompted_at is null and last_confirmed_at < ${before}
+      order by last_confirmed_at limit ${limit} for update skip locked)
+    returning p.id, p.agency_id as "agencyId", p.version, p.visibility, p.share_scope as "shareScope"`);
+  return res.rows;
+}
+
+/**
+ * Freshness sweep: hides from the network up to `limit` active listings last confirmed before `before`
+ * (`network_hidden_at`, read by the RLS network predicate), oldest first (`properties_network_hide_idx`). For a
+ * shared or public listing that is a network change: `version` and `updated_at` move so read models and search
+ * rebuild. A private one only gets the flag (it stays hidden if shared later, until confirmed): no version bump,
+ * so an editor open on it is not interrupted.
+ */
+export async function hideFromNetwork(tx: Tx, before: Date, limit: number): Promise<SweptRow[]> {
+  const res = await tx.execute<SweptRow>(sql`
+    update ${properties} p set network_hidden_at = now(),
+      version = case when p.visibility = 'PRIVATE' then p.version else p.version + 1 end,
+      updated_at = case when p.visibility = 'PRIVATE' then p.updated_at else now() end
+    where p.id in (
+      select id from ${properties}
+      where status = 'ACTIVE' and deleted_at is null and network_hidden_at is null and last_confirmed_at < ${before}
+      order by last_confirmed_at limit ${limit} for update skip locked)
+    returning p.id, p.agency_id as "agencyId", p.version, p.visibility, p.share_scope as "shareScope"`);
+  return res.rows;
 }

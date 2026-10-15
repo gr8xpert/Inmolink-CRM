@@ -152,6 +152,12 @@
         "AI_DRAFT": "AI draft",
         "REVIEWED": "Reviewed"
       }
+    },
+    "freshness": {
+      "fresh": "Confirmed as on the market on {confirmed}. Next confirmation due {due}.",
+      "due": "Not confirmed since {confirmed}. Confirm it is still on the market, or it leaves the network on {hide}.",
+      "hidden": "Hidden from the network since {hidden}: other agencies no longer see it. Confirm it is still on the market to bring it back.",
+      "confirm": "Still on the market"
     }
   },
   "fieldInvalid": "Check this value.",
@@ -313,5 +319,23 @@
   },
   "units": {
     "m2": "{value} m²"
+  },
+  "quality": {
+    "title": "Listing quality",
+    "score": "{score} / 100",
+    "gain": "+{points}",
+    "complete": "Nothing to improve: this listing has everything buyers look for.",
+    "pendingPhotos": "{count} photo(s) still processing: their resolution counts once ready.",
+    "hints": {
+      "PHOTOS_FEW": "Add photos: {count} of {target} recommended",
+      "PHOTOS_LOW_RES": "Replace {count} low-resolution photo(s) (under {minPx} px on the long side)",
+      "DESCRIPTION_SHORT": "Write a longer description: {length} of {target} characters",
+      "TRANSLATIONS_MISSING": "Add a description in {locales}",
+      "LOCATION_MISSING": "Place the property on the map",
+      "LOCATION_APPROX": "Show the exact location if the seller agrees",
+      "ENERGY_RATING_MISSING": "Add the energy certificate (CEE) rating",
+      "CONFIRMATION_DUE": "Confirm the listing is still on the market (last confirmed {days} days ago)",
+      "NETWORK_HIDDEN": "Hidden from the network: confirm the listing is still on the market"
+    }
   }
 }

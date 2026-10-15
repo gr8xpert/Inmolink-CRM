@@ -5,20 +5,23 @@
  * listings through RLS (S3-01) and get the network view: no private fields.
  */
 import { randomInt } from 'node:crypto';
-import type {
-  CeeRating,
-  Commission,
-  CreateListingBody,
-  ListingDto,
-  ListingFilter,
-  ListingPage,
-  ListingSort,
-  ListingStatus,
-  ListListingsQuery,
-  LockableListingField,
-  TransactionType,
-  UpdateListingBody,
-  Visibility,
+import {
+  type CeeRating,
+  type Commission,
+  type CreateListingBody,
+  LISTING_CONFIRM_PROMPT_DAYS,
+  LISTING_NETWORK_HIDE_DAYS,
+  type ListingDto,
+  type ListingFilter,
+  type ListingFreshnessDto,
+  type ListingPage,
+  type ListingSort,
+  type ListingStatus,
+  type ListListingsQuery,
+  type LockableListingField,
+  type TransactionType,
+  type UpdateListingBody,
+  type Visibility,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
@@ -103,11 +106,28 @@ function commissionOf(row: repo.ListingRow): Commission | null {
   return null;
 }
 
+const DAY_MS = 86_400_000;
+export const daysAfter = (at: Date, days: number) => new Date(at.getTime() + days * DAY_MS);
+
+/** The columns a confirmation writes (S3-08): confirmed now, no prompt pending, back on the network. */
+export function reconfirmed(): Pick<repo.ListingInsert, 'lastConfirmedAt' | 'confirmPromptedAt' | 'networkHiddenAt'> {
+  return { lastConfirmedAt: clock.now(), confirmPromptedAt: null, networkHiddenAt: null };
+}
+
+function freshnessOf(row: repo.ListingRow): ListingFreshnessDto {
+  return {
+    lastConfirmedAt: row.lastConfirmedAt.toISOString(),
+    confirmDueAt: daysAfter(row.lastConfirmedAt, LISTING_CONFIRM_PROMPT_DAYS).toISOString(),
+    hideAt: daysAfter(row.lastConfirmedAt, LISTING_NETWORK_HIDE_DAYS).toISOString(),
+    networkHiddenAt: row.networkHiddenAt?.toISOString() ?? null,
+  };
+}
+
 /**
  * The DTO for `ctx`: the owner agency gets the private block (exact pin, cadastral reference, notes, external
  * ref, locks), other agencies the network view, and Client Mode neither private fields nor commission.
  */
-function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow | null): ListingDto {
+export function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow | null): ListingDto {
   const own = row.agencyId === ctx.tenant.agencyId;
   const showPrivate = own && !ctx.clientMode;
   // White label (PLAN §3 #56): a client never learns which agency or agent owns a network listing.
@@ -152,6 +172,9 @@ function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow | null
           lockedFields: row.lockedFields as LockableListingField[],
         }
       : null,
+    // Owner only: the score has a freshness part, which would tell other agencies the listing went unconfirmed.
+    qualityScore: showPrivate ? row.qualityScore : null,
+    freshness: showPrivate ? freshnessOf(row) : null,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -520,6 +543,11 @@ export async function updateListing(ctx: Ctx, id: string, input: UpdateListingBo
       : null;
   const exact = input.coordinates === undefined ? currentExact : input.coordinates;
   const { patch, changed } = listingPatch(input, current, exact);
+  // Going ACTIVE again (S3-08) confirms the listing is on the market.
+  if (patch.status === 'ACTIVE') {
+    Object.assign(patch, reconfirmed());
+    changed.add('freshness');
+  }
   const next = { ...current, ...patch } as repo.ListingRow;
 
   if (patch.ownerUserId !== undefined) await assertAssignable(ctx, patch.ownerUserId, current);
@@ -592,7 +620,8 @@ export async function updateListing(ctx: Ctx, id: string, input: UpdateListingBo
     });
     events.push(propertiesEvents.statusChanged({ ...base, from: current.status, to: updated.status }));
   }
-  if (updated.visibility !== current.visibility || updated.shareScope !== current.shareScope) {
+  const backOnNetwork = current.networkHiddenAt !== null && updated.networkHiddenAt === null;
+  if (updated.visibility !== current.visibility || updated.shareScope !== current.shareScope || backOnNetwork) {
     events.push(
       propertiesEvents.visibilityChanged({ ...base, visibility: updated.visibility, shareScope: updated.shareScope }),
     );

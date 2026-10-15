@@ -3,6 +3,7 @@ import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { mediaJobs } from '@inmolink/core/modules/media';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
+import { qualityJobs } from '@inmolink/core/modules/quality';
 import type { JobDef } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
 
@@ -14,7 +15,7 @@ import type { Pool } from '../config';
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   imports: [propertiesJobs.runBulkAction],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
-  indexing: [],
+  indexing: [qualityJobs.recomputeListing],
   matching: [],
   exports: [],
   email: [
@@ -30,6 +31,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     agenciesJobs.pruneOrphanVerificationDocuments,
     complianceJobs.maintainPartitions,
     propertiesJobs.failStaleBulkActions,
+    propertiesJobs.sweepFreshness,
   ],
   ai: [],
   social: [],

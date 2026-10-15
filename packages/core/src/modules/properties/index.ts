@@ -10,6 +10,13 @@ export {
 } from './content';
 export { propertiesErrors } from './errors';
 export { propertiesEvents } from './events';
+export {
+  confirmListing,
+  type ListingQualityInputs,
+  listingQualityInputs,
+  setListingQualityScore,
+  sweepFreshnessBatch,
+} from './freshness';
 export { propertiesJobs } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, PROPERTIES_ACTIONS, PROPERTIES_IMPERSONATION } from './policy';
 export {

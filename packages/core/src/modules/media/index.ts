@@ -7,6 +7,7 @@ export { hammingDistance } from './processing';
 export {
   checkUploads,
   detachListingMedia,
+  listingImageSizes,
   listListingMedia,
   originalKey,
   registerUploads,

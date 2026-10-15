@@ -124,7 +124,14 @@ export const properties = pgTable(
     isCanonical: boolean('is_canonical').notNull().default(true),
     /** 0–100 listing quality (photos, description, translations, location precision, freshness). */
     qualityScore: integer('quality_score'),
-    lastConfirmedAt: timestamp('last_confirmed_at', { withTimezone: true }),
+    /**
+     * Freshness (S3-08): when an agent last confirmed the listing is still on the market (create, the confirm
+     * button, going ACTIVE again). 90 days later the agent is prompted (`confirm_prompted_at`); 120 days later
+     * the listing leaves the network (`network_hidden_at`, in the RLS network predicate) until confirmed again.
+     */
+    lastConfirmedAt: timestamp('last_confirmed_at', { withTimezone: true }).notNull().defaultNow(),
+    confirmPromptedAt: timestamp('confirm_prompted_at', { withTimezone: true }),
+    networkHiddenAt: timestamp('network_hidden_at', { withTimezone: true }),
     /** Fields a feed re-import must not overwrite (S6). */
     lockedFields: text('locked_fields').array().notNull().default(sql`'{}'::text[]`),
     version: integer('version').notNull().default(1),
@@ -168,6 +175,14 @@ export const properties = pgTable(
     index('properties_location_type_idx').on(t.locationId, t.propertyTypeId, t.priceCents),
     // FK
     index('properties_property_type_idx').on(t.propertyTypeId),
+    // freshness sweeps (S3-08, `properties.sweepFreshness`): active listings not prompted yet / still on the
+    // network, the longest unconfirmed first — each sweep reads only the due rows
+    index('properties_confirm_prompt_idx')
+      .on(t.lastConfirmedAt)
+      .where(sql`${t.status} = 'ACTIVE' and ${t.deletedAt} is null and ${t.confirmPromptedAt} is null`),
+    index('properties_network_hide_idx')
+      .on(t.lastConfirmedAt)
+      .where(sql`${t.status} = 'ACTIVE' and ${t.deletedAt} is null and ${t.networkHiddenAt} is null`),
     // duplicate clusters (later sprint)
     index('properties_duplicate_cluster_idx').on(t.duplicateClusterId).where(sql`${t.duplicateClusterId} is not null`),
     check('properties_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),

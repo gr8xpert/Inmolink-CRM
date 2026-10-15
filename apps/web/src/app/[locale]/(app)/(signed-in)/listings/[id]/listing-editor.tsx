@@ -1,10 +1,12 @@
 'use client';
 
 import type { ListingContentDto, ListingDto, LockableListingField, TranslationOrigin } from '@inmolink/contracts';
+import { formatter } from '@inmolink/i18n';
 import { Button, Input, Label } from '@inmolink/ui';
 import dynamic from 'next/dynamic';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
+  confirmListingAction,
   deleteTranslationAction,
   type EditorResult,
   saveFeaturesAction,
@@ -20,11 +22,13 @@ import {
   makeT,
   parseDecimal,
   slugOf,
+  type T,
   type TranslationDraft,
   translationBody,
   translationChanged,
   translationDraft,
 } from '../values';
+import { notifyListingChanged } from './listing-events';
 
 // MapLibre loads only with the editor's location section (frontend rules: maps via next/dynamic).
 const PinMap = dynamic(() => import('./pin-map'), {
@@ -53,6 +57,8 @@ export interface ListingEditorProps {
   /** Content locales, the agency's default first. */
   contentLocales: { code: string; label: string }[];
   mapStyleUrl: string;
+  /** The UI locale (dates). */
+  locale: string;
   /** The `listings` catalog, translated on the server. */
   messages: Record<string, unknown>;
 }
@@ -77,6 +83,8 @@ export function ListingEditor(props: ListingEditorProps) {
   const [state, setState] = useState<SaveState>({ kind: 'saved' });
   const [fields, setFields] = useState<string[]>([]);
   const [tab, setTab] = useState(props.contentLocales[0]?.code ?? 'es');
+  const [freshness, setFreshness] = useState(props.listing.freshness);
+  const [confirming, setConfirming] = useState(false);
 
   // What the server holds, and the latest edits: refs, so the save loop never reads a stale render.
   const version = useRef(props.content?.version ?? props.listing.version);
@@ -123,6 +131,7 @@ export function ListingEditor(props: ListingEditorProps) {
         if (refused(r) || !r.ok) break;
         version.current = r.data.version;
         saved.current.values = listingValues(r.data);
+        setFreshness(r.data.freshness); // going ACTIVE again confirms it (S3-08)
       }
       for (const [locale, draft] of Object.entries(now.drafts)) {
         if (!translationChanged(saved.current.drafts[locale], draft)) continue;
@@ -149,6 +158,7 @@ export function ListingEditor(props: ListingEditorProps) {
     }
     setFields([]);
     setState({ kind: 'saved' });
+    notifyListingChanged(id);
   }, [id, applyContent]);
 
   // Every edit (re)starts the autosave timer; a refused save waits for the next edit before trying again.
@@ -209,6 +219,25 @@ export function ListingEditor(props: ListingEditorProps) {
       return rest;
     });
     setState({ kind: 'saved' });
+    notifyListingChanged(id);
+  };
+
+  /** "Still on the market" (S3-08), between saves: the answer carries the listing's new version. */
+  const confirmOnMarket = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setConfirming(true);
+    const r = await confirmListingAction(id);
+    busy.current = false;
+    setConfirming(false);
+    if (!r.ok) {
+      if (r.revoked) window.location.reload();
+      setState({ kind: 'error', code: r.code });
+      return;
+    }
+    version.current = r.data.version;
+    setFreshness(r.data.freshness);
+    notifyListingChanged(id);
   };
 
   const invalid = (key: string) => fields.includes(key);
@@ -323,6 +352,17 @@ export function ListingEditor(props: ListingEditorProps) {
             </Button>
           )}
         </div>
+      ) : null}
+
+      {/* Freshness counts for ACTIVE listings (and one the network hid until it is confirmed). */}
+      {freshness && (values.status === 'ACTIVE' || freshness.networkHiddenAt) ? (
+        <FreshnessNotice
+          freshness={freshness}
+          t={t}
+          locale={props.locale}
+          disabled={readOnly || confirming || state.kind === 'saving' || state.kind === 'pending'}
+          onConfirm={() => void confirmOnMarket()}
+        />
       ) : null}
 
       <form className="flex flex-col gap-4" noValidate onSubmit={(e) => e.preventDefault()}>
@@ -624,4 +664,51 @@ function draftsOf(c: ListingContentDto | null): Record<string, TranslationDraft>
 
 function originsOf(c: ListingContentDto | null): Record<string, TranslationOrigin> {
   return Object.fromEntries((c?.translations ?? []).map((tr) => [tr.locale, tr.origin]));
+}
+
+/**
+ * Freshness (S3-08): when the listing was last confirmed as on the market, the prompt once 90 days have passed,
+ * the notice once the network hid it (120 days), and the confirm button.
+ */
+function FreshnessNotice(props: {
+  freshness: NonNullable<ListingDto['freshness']>;
+  t: T;
+  locale: string;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  const { freshness, t } = props;
+  const date = (iso: string) => formatter(props.locale).date(new Date(iso));
+  const state = freshness.networkHiddenAt
+    ? 'hidden'
+    : Date.now() >= Date.parse(freshness.confirmDueAt)
+      ? 'due'
+      : 'fresh';
+  const vars = {
+    confirmed: date(freshness.lastConfirmedAt),
+    due: date(freshness.confirmDueAt),
+    hide: date(freshness.hideAt),
+    hidden: freshness.networkHiddenAt ? date(freshness.networkHiddenAt) : '',
+  };
+  return (
+    <section
+      id="section-freshness"
+      data-testid="freshness"
+      data-state={state}
+      role={state === 'fresh' ? undefined : 'alert'}
+      className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm ${
+        state === 'fresh' ? 'text-muted-foreground' : 'border-amber-500'
+      }`}
+    >
+      <span>{t(`editor.freshness.${state}`, vars)}</span>
+      <Button
+        type="button"
+        variant={state === 'fresh' ? 'outline' : 'default'}
+        disabled={props.disabled}
+        onClick={props.onConfirm}
+      >
+        {t('editor.freshness.confirm')}
+      </Button>
+    </section>
+  );
 }

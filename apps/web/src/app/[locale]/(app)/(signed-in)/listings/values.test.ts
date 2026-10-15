@@ -45,6 +45,8 @@ const LISTING: ListingDto = {
     externalRef: null,
     lockedFields: ['price'],
   },
+  qualityScore: null,
+  freshness: null,
   version: 3,
   createdAt: '2026-10-15T10:00:00.000Z',
   updatedAt: '2026-10-15T10:00:00.000Z',

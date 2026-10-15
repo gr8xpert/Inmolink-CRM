@@ -161,6 +161,25 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
     },
   );
 
+  app.post(
+    '/v1/listings/:id/confirm',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.confirmListing',
+        summary: 'Confirm the listing is still on the market (S3-08): resets the 90/120-day clock, back on the network',
+        params: ListingParams,
+        response: { 200: ListingDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => properties.confirmListing(ctx, req.params.id));
+    },
+  );
+
   // ---- Content (S3-05): the listing editor's translations and features ----
 
   app.get(

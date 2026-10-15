@@ -23,6 +23,7 @@ import {
   type RegisterMediaBody,
   type UpdateListingMediaBody,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -309,4 +310,12 @@ export async function detachListingMedia(ctx: Ctx, input: { listingId: string; m
   await repo.closeGap(ctx.tx, listing.id, removed.position);
   if (removed.isCover) await repo.ensureCover(ctx.tx, listing.id);
   await emitReferencesChanged(ctx, listing.id, [{ sha256: removed.sha256, upload: null }]);
+}
+
+/**
+ * For the quality module (S3-08): the pixel size of each photo of a listing `tx` can see, null while unprocessed.
+ * Takes a raw `tx` (request under RLS, or the quality job's tenant transaction); the caller authorizes.
+ */
+export function listingImageSizes(tx: Tx, listingId: string): Promise<({ width: number; height: number } | null)[]> {
+  return repo.imageSizes(tx, listingId);
 }

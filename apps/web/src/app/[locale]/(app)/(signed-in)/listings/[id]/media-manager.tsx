@@ -19,6 +19,7 @@ import {
   updateMediaAction,
 } from '../actions';
 import { makeT } from '../values';
+import { notifyListingChanged } from './listing-events';
 import {
   batches,
   mapLimit,
@@ -138,6 +139,14 @@ export default function MediaManager(props: MediaManagerProps) {
   /** Local previews of files uploaded in this visit, until the worker's own preview exists. */
   const previews = useRef(new Map<string, string>());
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Every saved media change may move the quality score (S3-08): tell the page (not on the first render).
+  const shown = useRef(items);
+  useEffect(() => {
+    if (shown.current === items) return;
+    shown.current = items;
+    notifyListingChanged(id);
+  }, [id, items]);
 
   useEffect(() => {
     const urls = previews.current;

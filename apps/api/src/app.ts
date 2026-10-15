@@ -10,6 +10,7 @@ import { complianceRoutes } from './routes/compliance/routes';
 import { identityRoutes } from './routes/identity/routes';
 import { mediaRoutes } from './routes/media/routes';
 import { propertiesRoutes } from './routes/properties/routes';
+import { qualityRoutes } from './routes/quality/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { staffTaxonomyRoutes } from './routes/taxonomy/staff';
 
@@ -64,5 +65,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(staffTaxonomyRoutes);
   await app.register(propertiesRoutes);
   await app.register(mediaRoutes);
+  await app.register(qualityRoutes);
   return app;
 }

@@ -444,7 +444,7 @@ alter table public."properties" force row level security;
 create policy own_rows on public."properties" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."properties" for select to app_user
-  using (app_agency() is not null and (select public.app_agency_verified()) and (visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed) and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))));
+  using (app_agency() is not null and (select public.app_agency_verified()) and (visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null and network_hidden_at is null and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed) and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))));
 revoke all on table public."properties" from public, app_user, app_system, app_public, app_auth, app_staff;
 grant select, insert, update, delete on table public."properties" to app_user;
 grant select, insert, update, delete on table public."properties" to app_system;
