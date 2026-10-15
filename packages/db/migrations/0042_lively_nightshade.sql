@@ -1,0 +1,3 @@
+DROP INDEX "properties_agency_owner_idx";--> statement-breakpoint
+CREATE INDEX "properties_agency_deleted_idx" ON "properties" USING btree ("agency_id",date_trunc('milliseconds', "created_at", 'UTC'),"id") WHERE "properties"."deleted_at" is not null;--> statement-breakpoint
+CREATE INDEX "properties_agency_owner_idx" ON "properties" USING btree ("agency_id","owner_user_id",date_trunc('milliseconds', "created_at", 'UTC'),"id");

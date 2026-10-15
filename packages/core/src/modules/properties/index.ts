@@ -2,4 +2,14 @@
 export { propertiesErrors } from './errors';
 export { propertiesEvents } from './events';
 export { propertiesJobs } from './jobs';
-// Export service functions and DTO-facing types here as they are added. Never export repo or schema.
+export { CLIENT_MODE_ALLOWED, can, PROPERTIES_ACTIONS, PROPERTIES_IMPERSONATION } from './policy';
+export {
+  createListing,
+  deleteListing,
+  getListing,
+  LISTING_RESTORE_DAYS,
+  listListings,
+  restoreListing,
+  updateListing,
+} from './service';
+// Never export repo or schema.

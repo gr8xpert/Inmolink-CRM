@@ -13,6 +13,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 - Legacy taxonomy import (S2-06 recheck): location ancestor lookup chunked (bind-parameter limit on large legacy levels); staff-set manual maps win over the resolver and are reported as `manual`. [S2-06]
 
 ### Added
+- Listing service (S3-02): create/read/list/update/soft-delete/restore listings with agency commission defaults, status lifecycle, visibility gate (verified agency, CEE rating for PUBLIC), optimistic versions, price/status history and `properties.listing.*` events; dashboard routes under `/v1/listings`. No new dependencies. [S3-02]
 - Property schema (S3-01): new `properties` module; listing tables `properties`, `property_privates`, `property_translations`, `property_features`, `property_price_histories`, `property_status_histories`, `property_media` with network sharing rules (migration 0041). No new dependencies. [S3-01]
 - Legacy taxonomy import (S2-06, fixture-tested; real run waits on H1): new `migration` module, `pnpm legacy:taxonomy` script, global `legacy_id_maps` table (migration 0038), report of unmapped legacy IDs with reasons. No new dependencies.
 - Alias resolver and unmatched queue (S2-05): `resolveLocation/Type/Feature` and batch `resolveAndQueue` (alias → name → pg_trgm with accept threshold and margin, never a silent guess), `taxonomy_unmatched` staff queue with counts/examples/candidate, staff API `/v1/staff/taxonomy/unmatched` (list, map → alias, ignore); migration 0037 (queue table, trigram GIN indexes). No new dependencies. [S2-05]

@@ -140,8 +140,12 @@ export const properties = pgTable(
     uniqueIndex('properties_agency_ref_uq').on(t.agencyId, t.ref),
     // the agency's listings, newest first (keyset `keysetOrder`, S2-F1): where agency_id = ? order by … desc
     index('properties_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
-    // FK to the owner's membership + an agent's own listings: where agency_id = ? and owner_user_id = ?
-    index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId),
+    // FK to the owner's membership + an agent's own listings (`mine`), newest first: keyset like the agency list
+    index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId, keysetTime(t.createdAt), t.id),
+    // the restorable (soft-deleted) listings of an agency, newest first: few rows, so a partial index
+    index('properties_agency_deleted_idx')
+      .on(t.agencyId, keysetTime(t.createdAt), t.id)
+      .where(sql`${t.deletedAt} is not null`),
     foreignKey({
       name: 'properties_owner_member_fk',
       columns: [t.agencyId, t.ownerUserId],

@@ -98,6 +98,13 @@ export const ErrorCodes = {
   LOCATION_POLYGON_INVALID: 422,
   /** The ids do not match exactly the siblings (or group members) being ordered. */
   TAXONOMY_ORDER_INVALID: 422,
+  // properties (S3-02)
+  /** PUBLIC needs a CEE energy rating (A–G or EXEMPT; PENDING is not one), PLAN §13. */
+  ENERGY_RATING_REQUIRED: 422,
+  /** A status change the lifecycle does not allow (e.g. DRAFT → SOLD, a sale marked RENTED). */
+  LISTING_STATUS_INVALID: 409,
+  /** Restore after the 30-day window (PLAN §3 #34), or of a listing that is not deleted. */
+  LISTING_RESTORE_UNAVAILABLE: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;
