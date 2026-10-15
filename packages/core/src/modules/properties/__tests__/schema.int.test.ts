@@ -2,7 +2,6 @@ import { closeDb, type Tx, withSystem, withTenant } from '@inmolink/db';
 import {
   properties,
   propertyFeatures,
-  propertyMedia,
   propertyPriceHistories,
   propertyPrivates,
   propertyStatusHistories,
@@ -64,11 +63,11 @@ async function seedListing(over: Partial<typeof properties.$inferInsert> = {}): 
       .insert(propertyTranslations)
       .values({ propertyId: id, agencyId, locale: 'en', title: 'Sea view villa', slug: 'sea-view-villa' });
     await tx.insert(propertyFeatures).values({ propertyId: id, agencyId, featureId: ids.feature });
-    await tx.insert(propertyMedia).values([
-      { id: newId(), propertyId: id, agencyId, mediaObjectId: newId(), position: 0, isCover: true },
-      // a nota simple: seller names and cadastral data, never shared
-      { id: newId(), propertyId: id, agencyId, mediaObjectId: newId(), position: 1, kind: 'DOCUMENT' },
-    ]);
+    // Media rows belong to the media module (S3-03): written with SQL, not its schema. The second one is a nota
+    // simple (seller names and cadastral data), never shared.
+    await tx.execute(sql`insert into property_media (id, property_id, agency_id, sha256, position, is_cover, kind)
+      values (${newId()}, ${id}, ${agencyId}, ${'a'.repeat(64)}, 0, true, 'IMAGE'),
+             (${newId()}, ${id}, ${agencyId}, ${'b'.repeat(64)}, 1, false, 'DOCUMENT')`);
     await tx
       .insert(propertyPriceHistories)
       .values({ id: newId(), propertyId: id, agencyId, priceCents: 45_000_000, currency: 'EUR' });
@@ -82,14 +81,16 @@ async function visibleTo(f: Founder, id: string) {
   return as(f, async (tx) => {
     const n = async (table: typeof propertyPrivates | typeof propertyTranslations | typeof propertyFeatures) =>
       (await tx.select({ n: sql<number>`count(*)::int` }).from(table).where(eq(table.propertyId, id)))[0]?.n;
-    const m = async (table: typeof propertyMedia | typeof propertyPriceHistories | typeof propertyStatusHistories) =>
+    const m = async (table: typeof propertyPriceHistories | typeof propertyStatusHistories) =>
       (await tx.select({ n: sql<number>`count(*)::int` }).from(table).where(eq(table.propertyId, id)))[0]?.n;
     return {
       listing: (await tx.select({ n: sql<number>`count(*)::int` }).from(properties).where(eq(properties.id, id)))[0]?.n,
       privates: await n(propertyPrivates),
       translations: await n(propertyTranslations),
       features: await n(propertyFeatures),
-      media: await m(propertyMedia),
+      media: Number(
+        (await tx.execute(sql`select count(*)::int as n from property_media where property_id = ${id}`)).rows[0]?.n,
+      ),
       priceHistory: await m(propertyPriceHistories),
       statusHistory: await m(propertyStatusHistories),
     };

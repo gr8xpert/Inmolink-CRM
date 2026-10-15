@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -376,6 +376,14 @@ create policy staff_insert on public."locations" for insert to app_staff with ch
 create policy staff_update on public."locations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
 create policy staff_delete on public."locations" for delete to app_staff using (app_is_staff());
 grant select, insert, update, delete on table public."locations" to app_staff;
+
+-- media_objects: GLOBAL
+alter table public."media_objects" enable row level security;
+alter table public."media_objects" force row level security;
+create policy global_read on public."media_objects" for select to app_user using (true);
+revoke all on table public."media_objects" from public, app_user, app_system, app_public, app_auth, app_staff;
+grant select on table public."media_objects" to app_user;
+grant select, insert, update, delete on table public."media_objects" to app_system;
 
 -- outbox_events: STRICT
 alter table public."outbox_events" enable row level security;

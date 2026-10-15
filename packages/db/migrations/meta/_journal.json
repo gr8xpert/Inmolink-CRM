@@ -316,6 +316,27 @@
       "when": 1792050535668,
       "tag": "0044_tense_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1792068469059,
+      "tag": "0045_property_media_by_sha",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792068498681,
+      "tag": "0046_media_objects",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792068503458,
+      "tag": "0047_property_media_drop_object_id",
+      "breakpoints": true
     }
   ]
 }

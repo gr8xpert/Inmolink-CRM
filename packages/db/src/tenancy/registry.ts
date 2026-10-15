@@ -179,6 +179,9 @@ export interface TenantRegistry {
   global: Record<string, GlobalTable>;
 }
 
+/** A well-formed SHA-256 no real file has (the isolation suite's media rows; checked hex columns). */
+const ISOLATION_SHA256 = '0'.repeat(64);
+
 /** Tables with `agency_id`. Add each new tenant table here, then run `pnpm db:rls`. */
 export const tenantTables: Record<string, TenantTable> = {
   // Transactional outbox: request transactions insert their own agency's events; the dispatcher
@@ -411,6 +414,7 @@ export const tenantTables: Record<string, TenantTable> = {
     // Documents (nota simple, contracts: seller names, DNI, cadastral data) never leave the owner agency.
     networkReadSql:
       "kind <> 'DOCUMENT' and exists (select 1 from public.properties p where p.id = property_media.property_id)",
+    base: { sha256: ISOLATION_SHA256 },
     samples: { visible: [], hidden: [{}] },
   },
   // Price and status history: the owner's, not shared, append-only (members read and append, never rewrite).
@@ -470,6 +474,12 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'feed values with no confident taxonomy match, awaiting staff mapping',
     staffWrite: true,
     base: { kind: 'location' },
+  },
+  // Content-addressed media (S3-03): one original per SHA-256 for every agency. Tenants read it (the upload
+  // check: is this hash stored already?); only the media worker writes it, recounting references via withSystem().
+  media_objects: {
+    reason: 'content-addressed media originals shared by every agency (deduplicated by SHA-256)',
+    base: { sha256: ISOLATION_SHA256, content_type: 'image/jpeg' },
   },
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
   legacy_id_maps: {

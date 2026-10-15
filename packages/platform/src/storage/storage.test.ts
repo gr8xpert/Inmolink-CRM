@@ -66,6 +66,57 @@ describe('storage', () => {
     ).rejects.toThrow(TypeError);
   });
 
+  it('[S3-03] signed PUT URLs bind the content type, exact length and SHA-256 into the signature', async () => {
+    const sha256Hex = 'ab'.repeat(32);
+    const put = await store.signedPutUrl('media', `originals/${sha256Hex}`, {
+      expiresInSeconds: 900,
+      contentType: 'image/jpeg',
+      contentLength: 2_048,
+      sha256Hex,
+    });
+    const url = new URL(put.url);
+    expect(url.origin + url.pathname).toBe(`http://localhost:9000/m/originals/${sha256Hex}`);
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('900');
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).toBe(
+      'content-length;content-type;host;if-none-match;x-amz-checksum-sha256',
+    );
+    expect(put.headers).toEqual({
+      'content-length': '2048',
+      'content-type': 'image/jpeg',
+      'x-amz-checksum-sha256': Buffer.from(sha256Hex, 'hex').toString('base64'),
+      'if-none-match': '*',
+    });
+    const base = { expiresInSeconds: 900, contentType: 'image/jpeg', contentLength: 1, sha256Hex };
+    await expect(store.signedPutUrl('media', 'k', { ...base, sha256Hex: 'AB'.repeat(32) })).rejects.toThrow(TypeError);
+    await expect(store.signedPutUrl('media', 'k', { ...base, contentLength: 0 })).rejects.toThrow(RangeError);
+    await expect(store.signedPutUrl('media', 'k', { ...base, contentType: 'image/jpeg\r\nx: y' })).rejects.toThrow(
+      TypeError,
+    );
+    await expect(store.signedPutUrl('media', 'k', { ...base, expiresInSeconds: 3_601 })).rejects.toThrow(RangeError);
+  });
+
+  it('[S3-03] detects HEIC by its ISO-BMFF brand, not AVIF or other ftyp files', () => {
+    const ftyp = (brand: string) => new TextEncoder().encode(`\0\0\0\x18ftyp${brand}\0\0\0\0`);
+    expect(detectFileType(ftyp('heic'))?.contentType).toBe('image/heic');
+    expect(detectFileType(ftyp('mif1'))?.contentType).toBe('image/heic');
+    expect(detectFileType(ftyp('avif'))).toBeNull();
+    expect(detectFileType(ftyp('isom'))).toBeNull(); // an MP4 video
+  });
+
+  it('[S3-03] the memory store reads byte ranges', async () => {
+    const memory = createMemoryStore();
+    await memory.put('media', 'originals/x', new Uint8Array([1, 2, 3, 4, 5]), { contentType: 'image/jpeg' });
+    expect(await memory.getRange('media', 'originals/x', 1, 3)).toEqual({
+      bytes: new Uint8Array([2, 3, 4]),
+      sizeBytes: 5,
+    });
+    expect(await memory.getRange('media', 'originals/x', 0, 99)).toEqual({
+      bytes: new Uint8Array([1, 2, 3, 4, 5]),
+      sizeBytes: 5,
+    });
+    expect(await memory.getRange('media', 'originals/none', 0, 9)).toBeNull();
+  });
+
   it('[S1-03] content disposition strips controls and non-ASCII from the fallback name', () => {
     expect(attachmentDisposition('añ\r\nb.pdf')).toBe(
       `attachment; filename="a___b.pdf"; filename*=UTF-8''a%C3%B1%0D%0Ab.pdf`,

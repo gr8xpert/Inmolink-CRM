@@ -316,6 +316,24 @@ export async function getListing(ctx: Ctx, id: string): Promise<ListingDto> {
   return toDto(ctx, row, own ? await repo.getPrivates(ctx.tx, id) : null);
 }
 
+/**
+ * For the media module (S3-03): the caller's own, not deleted listing, row-locked so concurrent media changes
+ * of one listing (positions, cover) run one after another. Same refusals as an edit (`listing.update`).
+ */
+export async function lockListingForMedia(ctx: Ctx, id: string): Promise<{ id: string; agencyId: string }> {
+  const row = await ownForChange(ctx, id, 'listing.update');
+  if (row.deletedAt) throw new AppError('LISTING_NOT_FOUND');
+  assertCan(ctx, 'listing.update', row); // agents change only their own listings' media; admins any
+  return { id: row.id, agencyId: row.agencyId };
+}
+
+/** For the media module (S3-03): refuses a listing the caller cannot read, like `getListing`. */
+export async function assertListingReadable(ctx: Ctx, id: string): Promise<void> {
+  assertCan(ctx, 'listing.read');
+  const row = await repo.getListing(ctx.tx, id);
+  if (!row || (row.deletedAt && row.agencyId !== ctx.tenant.agencyId)) throw new AppError('LISTING_NOT_FOUND');
+}
+
 /** `GET /v1/listings`: the agency's listings (or the caller's own with `mine`), newest first, keyset ≤ 100. */
 export async function listListings(ctx: Ctx, q: ListListingsQuery): Promise<ListingPage> {
   assertCan(ctx, 'listing.read');

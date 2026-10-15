@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Added
+- Media upload pipeline (S3-03): content-addressed originals (`media_objects`, SHA-256), `POST /v1/media/check` (stored files need no upload; signed create-only PUTs bound to type, size and checksum), `POST /v1/media/register` (magic-byte check, attach in order with one cover), list and detach; reference recount job `media.syncObjects` schedules unreferenced objects for deletion after 7 days. No new dependencies. [S3-03]
+
 ### Changed
 - Test hygiene (S2-F3): `test:int:root` runs every root project and fails at the end (`scripts/ci/run-projects.ts`); the outbox idle-pickup test uses the dispatcher's new `onClaim` observer instead of wall-clock latency; a migration backfill test for 0033; `[S1-10]` tags on the bundle budget output; `toCommission` throws an `AppError`. No new dependencies. [S2-F3]
 - Settings and impersonation hardening (S2-F2): the shared settings read drops the Client Mode PIN policy (new internal `getClientModePolicy`); staff impersonating a member are rate-limited in their own bucket; logs redact agency contact, address, document and DTO name fields. No new dependencies. [S2-F2]

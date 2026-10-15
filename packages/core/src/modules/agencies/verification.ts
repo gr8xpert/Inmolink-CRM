@@ -7,6 +7,7 @@ import {
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_MAX_BYTES,
   VERIFICATION_DOCUMENT_MAX_COUNT,
+  VERIFICATION_DOCUMENT_TYPES,
   type VerificationDocumentDto,
   type VerificationQueuePage,
   type VerificationQueueQuery,
@@ -80,7 +81,9 @@ export async function uploadVerificationDocument(
     throw new AppError('PAYLOAD_TOO_LARGE', { maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES });
   }
   const type = detectFileType(input.body);
-  if (!type) throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { allowed: ['pdf', 'png', 'jpeg', 'webp'] });
+  if (!type || !(VERIFICATION_DOCUMENT_TYPES as readonly string[]).includes(type.contentType)) {
+    throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { allowed: ['pdf', 'png', 'jpeg', 'webp'] });
+  }
 
   const agencyId = await run(async (ctx) => {
     assertCan(ctx, 'agencies.verification.manage');

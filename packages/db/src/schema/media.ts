@@ -1,0 +1,101 @@
+/**
+ * Tables owned by the media module (PATTERNS §2). Only `packages/core/src/modules/media` imports
+ * this file (`pnpm check:boundaries`). Register each table in `../tenancy/registry.ts`, then run
+ * `pnpm db:generate && pnpm db:migrate && pnpm db:rls`.
+ *
+ * Media are content-addressed (PLAN §3 #33, S3-03): one stored original per SHA-256 for the whole platform,
+ * however many listings and agencies use it. `media_objects` is that global registry (written only by the
+ * media worker, `withSystem()`); `property_media` is a listing's ordered use of an object, by hash — so read
+ * models build variant keys (`v{pipeline}/{sha}/{size}.webp`, S3-04) without a join.
+ */
+
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  boolean,
+  char,
+  check,
+  foreignKey,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { properties } from './properties';
+
+const SHA256_HEX = (column: unknown) => sql`${column} ~ '^[0-9a-f]{64}$'`;
+
+/**
+ * One stored original per content hash (global: no `agency_id`). `refcount` counts `property_media` rows
+ * using the hash across every agency; the media worker recounts it after each change (idempotent), and at 0
+ * sets `delete_after` — the orphan cleanup (S3-04) deletes the object once that passes, unless it is used again.
+ */
+export const mediaObjects = pgTable(
+  'media_objects',
+  {
+    sha256: char('sha256', { length: 64 }).primaryKey(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    /** Detected from the stored bytes (magic bytes), never the client's header. */
+    contentType: text('content_type').notNull(),
+    /** 64-bit perceptual hash for near-duplicate detection; filled by the processing worker (S3-04). */
+    phash: bigint('phash', { mode: 'bigint' }),
+    refcount: integer('refcount').notNull().default(0),
+    deleteAfter: timestamp('delete_after', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // orphan cleanup (S3-04): unreferenced objects, the ones due first
+    index('media_objects_delete_after_idx').on(t.deleteAfter).where(sql`${t.deleteAfter} is not null`),
+    check('media_objects_sha256_ck', SHA256_HEX(t.sha256)),
+    check('media_objects_size_ck', sql`${t.sizeBytes} > 0`),
+    check('media_objects_refcount_ck', sql`${t.refcount} >= 0`),
+    check(
+      'media_objects_content_type_ck',
+      sql`${t.contentType} in ('image/jpeg', 'image/png', 'image/webp', 'image/heic')`,
+    ),
+  ],
+);
+
+export const propertyMediaKindEnum = pgEnum('property_media_kind', ['IMAGE', 'FLOOR_PLAN', 'VIDEO', 'DOCUMENT']);
+
+/** The listing's media in order: its use of a content-addressed object, by hash (no variant rows). */
+export const propertyMedia = pgTable(
+  'property_media',
+  {
+    id: uuid('id').primaryKey(),
+    propertyId: uuid('property_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    kind: propertyMediaKindEnum('kind').notNull().default('IMAGE'),
+    position: integer('position').notNull(),
+    isCover: boolean('is_cover').notNull().default(false),
+    altText: text('alt_text'),
+    /** Room shown (`kitchen`, `bedroom`, …): AI-tagged or set by the agent. */
+    roomType: text('room_type'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'property_media_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    // FK + a listing's media in order
+    index('property_media_property_idx').on(t.propertyId, t.position),
+    // one cover per listing
+    uniqueIndex('property_media_cover_uq').on(t.propertyId).where(sql`${t.isCover}`),
+    // a file is attached to a listing once (a retried register is a no-op)
+    unique('property_media_property_sha_uq').on(t.propertyId, t.sha256),
+    // reference counting of a media object (media.syncObjects)
+    index('property_media_sha_idx').on(t.sha256),
+    check('property_media_position_ck', sql`${t.position} >= 0`),
+    check('property_media_sha256_ck', SHA256_HEX(t.sha256)),
+  ],
+);

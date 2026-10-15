@@ -8,6 +8,7 @@ export * from './billing';
 export * from './compliance';
 export * from './flags';
 export * from './identity';
+export * from './media';
 export * from './migration';
 export * from './outbox';
 export * from './properties';

@@ -105,6 +105,14 @@ export const ErrorCodes = {
   LISTING_STATUS_INVALID: 409,
   /** Restore after the 30-day window (PLAN §3 #34), or of a listing that is not deleted. */
   LISTING_RESTORE_UNAVAILABLE: 409,
+  // media (S3-03)
+  /** The stored bytes are not an accepted image type (magic bytes), whatever the name or header said. */
+  MEDIA_TYPE_NOT_ALLOWED: 415,
+  /** Registered before the upload finished (or the signed upload expired): check and upload again. */
+  MEDIA_NOT_UPLOADED: 409,
+  /** The listing already has `MEDIA_PER_LISTING_MAX` media. */
+  MEDIA_LIMIT_REACHED: 409,
+  MEDIA_NOT_FOUND: 404,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

@@ -6,9 +6,9 @@
  * Sharing (S3-01): `properties` is NETWORK_READ — other verified agencies read SHARED/PUBLIC, ACTIVE, not
  * deleted rows of a listed owner (PREFERRED scope: only agencies the owner prefers). RLS shares whole rows, so
  * a listing's private fields live in the STRICT `property_privates`. Translations, features and media are
- * readable wherever their listing is; price and status history stays with the owner. Every child row carries
- * the listing's own `agency_id`, enforced by a composite foreign key to `properties (id, agency_id)`: an agency
- * cannot hang rows on another agency's listing.
+ * readable wherever their listing is (media rows belong to the media module, `./media.ts`, S3-03); price and
+ * status history stays with the owner. Every child row carries the listing's own `agency_id`, enforced by a
+ * composite foreign key to `properties (id, agency_id)`: an agency cannot hang rows on another agency's listing.
  */
 
 import { sql } from 'drizzle-orm';
@@ -51,7 +51,6 @@ export const transactionTypeEnum = pgEnum('transaction_type', ['SALE', 'RENT_LON
 export const locationPrecisionEnum = pgEnum('location_precision', ['EXACT', 'APPROX']);
 /** Who wrote a translation (PLAN §3 AI rules): AI drafts stay marked until a person reviews them. */
 export const translationOriginEnum = pgEnum('translation_origin', ['HUMAN', 'AI_DRAFT', 'REVIEWED']);
-export const propertyMediaKindEnum = pgEnum('property_media_kind', ['IMAGE', 'FLOOR_PLAN', 'VIDEO', 'DOCUMENT']);
 /** What a rent price is per (sale prices have none). */
 export const pricePeriodEnum = pgEnum('price_period', ['NIGHT', 'WEEK', 'MONTH']);
 /** CEE label letters (PLAN §13): consumption and emissions are rated separately; EXEMPT / PENDING per Spanish rules. */
@@ -324,41 +323,5 @@ export const propertyStatusHistories = pgTable(
     }).onDelete('cascade'),
     // FK + a listing's status history, newest first
     index('property_status_histories_property_idx').on(t.propertyId, t.changedAt, t.id),
-  ],
-);
-
-/**
- * The listing's media in order: a reference to a content-addressed `media_objects` row (S3-03 adds that table
- * and the foreign key; variants are derived from its sha256, no variant table).
- */
-export const propertyMedia = pgTable(
-  'property_media',
-  {
-    id: uuid('id').primaryKey(),
-    propertyId: uuid('property_id').notNull(),
-    agencyId: uuid('agency_id').notNull(),
-    mediaObjectId: uuid('media_object_id').notNull(),
-    kind: propertyMediaKindEnum('kind').notNull().default('IMAGE'),
-    position: integer('position').notNull(),
-    isCover: boolean('is_cover').notNull().default(false),
-    altText: text('alt_text'),
-    /** Room shown (`kitchen`, `bedroom`, …): AI-tagged or set by the agent. */
-    roomType: text('room_type'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    foreignKey({
-      name: 'property_media_property_fk',
-      columns: [t.propertyId, t.agencyId],
-      foreignColumns: [properties.id, properties.agencyId],
-    }).onDelete('cascade'),
-    // FK + a listing's media in order
-    index('property_media_property_idx').on(t.propertyId, t.position),
-    // one cover per listing
-    uniqueIndex('property_media_cover_uq').on(t.propertyId).where(sql`${t.isCover}`),
-    // reference counting and deletion of a media object (S3-03)
-    index('property_media_object_idx').on(t.mediaObjectId),
-    check('property_media_position_ck', sql`${t.position} >= 0`),
   ],
 );

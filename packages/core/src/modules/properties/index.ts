@@ -4,11 +4,13 @@ export { propertiesEvents } from './events';
 export { propertiesJobs } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, PROPERTIES_ACTIONS, PROPERTIES_IMPERSONATION } from './policy';
 export {
+  assertListingReadable,
   createListing,
   deleteListing,
   getListing,
   LISTING_RESTORE_DAYS,
   listListings,
+  lockListingForMedia,
   restoreListing,
   updateListing,
 } from './service';

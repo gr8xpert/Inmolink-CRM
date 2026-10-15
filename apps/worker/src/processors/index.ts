@@ -1,6 +1,7 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { identityJobs } from '@inmolink/core/modules/identity';
+import { mediaJobs } from '@inmolink/core/modules/media';
 import type { JobDef } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
 
@@ -11,7 +12,7 @@ import type { Pool } from '../config';
  */
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   imports: [],
-  media: [],
+  media: [mediaJobs.syncObjects],
   indexing: [],
   matching: [],
   exports: [],

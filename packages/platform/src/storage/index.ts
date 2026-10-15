@@ -32,6 +32,32 @@ export interface SignedUrlOptions {
   responseContentType?: string;
 }
 
+export interface SignedPutOptions {
+  /** 1 s … 1 h. */
+  expiresInSeconds: number;
+  /** Signed: the client must send exactly this `Content-Type`. */
+  contentType: string;
+  /** Signed: the store refuses a body of any other length (size cap enforced by the store, S3-03). */
+  contentLength: number;
+  /**
+   * Signed as `x-amz-checksum-sha256` (hex in, base64 on the wire): the store refuses a body whose SHA-256
+   * differs, so a content-addressed key can only ever hold its own content (S3-03).
+   */
+  sha256Hex: string;
+}
+
+export interface SignedPut {
+  url: string;
+  /** Headers the client must send with the PUT, exactly as given (they are part of the signature). */
+  headers: Record<string, string>;
+}
+
+export interface RangeRead {
+  bytes: Uint8Array;
+  /** The whole object's size. */
+  sizeBytes: number;
+}
+
 export interface ListOptions {
   limit: number;
   after?: string;
@@ -53,8 +79,19 @@ export interface ObjectStore {
    * previous page's `next` as `after` to continue; `next` is null on the last page.
    */
   list(bucket: BucketName, prefix: string, options: ListOptions): Promise<ListPage>;
+  /**
+   * Bytes `start`…`end` (inclusive) of an object — fewer when it is shorter — and its total size, or null when
+   * it does not exist. One request: the magic-byte and size check of an object uploaded straight to the store
+   * (S3-03).
+   */
+  getRange(bucket: BucketName, key: string, start: number, end: number): Promise<RangeRead | null>;
   /** A time-limited GET URL. Local signing only: no network call. */
   signedGetUrl(bucket: BucketName, key: string, options: SignedUrlOptions): Promise<string>;
+  /**
+   * A time-limited, create-only PUT URL bound to one content type, length and SHA-256 (`If-None-Match: *` is
+   * signed too: answered 412 when the key exists). Local signing only.
+   */
+  signedPutUrl(bucket: BucketName, key: string, options: SignedPutOptions): Promise<SignedPut>;
 }
 
 export interface S3StoreConfig {
@@ -90,6 +127,32 @@ export function assertObjectKey(key: string): void {
 const MAX_SIGNED_SECONDS = 3_600;
 /** `type/subtype` only: no parameters, nothing a header could be injected with. */
 const CONTENT_TYPE_RE = /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/;
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+
+function assertSignedSeconds(value: number): number {
+  const seconds = Math.floor(value);
+  if (!(seconds >= 1 && seconds <= MAX_SIGNED_SECONDS)) {
+    throw new RangeError(`storage: signed URLs live 1–${MAX_SIGNED_SECONDS} s`);
+  }
+  return seconds;
+}
+
+/** The signed headers of a PUT URL (validated: they end up in a signature and in the client's request). */
+function putHeaders(options: SignedPutOptions): Record<string, string> {
+  if (!CONTENT_TYPE_RE.test(options.contentType)) throw new TypeError('storage: invalid content type');
+  if (!(Number.isSafeInteger(options.contentLength) && options.contentLength > 0)) {
+    throw new RangeError('storage: content length must be a positive integer');
+  }
+  if (!SHA256_HEX_RE.test(options.sha256Hex)) throw new TypeError('storage: invalid sha256');
+  return {
+    'content-length': String(options.contentLength),
+    'content-type': options.contentType,
+    'x-amz-checksum-sha256': Buffer.from(options.sha256Hex, 'hex').toString('base64'),
+    // Create only: a stored object is never overwritten through a signed URL (412 = stored already).
+    'if-none-match': '*',
+  };
+}
 
 /** `attachment; filename="…"; filename*=UTF-8''…` with the ASCII fallback stripped of quotes and controls. */
 export function attachmentDisposition(name: string): string {
@@ -195,11 +258,51 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       if (!res.ok) throw new StorageError(`storage LIST failed (${res.status})`, res.status);
       return parseListPage(await res.text());
     },
-    async signedGetUrl(bucket, key, options) {
-      const seconds = Math.floor(options.expiresInSeconds);
-      if (!(seconds >= 1 && seconds <= MAX_SIGNED_SECONDS)) {
-        throw new RangeError(`storage: signed URLs live 1–${MAX_SIGNED_SECONDS} s`);
+    async getRange(bucket, key, start, end) {
+      if (!(Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end >= start)) {
+        throw new RangeError('storage: invalid byte range');
       }
+      const res = await send(urlOf(bucket, key), { method: 'GET', headers: { range: `bytes=${start}-${end}` } });
+      if (res.status === 404) {
+        await res.body?.cancel();
+        return null;
+      }
+      if (res.status === 416) {
+        // Nothing at `start`: an empty object (or one shorter than `start`), whose size the answer names.
+        await res.body?.cancel();
+        const size = /\/(\d+)$/.exec(res.headers.get('content-range') ?? '')?.[1];
+        return { bytes: new Uint8Array(), sizeBytes: Number(size ?? 0) };
+      }
+      if (!res.ok) {
+        await res.body?.cancel();
+        throw new StorageError(`storage GET failed (${res.status})`, res.status);
+      }
+      // 206: `Content-Range: bytes 0-15/<total>`. A store that ignores Range answers 200 with the whole object.
+      const total =
+        res.status === 206
+          ? /\/(\d+)$/.exec(res.headers.get('content-range') ?? '')?.[1]
+          : (res.headers.get('content-length') ?? undefined);
+      if (total === undefined) {
+        await res.body?.cancel();
+        throw new StorageError('storage GET: object size unknown');
+      }
+      // Read only the asked bytes, then stop (a 200 may stream megabytes).
+      const want = end - start + 1;
+      const out = new Uint8Array(want);
+      let got = 0;
+      const reader = res.body?.getReader();
+      while (reader && got < want) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const take = value.subarray(0, want - got);
+        out.set(take, got);
+        got += take.byteLength;
+      }
+      await reader?.cancel();
+      return { bytes: out.slice(0, got), sizeBytes: Number(total) };
+    },
+    async signedGetUrl(bucket, key, options) {
+      const seconds = assertSignedSeconds(options.expiresInSeconds);
       const url = urlOf(bucket, key);
       url.searchParams.set('X-Amz-Expires', String(seconds));
       if (options.downloadName) {
@@ -211,6 +314,14 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       }
       const signed = await aws.sign(url.href, { method: 'GET', aws: { signQuery: true } });
       return signed.url;
+    },
+    async signedPutUrl(bucket, key, options) {
+      const url = urlOf(bucket, key);
+      url.searchParams.set('X-Amz-Expires', String(assertSignedSeconds(options.expiresInSeconds)));
+      const headers = putHeaders(options);
+      // `allHeaders`: aws4fetch leaves content-type and content-length out of signatures by default.
+      const signed = await aws.sign(url.href, { method: 'PUT', headers, aws: { signQuery: true, allHeaders: true } });
+      return { url: signed.url, headers };
     },
   };
 }
@@ -254,9 +365,17 @@ export function createMemoryStore(): MemoryStore {
         next: keys.length > page.length && last ? last.slice(bucket.length + 1) : null,
       };
     },
+    async getRange(bucket, key, start, end) {
+      const o = objects.get(id(bucket, key));
+      return o ? { bytes: o.body.slice(start, end + 1), sizeBytes: o.body.byteLength } : null;
+    },
     async signedGetUrl(bucket, key, options) {
       const type = options.responseContentType ? `&type=${encodeURIComponent(options.responseContentType)}` : '';
       return `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}${type}`;
+    },
+    async signedPutUrl(bucket, key, options) {
+      assertSignedSeconds(options.expiresInSeconds);
+      return { url: `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}`, headers: putHeaders(options) };
     },
   };
 }
@@ -292,4 +411,4 @@ export function storageConfigFromEnv(env: {
   };
 }
 
-export { type DetectedFile, detectFileType } from './sniff';
+export { type DetectedFile, detectFileType, SNIFF_BYTES } from './sniff';
