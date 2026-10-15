@@ -316,6 +316,25 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S3-F1] noUserRead: no app_user policy or grant; staff keep their gated policies; refused with publicRead', () => {
+    const r: TenantRegistry = {
+      tenant: {},
+      global: { queue: { reason: 'staff queue', staffWrite: true, noUserRead: true } },
+    };
+    const sql = generateRlsSql(r);
+    expect(sql).not.toContain('create policy global_read on public."queue"');
+    expect(sql).not.toMatch(/grant select on table public\."queue" to app_user/);
+    expect(sql).toContain(
+      'create policy staff_select on public."queue" for select to app_staff using (app_is_staff());',
+    );
+    const def = r.global.queue as NonNullable<(typeof r.global)['queue']>;
+    expect(expectedPrivileges(def).app_user).toEqual([]);
+    expect(expectedPolicies(def).map((p) => p.name)).not.toContain('global_read');
+    expect(() =>
+      generateRlsSql({ tenant: {}, global: { x: { reason: 'x', publicRead: true, noUserRead: true } } }),
+    ).toThrow(/noUserRead/);
+  });
+
   it('[S0-05] the production registry generates valid SQL', () => {
     expect(() => generateRlsSql(registry)).not.toThrow();
   });

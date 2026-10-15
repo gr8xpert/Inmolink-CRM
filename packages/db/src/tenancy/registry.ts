@@ -170,6 +170,12 @@ export interface GlobalTable {
    * no other auth flow can read or change another user's factor.
    */
   userScoped?: true;
+  /**
+   * `app_user` gets no read (no `global_read` policy, no grant): rows carry other agencies' data (listing refs,
+   * feed names) or tenant mappings. Only `app_system` and, with `staffWrite`, active staff reach it (S3-F1).
+   * Not with `publicRead` or `access`.
+   */
+  noUserRead?: true;
   /** Values for NOT NULL columns the isolation suite cannot invent (check-constrained levels, …). */
   base?: SampleRow;
 }
@@ -433,7 +439,7 @@ export const tenantTables: Record<string, TenantTable> = {
 };
 
 /**
- * Tables without `agency_id`. Readable by `app_user`, written only by `withSystem()` (app_system) —
+ * Tables without `agency_id`. Readable by `app_user` (unless `noUserRead`), written only by `withSystem()` (app_system) —
  * except `access: 'auth'` tables, which only `app_auth` and `app_system` reach.
  */
 export const globalTables: Record<string, GlobalTable> = {
@@ -483,6 +489,8 @@ export const globalTables: Record<string, GlobalTable> = {
   taxonomy_unmatched: {
     reason: 'feed values with no confident taxonomy match, awaiting staff mapping',
     staffWrite: true,
+    // examples name agencies' listing refs and feed names (S3-F1)
+    noUserRead: true,
     base: { kind: 'location' },
   },
   // Content-addressed media (S3-03): one original per SHA-256 for every agency. Tenants read it (the upload
@@ -494,6 +502,8 @@ export const globalTables: Record<string, GlobalTable> = {
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
   legacy_id_maps: {
     reason: 'every legacy ID and the v2 ID it became (ADR 0006), permanent',
+    // import scripts only; tenant entity maps (S14) must not be readable across agencies (S3-F1)
+    noUserRead: true,
     base: { entity: 'location', method: 'exact' },
   },
 };

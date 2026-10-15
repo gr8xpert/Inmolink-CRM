@@ -89,8 +89,10 @@ export const ErrorCodes = {
   // taxonomy: property types and features (S2-02)
   /** No such property type, feature or group. */
   TAXONOMY_NOT_FOUND: 404,
-  /** The key, or a slug in that locale, is already used. */
+  /** The key is already used. */
   TAXONOMY_KEY_TAKEN: 409,
+  /** Another item of the catalog already uses this slug in this locale (S3-F1). */
+  TAXONOMY_SLUG_TAKEN: 409,
   /** The spelling already maps to another property type or feature. */
   TAXONOMY_ALIAS_TAKEN: 409,
   // taxonomy: staff admin (S2-04)

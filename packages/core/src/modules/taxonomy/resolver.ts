@@ -154,8 +154,10 @@ export async function resolveAndQueue(
       candidateScore: r.candidate?.confidence ?? null,
     };
     row.count += Math.max(1, v.count ?? 1);
-    if (v.example && row.examples.length < EXAMPLES_MAX && !row.examples.includes(v.example)) {
-      row.examples.push(v.example.slice(0, VALUE_MAX));
+    // newest first: a later value of the batch is the more recent example (S3-F1)
+    if (v.example) {
+      const example = v.example.slice(0, VALUE_MAX);
+      row.examples = [example, ...row.examples.filter((e) => e !== example)].slice(0, EXAMPLES_MAX);
     }
     queue.set(key, row);
   });

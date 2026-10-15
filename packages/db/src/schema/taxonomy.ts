@@ -322,7 +322,10 @@ export const taxonomyUnmatched = pgTable(
   },
   (t) => [
     unique('taxonomy_unmatched_value_uq').on(t.kind, t.valueKey),
+    // staff queue by kind: where status = ? and kind = ? order by count desc, id
     index('taxonomy_unmatched_queue_idx').on(t.status, t.kind, t.count.desc(), t.id),
+    // staff queue, every kind (S3-F1): where status = ? order by count desc, id
+    index('taxonomy_unmatched_status_count_idx').on(t.status, t.count.desc(), t.id),
     check('taxonomy_unmatched_kind_ck', sql`${t.kind} in ('location','propertyType','feature')`),
     check('taxonomy_unmatched_status_ck', sql`${t.status} in ('OPEN','MAPPED','IGNORED')`),
   ],

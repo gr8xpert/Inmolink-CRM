@@ -76,6 +76,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
+    if (def.noUserRead && (def.access || def.publicRead)) {
+      throw new Error(`${name}: noUserRead is not valid for publicRead or ${def.access ?? 'access'} tables`);
+    }
   }
 }
 
@@ -87,7 +90,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     if (def.access === 'staff')
       return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT'], app_staff: ['SELECT'] };
     return {
-      app_user: ['SELECT'],
+      app_user: def.noUserRead ? [] : ['SELECT'],
       app_system: DML,
       app_public: def.publicRead ? ['SELECT'] : [],
       app_auth: [],
@@ -135,14 +138,12 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
         { name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] },
       ];
     }
-    const read: PolicySpec = {
-      name: 'global_read',
-      cmd: 'SELECT',
-      roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'],
-    };
-    if (!def.staffWrite) return [read];
+    const read: PolicySpec[] = def.noUserRead
+      ? []
+      : [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
+    if (!def.staffWrite) return read;
     return [
-      read,
+      ...read,
       { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] },
       { name: 'staff_insert', cmd: 'INSERT', roles: ['app_staff'] },
       { name: 'staff_update', cmd: 'UPDATE', roles: ['app_staff'] },
@@ -409,10 +410,11 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
         `grant select, insert, update, delete on table ${t} to app_staff;`,
       ]
     : [];
+  // noUserRead (S3-F1): no reader policy or grant; app_system bypasses RLS, staff have their own policies.
   return [
-    `create policy global_read on ${t} for select to ${readers} using (true);`,
+    ...(def.noUserRead ? [] : [`create policy global_read on ${t} for select to ${readers} using (true);`]),
     `revoke all on table ${t} from ${APP_ROLES};`,
-    `grant select on table ${t} to ${readers};`,
+    ...(def.noUserRead ? [] : [`grant select on table ${t} to ${readers};`]),
     `grant select, insert, update, delete on table ${t} to app_system;`,
     ...staffWrite,
   ];

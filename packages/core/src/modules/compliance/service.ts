@@ -58,7 +58,7 @@ export const AUDIT_TYPES = [
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
 export interface AuditTarget {
-  type: 'user' | 'apiKey' | 'agency' | 'verificationRequest' | 'invite';
+  type: 'user' | 'apiKey' | 'agency' | 'verificationRequest' | 'invite' | 'taxonomy';
   id: string;
 }
 

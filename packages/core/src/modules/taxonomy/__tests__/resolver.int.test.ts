@@ -242,7 +242,7 @@ describe('unmatched queue', () => {
     expect(first.map((r) => r.status)).toEqual(['unmatched', 'unmatched', 'exact', 'unmatched']);
     expect(await queued('propertyType', 'chaletazu zorbo')).toMatchObject({
       count: 5,
-      examples: ['ref-A', 'ref-B', 'ref-D'],
+      examples: ['ref-D', 'ref-B', 'ref-A'],
       status: 'OPEN',
       candidateId: villaId,
     });
@@ -250,8 +250,32 @@ describe('unmatched queue', () => {
     await run('ref-E');
     expect(await queued('propertyType', 'chaletazu zorbo')).toMatchObject({
       count: 10,
-      examples: ['ref-A', 'ref-B', 'ref-D', 'ref-E'],
+      examples: ['ref-E', 'ref-B', 'ref-A', 'ref-D'],
     });
+  });
+
+  it('[S3-F1] queue examples keep the most recent 5, newest first', async () => {
+    const value = `Examplezu ${RUN}`;
+    for (const batch of [
+      ['old-1', 'old-2', 'old-3'],
+      ['mid-1', 'mid-2'],
+      ['new-1', 'old-2'],
+    ]) {
+      await system((tx) =>
+        taxonomy.resolveAndQueue(
+          tx,
+          'propertyType',
+          batch.map((example) => ({ text: value, example })),
+        ),
+      );
+    }
+    expect((await queued('propertyType', `examplezu ${RUN.toLowerCase()}`))?.examples).toEqual([
+      'old-2',
+      'new-1',
+      'mid-2',
+      'mid-1',
+      'old-3',
+    ]);
   });
 
   it('[S2-05] staff list the queue (most-seen first, candidate named) and map a value: alias created, next import exact', async () => {

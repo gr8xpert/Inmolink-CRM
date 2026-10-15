@@ -656,9 +656,15 @@ describe.each(globalNames)('global table %s', (table) => {
       });
     });
   } else {
-    it(`[S0-05] ${table}: every tenant can read it`, async () => {
-      expect(await withTenant({ agencyId: newId() }, seen)).toBe(1);
-    });
+    if (def?.noUserRead) {
+      it(`[S3-F1] ${table}: noUserRead — a member session cannot select from it`, async () => {
+        await expectSqlState(() => withTenant({ agencyId: newId() }, seen), DENIED);
+      });
+    } else {
+      it(`[S0-05] ${table}: every tenant can read it`, async () => {
+        expect(await withTenant({ agencyId: newId() }, seen)).toBe(1);
+      });
+    }
 
     it(`[S0-09] ${table}: app_auth cannot read or write it`, async () => {
       await expectSqlState(() => withAuth(seen), DENIED);

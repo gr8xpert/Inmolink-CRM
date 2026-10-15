@@ -30,14 +30,38 @@ import * as compliance from '../compliance';
 import { taxonomyEvents } from './events';
 import { assertStaffCan } from './policy';
 import * as repo from './repo';
-import { addFeatureAlias, addLocationAlias, addPropertyTypeAlias, changed, createLocation, uniqueOr } from './service';
+import {
+  addFeatureAlias,
+  addLocationAlias,
+  addPropertyTypeAlias,
+  assertContentLocales,
+  changed,
+  createLocation,
+  uniqueOr,
+} from './service';
 import { loadTaxonomyFresh } from './tree';
 
-/** Authorizes a write, runs it in the staff transaction and audits it. */
-async function write<T>(ctx: StaffCtx, action: string, entity: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+/**
+ * Authorizes a write, runs it in the staff transaction and audits it. The audit row names the changed entity
+ * (S3-F1): `id`, or else the id `fn` returns (a created row, a new alias).
+ */
+async function write<T>(
+  ctx: StaffCtx,
+  action: string,
+  entity: string,
+  id: string | null,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
   assertStaffCan(ctx, 'staff.taxonomy.write');
   const result = await fn(ctx.tx);
-  await compliance.auditStaff(ctx, null, 'staff.taxonomy.changed', null, { action, entity });
+  const entityId = id ?? (typeof result === 'string' ? result : null);
+  await compliance.auditStaff(
+    ctx,
+    null,
+    'staff.taxonomy.changed',
+    entityId ? { type: 'taxonomy', id: entityId } : null,
+    { action, entity, entityId },
+  );
   return result;
 }
 
@@ -80,7 +104,7 @@ export async function getStaffCatalogItem(
 
 /** Creates a location (last among its siblings) and returns it. */
 export async function createStaffLocation(ctx: StaffCtx, input: CreateLocationInput): Promise<StaffLocationDto> {
-  const id = await write(ctx, 'createLocation', 'location', async (tx) => {
+  const id = await write(ctx, 'createLocation', 'location', null, async (tx) => {
     const created = await createLocation(tx, input);
     await repo.setLocationSort(tx, created, await repo.nextLocationSort(tx, input.parentId));
     return created;
@@ -94,7 +118,8 @@ export async function updateStaffLocation(
   id: string,
   input: UpdateLocationInput,
 ): Promise<StaffLocationDto> {
-  await write(ctx, 'updateLocation', 'location', async (tx) => {
+  await write(ctx, 'updateLocation', 'location', id, async (tx) => {
+    assertContentLocales(input.translations);
     const parent = await repo.locationParent(tx, id);
     if (!parent) throw new AppError('LOCATION_NOT_FOUND');
     const polygonGeoJson = input.polygon === undefined ? undefined : input.polygon && JSON.stringify(input.polygon);
@@ -115,7 +140,7 @@ export async function updateStaffLocation(
 
 /** Drag-and-drop: `orderedIds` must be exactly the children of the parent, in their new order. */
 export async function reorderStaffLocations(ctx: StaffCtx, input: ReorderLocationsInput): Promise<void> {
-  await write(ctx, 'reorderLocations', 'location', async (tx) => {
+  await write(ctx, 'reorderLocations', 'location', input.parentId, async (tx) => {
     const siblings = await repo.lockedSiblingIds(tx, input.parentId);
     if (!same(siblings, input.orderedIds)) throw new AppError('TAXONOMY_ORDER_INVALID');
     await repo.setLocationSorts(tx, input.orderedIds);
@@ -128,12 +153,12 @@ export async function addStaffLocationAlias(
   id: string,
   input: AddAliasInput,
 ): Promise<StaffLocationDto> {
-  await write(ctx, 'addLocationAlias', 'locationAlias', (tx) => addLocationAlias(tx, id, input.alias));
+  await write(ctx, 'addLocationAlias', 'locationAlias', null, (tx) => addLocationAlias(tx, id, input.alias));
   return getStaffLocation(ctx, id);
 }
 
 export async function removeStaffLocationAlias(ctx: StaffCtx, id: string, aliasId: string): Promise<StaffLocationDto> {
-  await write(ctx, 'removeLocationAlias', 'locationAlias', async (tx) => {
+  await write(ctx, 'removeLocationAlias', 'locationAlias', aliasId, async (tx) => {
     if (!(await repo.deleteLocationAlias(tx, id, aliasId))) throw new AppError('LOCATION_NOT_FOUND');
     await emit(tx, taxonomyEvents.changed({ entity: 'locationAlias', id: aliasId }));
   });
@@ -143,7 +168,7 @@ export async function removeStaffLocationAlias(ctx: StaffCtx, id: string, aliasI
 // ---- Property types and features ---------------------------------------------------------------------------
 
 export async function reorderStaffCatalog(ctx: StaffCtx, input: ReorderCatalogInput): Promise<void> {
-  await write(ctx, 'reorderCatalog', input.kind, async (tx) => {
+  await write(ctx, 'reorderCatalog', input.kind, input.groupId, async (tx) => {
     if (input.groupId !== null && !(await repo.catalogGroupExists(tx, input.kind, input.groupId))) {
       throw new AppError('TAXONOMY_NOT_FOUND');
     }
@@ -159,10 +184,12 @@ export async function updateStaffCatalogItem(
   id: string,
   input: UpdateCatalogItemInput,
 ): Promise<StaffCatalogItemDto> {
-  await write(ctx, 'updateCatalogItem', input.kind, async (tx) => {
+  await write(ctx, 'updateCatalogItem', input.kind, id, async (tx) => {
+    assertContentLocales(input.translations);
     const found = await uniqueOr(
       () => repo.replaceCatalogTranslations(tx, input.kind, input.scope, id, input.translations),
       'TAXONOMY_KEY_TAKEN',
+      'TAXONOMY_SLUG_TAKEN',
     );
     if (!found) throw new AppError('TAXONOMY_NOT_FOUND');
     return changed(tx, input.scope === 'group' ? `${input.kind}Group` : input.kind, id);
@@ -176,7 +203,7 @@ export async function addStaffCatalogAlias(
   id: string,
   input: AddAliasInput,
 ): Promise<StaffCatalogItemDto> {
-  await write(ctx, 'addCatalogAlias', kind, (tx) =>
+  await write(ctx, 'addCatalogAlias', kind, null, (tx) =>
     kind === 'feature' ? addFeatureAlias(tx, id, input.alias) : addPropertyTypeAlias(tx, id, input.alias),
   );
   return getStaffCatalogItem(ctx, kind, 'item', id);
@@ -188,7 +215,7 @@ export async function removeStaffCatalogAlias(
   id: string,
   aliasId: string,
 ): Promise<StaffCatalogItemDto> {
-  await write(ctx, 'removeCatalogAlias', kind, async (tx) => {
+  await write(ctx, 'removeCatalogAlias', kind, aliasId, async (tx) => {
     if (!(await repo.deleteCatalogAlias(tx, kind, id, aliasId))) throw new AppError('TAXONOMY_NOT_FOUND');
     await emit(tx, taxonomyEvents.changed({ entity: `${kind}Alias`, id: aliasId }));
   });
@@ -261,7 +288,7 @@ async function oneUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
  * import resolves it exactly and promotes the drafts that waited on it) and the row closes as MAPPED.
  */
 export async function mapStaffUnmatched(ctx: StaffCtx, id: string, input: MapUnmatchedInput): Promise<UnmatchedDto> {
-  await write(ctx, 'mapUnmatched', 'unmatched', async (tx) => {
+  await write(ctx, 'mapUnmatched', 'unmatched', id, async (tx) => {
     const row = await repo.getUnmatched(tx, id);
     if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
     if (row.status === 'MAPPED') return;
@@ -283,7 +310,7 @@ export async function mapStaffUnmatched(ctx: StaffCtx, id: string, input: MapUnm
  * OPEN value can be ignored; a MAPPED one keeps its alias and status.
  */
 export async function ignoreStaffUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
-  await write(ctx, 'ignoreUnmatched', 'unmatched', async (tx) => {
+  await write(ctx, 'ignoreUnmatched', 'unmatched', id, async (tx) => {
     const row = await repo.getUnmatched(tx, id);
     if (!row) throw new AppError('TAXONOMY_NOT_FOUND');
     if (row.status === 'OPEN') await repo.setUnmatchedIgnored(tx, id);

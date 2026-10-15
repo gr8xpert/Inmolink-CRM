@@ -434,4 +434,155 @@ describe('staff taxonomy admin', () => {
     });
     expect(denied.statusCode).toBe(403);
   });
+
+  it('[S3-F1] a translation in a non-content locale and an over-sized polygon are refused with 422', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/staff/taxonomy/locations',
+      headers: ops,
+      payload: { parentId: null, level: 'COUNTRY', translations: [tr('zz', 'Nowhere', 'nowhere')] },
+    });
+    expect(created.statusCode, created.body).toBe(422);
+    expect(created.json().error.code).toBe('VALIDATION_FAILED');
+
+    const root = await app.inject({
+      method: 'POST',
+      url: '/v1/staff/taxonomy/locations',
+      headers: ops,
+      payload: { parentId: null, level: 'COUNTRY', translations: [tr('en', 'Capland', 'capland')] },
+    });
+    const id: string = root.json().id;
+    const relabel = await app.inject({
+      method: 'PATCH',
+      url: `/v1/staff/taxonomy/locations/${id}`,
+      headers: ops,
+      payload: { translations: [tr('en', 'Capland', 'capland'), tr('zz', 'Capland', 'capland-zz')] },
+    });
+    expect(relabel.statusCode).toBe(422);
+
+    // 51 polygons: one over the cap
+    const many = {
+      type: 'MultiPolygon' as const,
+      coordinates: Array.from({ length: 51 }, (_, i) => square(i * 0.01, 0, 0.005).coordinates[0]),
+    };
+    const tooMany = await app.inject({
+      method: 'PATCH',
+      url: `/v1/staff/taxonomy/locations/${id}`,
+      headers: ops,
+      payload: { polygon: many },
+    });
+    expect(tooMany.statusCode).toBe(422);
+    expect(tooMany.json().error.code).toBe('VALIDATION_FAILED');
+    // one ring of 10,001 vertices: over the vertex cap
+    const ring = Array.from({ length: 10_000 }, (_, i) => {
+      const a = (2 * Math.PI * i) / 10_000;
+      return [Math.cos(a), Math.sin(a)] as [number, number];
+    });
+    const dense = { type: 'MultiPolygon' as const, coordinates: [[[...ring, ring[0] as [number, number]]]] };
+    const tooDense = await app.inject({
+      method: 'PATCH',
+      url: `/v1/staff/taxonomy/locations/${id}`,
+      headers: ops,
+      payload: { polygon: dense },
+    });
+    expect(tooDense.statusCode).toBe(422);
+    const fine = await app.inject({
+      method: 'PATCH',
+      url: `/v1/staff/taxonomy/locations/${id}`,
+      headers: ops,
+      payload: { polygon: square(1, 1, 0.5) },
+    });
+    expect(fine.statusCode, fine.body).toBe(200);
+  });
+
+  it('[S3-F1] an audit row for a taxonomy change names the entity', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const root = await app.inject({
+      method: 'POST',
+      url: '/v1/staff/taxonomy/locations',
+      headers: ops,
+      payload: { parentId: null, level: 'COUNTRY', translations: [tr('en', 'Auditland', 'auditland')] },
+    });
+    const id: string = root.json().id;
+    await app.inject({
+      method: 'PATCH',
+      url: `/v1/staff/taxonomy/locations/${id}`,
+      headers: ops,
+      payload: { code: `AU${RUN}`.slice(0, 40) },
+    });
+    const audits = await adminQuery<{ action: string; target_type: string; target_id: string; entity_id: string }>(
+      `select metadata->>'action' as action, target_type, target_id, metadata->>'entityId' as entity_id
+         from audit_logs where type = 'staff.taxonomy.changed' and target_id = $1 order by occurred_at`,
+      [id],
+    );
+    expect(audits.map((a) => a.action)).toEqual(['createLocation', 'updateLocation']);
+    for (const a of audits) expect(a).toMatchObject({ target_type: 'taxonomy', target_id: id, entity_id: id });
+  });
+
+  it('[S3-F1] a catalog slug clash has its own code', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const [groupId, a, b] = [newId(), newId(), newId()] as const;
+    await adminQuery(`insert into feature_groups (id, key, sort) values ($1, $2, 0)`, [groupId, `fgrp-${RUN}`]);
+    for (const [id, n] of [
+      [a, 'pool'],
+      [b, 'lift'],
+    ] as const) {
+      await adminQuery(`insert into features (id, group_id, key, sort, icon) values ($1, $2, $3, 0, 'waves')`, [
+        id,
+        groupId,
+        `${n}-${RUN}`,
+      ]);
+      await adminQuery(`insert into feature_translations (feature_id, locale, name, slug) values ($1, 'en', $2, $3)`, [
+        id,
+        n,
+        slug(`f-${n}`),
+      ]);
+    }
+    const clash = await app.inject({
+      method: 'PUT',
+      url: `/v1/staff/taxonomy/catalog/${b}`,
+      headers: ops,
+      payload: { kind: 'feature', scope: 'item', translations: [tr('en', 'lift', 'f-pool')] },
+    });
+    expect(clash.statusCode, clash.body).toBe(409);
+    expect(clash.json().error.code).toBe('TAXONOMY_SLUG_TAKEN');
+  });
+
+  it('[S3-F1] queue paging is stable while imports count: no value twice; the unfiltered list pages too', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    // a count band no other test uses, so this run's rows are contiguous in the most-seen-first order
+    await adminQuery(`delete from taxonomy_unmatched where value_key like 'paging %'`);
+    const ids = Array.from({ length: 6 }, () => newId());
+    for (const [i, id] of ids.entries()) {
+      await adminQuery(
+        `insert into taxonomy_unmatched (id, kind, value_key, value, count, examples)
+         values ($1, $2, $3, $3, $4, '[]')`,
+        [id, i % 2 ? 'feature' : 'location', `paging ${i} ${RUN}`, 900_000 + i],
+      );
+    }
+    const page = async (cursor?: string) => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/v1/staff/taxonomy/unmatched?limit=2${cursor ? `&cursor=${cursor}` : ''}`,
+        headers: ops,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return UnmatchedPageDto.parse(res.json());
+    };
+    const seen: string[] = [];
+    let p = await page();
+    seen.push(...p.items.map((i) => i.id));
+    // an import counts a value of a later page while staff browse: it moves up, never into a page twice
+    await adminQuery(`update taxonomy_unmatched set count = count + 50 where id = $1`, [ids[1]]);
+    while (p.nextCursor && seen.filter((s) => ids.includes(s)).length < 6) {
+      p = await page(p.nextCursor);
+      seen.push(...p.items.map((i) => i.id));
+      if (p.items.every((i) => i.count < 900_000)) break;
+    }
+    const mine = seen.filter((s) => ids.includes(s));
+    expect(new Set(mine).size).toBe(mine.length);
+    expect(mine.slice(0, 2)).toEqual([ids[5], ids[4]]);
+    await adminQuery(`delete from taxonomy_unmatched where id = any($1::uuid[])`, [ids]);
+  });
 });

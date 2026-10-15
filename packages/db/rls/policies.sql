@@ -303,9 +303,7 @@ grant select, insert, update, delete on table public."features" to app_staff;
 -- legacy_id_maps: GLOBAL
 alter table public."legacy_id_maps" enable row level security;
 alter table public."legacy_id_maps" force row level security;
-create policy global_read on public."legacy_id_maps" for select to app_user using (true);
 revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select on table public."legacy_id_maps" to app_user;
 grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
 
 -- listing_bookmarks: STRICT
@@ -645,9 +643,7 @@ grant select, insert, update, delete on table public."staff_users" to app_system
 -- taxonomy_unmatched: GLOBAL
 alter table public."taxonomy_unmatched" enable row level security;
 alter table public."taxonomy_unmatched" force row level security;
-create policy global_read on public."taxonomy_unmatched" for select to app_user using (true);
 revoke all on table public."taxonomy_unmatched" from public, app_user, app_system, app_public, app_auth, app_staff;
-grant select on table public."taxonomy_unmatched" to app_user;
 grant select, insert, update, delete on table public."taxonomy_unmatched" to app_system;
 create policy staff_select on public."taxonomy_unmatched" for select to app_staff using (app_is_staff());
 create policy staff_insert on public."taxonomy_unmatched" for insert to app_staff with check (app_is_staff());

@@ -723,9 +723,10 @@ async function upsertUnmatchedChunk(tx: Tx, rows: UnmatchedUpsert[]): Promise<vo
         lastSeenAt: sql`now()`,
         candidateId: sql`excluded.candidate_id`,
         candidateScore: sql`excluded.candidate_score`,
-        examples: sql`(select coalesce(jsonb_agg(e order by e), '[]'::jsonb) from (
-          select e from (select distinct e from jsonb_array_elements_text(${t.examples} || excluded.examples) as e) d
-           order by e limit 5) l)`,
+        // the 5 most recent, newest first: this run's examples, then the kept ones (S3-F1)
+        examples: sql`(select coalesce(jsonb_agg(e order by o), '[]'::jsonb) from (
+          select e, min(o) as o from jsonb_array_elements_text(excluded.examples || ${t.examples}) with ordinality as x(e, o)
+           group by e order by o limit 5) l)`,
         status: sql`case when ${reopen} then 'OPEN' else ${t.status} end`,
         mappedToId: sql`case when ${reopen} then null else ${t.mappedToId} end`,
         resolvedAt: sql`case when ${reopen} then null else ${t.resolvedAt} end`,
@@ -758,7 +759,12 @@ export async function setUnmatchedIgnored(tx: Tx, id: string): Promise<void> {
     .where(eq(taxonomyUnmatched.id, id));
 }
 
-/** A page of the queue, most-seen first, keyset on (count desc, id). Returns `limit + 1` rows to detect a next page. */
+/**
+ * A page of the queue, most-seen first, keyset on (count desc, id). Returns `limit + 1` rows to detect a next page.
+ * Stable while imports count (S3-F1): counts only grow, so a value counted again moves above the cursor and is
+ * never shown twice; it is at the top on the next first page. Served by `taxonomy_unmatched_status_count_idx`
+ * (unfiltered) and `taxonomy_unmatched_queue_idx` (by kind).
+ */
 export async function listUnmatched(
   tx: Tx,
   q: { kind?: ResolveKind; status: string; after?: { count: number; id: string }; limit: number },

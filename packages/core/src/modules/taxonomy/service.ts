@@ -17,6 +17,7 @@ import type {
   PropertyTypeDto,
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
+import { isContentLocale } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
@@ -38,21 +39,34 @@ export function aliasKey(spelling: string): string {
     .trim();
 }
 
-function pgCode(err: unknown): string | undefined {
-  const e = err as { code?: string; cause?: { code?: string } };
-  return e?.cause?.code ?? e?.code;
+function pgError(err: unknown): { code?: string; constraint?: string } {
+  const e = err as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+  return e?.cause?.code ? e.cause : (e ?? {});
 }
 
+type UniqueCode = 'LOCATION_SLUG_TAKEN' | 'LOCATION_ALIAS_TAKEN' | 'TAXONOMY_KEY_TAKEN' | 'TAXONOMY_ALIAS_TAKEN';
+
+/**
+ * A unique violation becomes `code`; for catalog writes a clash on a translation slug index (`*_slug_uq`)
+ * gets its own code (S3-F1), so the editor can point at the slug rather than the key.
+ */
 export async function uniqueOr<T>(
   fn: () => Promise<T>,
-  code: 'LOCATION_SLUG_TAKEN' | 'LOCATION_ALIAS_TAKEN' | 'TAXONOMY_KEY_TAKEN' | 'TAXONOMY_ALIAS_TAKEN',
+  code: UniqueCode,
+  slugCode?: 'TAXONOMY_SLUG_TAKEN',
 ): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (pgCode(err) === '23505') throw new AppError(code);
+    const pg = pgError(err);
+    if (pg.code === '23505') throw new AppError(slugCode && pg.constraint?.endsWith('_slug_uq') ? slugCode : code);
     throw err;
   }
+}
+
+/** Translations are written in content locales only (S3-F1); the website API serves no other. */
+export function assertContentLocales(translations: readonly { locale: string }[] | undefined): void {
+  if (translations?.some((t) => !isContentLocale(t.locale))) throw new AppError('VALIDATION_FAILED');
 }
 
 /** Every write ends here: same transaction, so the event exists if and only if the write commits. */
@@ -63,6 +77,7 @@ export async function changed(tx: Tx, entity: TaxonomyEntity, id: string): Promi
 
 /** Creates a location with its translations. The parent must be exactly one level above. */
 export async function createLocation(tx: Tx, input: CreateLocationInput): Promise<string> {
+  assertContentLocales(input.translations);
   const depth = DEPTH[input.level];
   if (input.parentId === null) {
     if (depth !== 1) throw new AppError('LOCATION_PARENT_INVALID');
@@ -106,6 +121,7 @@ export async function addLocationAlias(tx: Tx, locationId: string, alias: string
 }
 
 export async function createLocationGroup(tx: Tx, input: CreateLocationGroupInput): Promise<string> {
+  assertContentLocales(input.translations);
   const known = await repo.existingLocationIds(tx, input.memberIds);
   if (input.memberIds.some((m) => !known.has(m))) throw new AppError('LOCATION_NOT_FOUND');
   const id = newId();
@@ -138,10 +154,12 @@ export async function resolveLocationAlias(ctx: Ctx, spelling: string): Promise<
 // Reference data like locations: writes take the `tx` of a `withSystem()` call, reads take a tenant `ctx`.
 
 async function createGroup(tx: Tx, kind: repo.CatalogKind, input: CreateTypeGroupInput): Promise<string> {
+  assertContentLocales(input.translations);
   const id = newId();
   await uniqueOr(
     () => repo.insertCatalogGroup(tx, kind, { id, key: input.key, sort: input.sort }, input.translations),
     'TAXONOMY_KEY_TAKEN',
+    'TAXONOMY_SLUG_TAKEN',
   );
   return changed(tx, `${kind}Group`, id);
 }
@@ -152,6 +170,7 @@ async function createItem(
   input: CreatePropertyTypeInput,
   icon?: string,
 ): Promise<string> {
+  assertContentLocales(input.translations);
   if (!(await repo.catalogGroupExists(tx, kind, input.groupId))) throw new AppError('TAXONOMY_NOT_FOUND');
   const id = newId();
   await uniqueOr(
@@ -163,6 +182,7 @@ async function createItem(
         input.translations,
       ),
     'TAXONOMY_KEY_TAKEN',
+    'TAXONOMY_SLUG_TAKEN',
   );
   return changed(tx, kind, id);
 }

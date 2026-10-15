@@ -28,9 +28,17 @@ const Position = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max
 
 /** GeoJSON in WGS84 (lon, lat). */
 export const GeoPoint = z.object({ type: z.literal('Point'), coordinates: Position });
+/** Caps on a drawn or imported area (S3-F1): a municipality boundary fits well inside them. */
+export const POLYGON_LIMITS = { polygons: 50, rings: 50, vertices: 10_000 } as const;
 export const GeoMultiPolygon = z.object({
   type: z.literal('MultiPolygon'),
-  coordinates: z.array(z.array(z.array(Position).min(4)).min(1)).min(1),
+  coordinates: z
+    .array(z.array(z.array(Position).min(4).max(POLYGON_LIMITS.vertices)).min(1).max(POLYGON_LIMITS.rings))
+    .min(1)
+    .max(POLYGON_LIMITS.polygons)
+    .refine((ps) => ps.flat().reduce((n, ring) => n + ring.length, 0) <= POLYGON_LIMITS.vertices, {
+      message: `At most ${POLYGON_LIMITS.vertices} vertices`,
+    }),
 });
 
 export const CreateLocationInput = z.object({
@@ -211,7 +219,8 @@ export type UpdateLocationInput = z.infer<typeof UpdateLocationInput>;
 /** The complete, new order of one parent's children (or of the roots when `parentId` is null). */
 export const ReorderLocationsInput = z.object({
   parentId: z.uuid().nullable(),
-  orderedIds: z.array(z.uuid()).min(1).max(2000),
+  // the largest sibling set: > 2,248 cities in one Spanish region (S3-F1)
+  orderedIds: z.array(z.uuid()).min(1).max(5000),
 });
 export type ReorderLocationsInput = z.infer<typeof ReorderLocationsInput>;
 

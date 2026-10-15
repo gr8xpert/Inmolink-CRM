@@ -1,0 +1,1 @@
+CREATE INDEX "taxonomy_unmatched_status_count_idx" ON "taxonomy_unmatched" USING btree ("status","count" DESC NULLS LAST,"id");
