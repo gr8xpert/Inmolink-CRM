@@ -51,7 +51,8 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: `pnpm exec next start --port ${PORTS.web}`,
+      // The MapLibre worker copy runs in `prebuild`, which a turbo cache hit skips (S2-04 e2e failed in CI).
+      command: `node scripts/copy-maplibre-worker.mjs && pnpm exec next start --port ${PORTS.web}`,
       cwd: join(ROOT, 'apps', 'web'),
       url: `${env.WEB_URL}/healthz`,
       env: common,
