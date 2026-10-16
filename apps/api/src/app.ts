@@ -7,6 +7,7 @@ import { sessionPlugin } from './plugins/session';
 import { agenciesRoutes } from './routes/agencies/routes';
 import { billingRoutes } from './routes/billing/routes';
 import { complianceRoutes } from './routes/compliance/routes';
+import { developmentsRoutes } from './routes/developments/routes';
 import { identityRoutes } from './routes/identity/routes';
 import { mediaRoutes } from './routes/media/routes';
 import { propertiesRoutes } from './routes/properties/routes';
@@ -66,5 +67,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(propertiesRoutes);
   await app.register(mediaRoutes);
   await app.register(qualityRoutes);
+  await app.register(developmentsRoutes);
   return app;
 }

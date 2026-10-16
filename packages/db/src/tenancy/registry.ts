@@ -450,6 +450,55 @@ export const tenantTables: Record<string, TenantTable> = {
   listing_bookmarks: { kind: 'STRICT' },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
+  // New developments (S4-01, PLAN §6, §3 #21). Other verified agencies read a development that is not deleted,
+  // while its owner is listed in the directory, and that is OPEN or PRIVATE_NETWORK with a `development_access`
+  // row naming them (the `exists` runs under the reader's RLS on `development_access`). The allowed side of
+  // PRIVATE_NETWORK is tested in the developments module (`schema.int.test.ts`): the suite seeds no access row.
+  developments: {
+    kind: 'NETWORK_READ',
+    networkReadSql: `deleted_at is null
+      and exists (select 1 from public.agency_directory d where d.agency_id = developments.agency_id and d.listed)
+      and (access = 'OPEN' or exists (select 1 from public.development_access a
+        where a.development_id = developments.id and a.allowed_agency_id = app_agency()))`,
+    samples: {
+      visible: [{ access: 'OPEN' }],
+      hidden: [{ access: 'PRIVATE_NETWORK' }, { access: 'OPEN', deleted_at: new Date() }],
+    },
+  },
+  // The agencies a PRIVATE_NETWORK development is shared with: the allowed agency reads the rows naming it.
+  development_access: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'allowed_agency_id = app_agency()',
+    samples: { visible: [{ allowed_agency_id: SAMPLE_READER }], hidden: [{}] },
+  },
+  // A development's translations, phases, units and shared documents: readable wherever the development is
+  // (composite FKs keep the row's agency the development's). Readable side tested in the developments module.
+  development_translations: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'exists (select 1 from public.developments d where d.id = development_translations.development_id)',
+    base: { locale: 'es' },
+    samples: { visible: [], hidden: [{}] },
+  },
+  development_phases: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'exists (select 1 from public.developments d where d.id = development_phases.development_id)',
+    samples: { visible: [], hidden: [{}] },
+  },
+  units: {
+    kind: 'NETWORK_READ',
+    networkReadSql: 'exists (select 1 from public.developments d where d.id = units.development_id)',
+    samples: { visible: [], hidden: [{}] },
+  },
+  development_documents: {
+    kind: 'NETWORK_READ',
+    networkReadSql:
+      'shared and exists (select 1 from public.developments d where d.id = development_documents.development_id)',
+    base: { content_type: 'application/pdf', sha256: ISOLATION_SHA256 },
+    samples: { visible: [], hidden: [{}, { shared: true }] },
+  },
+  // Price list versions (AI extraction, review, diffs) and unit price history: the owner's workflow, not shared.
+  price_lists: { kind: 'STRICT' },
+  unit_price_histories: { kind: 'STRICT', immutable: true },
 };
 
 /**

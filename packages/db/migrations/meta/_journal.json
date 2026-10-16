@@ -414,6 +414,13 @@
       "when": 1792165631190,
       "tag": "0058_listing_list_leakproof_filters",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792170850119,
+      "tag": "0059_development_schema",
+      "breakpoints": true
     }
   ]
 }

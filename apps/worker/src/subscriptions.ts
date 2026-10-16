@@ -2,6 +2,7 @@ import * as agencies from '@inmolink/core/modules/agencies';
 import * as billing from '@inmolink/core/modules/billing';
 import * as compliance from '@inmolink/core/modules/compliance';
 import * as dashboard from '@inmolink/core/modules/dashboard';
+import * as developments from '@inmolink/core/modules/developments';
 import * as identity from '@inmolink/core/modules/identity';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
@@ -25,6 +26,7 @@ export const MODULES = {
   properties,
   media,
   quality,
+  developments,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */

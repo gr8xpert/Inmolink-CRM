@@ -7,6 +7,7 @@ export * from './api-keys';
 export * from './billing';
 export * from './common';
 export * from './compliance';
+export * from './developments';
 export * from './errors';
 export * from './http';
 export * from './identity';
