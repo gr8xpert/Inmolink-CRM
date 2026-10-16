@@ -121,7 +121,7 @@ services:
     <<: *redis
     profiles: [dev]
     command: *redis-queue-command
-    ports: ["127.0.0.1:6379:6379"]
+    ports: ["127.0.0.1:6381:6379"] # not 6379: keeps clear of other local projects' Redis
     volumes: ["redis-queue-dev:/data"]
 
   redis-cache:
