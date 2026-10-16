@@ -1,7 +1,8 @@
 import { DEFAULT_LISTING_COLUMNS } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
 import { bulkActionOf } from './bulk-action';
-import { centsOf, columnsOf, listSearch, parseListState, viewHref } from './list-query';
+import { centsOf, columnsOf, listSearch, viewHref } from './list-query';
+import { parseListState } from './list-state';
 
 describe('listing list URL state (S3-07)', () => {
   it('[S3-07] filters, sort and columns round-trip through the URL; invalid values are dropped one by one', () => {

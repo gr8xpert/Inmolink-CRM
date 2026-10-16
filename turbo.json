@@ -36,6 +36,7 @@
     },
     "//#test:perf:root": {
       "dependsOn": [
+        "@inmolink/core#build",
         "^typecheck",
         "^lint",
         "^test",

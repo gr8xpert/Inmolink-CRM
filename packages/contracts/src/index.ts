@@ -18,4 +18,5 @@ export * from './properties';
 export * from './quality';
 export * from './staff';
 export * from './taxonomy';
+export * from './values';
 export * from './verification';

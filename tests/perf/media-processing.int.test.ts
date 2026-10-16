@@ -23,12 +23,11 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
  */
 
 const RUN = newId().slice(-8);
-const TSX = join(import.meta.dirname, '..', '..', 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const log = createLogger({ service: 'perf', level: 'silent' });
 const BUDGET_MS = 1_500;
 const RSS_BUDGET = 512 * 1024 * 1024;
-/** Idle RSS allowed for a compiled media worker (S3-F3 assumption; confirm on staging with `docker stats`). */
-const WORKER_IDLE_ALLOWANCE = 160 * 1024 * 1024;
+/** Off Linux only: idle RSS assumed for a compiled media worker when only the burst's growth can be checked. */
+const NON_LINUX_IDLE_ALLOWANCE = 160 * 1024 * 1024;
 const BURST = 10;
 type UploadType = 'image/jpeg' | 'image/png' | 'image/heic';
 const hashes: string[] = [];
@@ -108,7 +107,7 @@ afterAll(async () => {
   await closeDb();
 });
 
-it('[S3-04] a 12 MP JPEG processes in < 1.5 s per image; RSS stays < 512 MB under load', async () => {
+it('[S3-04] a 12 MP JPEG processes in < 1.5 s per image', async () => {
   const warmup = await upload(await photo12('warmup'), 'image/jpeg');
   await processObject(warmup); // loads libvips, JIT
 
@@ -121,7 +120,9 @@ it('[S3-04] a 12 MP JPEG processes in < 1.5 s per image; RSS stays < 512 MB unde
   }
   console.info(`[S3-04] 12 MP JPEG: ${times.map((t) => `${t.toFixed(0)} ms`).join(', ')} (budget ${BUDGET_MS} ms)`);
   for (const t of times) expect(t).toBeLessThan(BUDGET_MS);
+});
 
+it("[S4-F2] the compiled media worker's total RSS stays < 512 MB under a burst of the heaviest inputs", async () => {
   // Burst: as many jobs at once as a pool runs, with the heaviest accepted inputs among them.
   const heic = readFileSync(
     new URL('../../packages/core/src/modules/media/__tests__/fixtures/large-24mp.heic', import.meta.url),
@@ -139,13 +140,13 @@ it('[S3-04] a 12 MP JPEG processes in < 1.5 s per image; RSS stays < 512 MB unde
     upload(noisyPng, 'image/png'),
     ...Array.from({ length: BURST - 3 }, async (_, i) => upload(await photo12(`b${i}`), 'image/jpeg')),
   ]);
-  // In a process of its own (S3-F3): the worker's RSS, not this test's, which generated the inputs with sharp.
+  // In a process of its own (S3-F3): the worker's RSS, not this test's, which generated the inputs with sharp. Plain
+  // node on the built packages (S4-F2: `//#test:perf:root` depends on `@inmolink/core#build`), as the container runs.
   const started = performance.now();
   const out = execFileSync(
     process.execPath,
     [
-      TSX,
-      '--conditions=@inmolink/source',
+      '--disable-warning=ExperimentalWarning',
       join(import.meta.dirname, 'media-burst.child.ts'),
       JSON.stringify(burst.map((u) => ({ hash: u.hash, sizeBytes: u.bytes.byteLength, contentType: u.contentType }))),
     ],
@@ -167,9 +168,12 @@ it('[S3-04] a 12 MP JPEG processes in < 1.5 s per image; RSS stays < 512 MB unde
     `[S3-04] burst of ${BURST} (48 MP rotated JPEG, 24 MP HEIC, ${(noisyPng.byteLength / 1e6).toFixed(0)} MB PNG, 12 MP JPEGs): ` +
       `${perImage.toFixed(0)} ms per image, peak RSS ${(peak / 1024 / 1024).toFixed(0)} MB`,
   );
-  // The burst's own growth, plus what an idle compiled worker holds, stays inside the budget. The child idles higher
-  // (tsx compiles the workspace on the fly), so its absolute peak is logged, not asserted (S3-F3).
-  expect(peak - base).toBeLessThan(RSS_BUDGET - WORKER_IDLE_ALLOWANCE);
+  // The compiled worker's total RSS — idle plus the burst — stays inside the budget (S4-F2), measured where it means
+  // what the container's does: Linux with glibc (CI, `MALLOC_ARENA_MAX=2` as in the image). Elsewhere RSS counts
+  // memory the allocator keeps after freeing (Windows: 570 MB total locally, idle 240 MB mostly uncollected module-load
+  // garbage), so the burst's own growth is checked against the budget less an idle compiled worker instead.
+  if (process.platform === 'linux') expect(peak).toBeLessThan(RSS_BUDGET);
+  else expect(peak - base).toBeLessThan(RSS_BUDGET - NON_LINUX_IDLE_ALLOWANCE);
   const done = await withSystem('perf.check', (tx) =>
     tx.execute<{ n: number }>(sql`select count(*)::int as n from media_objects
       where variants_ready = ${media.ALL_VARIANTS_MASK} and sha256 in (${sql.join(

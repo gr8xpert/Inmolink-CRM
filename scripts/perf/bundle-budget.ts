@@ -100,6 +100,37 @@ export function readBuildManifests(nextDir: string): BuildManifests {
   return { frameworkFiles: rootMainFiles, routes };
 }
 
+/**
+ * Routes whose own client chunks must not bundle a library (S4-F2): the listings list imports plain value lists from
+ * `@inmolink/contracts/values`, never zod. `marker` is a string every build of the library keeps.
+ */
+export const EXCLUDED_LIBRARIES: ReadonlyArray<{ route: string; library: string; marker: string }> = [
+  { route: '/[locale]/(app)/(signed-in)/listings/page', library: 'zod', marker: '$ZodType' },
+];
+
+/** Failures for `EXCLUDED_LIBRARIES`: a listed route missing from the build, or a chunk of it holding the marker. */
+export function checkExcludedLibraries(
+  manifests: BuildManifests,
+  read: (file: string) => string,
+  rules = EXCLUDED_LIBRARIES,
+): string[] {
+  const framework = new Set(manifests.frameworkFiles);
+  const failures: string[] = [];
+  for (const rule of rules) {
+    const route = manifests.routes.find((r) => r.route === rule.route);
+    if (!route) {
+      failures.push(`${rule.route}: not in the build`);
+      continue;
+    }
+    for (const file of new Set(route.files)) {
+      if (!framework.has(file) && read(file).includes(rule.marker)) {
+        failures.push(`${displayRoute(rule.route)}: ${file} bundles ${rule.library}`);
+      }
+    }
+  }
+  return failures;
+}
+
 /** Next's internal routes (`/_not-found`, `/_global-error`) are not pages anyone navigates to. */
 export function isInternalRoute(route: string): boolean {
   return route.startsWith('/_');

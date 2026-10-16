@@ -4,11 +4,12 @@
 // budget (≤ 250 KB gzip per route), `apps/public` against ADR 0013 (framework ≤ 149 KB, route ≤ 30 KB).
 // Run after `next build` (`pnpm build`). Exits 1 when a route is over budget, or when the web build is
 // missing — unless `--if-present` (CI on pull requests builds only affected apps).
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   BUDGETS,
   type Budget,
+  checkExcludedLibraries,
   formatTable,
   gzipSizer,
   measureRoutes,
@@ -40,7 +41,14 @@ for (const { app, budget, required } of APPS) {
     }
     continue;
   }
-  const sizes = measureRoutes(readBuildManifests(nextDir), gzipSizer(nextDir), budget);
+  const manifests = readBuildManifests(nextDir);
+  const sizes = measureRoutes(manifests, gzipSizer(nextDir), budget);
+  if (app === 'web') {
+    // S4-F2: routes that must not bundle a library (zod in the listings list)
+    const excluded = checkExcludedLibraries(manifests, (f) => readFileSync(join(nextDir, f), 'utf8'));
+    for (const f of excluded) console.error(`apps/web: ${f}`);
+    if (excluded.length > 0) failed = true;
+  }
   report[app] = sizes;
   if (!args.has('--json')) console.log(`${formatTable(`apps/${app}`, budget, sizes)}\n`);
   if (sizes.length === 0) console.log(`apps/${app}: no app routes found in the build.`);

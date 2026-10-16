@@ -94,7 +94,8 @@ jobs:
       - name: Workspace integration tests
         run: pnpm test:int:root
       - name: Throughput checks
-        run: pnpm test:perf:root
+        # the media burst child runs the built packages (S4-F2), as the container does
+        run: pnpm turbo run build --filter=@inmolink/core && pnpm test:perf:root
         # as in the app image: the media RSS budget assumes two glibc malloc arenas (S3-F3)
         env: { MALLOC_ARENA_MAX: '2' }
       - name: Stack logs on failure

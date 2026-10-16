@@ -2,16 +2,25 @@
 import { z } from 'zod';
 import { Commission, MAX_SPLIT_BP } from './agency-profile';
 import { CurrencyCode, Money, pageOf } from './common';
+import {
+  LISTING_COLUMNS,
+  LISTING_SORTS,
+  LISTING_STATUSES,
+  LISTING_TAG_MAX,
+  SHARE_SCOPES,
+  TRANSACTION_TYPES,
+  VISIBILITIES,
+} from './values';
 
-export const ListingStatus = z.enum(['DRAFT', 'ACTIVE', 'UNDER_OFFER', 'SOLD', 'RENTED', 'WITHDRAWN']);
+export const ListingStatus = z.enum(LISTING_STATUSES);
 export type ListingStatus = z.infer<typeof ListingStatus>;
 /** PLAN §3 #4: PRIVATE (owner) / SHARED (verified agents) / PUBLIC (marketplace, websites, portals). */
-export const Visibility = z.enum(['PRIVATE', 'SHARED', 'PUBLIC']);
+export const Visibility = z.enum(VISIBILITIES);
 export type Visibility = z.infer<typeof Visibility>;
 /** PLAN §3 #57: a shared listing reaches every verified agency, or only the agencies the owner prefers. */
-export const ShareScope = z.enum(['ALL', 'PREFERRED']);
+export const ShareScope = z.enum(SHARE_SCOPES);
 export type ShareScope = z.infer<typeof ShareScope>;
-export const TransactionType = z.enum(['SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM']);
+export const TransactionType = z.enum(TRANSACTION_TYPES);
 export type TransactionType = z.infer<typeof TransactionType>;
 export const PricePeriod = z.enum(['NIGHT', 'WEEK', 'MONTH']);
 export type PricePeriod = z.infer<typeof PricePeriod>;
@@ -105,7 +114,7 @@ export const ListingTag = z
   .trim()
   .toLowerCase()
   .min(1)
-  .max(40)
+  .max(LISTING_TAG_MAX)
   .regex(/^[^\p{C}]+$/u);
 export type ListingTag = z.infer<typeof ListingTag>;
 
@@ -143,8 +152,6 @@ export const ListingFilter = z
   .strict();
 export type ListingFilter = z.infer<typeof ListingFilter>;
 
-/** List orders: by creation (default newest first), last change, or price (listings without a price last). */
-export const LISTING_SORTS = ['newest', 'oldest', 'updated', 'price_asc', 'price_desc'] as const;
 export const ListingSort = z.enum(LISTING_SORTS);
 export type ListingSort = z.infer<typeof ListingSort>;
 
@@ -258,33 +265,8 @@ export type ListingPage = z.infer<typeof ListingPage>;
 // ---- Saved views (S3-07): a member's named filters, sort and columns -----------------------------------------
 
 /** Columns the listing list can show, in their default order; a view picks and orders them. */
-export const LISTING_COLUMNS = [
-  'ref',
-  'type',
-  'location',
-  'price',
-  'status',
-  'visibility',
-  'shareScope',
-  'bedrooms',
-  'bathrooms',
-  'builtM2',
-  'owner',
-  'tags',
-  'created',
-  'updated',
-] as const;
 export const ListingColumn = z.enum(LISTING_COLUMNS);
 export type ListingColumn = z.infer<typeof ListingColumn>;
-export const DEFAULT_LISTING_COLUMNS: readonly ListingColumn[] = [
-  'ref',
-  'type',
-  'location',
-  'price',
-  'status',
-  'visibility',
-  'created',
-];
 /** Saved views per member. */
 export const LISTING_VIEWS_MAX = 50;
 

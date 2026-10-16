@@ -10,6 +10,11 @@
       "@inmolink/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./values": {
+      "@inmolink/source": "./src/values.ts",
+      "types": "./dist/values.d.ts",
+      "default": "./dist/values.js"
     }
   },
   "scripts": {

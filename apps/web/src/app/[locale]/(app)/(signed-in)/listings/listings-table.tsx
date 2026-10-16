@@ -1,13 +1,7 @@
 'use client';
 
-import {
-  type ListingBulkDto,
-  type ListingColumn,
-  type ListingFilter,
-  ListingStatus,
-  ShareScope,
-  Visibility,
-} from '@inmolink/contracts';
+import type { ListingBulkDto, ListingColumn, ListingFilter } from '@inmolink/contracts';
+import { LISTING_STATUSES, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -128,11 +122,11 @@ export function ListingsTable(props: ListingsTableProps) {
     );
     switch (type) {
       case 'STATUS':
-        return options(ListingStatus.options, (v) => t(`editor.options.status.${v}`));
+        return options(LISTING_STATUSES, (v) => t(`editor.options.status.${v}`));
       case 'VISIBILITY':
-        return options(Visibility.options, (v) => t(`editor.options.visibility.${v}`));
+        return options(VISIBILITIES, (v) => t(`editor.options.visibility.${v}`));
       case 'SHARE_SCOPE':
-        return options(ShareScope.options, (v) => t(`editor.options.shareScope.${v}`));
+        return options(SHARE_SCOPES, (v) => t(`editor.options.shareScope.${v}`));
       case 'ASSIGN':
         return options(
           props.members.map((m) => m.id),

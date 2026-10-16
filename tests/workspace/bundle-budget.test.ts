@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   BUDGETS,
   checkBudget,
+  checkExcludedLibraries,
   displayRoute,
   formatTable,
   gzipSizer,
@@ -108,5 +109,28 @@ describe('perf:bundle', () => {
     const src = `globalThis.__RSC_MANIFEST = globalThis.__RSC_MANIFEST || {};\nglobalThis.__RSC_MANIFEST["/a/page"] = {"clientModules":{"q\\"}{":1},"entryJSFiles":{"x":["a.js"],"y":["a.js","b.js"]}};\n`;
     expect(parseClientReferenceManifest(src)).toEqual([{ route: '/a/page', files: ['a.js', 'b.js'] }]);
     expect(() => readBuildManifests(join(dir, 'missing'))).toThrow(/no production build/);
+  });
+
+  it('[S4-F2] a route listed as zod-free fails when one of its own chunks bundles zod', () => {
+    const manifests = {
+      frameworkFiles: ['static/chunks/framework.js'],
+      routes: [
+        { route: '/listings/page', files: ['static/chunks/framework.js', 'static/chunks/a.js', 'static/chunks/b.js'] },
+      ],
+    };
+    const files: Record<string, string> = {
+      'static/chunks/framework.js': 'class $ZodType {}',
+      'static/chunks/a.js': 'export const LISTING_STATUSES = []',
+      'static/chunks/b.js': 'x',
+    };
+    const rules = [{ route: '/listings/page', library: 'zod', marker: '$ZodType' }];
+    expect(checkExcludedLibraries(manifests, (f) => files[f] ?? '', rules)).toEqual([]);
+    files['static/chunks/b.js'] = 'var e=class $ZodType{}';
+    expect(checkExcludedLibraries(manifests, (f) => files[f] ?? '', rules)).toEqual([
+      '/listings: static/chunks/b.js bundles zod',
+    ]);
+    expect(
+      checkExcludedLibraries(manifests, () => '', [{ route: '/gone/page', library: 'zod', marker: '$ZodType' }]),
+    ).toEqual(['/gone/page: not in the build']);
   });
 });

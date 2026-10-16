@@ -1,16 +1,11 @@
-import {
-  DEFAULT_LISTING_COLUMNS,
-  LISTING_COLUMNS,
-  type ListingColumn,
-  ListingFilter,
-  ListingSort,
-  type ListingViewQuery,
-} from '@inmolink/contracts';
+import type { ListingColumn, ListingFilter, ListingSort, ListingViewQuery } from '@inmolink/contracts';
+import { DEFAULT_LISTING_COLUMNS, LISTING_COLUMNS, LISTING_FILTER_KEYS } from '@inmolink/contracts/values';
 
 /**
  * The listing list's state in the URL (S3-07): the API's filter names and values (prices in cents), `sort`,
  * `cursor` and `cols` (shown columns, comma-separated). A saved view stores the same query and columns, so a
- * view is a link. Invalid values are dropped one by one, never an error page.
+ * view is a link. Invalid values are dropped one by one, never an error page (`parseListState`, server side in
+ * `./list-state`). This module stays zod-free: the toolbar (a client component) imports it (S4-F2).
  */
 export interface ListState {
   filter: ListingFilter;
@@ -19,11 +14,7 @@ export interface ListState {
   columns: ListingColumn[];
 }
 
-const FILTER_KEYS = Object.keys(ListingFilter.shape) as (keyof ListingFilter)[];
-const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
-
-type Params = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+const FILTER_KEYS: readonly (keyof ListingFilter)[] = LISTING_FILTER_KEYS;
 
 export function columnsOf(raw: string | undefined): ListingColumn[] {
   const picked = (raw ?? '')
@@ -33,24 +24,6 @@ export function columnsOf(raw: string | undefined): ListingColumn[] {
   if (unique.length === 0) return [...DEFAULT_LISTING_COLUMNS];
   // The reference opens the listing: always shown, first.
   return ['ref', ...unique.filter((c) => c !== 'ref')];
-}
-
-export function parseListState(params: Params): ListState {
-  const filter: Record<string, unknown> = {};
-  for (const key of FILTER_KEYS) {
-    const value = one(params[key]);
-    if (value === undefined || value === '') continue;
-    const parsed = ListingFilter.shape[key].safeParse(value);
-    if (parsed.success && parsed.data !== undefined) filter[key] = parsed.data;
-  }
-  const sort = ListingSort.safeParse(one(params.sort));
-  const cursor = one(params.cursor);
-  return {
-    filter: filter as ListingFilter,
-    sort: sort.success ? sort.data : 'newest',
-    cursor: cursor && CURSOR.test(cursor) ? cursor : undefined,
-    columns: columnsOf(one(params.cols)),
-  };
 }
 
 /** The query string of a list state (no cursor unless given); default sort and columns are left out. */

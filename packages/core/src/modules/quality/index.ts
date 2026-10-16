@@ -5,5 +5,10 @@ export { enqueueRecompute, QUALITY_DEBOUNCE_MS, QUALITY_PENDING_RECHECKS, qualit
 export { CLIENT_MODE_ALLOWED, can } from './policy';
 export { type QualityFacts, type QualityResult, scoreListing } from './score';
 export { getListingQuality, recomputeListingQuality } from './service';
-export { registerQualitySubscriptions, unregisterQualitySubscriptions } from './subscriptions';
+export {
+  registerQualitySubscriptions,
+  SCORE_IGNORED_FIELDS,
+  scoreMayChange,
+  unregisterQualitySubscriptions,
+} from './subscriptions';
 // Never export repo or schema.

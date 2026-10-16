@@ -1,16 +1,14 @@
 'use client';
 
+import type { ListingColumn, ListingFilter, ListingSort, ListingViewDto } from '@inmolink/contracts';
+// Plain lists, no zod in the client chunk (S4-F2); the page re-validates every filter from the URL.
 import {
   LISTING_COLUMNS,
   LISTING_SORTS,
-  type ListingColumn,
-  ListingFilter,
-  type ListingSort,
-  ListingStatus,
-  type ListingViewDto,
-  TransactionType,
-  Visibility,
-} from '@inmolink/contracts';
+  LISTING_STATUSES,
+  TRANSACTION_TYPES,
+  VISIBILITIES,
+} from '@inmolink/contracts/values';
 import { Button, Input, Label } from '@inmolink/ui';
 import { type FormEvent, useState, useTransition } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
@@ -65,8 +63,8 @@ export function ListingsToolbar(props: ListingsToolbarProps) {
       bedroomsMin: text('bedroomsMin') || undefined,
       tag: text('tag') || undefined,
     };
-    const parsed = ListingFilter.safeParse(Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined)));
-    go({ filter: parsed.success ? parsed.data : {} });
+    // The URL carries the values as typed; the page parses each one and drops what is invalid (`parseListState`).
+    go({ filter: Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined)) as ListingFilter });
   };
 
   const toggleColumn = (column: ListingColumn, on: boolean) => {
@@ -136,7 +134,7 @@ export function ListingsToolbar(props: ListingsToolbarProps) {
           <Label htmlFor="f-status">{t('editor.fields.status')}</Label>
           <select id="f-status" name="status" className={SELECT} defaultValue={filter.status ?? ''}>
             <option value="">{t('filters.any')}</option>
-            {ListingStatus.options.map((s) => (
+            {LISTING_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {t(`editor.options.status.${s}`)}
               </option>
@@ -147,7 +145,7 @@ export function ListingsToolbar(props: ListingsToolbarProps) {
           <Label htmlFor="f-visibility">{t('editor.fields.visibility')}</Label>
           <select id="f-visibility" name="visibility" className={SELECT} defaultValue={filter.visibility ?? ''}>
             <option value="">{t('filters.any')}</option>
-            {Visibility.options.map((v) => (
+            {VISIBILITIES.map((v) => (
               <option key={v} value={v}>
                 {t(`editor.options.visibility.${v}`)}
               </option>
@@ -163,7 +161,7 @@ export function ListingsToolbar(props: ListingsToolbarProps) {
             defaultValue={filter.transactionType ?? ''}
           >
             <option value="">{t('filters.any')}</option>
-            {TransactionType.options.map((v) => (
+            {TRANSACTION_TYPES.map((v) => (
               <option key={v} value={v}>
                 {t(`editor.options.transactionType.${v}`)}
               </option>

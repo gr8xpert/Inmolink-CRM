@@ -633,11 +633,20 @@ function rowsOf<T>(res: unknown): T[] {
  * Locations only: keep candidates that are children of a parent and/or on one level (the hint a feed gives).
  * A correlated primary-key probe per candidate: `owner in (select … where level = …)` read every location.
  */
+/**
+ * Location hints. A parent: `exists`, which the planner drives from the parent's children (`locations_parent_idx`,
+ * a few rows) — fast whatever the candidates. A level alone (hundreds of thousands of rows match it): a correlated
+ * scalar subquery, one primary-key probe per candidate. As `exists` the planner may hash-join a Seq Scan of
+ * `locations` filtered by level when its statistics drift (S4-F2, seen on a long-lived test database); a scalar
+ * subquery is never pulled up into a join.
+ */
 function ownerScope(kind: ResolveKind, owner: SQLWrapper, hints: LocationHints) {
   if (kind !== 'location' || (hints.parentId == null && !hints.level)) return sql``;
-  const parent = hints.parentId == null ? sql`` : sql` and ${locations.parentId} = ${hints.parentId}`;
   const level = hints.level ? sql` and ${locations.level} = ${hints.level}` : sql``;
-  return sql` and exists (select 1 from ${locations} where ${locations.id} = ${owner}${parent}${level})`;
+  if (hints.parentId == null) {
+    return sql` and (select true from ${locations} where ${locations.id} = ${owner}${level})`;
+  }
+  return sql` and exists (select 1 from ${locations} where ${locations.id} = ${owner} and ${locations.parentId} = ${hints.parentId}${level})`;
 }
 
 /** Trigram candidates read per key, most similar first, before they are grouped per owner. */

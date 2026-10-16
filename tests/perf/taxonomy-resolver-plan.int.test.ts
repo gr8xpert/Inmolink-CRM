@@ -92,6 +92,11 @@ it('[S2-F5] EXPLAIN on scale: exact and fuzzy resolver statements use their inde
   expect(out.exact?.plan).toMatch(/location_translations_name_key_eq_idx/);
   expect(out.fuzzy?.plan).toMatch(/location_translations_name_key_idx/);
   expect(out.fuzzy?.plan).toMatch(/location_aliases_key_trgm_idx/);
+  // S4-F2: a level hint is a per-candidate probe (a scalar subquery, `SubPlan`), never a hash join over `locations`
+  for (const name of ['exact, level hint', 'fuzzy, level hint']) {
+    expect(out[name]?.plan, name).toMatch(/SubPlan/);
+    expect(out[name]?.plan, name).not.toMatch(/Hash (Semi |Right Semi )?Join/);
+  }
   // Per key of a worker batch (timings vary with machine load; the plan checks above are the strict part):
   // exact ≈ 0.01 ms (one btree probe), fuzzy ≈ 2–6 ms (one GIN `%` probe), against the 20 ms SQL budget.
   expect((out.exact?.ms ?? Infinity) / 500).toBeLessThan(2);

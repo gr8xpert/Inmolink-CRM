@@ -1,4 +1,5 @@
-import { type ListingBulkAction, ListingStatus, ListingTag, ShareScope, Visibility } from '@inmolink/contracts';
+import type { ListingBulkAction } from '@inmolink/contracts';
+import { isOneOf, LISTING_STATUSES, normalizeListingTag, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
 
 /** The bulk bar's action (S3-07): its type and the one value it takes, as the API wants it. */
 export type ActionType = ListingBulkAction['type'];
@@ -10,11 +11,11 @@ export function bulkActionOf(type: ActionType, value: string): ListingBulkAction
   if (!v) return null;
   switch (type) {
     case 'STATUS':
-      return ListingStatus.safeParse(v).success ? { type, status: v as ListingStatus } : null;
+      return isOneOf(LISTING_STATUSES, v) ? { type, status: v } : null;
     case 'VISIBILITY':
-      return Visibility.safeParse(v).success ? { type, visibility: v as Visibility } : null;
+      return isOneOf(VISIBILITIES, v) ? { type, visibility: v } : null;
     case 'SHARE_SCOPE':
-      return ShareScope.safeParse(v).success ? { type, shareScope: v as ShareScope } : null;
+      return isOneOf(SHARE_SCOPES, v) ? { type, shareScope: v } : null;
     case 'PRICE_CHANGE': {
       // a percentage with up to two decimals → basis points
       const pct = Number(v.replace(',', '.'));
@@ -26,8 +27,8 @@ export function bulkActionOf(type: ActionType, value: string): ListingBulkAction
     case 'ASSIGN':
       return { type, ownerUserId: v };
     case 'ADD_TAG': {
-      const tag = ListingTag.safeParse(v);
-      return tag.success ? { type, tag: tag.data } : null;
+      const tag = normalizeListingTag(v);
+      return tag ? { type, tag } : null;
     }
   }
 }

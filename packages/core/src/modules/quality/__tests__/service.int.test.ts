@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { CreateListingBody, ListListingsQuery, MediaCheckBody, RegisterMediaBody } from '@inmolink/contracts';
+import {
+  CreateListingBody,
+  ListListingsQuery,
+  MediaCheckBody,
+  RegisterMediaBody,
+  StartListingBulkBody,
+} from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
@@ -232,6 +238,43 @@ describe('listing quality score', () => {
     expect(await refusal(as(a, (ctx) => quality.getListingQuality(ctx, newId())))).toBe('LISTING_NOT_FOUND');
     expect((await as(a, (ctx) => properties.getListing(ctx, id), true)).qualityScore).toBeNull();
   });
+});
+
+describe('recompute triggers', () => {
+  it('[S4-F2] a bulk price action on 1,000 listings enqueues no quality recompute', async () => {
+    const ids_ = (
+      await rows<{ id: string }>(sql`
+        insert into properties (id, agency_id, owner_user_id, ref, price_cents, property_type_id, location_id)
+        select gen_random_uuid(), ${a.agencyId}, ${a.userId}, ${`QB-${RUN}-`} || lpad(i::text, 5, '0'),
+               10000000 + i * 100000, ${ids.type}, ${ids.location}
+          from generate_series(1, 1000) as i
+        returning id`)
+    ).map((r) => r.id);
+    const bulk = await as(a, (ctx) =>
+      properties.startBulkAction(
+        ctx,
+        StartListingBulkBody.parse({ action: { type: 'PRICE_CHANGE', percentBp: 500 }, target: { ids: ids_ } }),
+      ),
+    );
+    await properties.propertiesJobs.runBulkAction.spec.run(
+      { bulkActionId: bulk.id, agencyId: a.agencyId, userId: a.userId },
+      jobCtx(),
+    );
+    expect((await as(a, (ctx) => properties.getBulkAction(ctx, bulk.id))).succeeded).toBe(1_000);
+    const updates = await rows<{ n: number }>(
+      sql`select count(*)::int as n from outbox_events
+           where agency_id = ${a.agencyId} and type = 'properties.listing.updated' and processed_at is null
+             and payload->'changed' = '["price"]'::jsonb`,
+    );
+    expect(updates[0]?.n).toBeGreaterThanOrEqual(1_000);
+    const mine = new Set(ids_);
+    const queued = await deliver(a);
+    expect(queued.filter(([payload]) => mine.has((payload as { listingId: string }).listingId))).toEqual([]);
+    // an edit the score reads still recomputes
+    expect(quality.scoreMayChange(['price', 'energyRating'])).toBe(true);
+    expect(quality.scoreMayChange(['price', 'owner', 'tags', 'visibility', 'shareScope'])).toBe(false);
+    await system((tx) => tx.execute(sql`delete from properties where ref like ${`QB-${RUN}-%`}`));
+  }, 120_000);
 });
 
 describe('listing freshness', () => {
