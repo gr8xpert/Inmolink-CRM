@@ -111,7 +111,8 @@ export type VerifiedAction =
   | 'listing.publish'
   | 'apiKey.create'
   | 'preferredAgency.add'
-  | 'directory.search';
+  | 'directory.search'
+  | 'development.share';
 
 export function assertVerified(ctx: Ctx, action: VerifiedAction): void {
   if (!ctx.tenant.verified) throw new AppError('VERIFICATION_REQUIRED', { action });

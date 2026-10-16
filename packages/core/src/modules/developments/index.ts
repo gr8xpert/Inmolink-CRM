@@ -2,4 +2,15 @@
 export { developmentsErrors } from './errors';
 export { developmentsEvents } from './events';
 export { developmentsJobs } from './jobs';
-// Export service functions and DTO-facing types here as they are added. Never export repo or schema.
+export { CLIENT_MODE_ALLOWED, can, DEVELOPMENTS_ACTIONS, DEVELOPMENTS_IMPERSONATION } from './policy';
+export { approvePriceList, createPriceList, diffPriceList, getPriceList, listPriceLists } from './price-lists';
+export {
+  createDevelopment,
+  deleteDevelopment,
+  getDevelopment,
+  listDevelopments,
+  setDevelopmentAccess,
+  updateDevelopment,
+} from './service';
+export { bulkUpdateUnits, createUnits, deleteUnit, listUnits, updateUnit } from './units';
+// Never export repo or schema.

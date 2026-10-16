@@ -499,6 +499,7 @@ export const tenantTables: Record<string, TenantTable> = {
   // Price list versions (AI extraction, review, diffs) and unit price history: the owner's workflow, not shared.
   price_lists: { kind: 'STRICT' },
   unit_price_histories: { kind: 'STRICT', immutable: true },
+  unit_status_histories: { kind: 'STRICT', immutable: true },
 };
 
 /**

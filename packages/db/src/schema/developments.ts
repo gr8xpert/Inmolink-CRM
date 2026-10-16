@@ -237,6 +237,10 @@ export const units = pgTable(
     priceCents: bigint('price_cents', { mode: 'number' }),
     currency: char('currency', { length: 3 }).notNull().default('EUR'),
     status: unitStatusEnum('status').notNull().default('AVAILABLE'),
+    /** The unit's own commission (S4-02): a percentage or a fixed amount; none → the development's applies. */
+    commissionBp: integer('commission_bp'),
+    commissionFixedCents: bigint('commission_fixed_cents', { mode: 'number' }),
+    commissionIncludesVat: boolean('commission_includes_vat').notNull().default(false),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -270,6 +274,12 @@ export const units = pgTable(
         and (${t.terraceM2} is null or ${t.terraceM2} >= 0)
         and (${t.plotM2} is null or ${t.plotM2} >= 0)
         and (${t.floor} is null or ${t.floor} between -10 and 300)`,
+    ),
+    check(
+      'units_commission_ck',
+      sql`(${t.commissionBp} is null or ${t.commissionBp} between 1 and 10000)
+        and (${t.commissionFixedCents} is null or ${t.commissionFixedCents} between 1 and 100000000000)
+        and not (${t.commissionBp} is not null and ${t.commissionFixedCents} is not null)`,
     ),
     check('units_version_ck', sql`${t.version} >= 1`),
   ],
@@ -333,6 +343,8 @@ export const priceLists = pgTable(
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     /** Added / removed / changed units and prices against the previous version (S4-02). */
     diffSummary: jsonb('diff_summary'),
+    /** The version as read (S4-02): `[{ ref, priceCents, status? }]`, a snapshot the diff is computed from. */
+    entries: jsonb('entries').notNull().default(sql`'[]'::jsonb`),
     createdByUserId: uuid('created_by_user_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -388,5 +400,38 @@ export const unitPriceHistories = pgTable(
     // FK
     index('unit_price_histories_price_list_idx').on(t.priceListId).where(sql`${t.priceListId} is not null`),
     check('unit_price_histories_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),
+  ],
+);
+
+/** Every status change of a unit (S4-02): the owner's history, not shared, append-only. */
+export const unitStatusHistories = pgTable(
+  'unit_status_histories',
+  {
+    id: uuid('id').primaryKey(),
+    unitId: uuid('unit_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    /** The price list version that changed it (null: a manual edit). */
+    priceListId: uuid('price_list_id'),
+    /** Null on the unit's first row (created). */
+    fromStatus: unitStatusEnum('from_status'),
+    toStatus: unitStatusEnum('to_status').notNull(),
+    changedByUserId: uuid('changed_by_user_id'),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'unit_status_histories_unit_fk',
+      columns: [t.unitId, t.agencyId],
+      foreignColumns: [units.id, units.agencyId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'unit_status_histories_price_list_fk',
+      columns: [t.priceListId, t.agencyId],
+      foreignColumns: [priceLists.id, priceLists.agencyId],
+    }),
+    // FK + a unit's status history, newest first
+    index('unit_status_histories_unit_idx').on(t.unitId, t.changedAt, t.id),
+    // FK
+    index('unit_status_histories_price_list_idx').on(t.priceListId).where(sql`${t.priceListId} is not null`),
   ],
 );

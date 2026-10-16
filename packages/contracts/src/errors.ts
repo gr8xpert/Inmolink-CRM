@@ -146,6 +146,20 @@ export const ErrorCodes = {
   MEDIA_NOT_FOUND: 404,
   /** A reorder did not name exactly the listing's media (another tab changed them): reload and retry. */
   MEDIA_ORDER_STALE: 409,
+  // developments (S4-02)
+  DEVELOPMENT_NOT_FOUND: 404,
+  /** Another development of the agency has this reference. */
+  DEVELOPMENT_REF_TAKEN: 409,
+  UNIT_NOT_FOUND: 404,
+  /** Another unit of the development has this reference. */
+  UNIT_REF_TAKEN: 409,
+  /** The development would have more than `MAX_UNITS_PER_DEVELOPMENT` units. */
+  DEVELOPMENT_UNIT_LIMIT: 409,
+  PRICE_LIST_NOT_FOUND: 404,
+  /** The price list was already approved and applied. */
+  PRICE_LIST_REVIEWED: 409,
+  /** A newer price list version exists: approve that one. */
+  PRICE_LIST_SUPERSEDED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;
