@@ -1,6 +1,7 @@
 'use server';
 
 import {
+  AddListingVideoBody,
   type BookmarkDto,
   BookmarkFolderBody,
   type BookmarkFolderDto,
@@ -10,6 +11,8 @@ import {
   type ListingBookmarkList,
   type ListingBulkDto,
   type ListingContentDto,
+  type ListingDocumentList,
+  type ListingDocumentUrlDto,
   type ListingDto,
   type ListingMediaList,
   type ListingQualityDto,
@@ -33,6 +36,7 @@ import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
 import {
   type ApiResult,
+  addListingVideo,
   checkMedia,
   confirmListing,
   createBookmark,
@@ -41,6 +45,7 @@ import {
   createListingView,
   deleteBookmark,
   deleteBookmarkFolder,
+  deleteListingDocument,
   deleteListingTranslation,
   deleteListingView,
   detachListingMedia,
@@ -48,7 +53,9 @@ import {
   fetchListingBookmarks,
   fetchListingBulkAction,
   fetchListingQuality,
+  listListingDocuments,
   listListingMedia,
+  openListingDocument,
   putListingTranslation,
   registerMedia,
   renameBookmarkFolder,
@@ -174,6 +181,34 @@ export async function reorderMediaAction(id: string, body: unknown): Promise<Edi
   const parsed = ReorderListingMediaBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => reorderListingMedia(s, id, parsed.data));
+}
+
+/** A video link (YouTube, Vimeo, Matterport), last in the order; answers the listing's media (S3-F5). */
+export async function addVideoAction(id: string, body: unknown): Promise<EditorResult<ListingMediaList>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  const parsed = AddListingVideoBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => addListingVideo(s, id, parsed.data.url));
+}
+
+/** The listing's private documents (S3-F5). */
+export async function listDocumentsAction(id: string): Promise<EditorResult<ListingDocumentList>> {
+  if (!Uuid.safeParse(id).success) return badId();
+  return withSession((s) => listListingDocuments(s, id));
+}
+
+/** A short signed download URL of one document. */
+export async function openDocumentAction(id: string, documentId: string): Promise<EditorResult<ListingDocumentUrlDto>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(documentId).success) return badId();
+  return withSession((s) => openListingDocument(s, id, documentId));
+}
+
+/** Removes a document; answers the documents left. */
+export async function deleteDocumentAction(id: string, documentId: string): Promise<EditorResult<ListingDocumentList>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(documentId).success) return badId();
+  const removed = await withSession((s) => deleteListingDocument(s, id, documentId));
+  if (!removed.ok) return removed;
+  return withSession((s) => listListingDocuments(s, id));
 }
 
 /** Removes a file from the listing; answers the listing's media as it is now. */

@@ -20,8 +20,11 @@ import {
   MEDIA_UPLOAD_URL_TTL_SECONDS,
   type MediaCheckBody,
   type MediaCheckResult,
+  parseVideoUrl,
   type RegisterMediaBody,
   type UpdateListingMediaBody,
+  type VideoProvider,
+  videoEmbedUrl,
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
@@ -61,13 +64,21 @@ async function toDtos(rows: repo.MediaListRow[]): Promise<ListingMediaDto[]> {
     rows.map(async (row) => ({
       id: row.id,
       sha256: row.sha256,
-      kind: row.kind,
+      kind: row.kind as ListingMediaDto['kind'],
+      video:
+        row.kind === 'VIDEO' && row.videoProvider && row.videoId
+          ? {
+              provider: row.videoProvider as VideoProvider,
+              id: row.videoId,
+              embedUrl: videoEmbedUrl(row.videoProvider as VideoProvider, row.videoId),
+            }
+          : null,
       position: row.position,
       isCover: row.isCover,
       altText: row.altText,
       roomType: row.roomType as ListingMediaDto['roomType'],
       thumbUrl:
-        row.pipeline !== null && (row.variantsReady & VARIANTS.thumb.bit) !== 0
+        row.sha256 !== null && row.pipeline !== null && (row.variantsReady & VARIANTS.thumb.bit) !== 0
           ? await storage().signedGetUrl('media', variantKey(row.sha256, 'thumb', row.pipeline), {
               expiresInSeconds: MEDIA_THUMB_URL_TTL_SECONDS,
               responseContentType: 'image/webp',
@@ -200,6 +211,8 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
       altText: f.altText ?? null,
       roomType: f.roomType ?? null,
       createdAt: now,
+      videoProvider: null,
+      videoId: null,
       // A trusted stored object may have its previews already; a new upload has none yet.
       pipeline: stored.get(f.sha256)?.trusted ? (stored.get(f.sha256)?.pipeline ?? null) : null,
       variantsReady: stored.get(f.sha256)?.trusted ? (stored.get(f.sha256)?.variantsReady ?? 0) : 0,
@@ -232,8 +245,10 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
       ctx,
       listing.id,
       added.map((m) => {
-        const v = verified.get(m.sha256);
-        return { sha256: m.sha256, upload: v ? { sizeBytes: v.sizeBytes, contentType: v.contentType } : null };
+        // files only: every row added here has its hash
+        const sha256 = m.sha256 as string;
+        const v = verified.get(sha256);
+        return { sha256, upload: v ? { sizeBytes: v.sizeBytes, contentType: v.contentType } : null };
       }),
     );
     return { items: await toDtos(merged) };
@@ -257,6 +272,11 @@ export async function updateListingMedia(
   assertCan(ctx, 'media.manage');
   const listing = await properties.lockListingForMedia(ctx, input.listingId);
   const { kind, cover, altText, roomType } = input.patch;
+  if (kind !== undefined || cover) {
+    // A video stays a video and is never the cover (S3-F5).
+    const row = (await repo.listForListing(ctx.tx, listing.id)).find((m) => m.id === input.mediaId);
+    if (row?.kind === 'VIDEO') throw new AppError('VALIDATION_FAILED', { field: 'kind', reason: 'a video link' });
+  }
   if (cover) {
     // Only an image can be the cover: this row's kind after the change.
     const current = (await repo.listForListing(ctx.tx, listing.id)).find((m) => m.id === input.mediaId);
@@ -309,7 +329,39 @@ export async function detachListingMedia(ctx: Ctx, input: { listingId: string; m
   if (!removed) throw new AppError('MEDIA_NOT_FOUND');
   await repo.closeGap(ctx.tx, listing.id, removed.position);
   if (removed.isCover) await repo.ensureCover(ctx.tx, listing.id);
-  await emitReferencesChanged(ctx, listing.id, [{ sha256: removed.sha256, upload: null }]);
+  // A video link references no stored object.
+  if (removed.sha256) await emitReferencesChanged(ctx, listing.id, [{ sha256: removed.sha256, upload: null }]);
+}
+
+/**
+ * `POST /v1/listings/:id/videos` (S3-F5): a YouTube, Vimeo or Matterport link, last in the listing's order (it is
+ * reordered with the photos). Only those hosts, normalized to the provider and its id; the page is never fetched.
+ */
+export async function addListingVideo(ctx: Ctx, input: { listingId: string; url: string }): Promise<ListingMediaList> {
+  assertCan(ctx, 'media.manage');
+  const video = parseVideoUrl(input.url);
+  if (!video) throw new AppError('VIDEO_URL_NOT_ALLOWED', { allowed: ['youtube', 'vimeo', 'matterport'] });
+  const listing = await properties.lockListingForMedia(ctx, input.listingId);
+  const current = await repo.listForListing(ctx.tx, listing.id);
+  if (current.some((m) => m.videoProvider === video.provider && m.videoId === video.id)) {
+    throw new AppError('VIDEO_ALREADY_ADDED');
+  }
+  if (current.length >= MEDIA_PER_LISTING_MAX) {
+    throw new AppError('MEDIA_LIMIT_REACHED', { max: MEDIA_PER_LISTING_MAX });
+  }
+  await repo.insertMedia(ctx.tx, [
+    {
+      id: newId(),
+      propertyId: listing.id,
+      agencyId: listing.agencyId,
+      sha256: null,
+      kind: 'VIDEO',
+      videoProvider: video.provider,
+      videoId: video.id,
+      position: current.length,
+    },
+  ]);
+  return listDtos(ctx, listing.id);
 }
 
 /**

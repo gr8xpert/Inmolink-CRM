@@ -185,7 +185,9 @@
     "LISTING_BULK_NOT_FOUND": "Esta acción masiva ya no existe.",
     "LISTING_BULK_TOO_MANY": "Coinciden más de 5.000 inmuebles. Acota los filtros primero.",
     "INTERNAL": "Algo ha fallado. Inténtalo de nuevo.",
-    "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión."
+    "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión.",
+    "VIDEO_URL_NOT_ALLOWED": "Solo se pueden añadir como vídeo enlaces de YouTube, Vimeo y Matterport.",
+    "VIDEO_ALREADY_ADDED": "Este vídeo ya está en el inmueble."
   },
   "media": {
     "title": "Fotos y planos",
@@ -258,7 +260,17 @@
     "dragHint": "Arrastra los archivos para ordenarlos o usa las flechas.",
     "saving": "Guardando…",
     "saved": "Guardado",
-    "count": "{count} de {limit} archivos"
+    "count": "{count} de {limit} archivos",
+    "video": {
+      "label": "Enlace de vídeo (YouTube, Vimeo o tour de Matterport)",
+      "add": "Añadir vídeo",
+      "hint": "Pega el enlace de la página del vídeo; solo se aceptan YouTube, Vimeo y Matterport.",
+      "providers": {
+        "youtube": "Vídeo de YouTube",
+        "vimeo": "Vídeo de Vimeo",
+        "matterport": "Tour de Matterport"
+      }
+    }
   },
   "filters": {
     "q": "Referencia",
@@ -380,6 +392,26 @@
       "FORBIDDEN": "Los favoritos no están disponibles aquí.",
       "VALIDATION_FAILED": "Revisa el nombre o la nota.",
       "generic": "Algo ha fallado. Inténtalo de nuevo."
+    }
+  },
+  "documents": {
+    "title": "Documentos",
+    "intro": "PDF solo para tu agencia (nota simple, contratos, planos): nunca se muestran en webs ni a otras agencias.",
+    "choose": "Subir PDF",
+    "input": "Documentos PDF para subir",
+    "hint": "Solo PDF, hasta {max} MB cada uno.",
+    "progressLabel": "Progreso de la subida",
+    "empty": "Aún no hay documentos.",
+    "open": "Abrir",
+    "remove": "Quitar",
+    "errors": {
+      "DOCUMENT_TYPE_NOT_ALLOWED": "Este archivo no es un PDF.",
+      "DOCUMENT_LIMIT_REACHED": "Este inmueble ya tiene el máximo de documentos.",
+      "PAYLOAD_TOO_LARGE": "El archivo supera los {max} MB.",
+      "FORBIDDEN": "No puedes cambiar los documentos de este inmueble.",
+      "LISTING_NOT_FOUND": "Este inmueble no existe o se eliminó.",
+      "MEDIA_NOT_FOUND": "Este documento ya no existe.",
+      "generic": "Algo salió mal. Inténtalo de nuevo."
     }
   }
 }

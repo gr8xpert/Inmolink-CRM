@@ -120,3 +120,62 @@ test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; 
   await expect(reloaded.getByLabel('Alt text')).toHaveValue('Pool with sea views');
   await expect(page.getByTestId('media-item').nth(4).getByLabel('Kind')).toHaveValue('FLOOR_PLAN');
 });
+
+test('[S3-F5] a video link joins the photos and shows as a video; a PDF uploads with progress; other files are refused', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await page.route('**/demotiles.maplibre.org/style.json', (route) =>
+    route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
+  );
+  const seeded = await seedListingAgent();
+  await login(page, seeded.email);
+  await page.goto('/en/listings/new');
+  // up to 60 s for the seeded taxonomy to reach the api's memory (see the test above)
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByLabel('Property type').getByRole('option', { name: seeded.propertyType })).toHaveCount(1, {
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 90_000, intervals: [2_000] });
+  await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
+  await page.getByLabel('Location').selectOption({ label: seeded.location });
+  await page.getByRole('button', { name: 'Create listing' }).click();
+  await expect(page).toHaveURL(/\/en\/listings\/[0-9a-f-]{36}$/);
+
+  // A photo, then a YouTube link: the video is the second item, shown as a video.
+  await page.getByLabel('Photos to upload').setInputFiles([photo(randomUUID(), 1)]);
+  await expect(page.getByTestId('media-item')).toHaveCount(1);
+  const videoField = page.getByLabel('Video link (YouTube, Vimeo or Matterport tour)');
+  await videoField.fill('https://youtu.be/dQw4w9WgXcQ');
+  await page.getByRole('button', { name: 'Add video' }).click();
+  await expect(page.getByTestId('media-item')).toHaveCount(2);
+  await expect(page.getByTestId('media-item').nth(1).getByTestId('media-video')).toHaveAttribute(
+    'data-provider',
+    'youtube',
+  );
+  // Reordered with the photos: the video moves first.
+  await page.getByRole('button', { name: 'Move earlier: File 2' }).click();
+  await expect(page.getByTestId('media-item').first().getByTestId('media-video')).toBeVisible();
+  await expect(page.getByTestId('media-save-status')).toHaveAttribute('data-pending', '0');
+  await page.reload();
+  await expect(page.getByTestId('media-item').first().getByTestId('media-video')).toBeVisible();
+  // Another host is refused.
+  await videoField.fill('https://example.com/watch?v=dQw4w9WgXcQ');
+  await page.getByRole('button', { name: 'Add video' }).click();
+  await expect(page.getByTestId('media-error')).toContainText('Only YouTube, Vimeo and Matterport');
+
+  // A PDF uploads (with progress) and is listed; an image named .pdf is refused.
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(200_000, 32), Buffer.from('\n%%EOF\n')]);
+  await page
+    .getByLabel('PDF documents to upload')
+    .setInputFiles([{ name: 'nota-simple.pdf', mimeType: 'application/pdf', buffer: pdf }]);
+  await expect(page.getByTestId('document-item')).toHaveCount(1);
+  await expect(page.getByTestId('document-item')).toContainText('nota-simple.pdf');
+  const fake = photo(randomUUID(), 2);
+  await page
+    .getByLabel('PDF documents to upload')
+    .setInputFiles([{ name: 'contract.pdf', mimeType: 'application/pdf', buffer: fake.buffer }]);
+  await expect(page.getByTestId('documents-error')).toHaveText('This file is not a PDF.');
+  await expect(page.getByTestId('document-item')).toHaveCount(1);
+});

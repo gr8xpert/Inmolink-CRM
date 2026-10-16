@@ -1,4 +1,10 @@
 import {
+  AddListingVideoBody,
+  LISTING_DOCUMENT_MAX_BYTES,
+  ListingDocumentDto,
+  ListingDocumentList,
+  ListingDocumentParams,
+  ListingDocumentUrlDto,
   ListingMediaList,
   ListingMediaParams,
   ListingParams,
@@ -7,8 +13,10 @@ import {
   RegisterMediaBody,
   ReorderListingMediaBody,
   UpdateListingMediaBody,
+  UploadListingDocumentQuery,
 } from '@inmolink/contracts';
 import * as media from '@inmolink/core/modules/media';
+import { AppError } from '@inmolink/platform/errors';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
@@ -148,6 +156,131 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => media.reorderListingMedia(ctx, { listingId: req.params.id, ids: req.body.ids }));
+    },
+  );
+
+  app.post(
+    '/v1/listings/:id/videos',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.addListingVideo',
+        summary: "Add a YouTube, Vimeo or Matterport link to the listing's media (last); answers the listing's media",
+        params: ListingParams,
+        body: AddListingVideoBody,
+        response: { 201: ListingMediaList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const list = await app.withCtx(req, (ctx) =>
+        media.addListingVideo(ctx, { listingId: req.params.id, url: req.body.url }),
+      );
+      return reply.status(201).header('cache-control', 'no-store').send(list);
+    },
+  );
+
+  app.get(
+    '/v1/listings/:id/documents',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.listListingDocuments',
+        summary: "The own listing's documents (private to the agency)",
+        params: ListingParams,
+        response: { 200: ListingDocumentList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => media.listListingDocuments(ctx, req.params.id));
+    },
+  );
+
+  app.get(
+    '/v1/listings/:id/documents/:documentId/url',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.openListingDocument',
+        summary: 'A short signed download URL of one of the own listing documents',
+        params: ListingDocumentParams,
+        response: { 200: ListingDocumentUrlDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        media.openListingDocument(ctx, { listingId: req.params.id, documentId: req.params.documentId }),
+      );
+    },
+  );
+
+  app.delete(
+    '/v1/listings/:id/documents/:documentId',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.deleteListingDocument',
+        summary: 'Remove a listing document',
+        params: ListingDocumentParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      await media.deleteListingDocument(app.ctxRunner(req), {
+        listingId: req.params.id,
+        documentId: req.params.documentId,
+      });
+      return reply.status(204).send(null);
+    },
+  );
+
+  await app.register(documentUploadRoute);
+}
+
+/**
+ * The document upload, in its own plugin: its body is the raw file (only this route accepts binary bodies, up to
+ * 20 MB). The declared type only routes the body here; the service checks the real type by magic bytes.
+ */
+async function documentUploadRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    ['application/pdf', 'application/octet-stream'],
+    { parseAs: 'buffer', bodyLimit: LISTING_DOCUMENT_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/listings/:id/documents',
+    {
+      schema: {
+        tags: ['media'],
+        operationId: 'media.uploadListingDocument',
+        summary: 'Upload one listing document (raw PDF body, max 20 MB)',
+        params: ListingParams,
+        querystring: UploadListingDocumentQuery,
+        response: { 201: ListingDocumentDto },
+      },
+      bodyLimit: LISTING_DOCUMENT_MAX_BYTES,
+      onRequest: [upload.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      const doc = await media.uploadListingDocument(upload.ctxRunner(req), {
+        listingId: req.params.id,
+        fileName: req.query.fileName,
+        body,
+      });
+      return reply.status(201).send(doc);
     },
   );
 }

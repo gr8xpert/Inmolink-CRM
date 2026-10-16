@@ -15,6 +15,9 @@ import { QualityPanel } from './quality-panel';
 const MediaManager = dynamic(() => import('./media-manager'), {
   loading: () => <div className="h-48 animate-pulse rounded-md bg-muted" />,
 });
+const DocumentsPanel = dynamic(() => import('./documents-panel'), {
+  loading: () => <div className="h-24 animate-pulse rounded-md bg-muted" />,
+});
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,6 +85,14 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
           listingId={res.listing.data.id}
           initial={res.media?.items ?? []}
           readOnly={res.listing.data.private === null || res.listing.data.deletedAt !== null}
+          messages={messages.listings}
+        />
+      ) : null}
+      {/* Documents are the owner agency's only (S3-F5): not shown on another agency's listing at all. */}
+      {res.listing.ok && res.listing.data.private !== null ? (
+        <DocumentsPanel
+          listingId={res.listing.data.id}
+          readOnly={res.listing.data.deletedAt !== null}
           messages={messages.listings}
         />
       ) : null}

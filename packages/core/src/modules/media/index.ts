@@ -1,10 +1,19 @@
 /** media — public API (PATTERNS §1). The only import path for other modules and apps. */
+export {
+  configureDocumentScanner,
+  type DocumentScanner,
+  deleteListingDocument,
+  listListingDocuments,
+  openListingDocument,
+  uploadListingDocument,
+} from './documents';
 export { mediaErrors } from './errors';
 export { mediaEvents } from './events';
 export { MEDIA_DELETE_GRACE_DAYS, mediaJobs, requestVariants } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, MEDIA_ACTIONS, MEDIA_IMPERSONATION } from './policy';
 export { hammingDistance } from './processing';
 export {
+  addListingVideo,
   checkUploads,
   detachListingMedia,
   listingImageSizes,

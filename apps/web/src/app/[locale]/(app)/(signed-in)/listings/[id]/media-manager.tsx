@@ -11,6 +11,7 @@ import {
 import { Button } from '@inmolink/ui';
 import { type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
+  addVideoAction,
   checkMediaAction,
   detachMediaAction,
   type EditorResult,
@@ -131,6 +132,7 @@ export default function MediaManager(props: MediaManagerProps) {
   const [alts, setAlts] = useState<Record<string, string>>({});
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [over, setOver] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
 
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -285,7 +287,7 @@ export default function MediaManager(props: MediaManagerProps) {
         });
 
         // Duplicates are skipped at once: on the listing already, or the same bytes chosen twice.
-        const plan = partition(hashed, new Set(itemsRef.current.map((m) => m.sha256)));
+        const plan = partition(hashed, new Set(itemsRef.current.flatMap((m) => (m.sha256 ? [m.sha256] : []))));
         patchEntries(
           plan.skipped.map((e) => e.key),
           { status: 'skipped' },
@@ -390,6 +392,33 @@ export default function MediaManager(props: MediaManagerProps) {
               {t('media.hint', { max: MAX_MB, limit: String(MEDIA_PER_LISTING_MAX) })}
             </span>
           </div>
+          <form
+            className="flex flex-wrap items-end gap-2"
+            data-testid="media-video-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const url = videoUrl.trim();
+              if (!url) return;
+              void mutate(() => addVideoAction(id, { url })).then(() => setVideoUrl(''));
+            }}
+          >
+            <label className="flex min-w-64 flex-1 flex-col gap-0.5 text-sm">
+              {t('media.video.label')}
+              <input
+                type="url"
+                inputMode="url"
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                placeholder="https://www.youtube.com/watch?v=…"
+                maxLength={500}
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+              />
+            </label>
+            <Button type="submit" size="sm" variant="outline" disabled={videoUrl.trim() === ''}>
+              {t('media.video.add')}
+            </Button>
+            <span className="w-full text-xs text-muted-foreground">{t('media.video.hint')}</span>
+          </form>
         </>
       )}
 
@@ -451,7 +480,8 @@ export default function MediaManager(props: MediaManagerProps) {
           {props.readOnly ? null : <p className="text-xs text-muted-foreground">{t('media.dragHint')}</p>}
           <ol className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" data-testid="media-grid">
             {items.map((m, i) => {
-              const src = m.thumbUrl ?? previews.current.get(m.sha256) ?? null;
+              const src = m.thumbUrl ?? (m.sha256 ? previews.current.get(m.sha256) : undefined) ?? null;
+              const isVideo = m.kind === 'VIDEO';
               const label = t('media.item', { n: String(i + 1) });
               return (
                 <li
@@ -477,7 +507,21 @@ export default function MediaManager(props: MediaManagerProps) {
                   className={`flex flex-col gap-1 rounded-md border p-2 ${dragFrom === i ? 'opacity-50' : ''}`}
                 >
                   <div className="relative aspect-[4/3] overflow-hidden rounded bg-muted">
-                    {src ? (
+                    {isVideo && m.video ? (
+                      <a
+                        href={m.video.embedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid="media-video"
+                        data-provider={m.video.provider}
+                        className="flex h-full flex-col items-center justify-center gap-1 text-sm underline"
+                      >
+                        <span aria-hidden="true" className="text-2xl">
+                          ▶
+                        </span>
+                        {t(`media.video.providers.${m.video.provider}`)}
+                      </a>
+                    ) : src ? (
                       // biome-ignore lint/performance/noImgElement: a 320 px variant or a local preview, already sized
                       <img
                         src={src}
@@ -527,7 +571,7 @@ export default function MediaManager(props: MediaManagerProps) {
                         >
                           →
                         </Button>
-                        {m.kind === 'IMAGE' && !m.isCover ? (
+                        {m.kind === 'IMAGE' && !m.isCover && !isVideo ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -548,46 +592,52 @@ export default function MediaManager(props: MediaManagerProps) {
                           {t('media.remove')}
                         </Button>
                       </div>
-                      <label className="flex flex-col gap-0.5 text-xs">
-                        {t('media.kind')}
-                        <select
-                          className={SELECT}
-                          value={m.kind}
-                          onChange={(e) => update(m.id, { kind: e.target.value })}
-                        >
-                          {(['IMAGE', 'FLOOR_PLAN'] as const).map((k) => (
-                            <option key={k} value={k}>
-                              {t(`media.kinds.${k}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-0.5 text-xs">
-                        {t('media.roomType')}
-                        <select
-                          className={SELECT}
-                          value={m.roomType ?? ''}
-                          onChange={(e) => update(m.id, { roomType: e.target.value === '' ? null : e.target.value })}
-                        >
-                          <option value="">{t('media.noRoom')}</option>
-                          {LISTING_ROOM_TYPES.map((r) => (
-                            <option key={r} value={r}>
-                              {t(`media.rooms.${r}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-0.5 text-xs">
-                        {t('media.altText')}
-                        <input
-                          className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-                          maxLength={300}
-                          title={t('media.altHint')}
-                          value={alts[m.id] ?? m.altText ?? ''}
-                          onChange={(e) => setAlts((a) => ({ ...a, [m.id]: e.target.value }))}
-                          onBlur={() => saveAlt(m)}
-                        />
-                      </label>
+                      {isVideo ? null : (
+                        <>
+                          <label className="flex flex-col gap-0.5 text-xs">
+                            {t('media.kind')}
+                            <select
+                              className={SELECT}
+                              value={m.kind}
+                              onChange={(e) => update(m.id, { kind: e.target.value })}
+                            >
+                              {(['IMAGE', 'FLOOR_PLAN'] as const).map((k) => (
+                                <option key={k} value={k}>
+                                  {t(`media.kinds.${k}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-0.5 text-xs">
+                            {t('media.roomType')}
+                            <select
+                              className={SELECT}
+                              value={m.roomType ?? ''}
+                              onChange={(e) =>
+                                update(m.id, { roomType: e.target.value === '' ? null : e.target.value })
+                              }
+                            >
+                              <option value="">{t('media.noRoom')}</option>
+                              {LISTING_ROOM_TYPES.map((r) => (
+                                <option key={r} value={r}>
+                                  {t(`media.rooms.${r}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-0.5 text-xs">
+                            {t('media.altText')}
+                            <input
+                              className="h-8 w-full rounded-md border bg-background px-2 text-xs"
+                              maxLength={300}
+                              title={t('media.altHint')}
+                              value={alts[m.id] ?? m.altText ?? ''}
+                              onChange={(e) => setAlts((a) => ({ ...a, [m.id]: e.target.value }))}
+                              onBlur={() => saveAlt(m)}
+                            />
+                          </label>
+                        </>
+                      )}
                     </>
                   )}
                 </li>

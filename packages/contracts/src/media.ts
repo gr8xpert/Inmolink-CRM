@@ -117,10 +117,65 @@ export const RegisterMediaBody = z
   .strict();
 export type RegisterMediaBody = z.infer<typeof RegisterMediaBody>;
 
+export const VideoProvider = z.enum(['youtube', 'vimeo', 'matterport']);
+export type VideoProvider = z.infer<typeof VideoProvider>;
+
+/**
+ * A video link (S3-F5): YouTube, Vimeo or a Matterport tour, normalized to the provider and its id. Only these
+ * hosts; nothing is fetched. Returns null for anything else.
+ */
+export function parseVideoUrl(raw: string): { provider: VideoProvider; id: string } | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  const host = url.hostname.toLowerCase().replace(/^(www\.|m\.)/, '');
+  const path = url.pathname.split('/').filter(Boolean);
+  const yt = /^[A-Za-z0-9_-]{11}$/;
+  if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    const id =
+      path[0] === 'watch'
+        ? url.searchParams.get('v')
+        : ['embed', 'shorts', 'live'].includes(path[0] ?? '')
+          ? path[1]
+          : null;
+    return id && yt.test(id) ? { provider: 'youtube', id } : null;
+  }
+  if (host === 'youtu.be') return path[0] && yt.test(path[0]) ? { provider: 'youtube', id: path[0] } : null;
+  if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+    const id = host === 'player.vimeo.com' ? (path[0] === 'video' ? path[1] : undefined) : path[0];
+    return id && /^\d{1,12}$/.test(id) ? { provider: 'vimeo', id } : null;
+  }
+  if (host === 'my.matterport.com') {
+    const id = path[0] === 'show' ? url.searchParams.get('m') : null;
+    return id && /^[A-Za-z0-9]{6,20}$/.test(id) ? { provider: 'matterport', id } : null;
+  }
+  return null;
+}
+
+/** The player URL of a normalized video (built from the id: no user text ends up in it). */
+export function videoEmbedUrl(provider: VideoProvider, id: string): string {
+  if (provider === 'youtube') return `https://www.youtube-nocookie.com/embed/${id}`;
+  if (provider === 'vimeo') return `https://player.vimeo.com/video/${id}`;
+  return `https://my.matterport.com/show/?m=${id}`;
+}
+
+/** `POST /v1/listings/:id/videos` (S3-F5): a YouTube, Vimeo or Matterport link, last in the order. */
+export const AddListingVideoBody = z.object({ url: z.string().trim().min(1).max(500) }).strict();
+export type AddListingVideoBody = z.infer<typeof AddListingVideoBody>;
+
+export const ListingVideo = z.object({ provider: VideoProvider, id: z.string(), embedUrl: z.string() });
+
 export const ListingMediaDto = z.object({
   id: z.uuid(),
-  sha256: Sha256Hex,
-  kind: z.enum(['IMAGE', 'FLOOR_PLAN', 'VIDEO', 'DOCUMENT']),
+  /** The file's hash; null for a video link. */
+  sha256: Sha256Hex.nullable(),
+  kind: z.enum(['IMAGE', 'FLOOR_PLAN', 'VIDEO']),
+  /** VIDEO only (S3-F5). */
+  video: ListingVideo.nullable(),
   position: z.number().int(),
   isCover: z.boolean(),
   altText: z.string().nullable(),
@@ -169,3 +224,33 @@ export const ReorderListingMediaBody = z
   })
   .strict();
 export type ReorderListingMediaBody = z.infer<typeof ReorderListingMediaBody>;
+
+// ---- Listing documents (S3-F5): private to the owner agency, never on websites ----------------------------------
+
+/** A listing document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
+export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+/** Documents per listing. */
+export const LISTING_DOCUMENTS_MAX = 50;
+/** How long an opened document's signed URL works. */
+export const LISTING_DOCUMENT_URL_TTL_SECONDS = 300;
+
+export const UploadListingDocumentQuery = z.object({ fileName: z.string().trim().min(1).max(200) }).strict();
+export type UploadListingDocumentQuery = z.infer<typeof UploadListingDocumentQuery>;
+
+export const ListingDocumentDto = z.object({
+  id: z.uuid(),
+  fileName: z.string(),
+  sizeBytes: z.number().int(),
+  createdAt: z.iso.datetime(),
+});
+export type ListingDocumentDto = z.infer<typeof ListingDocumentDto>;
+
+export const ListingDocumentList = z.object({ items: z.array(ListingDocumentDto) });
+export type ListingDocumentList = z.infer<typeof ListingDocumentList>;
+
+export const ListingDocumentParams = z.object({ id: z.uuid(), documentId: z.uuid() }).strict();
+export type ListingDocumentParams = z.infer<typeof ListingDocumentParams>;
+
+/** A short signed GET of the private object (`Content-Disposition` names the file). */
+export const ListingDocumentUrlDto = z.object({ url: z.string(), expiresAt: z.iso.datetime() });
+export type ListingDocumentUrlDto = z.infer<typeof ListingDocumentUrlDto>;

@@ -409,6 +409,11 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // A listing's private fields (cadastral reference, seller, internal notes, keys): owner agency only.
   property_privates: { kind: 'STRICT' },
+  // Listing documents (S3-F5): the owner agency's only, never the network or websites.
+  listing_documents: {
+    kind: 'STRICT',
+    base: { file_name: 'isolation.pdf', content_type: 'application/pdf', size_bytes: 1, sha256: ISOLATION_SHA256 },
+  },
   // A listing's translations, features and media: readable wherever the listing itself is (the `exists`
   // runs under the reader's RLS on `properties`; the composite FK keeps the row's agency the listing's).
   // The generated suite seeds no parent listing, so these rows are hidden there; the readable side is

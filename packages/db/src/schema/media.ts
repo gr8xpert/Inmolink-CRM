@@ -85,15 +85,23 @@ export const mediaObjects = pgTable(
 
 export const propertyMediaKindEnum = pgEnum('property_media_kind', ['IMAGE', 'FLOOR_PLAN', 'VIDEO', 'DOCUMENT']);
 
-/** The listing's media in order: its use of a content-addressed object, by hash (no variant rows). */
+/**
+ * The listing's media in order: its use of a content-addressed object, by hash (no variant rows) — or a video link
+ * (S3-F5: kind VIDEO, no hash, the provider and its normalized id; nothing is fetched). Documents are not media:
+ * they live in `listing_documents`, private to the agency (kind DOCUMENT is refused here).
+ */
 export const propertyMedia = pgTable(
   'property_media',
   {
     id: uuid('id').primaryKey(),
     propertyId: uuid('property_id').notNull(),
     agencyId: uuid('agency_id').notNull(),
-    sha256: char('sha256', { length: 64 }).notNull(),
+    /** The object's hash; null for a video link. */
+    sha256: char('sha256', { length: 64 }),
     kind: propertyMediaKindEnum('kind').notNull().default('IMAGE'),
+    /** VIDEO only (S3-F5): `youtube`, `vimeo` or `matterport`, and the id the embed URL is built from. */
+    videoProvider: text('video_provider'),
+    videoId: text('video_id'),
     position: integer('position').notNull(),
     isCover: boolean('is_cover').notNull().default(false),
     altText: text('alt_text'),
@@ -118,5 +126,52 @@ export const propertyMedia = pgTable(
     index('property_media_sha_idx').on(t.sha256),
     check('property_media_position_ck', sql`${t.position} >= 0`),
     check('property_media_sha256_ck', SHA256_HEX(t.sha256)),
+    // a video is a link (provider + id, no file); everything else is a stored file, never a document (S3-F5)
+    check(
+      'property_media_video_ck',
+      sql`(${t.kind} = 'VIDEO') = (${t.sha256} is null) and (${t.kind} = 'VIDEO') = (${t.videoProvider} is not null and ${t.videoId} is not null)`,
+    ),
+    check('property_media_no_document_ck', sql`${t.kind} <> 'DOCUMENT'`),
+    check('property_media_video_provider_ck', sql`${t.videoProvider} in ('youtube', 'vimeo', 'matterport')`),
+    // a video is linked to a listing once
+    uniqueIndex('property_media_video_uq').on(t.propertyId, t.videoProvider, t.videoId).where(sql`${t.kind} = 'VIDEO'`),
+  ],
+);
+
+/**
+ * A listing's documents (S3-F5: nota simple, contracts, plans as PDF). Private to the owner agency: STRICT, per-agency
+ * keys in the private bucket (`documents/<agency>/<listing>/<id>`), never content-addressed or shared, never on
+ * websites; opened through a short signed URL.
+ */
+export const listingDocuments = pgTable(
+  'listing_documents',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    propertyId: uuid('property_id').notNull(),
+    /** Display name as uploaded (sanitized). */
+    fileName: text('file_name').notNull(),
+    /** Detected from the file's magic bytes: `application/pdf`. */
+    contentType: text('content_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    storageKey: text('storage_key').notNull(),
+    uploadedBy: uuid('uploaded_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'listing_documents_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    // FK + a listing's documents: where agency_id = ? and property_id = ? order by created_at, id
+    index('listing_documents_property_idx').on(t.agencyId, t.propertyId, t.createdAt, t.id),
+    uniqueIndex('listing_documents_key_uq').on(t.storageKey),
+    // the same file once per listing (a retried upload answers with the document it made)
+    unique('listing_documents_property_sha_uq').on(t.propertyId, t.sha256),
+    check('listing_documents_sha256_ck', SHA256_HEX(t.sha256)),
+    check('listing_documents_type_ck', sql`${t.contentType} = 'application/pdf'`),
+    check('listing_documents_size_ck', sql`${t.sizeBytes} > 0`),
   ],
 );

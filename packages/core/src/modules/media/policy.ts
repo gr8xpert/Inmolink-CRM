@@ -9,8 +9,10 @@ import * as properties from '../properties';
  * `listing.update` (owner agency, own listing or admin). Reading a listing's media is `listing.read`.
  */
 export const MEDIA_ACTIONS = [
-  /** Upload files (check, signed URLs, register) and attach or detach them on listings. */
+  /** Upload files (check, signed URLs, register) and attach or detach them on listings; videos and documents too. */
   'media.manage',
+  /** Open the own agency's listing documents (S3-F5). Never in Client Mode: documents are internal. */
+  'media.documents.read',
 ] as const;
 export type MediaAction = (typeof MEDIA_ACTIONS)[number];
 
@@ -20,6 +22,8 @@ export const CLIENT_MODE_ALLOWED: ReadonlySet<MediaAction> = new Set<MediaAction
 /** Staff impersonating a member may fix a listing's photos, like its other data (S3-02 decision). */
 export const MEDIA_IMPERSONATION: ImpersonationRules<MediaAction> = {
   'media.manage': 'allowed',
+  // Documents carry seller identities (nota simple, DNI): staff acting as a member do not open them (S3-F5).
+  'media.documents.read': 'forbidden',
 };
 
 export function can(ctx: Ctx, action: MediaAction): boolean {
@@ -30,6 +34,8 @@ export function can(ctx: Ctx, action: MediaAction): boolean {
     case 'media.manage':
       // Whoever lists properties uploads their photos (PARTNER members only read).
       return properties.can(ctx, 'listing.create');
+    case 'media.documents.read':
+      return properties.can(ctx, 'listing.read');
   }
 }
 

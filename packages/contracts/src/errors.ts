@@ -100,6 +100,11 @@ export const ErrorCodes = {
   LOCATION_POLYGON_INVALID: 422,
   /** The ids do not match exactly the siblings (or group members) being ordered. */
   TAXONOMY_ORDER_INVALID: 422,
+  // media: videos and documents (S3-F5)
+  /** Only YouTube, Vimeo and Matterport links are accepted as videos. */
+  VIDEO_URL_NOT_ALLOWED: 422,
+  /** This video is on the listing already. */
+  VIDEO_ALREADY_ADDED: 409,
   // properties (S3-02)
   /** PUBLIC needs a CEE energy rating (A–G or EXEMPT; PENDING is not one), PLAN §13. */
   ENERGY_RATING_REQUIRED: 422,

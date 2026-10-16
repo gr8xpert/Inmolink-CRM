@@ -63,11 +63,14 @@ async function seedListing(over: Partial<typeof properties.$inferInsert> = {}): 
       .insert(propertyTranslations)
       .values({ propertyId: id, agencyId, locale: 'en', title: 'Sea view villa', slug: 'sea-view-villa' });
     await tx.insert(propertyFeatures).values({ propertyId: id, agencyId, featureId: ids.feature });
-    // Media rows belong to the media module (S3-03): written with SQL, not its schema. The second one is a nota
-    // simple (seller names and cadastral data), never shared.
+    // Media rows belong to the media module (S3-03): written with SQL, not its schema. The document is a nota
+    // simple (seller names and cadastral data), never shared — its own STRICT table since S3-F5.
     await tx.execute(sql`insert into property_media (id, property_id, agency_id, sha256, position, is_cover, kind)
-      values (${newId()}, ${id}, ${agencyId}, ${'a'.repeat(64)}, 0, true, 'IMAGE'),
-             (${newId()}, ${id}, ${agencyId}, ${'b'.repeat(64)}, 1, false, 'DOCUMENT')`);
+      values (${newId()}, ${id}, ${agencyId}, ${'a'.repeat(64)}, 0, true, 'IMAGE')`);
+    await tx.execute(sql`insert into listing_documents
+        (id, agency_id, property_id, file_name, content_type, size_bytes, sha256, storage_key, uploaded_by)
+      values (${newId()}, ${agencyId}, ${id}, 'nota-simple.pdf', 'application/pdf', 1, ${'b'.repeat(64)},
+              ${`documents/${agencyId}/${id}/${newId()}`}, ${newId()})`);
     await tx
       .insert(propertyPriceHistories)
       .values({ id: newId(), propertyId: id, agencyId, priceCents: 45_000_000, currency: 'EUR' });
@@ -89,7 +92,10 @@ async function visibleTo(f: Founder, id: string) {
       translations: await n(propertyTranslations),
       features: await n(propertyFeatures),
       media: Number(
-        (await tx.execute(sql`select count(*)::int as n from property_media where property_id = ${id}`)).rows[0]?.n,
+        (
+          await tx.execute(sql`select (select count(*) from property_media where property_id = ${id})
+                                    + (select count(*) from listing_documents where property_id = ${id}) as n`)
+        ).rows[0]?.n,
       ),
       priceHistory: await m(propertyPriceHistories),
       statusHistory: await m(propertyStatusHistories),

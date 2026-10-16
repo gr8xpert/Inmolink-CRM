@@ -5,12 +5,12 @@
  * the worker's reference counting runs through `withMedia()` (app_media, S3-F4).
  */
 import type { Tx } from '@inmolink/db';
-import { mediaObjects, propertyMedia } from '@inmolink/db/schema/media';
+import { listingDocuments, mediaObjects, propertyMedia } from '@inmolink/db/schema/media';
 import { and, asc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 
 export type MediaRow = Pick<
   typeof propertyMedia.$inferSelect,
-  'id' | 'sha256' | 'kind' | 'position' | 'isCover' | 'altText' | 'roomType' | 'createdAt'
+  'id' | 'sha256' | 'kind' | 'position' | 'isCover' | 'altText' | 'roomType' | 'createdAt' | 'videoProvider' | 'videoId'
 >;
 /** A listing's media row with its object's processing state (which variants exist), for preview URLs. */
 export type MediaListRow = MediaRow & { pipeline: number | null; variantsReady: number };
@@ -26,6 +26,8 @@ const mediaColumns = {
   altText: propertyMedia.altText,
   roomType: propertyMedia.roomType,
   createdAt: propertyMedia.createdAt,
+  videoProvider: propertyMedia.videoProvider,
+  videoId: propertyMedia.videoId,
 };
 
 export type StoredObject = { trusted: boolean; pipeline: number | null; variantsReady: number };
@@ -178,7 +180,7 @@ export async function deleteMedia(
   tx: Tx,
   propertyId: string,
   id: string,
-): Promise<{ sha256: string; position: number; isCover: boolean } | null> {
+): Promise<{ sha256: string | null; position: number; isCover: boolean } | null> {
   const [row] = await tx
     .delete(propertyMedia)
     .where(and(eq(propertyMedia.propertyId, propertyId), eq(propertyMedia.id, id)))
@@ -353,4 +355,68 @@ export async function staleUnprocessed(tx: Tx, before: Date, limit: number): Pro
     .orderBy(asc(mediaObjects.createdAt))
     .limit(limit);
   return rows.map((r) => r.sha256);
+}
+
+// --- listing documents (S3-F5): STRICT, the owner agency's own rows under RLS ------------------------------------
+
+export type DocumentRow = Pick<
+  typeof listingDocuments.$inferSelect,
+  'id' | 'fileName' | 'sizeBytes' | 'createdAt' | 'storageKey' | 'sha256'
+>;
+const documentColumns = {
+  id: listingDocuments.id,
+  fileName: listingDocuments.fileName,
+  sizeBytes: listingDocuments.sizeBytes,
+  createdAt: listingDocuments.createdAt,
+  storageKey: listingDocuments.storageKey,
+  sha256: listingDocuments.sha256,
+};
+
+/** A listing's documents, oldest first (`listing_documents_property_idx`); at most `LISTING_DOCUMENTS_MAX`. */
+export async function listDocuments(tx: Tx, agencyId: string, propertyId: string): Promise<DocumentRow[]> {
+  return tx
+    .select(documentColumns)
+    .from(listingDocuments)
+    .where(and(eq(listingDocuments.agencyId, agencyId), eq(listingDocuments.propertyId, propertyId)))
+    .orderBy(asc(listingDocuments.createdAt), asc(listingDocuments.id));
+}
+
+/** Scoped to the agency as well as RLS (STRICT): defence in depth for a private file. */
+export async function getDocument(
+  tx: Tx,
+  agencyId: string,
+  propertyId: string,
+  id: string,
+): Promise<DocumentRow | null> {
+  const [row] = await tx
+    .select(documentColumns)
+    .from(listingDocuments)
+    .where(
+      and(
+        eq(listingDocuments.agencyId, agencyId),
+        eq(listingDocuments.propertyId, propertyId),
+        eq(listingDocuments.id, id),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export async function insertDocument(tx: Tx, row: typeof listingDocuments.$inferInsert): Promise<DocumentRow> {
+  const [inserted] = await tx.insert(listingDocuments).values(row).returning(documentColumns);
+  return inserted as DocumentRow;
+}
+
+export async function deleteDocument(tx: Tx, agencyId: string, propertyId: string, id: string): Promise<string | null> {
+  const [row] = await tx
+    .delete(listingDocuments)
+    .where(
+      and(
+        eq(listingDocuments.agencyId, agencyId),
+        eq(listingDocuments.propertyId, propertyId),
+        eq(listingDocuments.id, id),
+      ),
+    )
+    .returning({ storageKey: listingDocuments.storageKey });
+  return row?.storageKey ?? null;
 }

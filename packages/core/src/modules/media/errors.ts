@@ -8,4 +8,8 @@ export const mediaErrors = [
   'MEDIA_NOT_FOUND',
   'MEDIA_ORDER_STALE',
   'PAYLOAD_TOO_LARGE',
+  'VIDEO_URL_NOT_ALLOWED',
+  'VIDEO_ALREADY_ADDED',
+  'DOCUMENT_TYPE_NOT_ALLOWED',
+  'DOCUMENT_LIMIT_REACHED',
 ] as const satisfies readonly ErrorCode[];

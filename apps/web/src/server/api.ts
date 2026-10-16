@@ -25,6 +25,9 @@ import {
   ListingBookmarkList,
   ListingBulkDto,
   ListingContentDto,
+  ListingDocumentDto,
+  ListingDocumentList,
+  ListingDocumentUrlDto,
   ListingDto,
   type ListingFilter,
   ListingMediaList,
@@ -732,6 +735,56 @@ export function detachListingMedia(session: SessionRef, id: string, mediaId: str
   return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/media/${encodeURIComponent(mediaId)}`, z.null(), {
     method: 'DELETE',
   });
+}
+
+/** A YouTube, Vimeo or Matterport link, last in the listing's media (S3-F5). */
+export function addListingVideo(session: SessionRef, id: string, url: string): Promise<ApiResult<ListingMediaList>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/videos`, ListingMediaList, {
+    method: 'POST',
+    body: { url },
+  });
+}
+
+// --- listing documents (S3-F5): private to the agency ---
+
+export function listListingDocuments(session: SessionRef, id: string): Promise<ApiResult<ListingDocumentList>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/documents`, ListingDocumentList);
+}
+
+/** One PDF as a raw body; the API checks its real type by magic bytes. */
+export function uploadListingDocument(
+  session: SessionRef,
+  id: string,
+  fileName: string,
+  bytes: Uint8Array,
+): Promise<ApiResult<ListingDocumentDto>> {
+  const qs = new URLSearchParams({ fileName });
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/documents?${qs}`, ListingDocumentDto, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/pdf' },
+    timeoutMs: 60_000,
+  });
+}
+
+export function openListingDocument(
+  session: SessionRef,
+  id: string,
+  documentId: string,
+): Promise<ApiResult<ListingDocumentUrlDto>> {
+  return apiRequest(
+    session,
+    `/v1/listings/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}/url`,
+    ListingDocumentUrlDto,
+  );
+}
+
+export function deleteListingDocument(session: SessionRef, id: string, documentId: string): Promise<ApiResult<null>> {
+  return apiRequest(
+    session,
+    `/v1/listings/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}`,
+    z.null(),
+    { method: 'DELETE' },
+  );
 }
 
 // ---- Bookmarks (S3-09) ----

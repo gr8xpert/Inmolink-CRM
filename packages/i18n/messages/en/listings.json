@@ -185,7 +185,9 @@
     "LISTING_BULK_NOT_FOUND": "This bulk action no longer exists.",
     "LISTING_BULK_TOO_MANY": "More than 5,000 listings match. Narrow the filters first.",
     "INTERNAL": "Something went wrong. Try again.",
-    "SESSION_REVOKED": "Your session ended. Sign in again."
+    "SESSION_REVOKED": "Your session ended. Sign in again.",
+    "VIDEO_URL_NOT_ALLOWED": "Only YouTube, Vimeo and Matterport links can be added as videos.",
+    "VIDEO_ALREADY_ADDED": "This video is on the listing already."
   },
   "media": {
     "title": "Photos and floor plans",
@@ -258,7 +260,17 @@
     "dragHint": "Drag files to reorder them, or use the arrows.",
     "saving": "Saving…",
     "saved": "Saved",
-    "count": "{count} of {limit} files"
+    "count": "{count} of {limit} files",
+    "video": {
+      "label": "Video link (YouTube, Vimeo or Matterport tour)",
+      "add": "Add video",
+      "hint": "Paste the link of the video page; only YouTube, Vimeo and Matterport are accepted.",
+      "providers": {
+        "youtube": "YouTube video",
+        "vimeo": "Vimeo video",
+        "matterport": "Matterport tour"
+      }
+    }
   },
   "filters": {
     "q": "Reference",
@@ -379,6 +391,26 @@
       "LISTING_NOT_FOUND": "This listing is not available to bookmark.",
       "FORBIDDEN": "Bookmarks are not available here.",
       "VALIDATION_FAILED": "Check the name or note.",
+      "generic": "Something went wrong. Try again."
+    }
+  },
+  "documents": {
+    "title": "Documents",
+    "intro": "PDFs for your agency only (nota simple, contracts, plans): never shown on websites or to other agencies.",
+    "choose": "Upload PDFs",
+    "input": "PDF documents to upload",
+    "hint": "PDF only, up to {max} MB each.",
+    "progressLabel": "Upload progress",
+    "empty": "No documents yet.",
+    "open": "Open",
+    "remove": "Remove",
+    "errors": {
+      "DOCUMENT_TYPE_NOT_ALLOWED": "This file is not a PDF.",
+      "DOCUMENT_LIMIT_REACHED": "This listing has the most documents it can hold.",
+      "PAYLOAD_TOO_LARGE": "The file is larger than {max} MB.",
+      "FORBIDDEN": "You cannot change this listing’s documents.",
+      "LISTING_NOT_FOUND": "This listing does not exist or was deleted.",
+      "MEDIA_NOT_FOUND": "This document no longer exists.",
       "generic": "Something went wrong. Try again."
     }
   }

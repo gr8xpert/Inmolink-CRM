@@ -491,6 +491,13 @@ Ref §5.3 · Mod media, worker, infra · Dep S3-F4 · needs H3 (Cloudflare R2 to
 - The media container cannot add a job to another pool's queue or read the cache (test against the test stack's Redis ACL)
 - Its storage credentials cannot read an export or a private document (MinIO policy test; R2 token scope documented)
 
+### S3-F8 · Listing document storage hygiene and access audit (S3-F5 security review) 🔒
+Ref §13 · Mod media, compliance, worker · Dep S3-F5
+**Build:** a document's object is deleted by a worker from an outbox event emitted in the delete transaction (retried; today a failed storage delete is swallowed and the PDF stays); a listing purge or agency offboarding deletes its `documents/<agency>/<listing>/` prefix; a sweep removes `documents/` objects older than an hour without a `listing_documents` row (a crash between upload and insert). Opening, uploading and deleting a document writes an audit row (`media.document.*`, actor and listing). Per-user concurrency cap on the web upload route before it buffers the body.
+**Done when:**
+- A document whose storage delete fails at first is gone after the retry; a purged listing leaves no object under its prefix (MinIO test)
+- Opening a document leaves an audit row naming the listing and the document
+
 ---
 
 ## S4 — New developments

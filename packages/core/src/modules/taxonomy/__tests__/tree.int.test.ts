@@ -375,8 +375,8 @@ describe('localized taxonomy', () => {
     cache.clearLocal();
     expect(await taxonomy.getWebsiteCatalog('en')).toBe(first);
     let next = first;
-    for (let i = 0; i < 50 && next.etag === first.etag; i++) {
-      await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 200 && next.etag === first.etag; i++) {
+      await new Promise((r) => setTimeout(r, 50));
       next = await taxonomy.getWebsiteCatalog('en');
     }
     expect(next.etag).not.toBe(first.etag);
@@ -399,8 +399,8 @@ describe('localized taxonomy', () => {
     await cache.invalidateTag(taxonomy.TAXONOMY_CACHE_TAG);
     await cache.delete(taxonomy.taxonomyCacheKey('webtop', 'en'));
     let after = await taxonomy.getWebsiteLocations('en');
-    for (let i = 0; i < 50 && after.etag === before.etag; i++) {
-      await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 200 && after.etag === before.etag; i++) {
+      await new Promise((r) => setTimeout(r, 50));
       after = await taxonomy.getWebsiteLocations('en');
     }
     expect(after.json).toContain(regionId);

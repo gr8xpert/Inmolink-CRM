@@ -27,6 +27,13 @@ describe('media policy', () => {
     expect(CLIENT_MODE_ALLOWED.size).toBe(0);
   });
 
+  it('[S3-F5] members open their agency listing documents; never in Client Mode or as impersonating staff', () => {
+    for (const role of ['OWNER', 'ADMIN', 'AGENT'] as const)
+      expect(can(ctxAs(role), 'media.documents.read'), role).toBe(true);
+    expect(can(ctxAs('AGENT', { clientMode: true }), 'media.documents.read')).toBe(false);
+    expect(MEDIA_IMPERSONATION['media.documents.read']).toBe('forbidden');
+  });
+
   it('[S3-03] impersonation rules cover every action', () => {
     expectImpersonationRules({
       actions: MEDIA_ACTIONS,
