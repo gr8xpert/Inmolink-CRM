@@ -6,6 +6,8 @@
  */
 import { agenciesSeeder } from './agencies';
 import { identityUsers } from './identity';
+import { listingsSeeder } from './listings';
+import { taxonomySeeder } from './taxonomy';
 
 export interface Login {
   agency: string;
@@ -45,4 +47,4 @@ export interface Seeder {
   scale(options: ScaleSeedOptions): Promise<SeedResult>;
 }
 
-export const SEEDERS: readonly Seeder[] = [identityUsers, agenciesSeeder];
+export const SEEDERS: readonly Seeder[] = [identityUsers, agenciesSeeder, taxonomySeeder, listingsSeeder];

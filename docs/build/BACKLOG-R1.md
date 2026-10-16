@@ -484,6 +484,14 @@ Ref §7 M2 · Mod media, web · Dep S3-06
 - A YouTube or Vimeo link is added, reordered with the photos and shown as a video; other hosts are refused
 - A PDF uploads with progress and only the owner agency can open it (isolation test); a non-PDF with a `.pdf` name is refused
 
+### S3-F6 · Listings in the scale seed; location filter by subtree (S3-07 follow-up) ⚡
+Ref §4.1 §15 · Mod properties, taxonomy, seed · Dep S3-07
+**Build:** `pnpm db:seed:scale` seeds a synthetic Spain-sized taxonomy (1 country, 20 regions, 2,000 cities, 26,000 areas at ≥ 1,000 agencies; property types) and listings — §4.1's 150 own listings per agency, 5,000 for agency 0 — by COPY, deterministic and idempotent. The listings location filter matches a location's whole subtree: listings store their country, region and city (written with the location, backfilled), filtered with an indexed `=` on the level's column (leakproof under RLS).
+**Done when:**
+- `db:seed:scale` writes the listings (agency 0: 5,000) and a re-run writes nothing (test)
+- A region filter returns the listings of its cities and areas; moving a listing moves it (test)
+- A rare subtree on the 5,000-listing agency reads by index, no Seq Scan, < 20 ms (EXPLAIN in the perf test)
+
 ### S3-F7 · Media container: Redis and storage least privilege (S3-F4 security review) 🔒
 Ref §5.3 · Mod media, worker, infra · Dep S3-F4 · needs H3 (Cloudflare R2 tokens)
 **Build:** the media container still shares the full `REDIS_QUEUE_URL` (it could enqueue jobs other pools run as `app_system`) and `REDIS_CACHE_URL` (it could poison cached bodies the api serves), and the workers' S3 credentials (exports and the whole private bucket). Give it a Redis ACL user limited to its own BullMQ keys (`bull:media:*`, like the S1-F6 `limits` user) and no cache (skip `configureCache` when media-only); its own R2 token limited to `inmolink-media` and the private bucket's `originals/` + `masters/` prefixes; move the S3 secrets from the shared Kamal env into each role.

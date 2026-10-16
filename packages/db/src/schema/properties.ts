@@ -116,6 +116,14 @@ export const properties = pgTable(
     locationId: uuid('location_id')
       .notNull()
       .references(() => locations.id),
+    /**
+     * The location's country, region and city (itself at its own level), written with `location_id` (S3-F6): the
+     * list filters a location's whole subtree by one `=` on its level's column — leakproof, so an index condition
+     * under RLS — without reading taxonomy tables. An area filter is `location_id`.
+     */
+    countryId: uuid('country_id'),
+    regionId: uuid('region_id'),
+    cityId: uuid('city_id'),
     /** New-build development and unit (later sprints add their tables and foreign keys). */
     developmentId: uuid('development_id'),
     unitId: uuid('unit_id'),
@@ -147,6 +155,10 @@ export const properties = pgTable(
     uniqueIndex('properties_agency_ref_uq').on(t.agencyId, t.ref),
     // the agency's listings, newest first (keyset `keysetOrder`, S2-F1): where agency_id = ? order by … desc
     index('properties_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
+    // the list filtered by a region / city / area subtree (S3-F6), newest first; other orders sort the matches
+    index('properties_agency_region_idx').on(t.agencyId, t.regionId, keysetTime(t.createdAt), t.id),
+    index('properties_agency_city_idx').on(t.agencyId, t.cityId, keysetTime(t.createdAt), t.id),
+    index('properties_agency_location_idx').on(t.agencyId, t.locationId, keysetTime(t.createdAt), t.id),
     // FK to the owner's membership + an agent's own listings (`mine`), newest first: keyset like the agency list
     index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId, keysetTime(t.createdAt), t.id),
     // the dashboard list sorted by last change (S3-07 `sort=updated`), keyset like the created order

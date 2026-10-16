@@ -132,7 +132,7 @@ export async function startBulkAction(ctx: Ctx, body: StartListingBulkBody): Pro
   if ('ids' in body.target) {
     ids = body.target.ids;
   } else {
-    const filter = listFilterOf(ctx, body.target.filter);
+    const filter = await listFilterOf(ctx, body.target.filter);
     // A member who changes only their own listings (agents) targets only those: the rest would all fail.
     if (!can(ctx, 'listing.assign')) filter.ownerUserId = userId;
     ids = await repo.idsMatching(ctx.tx, agencyId, filter, LISTING_BULK_MAX + 1);

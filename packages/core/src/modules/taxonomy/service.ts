@@ -229,6 +229,9 @@ export async function resolveFeatureAlias(ctx: Ctx, spelling: string): Promise<F
     : null;
 }
 
+/** A location's depth and its line (country, region, city, itself) by depth, or null; for listings (S3-F6). */
+export const locationLineage = (tx: Tx, id: string) => repo.lineage(tx, id);
+
 /** Ancestors of each location (parent, grandparent, …); for imports that check a legacy parent (S2-06). */
 export const locationAncestors = (tx: Tx, ids: string[]) => repo.locationAncestors(tx, ids);
 

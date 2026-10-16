@@ -1,11 +1,12 @@
 import { closeDb, withSystem } from '@inmolink/db';
 import { users } from '@inmolink/db/schema/identity';
 import { setupTestDb } from '@inmolink/db/testing';
-import { like } from 'drizzle-orm';
+import { like, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { identityUsers } from '../../scripts/seed/identity';
 import { scaleCounts } from '../../scripts/seed/profile';
 import { DEFAULT_DEMO_PASSWORD, runScaleSeed } from '../../scripts/seed/run';
+import { removeSeededTaxonomy } from '../../scripts/seed/taxonomy';
 
 // The local acceptance run for S0-13. Its runtime grows with every module seeder; the budget does not.
 const SEED = 914;
@@ -14,11 +15,20 @@ const BUDGET_SECONDS = 15 * 60;
 /** S1-F6: the S0 review measured the users phase at 25k users in 15.2 s; the task asks for ≥ 5× faster. */
 const USERS_SEED = 916;
 const USERS_BUDGET_SECONDS = 15.2 / 5;
+/** Seeded users, and first the listings they own (S3-F6: a listing's owner must stay a member). */
 const cleanupSeed = (seed: number) =>
-  withSystem('test.seed.cleanup', (tx) => tx.delete(users).where(like(users.email, `%@s${seed}.scale.inmolink.test`)));
+  withSystem('test.seed.cleanup', async (tx) => {
+    const pattern = `%@s${seed}.scale.inmolink.test`;
+    await tx.execute(
+      sql`delete from properties where owner_user_id in (select id from users where email like ${pattern})`,
+    );
+    await tx.delete(users).where(like(users.email, pattern));
+  });
 const cleanup = async () => {
   await cleanupSeed(SEED);
   await cleanupSeed(USERS_SEED);
+  // its Spain-sized tree would double what other tests load (the taxonomy reload measures the whole table)
+  await removeSeededTaxonomy(SEED);
 };
 
 beforeAll(async () => {

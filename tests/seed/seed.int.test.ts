@@ -9,14 +9,21 @@ import { DEMO_DOMAIN, DEMO_STAFF_EMAIL, demoEmail } from '../../scripts/seed/ide
 import { scaleCounts } from '../../scripts/seed/profile';
 import { seededId } from '../../scripts/seed/rng';
 import { assertSeedTarget, DEFAULT_DEMO_PASSWORD, runDevSeed, runScaleSeed } from '../../scripts/seed/run';
+import { removeSeededTaxonomy, taxonomySize } from '../../scripts/seed/taxonomy';
 
 // A seed no other suite uses, so its rows are this file's alone.
 const SEED = 913;
 const scaleDomain = `%@s${SEED}.scale.inmolink.test`;
 const demoDomain = `%.${DEMO_DOMAIN}`;
 
+/** Users matching `pattern`, and first the listings they own (S3-F6: a listing's owner must stay a member). */
 const removeUsers = (pattern: string) =>
-  withSystem('test.seed.cleanup', (tx) => tx.delete(users).where(like(users.email, pattern)));
+  withSystem('test.seed.cleanup', async (tx) => {
+    await tx.execute(
+      sql`delete from properties where owner_user_id in (select id from users where email like ${pattern})`,
+    );
+    await tx.delete(users).where(like(users.email, pattern));
+  });
 
 const snapshot = (pattern: string) =>
   withSystem('test.seed.snapshot', (tx) =>
@@ -37,6 +44,8 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => {
   await removeUsers(scaleDomain);
+  // the seeded tree and listings (S3-F6) would otherwise stay in the shared test database
+  await removeSeededTaxonomy(SEED);
   await removeUsers(demoDomain);
   await closeDb();
 });
@@ -157,7 +166,7 @@ describe('scale seed', () => {
     expect(await snapshot(scaleDomain)).toEqual(before);
 
     // A partial earlier run is completed, not duplicated: agencies a3 and a30–a39 (11 × 5 users) are missing.
-    await withSystem('test.seed.partial', (tx) => tx.delete(users).where(like(users.email, `a3%-u%@s${SEED}.%`)));
+    await removeUsers(`a3%-u%@s${SEED}.%`);
     const resumed = await scale(40, 7);
     expect(resumed.results['identity.users']).toMatchObject({ inserted: 55, total: 200 });
     expect(await snapshot(scaleDomain)).toEqual(before);
@@ -170,4 +179,30 @@ describe('scale seed', () => {
     await scale(40, 100);
     expect(await snapshot(scaleDomain)).toEqual(before);
   }, 120_000);
+
+  it('[S3-F6] scale seed writes listings — 150 per agency, 5,000 for agency 0 — in a seeded tree, with their levels', async () => {
+    const first = await scale(40, 7);
+    const size = taxonomySize(40);
+    expect(first.results['taxonomy.locations']?.total).toBe(1 + 20 + size.cities + size.areas);
+    expect(first.results['properties.listings']?.total).toBe(39 * 150 + 5_000);
+    const again = await scale(40, 7);
+    expect(again.results['properties.listings']).toMatchObject({ inserted: 0, total: 39 * 150 + 5_000 });
+    expect(again.results['taxonomy.locations']).toMatchObject({ inserted: 0 });
+
+    const big = seededId(SEED, 'agencies', 0);
+    const stats = await withSystem('test.seed.listings', (tx) =>
+      tx.execute<{ n: number; paths: number; deep: number; owners: number }>(sql`
+        select count(*)::int as n,
+               count(*) filter (where country_id is not null and region_id is not null and city_id is not null)::int as paths,
+               count(*) filter (where location_id <> city_id)::int as deep,
+               count(distinct owner_user_id)::int as owners
+          from properties where agency_id = ${big} and ref like 'SD%'`),
+    );
+    const row = stats.rows[0];
+    expect(row?.n).toBe(5_000);
+    expect(row?.paths).toBe(5_000);
+    // most listings sit in an area (country → region → city → area)
+    expect(row?.deep).toBeGreaterThan(3_000);
+    expect(row?.owners).toBe(5);
+  }, 300_000);
 });

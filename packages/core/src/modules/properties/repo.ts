@@ -132,12 +132,21 @@ const summaryColumns = {
 export type ListingSummaryRow = { [K in keyof typeof summaryColumns]: ListingRow[K] };
 
 /** The list filters (S3-07), all optional; each narrows the agency's own listings. */
+/** The listing column holding a location of each depth (1 country … 4 area), for subtree filters (S3-F6). */
+const LEVEL_COLUMN = {
+  1: properties.countryId,
+  2: properties.regionId,
+  3: properties.cityId,
+  4: properties.locationId,
+} as const;
+
 export interface ListFilter {
   status?: ListingStatus;
   visibility?: ListingRow['visibility'];
   transactionType?: ListingRow['transactionType'];
   propertyTypeId?: string;
-  locationId?: string;
+  /** A location and its depth (resolved by the service): its whole subtree matches. */
+  location?: { id: string; depth: 1 | 2 | 3 | 4 };
   ownerUserId?: string;
   priceMin?: number;
   priceMax?: number;
@@ -159,7 +168,8 @@ function filterWhere(agencyId: string, f: ListFilter): (SQL | undefined)[] {
     f.visibility ? eq(properties.visibility, f.visibility) : undefined,
     f.transactionType ? eq(properties.transactionType, f.transactionType) : undefined,
     f.propertyTypeId ? eq(properties.propertyTypeId, f.propertyTypeId) : undefined,
-    f.locationId ? eq(properties.locationId, f.locationId) : undefined,
+    // the location or anything under it (S3-F6): the column of the filter location's level
+    f.location ? eq(LEVEL_COLUMN[f.location.depth], f.location.id) : undefined,
     f.ownerUserId ? eq(properties.ownerUserId, f.ownerUserId) : undefined,
     f.priceMin !== undefined ? gte(properties.priceCents, f.priceMin) : undefined,
     f.priceMax !== undefined ? lte(properties.priceCents, f.priceMax) : undefined,

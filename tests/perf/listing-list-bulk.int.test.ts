@@ -37,10 +37,10 @@ let ids: { location: string; type: string };
 async function seedListings(f: Founder, n: number, prefix: string): Promise<string[]> {
   const res = await rows<{ id: string }>(sql`
     insert into properties (id, agency_id, owner_user_id, ref, status, transaction_type, price_cents, bedrooms,
-                            energy_rating, property_type_id, location_id, created_at, updated_at)
+                            energy_rating, property_type_id, location_id, country_id, created_at, updated_at)
     select gen_random_uuid(), ${f.agencyId}, ${f.userId}, ${prefix} || lpad(i::text, 5, '0'), 'DRAFT', 'SALE',
            case when i % 10 = 0 then null else 10000000 + i::bigint * 100000 end, i % 6, 'C',
-           ${ids.type}, ${ids.location},
+           ${ids.type}, ${ids.location}, ${ids.location},
            now() - make_interval(secs => ${n} - i), now() - make_interval(secs => ${n} - i)
       from generate_series(1, ${n}) as i
     returning id`);
@@ -115,6 +115,8 @@ it('[S3-07] List endpoint ≤ 10 queries and p95 < 300 ms for an agency with 5,0
     { limit: 50, priceMin: 50_000_000, priceMax: 60_000_000, sort: 'price_asc' },
     { limit: 50, q: 'BG04', mine: 'true' },
     { limit: 50, tag: 'nothing-has-this' },
+    // S3-F6: a location's whole subtree (the country column), newest first
+    { limit: 50, locationId: ids.location },
   ];
   const times: number[] = [];
   const perScenario: Record<string, number> = {};
@@ -218,6 +220,23 @@ it('[S3-07] EXPLAIN on scale: every list order walks its index, no Seq Scan, < 2
         and exists (select 1 from property_tags t where t.property_id = properties.id and t.tag = 'golf')
       order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc limit 51`,
   ]);
+  // S3-F6: a rare subtree — one of the agency's 5,000 listings in this region — reads its matches only, by index
+  const region = await system((tx) =>
+    taxonomy.createLocation(tx, { level: 'REGION', parentId: ids.location, translations: tr(`Rare ${RUN}`, 'rare') }),
+  );
+  await rows(sql`update properties set region_id = ${region}
+    where id = (select id from properties where agency_id = ${big.agencyId} order by id limit 1)`);
+  await system((tx) => tx.execute(sql`analyze properties`));
+  for (const [name, order] of [
+    ['region subtree, newest', `order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc`],
+    ['region subtree, price', 'order by price_cents desc nulls last, id desc'],
+  ]) {
+    statements.push([
+      name as string,
+      `select id, ref from properties
+        where agency_id = '${big.agencyId}' and deleted_at is null and region_id = '${region}' ${order} limit 51`,
+    ]);
+  }
   const report: Record<string, string> = {};
   for (const [name, statement] of statements) {
     const plan = await withTenant({ agencyId: big.agencyId, userId: big.userId }, async (tx) => {

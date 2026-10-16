@@ -55,6 +55,7 @@ export {
   findLocationAtPoint,
   importAliases,
   locationAncestors,
+  locationLineage,
   resolveFeatureAlias,
   resolveLocationAlias,
   resolvePropertyTypeAlias,

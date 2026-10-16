@@ -33,6 +33,7 @@ import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
+import * as taxonomy from '../taxonomy';
 import { propertiesEvents } from './events';
 import { assertCan, type PropertiesAction } from './policy';
 import * as repo from './repo';
@@ -238,6 +239,19 @@ function assertCommissionCurrency(commission: Commission, currency: string): voi
   }
 }
 
+/** The location's country, region and city, stored with it so the list filters a whole subtree (S3-F6). One statement. */
+async function locationLevels(
+  ctx: Ctx,
+  locationId: string,
+): Promise<{ countryId: string | null; regionId: string | null; cityId: string | null }> {
+  const line = await taxonomy.locationLineage(ctx.tx, locationId);
+  return {
+    countryId: line?.byDepth.get(1) ?? null,
+    regionId: line?.byDepth.get(2) ?? null,
+    cityId: line?.byDepth.get(3) ?? null,
+  };
+}
+
 /**
  * `POST /v1/listings` and imports (`source`/`externalRef`): a DRAFT, PRIVATE listing owned by the caller (or,
  * for an admin, by the member named). Commission and split default to the agency's settings (5 % / 50 %).
@@ -265,11 +279,13 @@ export async function createListing(
   const exact = input.coordinates ?? null;
   const agencyId = ctx.tenant.agencyId;
   const id = newId();
+  const levels = await locationLevels(ctx, input.locationId);
 
   const row = await withFkFields(() =>
     repo.insertListing(ctx.tx, {
       id,
       agencyId,
+      ...levels,
       ownerUserId,
       ref: newRef(),
       source: origin.source ?? 'MANUAL',
@@ -369,15 +385,22 @@ export async function assertListingReadable(ctx: Ctx, id: string): Promise<void>
   if (!row || (row.deletedAt && row.agencyId !== ctx.tenant.agencyId)) throw new AppError('LISTING_NOT_FOUND');
 }
 
-/** The contract's filters as the repo takes them (`mine` → the caller; `q` → an upper-case reference prefix). */
-export function listFilterOf(ctx: Ctx, f: ListingFilter): repo.ListFilter {
+/**
+ * The contract's filters as the repo takes them (`mine` → the caller; `q` → an upper-case reference prefix; a
+ * location → its depth, so its whole subtree matches — one statement, S3-F6; an unknown one matches nothing).
+ */
+export async function listFilterOf(ctx: Ctx, f: ListingFilter): Promise<repo.ListFilter> {
   const q = f.q?.toUpperCase();
+  const line = f.locationId ? await taxonomy.locationLineage(ctx.tx, f.locationId) : null;
+  const location = f.locationId
+    ? { id: f.locationId, depth: (line && line.depth >= 1 && line.depth <= 4 ? line.depth : 4) as 1 | 2 | 3 | 4 }
+    : undefined;
   return {
+    ...(location ? { location } : {}),
     ...(f.status ? { status: f.status } : {}),
     ...(f.visibility ? { visibility: f.visibility } : {}),
     ...(f.transactionType ? { transactionType: f.transactionType } : {}),
     ...(f.propertyTypeId ? { propertyTypeId: f.propertyTypeId } : {}),
-    ...(f.locationId ? { locationId: f.locationId } : {}),
     ...(f.mine ? { ownerUserId: actorId(ctx) } : f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
     ...(f.priceMin !== undefined ? { priceMin: f.priceMin } : {}),
     ...(f.priceMax !== undefined ? { priceMax: f.priceMax } : {}),
@@ -429,7 +452,7 @@ export async function listListings(
   const rows = await repo.listOwn(ctx.tx, ctx.tenant.agencyId, {
     limit: q.limit,
     sort,
-    filter: listFilterOf(ctx, q),
+    filter: await listFilterOf(ctx, q),
     ...(cursor ? { cursor } : {}),
     ...(q.deleted ? { deletedSince: new Date(clock.now().getTime() - LISTING_RESTORE_DAYS * 86_400_000) } : {}),
   });
@@ -590,6 +613,7 @@ export async function updateListing(ctx: Ctx, id: string, input: UpdateListingBo
   }
 
   if (changed.size === 0) return toDto(ctx, current, privates);
+  if (patch.locationId !== undefined) Object.assign(patch, await locationLevels(ctx, patch.locationId));
   const updated = await withFkFields(() => repo.updateWithVersion(ctx.tx, id, input.version, patch));
   if (!updated) throw new AppError('VERSION_CONFLICT');
   const savedPrivates =

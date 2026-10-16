@@ -109,6 +109,20 @@ export async function locationAncestors(tx: Tx, ids: string[]): Promise<Map<stri
   return out;
 }
 
+/** A location's depth and the ids of it and its ancestors by depth (1 country … 4 area). One statement. */
+export async function lineage(tx: Tx, id: string): Promise<{ depth: number; byDepth: Map<number, string> } | null> {
+  const res = await tx.execute(sql`
+    with recursive up(id, parent_id, depth) as (
+      select l.id, l.parent_id, l.depth::int from ${locations} l where l.id = ${id}
+      union all
+      select p.id, p.parent_id, p.depth::int from up join ${locations} p on p.id = up.parent_id
+    )
+    select id, depth from up`);
+  const rows = rowsOf<{ id: string; depth: number }>(res);
+  if (rows.length === 0) return null;
+  return { depth: Math.max(...rows.map((r) => r.depth)), byDepth: new Map(rows.map((r) => [r.depth, r.id])) };
+}
+
 /** The deepest location whose polygon covers the point: GiST on `polygon`, then the deepest level wins. */
 export async function deepestAt(tx: Tx, lon: number, lat: number): Promise<string | null> {
   const rows = await tx

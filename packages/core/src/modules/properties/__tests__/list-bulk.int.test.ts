@@ -1,9 +1,11 @@
 import {
+  CreateListingBody,
   type ListingBulkDto,
   type ListingSummaryDto,
   ListingViewBody,
   ListListingsQuery,
   StartListingBulkBody,
+  UpdateListingBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
@@ -78,12 +80,12 @@ async function seedListings(
 ): Promise<string[]> {
   const res = await rows<{ id: string }>(sql`
     insert into properties (id, agency_id, owner_user_id, ref, status, visibility, transaction_type, price_cents,
-                            bedrooms, energy_rating, property_type_id, location_id, created_at, updated_at)
+                            bedrooms, energy_rating, property_type_id, location_id, country_id, created_at, updated_at)
     select gen_random_uuid(), ${agencyId}, ${ownerUserId}, ${prefix} || lpad(i::text, 5, '0'),
            ${over.status ?? 'DRAFT'}::listing_status, ${over.visibility ?? 'PRIVATE'}::visibility, 'SALE',
            case when i % 10 = 0 then null else 10000000 + i::bigint * 100000 end,
            i % 6, ${over.energyRating === undefined ? 'C' : over.energyRating}::cee_rating,
-           ${ids.type}, ${ids.location},
+           ${ids.type}, ${ids.location}, ${ids.location},
            now() - make_interval(secs => ${n} - i), now() - make_interval(secs => ${n} - i)
       from generate_series(1, ${n}) as i
     returning id`);
@@ -137,6 +139,59 @@ afterAll(async () => {
 }, 120_000);
 
 describe('listing list (S3-07)', () => {
+  it('[S3-F6] the location filter matches the whole subtree: a region finds the listings of its cities and areas', async () => {
+    const tree = await system(async (tx) => {
+      const region = await taxonomy.createLocation(tx, {
+        level: 'REGION',
+        parentId: ids.location,
+        translations: tr(`Subregion ${RUN}`, 'subregion'),
+      });
+      const city = await taxonomy.createLocation(tx, {
+        level: 'CITY',
+        parentId: region,
+        translations: tr(`Subcity ${RUN}`, 'subcity'),
+      });
+      const area = await taxonomy.createLocation(tx, {
+        level: 'AREA',
+        parentId: city,
+        translations: tr(`Subarea ${RUN}`, 'subarea'),
+      });
+      const other = await taxonomy.createLocation(tx, {
+        level: 'REGION',
+        parentId: ids.location,
+        translations: tr(`Otherregion ${RUN}`, 'otherregion'),
+      });
+      return { region, city, area, other };
+    });
+    // An agency of its own: the S3-07 counts below stay as they are.
+    const solo = await createFounder();
+    created.push(solo.agencyId);
+    const make = (locationId: string) =>
+      as(solo, (ctx) =>
+        properties.createListing(ctx, CreateListingBody.parse({ propertyTypeId: ids.type, locationId })),
+      ).then((l) => l.ref);
+    const inCity = await make(tree.city);
+    const inArea = await make(tree.area);
+    const elsewhere = await make(tree.other);
+    expect(refsOf((await list(solo, { locationId: tree.region })).items).sort()).toEqual([inArea, inCity].sort());
+    expect(refsOf((await list(solo, { locationId: tree.area })).items)).toEqual([inArea]);
+    const country = refsOf((await list(solo, { locationId: ids.location })).items);
+    expect(country).toEqual(expect.arrayContaining([inCity, inArea, elsewhere]));
+    // Moving a listing moves its path.
+    const moved = (await list(solo, { locationId: tree.other })).items[0];
+    const full = await as(solo, (ctx) => properties.getListing(ctx, moved?.id as string));
+    await as(solo, (ctx) =>
+      properties.updateListing(
+        ctx,
+        moved?.id as string,
+        UpdateListingBody.parse({ version: full.version, locationId: tree.area }),
+      ),
+    );
+    expect(refsOf((await list(solo, { locationId: tree.region })).items).sort()).toEqual(
+      [inArea, inCity, elsewhere].sort(),
+    );
+  });
+
   it('[S3-07] filters, reference search, tags and every sort page through the agency’s own listings with keyset cursors', async () => {
     const own = await seedListings(owner.agencyId, owner.userId, 30, 'FL');
     const agents = await seedListings(owner.agencyId, agent.userId, 5, 'FA', { status: 'ACTIVE' });
