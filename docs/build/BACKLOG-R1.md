@@ -573,6 +573,13 @@ Ref §7 M2 · Mod properties, media, docs · Dep S3-F10
 - A bulk action queued for 3 h behind other jobs still runs (test)
 - A listing soft-deleted past retention is purged with its documents (test)
 
+### S4-F4 · Development documents (split from S4-03) 🔒
+Ref §7 M3 · Mod developments, contracts, api, web, worker · Dep S4-03
+**Build:** the services and UI for `development_documents` (S4-01 table; S4-02 built no use cases for it): upload a PDF (raw body ≤ 20 MB through a web relay route like the listing documents, magic bytes, the scan hook, store-then-record with cleanup on failure, retried upload of the same file answers with the same document), list, open by short signed URL (audited), delete (row + audit + outbox event; the worker deletes the object; the hourly orphan sweep covers the `development-documents/` prefix), the `kind` and the `shared` flag (shared ones readable by agencies that see the development, the rest owner-only). A documents panel on the development page; a price list may name its source document.
+**Done when:**
+- A shared brochure is readable by an allowed agency and a non-shared contract is not (test)
+- A renamed non-PDF is refused and a deleted document's object is removed by the worker (test)
+
 ---
 
 ## S5 — Search & read models

@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
+import * as developments from '../developments';
 import * as identity from '../identity';
 import * as properties from '../properties';
 
@@ -12,6 +13,8 @@ import * as properties from '../properties';
  */
 const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boolean]> = [
   ['listings', (ctx) => properties.can(ctx, 'listing.read')],
+  // The agency's own developments: the members who maintain them (not partners, not Client Mode).
+  ['developments', (ctx) => developments.can(ctx, 'development.create')],
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
   ['apiKeys', (ctx) => identity.can(ctx, 'identity.apiKeys.read')],
   ['profile', (ctx) => agencies.can(ctx, 'agencies.profile.update')],

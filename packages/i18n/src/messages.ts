@@ -1,6 +1,7 @@
 import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
+import type developments from '../messages/en/developments.json';
 import type listings from '../messages/en/listings.json';
 import type onboarding from '../messages/en/onboarding.json';
 import type security from '../messages/en/security.json';
@@ -19,6 +20,7 @@ export interface Messages {
   agency: typeof agency;
   'api-keys': typeof apiKeys;
   auth: typeof auth;
+  developments: typeof developments;
   listings: typeof listings;
   onboarding: typeof onboarding;
   security: typeof security;

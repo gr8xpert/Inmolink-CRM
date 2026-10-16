@@ -27,6 +27,7 @@ describe('getMyCapabilities', () => {
   it('[S1-10] role-based navigation: admins of either family see every section, agents only the shared ones', () => {
     const all = [
       'listings',
+      'developments',
       'team',
       'apiKeys',
       'profile',
@@ -40,7 +41,13 @@ describe('getMyCapabilities', () => {
       expect(MyCapabilitiesDto.parse(caps)).toEqual({ role, clientMode: false, impersonating: false, sections: all });
     }
     for (const role of ['AGENT', 'DEVELOPER_AGENT']) {
-      expect(getMyCapabilities(ctxAs(role)).sections).toEqual(['listings', 'team', 'settings', 'preferredAgencies']);
+      expect(getMyCapabilities(ctxAs(role)).sections).toEqual([
+        'listings',
+        'developments',
+        'team',
+        'settings',
+        'preferredAgencies',
+      ]);
     }
   });
 
@@ -64,6 +71,7 @@ describe('getMyCapabilities', () => {
     // Read-only areas stay visible; nothing forbidden to staff is offered (not the agency's staff-access record).
     expect(caps.sections).toEqual([
       'listings',
+      'developments',
       'team',
       'apiKeys',
       'profile',

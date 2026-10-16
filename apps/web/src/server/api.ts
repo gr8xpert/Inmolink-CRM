@@ -11,10 +11,16 @@ import {
   BookmarkFolderDto,
   BookmarkFolderList,
   BookmarkPage,
+  type BulkUpdateUnitsBody,
   type CreateApiKeyInput,
   type CreateBookmarkBody,
+  type CreateDevelopmentBody,
   type CreateListingBody,
+  type CreatePriceListBody,
+  type CreateUnitsBody,
   type DecideVerificationBody,
+  DevelopmentDto,
+  DevelopmentPage,
   DirectorySearchResult,
   ErrorBody,
   type InvitableRole,
@@ -48,22 +54,31 @@ import {
   MyCapabilitiesDto,
   PreferredAgencyDto,
   PreferredAgencyPage,
+  PriceListDto,
+  PriceListPage,
   type PutListingOverrideBody,
   type PutListingTranslationBody,
   type RegisterMediaBody,
   type ReorderListingMediaBody,
+  type SetDevelopmentAccessBody,
   type SetListingFeaturesBody,
   SignedUrlDto,
   StaffAccessPage,
   type StartListingBulkBody,
   TaxonomyDto,
+  UnitDto,
+  UnitList,
+  UnitPage,
+  type UnitStatus,
   type UpdateAgencyDetailsInput,
   type UpdateAgencyProfileInput,
   type UpdateAgencySettingsInput,
   type UpdateBookmarkBody,
+  type UpdateDevelopmentBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
+  type UpdateUnitBody,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
   VerificationDocumentDto,
@@ -913,4 +928,155 @@ export function deleteListingOverride(
   return apiRequest(session, `${overridePath(kind, id)}/${encodeURIComponent(locale)}`, z.null(), {
     method: 'DELETE',
   });
+}
+
+// ---- Developments (S4-03): new builds, their units and price lists ------------------------------------------
+
+const developmentPath = (id: string) => `/v1/developments/${encodeURIComponent(id)}`;
+
+export function fetchDevelopments(session: SessionRef, cursor?: string): Promise<ApiResult<DevelopmentPage>> {
+  const query = new URLSearchParams({ limit: '50', ...(cursor ? { cursor } : {}) });
+  return apiRequest(session, `/v1/developments?${query}`, DevelopmentPage);
+}
+
+export function createDevelopment(
+  session: SessionRef,
+  body: CreateDevelopmentBody,
+): Promise<ApiResult<DevelopmentDto>> {
+  return apiRequest(session, '/v1/developments', DevelopmentDto, { method: 'POST', body });
+}
+
+export function updateDevelopment(
+  session: SessionRef,
+  id: string,
+  body: UpdateDevelopmentBody,
+): Promise<ApiResult<DevelopmentDto>> {
+  return apiRequest(session, developmentPath(id), DevelopmentDto, { method: 'PATCH', body });
+}
+
+export function setDevelopmentAccess(
+  session: SessionRef,
+  id: string,
+  body: SetDevelopmentAccessBody,
+): Promise<ApiResult<DevelopmentDto>> {
+  return apiRequest(session, `${developmentPath(id)}/access`, DevelopmentDto, { method: 'PUT', body });
+}
+
+/** A page of the development's units in reference order (at most 100, the API's page limit). */
+export function fetchUnits(
+  session: SessionRef | Token,
+  id: string,
+  q: { cursor?: string; status?: UnitStatus } = {},
+): Promise<ApiResult<UnitPage>> {
+  const query = new URLSearchParams({ limit: '100', ...q });
+  return apiRequest(session, `${developmentPath(id)}/units?${query}`, UnitPage);
+}
+
+export function createUnits(session: SessionRef, id: string, body: CreateUnitsBody): Promise<ApiResult<UnitList>> {
+  return apiRequest(session, `${developmentPath(id)}/units`, UnitList, { method: 'POST', body, timeoutMs: 15_000 });
+}
+
+export function updateUnit(
+  session: SessionRef,
+  id: string,
+  unitId: string,
+  body: UpdateUnitBody,
+): Promise<ApiResult<UnitDto>> {
+  return apiRequest(session, `${developmentPath(id)}/units/${encodeURIComponent(unitId)}`, UnitDto, {
+    method: 'PATCH',
+    body,
+  });
+}
+
+export function bulkUpdateUnits(
+  session: SessionRef,
+  id: string,
+  body: BulkUpdateUnitsBody,
+): Promise<ApiResult<UnitList>> {
+  return apiRequest(session, `${developmentPath(id)}/units/bulk`, UnitList, {
+    method: 'POST',
+    body,
+    timeoutMs: 15_000,
+  });
+}
+
+export function deleteUnit(session: SessionRef, id: string, unitId: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `${developmentPath(id)}/units/${encodeURIComponent(unitId)}`, z.null(), {
+    method: 'DELETE',
+  });
+}
+
+export function fetchPriceLists(session: SessionRef | Token, id: string): Promise<ApiResult<PriceListPage>> {
+  return apiRequest(session, `${developmentPath(id)}/price-lists?limit=20`, PriceListPage);
+}
+
+export function createPriceList(
+  session: SessionRef,
+  id: string,
+  body: CreatePriceListBody,
+): Promise<ApiResult<PriceListDto>> {
+  return apiRequest(session, `${developmentPath(id)}/price-lists`, PriceListDto, {
+    method: 'POST',
+    body,
+    timeoutMs: 15_000,
+  });
+}
+
+export function approvePriceList(session: SessionRef, id: string, version: number): Promise<ApiResult<PriceListDto>> {
+  return apiRequest(session, `${developmentPath(id)}/price-lists/${version}/approve`, PriceListDto, {
+    method: 'POST',
+    timeoutMs: 15_000,
+  });
+}
+
+/**
+ * The development page: the development, its first page of units, its price lists, the taxonomy and (for the
+ * owner's sharing settings) the preferred agencies — one minted token, in parallel. Price lists and preferred
+ * agencies are the owner's only: null for another agency's development or when refused.
+ */
+export async function fetchDevelopmentPage(
+  session: SessionRef,
+  id: string,
+): Promise<
+  | 'revoked'
+  | {
+      development: Exclude<ApiResult<DevelopmentDto>, 'revoked'>;
+      units: UnitPage | null;
+      priceLists: PriceListPage | null;
+      taxonomy: TaxonomyDto | null;
+      partners: PreferredAgencyPage | null;
+    }
+> {
+  let token: string;
+  try {
+    token = await mintFor(session, '/v1/developments');
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    return {
+      development: { ok: false, status: 0, error: null },
+      units: null,
+      priceLists: null,
+      taxonomy: null,
+      partners: null,
+    };
+  }
+  const [development, units, priceLists, taxonomy, partners] = await Promise.all([
+    apiRequest({ token }, developmentPath(id), DevelopmentDto),
+    fetchUnits({ token }, id),
+    fetchPriceLists({ token }, id),
+    apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+    apiRequest({ token }, '/v1/agency/preferred-agencies?limit=100', PreferredAgencyPage),
+  ]);
+  if (development === 'revoked') return 'revoked';
+  const data = <T>(r: ApiResult<T>): T | null => (r !== 'revoked' && r.ok ? r.data : null);
+  return {
+    development,
+    units: data(units),
+    priceLists: data(priceLists),
+    taxonomy: data(taxonomy),
+    partners: data(partners),
+  };
 }

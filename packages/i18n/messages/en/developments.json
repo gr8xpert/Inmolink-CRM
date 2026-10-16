@@ -1,0 +1,172 @@
+{
+  "title": "Developments",
+  "intro": "Your new-build projects: their units, prices and the agencies that may sell them.",
+  "new": "New development",
+  "empty": "No developments yet.",
+  "more": "More developments",
+  "back": "Back to developments",
+  "never": "Never",
+  "columns": {
+    "ref": "Reference",
+    "name": "Name",
+    "status": "Status",
+    "access": "Shared with",
+    "verified": "Last verified",
+    "updated": "Updated"
+  },
+  "options": {
+    "status": {
+      "OFF_PLAN": "Off plan",
+      "UNDER_CONSTRUCTION": "Under construction",
+      "KEY_READY": "Key ready",
+      "SOLD_OUT": "Sold out"
+    },
+    "access": {
+      "OPEN": "All verified agencies",
+      "PRIVATE_NETWORK": "Named agencies only"
+    },
+    "unitStatus": {
+      "AVAILABLE": "Available",
+      "RESERVED": "Reserved",
+      "SOLD": "Sold"
+    }
+  },
+  "fields": {
+    "ref": "Reference",
+    "name": "Name",
+    "status": "Status",
+    "completionDate": "Completion date",
+    "locationId": "Location",
+    "currency": "Currency",
+    "commission": "Commission for collaborating agencies (%)",
+    "commissionIncludesVat": "Commission includes VAT"
+  },
+  "fieldInvalid": "This value is not valid.",
+  "create": {
+    "title": "New development",
+    "intro": "Name it and place it; units, prices and sharing follow on its page. A new development is shared with nobody yet.",
+    "choose": "Choose…",
+    "submit": "Create development"
+  },
+  "editor": {
+    "title": "Development {ref}",
+    "details": "Details",
+    "save": "Save changes",
+    "saved": "Changes saved.",
+    "verify": "Confirm units and prices are current",
+    "verifiedAt": "Last verified {date}",
+    "notVerified": "Never verified",
+    "fixedCommission": "A fixed commission is set ({amount}); clear the field to remove it or enter a percentage to replace it.",
+    "readOnly": "Another agency's development: you can read it and write your own texts for your channels."
+  },
+  "access": {
+    "title": "Sharing",
+    "intro": "Who may see and sell this development. Sharing needs a verified agency.",
+    "agencies": "Agencies that may see it",
+    "noPartners": "Add agencies on the Preferred agencies page to name them here.",
+    "other": "Agency {id}",
+    "save": "Save sharing",
+    "saved": "Sharing saved."
+  },
+  "units": {
+    "title": "Units",
+    "empty": "No units yet. Import a CSV to add them.",
+    "filter": "Show",
+    "all": "All units",
+    "next": "Next page",
+    "first": "First page",
+    "selectAll": "Select every unit on this page",
+    "select": "Select unit {ref}",
+    "selected": "{count} selected",
+    "markAs": "Mark selected as",
+    "apply": "Apply",
+    "bulkDone": "{count} units updated.",
+    "saved": "Unit {ref} saved.",
+    "delete": "Delete unit {ref}",
+    "deleted": "Unit {ref} deleted.",
+    "priceOf": "Price of unit {ref}",
+    "statusOf": "Status of unit {ref}",
+    "save": "Save",
+    "columns": {
+      "ref": "Ref",
+      "type": "Type",
+      "bedrooms": "Beds",
+      "bathrooms": "Baths",
+      "internalM2": "Internal m²",
+      "floor": "Floor",
+      "price": "Price",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "import": {
+      "title": "Import units from a CSV",
+      "hint": "A header row with ref and type (a property type's name), and any of bedrooms, bathrooms, internal_m2, terrace_m2, plot_m2, floor, orientation, price, status. Comma or semicolon separated; at most 500 rows.",
+      "file": "Units CSV file",
+      "ready": "{count} units ready to import.",
+      "submit": "Import units",
+      "done": "{count} units imported."
+    }
+  },
+  "priceLists": {
+    "title": "Price lists",
+    "intro": "Upload the developer's latest price list: you see what changes against the units as they are, then approve it to apply the prices and statuses.",
+    "hint": "A header row with ref and price, optionally status. An empty price means on request.",
+    "file": "Price list CSV file",
+    "effectiveFrom": "Effective from",
+    "ready": "{count} lines ready to upload.",
+    "upload": "Upload price list",
+    "uploaded": "Version {version} uploaded.",
+    "empty": "No price lists yet.",
+    "version": "Version {version}",
+    "effective": "effective {date}",
+    "approvedAt": "Approved {date}",
+    "pending": "Waiting for approval",
+    "approve": "Approve and apply",
+    "approved": "Version {version} approved: prices and statuses applied.",
+    "diff": {
+      "title": "Changes in version {version}",
+      "added": "New references ({count})",
+      "addedHint": "Not applied: create these units first (import a CSV), then upload the list again.",
+      "removed": "Missing from the list ({count})",
+      "removedHint": "Not applied: delete these units yourself if they are no longer offered.",
+      "changed": "Changed ({count})",
+      "unchanged": "{count} unchanged",
+      "none": "No changes against the current units.",
+      "ref": "Ref",
+      "price": "Price",
+      "status": "Status",
+      "arrow": "{from} → {to}"
+    }
+  },
+  "priceOnRequest": "On request",
+  "csv": {
+    "problem": "Line {line}, {column}: {reason}",
+    "more": "…and {count} more problems.",
+    "reasons": {
+      "required": "required",
+      "invalid": "not a valid value",
+      "unknownType": "no property type has this name",
+      "duplicate": "this reference appears twice",
+      "tooMany": "too many rows",
+      "empty": "no rows",
+      "noHeader": "the header row lacks the required columns"
+    }
+  },
+  "errors": {
+    "VALIDATION_FAILED": "Some values are not valid; check the marked fields.",
+    "VERSION_CONFLICT": "Someone else changed this development. Reload the page to see their changes.",
+    "FORBIDDEN": "You cannot change this development.",
+    "VERIFICATION_REQUIRED": "Your agency must be verified to share a development.",
+    "DEVELOPMENT_NOT_FOUND": "This development does not exist or was deleted.",
+    "DEVELOPMENT_REF_TAKEN": "Another development of your agency has this reference.",
+    "UNIT_NOT_FOUND": "This unit no longer exists; reload the page.",
+    "UNIT_REF_TAKEN": "A unit with one of these references already exists.",
+    "DEVELOPMENT_UNIT_LIMIT": "A development holds at most 2,000 units.",
+    "PRICE_LIST_NOT_FOUND": "This price list no longer exists; reload the page.",
+    "PRICE_LIST_REVIEWED": "This price list was already approved.",
+    "PRICE_LIST_SUPERSEDED": "A newer price list was uploaded; approve that one instead.",
+    "RATE_LIMITED": "Too many changes at once; wait a moment.",
+    "NETWORK": "The connection failed; try again.",
+    "generic": "Something went wrong. Try again."
+  }
+}

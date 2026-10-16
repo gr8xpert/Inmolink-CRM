@@ -1,0 +1,172 @@
+{
+  "title": "Promociones",
+  "intro": "Tus promociones de obra nueva: sus unidades, precios y las agencias que pueden venderlas.",
+  "new": "Nueva promoción",
+  "empty": "Aún no hay promociones.",
+  "more": "Más promociones",
+  "back": "Volver a promociones",
+  "never": "Nunca",
+  "columns": {
+    "ref": "Referencia",
+    "name": "Nombre",
+    "status": "Estado",
+    "access": "Compartida con",
+    "verified": "Última verificación",
+    "updated": "Actualizada"
+  },
+  "options": {
+    "status": {
+      "OFF_PLAN": "Sobre plano",
+      "UNDER_CONSTRUCTION": "En construcción",
+      "KEY_READY": "Llave en mano",
+      "SOLD_OUT": "Vendida"
+    },
+    "access": {
+      "OPEN": "Todas las agencias verificadas",
+      "PRIVATE_NETWORK": "Solo las agencias indicadas"
+    },
+    "unitStatus": {
+      "AVAILABLE": "Disponible",
+      "RESERVED": "Reservada",
+      "SOLD": "Vendida"
+    }
+  },
+  "fields": {
+    "ref": "Referencia",
+    "name": "Nombre",
+    "status": "Estado",
+    "completionDate": "Fecha de entrega",
+    "locationId": "Ubicación",
+    "currency": "Moneda",
+    "commission": "Comisión para agencias colaboradoras (%)",
+    "commissionIncludesVat": "La comisión incluye IVA"
+  },
+  "fieldInvalid": "Este valor no es válido.",
+  "create": {
+    "title": "Nueva promoción",
+    "intro": "Dale un nombre y una ubicación; las unidades, los precios y la forma de compartirla se añaden en su página. Una promoción nueva no se comparte con nadie.",
+    "choose": "Elige…",
+    "submit": "Crear promoción"
+  },
+  "editor": {
+    "title": "Promoción {ref}",
+    "details": "Datos",
+    "save": "Guardar cambios",
+    "saved": "Cambios guardados.",
+    "verify": "Confirmar que unidades y precios están al día",
+    "verifiedAt": "Verificada por última vez el {date}",
+    "notVerified": "Nunca verificada",
+    "fixedCommission": "Hay una comisión fija ({amount}); vacía el campo para quitarla o escribe un porcentaje para sustituirla.",
+    "readOnly": "Promoción de otra agencia: puedes consultarla y escribir tus propios textos para tus canales."
+  },
+  "access": {
+    "title": "Compartir",
+    "intro": "Quién puede ver y vender esta promoción. Para compartirla, tu agencia debe estar verificada.",
+    "agencies": "Agencias que pueden verla",
+    "noPartners": "Añade agencias en la página de Agencias preferentes para poder indicarlas aquí.",
+    "other": "Agencia {id}",
+    "save": "Guardar",
+    "saved": "Configuración guardada."
+  },
+  "units": {
+    "title": "Unidades",
+    "empty": "Aún no hay unidades. Importa un CSV para añadirlas.",
+    "filter": "Mostrar",
+    "all": "Todas las unidades",
+    "next": "Página siguiente",
+    "first": "Primera página",
+    "selectAll": "Seleccionar todas las unidades de esta página",
+    "select": "Seleccionar la unidad {ref}",
+    "selected": "{count} seleccionadas",
+    "markAs": "Marcar las seleccionadas como",
+    "apply": "Aplicar",
+    "bulkDone": "{count} unidades actualizadas.",
+    "saved": "Unidad {ref} guardada.",
+    "delete": "Eliminar la unidad {ref}",
+    "deleted": "Unidad {ref} eliminada.",
+    "priceOf": "Precio de la unidad {ref}",
+    "statusOf": "Estado de la unidad {ref}",
+    "save": "Guardar",
+    "columns": {
+      "ref": "Ref.",
+      "type": "Tipo",
+      "bedrooms": "Dorm.",
+      "bathrooms": "Baños",
+      "internalM2": "m² útiles",
+      "floor": "Planta",
+      "price": "Precio",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "import": {
+      "title": "Importar unidades desde un CSV",
+      "hint": "Una fila de cabecera con ref y type (el nombre de un tipo de inmueble) y, si quieres, bedrooms, bathrooms, internal_m2, terrace_m2, plot_m2, floor, orientation, price, status. Separado por comas o punto y coma; máximo 500 filas.",
+      "file": "Archivo CSV de unidades",
+      "ready": "{count} unidades listas para importar.",
+      "submit": "Importar unidades",
+      "done": "{count} unidades importadas."
+    }
+  },
+  "priceLists": {
+    "title": "Listas de precios",
+    "intro": "Sube la última lista de precios del promotor: verás qué cambia respecto a las unidades actuales y, al aprobarla, se aplican los precios y estados.",
+    "hint": "Una fila de cabecera con ref y price y, si quieres, status. Un precio vacío significa a consultar.",
+    "file": "Archivo CSV de la lista de precios",
+    "effectiveFrom": "Vigente desde",
+    "ready": "{count} líneas listas para subir.",
+    "upload": "Subir lista de precios",
+    "uploaded": "Versión {version} subida.",
+    "empty": "Aún no hay listas de precios.",
+    "version": "Versión {version}",
+    "effective": "vigente desde el {date}",
+    "approvedAt": "Aprobada el {date}",
+    "pending": "Pendiente de aprobación",
+    "approve": "Aprobar y aplicar",
+    "approved": "Versión {version} aprobada: precios y estados aplicados.",
+    "diff": {
+      "title": "Cambios de la versión {version}",
+      "added": "Referencias nuevas ({count})",
+      "addedHint": "No se aplican: crea primero estas unidades (importa un CSV) y vuelve a subir la lista.",
+      "removed": "No están en la lista ({count})",
+      "removedHint": "No se aplican: elimina tú estas unidades si ya no se ofrecen.",
+      "changed": "Con cambios ({count})",
+      "unchanged": "{count} sin cambios",
+      "none": "Ningún cambio respecto a las unidades actuales.",
+      "ref": "Ref.",
+      "price": "Precio",
+      "status": "Estado",
+      "arrow": "{from} → {to}"
+    }
+  },
+  "priceOnRequest": "A consultar",
+  "csv": {
+    "problem": "Línea {line}, {column}: {reason}",
+    "more": "…y {count} problemas más.",
+    "reasons": {
+      "required": "obligatorio",
+      "invalid": "valor no válido",
+      "unknownType": "ningún tipo de inmueble tiene este nombre",
+      "duplicate": "esta referencia aparece dos veces",
+      "tooMany": "demasiadas filas",
+      "empty": "no hay filas",
+      "noHeader": "a la fila de cabecera le faltan columnas obligatorias"
+    }
+  },
+  "errors": {
+    "VALIDATION_FAILED": "Algunos valores no son válidos; revisa los campos marcados.",
+    "VERSION_CONFLICT": "Otra persona ha cambiado esta promoción. Recarga la página para ver sus cambios.",
+    "FORBIDDEN": "No puedes cambiar esta promoción.",
+    "VERIFICATION_REQUIRED": "Tu agencia debe estar verificada para compartir una promoción.",
+    "DEVELOPMENT_NOT_FOUND": "Esta promoción no existe o se ha eliminado.",
+    "DEVELOPMENT_REF_TAKEN": "Otra promoción de tu agencia tiene esta referencia.",
+    "UNIT_NOT_FOUND": "Esta unidad ya no existe; recarga la página.",
+    "UNIT_REF_TAKEN": "Ya existe una unidad con alguna de estas referencias.",
+    "DEVELOPMENT_UNIT_LIMIT": "Una promoción tiene como máximo 2.000 unidades.",
+    "PRICE_LIST_NOT_FOUND": "Esta lista de precios ya no existe; recarga la página.",
+    "PRICE_LIST_REVIEWED": "Esta lista de precios ya se aprobó.",
+    "PRICE_LIST_SUPERSEDED": "Se ha subido una lista más reciente; aprueba esa.",
+    "RATE_LIMITED": "Demasiados cambios a la vez; espera un momento.",
+    "NETWORK": "La conexión ha fallado; inténtalo de nuevo.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo."
+  }
+}
