@@ -506,6 +506,13 @@ Ref §13 · Mod media, compliance, worker · Dep S3-F5
 - A document whose storage delete fails at first is gone after the retry; a purged listing leaves no object under its prefix (MinIO test)
 - Opening a document leaves an audit row naming the listing and the document
 
+### S3-F9 · Media work bucket: originals and masters out of the private bucket (S3-F7) 🔒
+Ref §5.3 · Mod media, platform, infra · Dep S3-F7 · needs H3 (Cloudflare R2 bucket + token)
+**Build:** R2 API tokens scope to buckets, not prefixes, so the media container's token (S3-F7) can still read private documents on R2. Move `originals/` and `masters/` into their own bucket (`S3_BUCKET_MEDIA_WORK`, a new `BucketName`): the api signs upload PUTs into it, the media pool reads and writes it, the orphan sweep lists it; the media R2 token covers `inmolink-media` + that bucket only and no longer `inmolink-private`. No production data exists yet, so no copy step; local stacks re-upload.
+**Done when:**
+- The media container's storage credentials cover only the media and work buckets (`infra/storage/media-worker-policy.json` without prefix conditions; R2 token documented as bucket-scoped)
+- Upload → process → variants still works end to end on the test stack
+
 ---
 
 ## S4 — New developments

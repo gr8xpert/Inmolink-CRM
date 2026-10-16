@@ -30,6 +30,12 @@ servers:
       secret:
         - DATABASE_URL_APP_USER
         - DATABASE_URL_APP_SYSTEM
+        # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
+        - REDIS_CACHE_URL
+        - REDIS_QUEUE_URL
+        # R2 token for exports, the orphan sweeps (S1-F7) and private documents.
+        - S3_ACCESS_KEY_ID
+        - S3_SECRET_ACCESS_KEY
         - SMTP_URL
         - EMAIL_FROM
         - ENCRYPTION_KEYS
@@ -39,6 +45,8 @@ servers:
   # here, away from the outbox, email and the other pools. Budget 512 MB RSS; the hard cap leaves headroom above it.
   # Least privilege (S3-F4): only the shared variables below plus the narrow `app_media` role — no app_system, SMTP,
   # encryption or HMAC keys (tests/workspace/deploy-config.test.ts fails otherwise); read-only root filesystem.
+  # S3-F7: no cache at all; redis-queue as the `media` ACL user (its own BullMQ keys only); its own R2 token
+  # (docs/runbooks/deploy.md: the media bucket and the private bucket's originals/ + masters/ only).
   media:
     hosts: [] # per destination
     proxy: false
@@ -52,6 +60,10 @@ servers:
         WORKER_POOLS: "media"
       secret:
         - DATABASE_URL_APP_MEDIA
+        # ENV:SECRET aliases: the same variable names, the media container's own credentials.
+        - REDIS_QUEUE_URL:REDIS_QUEUE_URL_MEDIA
+        - S3_ACCESS_KEY_ID:S3_MEDIA_ACCESS_KEY_ID
+        - S3_SECRET_ACCESS_KEY:S3_MEDIA_SECRET_ACCESS_KEY
 retain_containers: 5
 # Shared by both roles: only what the media container may see too.
 env:
@@ -68,12 +80,8 @@ env:
   secret:
     - RELEASE
     - SENTRY_DSN
-    # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
-    - REDIS_CACHE_URL
-    - REDIS_QUEUE_URL
+    # Credentials (Redis, R2) are per role above (S3-F7); the endpoint is shared.
     - S3_ENDPOINT
-    - S3_ACCESS_KEY_ID
-    - S3_SECRET_ACCESS_KEY
     # Not a secret, but named like one (the deploy-config check keeps *PRIVATE* names out of clear env).
     - S3_BUCKET_PRIVATE
     # Media variant URLs (S3-04): its own key, never rotated with HMAC_KEY (a rotation would move every URL).

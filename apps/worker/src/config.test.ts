@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadConfig } from '@inmolink/platform/config';
 import { describe, expect, it } from 'vitest';
 import { workerEnvFor } from './config';
 
 /** Least privilege per container (S3-F4): a process validates only what its pools need. */
+
+const read = (file: string) => readFileSync(join(import.meta.dirname, file), 'utf8');
 
 const MEDIA_ONLY = {
   NODE_ENV: 'production',
@@ -10,7 +14,6 @@ const MEDIA_ONLY = {
   OTEL_TRACES_SAMPLE_RATIO: '0.05',
   WORKER_POOLS: 'media',
   REDIS_QUEUE_URL: 'redis://localhost:6379',
-  REDIS_CACHE_URL: 'redis://localhost:6380',
   DATABASE_URL_APP_MEDIA: 'postgres://app_media:x@localhost:6432/inmolink',
   S3_ENDPOINT: 'http://localhost:9000',
   S3_REGION: 'auto',
@@ -39,5 +42,11 @@ describe('worker env per pool', () => {
     expect(Object.keys(workerEnvFor(['outbox', 'indexing']))).not.toContain('SMTP_URL');
     expect(Object.keys(workerEnvFor(['email']))).toEqual(expect.arrayContaining(['SMTP_URL', 'ENCRYPTION_KEYS']));
     expect(Object.keys(workerEnvFor(['outbox']))).not.toContain('DATABASE_URL_APP_MEDIA');
+  });
+
+  it('[S3-F7] the media container has no cache URL; every other pool keeps it', () => {
+    expect(Object.keys(workerEnvFor(['media']))).not.toContain('REDIS_CACHE_URL');
+    expect(Object.keys(workerEnvFor(['media', 'indexing']))).toContain('REDIS_CACHE_URL');
+    expect(read('main.ts')).toContain('if (config.REDIS_CACHE_URL) await configureCache(');
   });
 });

@@ -33,6 +33,9 @@ const APPS = readdirSync(join(ROOT, 'apps'), { withFileTypes: true })
 const DESTS = ['staging', 'production'] as const;
 const kamal = (app: string) => yaml<Kamal>('infra', 'kamal', `${app}.yml`);
 const dest = (app: string, d: string) => yaml<Partial<Kamal>>('infra', 'kamal', `${app}.${d}.yml`);
+/** Kamal `ENV:SECRET` aliases: the variable the container sees, and the secret its value comes from. */
+const envName = (entry: string) => entry.split(':')[0] as string;
+const secretName = (entry: string) => entry.split(':').at(-1) as string;
 const ciImages = yaml<{ jobs: { images: { strategy: { matrix: { app: string[] } } } } }>(
   '.github',
   'workflows',
@@ -100,6 +103,29 @@ describe('Kamal deploy config', () => {
     expect(media.options?.['read-only']).toBe(true);
   });
 
+  it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
+    const k = kamal('worker');
+    const media = k.servers.media as KamalRole;
+    const workers = k.servers.workers as KamalRole;
+    const shared = [...k.env.secret, ...DESTS.flatMap((d) => dest('worker', d).env?.secret ?? [])].map(envName);
+    for (const key of ['REDIS_QUEUE_URL', 'REDIS_CACHE_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) {
+      expect(shared, `${key} is shared by both roles`).not.toContain(key);
+      expect(workers.env?.secret, key).toContain(key);
+    }
+    expect(media.env?.secret).toEqual(
+      expect.arrayContaining([
+        'REDIS_QUEUE_URL:REDIS_QUEUE_URL_MEDIA',
+        'S3_ACCESS_KEY_ID:S3_MEDIA_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY:S3_MEDIA_SECRET_ACCESS_KEY',
+      ]),
+    );
+    expect((media.env?.secret ?? []).map(envName)).not.toContain('REDIS_CACHE_URL');
+    // The Ansible config declares the `media` ACL user the URL logs in as.
+    expect(read('infra', 'ansible', 'roles', 'redis_queue', 'tasks', 'main.yml')).toContain(
+      'user media on >{{ vault_redis_media_password }} {{ redis_media_acl }}',
+    );
+  });
+
   it('[S0-15] secrets stay out of clear env; every referenced secret is declared in .kamal/secrets.example', () => {
     const declared = new Set([...read('.kamal', 'secrets.example').matchAll(/^([A-Z0-9_]+)=\$\1$/gm)].map((m) => m[1]));
     for (const app of APPS) {
@@ -110,7 +136,7 @@ describe('Kamal deploy config', () => {
         );
       }
       const roleSecrets = Object.values(k.servers).flatMap((r) => r.env?.secret ?? []);
-      for (const s of [...k.env.secret, ...roleSecrets]) expect(declared, `${app}: ${s}`).toContain(s);
+      for (const s of [...k.env.secret, ...roleSecrets].map(secretName)) expect(declared, `${app}: ${s}`).toContain(s);
       // S0-04: HTTP apps never get the BYPASSRLS role, and no runtime gets the owner role.
       expect(k.env.secret).not.toContain('DATABASE_URL_APP_OWNER');
       expect(k.env.secret).not.toContain('DATABASE_URL_ADMIN');
@@ -152,9 +178,9 @@ describe('edge and access', () => {
           const provided = new Set([
             ...Object.keys(kamal(app).env.clear),
             ...Object.keys(dest(app, d).env?.clear ?? {}),
-            ...kamal(app).env.secret,
+            ...kamal(app).env.secret.map(envName),
             ...Object.keys(role?.env?.clear ?? {}),
-            ...(role?.env?.secret ?? []),
+            ...(role?.env?.secret ?? []).map(envName),
             ...(SET_IN_CODE[app] ?? []),
           ]);
           for (const [key, field] of Object.entries(schema)) {

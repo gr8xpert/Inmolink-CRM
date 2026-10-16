@@ -35,7 +35,8 @@ try {
     { logger },
   );
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
-  await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  // A media-only container has no cache (S3-F7): nothing it runs reads or writes cached bodies.
+  if (config.REDIS_CACHE_URL) await configureCache({ url: config.REDIS_CACHE_URL, logger });
   if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
   if (config.HMAC_KEY && config.WEB_URL)
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });

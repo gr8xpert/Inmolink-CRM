@@ -422,6 +422,9 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
+      ioredis:
+        specifier: 6.0.0
+        version: 6.0.0
       tsdown:
         specifier: 0.23.0
         version: 0.23.0(tsx@4.23.15)(typescript@6.0.3)

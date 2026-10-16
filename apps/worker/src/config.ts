@@ -58,7 +58,7 @@ const baseEnv = {
   /** Prometheus `/metrics` on `METRICS_HOST` (private); 0 turns it off. */
   WORKER_METRICS_PORT: portVar(9467),
   ...telemetryEnv,
-  ...redisEnv,
+  REDIS_QUEUE_URL: redisEnv.REDIS_QUEUE_URL,
 };
 
 /** Every pool but `media`: the outbox and cross-tenant jobs run `withSystem`; tokens, links and stored credentials. */
@@ -66,6 +66,8 @@ const systemEnv = {
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   // Required here (optional in platform): the outbox and cross-tenant jobs run `withSystem`.
   DATABASE_URL_APP_SYSTEM: databaseEnv.DATABASE_URL_APP_SYSTEM.unwrap(),
+  // Never for media alone (S3-F7): a decoder exploit must not reach the bodies the api serves from the cache.
+  REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   ...cryptoEnv,
   // Exports and the orphan sweeps (S1-F7) read and write object storage.
   ...storageEnv,
@@ -74,7 +76,7 @@ const systemEnv = {
 
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
- * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys.
+ * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys, no cache (S3-F7).
  */
 const mediaPoolEnv = {
   DATABASE_URL_APP_MEDIA: databaseEnv.DATABASE_URL_APP_MEDIA.unwrap(),

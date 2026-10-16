@@ -8,13 +8,15 @@
     group: "1000"
     mode: "0750"
 
-# Both passwords go raw into a config line and into REDIS_*_URL: URL-safe characters only.
+# The passwords go raw into a config line and into REDIS_*_URL: URL-safe characters only.
 - name: redis-queue passwords are set and URL-safe
   ansible.builtin.assert:
     that:
       - vault_redis_limits_password is defined
       - vault_redis_limits_password is match('^[A-Za-z0-9_-]{32,}$')
-    fail_msg: vault_redis_limits_password must be 32+ URL-safe characters (openssl rand -hex 32)
+      - vault_redis_media_password is defined
+      - vault_redis_media_password is match('^[A-Za-z0-9_-]{32,}$')
+    fail_msg: vault_redis_limits_password and vault_redis_media_password must be 32+ URL-safe characters (openssl rand -hex 32)
   no_log: true
 
 # Password in a 0600 file, not argv (visible in `ps` to every local user).
@@ -29,6 +31,8 @@
       # Request apps keep rate-limit counters here because it never evicts (S1-F6). Their user reaches
       # only `inl:rl:*` keys and the commands the limiter needs: no queue key, no admin command.
       user limits on >{{ vault_redis_limits_password }} {{ redis_limits_acl }}
+      # The media container (S3-F7) decodes untrusted uploads: its own queue keys only, never another pool's.
+      user media on >{{ vault_redis_media_password }} {{ redis_media_acl }}
       appendonly yes
       appendfsync everysec
       maxmemory-policy noeviction

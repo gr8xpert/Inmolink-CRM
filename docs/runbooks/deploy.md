@@ -58,6 +58,18 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
    Rate-limit counters live on redis-queue, which never evicts (S1-F6): api, feed-api and web get
    `REDIS_LIMITS_URL=redis://limits:<vault_redis_limits_password>@<db-1 WireGuard IP>:6379`. The Ansible
    redis_queue role creates that ACL user, limited to `inl:rl:*` keys and the limiter's commands.
+   The media container (S3-F7) decodes untrusted uploads, so it gets its own credentials (Kamal `ENV:SECRET`
+   aliases in `infra/kamal/worker.yml`) and no `REDIS_CACHE_URL`:
+   - `REDIS_QUEUE_URL_MEDIA=redis://media:<vault_redis_media_password>@<db-1 WireGuard IP>:6379` — the redis_queue
+     role's `media` ACL user (`redis_media_acl`): its own BullMQ keys (`inl:media:*`, `inl:media.dead:*`,
+     `inl:fair:media:*`), no other pool's queue, no key listing, no admin command.
+   - `S3_MEDIA_ACCESS_KEY_ID` / `S3_MEDIA_SECRET_ACCESS_KEY` (H3): an R2 API token, **Object Read & Write**,
+     *Apply to specific buckets only* → `inmolink-media` and `inmolink-private`. Never the exports bucket. The
+     other workers keep the `S3_ACCESS_KEY_ID` token.
+     **Limit:** R2 API tokens scope to buckets, not prefixes (prefix scope exists only for short-lived temporary
+     credentials), so on R2 this token can still read `inmolink-private/documents/` and `verification/`. The
+     local stack enforces the intended scope (`infra/storage/media-worker-policy.json`: the media bucket plus
+     `originals/` + `masters/`); closing the gap on R2 is S3-F9 (originals and masters in their own bucket).
    Then create the Meilisearch **search-only** key for api and feed-api (they never get the master key;
    production config refuses it for http apps) and put its `key` in `MEILI_SEARCH_KEY`:
 

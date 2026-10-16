@@ -25,6 +25,7 @@
     "@inmolink/config": "workspace:*",
     "@inmolink/db": "workspace:*",
     "@types/node": "24.19.2",
+    "ioredis": "6.0.0",
     "tsdown": "0.23.0",
     "tsx": "4.23.15",
     "typescript": "6.0.3",

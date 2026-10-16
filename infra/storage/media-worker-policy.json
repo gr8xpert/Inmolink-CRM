@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MediaVariants",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": ["arn:aws:s3:::inmolink-media/*"]
+    },
+    {
+      "Sid": "OriginalsAndMasters",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": ["arn:aws:s3:::inmolink-private/originals/*", "arn:aws:s3:::inmolink-private/masters/*"]
+    },
+    {
+      "Sid": "ListOriginalsAndMasters",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::inmolink-private"],
+      "Condition": { "StringLike": { "s3:prefix": ["originals/*", "masters/*"] } }
+    }
+  ]
+}
