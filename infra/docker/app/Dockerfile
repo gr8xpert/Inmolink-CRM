@@ -32,7 +32,9 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm turbo run build --filter=
 
 FROM ${NODE_IMAGE} AS runtime
 ARG APP
-ENV NODE_ENV=production APP=${APP} NEXT_TELEMETRY_DISABLED=1
+# glibc gives each libvips thread its own malloc arena and keeps freed image buffers: the media worker grew past
+# its 512 MB budget on Linux (1.4 GB in CI, S3-F3). Two arenas is sharp's documented remedy.
+ENV NODE_ENV=production APP=${APP} NEXT_TELEMETRY_DISABLED=1 MALLOC_ARENA_MAX=2
 WORKDIR /repo
 # Root-owned and read-only for the app user; only the Next.js cache directory is writable.
 COPY --from=build /repo ./

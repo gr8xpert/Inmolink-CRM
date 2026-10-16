@@ -30,9 +30,19 @@ test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; 
   await page.route('**/demotiles.maplibre.org/style.json', (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
   );
+  // up to 60 s for the seeded taxonomy to reach the api's memory, then 50 uploads
+  test.setTimeout(240_000);
   const seeded = await seedListingAgent();
   await login(page, seeded.email);
   await page.goto('/en/listings/new');
+  // The api keeps the taxonomy in memory for up to 60 s after a change (the seed's tag bump reaches Redis at
+  // once): reload until the seeded type is offered.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByLabel('Property type').getByRole('option', { name: seeded.propertyType })).toHaveCount(1, {
+      timeout: 1_000,
+    });
+  }).toPass({ timeout: 90_000, intervals: [2_000] });
   await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
   await page.getByLabel('Location').selectOption({ label: seeded.location });
   await page.getByRole('button', { name: 'Create listing' }).click();

@@ -4,13 +4,13 @@
  *
  * Per locale, under global keys (the data is the same for every agency), tag `taxonomy`, in redis-cache for an
  * hour and in-process for 60 s: the `locations` tree and the `catalog` (objects, for other modules), and the
- * response bodies already serialized with their strong ETag (S3-F2) — `document` (`GET /v1/taxonomy`),
+ * response bodies already serialized with their strong ETag (S3-F2) — `document` (`GET /v1/taxonomy`, never stale),
  * `webtop` (countries with regions; it also names the tree's ETag) and `webcatalog`. A Redis hit of those
  * parses one string and serializes nothing. Children pages are content-addressed by the tree's ETag
  * (`webchildren`, untagged): a page cut from one tree is valid for as long as anyone asks for that tree.
  * Every write emits `taxonomy.data.changed`; its subscriber bumps the tag. Warm reads run no query.
  *
- * While one reload runs, this process keeps serving its previous copy of a response body (`fresh` below), so a
+ * While one reload runs, this process keeps serving its previous copy of a website body (`fresh` below), so a
  * tag bump never makes every request wait on the database; the cold reload reads two locales (S3-F2).
  *
  * The website API never sends the whole tree (a Spain-sized one is ~330 KB gzip; budget 150 KB): it serves
@@ -25,7 +25,7 @@ import type {
   TaxonomyLocationsDto,
   WebsiteLocationsDto,
 } from '@inmolink/contracts';
-import { type Tx, withPublicRead } from '@inmolink/db';
+import { type Tx, withPublicRead, withTenant } from '@inmolink/db';
 import { type ContentLocale, DEFAULT_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
 import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
@@ -178,21 +178,29 @@ async function loadCatalog(tx: Tx, locale: ContentLocale): Promise<TaxonomyCatal
   return { locale, propertyTypes: [...typeGroups.values()], features: [...featureGroups.values()] };
 }
 
-const locationsOf = (locale: ContentLocale, tx?: Tx, local = true) =>
-  tagged(
-    taxonomyCacheKey('locations', locale),
-    () => (tx ? loadLocations(tx, locale) : withPublicRead((t) => loadLocations(t, locale))),
-    local,
-  );
-const catalogOf = (locale: ContentLocale, tx?: Tx, local = true) =>
-  tagged(
-    taxonomyCacheKey('catalog', locale),
-    () => (tx ? loadCatalog(tx, locale) : withPublicRead((t) => loadCatalog(t, locale))),
-    local,
-  );
+/**
+ * Runs a cache miss's statements. The website API reads as `app_public`; a dashboard request in its own
+ * transaction; the dashboard document, which the cache may share between requests, in a transaction of its own
+ * under the caller's agency (`app_user` reads the global tables; the api process has no `app_public`).
+ */
+type Reader = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
+const publicReader: Reader = (fn) => withPublicRead(fn);
+const txReader =
+  (tx: Tx): Reader =>
+  (fn) =>
+    fn(tx);
+const agencyReader =
+  (agencyId: string): Reader =>
+  (fn) =>
+    withTenant({ agencyId }, fn);
+
+const locationsOf = (locale: ContentLocale, read: Reader = publicReader, local = true) =>
+  tagged(taxonomyCacheKey('locations', locale), () => read((tx) => loadLocations(tx, locale)), local);
+const catalogOf = (locale: ContentLocale, read: Reader = publicReader, local = true) =>
+  tagged(taxonomyCacheKey('catalog', locale), () => read((tx) => loadCatalog(tx, locale)), local);
 /** Inside a loader: the current version from Redis (or the database), never this process's possibly old copy. */
-const currentLocations = (locale: ContentLocale) => locationsOf(locale, undefined, false);
-const currentCatalog = (locale: ContentLocale) => catalogOf(locale, undefined, false);
+const currentLocations = (locale: ContentLocale, read: Reader = publicReader) => locationsOf(locale, read, false);
+const currentCatalog = (locale: ContentLocale, read: Reader = publicReader) => catalogOf(locale, read, false);
 
 // ---- Dashboard -----------------------------------------------------------------------------------------------
 
@@ -203,15 +211,18 @@ function ctxLocale(ctx: Ctx): ContentLocale {
 
 /**
  * `GET /v1/taxonomy`: the whole taxonomy in the caller's locale (any member, Client Mode too), serialized once
- * per tree (S3-F2) with its strong ETag. Loaded on its own `app_public` connection, not the request's: a reload
- * may finish after the request was answered with the previous copy.
+ * per tree (S3-F2) with its strong ETag.
  */
 export async function getTaxonomyDocument(ctx: Ctx): Promise<Serialized> {
   assertCan(ctx, 'taxonomy.read');
   const locale = ctxLocale(ctx);
-  return fresh(taxonomyCacheKey('document', locale), async () => {
-    const locations = await currentLocations(locale);
-    const catalog = await currentCatalog(locale);
+  // Not `fresh`: an agent must see a staff edit on the next load (a form listing the new type), and the dashboard
+  // is not the website's request rate. Its own transaction all the same: the cache's single-flight may run this
+  // loader for another request.
+  return cache.get(taxonomyCacheKey('document', locale), CACHED, async () => {
+    const read = agencyReader(ctx.tenant.agencyId);
+    const locations = await currentLocations(locale, read);
+    const catalog = await currentCatalog(locale, read);
     return serialize({ ...locations.body, ...catalog.body } satisfies TaxonomyDto);
   });
 }
@@ -264,8 +275,8 @@ export async function getTaxonomy(ctx: Ctx): Promise<TaxonomyDto> {
   assertCan(ctx, 'taxonomy.read');
   const locale = ctxLocale(ctx);
   // Sequential: both loaders share the request's transaction (one connection).
-  const locations = await locationsOf(locale, ctx.tx);
-  const catalog = await catalogOf(locale, ctx.tx);
+  const locations = await locationsOf(locale, txReader(ctx.tx));
+  const catalog = await catalogOf(locale, txReader(ctx.tx));
   return { ...locations.body, ...catalog.body };
 }
 

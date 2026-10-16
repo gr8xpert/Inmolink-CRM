@@ -100,6 +100,13 @@ export const locationTranslations = pgTable(
     })
       .onDelete('cascade')
       .onUpdate('cascade'),
+    // The composite FK is MATCH SIMPLE: a root's NULL `parent_id` skips it, so a deleted country left its
+    // translations behind. This one always binds the row to its location (S3-F3).
+    foreignKey({
+      columns: [t.locationId],
+      foreignColumns: [locations.id],
+      name: 'location_translations_owner_fk',
+    }).onDelete('cascade'),
     // Slug unique per (parent, locale); roots (no parent) have their own index because NULLs never collide.
     uniqueIndex('location_translations_slug_uq').on(t.parentId, t.locale, t.slug).where(sql`${t.parentId} is not null`),
     uniqueIndex('location_translations_root_slug_uq').on(t.locale, t.slug).where(sql`${t.parentId} is null`),

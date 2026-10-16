@@ -6,13 +6,15 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, purgeReferenceFixtures } from '../../../testing/factories';
 import * as taxonomy from '../index';
 
 /** Property types and features on the real test database (S2-02). */
 
 const RUN = newId().slice(-8).toLowerCase();
-const key = (s: string) => `${s}-${RUN}`;
+/** File prefix, so `beforeAll` can clear what a crashed earlier run left (S3-F3). */
+const PREFIX = 'cat-';
+const key = (s: string) => `${PREFIX}${s}-${RUN}`;
 const tr = (en: string, s: string, es?: string) => [
   { locale: 'en', name: en, slug: key(s) },
   ...(es ? [{ locale: 'es', name: es, slug: key(`${s}-es`) }] : []),
@@ -38,6 +40,7 @@ const rejects = async (p: Promise<unknown>, code: string) => {
 
 beforeAll(async () => {
   await setupTestDb('worker');
+  await purgeReferenceFixtures(PREFIX);
   founder = await createFounder();
   await system(async (tx) => {
     typeGroupId = await taxonomy.createPropertyTypeGroup(tx, {
@@ -67,13 +70,8 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  // Reference data is global: remove this run's rows (items before groups, groups are RESTRICT).
-  await system(async (tx) => {
-    await tx.execute(sql`delete from property_types where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from property_type_groups where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from features where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from feature_groups where key like ${`%-${RUN}`}`);
-  });
+  // Reference data is global: remove this file's rows.
+  await purgeReferenceFixtures(PREFIX);
   await closeDb();
 });
 

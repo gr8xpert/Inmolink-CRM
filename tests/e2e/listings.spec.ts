@@ -40,6 +40,8 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Listings' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Listings' })).toBeVisible();
   await page.getByRole('link', { name: 'New listing' }).click();
+  // The list page has its own "Location" filter and column toggle: wait until the form replaced it.
+  await expect(page).toHaveURL(/\/en\/listings\/new$/);
   await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
   await page.getByLabel('Location').selectOption({ label: seeded.location });
   await page.getByRole('button', { name: 'Create listing' }).click();
@@ -108,6 +110,9 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   await expect(row).toContainText('Active');
   await expect(row).toContainText(seeded.propertyType);
   await expect(row).toContainText('850,000');
-  await page.getByRole('link', { name: 'Only mine' }).click();
+  // S3-07 list filters: "Only mine" is a filter checkbox now.
+  await page.getByTestId('listing-filters').getByLabel('Only mine').check();
+  await page.getByTestId('listing-filters').getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/mine/);
   await expect(page.getByTestId('listings-table')).toContainText(ref);
 });

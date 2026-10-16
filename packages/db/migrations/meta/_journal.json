@@ -386,6 +386,13 @@
       "when": 1792105662888,
       "tag": "0054_taxonomy_queue_index",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792110746598,
+      "tag": "0055_location_translation_owner_fk",
+      "breakpoints": true
     }
   ]
 }

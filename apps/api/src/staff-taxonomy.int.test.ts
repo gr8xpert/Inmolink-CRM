@@ -7,7 +7,7 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, pingDb } from '@inmolink/core';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
-import { createFounder } from '@inmolink/core/test';
+import { createFounder, purgeReferenceFixtures } from '@inmolink/core/test';
 import { adminQuery, createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
@@ -51,18 +51,22 @@ let app: Awaited<ReturnType<typeof build>>;
 
 beforeAll(async () => {
   await setupTestDb('http');
+  await purgeReferenceFixtures(PREFIX, adminQuery);
   await configureCache({ prefix: `t:staff-taxonomy:${newId().slice(-12)}` });
   app = await build();
 }, 120_000);
 
 afterAll(async () => {
+  await purgeReferenceFixtures(PREFIX, adminQuery);
   await app?.close();
   await closeCache();
   await closeDb();
 });
 
 const RUN = newId().slice(-8).toLowerCase();
-const slug = (s: string) => `${s}-${RUN}`;
+/** File prefix: `beforeAll` clears what a crashed earlier run left (S3-F3). */
+const PREFIX = 'stx-';
+const slug = (s: string) => `${PREFIX}${s}-${RUN}`;
 const tr = (locale: string, name: string, s: string) => ({ locale, name, slug: slug(s) });
 
 const square = (x: number, y: number, size: number) => ({
@@ -309,7 +313,10 @@ describe('staff taxonomy admin', () => {
   it('[S2-04] catalog: reorder items, edit translations and aliases', async () => {
     const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
     const [groupId, a, b] = [newId(), newId(), newId()] as const;
-    await adminQuery(`insert into property_type_groups (id, key, sort) values ($1, $2, 0)`, [groupId, `grp-${RUN}`]);
+    await adminQuery(`insert into property_type_groups (id, key, sort) values ($1, $2, 0)`, [
+      groupId,
+      `${PREFIX}grp-${RUN}`,
+    ]);
     await adminQuery(
       `insert into property_type_group_translations (group_id, locale, name, slug) values ($1, 'en', 'Group', $2)`,
       [groupId, slug('grp')],
@@ -321,7 +328,7 @@ describe('staff taxonomy admin', () => {
       await adminQuery(`insert into property_types (id, group_id, key, sort) values ($1, $2, $3, $4)`, [
         id,
         groupId,
-        `${n}-${RUN}`,
+        `${PREFIX}${n}-${RUN}`,
         sort,
       ]);
       await adminQuery(
@@ -529,7 +536,10 @@ describe('staff taxonomy admin', () => {
   it('[S3-F1] a catalog slug clash has its own code', async () => {
     const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
     const [groupId, a, b] = [newId(), newId(), newId()] as const;
-    await adminQuery(`insert into feature_groups (id, key, sort) values ($1, $2, 0)`, [groupId, `fgrp-${RUN}`]);
+    await adminQuery(`insert into feature_groups (id, key, sort) values ($1, $2, 0)`, [
+      groupId,
+      `${PREFIX}fgrp-${RUN}`,
+    ]);
     for (const [id, n] of [
       [a, 'pool'],
       [b, 'lift'],
@@ -537,7 +547,7 @@ describe('staff taxonomy admin', () => {
       await adminQuery(`insert into features (id, group_id, key, sort, icon) values ($1, $2, $3, 0, 'waves')`, [
         id,
         groupId,
-        `${n}-${RUN}`,
+        `${PREFIX}${n}-${RUN}`,
       ]);
       await adminQuery(`insert into feature_translations (feature_id, locale, name, slug) values ($1, 'en', $2, $3)`, [
         id,

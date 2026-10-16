@@ -9,13 +9,15 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, purgeReferenceFixtures } from '../../../testing/factories';
 import * as taxonomy from '../index';
 
 /** Localized taxonomy reads, cache and change events on the real test database and redis-cache (S2-03). */
 
 const RUN = newId().slice(-8).toLowerCase();
-const key = (s: string) => `${s}-${RUN}`;
+/** File prefix, so `beforeAll` can clear what a crashed earlier run left (S3-F3). */
+const PREFIX = 'tree-';
+const key = (s: string) => `${PREFIX}${s}-${RUN}`;
 const tr = (en: string, s: string, es?: string) => [
   { locale: 'en', name: en, slug: key(s) },
   ...(es ? [{ locale: 'es', name: es, slug: key(`${s}-es`) }] : []),
@@ -65,6 +67,7 @@ async function coldCache(): Promise<void> {
 
 beforeAll(async () => {
   await setupTestDb('worker');
+  await purgeReferenceFixtures(PREFIX);
   await configureCache({ prefix: `t:taxonomy:${newId().slice(-12)}` });
   taxonomy.registerTaxonomySubscriptions();
   founder = await createFounder();
@@ -125,16 +128,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   taxonomy.unregisterTaxonomySubscriptions();
-  await system(async (tx) => {
-    await tx.execute(sql`delete from location_groups where key like ${`%-${RUN}`}`);
-    for (const id of [ids.area, ids.city, ids.extraRegion, ids.region, ids.country]) {
-      if (id) await tx.execute(sql`delete from locations where id = ${id}`);
-    }
-    await tx.execute(sql`delete from property_types where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from property_type_groups where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from features where key like ${`%-${RUN}`}`);
-    await tx.execute(sql`delete from feature_groups where key like ${`%-${RUN}`}`);
-  });
+  await purgeReferenceFixtures(`${PREFIX}`);
   await closeCache();
   await closeDb();
 });

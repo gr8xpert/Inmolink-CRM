@@ -95,6 +95,8 @@ jobs:
         run: pnpm test:int:root
       - name: Throughput checks
         run: pnpm test:perf:root
+        # as in the app image: the media RSS budget assumes two glibc malloc arenas (S3-F3)
+        env: { MALLOC_ARENA_MAX: '2' }
       - name: Stack logs on failure
         if: failure()
         run: docker compose --profile test logs --tail=200

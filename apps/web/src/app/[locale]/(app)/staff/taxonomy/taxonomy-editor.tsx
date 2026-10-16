@@ -298,11 +298,10 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
     setLoaded((m) => new Map(m).set(id, res.data.children));
   };
 
-  /** After a save: re-read every open list of cities or areas, forget the closed ones. */
+  /** After a save: re-read every open region's or city's children (countries come with the page's refresh). */
   const reloadOpen = async () => {
-    const open = [...loaded.keys()].filter((id) => expanded.has(id));
-    setLoaded(new Map());
-    await Promise.all(open.map(loadChildren));
+    const countries = new Set(tree.locations.map((c) => c.id));
+    await Promise.all([...expanded].filter((id) => !countries.has(id)).map(loadChildren));
   };
 
   const childrenOf = (node: LocationNode) => node.children ?? loaded.get(node.id);
