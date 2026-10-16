@@ -169,11 +169,15 @@ export const WebsiteLocationsDto = z.object({
 });
 export type WebsiteLocationsDto = z.infer<typeof WebsiteLocationsDto>;
 
-/** The direct children of one location (a region's cities, a city's areas). */
+/**
+ * The direct children of one location (a region's cities, a city's areas), one page at a time (S3-F2): a page
+ * stays ≤ 150 KB gzip however many children there are; `nextCursor` fetches the next (null on the last).
+ */
 export const WebsiteLocationChildrenDto = z.object({
   locale: z.string(),
   parentId: z.uuid(),
   children: z.array(WebsiteLocation),
+  nextCursor: z.string().nullable(),
 });
 export type WebsiteLocationChildrenDto = z.infer<typeof WebsiteLocationChildrenDto>;
 
@@ -185,9 +189,34 @@ export const TaxonomyLangQuery = z.object({
     .optional(),
 });
 
+/** `?lang=&cursor=` of a children page; `cursor` is the previous page's `nextCursor`. */
+export const TaxonomyChildrenQuery = TaxonomyLangQuery.extend({
+  cursor: z
+    .string()
+    .regex(/^[1-9]\d{0,3}$/)
+    .optional(),
+});
+
 export const LocationParams = z.object({ id: z.uuid() }).strict();
 
 // ---- Staff admin (S2-04) -----------------------------------------------------------------------------------------
+
+/**
+ * The staff editor's first view (S3-F2): countries with their regions (with child counts), location groups and
+ * the catalog. A region's cities and a city's areas load on expand (`/v1/staff/taxonomy/locations/{id}/children`).
+ */
+export const StaffTaxonomyDto = TaxonomyCatalogDto.extend({
+  locations: z.array(WebsiteLocation.extend({ children: z.array(WebsiteLocation) })),
+  locationGroups: z.array(TaxonomyLocationGroup),
+});
+export type StaffTaxonomyDto = z.infer<typeof StaffTaxonomyDto>;
+
+/** Every direct child of one location, uncached, for the editor (a reorder needs the whole sibling set). */
+export const StaffLocationChildrenDto = z.object({
+  parentId: z.uuid(),
+  children: z.array(WebsiteLocation),
+});
+export type StaffLocationChildrenDto = z.infer<typeof StaffLocationChildrenDto>;
 
 export const StaffLocationAlias = z.object({ id: z.uuid(), alias: z.string() });
 

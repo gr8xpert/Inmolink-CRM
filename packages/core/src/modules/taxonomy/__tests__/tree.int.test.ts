@@ -6,7 +6,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { defaultSubscribers, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
@@ -127,7 +127,7 @@ afterAll(async () => {
   taxonomy.unregisterTaxonomySubscriptions();
   await system(async (tx) => {
     await tx.execute(sql`delete from location_groups where key like ${`%-${RUN}`}`);
-    for (const id of [ids.area, ids.city, ids.region, ids.country]) {
+    for (const id of [ids.area, ids.city, ids.extraRegion, ids.region, ids.country]) {
       if (id) await tx.execute(sql`delete from locations where id = ${id}`);
     }
     await tx.execute(sql`delete from property_types where key like ${`%-${RUN}`}`);
@@ -282,7 +282,14 @@ describe('localized taxonomy', () => {
       children: [
         { id: ids.area, level: 'AREA', code: null, name: 'Milla de Oro', slug: key('golden-mile-es'), childCount: 0 },
       ],
+      nextCursor: null,
     });
+    // a page past the last is refused
+    const past = await taxonomy.getWebsiteLocationChildren(ids.city as string, 'es', '1').then(
+      () => null,
+      (e) => e,
+    );
+    expect(isAppError(past) && past.code).toBe('VALIDATION_FAILED');
     const leaf = WebsiteLocationChildrenDto.parse(
       JSON.parse((await taxonomy.getWebsiteLocationChildren(ids.area as string, 'es')).json),
     );
@@ -327,5 +334,84 @@ describe('localized taxonomy', () => {
     const full = await asMember((ctx) => taxonomy.getTaxonomy(ctx));
     const client = await asMember((ctx) => taxonomy.getTaxonomy({ ...ctx, clientMode: true }));
     expect(client).toEqual(full);
+  });
+
+  it('[S3-F2] a warm Redis hit serves a website cut without re-serializing', async () => {
+    await coldCache();
+    const warm = {
+      top: await taxonomy.getWebsiteLocations('es'),
+      children: await taxonomy.getWebsiteLocationChildren(ids.city as string, 'es'),
+      catalog: await taxonomy.getWebsiteCatalog('es'),
+      document: await asMember((ctx) => taxonomy.getTaxonomyDocument(ctx), 'es'),
+    };
+    // Another process: nothing in memory, every body in Redis.
+    taxonomy.dropLocalTaxonomyCopies();
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const hit = {
+        top: await taxonomy.getWebsiteLocations('es'),
+        children: await taxonomy.getWebsiteLocationChildren(ids.city as string, 'es'),
+        catalog: await taxonomy.getWebsiteCatalog('es'),
+      };
+      expect(stringify).not.toHaveBeenCalled();
+      expect(hit).toEqual({ top: warm.top, children: warm.children, catalog: warm.catalog });
+    } finally {
+      stringify.mockRestore();
+    }
+    // The dashboard document is the same kind of body: one string, served as is.
+    taxonomy.dropLocalTaxonomyCopies();
+    const doc = await asMember((ctx) => countQueries(() => taxonomy.getTaxonomyDocument(ctx)), 'es');
+    expect(doc).toBe(0);
+    expect(TaxonomyDto.parse(JSON.parse(warm.document.json)).locale).toBe('es');
+  });
+
+  it('[S3-F2] while one reload runs, the previous copy is served; the reload lands for the next request', async () => {
+    await coldCache();
+    const first = await taxonomy.getWebsiteCatalog('en');
+    await system((tx) =>
+      taxonomy.createPropertyType(tx, {
+        groupId: ids.typeGroup as string,
+        key: key('cortijo'),
+        sort: 3,
+        translations: tr('Farmhouse', 'cortijo'),
+      }),
+    );
+    // Another process delivered the change: the tag moved, this process still has its previous copy.
+    await cache.invalidateTag(taxonomy.TAXONOMY_CACHE_TAG);
+    cache.clearLocal();
+    expect(await taxonomy.getWebsiteCatalog('en')).toBe(first);
+    let next = first;
+    for (let i = 0; i < 50 && next.etag === first.etag; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      next = await taxonomy.getWebsiteCatalog('en');
+    }
+    expect(next.etag).not.toBe(first.etag);
+    expect(next.json).toContain(key('cortijo'));
+  });
+
+  it('[S3-F2] a body rebuilt after another process bumped the tag never comes from an old in-process tree', async () => {
+    await coldCache();
+    const before = await taxonomy.getWebsiteLocations('en');
+    const regionId = await system((tx) =>
+      taxonomy.createLocation(tx, {
+        parentId: ids.country as string,
+        level: 'REGION',
+        translations: tr('Murcia', 'murcia'),
+      }),
+    );
+    ids.extraRegion = regionId;
+    // Another process delivered the change; this one still holds the old `locations` tree in memory. Only the
+    // top body is gone here, so its reload must read the tree's current version, not the in-process copy.
+    await cache.invalidateTag(taxonomy.TAXONOMY_CACHE_TAG);
+    await cache.delete(taxonomy.taxonomyCacheKey('webtop', 'en'));
+    let after = await taxonomy.getWebsiteLocations('en');
+    for (let i = 0; i < 50 && after.etag === before.etag; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      after = await taxonomy.getWebsiteLocations('en');
+    }
+    expect(after.json).toContain(regionId);
+    // and its children pages are addressed by the tree they were cut from
+    const kids = JSON.parse((await taxonomy.getWebsiteLocationChildren(ids.country as string, 'en')).json);
+    expect(kids.children.map((c: { id: string }) => c.id)).toContain(regionId);
   });
 });

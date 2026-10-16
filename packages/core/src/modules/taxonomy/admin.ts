@@ -12,8 +12,9 @@ import type {
   ReorderCatalogInput,
   ReorderLocationsInput,
   StaffCatalogItemDto,
+  StaffLocationChildrenDto,
   StaffLocationDto,
-  TaxonomyDto,
+  StaffTaxonomyDto,
   UnmatchedDto,
   UnmatchedListQuery,
   UnmatchedPageDto,
@@ -39,7 +40,7 @@ import {
   createLocation,
   uniqueOr,
 } from './service';
-import { loadTaxonomyFresh } from './tree';
+import { loadStaffChildren, loadStaffTop } from './tree';
 
 /**
  * Authorizes a write, runs it in the staff transaction and audits it. The audit row names the changed entity
@@ -75,10 +76,19 @@ const same = (current: string[], ordered: string[]) => {
 
 // ---- Reads ---------------------------------------------------------------------------------------------------
 
-/** The whole localized tree in the staff member's locale, never cached (see `loadTaxonomyFresh`). */
-export async function getStaffTaxonomy(ctx: StaffCtx): Promise<TaxonomyDto> {
+const staffLocale = (ctx: StaffCtx) => (isContentLocale(ctx.locale) ? ctx.locale : DEFAULT_CONTENT_LOCALE);
+
+/** Countries, regions, groups and the catalog in the staff member's locale, never cached (see `loadStaffTop`). */
+export async function getStaffTaxonomy(ctx: StaffCtx): Promise<StaffTaxonomyDto> {
   assertStaffCan(ctx, 'staff.taxonomy.read');
-  return loadTaxonomyFresh(ctx.tx, isContentLocale(ctx.locale) ? ctx.locale : DEFAULT_CONTENT_LOCALE);
+  return loadStaffTop(ctx.tx, staffLocale(ctx));
+}
+
+/** A location's direct children, never cached: the editor expands one region or city at a time (S3-F2). */
+export async function getStaffLocationChildren(ctx: StaffCtx, id: string): Promise<StaffLocationChildrenDto> {
+  assertStaffCan(ctx, 'staff.taxonomy.read');
+  if (!(await repo.locationParent(ctx.tx, id))) throw new AppError('LOCATION_NOT_FOUND');
+  return { parentId: id, children: await loadStaffChildren(ctx.tx, id, staffLocale(ctx)) };
 }
 
 export async function getStaffLocation(ctx: StaffCtx, id: string): Promise<StaffLocationDto> {

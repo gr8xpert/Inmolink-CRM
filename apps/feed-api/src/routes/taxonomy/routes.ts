@@ -1,6 +1,7 @@
 import {
   LocationParams,
   TaxonomyCatalogDto,
+  TaxonomyChildrenQuery,
   TaxonomyLangQuery,
   WebsiteLocationChildrenDto,
   WebsiteLocationsDto,
@@ -49,14 +50,15 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags: ['website-v2'],
         operationId: 'websiteV2.getTaxonomyLocationChildren',
-        summary: "A location's direct children (a region's cities, a city's areas) in `lang`",
+        summary: "A location's direct children (a region's cities, a city's areas) in `lang`, one page per `cursor`",
         params: LocationParams,
-        querystring: TaxonomyLangQuery,
+        querystring: TaxonomyChildrenQuery,
         response: { 200: WebsiteLocationChildrenDto },
       },
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
-    async (req, reply) => send(req, reply, await taxonomy.getWebsiteLocationChildren(req.params.id, req.query.lang)),
+    async (req, reply) =>
+      send(req, reply, await taxonomy.getWebsiteLocationChildren(req.params.id, req.query.lang, req.query.cursor)),
   );
 
   app.get(

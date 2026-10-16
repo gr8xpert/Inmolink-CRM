@@ -1,4 +1,10 @@
-import { StaffLocationDto, UnmatchedPageDto, WebsiteLocationChildrenDto } from '@inmolink/contracts';
+import {
+  StaffLocationChildrenDto,
+  StaffLocationDto,
+  StaffTaxonomyDto,
+  UnmatchedPageDto,
+  WebsiteLocationChildrenDto,
+} from '@inmolink/contracts';
 import { closeDb, pingDb } from '@inmolink/core';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import { createFounder } from '@inmolink/core/test';
@@ -584,5 +590,44 @@ describe('staff taxonomy admin', () => {
     expect(new Set(mine).size).toBe(mine.length);
     expect(mine.slice(0, 2)).toEqual([ids[5], ids[4]]);
     await adminQuery(`delete from taxonomy_unmatched where id = any($1::uuid[])`, [ids]);
+  });
+
+  it('[S3-F2] the staff editor reads countries with regions first, then one region or city on expand', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const post = (payload: object) =>
+      app.inject({ method: 'POST', url: '/v1/staff/taxonomy/locations', headers: ops, payload });
+    const country = (
+      await post({ parentId: null, level: 'COUNTRY', translations: [tr('en', 'Lazyland', 'lazyland')] })
+    ).json();
+    const region = (
+      await post({ parentId: country.id, level: 'REGION', translations: [tr('en', 'Lazy Region', 'lazy-region')] })
+    ).json();
+    const city = (
+      await post({ parentId: region.id, level: 'CITY', translations: [tr('en', 'Lazy City', 'lazy-city')] })
+    ).json();
+    const top = await app.inject({ method: 'GET', url: '/v1/staff/taxonomy', headers: ops });
+    expect(top.statusCode, top.body).toBe(200);
+    const body = StaffTaxonomyDto.parse(top.json());
+    const mine = body.locations.find((c) => c.id === country.id);
+    expect(mine?.children).toEqual([
+      { id: region.id, level: 'REGION', code: null, name: 'Lazy Region', slug: slug('lazy-region'), childCount: 1 },
+    ]);
+    const kids = await app.inject({
+      method: 'GET',
+      url: `/v1/staff/taxonomy/locations/${region.id}/children`,
+      headers: ops,
+    });
+    expect(kids.statusCode, kids.body).toBe(200);
+    expect(kids.headers['cache-control']).toBe('no-store');
+    expect(StaffLocationChildrenDto.parse(kids.json())).toEqual({
+      parentId: region.id,
+      children: [{ id: city.id, level: 'CITY', code: null, name: 'Lazy City', slug: slug('lazy-city'), childCount: 0 }],
+    });
+    const missing = await app.inject({
+      method: 'GET',
+      url: `/v1/staff/taxonomy/locations/${newId()}/children`,
+      headers: ops,
+    });
+    expect(missing.statusCode).toBe(404);
   });
 });

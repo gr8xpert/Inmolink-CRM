@@ -106,6 +106,13 @@ describe('website API taxonomy', () => {
       });
       expect(children.statusCode).toBe(200);
       expect(WebsiteLocationChildrenDto.parse(children.json())).toMatchObject({ parentId: parent.id });
+      // S3-F2: children come in pages; a malformed cursor is refused by the schema
+      const badCursor = await app.inject({
+        method: 'GET',
+        url: `/v2/taxonomy/locations/${parent.id}/children?cursor=0`,
+        headers,
+      });
+      expect(badCursor.statusCode).toBe(422);
     }
     const missing = await app.inject({ method: 'GET', url: `/v2/taxonomy/locations/${newId()}/children`, headers });
     expect(missing.statusCode).toBe(404);

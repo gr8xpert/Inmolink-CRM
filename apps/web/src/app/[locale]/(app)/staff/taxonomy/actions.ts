@@ -6,6 +6,7 @@ import {
   ReorderCatalogInput,
   ReorderLocationsInput,
   type StaffCatalogItemDto,
+  type StaffLocationChildrenDto,
   type StaffLocationDto,
   UpdateCatalogItemInput,
   UpdateLocationInput,
@@ -43,6 +44,13 @@ export async function loadLocationAction(id: unknown): Promise<ActionResult<Staf
   const parsed = Id.safeParse(id);
   if (!parsed.success) return invalid;
   return settle(await api.fetchStaffLocation(await session(), parsed.data));
+}
+
+/** A region's cities or a city's areas, loaded when the editor expands it (S3-F2). */
+export async function loadLocationChildrenAction(id: unknown): Promise<ActionResult<StaffLocationChildrenDto>> {
+  const parsed = Id.safeParse(id);
+  if (!parsed.success) return invalid;
+  return settle(await api.fetchStaffLocationChildren(await session(), parsed.data));
 }
 
 export async function createLocationAction(input: unknown): Promise<ActionResult<StaffLocationDto>> {

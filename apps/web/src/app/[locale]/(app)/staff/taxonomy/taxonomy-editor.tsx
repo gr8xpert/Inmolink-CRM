@@ -1,6 +1,6 @@
 'use client';
 
-import type { LocationLevel, StaffCatalogItemDto, StaffLocationDto, TaxonomyDto } from '@inmolink/contracts';
+import type { LocationLevel, StaffCatalogItemDto, StaffLocationDto, StaffTaxonomyDto } from '@inmolink/contracts';
 import { Button, Input } from '@inmolink/ui';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
@@ -12,6 +12,7 @@ import {
   createLocationAction,
   loadCatalogItemAction,
   loadLocationAction,
+  loadLocationChildrenAction,
   removeCatalogAliasAction,
   removeLocationAliasAction,
   reorderCatalogAction,
@@ -35,6 +36,8 @@ interface Row {
 }
 interface LocationNode extends Row {
   level: LocationLevel;
+  childCount: number;
+  /** Countries come with their regions; a region's cities and a city's areas load on expand (S3-F2). */
   children?: LocationNode[];
 }
 type Selection =
@@ -49,7 +52,7 @@ const NEXT_LEVEL: Record<LocationLevel, LocationLevel | null> = {
 };
 
 export interface EditorProps {
-  tree: TaxonomyDto;
+  tree: StaffTaxonomyDto;
   canWrite: boolean;
   locales: readonly string[];
   defaultLocale: string;
@@ -227,7 +230,8 @@ function AliasList({
 /**
  * Staff taxonomy editor (S2-04): the location tree and the property type / feature catalog with drag-and-drop
  * ordering, a translation editor, feed aliases and (locations) a polygon drawn on a map. Presentation only: every
- * change goes through a server action to `/v1/staff/taxonomy`, then the page re-reads the uncached tree.
+ * change goes through a server action to `/v1/staff/taxonomy`, then the page re-reads the uncached countries and
+ * regions and the editor re-reads the cities and areas it has open (loaded on expand, S3-F2).
  */
 export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyleUrl, messages }: EditorProps) {
   const t = makeT(messages);
@@ -238,6 +242,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
   const [location, setLocation] = useState<StaffLocationDto | null>(null);
   const [catalogItem, setCatalogItem] = useState<StaffCatalogItemDto | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loaded, setLoaded] = useState<Map<string, LocationNode[]>>(new Map());
   const [creating, setCreating] = useState<{ parentId: string | null; level: LocationLevel } | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -259,6 +264,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
       onOk?.(res.data);
       setStatus({ kind: 'ok', text: t('saved') });
       startTransition(() => router.refresh());
+      await reloadOpen();
     } catch {
       fail('generic');
     } finally {
@@ -285,12 +291,31 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
     else fail(res.error);
   };
 
-  const toggle = (id: string) =>
+  /** Loads one location's children (cities or areas) into the editor; countries carry their regions. */
+  const loadChildren = async (id: string) => {
+    const res = await loadLocationChildrenAction(id);
+    if (!res.ok) return fail(res.error);
+    setLoaded((m) => new Map(m).set(id, res.data.children));
+  };
+
+  /** After a save: re-read every open list of cities or areas, forget the closed ones. */
+  const reloadOpen = async () => {
+    const open = [...loaded.keys()].filter((id) => expanded.has(id));
+    setLoaded(new Map());
+    await Promise.all(open.map(loadChildren));
+  };
+
+  const childrenOf = (node: LocationNode) => node.children ?? loaded.get(node.id);
+
+  const toggle = (node: LocationNode) => {
+    const opening = !expanded.has(node.id);
     setExpanded((s) => {
       const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
+      n.has(node.id) ? n.delete(node.id) : n.add(node.id);
       return n;
     });
+    if (opening && !childrenOf(node) && node.childCount > 0) void loadChildren(node.id);
+  };
 
   // ---- Location tree ----
   const renderLocations = (parentId: string | null, nodes: LocationNode[]): ReactNode => (
@@ -304,6 +329,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
       extra={(row) => {
         const node = nodes.find((n) => n.id === row.id) as LocationNode;
         const open = expanded.has(node.id);
+        const kids = childrenOf(node);
         const nextLevel = NEXT_LEVEL[node.level];
         return (
           <div className="ml-5">
@@ -313,9 +339,9 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
                   type="button"
                   className="text-xs text-muted-foreground"
                   aria-expanded={open}
-                  onClick={() => toggle(node.id)}
+                  onClick={() => toggle(node)}
                 >
-                  {open ? '▾' : '▸'} {t(`levels.${nextLevel}`)} ({node.children?.length ?? 0})
+                  {open ? '▾' : '▸'} {t(`levels.${nextLevel}`)} ({kids?.length ?? node.childCount})
                 </button>
                 {!disabled ? (
                   <button
@@ -325,6 +351,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
                       setCreating({ parentId: node.id, level: nextLevel });
                       setSelection(null);
                       setExpanded((s) => new Set(s).add(node.id));
+                      if (!kids && node.childCount > 0) void loadChildren(node.id);
                     }}
                   >
                     {t('addChild', { level: t(`levels.${nextLevel}`).toLowerCase() })}
@@ -332,7 +359,10 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
                 ) : null}
               </div>
             ) : null}
-            {open && node.children?.length ? renderLocations(node.id, node.children) : null}
+            {open && kids === undefined && node.childCount > 0 ? (
+              <p className="text-xs text-muted-foreground">{t('loading')}</p>
+            ) : null}
+            {open && kids?.length ? renderLocations(node.id, kids) : null}
           </div>
         );
       }}

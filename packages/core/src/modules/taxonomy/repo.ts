@@ -24,7 +24,7 @@ import {
   taxonomyUnmatched,
 } from '@inmolink/db/schema/taxonomy';
 import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
-import { and, desc, eq, inArray, isNull, notInArray, type SQLWrapper, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 export interface NewLocation {
@@ -252,22 +252,56 @@ const pick = (locale: AnyPgColumn, wanted: string) => [
   sql`${locale}`,
 ];
 
+export type LocalizedLocationRow = {
+  id: string;
+  parentId: string | null;
+  depth: number;
+  level: string;
+  code: string | null;
+  sort: number;
+  name: string;
+  slug: string;
+};
+
+/**
+ * Locations with their localized name and slug (S3-F2): two keyed joins on the translation primary key (the
+ * wanted and the fallback locale) — no DISTINCT ON over every locale, so no sort and no spill on a Spain-sized
+ * tree. A location with neither falls back to its first locale through a lateral probe that runs only then.
+ * `where` filters on `l.*` (e.g. `l.depth <= 2`, `l.parent_id = …`); `childCount` adds the children count.
+ */
+export function localizedLocationsSql(locale: string, opts: { where?: SQL; childCount?: boolean } = {}): SQL {
+  const tr = locationTranslations;
+  // `coalesce` stops at the first non-null argument, so the "any locale" subqueries run only for the rare
+  // location with neither translation (ordered by locale: name and slug come from the same row).
+  const any = (col: 'name' | 'slug') =>
+    sql`(select x.${sql.raw(col)} from ${tr} x where x.location_id = l.id order by x.locale limit 1)`;
+  return sql`select * from (select l.id, l.parent_id as "parentId", l.depth, l.level, l.code, l.sort,
+      coalesce(w.name, f.name, ${any('name')}) as name, coalesce(w.slug, f.slug, ${any('slug')}) as slug
+      ${opts.childCount ? sql`, (select count(*)::int from ${locations} c where c.parent_id = l.id) as "childCount"` : sql``}
+    from ${locations} l
+    left join ${tr} w on w.location_id = l.id and w.locale = ${locale}
+    left join ${tr} f on f.location_id = l.id and f.locale = ${FALLBACK_CONTENT_LOCALE}
+    ${opts.where ? sql`where ${opts.where}` : sql``}) t
+   where t.name is not null`;
+}
+
 /** Every location with its localized name and slug (statement 1). No geometry. */
-export async function localizedLocations(tx: Tx, locale: string) {
-  return tx
-    .selectDistinctOn([locations.id], {
-      id: locations.id,
-      parentId: locations.parentId,
-      depth: locations.depth,
-      level: locations.level,
-      code: locations.code,
-      sort: locations.sort,
-      name: locationTranslations.name,
-      slug: locationTranslations.slug,
-    })
-    .from(locations)
-    .innerJoin(locationTranslations, eq(locationTranslations.locationId, locations.id))
-    .orderBy(locations.id, ...pick(locationTranslations.locale, locale));
+export async function localizedLocations(tx: Tx, locale: string): Promise<LocalizedLocationRow[]> {
+  return rowsOf<LocalizedLocationRow>(await tx.execute(localizedLocationsSql(locale)));
+}
+
+/** Countries and regions with their child counts: the staff editor's first view (S3-F2). */
+export async function localizedTopLocations(tx: Tx, locale: string) {
+  return rowsOf<LocalizedLocationRow & { childCount: number }>(
+    await tx.execute(localizedLocationsSql(locale, { where: sql`l.level in ('COUNTRY', 'REGION')`, childCount: true })),
+  );
+}
+
+/** One location's direct children with their child counts, for the staff editor's expand (S3-F2). */
+export async function localizedChildren(tx: Tx, parentId: string, locale: string) {
+  return rowsOf<LocalizedLocationRow & { childCount: number }>(
+    await tx.execute(localizedLocationsSql(locale, { where: sql`l.parent_id = ${parentId}`, childCount: true })),
+  );
 }
 
 /** Every location group, localized, with its member ids (statement 2). */

@@ -10,8 +10,9 @@ import {
   ReorderCatalogInput,
   ReorderLocationsInput,
   StaffCatalogItemDto,
+  StaffLocationChildrenDto,
   StaffLocationDto,
-  TaxonomyDto,
+  StaffTaxonomyDto,
   UnmatchedDto,
   UnmatchedListQuery,
   UnmatchedPageDto,
@@ -49,8 +50,8 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags,
         operationId: 'taxonomy.staffGetTaxonomy',
-        summary: 'The whole taxonomy in the staff locale, uncached (tree editor)',
-        response: { 200: TaxonomyDto },
+        summary: 'Countries with regions, location groups and the catalog in the staff locale, uncached (tree editor)',
+        response: { 200: StaffTaxonomyDto },
       },
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
@@ -77,6 +78,27 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withStaffCtx(req, 'taxonomy.staffGetLocation', (ctx) => taxonomy.getStaffLocation(ctx, req.params.id));
+    },
+  );
+
+  app.get(
+    '/v1/staff/taxonomy/locations/:id/children',
+    {
+      schema: {
+        tags,
+        operationId: 'taxonomy.staffGetLocationChildren',
+        summary: "Every direct child of a location (a region's cities, a city's areas), uncached",
+        params: LocationParams,
+        response: { 200: StaffLocationChildrenDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withStaffCtx(req, 'taxonomy.staffGetLocationChildren', (ctx) =>
+        taxonomy.getStaffLocationChildren(ctx, req.params.id),
+      );
     },
   );
 

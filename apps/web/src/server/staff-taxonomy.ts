@@ -4,8 +4,9 @@ import {
   type ReorderCatalogInput,
   type ReorderLocationsInput,
   StaffCatalogItemDto,
+  StaffLocationChildrenDto,
   StaffLocationDto,
-  TaxonomyDto,
+  StaffTaxonomyDto,
   type UpdateCatalogItemInput,
   type UpdateLocationInput,
 } from '@inmolink/contracts';
@@ -19,7 +20,11 @@ import { type ApiResult, apiRequest, type SessionRef } from './api';
 const base = '/v1/staff/taxonomy';
 const seg = encodeURIComponent;
 
-export const fetchStaffTaxonomy = (s: SessionRef): Promise<ApiResult<TaxonomyDto>> => apiRequest(s, base, TaxonomyDto);
+export const fetchStaffTaxonomy = (s: SessionRef): Promise<ApiResult<StaffTaxonomyDto>> =>
+  apiRequest(s, base, StaffTaxonomyDto);
+
+export const fetchStaffLocationChildren = (s: SessionRef, id: string): Promise<ApiResult<StaffLocationChildrenDto>> =>
+  apiRequest(s, `${base}/locations/${seg(id)}/children`, StaffLocationChildrenDto);
 
 export const fetchStaffLocation = (s: SessionRef, id: string): Promise<ApiResult<StaffLocationDto>> =>
   apiRequest(s, `${base}/locations/${seg(id)}`, StaffLocationDto);

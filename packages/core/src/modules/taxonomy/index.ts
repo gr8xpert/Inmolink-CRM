@@ -6,6 +6,7 @@ export {
   createStaffLocation,
   getStaffCatalogItem,
   getStaffLocation,
+  getStaffLocationChildren,
   getStaffTaxonomy,
   ignoreStaffUnmatched,
   listStaffUnmatched,
@@ -21,7 +22,12 @@ export { taxonomyErrors } from './errors';
 export { TAXONOMY_ENTITIES, type TaxonomyEntity, taxonomyEvents } from './events';
 export { taxonomyJobs } from './jobs';
 /** The resolver's statements as built SQL, for the scale plan check (`tests/perf`), never for running queries. */
-export { exactMatchesSql, fuzzyMatchesSql, fuzzyThresholdSql } from './repo';
+export {
+  exactMatchesSql,
+  fuzzyMatchesSql,
+  fuzzyThresholdSql,
+  localizedLocationsSql,
+} from './repo';
 export {
   FUZZY_ACCEPT,
   FUZZY_MARGIN,
@@ -55,6 +61,12 @@ export {
 } from './service';
 export { registerTaxonomySubscriptions, unregisterTaxonomySubscriptions } from './subscriptions';
 export {
+  buildLocationTree,
+  CHILDREN_PAGE_BYTES,
+  CHILDREN_PAGE_MAX,
+  childrenPageJson,
+  childrenPages,
+  dropLocalTaxonomyCopies,
   getTaxonomy,
   getTaxonomyDocument,
   getWebsiteCatalog,
@@ -65,5 +77,6 @@ export {
   TAXONOMY_CACHE_TAG,
   TAXONOMY_CACHE_TTL_SECONDS,
   type Tagged,
+  type TreeNode,
   taxonomyCacheKey,
 } from './tree';
