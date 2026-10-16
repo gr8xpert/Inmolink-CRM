@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -226,6 +226,61 @@ create policy own_rows on public."bookmark_folders" to app_user
 revoke all on table public."bookmark_folders" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."bookmark_folders" to app_user;
 grant select, insert, update, delete on table public."bookmark_folders" to app_system;
+
+-- development_access: NETWORK_READ
+alter table public."development_access" enable row level security;
+alter table public."development_access" force row level security;
+create policy own_rows on public."development_access" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."development_access" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (allowed_agency_id = app_agency()));
+revoke all on table public."development_access" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."development_access" to app_user;
+grant select, insert, update, delete on table public."development_access" to app_system;
+
+-- development_documents: NETWORK_READ
+alter table public."development_documents" enable row level security;
+alter table public."development_documents" force row level security;
+create policy own_rows on public."development_documents" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."development_documents" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (shared and exists (select 1 from public.developments d where d.id = development_documents.development_id)));
+revoke all on table public."development_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."development_documents" to app_user;
+grant select, insert, update, delete on table public."development_documents" to app_system;
+
+-- development_phases: NETWORK_READ
+alter table public."development_phases" enable row level security;
+alter table public."development_phases" force row level security;
+create policy own_rows on public."development_phases" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."development_phases" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = development_phases.development_id)));
+revoke all on table public."development_phases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."development_phases" to app_user;
+grant select, insert, update, delete on table public."development_phases" to app_system;
+
+-- development_translations: NETWORK_READ
+alter table public."development_translations" enable row level security;
+alter table public."development_translations" force row level security;
+create policy own_rows on public."development_translations" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."development_translations" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = development_translations.development_id)));
+revoke all on table public."development_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."development_translations" to app_user;
+grant select, insert, update, delete on table public."development_translations" to app_system;
+
+-- developments: NETWORK_READ
+alter table public."developments" enable row level security;
+alter table public."developments" force row level security;
+create policy own_rows on public."developments" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."developments" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (deleted_at is null and exists (select 1 from public.agency_directory d where d.agency_id = developments.agency_id and d.listed) and (access = 'OPEN' or exists (select 1 from public.development_access a where a.development_id = developments.id and a.allowed_agency_id = app_agency()))));
+revoke all on table public."developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."developments" to app_user;
+grant select, insert, update, delete on table public."developments" to app_system;
 
 -- feature_aliases: GLOBAL
 alter table public."feature_aliases" enable row level security;
@@ -465,6 +520,15 @@ revoke all on table public."preferred_agency_notes" from public, app_user, app_s
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
 
+-- price_lists: STRICT
+alter table public."price_lists" enable row level security;
+alter table public."price_lists" force row level security;
+create policy own_rows on public."price_lists" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."price_lists" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."price_lists" to app_user;
+grant select, insert, update, delete on table public."price_lists" to app_system;
+
 -- properties: NETWORK_READ
 alter table public."properties" enable row level security;
 alter table public."properties" force row level security;
@@ -663,6 +727,26 @@ create policy staff_insert on public."taxonomy_unmatched" for insert to app_staf
 create policy staff_update on public."taxonomy_unmatched" for update to app_staff using (app_is_staff()) with check (app_is_staff());
 create policy staff_delete on public."taxonomy_unmatched" for delete to app_staff using (app_is_staff());
 grant select, insert, update, delete on table public."taxonomy_unmatched" to app_staff;
+
+-- unit_price_histories: STRICT
+alter table public."unit_price_histories" enable row level security;
+alter table public."unit_price_histories" force row level security;
+create policy own_rows on public."unit_price_histories" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."unit_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert on table public."unit_price_histories" to app_user;
+grant select, insert on table public."unit_price_histories" to app_system;
+
+-- units: NETWORK_READ
+alter table public."units" enable row level security;
+alter table public."units" force row level security;
+create policy own_rows on public."units" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy network_read on public."units" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = units.development_id)));
+revoke all on table public."units" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."units" to app_user;
+grant select, insert, update, delete on table public."units" to app_system;
 
 -- user_mfa: GLOBAL
 alter table public."user_mfa" enable row level security;
