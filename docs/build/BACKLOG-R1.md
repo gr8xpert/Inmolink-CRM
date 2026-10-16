@@ -513,6 +513,15 @@ Ref §5.3 · Mod media, platform, infra · Dep S3-F7 · needs H3 (Cloudflare R2 
 - The media container's storage credentials cover only the media and work buckets (`infra/storage/media-worker-policy.json` without prefix conditions; R2 token documented as bucket-scoped)
 - Upload → process → variants still works end to end on the test stack
 
+### S3-F10 · S3 review must-fixes 🔒 ⚡
+Ref §15 · Mod media, properties, quality, platform, api, migration · Dep S3-F9
+**Build:** listing documents open only for listing roles (PARTNER members read every listing, not the seller's nota simple or DNI); the API's document upload route takes the same per-user and per-process buffered-upload slots as the web relay (`platform/rate-limit` `createUploadSlots`), before the body is read; a floor plan turned image becomes the cover of a listing without one, and every media edit (kind, cover, alt text, room type, order, video links) emits `media.listing.changed` in its transaction, which recomputes the quality score; the listing list's status filter and reference prefix become leakproof index conditions under RLS (stored `status_code` smallint and `ref_key = upper(ref)`, C-collated range, agency-leading indexes; a country index for depth-1 filters); listing content reads run one after the other on the transaction; the document purge continuation gets a counted trigger.
+**Done when:**
+- A PARTNER member cannot list or open listing documents
+- An API caller over the buffered-upload cap gets 429 before the body is read
+- A floor plan turned image becomes the cover; every media edit emits one `media.listing.changed`
+- On 200,000 listings, a status matching 2 % (every sort), a reference prefix and an empty country filter read by index in < 20 ms under RLS
+
 ---
 
 ## S4 — New developments
@@ -538,6 +547,31 @@ Ref §7 M3 · Mod web · Dep S4-02
 Ref §14 · Mod migration · Dep S4-02 S2-06 · [H1]
 **Build:** script importing legacy new-build projects into developments/units with legacy ID maps.
 **Done when:** imported counts match the legacy dump; mismatches listed in a report
+
+### S4-F1 · Listing and media access hardening (S3 review) 🔒
+Ref §3 #54 §5 · Mod properties, media, db, migration · Dep S3-F10
+**Build:** the network-shared `properties` row stops carrying owner-only data: `external_ref`, `quality_score` and the freshness columns move to an owner-only (STRICT) table or network readers get a column grant, so no future network read (search, matching, exports) leaks the owner's portal ref. Bookmark folders and bookmarks get a member-only RLS predicate (`user_id = app_user_id()`), not only the app filter. `checkUploads` / `registerUploads` skip the upload or allow attaching an existing hash only when the agency already references it (otherwise the bytes are uploaded again and re-hashed), and the media list leaves `sha256` out for other agencies (no platform-wide existence probe, no attaching another agency's photos without the file). Signed upload URLs are tied to a target listing (`media.manage` checked on it) and capped in bytes per tenant per hour. A `media.documents.manage` action (upload and delete documents) is forbidden while impersonating, and detaching media under impersonation is either split into its own forbidden action or recorded as a decision.
+**Done when:**
+- A network reader cannot select `external_ref` of another agency's listing (isolation test)
+- A member cannot read a colleague's bookmark notes through `withTenant` (isolation test)
+- Registering a hash the agency never referenced, without uploading it, is refused or re-uploaded
+- Impersonating staff cannot upload or delete a listing document
+
+### S4-F2 · Listing and media performance follow-ups (S3 review) ⚡
+Ref §16 · Mod quality, properties, web, contracts, media, tests · Dep S3-F10
+**Build:** the quality recompute skips `properties.listing.updated` events whose `changed` holds only fields the score never reads (price, owner, tags, visibility, share scope — bulk actions set them), so a 5,000-listing bulk price change queues no recomputes. Client components import plain `as const` value lists from a zod-free contracts subpath (the listings bulk bar bundles zod today); rebuild and re-run `pnpm perf:bundle` (the S3 numbers predate S3-F5/F8; the editor route has 17 KB headroom). Measure the compiled media worker's total RSS (not only growth over an assumed 160 MB idle) — `docker stats` on staging or the built `dist` in the burst child. Before S6 imports, review the 22 `properties` indexes against the query shapes and drop overlaps (`updated_at` in an index makes every edit non-HOT); add a migration check that refuses a non-`CONCURRENTLY` index or an unbatched backfill on tables listed as large. The `[S2-F5]` resolver level-hint statement fails locally on a long-lived test DB (the planner hash-joins a Seq Scan of `locations`, 25–40 ms; green on CI): make the plan robust (e.g. drive the hint from the `(level, id)` index) or seed the test's own isolated tree only.
+**Done when:**
+- A bulk price action on 1,000 listings enqueues no quality recompute (test)
+- Dashboard routes ≤ 250 KB first-load on a fresh build with zod absent from the listings client chunk
+- The media burst test asserts total worker RSS < 512 MB
+- `[S2-F5]` passes on the local test DB as well as on CI
+
+### S4-F3 · Listing lifecycle and job correctness (S3 review)
+Ref §7 M2 · Mod properties, media, docs · Dep S3-F10
+**Build:** `failStaleBulks` fails only `RUNNING` actions after 2 h; a `QUEUED` one is checked against its BullMQ job (or a much longer limit), so a busy `imports` pool in S6 does not fail actions that never started. A listing purge job removes soft-deleted listings after their retention (the comment in `properties/service.ts` promises it) and calls `media.requestDocumentPurge`; media recounts their references. A one-off recount schedules the objects of DOCUMENT rows removed by migration 0056 (refcount > 0, never scheduled), or the migration's comment is corrected. Record in PATTERNS whether worker-facing cross-module functions may take a raw `Tx` (`freshness`, `listingImageSizes`) or pass a system `ctx`.
+**Done when:**
+- A bulk action queued for 3 h behind other jobs still runs (test)
+- A listing soft-deleted past retention is purged with its documents (test)
 
 ---
 
