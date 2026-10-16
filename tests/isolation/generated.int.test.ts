@@ -6,6 +6,7 @@ import {
   type TenantTable,
   type Tx,
   withAuth,
+  withMedia,
   withPublicRead,
   withStaff,
   withTenant,
@@ -75,6 +76,7 @@ const staffUserId = newId();
 const notStaffUserId = newId();
 const asStaff = <T>(fn: (tx: Tx) => Promise<T>) => withStaff({ userId: staffUserId, reason: 'isolation' }, fn);
 const asNotStaff = <T>(fn: (tx: Tx) => Promise<T>) => withStaff({ userId: notStaffUserId, reason: 'isolation' }, fn);
+const asMedia = <T>(fn: (tx: Tx) => Promise<T>) => withMedia('isolation', fn);
 
 beforeAll(async () => {
   const cfg = await setupIsolation();
@@ -533,6 +535,28 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     });
   }
 
+  // The media worker's role (S3-F4): every tenant table refuses it, except the hash column a `mediaRead` table opens.
+  if (def.mediaRead) {
+    it(`[S3-F4] ${table}: app_media reads only its mediaRead columns of every agency's rows, and writes nothing`, async () => {
+      const cols = def.mediaRead?.columns ?? [];
+      const seen = await asMedia((tx) =>
+        tx.execute(sql`select count(${sql.identifier(cols[0] as string)}) as n from ${sql.identifier(table)}`),
+      );
+      expect(Number(seen.rows[0]?.n)).toBeGreaterThan(0);
+      await expectSqlState(() => asMedia((tx) => count(tx, table, a)), DENIED);
+      await expectSqlState(() => asMedia(updateA), DENIED);
+      await expectSqlState(() => asMedia(insertA), DENIED);
+      await expectSqlState(() => asMedia(deleteA), DENIED);
+    });
+  } else {
+    it(`[S3-F4] ${table}: the media DB role cannot read, update, insert or delete it`, async () => {
+      await expectSqlState(() => asMedia((tx) => count(tx, table, a)), DENIED);
+      await expectSqlState(() => asMedia(updateA), DENIED);
+      await expectSqlState(() => asMedia(insertA), DENIED);
+      await expectSqlState(() => asMedia(deleteA), DENIED);
+    });
+  }
+
   const authAppend = def.authAppend;
   if (authAppend) {
     const own = { agency_id: PLATFORM_AGENCY_ID, [authAppend.column]: `${authAppend.prefix}isoFixture` };
@@ -670,6 +694,34 @@ describe.each(globalNames)('global table %s', (table) => {
       await expectSqlState(() => withAuth(seen), DENIED);
       await expectSqlState(() => withAuth((tx) => tx.execute(insertSql(table, build()))), DENIED);
       await expectSqlState(() => withAuth((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
+  }
+
+  if (def?.mediaWrite) {
+    it(`[S3-F4] ${table}: mediaWrite — the media DB role reads and changes every row`, async () => {
+      await asMedia(async (tx) => {
+        expect(await seen(tx)).toBe(1);
+        const up = await tx.execute(
+          sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)} where ctid = ${ctid}::tid`,
+        );
+        expect(up.rowCount).toBe(1);
+        throw new Rollback();
+      }).catch((err) => {
+        if (!(err instanceof Rollback)) throw err;
+      });
+    });
+  } else {
+    it(`[S3-F4] ${table}: the media DB role cannot read or write it`, async () => {
+      await expectSqlState(() => asMedia(seen), DENIED);
+      await expectSqlState(() => asMedia((tx) => tx.execute(insertSql(table, build()))), DENIED);
+      await expectSqlState(
+        () =>
+          asMedia((tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)}`),
+          ),
+        DENIED,
+      );
+      await expectSqlState(() => asMedia((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
     });
   }
 

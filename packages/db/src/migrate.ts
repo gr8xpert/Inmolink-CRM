@@ -52,6 +52,7 @@ export async function runMigrations(
       if (!cfg.DATABASE_URL_APP_SYSTEM) throw new Error('DATABASE_URL_APP_SYSTEM is required to bootstrap roles');
       if (!cfg.DATABASE_URL_APP_AUTH) throw new Error('DATABASE_URL_APP_AUTH is required to bootstrap roles');
       if (!cfg.DATABASE_URL_APP_STAFF) throw new Error('DATABASE_URL_APP_STAFF is required to bootstrap roles');
+      if (!cfg.DATABASE_URL_APP_MEDIA) throw new Error('DATABASE_URL_APP_MEDIA is required to bootstrap roles');
       await lock(admin);
       await bootstrapRoles(admin, [
         credentialFromUrl('app_owner', cfg.DATABASE_URL_APP_OWNER),
@@ -60,6 +61,7 @@ export async function runMigrations(
         credentialFromUrl('app_public', cfg.DATABASE_URL_APP_PUBLIC),
         credentialFromUrl('app_auth', cfg.DATABASE_URL_APP_AUTH),
         credentialFromUrl('app_staff', cfg.DATABASE_URL_APP_STAFF),
+        credentialFromUrl('app_media', cfg.DATABASE_URL_APP_MEDIA),
       ]);
       log.info('db roles bootstrapped');
     } else {

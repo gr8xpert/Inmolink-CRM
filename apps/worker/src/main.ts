@@ -23,20 +23,24 @@ const telemetry = startObservability(config, {
 });
 
 try {
+  // Pool-aware (S3-F4): a media-only container has `app_media` and storage, nothing else.
+  const mediaOnly = config.WORKER_POOLS.every((p) => p === 'media');
   await configureDb(
     {
       APP_ROLE: 'worker',
       DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER,
       DATABASE_URL_APP_SYSTEM: config.DATABASE_URL_APP_SYSTEM,
+      DATABASE_URL_APP_MEDIA: config.DATABASE_URL_APP_MEDIA,
     },
     { logger },
   );
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
-  await configureEmail(emailConfig(config));
-  identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
-  configureStorage(storageConfigFromEnv(config));
-  media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
+  if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
+  if (config.HMAC_KEY && config.WEB_URL)
+    identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
+  configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));
+  if (config.MEDIA_URL_KEY) media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
   registerSubscriptions();
 
   const worker = await startWorker({
@@ -45,7 +49,7 @@ try {
     jobs: POOL_JOBS,
     createDispatcher: () => createOutboxDispatcher({ logger }),
     trustProxy: config.TRUST_PROXY,
-    checks: { db: () => pingDb('app_system'), redisQueue: redisCheck(producerConnection) },
+    checks: { db: () => pingDb(mediaOnly ? 'app_media' : 'app_system'), redisQueue: redisCheck(producerConnection) },
   });
 
   gracefulShutdown({

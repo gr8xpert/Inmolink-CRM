@@ -15,7 +15,7 @@ import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable 
  */
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
-const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff';
+const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff, app_media';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
 export const HELPER_FUNCTIONS = [
@@ -29,8 +29,15 @@ export const HELPER_FUNCTIONS = [
 ] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
-export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff';
-export const APP_ROLE_NAMES: readonly AppRole[] = ['app_user', 'app_system', 'app_public', 'app_auth', 'app_staff'];
+export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff' | 'app_media';
+export const APP_ROLE_NAMES: readonly AppRole[] = [
+  'app_user',
+  'app_system',
+  'app_public',
+  'app_auth',
+  'app_staff',
+  'app_media',
+];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 /** `immutable` tables (S1-08): read and append, never change or remove. */
@@ -52,6 +59,10 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
       }
     }
+    for (const c of def.mediaRead?.columns ?? []) {
+      if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
+    }
+    if (def.mediaRead && def.mediaRead.columns.length === 0) throw new Error(`${name}: mediaRead needs columns`);
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
     if (def.immutable && (def.auth?.update !== undefined || def.staff?.update !== undefined)) {
@@ -76,6 +87,7 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
+    if (def.mediaWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be mediaWrite`);
     if (def.noUserRead && (def.access || def.publicRead)) {
       throw new Error(`${name}: noUserRead is not valid for publicRead or ${def.access ?? 'access'} tables`);
     }
@@ -86,15 +98,30 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
 export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRole, Privilege[]> {
   if (!('kind' in def)) {
     if (def.access === 'auth')
-      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT', 'INSERT', 'UPDATE'], app_staff: [] };
+      return {
+        app_user: [],
+        app_system: DML,
+        app_public: [],
+        app_auth: ['SELECT', 'INSERT', 'UPDATE'],
+        app_staff: [],
+        app_media: [],
+      };
     if (def.access === 'staff')
-      return { app_user: [], app_system: DML, app_public: [], app_auth: ['SELECT'], app_staff: ['SELECT'] };
+      return {
+        app_user: [],
+        app_system: DML,
+        app_public: [],
+        app_auth: ['SELECT'],
+        app_staff: ['SELECT'],
+        app_media: [],
+      };
     return {
       app_user: def.noUserRead ? [] : ['SELECT'],
       app_system: DML,
       app_public: def.publicRead ? ['SELECT'] : [],
       app_auth: [],
       app_staff: def.staffWrite ? DML : [],
+      app_media: def.mediaWrite ? DML : [],
     };
   }
   const user: Privilege[] = def.appendOnly ? ['INSERT'] : def.immutable ? APPEND_READ : DML;
@@ -104,6 +131,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     app_public: def.kind === 'PUBLIC_READ' ? ['SELECT'] : [],
     app_auth: def.authAppend ? ['INSERT'] : authPrivileges(def.auth),
     app_staff: authPrivileges(def.staff),
+    app_media: def.mediaRead ? ['SELECT'] : [],
   };
 }
 
@@ -141,9 +169,11 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     const read: PolicySpec[] = def.noUserRead
       ? []
       : [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
-    if (!def.staffWrite) return read;
+    const media: PolicySpec[] = def.mediaWrite ? [{ name: 'media_rows', cmd: 'ALL', roles: ['app_media'] }] : [];
+    if (!def.staffWrite) return [...read, ...media];
     return [
       ...read,
+      ...media,
       { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] },
       { name: 'staff_insert', cmd: 'INSERT', roles: ['app_staff'] },
       { name: 'staff_update', cmd: 'UPDATE', roles: ['app_staff'] },
@@ -159,6 +189,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
       ]
     : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
+  if (def.mediaRead) out.push({ name: 'media_read', cmd: 'SELECT', roles: ['app_media'] });
   for (const [key, cmd] of AUTH_COMMANDS) {
     if (def.auth?.[key] !== undefined) out.push({ name: `auth_${key}`, cmd, roles: ['app_auth'] });
   }
@@ -327,6 +358,14 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     `grant ${grantList(expectedPrivileges(def).app_system)} on table ${t} to app_system;`,
   );
   if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);
+  if (def.mediaRead) {
+    // The media worker's reference counts (S3-F4): every agency's rows, through a column grant of what it counts.
+    const cols = def.mediaRead.columns.map((c) => `"${c}"`).join(', ');
+    out.push(
+      `create policy media_read on ${t} for select to app_media using (true);`,
+      `grant select (${cols}) on table ${t} to app_media;`,
+    );
+  }
   if (def.authAppend) {
     // Anonymous auth flows have no tenant: they may only append their own module's platform rows.
     const { column, prefix } = def.authAppend;
@@ -411,12 +450,20 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
       ]
     : [];
   // noUserRead (S3-F1): no reader policy or grant; app_system bypasses RLS, staff have their own policies.
+  // mediaWrite (S3-F4): the media worker's own table, every row, nothing else.
+  const mediaWrite = def.mediaWrite
+    ? [
+        `create policy media_rows on ${t} to app_media using (true) with check (true);`,
+        `grant select, insert, update, delete on table ${t} to app_media;`,
+      ]
+    : [];
   return [
     ...(def.noUserRead ? [] : [`create policy global_read on ${t} for select to ${readers} using (true);`]),
     `revoke all on table ${t} from ${APP_ROLES};`,
     ...(def.noUserRead ? [] : [`grant select on table ${t} to ${readers};`]),
     `grant select, insert, update, delete on table ${t} to app_system;`,
     ...staffWrite,
+    ...mediaWrite,
   ];
 }
 

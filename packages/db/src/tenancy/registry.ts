@@ -106,6 +106,11 @@ interface TenantBase {
    * bodies are part of the catalog fingerprint `pnpm db:rls` records.
    */
   triggers?: readonly string[];
+  /**
+   * `app_media` (the media worker, S3-F4) may SELECT these columns of every agency's rows — for reference counts
+   * of content-addressed objects (a column grant: nothing else of the row). Never writable by it.
+   */
+  mediaRead?: { columns: readonly string[] };
 }
 
 export interface AuthAccess {
@@ -176,6 +181,8 @@ export interface GlobalTable {
    * Not with `publicRead` or `access`.
    */
   noUserRead?: true;
+  /** `app_media` (the media worker, S3-F4) reads and writes every row; it reaches nothing else. */
+  mediaWrite?: true;
   /** Values for NOT NULL columns the isolation suite cannot invent (check-constrained levels, …). */
   base?: SampleRow;
 }
@@ -424,6 +431,8 @@ export const tenantTables: Record<string, TenantTable> = {
       "kind <> 'DOCUMENT' and exists (select 1 from public.properties p where p.id = property_media.property_id)",
     base: { sha256: ISOLATION_SHA256 },
     samples: { visible: [], hidden: [{}] },
+    // the media worker counts references to each stored object (S3-F4): the hash, nothing else
+    mediaRead: { columns: ['sha256'] },
   },
   // Price and status history: the owner's, not shared, append-only (members read and append, never rewrite).
   property_price_histories: { kind: 'STRICT', immutable: true },
@@ -497,6 +506,8 @@ export const globalTables: Record<string, GlobalTable> = {
   // check: is this hash stored already?); only the media worker writes it, recounting references via withSystem().
   media_objects: {
     reason: 'content-addressed media originals shared by every agency (deduplicated by SHA-256)',
+    // the media worker's own table (S3-F4)
+    mediaWrite: true,
     base: { sha256: ISOLATION_SHA256, content_type: 'image/jpeg' },
   },
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().

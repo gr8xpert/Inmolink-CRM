@@ -2,7 +2,7 @@
  * media queries (PATTERNS §5). Takes `tx`, selects only the columns it needs. Queries only
  * `@inmolink/db/schema/media` — other modules' tables fail `pnpm check:boundaries`. Request work runs as
  * `app_user` (RLS: own listing media, plus shared listings' non-document media; `media_objects` read-only);
- * the worker's reference counting runs through `withSystem()`.
+ * the worker's reference counting runs through `withMedia()` (app_media, S3-F4).
  */
 import type { Tx } from '@inmolink/db';
 import { mediaObjects, propertyMedia } from '@inmolink/db/schema/media';
@@ -186,7 +186,7 @@ export async function deleteMedia(
   return row ?? null;
 }
 
-// --- worker (withSystem) -----------------------------------------------------------------------------------
+// --- worker (withMedia) -------------------------------------------------------------------------------------
 
 /** Records verified uploads; an object recorded already keeps its row. */
 export async function insertObjects(tx: Tx, rows: ObjectInsert[]): Promise<void> {
@@ -222,7 +222,7 @@ export async function recount(tx: Tx, hashes: string[], deleteAt: Date): Promise
   return res.rowCount ?? 0;
 }
 
-// --- processing and cleanup (S3-04, withSystem) --------------------------------------------------------------
+// --- processing and cleanup (S3-04, withMedia) ----------------------------------------------------------------
 
 export type ObjectState = { contentType: string; pipeline: number | null; variantsReady: number };
 

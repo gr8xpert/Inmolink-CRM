@@ -34,6 +34,8 @@ export const databaseEnv = {
   DATABASE_URL_APP_AUTH: url(['postgres', 'postgresql']).optional(),
   /** Staff request paths (`withStaff`, S1-03, ADR 0015) — `api` only. */
   DATABASE_URL_APP_STAFF: url(['postgres', 'postgresql']).optional(),
+  // The media worker's narrow role (S3-F4): media_objects and property_media only.
+  DATABASE_URL_APP_MEDIA: url(['postgres', 'postgresql']).optional(),
 };
 
 /** Migrations and ops scripts only — never loaded by app runtimes. */

@@ -25,6 +25,12 @@ export const DB_ROLES = {
    * names an active `staff_users` row (`app_is_staff()`) (S1-03, ADR 0015).
    */
   app_staff: { bypassRls: false, readOnly: false, statementTimeout: '5s', idleInTransaction: '15s', dml: true },
+  /**
+   * The media worker container (S3-F4): `withMedia()`, RLS on, no BYPASSRLS. Reads and writes `media_objects`
+   * and reads `property_media` (reference counts) — registry `media` flags; every other table refused.
+   */
+  // No sequences (`dml: false`); a stuck transaction cannot hold its `media_objects` row locks past 60 s.
+  app_media: { bypassRls: false, readOnly: false, statementTimeout: '60s', idleInTransaction: '60s', dml: false },
   /** Public read paths (feed-api, portal). Read-only; SELECT only on PUBLIC_READ tables, granted by `pnpm db:rls`. */
   app_public: { bypassRls: false, readOnly: true, statementTimeout: '2s', idleInTransaction: '15s', dml: false },
 } as const;

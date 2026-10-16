@@ -78,6 +78,9 @@ x-minio: &minio
 x-minio-init: &minio-init
   image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
   entrypoint: ["/bin/sh", "-c"]
+  # The media bucket's public read: variant keys `v<n>/<32 hex>/…` only (S3-F4; production: the R2 rule in
+  # docs/runbooks/media-public-host.md).
+  volumes: ["./infra/storage:/policies:ro"]
   healthcheck:
     test: ["CMD", "mc", "ls", "local/inmolink-private"]
     interval: 2s
@@ -145,6 +148,7 @@ services:
     command:
       - mc alias set local http://minio:9000 inmolink inmolink-local-secret
         && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
+        && mc anonymous set-json /policies/media-public-policy.json local/inmolink-media
         && exec sleep infinity
     depends_on:
       minio: { condition: service_healthy }
@@ -216,6 +220,7 @@ services:
     command:
       - mc alias set local http://minio-test:9000 inmolink inmolink-local-secret
         && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
+        && mc anonymous set-json /policies/media-public-policy.json local/inmolink-media
         && exec sleep infinity
     depends_on:
       minio-test: { condition: service_healthy }

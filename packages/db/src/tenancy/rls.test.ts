@@ -53,7 +53,7 @@ describe('RLS generator', () => {
 
   it('[S0-05] every table resets its grants and policies, so reruns are idempotent', () => {
     expect(out).toContain(
-      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff;`,
+      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;`,
     );
     expect(out).toContain(`array['contacts', 'listing_read_models', 'locations', 'properties']`);
     expect(generateRlsSql(reg)).toBe(out);
@@ -160,6 +160,7 @@ describe('RLS generator', () => {
       app_public: [],
       app_auth: ['INSERT'],
       app_staff: ['SELECT', 'INSERT'],
+      app_media: [],
     });
     expect(() =>
       tablesSql({ tenant: { audit: { kind: 'STRICT', immutable: true, staff: { update: 'true' } } }, global: {} }),
@@ -187,6 +188,7 @@ describe('RLS generator', () => {
       app_public: [],
       app_auth: [],
       app_staff: [],
+      app_media: [],
     });
     expect(() => mergeRegistries(reg, { tenant: {}, global: { contacts: { reason: 'x' } } })).toThrow(/twice/);
   });
@@ -209,6 +211,7 @@ describe('RLS generator', () => {
       app_public: [],
       app_auth: ['SELECT', 'INSERT', 'UPDATE'],
       app_staff: [],
+      app_media: [],
     });
     expect(() => tablesSql({ tenant: { t: { kind: 'STRICT', authAppend } }, global: {} })).toThrow(/appendOnly/);
     const smuggled = { column: 'type', prefix: "x'; drop table y; --" };
@@ -310,6 +313,7 @@ describe('RLS generator', () => {
       app_public: [],
       app_auth: ['SELECT'],
       app_staff: ['SELECT'],
+      app_media: [],
     });
     expect(() => tablesSql({ tenant: {}, global: { g: { reason: 'x', access: 'staff', publicRead: true } } })).toThrow(
       /publicRead/,
@@ -333,6 +337,24 @@ describe('RLS generator', () => {
     expect(() =>
       generateRlsSql({ tenant: {}, global: { x: { reason: 'x', publicRead: true, noUserRead: true } } }),
     ).toThrow(/noUserRead/);
+  });
+
+  it('[S3-F4] media access: app_media gets its global table whole and a column grant on mediaRead tables, nothing else', () => {
+    const r: TenantRegistry = {
+      tenant: { photos: { kind: 'STRICT', mediaRead: { columns: ['sha256'] } }, contacts: { kind: 'STRICT' } },
+      global: { objects: { reason: 'blobs', mediaWrite: true }, flags: { reason: 'flags' } },
+    };
+    const sql = generateRlsSql(r);
+    expect(sql).toContain('create policy media_read on public."photos" for select to app_media using (true);');
+    expect(sql).toContain('grant select ("sha256") on table public."photos" to app_media;');
+    expect(sql).toContain('create policy media_rows on public."objects" to app_media using (true) with check (true);');
+    expect(sql).toContain('grant select, insert, update, delete on table public."objects" to app_media;');
+    expect(sql).not.toMatch(/on table public\."(contacts|flags)" to app_media/);
+    expect(expectedPrivileges(r.tenant.contacts as never).app_media).toEqual([]);
+    expect(expectedPrivileges(r.global.flags as never).app_media).toEqual([]);
+    expect(() =>
+      generateRlsSql({ tenant: { x: { kind: 'STRICT', mediaRead: { columns: ['a b'] } } }, global: {} }),
+    ).toThrow(/not a column name/);
   });
 
   it('[S0-05] the production registry generates valid SQL', () => {

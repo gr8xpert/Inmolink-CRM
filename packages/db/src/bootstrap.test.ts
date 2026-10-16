@@ -25,6 +25,8 @@ describe('role bootstrap', () => {
     for (const role of ['app_owner', 'app_system'] as const) {
       expect(stmts(role)).toContain('reset idle_in_transaction_session_timeout');
     }
+    // S3-F4: the media worker's row locks are released within 60 s
+    expect(stmts('app_media')).toContain(`set idle_in_transaction_session_timeout = '60s'`);
   });
 
   it('[S0-04] app_public is read-only and gets no default table grants', () => {

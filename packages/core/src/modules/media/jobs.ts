@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MEDIA_MAX_BYTES, MEDIA_UPLOAD_TYPES, Sha256Hex } from '@inmolink/contracts';
-import { withSystem } from '@inmolink/db';
+import { withMedia } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { type BucketName, storage } from '@inmolink/platform/storage';
@@ -97,7 +97,7 @@ async function permanentOnBadImage<T>(work: Promise<T>): Promise<T> {
  */
 async function giveUp(sha256: string, reason: string): Promise<never> {
   await storage().delete(ORIGINALS_BUCKET, originalKey(sha256));
-  await withSystem('media.processObject', (tx) => repo.failUnprocessed(tx, sha256));
+  await withMedia('media.processObject', (tx) => repo.failUnprocessed(tx, sha256));
   throw new UnrecoverableError(reason);
 }
 
@@ -142,7 +142,7 @@ export const mediaJobs = {
     timeoutMs: 60_000,
     async run(p, { log }) {
       const deleteAt = new Date(clock.now().getTime() + MEDIA_DELETE_GRACE_DAYS * DAY_MS);
-      const updated = await withSystem('media.syncObjects', async (tx) => {
+      const updated = await withMedia('media.syncObjects', async (tx) => {
         await repo.insertObjects(
           tx,
           p.objects.flatMap((o) => (o.upload ? [{ sha256: o.sha256, ...o.upload }] : [])),
@@ -169,7 +169,7 @@ export const mediaJobs = {
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 120_000,
     async run(p, { log }) {
-      const state = await withSystem('media.processObject', async (tx) => {
+      const state = await withMedia('media.processObject', async (tx) => {
         if (p.upload) await repo.insertObjects(tx, [{ sha256: p.sha256, ...p.upload }]);
         return repo.objectState(tx, p.sha256);
       });
@@ -223,7 +223,7 @@ export const mediaJobs = {
         return { missing, rendered, written, wroteMaster };
       });
 
-      const recorded = await withSystem('media.processObject', (tx) =>
+      const recorded = await withMedia('media.processObject', (tx) =>
         repo.markProcessed(tx, p.sha256, {
           pipeline: MEDIA_PIPELINE_VERSION,
           bits: result.missing,
@@ -260,7 +260,7 @@ export const mediaJobs = {
       let retried = 0;
       let reset = 0;
       for (let batch = 0; batch < PRUNE_MAX_BATCHES && !signal.aborted; batch++) {
-        const due = await withSystem('media.pruneOrphans', (tx) => repo.claimDueObjects(tx, now, PRUNE_BATCH));
+        const due = await withMedia('media.pruneOrphans', (tx) => repo.claimDueObjects(tx, now, PRUNE_BATCH));
         kept += due.kept;
         // Files first, record last: while the record exists (due), every check asks for a fresh upload.
         const cleared = await mapLimit(due.unreferenced, STORAGE_CONCURRENCY, async (h) =>
@@ -268,7 +268,7 @@ export const mediaJobs = {
         );
         const gone = cleared.filter((h): h is string => h !== null);
         retried += due.unreferenced.length - gone.length;
-        const back = await withSystem('media.pruneOrphans', (tx) => repo.deleteUnreferenced(tx, gone, now));
+        const back = await withMedia('media.pruneOrphans', (tx) => repo.deleteUnreferenced(tx, gone, now));
         reset += back;
         deleted += gone.length - back;
         if (due.unreferenced.length + due.kept < PRUNE_BATCH) break;
@@ -284,7 +284,7 @@ export const mediaJobs = {
           .filter((o) => o.lastModified.getTime() <= cutoff)
           .map((o) => o.key.slice('originals/'.length))
           .filter((h) => Sha256Hex.safeParse(h).success);
-        const keep = await withSystem('media.pruneOrphans', (tx) => repo.originalsToKeep(tx, old));
+        const keep = await withMedia('media.pruneOrphans', (tx) => repo.originalsToKeep(tx, old));
         const garbage = old.filter((h) => !keep.has(h));
         await mapLimit(garbage, STORAGE_CONCURRENCY, (h) => storage().delete(ORIGINALS_BUCKET, originalKey(h)));
         swept += garbage.length;
@@ -307,9 +307,7 @@ export const mediaJobs = {
     timeoutMs: 5 * 60_000,
     async run(_p, { log }) {
       const before = new Date(clock.now().getTime() - REPROCESS_AFTER_MS);
-      const stale = await withSystem('media.reprocessStale', (tx) =>
-        repo.staleUnprocessed(tx, before, REPROCESS_BATCH),
-      );
+      const stale = await withMedia('media.reprocessStale', (tx) => repo.staleUnprocessed(tx, before, REPROCESS_BATCH));
       const trigger = `retry-${hourBucket()}`;
       await mapLimit(stale, STORAGE_CONCURRENCY, (sha256) =>
         mediaJobs.processObject.enqueue({ sha256, agencyId: null, upload: null, trigger }),

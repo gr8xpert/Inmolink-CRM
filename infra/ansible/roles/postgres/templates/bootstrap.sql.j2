@@ -24,7 +24,7 @@ returns table (usename name, passwd text)
 language sql security definer set search_path = pg_catalog
 as $$
   select usename, passwd from pg_catalog.pg_shadow
-  where usename = p_usename and usename in ('app_user', 'app_system', 'app_public', 'app_auth', 'app_staff') and not usesuper
+  where usename = p_usename and usename in ('app_user', 'app_system', 'app_public', 'app_auth', 'app_staff', 'app_media') and not usesuper
 $$;
 revoke all on function pgbouncer.get_auth(text) from public;
 grant execute on function pgbouncer.get_auth(text) to pgbouncer_auth;

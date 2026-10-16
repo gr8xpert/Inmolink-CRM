@@ -484,6 +484,13 @@ Ref §7 M2 · Mod media, web · Dep S3-06
 - A YouTube or Vimeo link is added, reordered with the photos and shown as a video; other hosts are refused
 - A PDF uploads with progress and only the owner agency can open it (isolation test); a non-PDF with a `.pdf` name is refused
 
+### S3-F7 · Media container: Redis and storage least privilege (S3-F4 security review) 🔒
+Ref §5.3 · Mod media, worker, infra · Dep S3-F4 · needs H3 (Cloudflare R2 tokens)
+**Build:** the media container still shares the full `REDIS_QUEUE_URL` (it could enqueue jobs other pools run as `app_system`) and `REDIS_CACHE_URL` (it could poison cached bodies the api serves), and the workers' S3 credentials (exports and the whole private bucket). Give it a Redis ACL user limited to its own BullMQ keys (`bull:media:*`, like the S1-F6 `limits` user) and no cache (skip `configureCache` when media-only); its own R2 token limited to `inmolink-media` and the private bucket's `originals/` + `masters/` prefixes; move the S3 secrets from the shared Kamal env into each role.
+**Done when:**
+- The media container cannot add a job to another pool's queue or read the cache (test against the test stack's Redis ACL)
+- Its storage credentials cannot read an export or a private document (MinIO policy test; R2 token scope documented)
+
 ---
 
 ## S4 — New developments

@@ -32,48 +32,87 @@ export const POOLS = [
 ] as const;
 export type Pool = (typeof POOLS)[number];
 
-export const workerEnv = {
+const poolsVar = z
+  .string()
+  .trim()
+  .default('all')
+  .transform((value, ctx): Pool[] => {
+    if (value === 'all') return [...POOLS];
+    const names = [...new Set(value.split(',').map((s) => s.trim()))].filter(Boolean);
+    const unknown = names.filter((n) => !(POOLS as readonly string[]).includes(n));
+    if (names.length === 0 || unknown.length > 0) {
+      ctx.addIssue({ code: 'custom', message: `must be "all" or a comma list of ${POOLS.join(', ')}` });
+      return z.NEVER;
+    }
+    return names as Pool[];
+  });
+
+/** What every worker process needs, whatever it runs. */
+const baseEnv = {
   ...coreEnv,
   ...httpEnv,
   /** Comma list of pools this process runs, or `all`. */
-  WORKER_POOLS: z
-    .string()
-    .trim()
-    .default('all')
-    .transform((value, ctx): Pool[] => {
-      if (value === 'all') return [...POOLS];
-      const names = [...new Set(value.split(',').map((s) => s.trim()))].filter(Boolean);
-      const unknown = names.filter((n) => !(POOLS as readonly string[]).includes(n));
-      if (names.length === 0 || unknown.length > 0) {
-        ctx.addIssue({ code: 'custom', message: `must be "all" or a comma list of ${POOLS.join(', ')}` });
-        return z.NEVER;
-      }
-      return names as Pool[];
-    }),
+  WORKER_POOLS: poolsVar,
   /** Health server for the orchestrator (`/healthz`, `/readyz`); bind it to a private interface. */
   WORKER_HEALTH_PORT: portVar(4003),
   /** Prometheus `/metrics` on `METRICS_HOST` (private); 0 turns it off. */
   WORKER_METRICS_PORT: portVar(9467),
   ...telemetryEnv,
+  ...redisEnv,
+};
+
+/** Every pool but `media`: the outbox and cross-tenant jobs run `withSystem`; tokens, links and stored credentials. */
+const systemEnv = {
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   // Required here (optional in platform): the outbox and cross-tenant jobs run `withSystem`.
   DATABASE_URL_APP_SYSTEM: databaseEnv.DATABASE_URL_APP_SYSTEM.unwrap(),
-  ...redisEnv,
   ...cryptoEnv,
-  // Media processing and orphan sweeps (S3-04, S1-F7) read and write object storage.
+  // Exports and the orphan sweeps (S1-F7) read and write object storage.
   ...storageEnv,
-  ...mediaEnv,
-  ...emailEnv,
   ...webUrlEnv,
 };
-export type WorkerConfig = Config<typeof workerEnv>;
+
+/**
+ * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
+ * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys.
+ */
+const mediaPoolEnv = {
+  DATABASE_URL_APP_MEDIA: databaseEnv.DATABASE_URL_APP_MEDIA.unwrap(),
+  ...storageEnv,
+  ...mediaEnv,
+};
+
+/**
+ * The env a process running `pools` validates (S3-F4: least privilege per container). SMTP only with `email`;
+ * `app_system`, encryption keys and the HMAC key only with a pool other than `media`.
+ */
+export function workerEnvFor(pools: readonly Pool[]) {
+  const others = pools.some((p) => p !== 'media');
+  return {
+    ...baseEnv,
+    ...(others ? systemEnv : {}),
+    ...(pools.includes('media') ? mediaPoolEnv : {}),
+    ...(pools.includes('email') ? emailEnv : {}),
+  };
+}
+
+/** Every variable any pool reads (the deploy-config check lists them). */
+export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv };
+type Full = Config<typeof workerEnv>;
+/** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */
+export type WorkerConfig = Config<typeof baseEnv> & Partial<Omit<Full, keyof Config<typeof baseEnv>>>;
 
 /** platform/email driver settings from the validated env (cross-checks guarantee the credential). */
 export function emailConfig(config: WorkerConfig): EmailConfig {
+  const from = config.EMAIL_FROM as string;
   return config.EMAIL_DRIVER === 'resend'
-    ? { driver: 'resend', from: config.EMAIL_FROM, resendApiKey: config.RESEND_API_KEY as string }
-    : { driver: 'smtp', from: config.EMAIL_FROM, smtpUrl: config.SMTP_URL as string };
+    ? { driver: 'resend', from, resendApiKey: config.RESEND_API_KEY as string }
+    : { driver: 'smtp', from, smtpUrl: config.SMTP_URL as string };
 }
 
-export const loadWorkerConfig = (env: Record<string, string | undefined> = process.env) =>
-  loadConfigOrExit(workerEnv, { ...env, APP_ROLE: 'worker' });
+/** Reads `WORKER_POOLS` first, then validates only what those pools need (`workerEnvFor`). */
+export function loadWorkerConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
+  const parsed = poolsVar.safeParse(env.WORKER_POOLS);
+  const schema = workerEnvFor(parsed.success ? parsed.data : [...POOLS]);
+  return loadConfigOrExit(schema, { ...env, APP_ROLE: 'worker' }) as WorkerConfig;
+}

@@ -36,6 +36,7 @@ export {
   type TenantScope,
   withAuth,
   withGlobalRead,
+  withMedia,
   withPublicRead,
   withStaff,
   withSystem,

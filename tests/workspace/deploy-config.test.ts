@@ -12,6 +12,8 @@ const yaml = <T>(...p: string[]) => parse(read(...p)) as T;
 interface KamalRole {
   hosts?: string[];
   proxy?: boolean;
+  options?: Record<string, unknown>;
+  env?: { clear?: Record<string, string>; secret?: string[] };
 }
 interface Kamal {
   service: string;
@@ -77,6 +79,27 @@ describe('Kamal deploy config', () => {
     }
   });
 
+  it('[S3-F4] the media container gets no SMTP, encryption, HMAC or app_system credentials, and a read-only filesystem', () => {
+    const k = kamal('worker');
+    const media = k.servers.media as KamalRole;
+    expect(media.env?.clear?.WORKER_POOLS).toBe('media');
+    const seen = [
+      ...Object.keys(k.env.clear),
+      ...k.env.secret,
+      ...Object.keys(media.env?.clear ?? {}),
+      ...(media.env?.secret ?? []),
+      ...DESTS.flatMap((d) => Object.keys(dest('worker', d).env?.clear ?? {})),
+      ...DESTS.flatMap((d) => dest('worker', d).env?.secret ?? []),
+    ];
+    for (const key of seen) {
+      expect(key, `media container gets ${key}`).not.toMatch(
+        /^(SMTP_|EMAIL_|RESEND_|ENCRYPTION_|HMAC_KEY$|DATABASE_URL_APP_(SYSTEM|USER|OWNER|AUTH|STAFF|PUBLIC)$|DATABASE_URL_ADMIN$)/,
+      );
+    }
+    expect(media.env?.secret).toContain('DATABASE_URL_APP_MEDIA');
+    expect(media.options?.['read-only']).toBe(true);
+  });
+
   it('[S0-15] secrets stay out of clear env; every referenced secret is declared in .kamal/secrets.example', () => {
     const declared = new Set([...read('.kamal', 'secrets.example').matchAll(/^([A-Z0-9_]+)=\$\1$/gm)].map((m) => m[1]));
     for (const app of APPS) {
@@ -86,7 +109,8 @@ describe('Kamal deploy config', () => {
           /PASSWORD|SECRET|PRIVATE|DATABASE_URL|HMAC|ENCRYPTION|_KEY$/,
         );
       }
-      for (const s of k.env.secret) expect(declared, `${app}: ${s}`).toContain(s);
+      const roleSecrets = Object.values(k.servers).flatMap((r) => r.env?.secret ?? []);
+      for (const s of [...k.env.secret, ...roleSecrets]) expect(declared, `${app}: ${s}`).toContain(s);
       // S0-04: HTTP apps never get the BYPASSRLS role, and no runtime gets the owner role.
       expect(k.env.secret).not.toContain('DATABASE_URL_APP_OWNER');
       expect(k.env.secret).not.toContain('DATABASE_URL_ADMIN');
@@ -112,17 +136,31 @@ describe('edge and access', () => {
     // Set by the app itself (web forces APP_ROLE=http).
     const SET_IN_CODE: Record<string, string[]> = { web: ['APP_ROLE'] };
     const missing: string[] = [];
+    const { workerEnvFor } = await import('../../apps/worker/src/config');
     for (const [app, load] of Object.entries(appEnv)) {
-      const schema = await load();
-      for (const d of DESTS) {
-        const provided = new Set([
-          ...Object.keys(kamal(app).env.clear),
-          ...Object.keys(dest(app, d).env?.clear ?? {}),
-          ...kamal(app).env.secret,
-          ...(SET_IN_CODE[app] ?? []),
-        ]);
-        for (const [key, field] of Object.entries(schema)) {
-          if (!provided.has(key) && !field.safeParse(undefined).success) missing.push(`${app}.${d}: ${key}`);
+      // Worker roles (S3-F4) each validate what their own pools need: shared env plus the role's own.
+      const roles: [string, KamalRole | undefined, Record<string, { safeParse(v: unknown): { success: boolean } }>][] =
+        app === 'worker'
+          ? Object.entries(kamal(app).servers).map(([name, role]) => [
+              name,
+              role,
+              workerEnvFor((role.env?.clear?.WORKER_POOLS ?? 'all').split(',') as never),
+            ])
+          : [['', undefined, await load()]];
+      for (const [roleName, role, schema] of roles) {
+        for (const d of DESTS) {
+          const provided = new Set([
+            ...Object.keys(kamal(app).env.clear),
+            ...Object.keys(dest(app, d).env?.clear ?? {}),
+            ...kamal(app).env.secret,
+            ...Object.keys(role?.env?.clear ?? {}),
+            ...(role?.env?.secret ?? []),
+            ...(SET_IN_CODE[app] ?? []),
+          ]);
+          for (const [key, field] of Object.entries(schema)) {
+            if (!provided.has(key) && !field.safeParse(undefined).success)
+              missing.push(`${app}${roleName}.${d}: ${key}`);
+          }
         }
       }
     }
