@@ -7,6 +7,11 @@
  * The upload follows the verification documents (S1-03): the body arrives whole (the web route relays it), the
  * type comes from its magic bytes, the scan hook runs, and the object is stored outside any transaction between a
  * check and a recording transaction; a failed recording removes the object again.
+ *
+ * Hygiene (S3-F8): a delete emits `media.document.deleted` in its transaction and the worker deletes the object,
+ * retried (`document-jobs.ts`); an hourly sweep removes `documents/` objects without a row (a crash between store
+ * and record, a cascade from a purged listing); `requestDocumentPurge` empties a listing's or agency's prefix.
+ * Uploading, opening and deleting a document is audited (`media.document.*`, the listing in the metadata).
  */
 import { createHash } from 'node:crypto';
 import {
@@ -20,9 +25,12 @@ import {
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
+import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
+import * as compliance from '../compliance';
 import * as properties from '../properties';
+import { mediaEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
 
@@ -34,6 +42,13 @@ let scanner: DocumentScanner = async () => 'clean';
 export function configureDocumentScanner(next: DocumentScanner): void {
   scanner = next;
 }
+
+/** Where a document's object lives in the private bucket: per agency and listing, the id unguessable (UUIDv7). */
+export const DOCUMENTS_PREFIX = 'documents/';
+export const documentKey = (agencyId: string, listingId: string, documentId: string) =>
+  `${DOCUMENTS_PREFIX}${agencyId}/${listingId}/${documentId}`;
+
+const target = (documentId: string): compliance.AuditTarget => ({ type: 'listingDocument', id: documentId });
 
 const toDto = (r: repo.DocumentRow): ListingDocumentDto => ({
   id: r.id,
@@ -88,7 +103,7 @@ export async function uploadListingDocument(
   const sha256 = createHash('sha256').update(input.body).digest('hex');
   const id = newId();
   // Unguessable (UUIDv7 random bits), per agency and listing, never derived from the file name.
-  const storageKey = `documents/${listing.agencyId}/${listing.id}/${id}`;
+  const storageKey = documentKey(listing.agencyId, listing.id, id);
   await storage().put('private', storageKey, input.body, { contentType: 'application/pdf' });
   try {
     const { dto, duplicate } = await run(async (ctx) => {
@@ -113,6 +128,7 @@ export async function uploadListingDocument(
         storageKey,
         uploadedBy: ctx.actor.kind === 'user' ? ctx.actor.userId : '',
       });
+      await compliance.audit(ctx, 'media.document.uploaded', target(row.id), { listingId: locked.id });
       return { dto: toDto(row), duplicate: false };
     });
     if (duplicate)
@@ -139,6 +155,8 @@ export async function openListingDocument(
   // STRICT: another agency's document is simply not there.
   const row = await repo.getDocument(ctx.tx, ctx.tenant.agencyId, input.listingId, input.documentId);
   if (!row) throw new AppError('MEDIA_NOT_FOUND');
+  // Who opened which private file, and when (signing is local: no network in the transaction).
+  await compliance.audit(ctx, 'media.document.opened', target(row.id), { listingId: input.listingId });
   const url = await storage().signedGetUrl('private', row.storageKey, {
     expiresInSeconds: LISTING_DOCUMENT_URL_TTL_SECONDS,
     responseContentType: 'application/pdf',
@@ -147,16 +165,17 @@ export async function openListingDocument(
   return { url, expiresAt: new Date(clock.now().getTime() + LISTING_DOCUMENT_URL_TTL_SECONDS * 1000).toISOString() };
 }
 
-/** `DELETE /v1/listings/:id/documents/:documentId`: the row, then the object (outside the transaction). */
+/**
+ * `DELETE /v1/listings/:id/documents/:documentId`: the row, its audit entry and the outbox event in one
+ * transaction; the worker deletes the object (`media.deleteDocumentObject`, retried until it is gone).
+ */
 export async function deleteListingDocument(run: CtxRunner, input: { listingId: string; documentId: string }) {
-  const key = await run(async (ctx) => {
+  await run(async (ctx) => {
     assertCan(ctx, 'media.manage');
     const listing = await properties.lockListingForMedia(ctx, input.listingId);
     const removed = await repo.deleteDocument(ctx.tx, listing.agencyId, listing.id, input.documentId);
     if (!removed) throw new AppError('MEDIA_NOT_FOUND');
-    return removed;
+    await compliance.audit(ctx, 'media.document.deleted', target(input.documentId), { listingId: listing.id });
+    await emit(ctx.tx, mediaEvents.documentDeleted({ listingId: listing.id, documentId: input.documentId }));
   });
-  await storage()
-    .delete('private', key)
-    .catch(() => {});
 }

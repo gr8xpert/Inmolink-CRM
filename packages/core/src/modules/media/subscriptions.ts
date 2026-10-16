@@ -1,4 +1,5 @@
 import { subscribe } from '@inmolink/platform/outbox';
+import { enqueueDocumentDelete } from './document-jobs';
 import { mediaEvents } from './events';
 import { mediaJobs } from './jobs';
 
@@ -9,7 +10,8 @@ let unsubscribe: (() => void)[] | undefined;
  * (reference counting, S3-03; stable job ID = event ID) and one `media.processObject` job per object the request
  * verified as a new upload (S3-04; job ID = pipeline + hash + event: a later upload of the same file runs again,
  * and the job skips what is done). The tenant is `meta.agencyId` (RLS-checked when the event was written), the fair-share
- * group. Called once by the worker.
+ * group. A `media.document.deleted` event becomes one `media.deleteDocumentObject` job (S3-F8). Called once by the
+ * worker.
  */
 export function registerMediaSubscriptions(): void {
   if (unsubscribe) return;
@@ -40,6 +42,10 @@ export function registerMediaSubscriptions(): void {
       },
       { name: 'media.objects.process' },
     ),
+    // S3-F8: a deleted document's object, retried by its job until it is gone.
+    subscribe(mediaEvents.documentDeleted, (payload, meta) => enqueueDocumentDelete(payload, meta), {
+      name: 'media.documents.delete',
+    }),
   ];
 }
 

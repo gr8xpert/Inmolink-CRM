@@ -48,6 +48,9 @@ export const AUDIT_TYPES = [
   'identity.apiKey.revoked',
   'agencies.verification.decided',
   'agencies.profile.updated',
+  'media.document.uploaded',
+  'media.document.opened',
+  'media.document.deleted',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',
@@ -58,7 +61,7 @@ export const AUDIT_TYPES = [
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
 export interface AuditTarget {
-  type: 'user' | 'apiKey' | 'agency' | 'verificationRequest' | 'invite' | 'taxonomy';
+  type: 'user' | 'apiKey' | 'agency' | 'verificationRequest' | 'invite' | 'taxonomy' | 'listingDocument';
   id: string;
 }
 

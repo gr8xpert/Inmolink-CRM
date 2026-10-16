@@ -420,3 +420,13 @@ export async function deleteDocument(tx: Tx, agencyId: string, propertyId: strin
     .returning({ storageKey: listingDocuments.storageKey });
   return row?.storageKey ?? null;
 }
+
+/** The keys of a page of listed `documents/` objects that still have a row (the orphan sweep, S3-F8): one query. */
+export async function existingDocumentKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const rows = await tx
+    .select({ key: listingDocuments.storageKey })
+    .from(listingDocuments)
+    .where(inArray(listingDocuments.storageKey, keys));
+  return new Set(rows.map((r) => r.key));
+}

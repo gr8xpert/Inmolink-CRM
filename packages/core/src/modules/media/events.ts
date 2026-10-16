@@ -31,4 +31,9 @@ export const mediaEvents = {
         .max(OBJECTS_PER_EVENT),
     }),
   ),
+  /**
+   * A listing document's row was deleted (S3-F8): the worker deletes its object, retried until it is gone. The
+   * key is derived from the event's agency and these ids (`documents/<agency>/<listing>/<id>`), never carried.
+   */
+  documentDeleted: defineEvent('media.document.deleted', 1, z.object({ listingId: z.uuid(), documentId: z.uuid() })),
 };

@@ -1,9 +1,18 @@
 import { CreateListingBody, parseVideoUrl } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
-import { configureStorage, createS3Store, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
+import { createLogger } from '@inmolink/platform/logger';
+import {
+  configureStorage,
+  createS3Store,
+  type ObjectStore,
+  storage,
+  storageConfigFromEnv,
+} from '@inmolink/platform/storage';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
@@ -56,11 +65,43 @@ async function listing(m: Founder): Promise<string> {
 }
 
 const keys: string[] = [];
+const log = createLogger({ service: 'test', level: 'silent' });
+const jobCtx = () => ({
+  log,
+  jobId: 'test',
+  attempt: 1,
+  progress: async () => {},
+  signal: new AbortController().signal,
+});
+let store: ObjectStore;
+
+const rows = <T>(q: ReturnType<typeof sql>) =>
+  withSystem('media.documents.test', async (tx) => (await tx.execute(q)).rows as T[]);
+
+/** The dispatcher's part: the delete job for the document's `media.document.deleted` event. */
+async function runDeleteJob(documentId: string): Promise<void> {
+  const [e] = await rows<{ id: string; agency_id: string; payload: { listingId: string; documentId: string } }>(
+    sql`select id, agency_id, payload from outbox_events
+         where type = 'media.document.deleted' and payload->>'documentId' = ${documentId}`,
+  );
+  if (!e) throw new Error('no media.document.deleted event');
+  await media.mediaDocumentJobs.deleteDocumentObject.spec.run(
+    { eventId: e.id, agencyId: e.agency_id, ...e.payload },
+    jobCtx(),
+  );
+}
+
+const auditOf = (documentId: string) =>
+  rows<{ type: string; actor_user_id: string; metadata: { listingId: string } }>(
+    sql`select type, actor_user_id, metadata from audit_logs
+         where target_type = 'listingDocument' and target_id = ${documentId} order by id`,
+  );
 
 beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
-  configureStorage(createS3Store(storageConfigFromEnv(loadConfig(storageEnv))));
+  store = createS3Store(storageConfigFromEnv(loadConfig(storageEnv)));
+  configureStorage(store);
   media.configureMedia({ urlKey: `media-vd-key-${RUN}-0123456789abcdef` });
   [a, b] = await Promise.all([createFounder(), createFounder()]);
   for (const f of [a, b]) await setAgencyStatus(f.agencyId, 'VERIFIED');
@@ -199,6 +240,103 @@ describe('listing documents', () => {
 
     await media.deleteListingDocument(runner(a), { listingId: id, documentId: doc.id });
     expect((await as(a, (ctx) => media.listListingDocuments(ctx, id))).items).toEqual([]);
+    await runDeleteJob(doc.id);
     expect((await fetch(opened.url)).status).toBe(404);
+  });
+});
+
+describe('listing document hygiene and audit', () => {
+  it('[S3-F8] a document whose storage delete fails at first is gone after the retry', async () => {
+    const id = await listing(a);
+    const doc = await media.uploadListingDocument(runner(a), { listingId: id, fileName: 'c.pdf', body: pdf('retry') });
+    const objectKey = `documents/${a.agencyId}/${id}/${doc.id}`;
+    keys.push(objectKey);
+    await media.deleteListingDocument(runner(a), { listingId: id, documentId: doc.id });
+    // The row is gone with the request; the object waits for the worker.
+    expect(await storage().head('private', objectKey)).not.toBeNull();
+
+    // Storage is down for the first attempt: the job fails (BullMQ retries it) and the object stays.
+    configureStorage({
+      ...store,
+      delete: async () => {
+        throw new Error('storage unavailable');
+      },
+    });
+    try {
+      await expect(runDeleteJob(doc.id)).rejects.toThrow('storage unavailable');
+    } finally {
+      configureStorage(store);
+    }
+    expect(media.mediaDocumentJobs.deleteDocumentObject.spec.attempts).toBeGreaterThan(1);
+    expect(await storage().head('private', objectKey)).not.toBeNull();
+
+    await runDeleteJob(doc.id); // the retry
+    expect(await storage().head('private', objectKey)).toBeNull();
+    await runDeleteJob(doc.id); // a repeated delivery is harmless
+  });
+
+  it('[S3-F8] a purged listing leaves no object under its prefix (MinIO)', async () => {
+    const [purged, other] = [await listing(a), await listing(a)];
+    for (const label of ['p1', 'p2']) {
+      await media.uploadListingDocument(runner(a), { listingId: purged, fileName: `${label}.pdf`, body: pdf(label) });
+    }
+    // An object under the prefix without a row (a crash between store and record) goes too.
+    await storage().put('private', `documents/${a.agencyId}/${purged}/${newId()}`, pdf('stray'), {
+      contentType: 'application/pdf',
+    });
+    const kept = await media.uploadListingDocument(runner(a), { listingId: other, fileName: 'k.pdf', body: pdf('k') });
+    const keptKey = `documents/${a.agencyId}/${other}/${kept.id}`;
+    keys.push(keptKey);
+    const prefix = `documents/${a.agencyId}/${purged}/`;
+    expect((await storage().list('private', prefix, { limit: 10 })).objects).toHaveLength(3);
+
+    await media.mediaDocumentJobs.purgeDocuments.spec.run(
+      { agencyId: a.agencyId, listingId: purged, trigger: 'test' },
+      jobCtx(),
+    );
+    expect((await storage().list('private', prefix, { limit: 10 })).objects).toEqual([]);
+    // Only that listing's prefix: the agency's other listing keeps its document.
+    expect(await storage().head('private', keptKey)).not.toBeNull();
+  });
+
+  it('[S3-F8] an hour-old documents/ object without a row is swept; one with a row stays', async () => {
+    const id = await listing(a);
+    const kept = await media.uploadListingDocument(runner(a), { listingId: id, fileName: 'k.pdf', body: pdf('sw') });
+    const keptKey = `documents/${a.agencyId}/${id}/${kept.id}`;
+    keys.push(keptKey);
+    const orphan = `documents/${a.agencyId}/${id}/${newId()}`;
+    await storage().put('private', orphan, pdf('orphan'), { contentType: 'application/pdf' });
+    const sweep = () => media.mediaDocumentJobs.sweepOrphanDocuments.spec.run({}, jobCtx());
+
+    await sweep(); // younger than an hour: may still be between store and record
+    expect(await storage().head('private', orphan)).not.toBeNull();
+    useFakeClock(Date.now() + media.DOCUMENT_ORPHAN_MIN_AGE_MS + 60_000);
+    try {
+      await sweep();
+    } finally {
+      restoreClock();
+    }
+    expect(await storage().head('private', orphan)).toBeNull();
+    expect(await storage().head('private', keptKey)).not.toBeNull();
+  });
+
+  it('[S3-F8] opening a document leaves an audit row naming the listing and the document', async () => {
+    const id = await listing(a);
+    const doc = await media.uploadListingDocument(runner(a), { listingId: id, fileName: 'a.pdf', body: pdf('audit') });
+    keys.push(`documents/${a.agencyId}/${id}/${doc.id}`);
+    await as(a, (ctx) => media.openListingDocument(ctx, { listingId: id, documentId: doc.id }));
+    await media.deleteListingDocument(runner(a), { listingId: id, documentId: doc.id });
+    await runDeleteJob(doc.id);
+
+    const audit = await auditOf(doc.id);
+    expect(audit.map((r) => r.type)).toEqual([
+      'media.document.uploaded',
+      'media.document.opened',
+      'media.document.deleted',
+    ]);
+    for (const r of audit) expect(r).toMatchObject({ actor_user_id: a.userId, metadata: { listingId: id } });
+    // A refused open (another agency) records nothing.
+    await refusal(as(b, (ctx) => media.openListingDocument(ctx, { listingId: id, documentId: doc.id })));
+    expect(await auditOf(doc.id)).toHaveLength(3);
   });
 });

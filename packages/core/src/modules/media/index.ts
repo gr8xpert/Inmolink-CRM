@@ -1,4 +1,6 @@
 /** media — public API (PATTERNS §1). The only import path for other modules and apps. */
+
+export { DOCUMENT_ORPHAN_MIN_AGE_MS, mediaDocumentJobs, requestDocumentPurge } from './document-jobs';
 export {
   configureDocumentScanner,
   type DocumentScanner,

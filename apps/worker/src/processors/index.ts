@@ -1,7 +1,7 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { identityJobs } from '@inmolink/core/modules/identity';
-import { mediaJobs } from '@inmolink/core/modules/media';
+import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import type { JobDef } from '@inmolink/platform/queue';
@@ -32,6 +32,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     complianceJobs.maintainPartitions,
     propertiesJobs.failStaleBulkActions,
     propertiesJobs.sweepFreshness,
+    mediaDocumentJobs.deleteDocumentObject,
+    mediaDocumentJobs.purgeDocuments,
+    mediaDocumentJobs.sweepOrphanDocuments,
   ],
   ai: [],
   social: [],

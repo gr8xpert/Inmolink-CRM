@@ -2,6 +2,7 @@ import { LISTING_DOCUMENT_MAX_BYTES } from '@inmolink/contracts';
 import { auth } from '@/auth';
 import { sessionRef, uploadListingDocument } from '@/server/api';
 import { webConfig } from '@/server/env';
+import { listingDocumentUploads } from '@/server/upload-slots';
 
 const KNOWN_ERRORS = new Set([
   'FORBIDDEN',
@@ -25,7 +26,8 @@ const json = (status: number, body: unknown) =>
  * sends the PDF as the raw body with XHR (so it can show upload progress) and its name in `x-file-name`. A route
  * handler instead of a server action, so the 20 MB limit applies to this path alone. Before reading the body it
  * checks the origin (the session cookie is SameSite=Strict as well), the declared length and the session; the
- * API checks the file's real type and size. Answers JSON: `{ ok, data }` or `{ ok: false, error }`.
+ * API checks the file's real type and size. At most `LISTING_DOCUMENT_UPLOAD_SLOTS` bodies per user are buffered at
+ * once (S3-F8): one more is refused with 429 before it is read. Answers JSON: `{ ok, data }` or `{ ok: false, error }`.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
   const config = await webConfig();
@@ -37,7 +39,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (length > LISTING_DOCUMENT_MAX_BYTES) return json(413, { ok: false, error: 'PAYLOAD_TOO_LARGE' });
   const session = await auth();
   if (!session?.user?.id) return json(401, { ok: false, error: 'revoked' });
+  const release = listingDocumentUploads.take(session.user.id);
+  if (!release) return json(429, { ok: false, error: 'RATE_LIMITED' });
+  try {
+    return await relay(request, id, session.user);
+  } finally {
+    release();
+  }
+}
 
+async function relay(request: Request, id: string, user: Parameters<typeof sessionRef>[0]): Promise<Response> {
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength === 0 || bytes.byteLength > LISTING_DOCUMENT_MAX_BYTES) {
     return json(413, { ok: false, error: 'PAYLOAD_TOO_LARGE' });
@@ -49,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch {
     // a malformed name: keep the neutral one
   }
-  const res = await uploadListingDocument(sessionRef(session.user), id, fileName, bytes);
+  const res = await uploadListingDocument(sessionRef(user), id, fileName, bytes);
   if (res === 'revoked') return json(401, { ok: false, error: 'revoked' });
   if (res.ok) return json(201, { ok: true, data: res.data });
   const code = res.error?.code;
