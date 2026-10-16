@@ -29,6 +29,20 @@ export const propertiesEvents = {
    * is prompted in the editor; notifications (later) tell them.
    */
   confirmationDue: defineEvent('properties.listing.confirmationDue', 1, z.object(listing)),
+  /**
+   * S3-10: an agency saved or removed its own text for a listing, development or unit it presents (one locale).
+   * Its website and selections (S7-02, S12-04) refresh that target's text for this agency only.
+   */
+  overrideChanged: defineEvent(
+    'properties.listingOverride.changed',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      targetKind: z.enum(['LISTING', 'DEVELOPMENT', 'UNIT']),
+      targetId: z.uuid(),
+      locale: z.string(),
+    }),
+  ),
   /** A member asked for a bulk action (S3-07); the subscription queues `properties.runBulkAction`. */
   bulkRequested: defineEvent(
     'properties.bulkAction.requested',

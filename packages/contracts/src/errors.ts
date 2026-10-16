@@ -136,6 +136,10 @@ export const ErrorCodes = {
   BOOKMARK_NOT_FOUND: 404,
   /** The listing is already in this folder. */
   BOOKMARK_EXISTS: 409,
+  // properties: listing overrides (S3-10)
+  LISTING_OVERRIDE_NOT_FOUND: 404,
+  /** The agency owns the listing or development: it edits the text itself instead of overriding it. */
+  LISTING_OVERRIDE_OWN_TARGET: 422,
   // media (S3-03)
   /** The stored bytes are not an accepted image type (magic bytes), whatever the name or header said. */
   MEDIA_TYPE_NOT_ALLOWED: 415,

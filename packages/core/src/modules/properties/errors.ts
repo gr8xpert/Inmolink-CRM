@@ -19,4 +19,6 @@ export const propertiesErrors = [
   'BOOKMARK_FOLDER_FULL',
   'BOOKMARK_NOT_FOUND',
   'BOOKMARK_EXISTS',
+  'LISTING_OVERRIDE_NOT_FOUND',
+  'LISTING_OVERRIDE_OWN_TARGET',
 ] as const satisfies readonly ErrorCode[];

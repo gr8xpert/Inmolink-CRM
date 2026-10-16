@@ -109,6 +109,16 @@ export async function replaceAccess(
 
 // ── Units ────────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** The owner agency of a unit the caller can read (RLS), its development not deleted. */
+export async function getUnitOwner(tx: Tx, id: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ agencyId: units.agencyId })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(and(eq(units.id, id), isNull(developments.deletedAt)));
+  return row?.agencyId ?? null;
+}
+
 export async function countUnits(tx: Tx, developmentId: string): Promise<number> {
   const [row] = await tx.select({ n: count() }).from(units).where(eq(units.developmentId, developmentId));
   return row?.n ?? 0;

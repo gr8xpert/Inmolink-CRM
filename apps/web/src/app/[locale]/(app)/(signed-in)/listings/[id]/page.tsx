@@ -15,6 +15,9 @@ import { QualityPanel } from './quality-panel';
 const MediaManager = dynamic(() => import('./media-manager'), {
   loading: () => <div className="h-48 animate-pulse rounded-md bg-muted" />,
 });
+const OverridePanel = dynamic(() => import('./override-panel'), {
+  loading: () => <div className="h-32 animate-pulse rounded-md bg-muted" />,
+});
 const DocumentsPanel = dynamic(() => import('./documents-panel'), {
   loading: () => <div className="h-24 animate-pulse rounded-md bg-muted" />,
 });
@@ -26,6 +29,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * client editor autosaves each change; the media manager (S3-06) below it saves each media change at once. The
  * quality panel (S3-08) above them shows the score and fix-it hints, refreshed after each saved change.
  * Another agency's or a deleted listing opens read-only. The bookmark button (S3-09) files it into the member's folders.
+ * On another agency's listing, the override panel (S3-10) holds the agency's own title and description for its
+ * website and selections.
  */
 export default async function ListingEditorPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
@@ -85,6 +90,21 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
           listingId={res.listing.data.id}
           initial={res.media?.items ?? []}
           readOnly={res.listing.data.private === null || res.listing.data.deletedAt !== null}
+          messages={messages.listings}
+        />
+      ) : null}
+      {/* Another agency's live listing: the agency's own text for its channels (S3-10). */}
+      {res.listing.ok && res.listing.data.private === null && res.listing.data.deletedAt === null ? (
+        <OverridePanel
+          targetKind="LISTING"
+          targetId={res.listing.data.id}
+          ownerTexts={Object.fromEntries(
+            (res.content?.translations ?? []).map((tr) => [
+              tr.locale,
+              { title: tr.title, description: tr.description },
+            ]),
+          )}
+          contentLocales={locales.map((l) => ({ code: l, label: lang(`languages.${l}` as never) }))}
           messages={messages.listings}
         />
       ) : null}

@@ -14,6 +14,10 @@ import {
   ListingBulkParams,
   ListingContentDto,
   ListingDto,
+  ListingOverrideDto,
+  ListingOverrideList,
+  ListingOverrideParams,
+  ListingOverrideTargetParams,
   ListingPage,
   ListingParams,
   ListingTranslationParams,
@@ -23,6 +27,7 @@ import {
   ListingViewList,
   ListingViewParams,
   ListListingsQuery,
+  PutListingOverrideBody,
   PutListingTranslationBody,
   SetListingFeaturesBody,
   StartListingBulkBody,
@@ -566,6 +571,70 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => properties.deleteBookmark(ctx, req.params.id));
+      return reply.code(204).send(null);
+    },
+  );
+  // ---- Listing overrides (S3-10): the agency's own text for listings it presents -------------------------
+
+  app.get(
+    '/v1/listing-overrides/:targetKind/:targetId',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.listListingOverrides',
+        summary: "The caller agency's overrides of a network listing, development or unit, every locale",
+        params: ListingOverrideTargetParams,
+        response: { 200: ListingOverrideList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        properties.listListingOverrides(ctx, req.params.targetKind, req.params.targetId),
+      );
+    },
+  );
+
+  app.put(
+    '/v1/listing-overrides/:targetKind/:targetId/:locale',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.saveListingOverride',
+        summary: "Override another agency's title and/or description in one locale, for the caller's channels",
+        params: ListingOverrideParams,
+        body: PutListingOverrideBody,
+        response: { 200: ListingOverrideDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      const { targetKind, targetId, locale } = req.params;
+      return app.withCtx(req, (ctx) => properties.saveListingOverride(ctx, targetKind, targetId, locale, req.body));
+    },
+  );
+
+  app.delete(
+    '/v1/listing-overrides/:targetKind/:targetId/:locale',
+    {
+      schema: {
+        tags: ['properties'],
+        operationId: 'properties.deleteListingOverride',
+        summary: "Remove an override: the caller's channels show the owner's text again",
+        params: ListingOverrideParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      const { targetKind, targetId, locale } = req.params;
+      await app.withCtx(req, (ctx) => properties.deleteListingOverride(ctx, targetKind, targetId, locale));
       return reply.code(204).send(null);
     },
   );

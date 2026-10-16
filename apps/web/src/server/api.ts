@@ -31,6 +31,9 @@ import {
   ListingDto,
   type ListingFilter,
   ListingMediaList,
+  ListingOverrideDto,
+  ListingOverrideList,
+  type ListingOverrideTarget,
   ListingPage,
   ListingQualityDto,
   type ListingSort,
@@ -45,6 +48,7 @@ import {
   MyCapabilitiesDto,
   PreferredAgencyDto,
   PreferredAgencyPage,
+  type PutListingOverrideBody,
   type PutListingTranslationBody,
   type RegisterMediaBody,
   type ReorderListingMediaBody,
@@ -872,4 +876,41 @@ export function updateBookmark(
 
 export function deleteBookmark(session: SessionRef, id: string): Promise<ApiResult<null>> {
   return apiRequest(session, `/v1/bookmarks/${encodeURIComponent(id)}`, z.null(), { method: 'DELETE' });
+}
+
+// ---- Listing overrides (S3-10): the agency's own text for a listing it presents ----------------------------
+
+const overridePath = (kind: ListingOverrideTarget, id: string) =>
+  `/v1/listing-overrides/${kind}/${encodeURIComponent(id)}`;
+
+export function fetchListingOverrides(
+  session: SessionRef,
+  kind: ListingOverrideTarget,
+  id: string,
+): Promise<ApiResult<ListingOverrideList>> {
+  return apiRequest(session, overridePath(kind, id), ListingOverrideList);
+}
+
+export function putListingOverride(
+  session: SessionRef,
+  kind: ListingOverrideTarget,
+  id: string,
+  locale: string,
+  body: PutListingOverrideBody,
+): Promise<ApiResult<ListingOverrideDto>> {
+  return apiRequest(session, `${overridePath(kind, id)}/${encodeURIComponent(locale)}`, ListingOverrideDto, {
+    method: 'PUT',
+    body,
+  });
+}
+
+export function deleteListingOverride(
+  session: SessionRef,
+  kind: ListingOverrideTarget,
+  id: string,
+  locale: string,
+): Promise<ApiResult<null>> {
+  return apiRequest(session, `${overridePath(kind, id)}/${encodeURIComponent(locale)}`, z.null(), {
+    method: 'DELETE',
+  });
 }

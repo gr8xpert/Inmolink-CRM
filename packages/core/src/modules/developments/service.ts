@@ -139,6 +139,18 @@ export async function readable(ctx: Ctx, id: string): Promise<repo.DevelopmentRo
   return row;
 }
 
+/**
+ * The agency that owns a development, or a unit, the caller can read — what listing overrides (S3-10) check
+ * before an agency rewrites the text of a new build it presents.
+ */
+export async function presentableOwner(ctx: Ctx, kind: 'DEVELOPMENT' | 'UNIT', id: string): Promise<string> {
+  if (kind === 'DEVELOPMENT') return (await readable(ctx, id)).agencyId;
+  assertCan(ctx, 'development.read');
+  const owner = await repo.getUnitOwner(ctx.tx, id);
+  if (!owner) throw new AppError('UNIT_NOT_FOUND');
+  return owner;
+}
+
 /** The caller's own development to read its owner-only data (price lists), without a lock. */
 export async function ownForRead(ctx: Ctx, id: string, action: DevelopmentsAction): Promise<repo.DevelopmentRow> {
   assertCan(ctx, action);

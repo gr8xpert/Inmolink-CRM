@@ -554,3 +554,45 @@ export const ListingBookmarkDto = z.object({ id: z.uuid(), folderId: z.uuid(), n
 export type ListingBookmarkDto = z.infer<typeof ListingBookmarkDto>;
 export const ListingBookmarkList = z.object({ items: z.array(ListingBookmarkDto) });
 export type ListingBookmarkList = z.infer<typeof ListingBookmarkList>;
+
+// ---- Listing overrides (S3-10, PLAN §3 #54): an agency's own text for listings it presents -------------------
+
+/** A network listing, a new-build development or one of its units. */
+export const ListingOverrideTarget = z.enum(['LISTING', 'DEVELOPMENT', 'UNIT']);
+export type ListingOverrideTarget = z.infer<typeof ListingOverrideTarget>;
+
+/** The agency's override of one target in one content locale; a null field shows the owner's text. */
+export const ListingOverrideDto = z.object({
+  targetKind: ListingOverrideTarget,
+  targetId: z.uuid(),
+  locale: z.string(),
+  title: z.string().nullable(),
+  description: z.string().nullable(),
+  origin: TranslationOrigin,
+  updatedAt: z.iso.datetime(),
+});
+export type ListingOverrideDto = z.infer<typeof ListingOverrideDto>;
+export const ListingOverrideList = z.object({ items: z.array(ListingOverrideDto) });
+export type ListingOverrideList = z.infer<typeof ListingOverrideList>;
+
+/** `GET /v1/listing-overrides/:targetKind/:targetId`: the caller's overrides of one target, every locale. */
+export const ListingOverrideTargetParams = z.object({ targetKind: ListingOverrideTarget, targetId: z.uuid() }).strict();
+export type ListingOverrideTargetParams = z.infer<typeof ListingOverrideTargetParams>;
+/** `PUT|DELETE /v1/listing-overrides/:targetKind/:targetId/:locale`. */
+export const ListingOverrideParams = z
+  .object({ targetKind: ListingOverrideTarget, targetId: z.uuid(), locale: ContentLocaleCode })
+  .strict();
+export type ListingOverrideParams = z.infer<typeof ListingOverrideParams>;
+
+/** `PUT …/:locale`: the whole override for the locale; an empty or null field keeps the owner's text. */
+export const PutListingOverrideBody = z
+  .object({
+    title: z.string().trim().max(200).nullable().optional(),
+    description: z.string().trim().max(20_000).nullable().optional(),
+  })
+  .strict()
+  .refine((b) => Boolean(b.title) || Boolean(b.description), {
+    message: 'Override the title, the description or both',
+    path: ['title'],
+  });
+export type PutListingOverrideBody = z.infer<typeof PutListingOverrideBody>;

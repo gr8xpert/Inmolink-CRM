@@ -9,6 +9,7 @@ import {
   LISTING_STATUS_CODES,
   listingBookmarks,
   listingBulkActions,
+  listingOverrides,
   listingViews,
   properties,
   propertyFeatures,
@@ -1002,4 +1003,115 @@ export async function listListingBookmarks(
     )
     .orderBy(asc(listingBookmarks.folderId))
     .limit(limit);
+}
+
+// ---- Listing overrides (S3-10) -------------------------------------------------------------------------------
+
+export type OverrideRow = typeof listingOverrides.$inferSelect;
+export type OverrideTarget = OverrideRow['targetKind'];
+type OverrideKey = { agencyId: string; targetKind: OverrideTarget; targetId: string };
+
+const overrideColumns = {
+  targetKind: listingOverrides.targetKind,
+  targetId: listingOverrides.targetId,
+  locale: listingOverrides.locale,
+  title: listingOverrides.title,
+  description: listingOverrides.description,
+  origin: listingOverrides.origin,
+  updatedAt: listingOverrides.updatedAt,
+};
+export type OverrideView = Pick<OverrideRow, keyof typeof overrideColumns>;
+
+/** The agency's overrides of one target, by locale (`listing_overrides_target_locale_uq`). */
+export async function listOverrides(tx: Tx, key: OverrideKey): Promise<OverrideView[]> {
+  return tx
+    .select(overrideColumns)
+    .from(listingOverrides)
+    .where(
+      and(
+        eq(listingOverrides.agencyId, key.agencyId),
+        eq(listingOverrides.targetKind, key.targetKind),
+        eq(listingOverrides.targetId, key.targetId),
+      ),
+    )
+    .orderBy(asc(listingOverrides.locale));
+}
+
+/** The agency's overrides of many targets in one locale: one statement (`listing_overrides_target_locale_uq`). */
+export async function overridesFor(
+  tx: Tx,
+  agencyId: string,
+  targetKind: OverrideTarget,
+  targetIds: readonly string[],
+  locale: string,
+): Promise<Pick<OverrideRow, 'targetId' | 'title' | 'description'>[]> {
+  if (targetIds.length === 0) return [];
+  return tx
+    .select({
+      targetId: listingOverrides.targetId,
+      title: listingOverrides.title,
+      description: listingOverrides.description,
+    })
+    .from(listingOverrides)
+    .where(
+      and(
+        eq(listingOverrides.agencyId, agencyId),
+        eq(listingOverrides.targetKind, targetKind),
+        inArray(listingOverrides.targetId, [...targetIds]),
+        eq(listingOverrides.locale, locale),
+      ),
+    );
+}
+
+/** Inserts or replaces the agency's override of a target in a locale. */
+export async function upsertOverride(
+  tx: Tx,
+  row: OverrideKey & Pick<OverrideRow, 'id' | 'locale' | 'title' | 'description' | 'origin'>,
+): Promise<OverrideView> {
+  const [saved] = await tx
+    .insert(listingOverrides)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [
+        listingOverrides.agencyId,
+        listingOverrides.targetKind,
+        listingOverrides.targetId,
+        listingOverrides.locale,
+      ],
+      set: { title: row.title, description: row.description, origin: row.origin, updatedAt: sql`now()` },
+    })
+    .returning(overrideColumns);
+  return saved as OverrideView;
+}
+
+export async function deleteOverride(tx: Tx, key: OverrideKey & { locale: string }): Promise<boolean> {
+  const rows = await tx
+    .delete(listingOverrides)
+    .where(
+      and(
+        eq(listingOverrides.agencyId, key.agencyId),
+        eq(listingOverrides.targetKind, key.targetKind),
+        eq(listingOverrides.targetId, key.targetId),
+        eq(listingOverrides.locale, key.locale),
+      ),
+    )
+    .returning({ id: listingOverrides.id });
+  return rows.length > 0;
+}
+
+/** The owner's title and description of listings the caller can see (RLS), in one locale. */
+export async function translationsFor(
+  tx: Tx,
+  ids: readonly string[],
+  locale: string,
+): Promise<{ propertyId: string; title: string; description: string | null }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      propertyId: propertyTranslations.propertyId,
+      title: propertyTranslations.title,
+      description: propertyTranslations.description,
+    })
+    .from(propertyTranslations)
+    .where(and(inArray(propertyTranslations.propertyId, [...ids]), eq(propertyTranslations.locale, locale)));
 }

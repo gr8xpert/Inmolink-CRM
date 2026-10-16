@@ -413,5 +413,32 @@
       "MEDIA_NOT_FOUND": "This document no longer exists.",
       "generic": "Something went wrong. Try again."
     }
+  },
+  "overrides": {
+    "title": "Your text for this listing",
+    "intro": "Rewrite the title and description for your own website and selections. The owner and other agencies keep seeing the owner's text.",
+    "locale": "Language",
+    "overridden": "overridden",
+    "ownerText": "Owner's text",
+    "noOwnerText": "The owner has no text in this language.",
+    "fields": {
+      "title": "Your title",
+      "description": "Your description"
+    },
+    "hint": "Leave a field empty to keep the owner's text.",
+    "save": "Save your text",
+    "remove": "Remove — use the owner's text",
+    "saved": "Saved. Your website and selections use it.",
+    "removed": "Removed. Your channels show the owner's text again.",
+    "errors": {
+      "generic": "Could not save your text. Try again.",
+      "VALIDATION_FAILED": "Write a title or a description (title up to 200 characters).",
+      "LISTING_NOT_FOUND": "This listing is no longer shared with your agency.",
+      "DEVELOPMENT_NOT_FOUND": "This development is no longer shared with your agency.",
+      "UNIT_NOT_FOUND": "This unit is no longer available.",
+      "LISTING_OVERRIDE_OWN_TARGET": "This is your own listing: edit its text in the editor instead.",
+      "FORBIDDEN": "Your role cannot change the text of listings.",
+      "SESSION_REVOKED": "Your session has ended. Sign in again."
+    }
   }
 }

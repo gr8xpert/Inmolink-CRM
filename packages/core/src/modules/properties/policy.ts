@@ -13,6 +13,8 @@ export const PROPERTIES_ACTIONS = [
   'listing.publish',
   /** Make another member the listing's owner. */
   'listing.assign',
+  /** Rewrite the text of another agency's listing or new build for the caller's own channels (S3-10). */
+  'listing.override',
 ] as const;
 export type PropertiesAction = (typeof PROPERTIES_ACTIONS)[number];
 
@@ -33,6 +35,7 @@ export const PROPERTIES_IMPERSONATION: ImpersonationRules<PropertiesAction> = {
   'listing.restore': 'forbidden',
   'listing.publish': 'forbidden',
   'listing.assign': 'forbidden',
+  'listing.override': 'allowed',
 };
 
 /** Roles that administer their agency's listings (PLAN §3 #2). */
@@ -63,6 +66,8 @@ export function can(ctx: Ctx, action: PropertiesAction, listing?: ListingResourc
       return writer && ownOrAdmin;
     case 'listing.assign':
       return writer && ADMIN_ROLES.has(role);
+    case 'listing.override':
+      return LISTING_ROLES.has(role); // the caller's agency's own rows; the service checks the target
   }
 }
 

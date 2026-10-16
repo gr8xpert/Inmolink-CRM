@@ -15,11 +15,15 @@ import {
   type ListingDocumentUrlDto,
   type ListingDto,
   type ListingMediaList,
+  type ListingOverrideDto,
+  type ListingOverrideList,
+  ListingOverrideTarget,
   type ListingQualityDto,
   ListingViewBody,
   type ListingViewDto,
   MediaCheckBody,
   type MediaCheckResult,
+  PutListingOverrideBody,
   PutListingTranslationBody,
   RegisterMediaBody,
   ReorderListingMediaBody,
@@ -46,16 +50,19 @@ import {
   deleteBookmark,
   deleteBookmarkFolder,
   deleteListingDocument,
+  deleteListingOverride,
   deleteListingTranslation,
   deleteListingView,
   detachListingMedia,
   fetchBookmarkFolders,
   fetchListingBookmarks,
   fetchListingBulkAction,
+  fetchListingOverrides,
   fetchListingQuality,
   listListingDocuments,
   listListingMedia,
   openListingDocument,
+  putListingOverride,
   putListingTranslation,
   registerMedia,
   renameBookmarkFolder,
@@ -315,4 +322,37 @@ export async function updateBookmarkAction(id: string, body: unknown): Promise<E
 export async function deleteBookmarkAction(id: string): Promise<EditorResult<null>> {
   if (!Uuid.safeParse(id).success) return badId();
   return withSession((s) => deleteBookmark(s, id));
+}
+
+// --- listing overrides (S3-10): the agency's own title/description of another agency's listing or new build ---
+
+const ContentLocale = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/);
+
+export async function listingOverridesAction(kind: unknown, id: string): Promise<EditorResult<ListingOverrideList>> {
+  const target = ListingOverrideTarget.safeParse(kind);
+  if (!target.success || !Uuid.safeParse(id).success) return badId();
+  return withSession((s) => fetchListingOverrides(s, target.data, id));
+}
+
+export async function saveListingOverrideAction(
+  kind: unknown,
+  id: string,
+  locale: string,
+  body: unknown,
+): Promise<EditorResult<ListingOverrideDto>> {
+  const target = ListingOverrideTarget.safeParse(kind);
+  if (!target.success || !Uuid.safeParse(id).success || !ContentLocale.safeParse(locale).success) return badId();
+  const parsed = PutListingOverrideBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => putListingOverride(s, target.data, id, locale, parsed.data));
+}
+
+export async function deleteListingOverrideAction(
+  kind: unknown,
+  id: string,
+  locale: string,
+): Promise<EditorResult<null>> {
+  const target = ListingOverrideTarget.safeParse(kind);
+  if (!target.success || !Uuid.safeParse(id).success || !ContentLocale.safeParse(locale).success) return badId();
+  return withSession((s) => deleteListingOverride(s, target.data, id, locale));
 }

@@ -450,6 +450,16 @@ export const tenantTables: Record<string, TenantTable> = {
   listing_bookmarks: { kind: 'STRICT' },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
+  // S3-10: an agency's own text for listings it presents — used only in its own channels.
+  listing_overrides: {
+    kind: 'STRICT',
+    base: {
+      target_kind: 'LISTING',
+      target_id: '00000000-0000-4000-8000-000000000010',
+      locale: 'en',
+      title: 'isolation override',
+    },
+  },
   // New developments (S4-01, PLAN §6, §3 #21). Other verified agencies read a development that is not deleted,
   // while its owner is listed in the directory, and that is OPEN or PRIVATE_NETWORK with a `development_access`
   // row naming them (the `exists` runs under the reader's RLS on `development_access`). The allowed side of

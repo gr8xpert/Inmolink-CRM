@@ -562,3 +562,40 @@ export const listingBulkActions = pgTable(
     ),
   ],
 );
+
+/** What a listing override rewrites (S3-10): a network listing, a new-build development or one of its units. */
+export const listingOverrideTargetEnum = pgEnum('listing_override_target', ['LISTING', 'DEVELOPMENT', 'UNIT']);
+
+/**
+ * An agency's own title and/or description for a listing it may present but does not own (S3-10, PLAN §3 #54),
+ * per content locale. Used only in that agency's channels (website, selections); a null field falls back to the
+ * owner's text, and so does a removed override. `target_id` has no foreign key: development and unit rows belong
+ * to the developments module, and an override of a listing that left the agency's view is simply never used.
+ */
+export const listingOverrides = pgTable(
+  'listing_overrides',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    targetKind: listingOverrideTargetEnum('target_kind').notNull(),
+    targetId: uuid('target_id').notNull(),
+    locale: text('locale').notNull(),
+    title: text('title'),
+    description: text('description'),
+    origin: translationOriginEnum('origin').notNull().default('HUMAN'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // FK + the agency's overrides of a set of targets in one locale (serializers) or all locales (editor)
+    uniqueIndex('listing_overrides_target_locale_uq').on(t.agencyId, t.targetKind, t.targetId, t.locale),
+    check('listing_overrides_locale_ck', sql`${t.locale} ~ '^[a-z]{2}(-[A-Z]{2})?$'`),
+    check('listing_overrides_text_ck', sql`${t.title} is not null or ${t.description} is not null`),
+    check(
+      'listing_overrides_length_ck',
+      sql`char_length(${t.title}) <= 200 and char_length(${t.description}) <= 20000`,
+    ),
+  ],
+);

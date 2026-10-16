@@ -413,5 +413,32 @@
       "MEDIA_NOT_FOUND": "Este documento ya no existe.",
       "generic": "Algo salió mal. Inténtalo de nuevo."
     }
+  },
+  "overrides": {
+    "title": "Tu texto para este inmueble",
+    "intro": "Reescribe el título y la descripción para tu propia web y tus selecciones. El propietario y las demás agencias siguen viendo el texto del propietario.",
+    "locale": "Idioma",
+    "overridden": "personalizado",
+    "ownerText": "Texto del propietario",
+    "noOwnerText": "El propietario no tiene texto en este idioma.",
+    "fields": {
+      "title": "Tu título",
+      "description": "Tu descripción"
+    },
+    "hint": "Deja un campo vacío para mantener el texto del propietario.",
+    "save": "Guardar tu texto",
+    "remove": "Quitar — usar el texto del propietario",
+    "saved": "Guardado. Tu web y tus selecciones lo usan.",
+    "removed": "Quitado. Tus canales vuelven a mostrar el texto del propietario.",
+    "errors": {
+      "generic": "No se pudo guardar tu texto. Inténtalo de nuevo.",
+      "VALIDATION_FAILED": "Escribe un título o una descripción (título de hasta 200 caracteres).",
+      "LISTING_NOT_FOUND": "Este inmueble ya no está compartido con tu agencia.",
+      "DEVELOPMENT_NOT_FOUND": "Esta promoción ya no está compartida con tu agencia.",
+      "UNIT_NOT_FOUND": "Esta unidad ya no está disponible.",
+      "LISTING_OVERRIDE_OWN_TARGET": "Es tu propio inmueble: edita su texto en el editor.",
+      "FORBIDDEN": "Tu rol no puede cambiar el texto de los inmuebles.",
+      "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión."
+    }
   }
 }

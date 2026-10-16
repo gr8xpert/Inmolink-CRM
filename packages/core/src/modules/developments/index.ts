@@ -9,6 +9,7 @@ export {
   deleteDevelopment,
   getDevelopment,
   listDevelopments,
+  presentableOwner,
   setDevelopmentAccess,
   updateDevelopment,
 } from './service';

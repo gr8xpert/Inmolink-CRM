@@ -46,6 +46,14 @@ describe('properties policy', () => {
     expect(can(ctxAs('PARTNER'), 'listing.update', { agencyId: AGENCY, ownerUserId: ME })).toBe(false);
   });
 
+  it('[S3-10] listing roles override text for their own channels; partners and Client Mode do not', () => {
+    for (const role of ['AGENT', 'DEVELOPER_AGENT', 'AGENCY_ADMIN', 'DEVELOPER_ADMIN']) {
+      expect(can(ctxAs(role), 'listing.override'), role).toBe(true);
+    }
+    expect(can(ctxAs('PARTNER'), 'listing.override')).toBe(false);
+    expect(can(ctxAs('AGENT', { clientMode: true }), 'listing.override')).toBe(false);
+  });
+
   it('[S3-02] non-user actors are refused', () => {
     const system = { ...ctxAs('AGENCY_ADMIN'), actor: { kind: 'system' as const, reason: 'test' } };
     for (const action of PROPERTIES_ACTIONS) expect(can(system, action, mine)).toBe(false);
