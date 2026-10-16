@@ -293,7 +293,9 @@ export async function updateListingMedia(
     ...(cover ? { cover } : {}),
   });
   if (!updated) throw new AppError('MEDIA_NOT_FOUND');
-  if (kind === 'FLOOR_PLAN') await repo.ensureCover(ctx.tx, listing.id);
+  // Either way the cover can move: a floor plan was the cover, or the listing's first image just appeared.
+  if (kind !== undefined) await repo.ensureCover(ctx.tx, listing.id);
+  await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
   return listDtos(ctx, listing.id);
 }
 
@@ -315,6 +317,7 @@ export async function reorderListingMedia(
   }
   const changed = await repo.reorder(ctx.tx, listing.id, input.ids);
   if (changed === 0) return { items: await toDtos(current) };
+  await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
   return listDtos(ctx, listing.id);
 }
 
@@ -332,6 +335,7 @@ export async function detachListingMedia(ctx: Ctx, input: { listingId: string; m
   if (removed.isCover) await repo.ensureCover(ctx.tx, listing.id);
   // A video link references no stored object.
   if (removed.sha256) await emitReferencesChanged(ctx, listing.id, [{ sha256: removed.sha256, upload: null }]);
+  else await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
 }
 
 /**
@@ -362,6 +366,7 @@ export async function addListingVideo(ctx: Ctx, input: { listingId: string; url:
       position: current.length,
     },
   ]);
+  await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
   return listDtos(ctx, listing.id);
 }
 

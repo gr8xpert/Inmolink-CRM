@@ -42,6 +42,18 @@ const purgePayload = z.object({
 const purgePrefix = (p: { agencyId: string; listingId: string | null }) =>
   `${DOCUMENTS_PREFIX}${p.agencyId}/${p.listingId ? `${p.listingId}/` : ''}`;
 
+/**
+ * The next run's trigger, so its job id differs from the running one (S3 review): `<base>-c<n>` counts the
+ * continuations — a fixed suffix stopped changing once the trigger hit its length cap, and BullMQ drops a job
+ * whose id is still in use.
+ */
+export function continuationTrigger(trigger: string): string {
+  const m = /^(.*)-c(\d+)$/.exec(trigger);
+  const base = m ? (m[1] as string) : trigger;
+  const n = m ? Number(m[2]) + 1 : 1;
+  return `${base.slice(0, 48)}-c${n}`;
+}
+
 export const mediaDocumentJobs = {
   deleteDocumentObject: defineJob({
     name: 'media.deleteDocumentObject',
@@ -83,7 +95,7 @@ export const mediaDocumentJobs = {
         more = Boolean(listed.next);
         if (!more) break;
       }
-      if (more) await mediaDocumentJobs.purgeDocuments.enqueue({ ...p, trigger: `${p.trigger}-c`.slice(-64) });
+      if (more) await mediaDocumentJobs.purgeDocuments.enqueue({ ...p, trigger: continuationTrigger(p.trigger) });
       log.info({ deleted, more }, 'listing documents purged');
       return { deleted, more };
     },

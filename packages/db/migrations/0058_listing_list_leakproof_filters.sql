@@ -1,0 +1,5 @@
+ALTER TABLE "properties" ADD COLUMN "ref_key" text GENERATED ALWAYS AS (upper(ref)) STORED NOT NULL;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "status_code" smallint GENERATED ALWAYS AS (case status when 'DRAFT' then 1 when 'ACTIVE' then 2 when 'UNDER_OFFER' then 3 when 'SOLD' then 4 when 'RENTED' then 5 when 'WITHDRAWN' then 6 end) STORED NOT NULL;--> statement-breakpoint
+CREATE INDEX "properties_agency_status_idx" ON "properties" USING btree ("agency_id","status_code",date_trunc('milliseconds', "created_at", 'UTC'),"id") WHERE "properties"."deleted_at" is null;--> statement-breakpoint
+CREATE INDEX "properties_agency_country_idx" ON "properties" USING btree ("agency_id","country_id",date_trunc('milliseconds', "created_at", 'UTC'),"id");--> statement-breakpoint
+CREATE INDEX "properties_agency_ref_key_idx" ON "properties" USING btree ("agency_id",("ref_key" collate "C"));

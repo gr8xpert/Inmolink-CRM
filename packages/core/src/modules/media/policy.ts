@@ -6,7 +6,8 @@ import * as properties from '../properties';
 /**
  * Who may do what in media (PATTERNS §6). Deny by default; services call `assertCan`. Attaching to and
  * detaching from a listing is a listing edit: the service asks `properties.lockListingForMedia`, which applies
- * `listing.update` (owner agency, own listing or admin). Reading a listing's media is `listing.read`.
+ * `listing.update` (owner agency, own listing or admin). Reading a listing's media is `listing.read`; opening its
+ * documents needs a listing role (`listing.create`).
  */
 export const MEDIA_ACTIONS = [
   /** Upload files (check, signed URLs, register) and attach or detach them on listings; videos and documents too. */
@@ -35,7 +36,9 @@ export function can(ctx: Ctx, action: MediaAction): boolean {
       // Whoever lists properties uploads their photos (PARTNER members only read).
       return properties.can(ctx, 'listing.create');
     case 'media.documents.read':
-      return properties.can(ctx, 'listing.read');
+      // Documents carry the seller's identity: only members who list properties open them, never PARTNER
+      // members (who may read every listing) (S3 review).
+      return properties.can(ctx, 'listing.create');
   }
 }
 

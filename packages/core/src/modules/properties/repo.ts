@@ -6,6 +6,7 @@
 import type { Tx } from '@inmolink/db';
 import {
   bookmarkFolders,
+  LISTING_STATUS_CODES,
   listingBookmarks,
   listingBulkActions,
   listingViews,
@@ -160,11 +161,20 @@ export type ListSort = 'newest' | 'oldest' | 'updated' | 'price_asc' | 'price_de
 /** Where a page starts: the last row's sort key — a time for the time sorts, the price (or null) for price sorts. */
 export type ListCursor = { kind: 'time'; at: Date; id: string } | { kind: 'price'; price: number | null; id: string };
 
-/** The filters as `WHERE` parts. uuid and number conditions only: the agency index does the work (S2-F1). */
+/** The next string after every string starting with `prefix` in byte order (its characters are `[A-Z0-9]`). */
+function prefixEnd(prefix: string): string {
+  return prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+}
+
+/**
+ * The filters as `WHERE` parts. Leakproof conditions only — uuid, number and C-collated text comparisons — so
+ * under RLS they are index conditions (S2-F1): the status by its stored code, the reference prefix as a range on
+ * the stored `ref_key` (S3 review; the enum's `=` and `like` are not leakproof).
+ */
 function filterWhere(agencyId: string, f: ListFilter): (SQL | undefined)[] {
   return [
     eq(properties.agencyId, agencyId),
-    f.status ? eq(properties.status, f.status) : undefined,
+    f.status ? eq(properties.statusCode, LISTING_STATUS_CODES[f.status]) : undefined,
     f.visibility ? eq(properties.visibility, f.visibility) : undefined,
     f.transactionType ? eq(properties.transactionType, f.transactionType) : undefined,
     f.propertyTypeId ? eq(properties.propertyTypeId, f.propertyTypeId) : undefined,
@@ -174,7 +184,9 @@ function filterWhere(agencyId: string, f: ListFilter): (SQL | undefined)[] {
     f.priceMin !== undefined ? gte(properties.priceCents, f.priceMin) : undefined,
     f.priceMax !== undefined ? lte(properties.priceCents, f.priceMax) : undefined,
     f.bedroomsMin !== undefined ? gte(properties.bedrooms, f.bedroomsMin) : undefined,
-    f.refPrefix ? sql`upper(${properties.ref}) like ${`${f.refPrefix}%`}` : undefined,
+    f.refPrefix
+      ? sql`(${properties.refKey} collate "C") >= ${f.refPrefix} and (${properties.refKey} collate "C") < ${prefixEnd(f.refPrefix)}`
+      : undefined,
     f.tag
       ? sql`exists (select 1 from ${propertyTags} t where t.property_id = ${properties.id} and t.tag = ${f.tag})`
       : undefined,

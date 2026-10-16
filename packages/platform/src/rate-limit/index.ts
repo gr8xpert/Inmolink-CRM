@@ -19,6 +19,12 @@ export {
   type RateScope,
   retryAfterMs,
 } from './limiter';
+export {
+  createUploadSlots,
+  LISTING_DOCUMENT_UPLOAD_SLOTS,
+  LISTING_DOCUMENT_UPLOAD_TOTAL,
+  type UploadSlots,
+} from './upload-slots';
 
 export interface RateLimitConfig {
   /** A Redis that never evicts (redis-queue). Defaults to `REDIS_LIMITS_URL` — never redis-cache (S1-F6). */

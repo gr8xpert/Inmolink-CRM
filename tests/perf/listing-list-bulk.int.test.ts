@@ -34,11 +34,14 @@ const OTHERS = 39;
 let agencies: Founder[] = [];
 let ids: { location: string; type: string };
 
-async function seedListings(f: Founder, n: number, prefix: string): Promise<string[]> {
+async function seedListings(f: Founder, n: number, prefix: string, mixed = true): Promise<string[]> {
   const res = await rows<{ id: string }>(sql`
     insert into properties (id, agency_id, owner_user_id, ref, status, transaction_type, price_cents, bedrooms,
                             energy_rating, property_type_id, location_id, country_id, created_at, updated_at)
-    select gen_random_uuid(), ${f.agencyId}, ${f.userId}, ${prefix} || lpad(i::text, 5, '0'), 'DRAFT', 'SALE',
+    select gen_random_uuid(), ${f.agencyId}, ${f.userId}, ${prefix} || lpad(i::text, 5, '0'),
+           -- a real mix (S3 review): mostly drafts, 10 % active, 2 % sold — a status filter can match few rows
+           (case when not ${mixed} then 'DRAFT' when i % 50 = 0 then 'SOLD' when i % 10 = 1 then 'ACTIVE'
+                 else 'DRAFT' end)::listing_status, 'SALE',
            case when i % 10 = 0 then null else 10000000 + i::bigint * 100000 end, i % 6, 'C',
            ${ids.type}, ${ids.location}, ${ids.location},
            now() - make_interval(secs => ${n} - i), now() - make_interval(secs => ${n} - i)
@@ -54,6 +57,14 @@ const percentile = (values: number[], p: number) => {
 
 beforeAll(async () => {
   await setupTestDb('worker');
+  // An earlier run that was killed or crashed never reached `afterAll` (S3-F3 pattern): its 200,000 listings
+  // would slow every later suite into statement timeouts (S3 review). Its refs are `seedListings`' own.
+  await system(async (tx) => {
+    await tx.execute(sql`set local statement_timeout = 0`);
+    await tx.execute(sql`delete from listing_bulk_actions where agency_id in
+      (select distinct agency_id from properties where ref ~ '^(OT|BG|BK)[0-9]{5}$')`);
+    await tx.execute(sql`delete from properties where ref ~ '^(OT|BG|BK)[0-9]{5}$'`);
+  });
   agencies = await Promise.all(Array.from({ length: OTHERS + 2 }, () => createFounder()));
   await Promise.all(agencies.slice(0, 2).map((f) => setAgencyStatus(f.agencyId, 'VERIFIED')));
   ids = await system(async (tx) => {
@@ -115,6 +126,11 @@ it('[S3-07] List endpoint ≤ 10 queries and p95 < 300 ms for an agency with 5,0
     { limit: 50, priceMin: 50_000_000, priceMax: 60_000_000, sort: 'price_asc' },
     { limit: 50, q: 'BG04', mine: 'true' },
     { limit: 50, tag: 'nothing-has-this' },
+    // S3 review: a status that matches 2 % (each sort), and a reference prefix that matches nothing
+    { limit: 50, status: 'SOLD' },
+    { limit: 50, status: 'SOLD', sort: 'updated' },
+    { limit: 50, status: 'SOLD', sort: 'price_desc' },
+    { limit: 50, q: 'ZZ' },
     // S3-F6: a location's whole subtree (the country column), newest first
     { limit: 50, locationId: ids.location },
   ];
@@ -128,7 +144,7 @@ it('[S3-07] List endpoint ≤ 10 queries and p95 < 300 ms for an agency with 5,0
       const t0 = performance.now();
       const page = await list(q);
       mine.push(performance.now() - t0);
-      if (!q.tag) expect(page.items.length, key).toBeGreaterThan(0);
+      if (!q.tag && q.q !== 'ZZ') expect(page.items.length, key).toBeGreaterThan(0);
     }
     times.push(...mine);
     perScenario[key] = Math.round(percentile(mine, 95) * 10) / 10;
@@ -140,7 +156,7 @@ it('[S3-07] List endpoint ≤ 10 queries and p95 < 300 ms for an agency with 5,0
 
 it('[S3-07] Bulk action on 1,000 listings completes in a job and emits one event per listing', async () => {
   const team = agencies[1] as Founder;
-  const listingIds = await seedListings(team, 1_000, 'BK');
+  const listingIds = await seedListings(team, 1_000, 'BK', false);
   const bulk = await as(team, (ctx) =>
     properties.startBulkAction(
       ctx,
@@ -206,7 +222,7 @@ const PLANS: Record<string, string> = {
   price_desc: 'order by price_cents desc nulls last, id desc nulls last',
 };
 
-it('[S3-07] EXPLAIN on scale: every list order walks its index, no Seq Scan, < 20 ms under RLS', async () => {
+it('[S3-07] [S3-F6] [S3-F10] EXPLAIN on scale: every list order and filter reads by index, no Seq Scan, < 20 ms under RLS', async () => {
   const big = agencies[0] as Founder;
   const statements = Object.entries(PLANS).map(([name, order]) => [
     name,
@@ -236,6 +252,18 @@ it('[S3-07] EXPLAIN on scale: every list order walks its index, no Seq Scan, < 2
       `select id, ref from properties
         where agency_id = '${big.agencyId}' and deleted_at is null and region_id = '${region}' ${order} limit 51`,
     ]);
+  }
+  // S3 review: filters that match few rows read their matches by index, as `repo.filterWhere` builds them
+  const live = `agency_id = '${big.agencyId}' and deleted_at is null`;
+  for (const [name, where, order] of [
+    ['status rare, newest', 'status_code = 4', PLANS.newest],
+    ['status rare, updated', 'status_code = 4', PLANS.updated],
+    ['status rare, price_desc', 'status_code = 4', PLANS.price_desc],
+    ['ref prefix', `(ref_key collate "C") >= 'BG04' and (ref_key collate "C") < 'BG05'`, PLANS.newest],
+    ['ref prefix, none', `(ref_key collate "C") >= 'ZZ' and (ref_key collate "C") < 'Z['`, PLANS.newest],
+    ['country, none', `country_id = '${newId()}'`, PLANS.newest],
+  ] as const) {
+    statements.push([name, `select id, ref from properties where ${live} and ${where} ${order} limit 51`]);
   }
   const report: Record<string, string> = {};
   for (const [name, statement] of statements) {

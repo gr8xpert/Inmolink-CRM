@@ -422,6 +422,40 @@ describe('media upload pipeline', () => {
     await sync();
   });
 
+  it('[S3-F10] a floor plan turned into an image becomes the cover of a listing that had none; every media edit emits media.listing.changed', async () => {
+    const files = ['fp1', 'fp2'].map((l) => jpeg(l));
+    await upload(await check(a, files), files);
+    const id = await listing(a);
+    const listed = await media.registerUploads(
+      runner(a),
+      RegisterMediaBody.parse({ listingId: id, files: files.map((f) => ({ sha256: sha(f), kind: 'FLOOR_PLAN' })) }),
+    );
+    const [p1, p2] = listed.items.map((m) => m.id) as [string, string];
+    expect(listed.items.some((m) => m.isCover)).toBe(false);
+
+    const changed = async () =>
+      (
+        await rows<{ n: number }>(sql`select count(*)::int as n from outbox_events
+          where type = 'media.listing.changed' and payload->>'listingId' = ${id}`)
+      )[0]?.n ?? 0;
+    const image = await edit(a, id, p2, { kind: 'IMAGE' });
+    expect(image.items.map((m) => [m.id, m.kind, m.isCover])).toEqual([
+      [p1, 'FLOOR_PLAN', false],
+      [p2, 'IMAGE', true],
+    ]);
+    expect(await changed()).toBe(1);
+    await reorder(a, id, [p2, p1]);
+    expect(await changed()).toBe(2);
+    const video = await as(a, (ctx) =>
+      media.addListingVideo(ctx, { listingId: id, url: 'https://youtu.be/dQw4w9WgXcQ' }),
+    );
+    expect(await changed()).toBe(3);
+    const videoId = video.items.find((m) => m.kind === 'VIDEO')?.id as string;
+    await as(a, (ctx) => media.detachListingMedia(ctx, { listingId: id, mediaId: videoId }));
+    expect(await changed()).toBe(4);
+    await sync();
+  });
+
   it('[S3-06] a processed file lists a signed 320 px preview; an unprocessed one none', async () => {
     const [done, pending] = ['t1', 't2'].map((l) => jpeg(l)) as [Uint8Array, Uint8Array];
     await upload(await check(a, [done, pending]), [done, pending]);

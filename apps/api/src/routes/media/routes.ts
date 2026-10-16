@@ -17,8 +17,14 @@ import {
 } from '@inmolink/contracts';
 import * as media from '@inmolink/core/modules/media';
 import { AppError } from '@inmolink/platform/errors';
-import type { RateLimitRule } from '@inmolink/platform/rate-limit';
+import {
+  createUploadSlots,
+  LISTING_DOCUMENT_UPLOAD_SLOTS,
+  LISTING_DOCUMENT_UPLOAD_TOTAL,
+  type RateLimitRule,
+} from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -247,6 +253,21 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
 }
 
 /**
+ * Buffered document bodies per user and per process (S3 review): the web relay caps its own process, this caps
+ * the API for callers that send bodies to it directly. Taken in `onRequest` (after the session, before the body
+ * is read) and released when the response is done or the connection closes.
+ */
+export const listingDocumentUploads = createUploadSlots(LISTING_DOCUMENT_UPLOAD_SLOTS, LISTING_DOCUMENT_UPLOAD_TOTAL);
+
+async function takeUploadSlot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!req.auth) throw new AppError('NOT_AUTHENTICATED');
+  const release = listingDocumentUploads.take(req.auth.userId);
+  if (!release) throw new AppError('RATE_LIMITED');
+  reply.raw.once('close', release);
+  reply.raw.once('finish', release);
+}
+
+/**
  * The document upload, in its own plugin: its body is the raw file (only this route accepts binary bodies, up to
  * 20 MB). The declared type only routes the body here; the service checks the real type by magic bytes.
  */
@@ -269,7 +290,7 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
         response: { 201: ListingDocumentDto },
       },
       bodyLimit: LISTING_DOCUMENT_MAX_BYTES,
-      onRequest: [upload.requireSession],
+      onRequest: [upload.requireSession, takeUploadSlot],
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {

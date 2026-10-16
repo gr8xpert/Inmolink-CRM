@@ -11,7 +11,7 @@
  * composite foreign key to `properties (id, agency_id)`: an agency cannot hang rows on another agency's listing.
  */
 
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -25,6 +25,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -47,6 +48,25 @@ export const listingStatusEnum = pgEnum('listing_status', [
   'RENTED',
   'WITHDRAWN',
 ]);
+/**
+ * `status_code` per status (S3 review): the list's status filter compares this smallint — `int2eq` is leakproof,
+ * so it is an index condition under RLS, where the enum's `=` is not. A status added to the enum needs a code
+ * here and a migration; until then its inserts fail on `not null` instead of being filtered wrongly.
+ */
+export const LISTING_STATUS_CODES = {
+  DRAFT: 1,
+  ACTIVE: 2,
+  UNDER_OFFER: 3,
+  SOLD: 4,
+  RENTED: 5,
+  WITHDRAWN: 6,
+} as const satisfies Record<(typeof listingStatusEnum.enumValues)[number], number>;
+const statusCode = (): SQL =>
+  sql.raw(
+    `case status ${Object.entries(LISTING_STATUS_CODES)
+      .map(([k, v]) => `when '${k}' then ${v}`)
+      .join(' ')} end`,
+  );
 export const transactionTypeEnum = pgEnum('transaction_type', ['SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM']);
 /** EXACT: the pin is the property · APPROX: a shown area, never the address (privacy). */
 export const locationPrecisionEnum = pgEnum('location_precision', ['EXACT', 'APPROX']);
@@ -71,6 +91,14 @@ export const properties = pgTable(
     ownerUserId: uuid('owner_user_id').notNull(),
     /** Human reference shown on websites and in the dashboard; unique within the agency. */
     ref: text('ref').notNull(),
+    /**
+     * `upper(ref)`, stored (S3 review): the list's reference prefix is a byte range on it in the C collation
+     * (`ref_key collate "C" >= P and < succ(P)`, leakproof text comparisons) instead of `upper(ref) like`,
+     * which RLS keeps out of index conditions.
+     */
+    refKey: text('ref_key')
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`upper(ref)`),
     /** Where the listing came from: `MANUAL`, a feed format (`KYERO`, …) or `LEGACY`. */
     source: text('source').notNull().default('MANUAL'),
     /** The listing's id in its source feed (re-import dedupe). */
@@ -78,6 +106,8 @@ export const properties = pgTable(
     /** v1 id for migrated listings (PLAN §14); `legacy_id_maps` keeps the global map. */
     legacyId: text('legacy_id'),
     status: listingStatusEnum('status').notNull().default('DRAFT'),
+    /** `LISTING_STATUS_CODES[status]`, stored: the indexable form of the list's status filter. */
+    statusCode: smallint('status_code').notNull().generatedAlwaysAs(statusCode),
     visibility: visibilityEnum('visibility').notNull().default('PRIVATE'),
     shareScope: shareScopeEnum('share_scope').notNull().default('ALL'),
     transactionType: transactionTypeEnum('transaction_type').notNull().default('SALE'),
@@ -159,6 +189,14 @@ export const properties = pgTable(
     index('properties_agency_region_idx').on(t.agencyId, t.regionId, keysetTime(t.createdAt), t.id),
     index('properties_agency_city_idx').on(t.agencyId, t.cityId, keysetTime(t.createdAt), t.id),
     index('properties_agency_location_idx').on(t.agencyId, t.locationId, keysetTime(t.createdAt), t.id),
+    // the list filtered by status (S3 review), newest first; other orders sort the matches (a rare status is few)
+    index('properties_agency_status_idx')
+      .on(t.agencyId, t.statusCode, keysetTime(t.createdAt), t.id)
+      .where(sql`${t.deletedAt} is null`),
+    // the list filtered by a country subtree (S3 review: depth-1 filter of `country_id`), newest first
+    index('properties_agency_country_idx').on(t.agencyId, t.countryId, keysetTime(t.createdAt), t.id),
+    // the list's reference prefix (S3 review): `ref_key collate "C" >= P and < succ(P)` within the agency
+    index('properties_agency_ref_key_idx').on(t.agencyId, sql`(${t.refKey} collate "C")`),
     // FK to the owner's membership + an agent's own listings (`mine`), newest first: keyset like the agency list
     index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId, keysetTime(t.createdAt), t.id),
     // the dashboard list sorted by last change (S3-07 `sort=updated`), keyset like the created order

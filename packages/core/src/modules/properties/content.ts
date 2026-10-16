@@ -72,10 +72,9 @@ export async function getListingContent(ctx: Ctx, id: string): Promise<ListingCo
   assertCan(ctx, 'listing.read');
   const row = await repo.getListing(ctx.tx, id);
   if (!row || (row.deletedAt && row.agencyId !== ctx.tenant.agencyId)) throw new AppError('LISTING_NOT_FOUND');
-  const [translations, featureIds] = await Promise.all([
-    repo.listTranslations(ctx.tx, id),
-    repo.listFeatureIds(ctx.tx, id),
-  ]);
+  // one after the other: a transaction is one connection (pg queues parallel queries, and pg 9 refuses them)
+  const translations = await repo.listTranslations(ctx.tx, id);
+  const featureIds = await repo.listFeatureIds(ctx.tx, id);
   return { listingId: id, version: row.version, translations: translations.map(toTranslationDto), featureIds };
 }
 
@@ -152,10 +151,9 @@ export async function setListingFeatures(
 }
 
 async function contentAfterChange(ctx: Ctx, listing: repo.ListingRow): Promise<ListingContentDto> {
-  const [translations, featureIds] = await Promise.all([
-    repo.listTranslations(ctx.tx, listing.id),
-    repo.listFeatureIds(ctx.tx, listing.id),
-  ]);
+  // one after the other: a transaction is one connection (pg queues parallel queries, and pg 9 refuses them)
+  const translations = await repo.listTranslations(ctx.tx, listing.id);
+  const featureIds = await repo.listFeatureIds(ctx.tx, listing.id);
   return {
     listingId: listing.id,
     version: listing.version,

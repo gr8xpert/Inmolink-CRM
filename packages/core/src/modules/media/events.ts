@@ -32,6 +32,11 @@ export const mediaEvents = {
     }),
   ),
   /**
+   * A listing's media changed without a stored object being added or removed (S3 review): a file's kind, cover,
+   * alt text or room type, the order, or a video link added or removed. Read models and the quality score react.
+   */
+  listingChanged: defineEvent('media.listing.changed', 1, z.object({ listingId: z.uuid() })),
+  /**
    * A listing document's row was deleted (S3-F8): the worker deletes its object, retried until it is gone. The
    * key is derived from the event's agency and these ids (`documents/<agency>/<listing>/<id>`), never carried.
    */
