@@ -10,8 +10,13 @@ import { AwsClient } from 'aws4fetch';
 export interface StorageBuckets {
   media: string;
   exports: string;
-  /** Private documents (agency verification): never public, signed URLs only. */
+  /** Private documents (agency verification, listing documents): never public, signed URLs only. */
   private: string;
+  /**
+   * Media originals and masters (S3-F9): never public. Its own bucket, so the media container's credentials
+   * (bucket-scoped on R2) cover it and the media bucket without reaching private documents.
+   */
+  work: string;
 }
 
 export type BucketName = keyof StorageBuckets;
@@ -476,13 +481,19 @@ export function storageConfigFromEnv(env: {
   S3_BUCKET_MEDIA: string;
   S3_BUCKET_EXPORTS: string;
   S3_BUCKET_PRIVATE: string;
+  S3_BUCKET_MEDIA_WORK: string;
 }): S3StoreConfig {
   return {
     endpoint: env.S3_ENDPOINT,
     region: env.S3_REGION,
     accessKeyId: env.S3_ACCESS_KEY_ID,
     secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-    buckets: { media: env.S3_BUCKET_MEDIA, exports: env.S3_BUCKET_EXPORTS, private: env.S3_BUCKET_PRIVATE },
+    buckets: {
+      media: env.S3_BUCKET_MEDIA,
+      exports: env.S3_BUCKET_EXPORTS,
+      private: env.S3_BUCKET_PRIVATE,
+      work: env.S3_BUCKET_MEDIA_WORK,
+    },
   };
 }
 

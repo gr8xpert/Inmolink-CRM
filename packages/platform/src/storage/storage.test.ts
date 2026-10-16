@@ -13,7 +13,7 @@ const store = createS3Store({
   region: 'auto',
   accessKeyId: 'AKIDEXAMPLE',
   secretAccessKey: 'secret',
-  buckets: { media: 'm', exports: 'e', private: 'p' },
+  buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
 });
 
 describe('storage', () => {
@@ -136,7 +136,7 @@ describe('storage', () => {
         region: 'auto',
         accessKeyId: 'AKIDEXAMPLE',
         secretAccessKey: 'secret',
-        buckets: { media: 'm', exports: 'e', private: 'p' },
+        buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
         fetch: answer(withLength) as unknown as typeof fetch,
       });
     expect(await s3(true).get('media', 'masters/x', { maxBytes: 10 })).toEqual(body);
@@ -148,7 +148,7 @@ describe('storage', () => {
       region: 'auto',
       accessKeyId: 'AKIDEXAMPLE',
       secretAccessKey: 'secret',
-      buckets: { media: 'm', exports: 'e', private: 'p' },
+      buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
       fetch: (async () =>
         new Response(body.subarray(0, 6), {
           status: 200,

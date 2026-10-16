@@ -64,7 +64,7 @@ async function upload(
   contentType: UploadType,
 ): Promise<{ hash: string; bytes: Uint8Array; contentType: UploadType }> {
   const hash = sha(bytes);
-  await storage().put('private', media.originalKey(hash), bytes, { contentType });
+  await storage().put('work', media.originalKey(hash), bytes, { contentType });
   hashes.push(hash);
   return { hash, bytes, contentType };
 }
@@ -90,8 +90,8 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const h of hashes) {
     await Promise.all([
-      storage().delete('private', media.originalKey(h)),
-      storage().delete('private', media.masterKey(h)),
+      storage().delete('work', media.originalKey(h)),
+      storage().delete('work', media.masterKey(h)),
       ...media.VARIANT_NAMES.map((n) => storage().delete('media', media.variantKey(h, n))),
     ]);
   }

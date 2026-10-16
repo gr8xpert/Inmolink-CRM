@@ -64,12 +64,11 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
      role's `media` ACL user (`redis_media_acl`): its own BullMQ keys (`inl:media:*`, `inl:media.dead:*`,
      `inl:fair:media:*`), no other pool's queue, no key listing, no admin command.
    - `S3_MEDIA_ACCESS_KEY_ID` / `S3_MEDIA_SECRET_ACCESS_KEY` (H3): an R2 API token, **Object Read & Write**,
-     *Apply to specific buckets only* → `inmolink-media` and `inmolink-private`. Never the exports bucket. The
-     other workers keep the `S3_ACCESS_KEY_ID` token.
-     **Limit:** R2 API tokens scope to buckets, not prefixes (prefix scope exists only for short-lived temporary
-     credentials), so on R2 this token can still read `inmolink-private/documents/` and `verification/`. The
-     local stack enforces the intended scope (`infra/storage/media-worker-policy.json`: the media bucket plus
-     `originals/` + `masters/`); closing the gap on R2 is S3-F9 (originals and masters in their own bucket).
+     *Apply to specific buckets only* → `inmolink-media` and `inmolink-media-work`. Never the exports or the
+     private bucket. The other workers keep the `S3_ACCESS_KEY_ID` token.
+     R2 API tokens scope to whole buckets, not prefixes, so originals and masters live in their own bucket
+     (S3-F9): create `inmolink-media-work` (no public access, no custom domain) next to the others. The local
+     stack enforces the same bucket-level scope (`infra/storage/media-worker-policy.json`).
    Then create the Meilisearch **search-only** key for api and feed-api (they never get the master key;
    production config refuses it for http apps) and put its `key` in `MEILI_SEARCH_KEY`:
 

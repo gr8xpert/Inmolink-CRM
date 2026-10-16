@@ -5,7 +5,7 @@
  * Upload pipeline (S3-03, PLAN §3 #33): the browser hashes each file and calls `checkUploads`; hashes the
  * platform stores already need no upload at all (zero bytes); the others get a signed PUT straight to object
  * storage, bound to the file's type, exact size and SHA-256 (the store refuses anything else), under the
- * content-addressed key `originals/<sha256>` in the private bucket. `registerUploads` then checks each new
+ * content-addressed key `originals/<sha256>` in the work bucket. `registerUploads` then checks each new
  * object in storage — size, and its magic bytes: non-images are deleted and refused — and attaches the files to
  * a listing. The media worker records new objects and recounts references (`media.syncObjects`), then processes
  * them (`media.processObject`, S3-04).
@@ -42,10 +42,11 @@ import { VARIANTS, variantKey } from './variants';
 /** The content-addressed key of an uploaded original (never served to browsers: variants are, S3-04). */
 export const originalKey = (sha256: string) => `originals/${sha256}`;
 /**
- * Originals (EXIF, GPS) are uploaded to the private bucket: the `media` bucket holds only variants, so it can
- * be served publicly as a whole (S3-04).
+ * Originals (EXIF, GPS) are uploaded to the work bucket: the `media` bucket holds only variants, so it can be
+ * served publicly as a whole (S3-04); the work bucket is not the private one, so the media container's
+ * credentials never reach private documents (S3-F9).
  */
-export const ORIGINALS_BUCKET = 'private' as const;
+export const ORIGINALS_BUCKET = 'work' as const;
 
 /** Storage checks run at most this many at once per register call. */
 const VERIFY_CONCURRENCY = 16;

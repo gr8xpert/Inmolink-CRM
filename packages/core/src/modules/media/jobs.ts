@@ -39,8 +39,8 @@ const STORAGE_CONCURRENCY = 16;
 const REPROCESS_BATCH = 500;
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 const CONTENT_TYPE = { webp: 'image/webp', jpeg: 'image/jpeg' } as const;
-/** Masters, like originals, stay private; only variants are in the (publicly served) `media` bucket. */
-const MASTERS_BUCKET: BucketName = 'private';
+/** Masters, like originals, stay in the work bucket; only variants are in the (publicly served) `media` bucket. */
+const MASTERS_BUCKET: BucketName = 'work';
 
 const sha256Of = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const hourBucket = () => Math.floor(clock.now().getTime() / HOUR_MS);

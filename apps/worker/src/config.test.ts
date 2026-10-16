@@ -22,6 +22,7 @@ const MEDIA_ONLY = {
   S3_BUCKET_MEDIA: 'inmolink-media',
   S3_BUCKET_EXPORTS: 'inmolink-exports',
   S3_BUCKET_PRIVATE: 'inmolink-private',
+  S3_BUCKET_MEDIA_WORK: 'inmolink-media-work',
   MEDIA_URL_KEY: 'media-url-key-0123456789abcdef0123456789',
 };
 

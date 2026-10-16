@@ -53,6 +53,8 @@ env:
     S3_REGION: "auto"
     S3_BUCKET_MEDIA: "inmolink-media"
     S3_BUCKET_EXPORTS: "inmolink-exports"
+    # Media originals (S3-F9): the api signs upload PUTs into it.
+    S3_BUCKET_MEDIA_WORK: "inmolink-media-work"
   secret:
     - RELEASE
     - SENTRY_DSN

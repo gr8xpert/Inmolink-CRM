@@ -169,21 +169,32 @@ describe('media container on object storage', () => {
     await root.delete('exports', exportKey);
     await root.delete('private', documentKey);
     await root.delete('private', verificationKey);
-    await root.delete('private', `originals/${sha}`);
-    await root.delete('private', `masters/${sha}`);
+    await root.delete('work', `originals/${sha}`);
+    await root.delete('work', `masters/${sha}`);
     await root.delete('media', `v1/${id}/test.webp`);
   });
 
-  it('[S3-F7] its credentials read and write originals, masters and variants only', async () => {
+  it('[S3-F7] [S3-F9] its credentials read and write originals, masters (work bucket) and variants', async () => {
     const bytes = Buffer.from('media bytes');
-    await media.put('private', `originals/${sha}`, bytes, { contentType: 'application/octet-stream' });
-    await media.put('private', `masters/${sha}`, bytes, { contentType: 'image/webp' });
+    await media.put('work', `originals/${sha}`, bytes, { contentType: 'application/octet-stream' });
+    await media.put('work', `masters/${sha}`, bytes, { contentType: 'image/webp' });
     await media.put('media', `v1/${id}/test.webp`, bytes, { contentType: 'image/webp' });
-    expect(await text(media.get('private', `originals/${sha}`, { maxBytes: 1_000 }))).toBe('media bytes');
-    expect(await text(media.get('private', `masters/${sha}`, { maxBytes: 1_000 }))).toBe('media bytes');
-    const listed = await media.list('private', `originals/${sha}`, { limit: 10 });
+    expect(await text(media.get('work', `originals/${sha}`, { maxBytes: 1_000 }))).toBe('media bytes');
+    expect(await text(media.get('work', `masters/${sha}`, { maxBytes: 1_000 }))).toBe('media bytes');
+    const listed = await media.list('work', `originals/${sha}`, { limit: 10 });
     expect(listed.objects.map((o) => o.key)).toContain(`originals/${sha}`);
-    await media.delete('private', `originals/${sha}`);
+    await media.delete('work', `originals/${sha}`);
+  });
+
+  it('[S3-F9] its policy grants whole buckets — media and work — with no prefix conditions, never the private one', () => {
+    const policy = JSON.parse(readFileSync(join(ROOT, 'infra', 'storage', 'media-worker-policy.json'), 'utf8')) as {
+      Statement: { Resource: string[]; Condition?: unknown }[];
+    };
+    const resources = policy.Statement.flatMap((st) => st.Resource);
+    expect(policy.Statement.every((st) => st.Condition === undefined)).toBe(true);
+    expect(new Set(resources.map((r) => r.replace('arn:aws:s3:::', '').split('/')[0]))).toEqual(
+      new Set(['inmolink-media', 'inmolink-media-work']),
+    );
   });
 
   it('[S3-F7] its credentials cannot read an export or a private document', async () => {
@@ -195,6 +206,11 @@ describe('media container on object storage', () => {
     await expect(media.get('private', documentKey, { maxBytes: 1_000 })).rejects.toThrow();
     await expect(media.get('private', verificationKey, { maxBytes: 1_000 })).rejects.toThrow();
     await expect(media.list('private', 'documents/', { limit: 10 })).rejects.toThrow();
+    // S3-F9: no prefix of the private bucket is granted any more, originals/ included.
+    await expect(media.list('private', 'originals/', { limit: 10 })).rejects.toThrow();
+    await expect(
+      media.put('private', `originals/${sha}`, Buffer.from('x'), { contentType: 'application/octet-stream' }),
+    ).rejects.toThrow();
     await expect(media.list('exports', 'exports/', { limit: 10 })).rejects.toThrow();
     await expect(
       media.put('private', documentKey, Buffer.from('overwritten'), { contentType: 'application/pdf' }),

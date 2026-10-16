@@ -2,7 +2,7 @@
 
 Listing photos are served from the `inmolink-media` bucket (Cloudflare R2 in production, MinIO locally) under
 deterministic variant keys: `v<pipeline>/<32 hex public id>/<variant>.<ext>` (`packages/core/src/modules/media/variants.ts`).
-Nothing else in that bucket may be readable without credentials: originals and masters live in the private bucket,
+Nothing else in that bucket may be readable without credentials: originals and masters live in the work bucket (`inmolink-media-work`, S3-F9),
 but a stray object (a bug, a manual upload) must not become public either.
 
 ## Local and test (MinIO)

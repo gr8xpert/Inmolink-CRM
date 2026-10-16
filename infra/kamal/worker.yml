@@ -46,7 +46,7 @@ servers:
   # Least privilege (S3-F4): only the shared variables below plus the narrow `app_media` role — no app_system, SMTP,
   # encryption or HMAC keys (tests/workspace/deploy-config.test.ts fails otherwise); read-only root filesystem.
   # S3-F7: no cache at all; redis-queue as the `media` ACL user (its own BullMQ keys only); its own R2 token
-  # (docs/runbooks/deploy.md: the media bucket and the private bucket's originals/ + masters/ only).
+  # (docs/runbooks/deploy.md: the media and work buckets only, never the private one — S3-F9).
   media:
     hosts: [] # per destination
     proxy: false
@@ -77,6 +77,8 @@ env:
     S3_REGION: "auto"
     S3_BUCKET_MEDIA: "inmolink-media"
     S3_BUCKET_EXPORTS: "inmolink-exports"
+    # Media originals and masters (S3-F9).
+    S3_BUCKET_MEDIA_WORK: "inmolink-media-work"
   secret:
     - RELEASE
     - SENTRY_DSN

@@ -79,11 +79,11 @@ x-minio-init: &minio-init
   image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
   entrypoint: ["/bin/sh", "-c"]
   # The media bucket's public read: variant keys `v<n>/<32 hex>/…` only (S3-F4; production: the R2 rule in
-  # docs/runbooks/media-public-host.md). The media container's own user (S3-F7): the media bucket and the private
-  # bucket's originals/ + masters/ only — no export, no private document (production: docs/runbooks/deploy.md).
+  # docs/runbooks/media-public-host.md). The media container's own user (S3-F7, S3-F9): the media and work buckets
+  # only, whole buckets like an R2 token — no export, no private document (production: docs/runbooks/deploy.md).
   volumes: ["./infra/storage:/policies:ro"]
   healthcheck:
-    test: ["CMD", "mc", "ls", "local/inmolink-private"]
+    test: ["CMD", "mc", "ls", "local/inmolink-media-work"]
     interval: 2s
     timeout: 3s
     retries: 30
@@ -149,6 +149,7 @@ services:
     command:
       - mc alias set local http://minio:9000 inmolink inmolink-local-secret
         && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
+          local/inmolink-media-work
         && mc anonymous set-json /policies/media-public-policy.json local/inmolink-media
         && mc admin policy create local media-worker /policies/media-worker-policy.json
         && mc admin user add local inmolink-media-worker inmolink-media-worker-secret
@@ -224,6 +225,7 @@ services:
     command:
       - mc alias set local http://minio-test:9000 inmolink inmolink-local-secret
         && mc mb --ignore-existing local/inmolink-media local/inmolink-exports local/inmolink-backups local/inmolink-private
+          local/inmolink-media-work
         && mc anonymous set-json /policies/media-public-policy.json local/inmolink-media
         && mc admin policy create local media-worker /policies/media-worker-policy.json
         && mc admin user add local inmolink-media-worker inmolink-media-worker-secret

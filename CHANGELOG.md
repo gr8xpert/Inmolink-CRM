@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Media work bucket (S3-F9): originals and masters move from the private bucket to `inmolink-media-work` (`S3_BUCKET_MEDIA_WORK`, storage bucket `work`); the media container's storage credentials cover only the media and work buckets, so a bucket-scoped R2 token no longer reaches private documents.
 - Listing document hygiene and access audit (S3-F8): deleting a document emits `media.document.deleted` and the worker deletes its object with retries (`media.deleteDocumentObject`); `media.purgeDocuments` empties a listing's or agency's `documents/` prefix; hourly `media.sweepOrphanDocuments` removes hour-old objects without a row; uploads, opens and deletes are audited (`media.document.*`); the web upload route caps concurrent uploads per user. No new dependencies.
 - Media container least privilege (S3-F7): redis-queue ACL user `media` (its own BullMQ keys only), no cache connection for a media-only worker, its own storage credentials (MinIO `inmolink-media-worker` policy locally; R2 token documented, prefix scope needs S3-F9); Redis and S3 credentials are per Kamal role now. No new dependencies.
 - Scale seed listings and subtree location filter (S3-F6): `pnpm db:seed:scale` now seeds a synthetic Spain-sized taxonomy and listings (150 per agency, 5,000 for agency 0); the listings location filter matches a location's whole subtree (listings store their country, region and city — migration 0057). No new dependencies.

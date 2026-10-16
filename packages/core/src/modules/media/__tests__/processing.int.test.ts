@@ -60,10 +60,10 @@ const photo = (label: string, width = 1600, height = 1200) =>
     ),
   );
 
-/** What a verified upload leaves: the original under its content key, in the private bucket. */
+/** What a verified upload leaves: the original under its content key, in the work bucket. */
 async function stored(bytes: Uint8Array, contentType: UploadType) {
   const hash = sha(bytes);
-  await store.put('private', media.originalKey(hash), bytes, { contentType });
+  await store.put('work', media.originalKey(hash), bytes, { contentType });
   return { sha256: hash, upload: { sizeBytes: bytes.byteLength, contentType } };
 }
 
@@ -79,8 +79,8 @@ const processObject = (p: {
 const prune = () => media.mediaJobs.pruneOrphans.spec.run({}, jobCtx()) as Promise<Record<string, number>>;
 
 const bytesAt = (bucket: BucketName, key: string) => store.objects.get(`${bucket}/${key}`)?.body ?? null;
-const original = (hash: string) => bytesAt('private', media.originalKey(hash));
-const master = (hash: string) => bytesAt('private', media.masterKey(hash));
+const original = (hash: string) => bytesAt('work', media.originalKey(hash));
+const master = (hash: string) => bytesAt('work', media.masterKey(hash));
 const variantBytes = (hash: string) =>
   Object.fromEntries(media.VARIANT_NAMES.map((n) => [n, bytesAt('media', media.variantKey(hash, n))]));
 const objectRow = async (hash: string) =>
@@ -179,7 +179,7 @@ describe('media processing worker', () => {
 
     // From scratch (same original uploaded again, every file lost): the same master and variants.
     await stored(await photo('identical').jpeg({ quality: 90 }).toBuffer(), 'image/jpeg');
-    await store.delete('private', media.masterKey(upload.sha256));
+    await store.delete('work', media.masterKey(upload.sha256));
     for (const n of media.VARIANT_NAMES) await store.delete('media', media.variantKey(upload.sha256, n));
     await system((tx) =>
       tx.execute(sql`update media_objects set pipeline = null, variants_ready = 0 where sha256 = ${upload.sha256}`),
@@ -243,7 +243,7 @@ describe('media processing worker', () => {
     // Bytes that do not match their key: dropped with their record (nothing uses them).
     const real = await photo('tampered').png().toBuffer();
     const hash = sha(real);
-    await store.put('private', media.originalKey(hash), await photo('other').png().toBuffer(), {
+    await store.put('work', media.originalKey(hash), await photo('other').png().toBuffer(), {
       contentType: 'image/png',
     });
     await expect(
@@ -316,7 +316,7 @@ describe('media processing worker', () => {
     // Attached by a listing, its sync not processed yet: no record, but the original is needed.
     await attach(inUse.sha256);
     for (const x of [unregistered, waiting, inUse]) {
-      const entry = store.objects.get(`private/${media.originalKey(x.sha256)}`);
+      const entry = store.objects.get(`work/${media.originalKey(x.sha256)}`);
       if (entry) entry.lastModified = new Date(Date.now() - DAY - 60_000);
     }
 

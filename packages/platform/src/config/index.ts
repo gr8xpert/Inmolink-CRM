@@ -159,6 +159,8 @@ export const storageEnv = {
   S3_BUCKET_EXPORTS: nonEmpty,
   /** Private documents (agency verification): no public access, read only through short signed URLs (S1-03). */
   S3_BUCKET_PRIVATE: nonEmpty,
+  /** Media originals and masters (S3-F9): no public access; the media container's token covers it, not the private bucket. */
+  S3_BUCKET_MEDIA_WORK: nonEmpty,
 };
 
 /** Transactional email (platform/email). Workers only: requests never send mail. */

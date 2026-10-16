@@ -14,6 +14,7 @@ import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { configureStorage, createS3Store, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
@@ -76,6 +77,9 @@ const register = (m: Founder, listingId: string, files: Uint8Array[], extra: Par
     runner(m),
     RegisterMediaBody.parse({ listingId, files: files.map((f) => ({ sha256: sha(f) })), ...extra }),
   );
+
+/** The media container's own storage user on the test stack (docker-compose minio-init, S3-F7). */
+const MEDIA_S3 = { accessKeyId: 'inmolink-media-worker', secretAccessKey: 'inmolink-media-worker-secret' };
 
 /** Browsers set `content-length` themselves (a forbidden header); fetch in Node must not be given a wrong one. */
 const browserHeaders = (headers: Record<string, string>) =>
@@ -190,7 +194,7 @@ describe('media upload pipeline', () => {
     const id = await listing(a);
     expect(await refusal(register(a, id, [fake]))).toBe('MEDIA_TYPE_NOT_ALLOWED');
     // The object is gone, nothing was attached or recorded.
-    expect(await storage().head('private', media.originalKey(sha(fake)))).toBeNull();
+    expect(await storage().head('work', media.originalKey(sha(fake)))).toBeNull();
     expect((await as(a, (ctx) => media.listListingMedia(ctx, id))).items).toEqual([]);
     await sync();
     expect(await objectOf(fake)).toBeNull();
@@ -247,7 +251,7 @@ describe('media upload pipeline', () => {
     expect(await put(jpeg('signed', 4_096))).toBeGreaterThanOrEqual(400);
     const { 'x-amz-checksum-sha256': _, ...unsigned } = entry?.upload?.headers ?? {};
     expect(await put(photo, unsigned)).toBeGreaterThanOrEqual(400);
-    expect(await storage().head('private', media.originalKey(sha(photo)))).toBeNull();
+    expect(await storage().head('work', media.originalKey(sha(photo)))).toBeNull();
     expect(await put(photo)).toBe(200);
     // Create-only: a stored original is never overwritten through a signed URL.
     expect(await put(photo)).toBe(412);
@@ -432,6 +436,42 @@ describe('media upload pipeline', () => {
     expect(first?.thumbUrl).toMatch(/\/v1\/[0-9a-f]{32}\/thumb\.webp\?/);
     expect(first?.thumbUrl).not.toContain(sha(done));
     expect(second?.thumbUrl).toBeNull();
+  });
+
+  it('[S3-F9] upload → process → variants end to end: originals and masters in the work bucket, none private', async () => {
+    const photo = new Uint8Array(
+      await sharp({ create: { width: 640, height: 480, channels: 3, background: '#264653' } })
+        .composite([{ input: Buffer.from(`<svg width="640" height="480"><text x="20" y="60">${RUN}</text></svg>`) }])
+        .jpeg()
+        .toBuffer(),
+    );
+    const hash = sha(photo);
+    const checked = await check(a, [photo]);
+    expect(new URL(checked.files[0]?.upload?.url ?? '').pathname).toMatch(/^\/inmolink-media-work\/originals\//);
+    expect(await upload(checked, [photo])).toEqual([200]);
+    await register(a, await listing(a), [photo]);
+    await sync();
+    expect(await storage().head('work', media.originalKey(hash))).toEqual({ sizeBytes: photo.byteLength });
+    expect(await storage().head('private', media.originalKey(hash))).toBeNull();
+
+    // The media pool runs on its own credentials: the media and work buckets only.
+    const config = storageConfigFromEnv(loadConfig(storageEnv));
+    const api = storage();
+    configureStorage(createS3Store({ ...config, ...MEDIA_S3 }));
+    try {
+      const done = await media.mediaJobs.processObject.spec.run(
+        { sha256: hash, agencyId: a.agencyId, upload: null, trigger: newId() },
+        { log, jobId: newId(), attempt: 1, progress: async () => {}, signal: new AbortController().signal },
+      );
+      expect(done).toEqual({ made: media.VARIANT_NAMES.length });
+    } finally {
+      configureStorage(api);
+    }
+    expect(await storage().head('work', media.masterKey(hash))).not.toBeNull();
+    expect(await storage().head('work', media.originalKey(hash))).toBeNull();
+    for (const n of media.VARIANT_NAMES)
+      expect(await storage().head('media', media.variantKey(hash, n))).not.toBeNull();
+    expect(await storage().head('private', media.masterKey(hash))).toBeNull();
   });
 
   it('[S3-06] reordering and editing 100 files stay within the dashboard query budget', async () => {
