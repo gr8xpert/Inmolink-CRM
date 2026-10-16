@@ -33,10 +33,13 @@ const mediaColumns = {
 export type StoredObject = { trusted: boolean; pipeline: number | null; variantsReady: number };
 
 /**
- * Stored objects among `hashes` (one PK probe each), whether their files can be trusted to stay, and which
- * variants they have.
+ * Stored objects among `hashes`, whether the agency may use their files without uploading them, and which
+ * variants they have. Trusted: not pending deletion, processing not failed, and already used by one of
+ * `agencyId`'s listings (S4-F1) — a hash another agency stored is no proof the caller has the file, so it is
+ * uploaded again. Two statements of index probes (`media_objects` PK, then `property_media_sha_idx`): one
+ * statement with a correlated `exists` lets the planner scan every object instead.
  */
-export async function storedObjects(tx: Tx, hashes: string[]): Promise<Map<string, StoredObject>> {
+export async function storedObjects(tx: Tx, agencyId: string, hashes: string[]): Promise<Map<string, StoredObject>> {
   if (hashes.length === 0) return new Map();
   const rows = await tx
     .select({
@@ -48,12 +51,26 @@ export async function storedObjects(tx: Tx, hashes: string[]): Promise<Map<strin
     })
     .from(mediaObjects)
     .where(inArray(mediaObjects.sha256, hashes));
+  if (rows.length === 0) return new Map();
+  const used = await tx
+    .selectDistinct({ sha256: propertyMedia.sha256 })
+    .from(propertyMedia)
+    .where(
+      and(
+        inArray(
+          propertyMedia.sha256,
+          rows.map((r) => r.sha256),
+        ),
+        eq(propertyMedia.agencyId, agencyId),
+      ),
+    );
+  const referenced = new Set(used.map((u) => u.sha256));
   // Pending deletion, or processing failed: its files may be gone — never skip the upload for it.
   return new Map(
     rows.map((r) => [
       r.sha256,
       {
-        trusted: r.deleteAfter === null && r.failedAt === null,
+        trusted: referenced.has(r.sha256) && r.deleteAfter === null && r.failedAt === null,
         pipeline: r.pipeline,
         variantsReady: r.variantsReady,
       },

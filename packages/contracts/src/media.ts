@@ -17,6 +17,11 @@ export const MEDIA_PER_LISTING_MAX = 100;
 export const MEDIA_UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] as const;
 /** How long a signed upload URL works. */
 export const MEDIA_UPLOAD_URL_TTL_SECONDS = 900;
+/**
+ * Bytes of signed upload URLs one agency may be given per hour (S4-F1): 20 GiB, about 2,000 large photos — a big
+ * import fits; a runaway script does not fill the store. More than a full check call (100 × 40 MB).
+ */
+export const MEDIA_UPLOAD_BYTES_PER_HOUR = 20 * 1024 * 1024 * 1024;
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, 'a lowercase hex SHA-256');
 export const MediaUploadType = z.enum(MEDIA_UPLOAD_TYPES);
@@ -51,6 +56,8 @@ const uniqueHashes = (files: { sha256: string }[]) => new Set(files.map((f) => f
 
 export const MediaCheckBody = z
   .object({
+    /** The listing the files are for: the caller must be able to change its media (S4-F1). */
+    listingId: z.uuid(),
     files: z
       .array(
         z
@@ -171,7 +178,10 @@ export const ListingVideo = z.object({ provider: VideoProvider, id: z.string(), 
 
 export const ListingMediaDto = z.object({
   id: z.uuid(),
-  /** The file's hash; null for a video link. */
+  /**
+   * The file's hash; null for a video link, and for another agency's listing (S4-F1: a hash would let it attach
+   * the file without having it).
+   */
   sha256: Sha256Hex.nullable(),
   kind: z.enum(['IMAGE', 'FLOOR_PLAN', 'VIDEO']),
   /** VIDEO only (S3-F5). */

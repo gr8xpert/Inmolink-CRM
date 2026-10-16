@@ -169,12 +169,12 @@ export function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow
           internalNotes: privates?.internalNotes ?? null,
           keysInfo: privates?.keysInfo ?? null,
           coordinates: exactLat === null || exactLng === null ? null : { lat: exactLat, lng: exactLng },
-          externalRef: row.externalRef,
+          externalRef: privates?.externalRef ?? null,
           lockedFields: row.lockedFields as LockableListingField[],
         }
       : null,
     // Owner only: the score has a freshness part, which would tell other agencies the listing went unconfirmed.
-    qualityScore: showPrivate ? row.qualityScore : null,
+    qualityScore: showPrivate ? (privates?.qualityScore ?? null) : null,
     freshness: showPrivate ? freshnessOf(row) : null,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
@@ -289,7 +289,6 @@ export async function createListing(
       ownerUserId,
       ref: newRef(),
       source: origin.source ?? 'MANUAL',
-      externalRef: origin.externalRef ?? null,
       legacyId: origin.legacyId ?? null,
       transactionType: input.transactionType,
       priceCents: input.priceCents ?? null,
@@ -319,6 +318,9 @@ export async function createListing(
     cadastralRef: input.cadastralRef ?? null,
     internalNotes: input.internalNotes ?? null,
     keysInfo: input.keysInfo ?? null,
+    // the feed's id for the listing, with that feed: owner only (S4-F1)
+    externalSource: origin.externalRef ? (origin.source ?? 'MANUAL') : null,
+    externalRef: origin.externalRef ?? null,
     exactLat: exact ? String(exact.lat) : null,
     exactLng: exact ? String(exact.lng) : null,
   });
@@ -378,11 +380,12 @@ export async function lockListingForMedia(ctx: Ctx, id: string): Promise<{ id: s
   return { id: row.id, agencyId: row.agencyId };
 }
 
-/** For the media module (S3-03): refuses a listing the caller cannot read, like `getListing`. */
-export async function assertListingReadable(ctx: Ctx, id: string): Promise<void> {
+/** For the media module (S3-03): refuses a listing the caller cannot read, like `getListing`; its owner agency. */
+export async function assertListingReadable(ctx: Ctx, id: string): Promise<{ agencyId: string }> {
   assertCan(ctx, 'listing.read');
   const row = await repo.getListing(ctx.tx, id);
   if (!row || (row.deletedAt && row.agencyId !== ctx.tenant.agencyId)) throw new AppError('LISTING_NOT_FOUND');
+  return { agencyId: row.agencyId };
 }
 
 /**

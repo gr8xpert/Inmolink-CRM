@@ -10,8 +10,10 @@ import * as properties from '../properties';
  * documents needs a listing role (`listing.create`).
  */
 export const MEDIA_ACTIONS = [
-  /** Upload files (check, signed URLs, register) and attach or detach them on listings; videos and documents too. */
+  /** Upload files (check, signed URLs, register) and attach or detach them on listings; videos too. */
   'media.manage',
+  /** Upload and delete the own agency's listing documents (S4-F1: split from `media.manage`). */
+  'media.documents.manage',
   /** Open the own agency's listing documents (S3-F5). Never in Client Mode: documents are internal. */
   'media.documents.read',
 ] as const;
@@ -20,9 +22,15 @@ export type MediaAction = (typeof MEDIA_ACTIONS)[number];
 /** Client Mode is read-only (PATTERNS §6): list every read action here, never a write. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<MediaAction> = new Set<MediaAction>([]);
 
-/** Staff impersonating a member may fix a listing's photos, like its other data (S3-02 decision). */
+/**
+ * Staff impersonating a member may fix a listing's photos, like its other data (S3-02 decision) — detaching one
+ * included: photos are public listing content, detaching is a reversible edit (attach it again) and
+ * carries the impersonation like every request (S4-F1 decision).
+ */
 export const MEDIA_IMPERSONATION: ImpersonationRules<MediaAction> = {
   'media.manage': 'allowed',
+  // Documents carry seller identities: staff acting as a member neither add nor remove them (S4-F1).
+  'media.documents.manage': 'forbidden',
   // Documents carry seller identities (nota simple, DNI): staff acting as a member do not open them (S3-F5).
   'media.documents.read': 'forbidden',
 };
@@ -35,6 +43,7 @@ export function can(ctx: Ctx, action: MediaAction): boolean {
     case 'media.manage':
       // Whoever lists properties uploads their photos (PARTNER members only read).
       return properties.can(ctx, 'listing.create');
+    case 'media.documents.manage':
     case 'media.documents.read':
       // Documents carry the seller's identity: only members who list properties open them, never PARTNER
       // members (who may read every listing) (S3 review).

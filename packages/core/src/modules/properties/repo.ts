@@ -682,13 +682,19 @@ const qualityColumns = {
   locationPrecision: properties.locationPrecision,
   lastConfirmedAt: properties.lastConfirmedAt,
   networkHiddenAt: properties.networkHiddenAt,
-  qualityScore: properties.qualityScore,
 };
-export type QualityRow = { [K in keyof typeof qualityColumns]: ListingRow[K] };
+export type QualityRow = { [K in keyof typeof qualityColumns]: ListingRow[K] } & { qualityScore: number | null };
 
-/** What the quality score reads of a listing visible to the caller (primary key); null if none. */
+/**
+ * What the quality score reads of a listing visible to the caller (primary key, then the private row's primary
+ * key); null if none. The stored score is the owner's (`property_privates`, S4-F1): null for anyone else.
+ */
 export async function qualityRow(tx: Tx, id: string): Promise<QualityRow | null> {
-  const [row] = await tx.select(qualityColumns).from(properties).where(eq(properties.id, id));
+  const [row] = await tx
+    .select({ ...qualityColumns, qualityScore: propertyPrivates.qualityScore })
+    .from(properties)
+    .leftJoin(propertyPrivates, eq(propertyPrivates.propertyId, properties.id))
+    .where(eq(properties.id, id));
   return row ?? null;
 }
 
@@ -706,10 +712,10 @@ export async function descriptionLengths(tx: Tx, propertyId: string): Promise<{ 
 /** Stores a recomputed score (no `version` bump: derived data); true when it changed. */
 export async function setQualityScore(tx: Tx, id: string, score: number): Promise<boolean> {
   const rows = await tx
-    .update(properties)
+    .update(propertyPrivates)
     .set({ qualityScore: score })
-    .where(and(eq(properties.id, id), sql`${properties.qualityScore} is distinct from ${score}`))
-    .returning({ id: properties.id });
+    .where(and(eq(propertyPrivates.propertyId, id), sql`${propertyPrivates.qualityScore} is distinct from ${score}`))
+    .returning({ id: propertyPrivates.propertyId });
   return rows.length > 0;
 }
 

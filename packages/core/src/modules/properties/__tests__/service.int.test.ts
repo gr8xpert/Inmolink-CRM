@@ -93,6 +93,42 @@ afterEach(restoreClock);
 afterAll(closeDb);
 
 describe('listing service', () => {
+  it("[S4-F1] a network reader cannot select external_ref of another agency's listing", async () => {
+    const imported = await as(owner, (ctx) =>
+      properties.createListing(ctx, CreateListingBody.parse({ propertyTypeId: ids.type, locationId: ids.location }), {
+        source: 'KYERO',
+        externalRef: `k-net-${RUN}`,
+      }),
+    );
+    await system((tx) =>
+      tx.execute(sql`update properties set visibility = 'SHARED', status = 'ACTIVE' where id = ${imported.id}`),
+    );
+    const read = (m: Member, q: ReturnType<typeof sql>) => as(m, async (ctx) => (await ctx.tx.execute(q)).rows);
+    // the reader sees the listing on the network …
+    expect(await read(reader, sql`select id from properties where id = ${imported.id}`)).toEqual([{ id: imported.id }]);
+    expect((await as(reader, (ctx) => properties.getListing(ctx, imported.id))).private).toBeNull();
+    // … but the shared row carries no feed reference or quality score, and the owner-only row is not there (RLS)
+    expect(await refusal(read(reader, sql`select external_ref from properties where id = ${imported.id}`))).toMatch(
+      /external_ref/,
+    );
+    expect(
+      await read(
+        reader,
+        sql`select external_ref, quality_score from property_privates where property_id = ${imported.id}`,
+      ),
+    ).toEqual([]);
+    expect(
+      await read(reader, sql`select property_id from property_privates where external_ref = ${`k-net-${RUN}`}`),
+    ).toEqual([]);
+    // the owner still reads it
+    expect(
+      await read(
+        owner,
+        sql`select external_source, external_ref from property_privates where property_id = ${imported.id}`,
+      ),
+    ).toEqual([{ external_source: 'KYERO', external_ref: `k-net-${RUN}` }]);
+  });
+
   it('[S3-02] new and imported listings get the agency defaults (500 bp, split 5000) unless the agent sets their own', async () => {
     const manual = await create(owner);
     expect(manual.commission).toEqual({

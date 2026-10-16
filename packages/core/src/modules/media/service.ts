@@ -2,9 +2,10 @@
  * media use cases (PATTERNS §7): `(ctx: Ctx, input) → DTO`. Authorize with `assertCan`, read and
  * write through `./repo`, emit outbox events in the same transaction, never call the network inside one.
  *
- * Upload pipeline (S3-03, PLAN §3 #33): the browser hashes each file and calls `checkUploads`; hashes the
- * platform stores already need no upload at all (zero bytes); the others get a signed PUT straight to object
- * storage, bound to the file's type, exact size and SHA-256 (the store refuses anything else), under the
+ * Upload pipeline (S3-03, PLAN §3 #33): the browser hashes each file and calls `checkUploads` for a listing it
+ * may change; hashes the agency already uses need no upload at all (zero bytes; S4-F1: a hash only another agency
+ * stored is uploaded again — no platform-wide existence probe); the others get a signed PUT straight to object
+ * storage, capped in bytes per agency per hour, bound to the file's type, exact size and SHA-256 (the store refuses anything else), under the
  * content-addressed key `originals/<sha256>` in the work bucket. `registerUploads` then checks each new
  * object in storage — size, and its magic bytes: non-images are deleted and refused — and attaches the files to
  * a listing. The media worker records new objects and recounts references (`media.syncObjects`), then processes
@@ -16,6 +17,7 @@ import {
   MEDIA_MAX_BYTES,
   MEDIA_PER_LISTING_MAX,
   MEDIA_THUMB_URL_TTL_SECONDS,
+  MEDIA_UPLOAD_BYTES_PER_HOUR,
   MEDIA_UPLOAD_TYPES,
   MEDIA_UPLOAD_URL_TTL_SECONDS,
   type MediaCheckBody,
@@ -31,6 +33,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
+import { type RateLimitRule, rateLimiter } from '@inmolink/platform/rate-limit';
 import { detectFileType, SNIFF_BYTES, storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
 import * as properties from '../properties';
@@ -48,6 +51,14 @@ export const originalKey = (sha256: string) => `originals/${sha256}`;
  */
 export const ORIGINALS_BUCKET = 'work' as const;
 
+/** Bytes of signed upload URLs per agency per hour (S4-F1); counted when the URLs are signed. */
+const UPLOAD_BYTES = {
+  name: 'media.upload-bytes',
+  scope: 'tenant',
+  limit: MEDIA_UPLOAD_BYTES_PER_HOUR,
+  windowSeconds: 3_600,
+} as const satisfies RateLimitRule;
+
 /** Storage checks run at most this many at once per register call. */
 const VERIFY_CONCURRENCY = 16;
 
@@ -58,13 +69,14 @@ type ObjectChange = { sha256: string; upload: Omit<VerifiedUpload, 'sha256'> | n
 /**
  * The listing's media as DTOs, each with a signed URL of its 320 px preview once the worker made it (S3-06).
  * Signing is local (no network call). The `media` bucket is not public yet (S3-F4 limits it to variant keys at
- * the edge), so the manager reads previews through short-lived signed URLs.
+ * the edge), so the manager reads previews through short-lived signed URLs. Hashes only for the owner agency
+ * (`own`, S4-F1): variant keys use the keyed public id, never the hash.
  */
-async function toDtos(rows: repo.MediaListRow[]): Promise<ListingMediaDto[]> {
+async function toDtos(rows: repo.MediaListRow[], own: boolean): Promise<ListingMediaDto[]> {
   return Promise.all(
     rows.map(async (row) => ({
       id: row.id,
-      sha256: row.sha256,
+      sha256: own ? row.sha256 : null,
       kind: row.kind as ListingMediaDto['kind'],
       video:
         row.kind === 'VIDEO' && row.videoProvider && row.videoId
@@ -90,8 +102,9 @@ async function toDtos(rows: repo.MediaListRow[]): Promise<ListingMediaDto[]> {
   );
 }
 
-async function listDtos(ctx: Ctx, listingId: string): Promise<ListingMediaList> {
-  return { items: await toDtos(await repo.listForListing(ctx.tx, listingId)) };
+/** The listing's media for `ctx`: hashes only when `ctx`'s agency owns it (`listingAgencyId`). */
+async function listDtos(ctx: Ctx, listingId: string, listingAgencyId: string): Promise<ListingMediaList> {
+  return { items: await toDtos(await repo.listForListing(ctx.tx, listingId), listingAgencyId === ctx.tenant.agencyId) };
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight; results in input order. */
@@ -117,18 +130,35 @@ async function emitReferencesChanged(ctx: Ctx, listingId: string, objects: Objec
   await emit(ctx.tx, messages);
 }
 
-/** `POST /v1/media/check`: which files are stored already, and signed upload URLs for the others. */
-export async function checkUploads(ctx: Ctx, input: MediaCheckBody): Promise<MediaCheckResult> {
-  assertCan(ctx, 'media.manage');
-  const stored = await repo.storedObjects(
-    ctx.tx,
-    input.files.map((f) => f.sha256),
-  );
+/**
+ * `POST /v1/media/check`: which files the agency stores already, and signed upload URLs for the others — for a
+ * listing whose media the caller may change (S4-F1). The URLs' bytes count against the agency's hourly cap
+ * (Redis, after the transaction); over it, nothing is signed.
+ */
+export async function checkUploads(run: CtxRunner, input: MediaCheckBody): Promise<MediaCheckResult> {
+  const { agencyId, stored } = await run(async (ctx) => {
+    assertCan(ctx, 'media.manage');
+    const listing = await properties.lockListingForMedia(ctx, input.listingId);
+    return {
+      agencyId: listing.agencyId,
+      stored: await repo.storedObjects(
+        ctx.tx,
+        listing.agencyId,
+        input.files.map((f) => f.sha256),
+      ),
+    };
+  });
+  // An object awaiting deletion, whose processing failed, or the agency never used is uploaded rather than trusted.
+  const toUpload = input.files.filter((f) => !stored.get(f.sha256)?.trusted);
+  const bytes = toUpload.reduce((sum, f) => sum + f.sizeBytes, 0);
+  if (bytes > 0) {
+    const limit = await rateLimiter().consume(UPLOAD_BYTES, agencyId, bytes);
+    if (!limit.allowed) throw new AppError('RATE_LIMITED', { retryAfterSeconds: limit.retryAfterSeconds });
+  }
   const expiresAt = new Date(clock.now().getTime() + MEDIA_UPLOAD_URL_TTL_SECONDS * 1000).toISOString();
-  // Signing is local (no network call), so it may run inside the transaction.
+  // Signing is local (no network call).
   const files = await Promise.all(
     input.files.map(async (f) => {
-      // An object awaiting deletion, or whose processing failed, is uploaded again rather than trusted.
       if (stored.get(f.sha256)?.trusted) {
         return { sha256: f.sha256, status: 'STORED' as const, upload: null };
       }
@@ -180,11 +210,12 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
   const hashes = input.files.map((f) => f.sha256);
   const stored = await run(async (ctx) => {
     assertCan(ctx, 'media.manage');
-    await properties.lockListingForMedia(ctx, input.listingId);
-    return repo.storedObjects(ctx.tx, hashes);
+    const listing = await properties.lockListingForMedia(ctx, input.listingId);
+    return repo.storedObjects(ctx.tx, listing.agencyId, hashes);
   });
 
-  // Objects the platform has not verified yet (or awaiting deletion, or failed) are checked in storage now.
+  // Objects the agency does not use yet (S4-F1), not verified yet, awaiting deletion or failed are checked in
+  // storage now: a hash alone attaches nothing.
   const unverified = hashes.filter((h) => !stored.get(h)?.trusted);
   const verified = new Map(
     (await mapLimit(unverified, VERIFY_CONCURRENCY, verifyUpload)).map((v) => [v.sha256, v] as const),
@@ -196,7 +227,7 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
     const current = await repo.listForListing(ctx.tx, listing.id);
     const attached = new Set(current.map((m) => m.sha256));
     const fresh = input.files.filter((f) => !attached.has(f.sha256));
-    if (fresh.length === 0) return { items: await toDtos(current) };
+    if (fresh.length === 0) return { items: await toDtos(current, true) };
     if (current.length + fresh.length > MEDIA_PER_LISTING_MAX) {
       throw new AppError('MEDIA_LIMIT_REACHED', { max: MEDIA_PER_LISTING_MAX, current: current.length });
     }
@@ -252,14 +283,14 @@ export async function registerUploads(run: CtxRunner, input: RegisterMediaBody):
         return { sha256, upload: v ? { sizeBytes: v.sizeBytes, contentType: v.contentType } : null };
       }),
     );
-    return { items: await toDtos(merged) };
+    return { items: await toDtos(merged, true) };
   });
 }
 
 /** `GET /v1/listings/:id/media`: the listing's media in order (other agencies never see documents, RLS). */
 export async function listListingMedia(ctx: Ctx, listingId: string): Promise<ListingMediaList> {
-  await properties.assertListingReadable(ctx, listingId);
-  return listDtos(ctx, listingId);
+  const listing = await properties.assertListingReadable(ctx, listingId);
+  return listDtos(ctx, listingId, listing.agencyId);
 }
 
 /**
@@ -296,7 +327,7 @@ export async function updateListingMedia(
   // Either way the cover can move: a floor plan was the cover, or the listing's first image just appeared.
   if (kind !== undefined) await repo.ensureCover(ctx.tx, listing.id);
   await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
-  return listDtos(ctx, listing.id);
+  return listDtos(ctx, listing.id, listing.agencyId);
 }
 
 /**
@@ -316,9 +347,9 @@ export async function reorderListingMedia(
     throw new AppError('MEDIA_ORDER_STALE', { expected: current.length });
   }
   const changed = await repo.reorder(ctx.tx, listing.id, input.ids);
-  if (changed === 0) return { items: await toDtos(current) };
+  if (changed === 0) return { items: await toDtos(current, true) };
   await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
-  return listDtos(ctx, listing.id);
+  return listDtos(ctx, listing.id, listing.agencyId);
 }
 
 /**
@@ -367,7 +398,7 @@ export async function addListingVideo(ctx: Ctx, input: { listingId: string; url:
     },
   ]);
   await emit(ctx.tx, mediaEvents.listingChanged({ listingId: listing.id }));
-  return listDtos(ctx, listing.id);
+  return listDtos(ctx, listing.id, listing.agencyId);
 }
 
 /**

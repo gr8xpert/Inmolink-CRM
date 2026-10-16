@@ -100,6 +100,26 @@ afterAll(async () => {
 }, 120_000);
 
 describe('bookmarks (S3-09)', () => {
+  it("[S4-F1] a member cannot read a colleague's bookmark notes through withTenant (RLS, not only the app filter)", async () => {
+    const listingId = await seedListing(owner, 'rls-note');
+    const f = await folder(owner, `RLS ${RUN}`);
+    const note = `private note ${RUN}`;
+    await bookmark(owner, f.id, listingId, note);
+    const read = (m: Member, q: ReturnType<typeof sql>) => as(m, async (ctx) => (await ctx.tx.execute(q)).rows);
+    // the colleague's own tenant transaction, no app filter: nothing of the owner's folders or bookmarks
+    expect(await read(agent, sql`select id from bookmark_folders where id = ${f.id}`)).toEqual([]);
+    expect(await read(agent, sql`select note from listing_bookmarks where folder_id = ${f.id}`)).toEqual([]);
+    expect(await read(agent, sql`select note from listing_bookmarks where note = ${note}`)).toEqual([]);
+    // nor change them
+    expect(
+      await read(agent, sql`update listing_bookmarks set note = 'x' where folder_id = ${f.id} returning id`),
+    ).toEqual([]);
+    expect(await read(agent, sql`delete from bookmark_folders where id = ${f.id} returning id`)).toEqual([]);
+    // the member themselves still reads them
+    expect(await read(owner, sql`select note from listing_bookmarks where folder_id = ${f.id}`)).toEqual([{ note }]);
+    await as(owner, (ctx) => properties.deleteBookmarkFolder(ctx, f.id));
+  });
+
   it('[S3-09] a member bookmarks own and network listings into folders with notes; folders stay private to the member', async () => {
     const own = await seedListing(owner, 'OWN1', { visibility: 'PRIVATE', status: 'DRAFT' });
     const network = await seedListing(other, 'NET1');

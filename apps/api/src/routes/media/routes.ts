@@ -50,7 +50,8 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags: ['media'],
         operationId: 'media.checkUploads',
-        summary: 'Which files (by SHA-256) are stored already; signed upload URLs for the others (≤ 100)',
+        summary:
+          "Which of a listing's files (by SHA-256) the agency stores already; signed upload URLs for the others (≤ 100)",
         body: MediaCheckBody,
         response: { 200: MediaCheckResult },
       },
@@ -59,7 +60,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
-      return app.withCtx(req, (ctx) => media.checkUploads(ctx, req.body));
+      return media.checkUploads(app.ctxRunner(req), req.body);
     },
   );
 

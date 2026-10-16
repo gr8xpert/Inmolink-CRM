@@ -197,6 +197,7 @@ export default function MediaManager(props: MediaManagerProps) {
       const keys = batch.map((e) => e.key);
       patchEntries(keys, { status: 'checking' });
       const checked: EditorResult<MediaCheckResult> = await checkMediaAction({
+        listingId: id,
         files: batch.map((e) => ({ sha256: e.sha256, sizeBytes: e.file.size, contentType: e.type })),
       });
       if (!checked.ok) {

@@ -101,8 +101,6 @@ export const properties = pgTable(
       .generatedAlwaysAs((): SQL => sql`upper(ref)`),
     /** Where the listing came from: `MANUAL`, a feed format (`KYERO`, …) or `LEGACY`. */
     source: text('source').notNull().default('MANUAL'),
-    /** The listing's id in its source feed (re-import dedupe). */
-    externalRef: text('external_ref'),
     /** v1 id for migrated listings (PLAN §14); `legacy_id_maps` keeps the global map. */
     legacyId: text('legacy_id'),
     status: listingStatusEnum('status').notNull().default('DRAFT'),
@@ -160,8 +158,6 @@ export const properties = pgTable(
     /** Cross-agency duplicate cluster (later sprint) and whether this row represents it. */
     duplicateClusterId: uuid('duplicate_cluster_id'),
     isCanonical: boolean('is_canonical').notNull().default(true),
-    /** 0–100 listing quality (photos, description, translations, location precision, freshness). */
-    qualityScore: integer('quality_score'),
     /**
      * Freshness (S3-08): when an agent last confirmed the listing is still on the market (create, the confirm
      * button, going ACTIVE again). 90 days later the agent is prompted (`confirm_prompted_at`); 120 days later
@@ -214,10 +210,6 @@ export const properties = pgTable(
       columns: [t.agencyId, t.ownerUserId],
       foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
     }),
-    // feed re-import dedupe: one listing per (agency, source, external ref)
-    uniqueIndex('properties_source_ref_uq')
-      .on(t.agencyId, t.source, t.externalRef)
-      .where(sql`${t.externalRef} is not null`),
     // migration: legacy id → listing within an agency
     index('properties_agency_legacy_idx').on(t.agencyId, t.legacyId).where(sql`${t.legacyId} is not null`),
     // FK (location delete/merge checks) + network fallback by location and type: uuid `=` is leakproof, so it
@@ -259,7 +251,6 @@ export const properties = pgTable(
       sql`(${t.lat} is null) = (${t.lng} is null)
         and (${t.lat} is null or (${t.lat} between -90 and 90 and ${t.lng} between -180 and 180))`,
     ),
-    check('properties_quality_ck', sql`${t.qualityScore} is null or ${t.qualityScore} between 0 and 100`),
     check('properties_version_ck', sql`${t.version} >= 1`),
   ],
 );
@@ -280,6 +271,17 @@ export const propertyPrivates = pgTable(
     /** The exact pin (the address): never shared; `properties.lat/lng` is the shown point. */
     exactLat: numeric('exact_lat', { precision: 9, scale: 6 }),
     exactLng: numeric('exact_lng', { precision: 9, scale: 6 }),
+    /**
+     * The listing's id in its source feed and that feed (re-import dedupe, S6): the owner's portal reference, so
+     * here rather than on the network-shared `properties` row (S4-F1). Both set or neither.
+     */
+    externalSource: text('external_source'),
+    externalRef: text('external_ref'),
+    /**
+     * 0–100 listing quality (photos, description, translations, location precision, freshness): owner only, its
+     * freshness part would tell other agencies the listing went unconfirmed (S4-F1).
+     */
+    qualityScore: integer('quality_score'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -289,6 +291,12 @@ export const propertyPrivates = pgTable(
       columns: [t.propertyId, t.agencyId],
       foreignColumns: [properties.id, properties.agencyId],
     }).onDelete('cascade'),
+    // feed re-import dedupe: one listing per (agency, source, external ref)
+    uniqueIndex('property_privates_source_ref_uq')
+      .on(t.agencyId, t.externalSource, t.externalRef)
+      .where(sql`${t.externalRef} is not null`),
+    check('property_privates_external_ck', sql`(${t.externalSource} is null) = (${t.externalRef} is null)`),
+    check('property_privates_quality_ck', sql`${t.qualityScore} is null or ${t.qualityScore} between 0 and 100`),
     check(
       'property_privates_coordinates_ck',
       sql`(${t.exactLat} is null) = (${t.exactLng} is null)

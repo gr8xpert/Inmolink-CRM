@@ -221,8 +221,14 @@ grant select, insert, update, delete on table public."auth_tokens" to app_system
 -- bookmark_folders: STRICT
 alter table public."bookmark_folders" enable row level security;
 alter table public."bookmark_folders" force row level security;
-create policy own_rows on public."bookmark_folders" to app_user
+create policy own_insert on public."bookmark_folders" for insert to app_user
+  with check (agency_id = app_agency());
+create policy own_update on public."bookmark_folders" for update to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_delete on public."bookmark_folders" for delete to app_user
+  using (agency_id = app_agency());
+create policy user_select on public."bookmark_folders" for select to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
 revoke all on table public."bookmark_folders" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."bookmark_folders" to app_user;
 grant select, insert, update, delete on table public."bookmark_folders" to app_system;
@@ -364,8 +370,14 @@ grant select, insert, update, delete on table public."legacy_id_maps" to app_sys
 -- listing_bookmarks: STRICT
 alter table public."listing_bookmarks" enable row level security;
 alter table public."listing_bookmarks" force row level security;
-create policy own_rows on public."listing_bookmarks" to app_user
+create policy own_insert on public."listing_bookmarks" for insert to app_user
+  with check (agency_id = app_agency());
+create policy own_update on public."listing_bookmarks" for update to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_delete on public."listing_bookmarks" for delete to app_user
+  using (agency_id = app_agency());
+create policy user_select on public."listing_bookmarks" for select to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
 revoke all on table public."listing_bookmarks" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."listing_bookmarks" to app_user;
 grant select, insert, update, delete on table public."listing_bookmarks" to app_system;

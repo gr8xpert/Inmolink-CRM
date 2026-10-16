@@ -95,7 +95,7 @@ export async function uploadListingDocument(
     throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { allowed: ['pdf'] });
   }
   const listing = await run(async (ctx) => {
-    assertCan(ctx, 'media.manage');
+    assertCan(ctx, 'media.documents.manage');
     return properties.lockListingForMedia(ctx, input.listingId);
   });
   if ((await scanner(input.body)) !== 'clean') throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { reason: 'scan' });
@@ -107,7 +107,7 @@ export async function uploadListingDocument(
   await storage().put('private', storageKey, input.body, { contentType: 'application/pdf' });
   try {
     const { dto, duplicate } = await run(async (ctx) => {
-      assertCan(ctx, 'media.manage');
+      assertCan(ctx, 'media.documents.manage');
       const locked = await properties.lockListingForMedia(ctx, input.listingId);
       if (locked.agencyId !== listing.agencyId) throw new AppError('FORBIDDEN');
       const current = await repo.listDocuments(ctx.tx, locked.agencyId, locked.id);
@@ -171,7 +171,7 @@ export async function openListingDocument(
  */
 export async function deleteListingDocument(run: CtxRunner, input: { listingId: string; documentId: string }) {
   await run(async (ctx) => {
-    assertCan(ctx, 'media.manage');
+    assertCan(ctx, 'media.documents.manage');
     const listing = await properties.lockListingForMedia(ctx, input.listingId);
     const removed = await repo.deleteDocument(ctx.tx, listing.agencyId, listing.id, input.documentId);
     if (!removed) throw new AppError('MEDIA_NOT_FOUND');

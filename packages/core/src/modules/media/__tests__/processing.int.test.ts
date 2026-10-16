@@ -7,6 +7,7 @@ import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { closeQueues, configureQueue, queueFor } from '@inmolink/platform/queue';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { type BucketName, configureStorage, createMemoryStore, type MemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
@@ -113,6 +114,7 @@ beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
   await configureQueue({ prefix: `test-media-${RUN}`, logger: log });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   store = createMemoryStore();
   configureStorage(store);
   media.configureMedia({ urlKey: `media-test-key-${RUN}-0123456789abcdef` });
@@ -148,6 +150,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await queueFor('media').obliterate({ force: true });
   await closeQueues();
+  await closeRateLimit();
   await closeDb();
 });
 
@@ -262,13 +265,12 @@ describe('media processing worker', () => {
     await expect(processObject(bad)).rejects.toThrow(/not readable/);
     expect(await objectRow(bad.sha256)).toMatchObject({ pipeline: null, failed: true });
     expect(original(bad.sha256)).toBeNull();
-    const checked = await as((ctx) =>
-      media.checkUploads(
-        ctx,
-        MediaCheckBody.parse({
-          files: [{ sha256: bad.sha256, sizeBytes: junk.byteLength, contentType: 'image/jpeg' }],
-        }),
-      ),
+    const checked = await media.checkUploads(
+      as,
+      MediaCheckBody.parse({
+        listingId,
+        files: [{ sha256: bad.sha256, sizeBytes: junk.byteLength, contentType: 'image/jpeg' }],
+      }),
     );
     expect(checked.files[0]?.status).toBe('UPLOAD');
   });

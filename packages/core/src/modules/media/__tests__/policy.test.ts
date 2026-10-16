@@ -39,6 +39,28 @@ describe('media policy', () => {
     expect(can(ctxAs('UNKNOWN_ROLE'), 'media.documents.read')).toBe(false);
   });
 
+  it('[S4-F1] impersonating staff cannot upload or delete a listing document; members who list properties can', () => {
+    const staff = (role: string): Ctx => {
+      const ctx = ctxAs(role);
+      return {
+        ...ctx,
+        actor: {
+          ...(ctx.actor as { kind: 'user'; userId: string; role: string }),
+          impersonatedBy: '01900000-0000-7000-8000-0000000000ff',
+        },
+      };
+    };
+    for (const role of ['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_ADMIN', 'DEVELOPER_AGENT']) {
+      expect(can(ctxAs(role), 'media.documents.manage'), role).toBe(true);
+      expect(can(staff(role), 'media.documents.manage'), role).toBe(false);
+    }
+    expect(can(ctxAs('PARTNER'), 'media.documents.manage')).toBe(false);
+    expect(can(ctxAs('AGENT', { clientMode: true }), 'media.documents.manage')).toBe(false);
+    expect(MEDIA_IMPERSONATION['media.documents.manage']).toBe('forbidden');
+    // photos stay a listing edit staff may make (S3-02, S4-F1 decision)
+    expect(can(staff('AGENCY_ADMIN'), 'media.manage')).toBe(true);
+  });
+
   it('[S3-03] impersonation rules cover every action', () => {
     expectImpersonationRules({
       actions: MEDIA_ACTIONS,

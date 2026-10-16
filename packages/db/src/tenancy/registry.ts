@@ -384,7 +384,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // Listings (S3-01, PLAN §6, §3 #57). Other verified agencies read a listing that is SHARED or PUBLIC,
   // ACTIVE and not deleted, while its owner is listed in the directory (VERIFIED: a suspended owner's
   // listings leave the network) — and with share scope PREFERRED only if the owner prefers the reader.
-  // Only shareable columns: private ones live in `property_privates`. A listing unconfirmed for 120 days leaves
+  // Only shareable columns: private ones (S4-F1: also the feed reference and quality score) live in
+  // `property_privates`. A listing unconfirmed for 120 days leaves
   // the network (S3-08: `network_hidden_at`, set by the freshness sweep, cleared by a confirmation).
   properties: {
     kind: 'NETWORK_READ',
@@ -445,9 +446,17 @@ export const tenantTables: Record<string, TenantTable> = {
   // S3-07: the agency's tags on its listings (internal), members' saved list views and bulk action records.
   property_tags: { kind: 'STRICT', base: { tag: 'isolation' } },
   listing_views: { kind: 'STRICT', base: { name: 'isolation view', columns: '{ref}' } },
-  // S3-09: members' bookmark folders and the listings saved in them (private to the member).
-  bookmark_folders: { kind: 'STRICT', base: { name: 'isolation folder' } },
-  listing_bookmarks: { kind: 'STRICT' },
+  // S3-09: members' bookmark folders and the listings saved in them (private to the member). S4-F1: a member reads
+  // only their own (`user_id = app_user_id()`), not only through the app's filter — colleagues' notes stay theirs.
+  bookmark_folders: {
+    kind: 'STRICT',
+    base: { name: 'isolation folder' },
+    userSelect: { sql: 'user_id = app_user_id()', samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] } },
+  },
+  listing_bookmarks: {
+    kind: 'STRICT',
+    userSelect: { sql: 'user_id = app_user_id()', samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] } },
+  },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
   // S3-10: an agency's own text for listings it presents — used only in its own channels.

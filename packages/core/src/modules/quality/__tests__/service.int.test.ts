@@ -6,6 +6,7 @@ import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureStorage, createS3Store, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -66,7 +67,7 @@ const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('he
 /** What the media manager does: check, PUT the new files to their signed URLs, register them on the listing. */
 async function addPhotos(m: Founder, listingId: string, files: Uint8Array[]): Promise<void> {
   const files_ = files.map((f) => ({ sha256: sha(f), sizeBytes: f.byteLength, contentType: 'image/jpeg' as const }));
-  const checked = await as(m, (ctx) => media.checkUploads(ctx, MediaCheckBody.parse({ files: files_ })));
+  const checked = await media.checkUploads((fn) => as(m, fn), MediaCheckBody.parse({ listingId, files: files_ }));
   for (const entry of checked.files) {
     if (!entry.upload) continue;
     const body = files.find((f) => sha(f) === entry.sha256);
@@ -137,6 +138,7 @@ const networkView = (m: Founder, id: string) =>
 beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   configureStorage(createS3Store(storageConfigFromEnv(loadConfig(storageEnv))));
   media.configureMedia({ urlKey: `quality-test-key-${RUN}-0123456789abcdef` });
   [a, b] = await Promise.all([createFounder(), createFounder()]);
@@ -165,6 +167,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await system((tx) => tx.execute(sql`delete from properties where agency_id in (${a.agencyId}, ${b.agencyId})`));
+  await closeRateLimit();
   await closeDb();
 });
 

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
   CreateListingBody,
+  MEDIA_BATCH_MAX,
+  MEDIA_MAX_BYTES,
+  MEDIA_UPLOAD_BYTES_PER_HOUR,
   MediaCheckBody,
   type MediaCheckResult,
   RegisterMediaBody,
@@ -12,6 +15,7 @@ import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureStorage, createS3Store, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
@@ -70,8 +74,21 @@ async function listing(m: Founder): Promise<string> {
   return dto.id;
 }
 
-const check = (m: Founder, files: Uint8Array[]) =>
-  as(m, (ctx) => media.checkUploads(ctx, MediaCheckBody.parse({ files: files.map((f) => fileOf(f)) })));
+/** Each member's listing that checks name when a test does not (S4-F1: a check is for a listing). */
+const scratch = new Map<string, Promise<string>>();
+const scratchOf = (m: Founder) => {
+  let id = scratch.get(m.userId);
+  if (!id) {
+    id = listing(m);
+    scratch.set(m.userId, id);
+  }
+  return id;
+};
+const check = async (m: Founder, files: Uint8Array[], listingId?: string) =>
+  media.checkUploads(
+    runner(m),
+    MediaCheckBody.parse({ listingId: listingId ?? (await scratchOf(m)), files: files.map((f) => fileOf(f)) }),
+  );
 const register = (m: Founder, listingId: string, files: Uint8Array[], extra: Partial<RegisterMediaBody> = {}) =>
   media.registerUploads(
     runner(m),
@@ -132,6 +149,7 @@ const objectOf = async (bytes: Uint8Array) =>
 beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   configureStorage(createS3Store(storageConfigFromEnv(loadConfig(storageEnv))));
   media.configureMedia({ urlKey: `media-test-key-${RUN}-0123456789abcdef` });
   [a, b] = await Promise.all([createFounder(), createFounder()]);
@@ -159,31 +177,101 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(restoreClock);
-afterAll(closeDb);
+afterAll(async () => {
+  await closeRateLimit();
+  await closeDb();
+});
 
 describe('media upload pipeline', () => {
-  it('[S3-03] uploading a file that already exists anywhere in the system transfers zero bytes and increments refcount', async () => {
+  it('[S3-03] uploading a file the agency already uses transfers zero bytes and increments refcount', async () => {
     const photo = jpeg('shared');
     // Agency A uploads it first: one signed PUT, then register.
-    const first = await check(a, [photo]);
+    const listingA = await listing(a);
+    const first = await check(a, [photo], listingA);
     expect(first.files).toEqual([expect.objectContaining({ sha256: sha(photo), status: 'UPLOAD' })]);
     expect(await upload(first, [photo])).toEqual([200]);
-    const listingA = await listing(a);
     await register(a, listingA, [photo]);
     await sync();
     expect(await objectOf(photo)).toMatchObject({ refcount: 1, delete_after: null, content_type: 'image/jpeg' });
 
-    // Agency B has the same file: nothing to upload, and its listing uses the stored object.
+    // The same file on another of A's listings: nothing to upload, the listing uses the stored object.
     bytesSent = 0;
-    const second = await check(b, [photo]);
+    const listingA2 = await listing(a);
+    const second = await check(a, [photo], listingA2);
     expect(second.files).toEqual([{ sha256: sha(photo), status: 'STORED', upload: null }]);
     await upload(second, [photo]);
     expect(bytesSent).toBe(0);
-    const listingB = await listing(b);
-    const attached = await register(b, listingB, [photo]);
+    const attached = await register(a, listingA2, [photo]);
     expect(attached.items).toEqual([expect.objectContaining({ sha256: sha(photo), position: 0, isCover: true })]);
     await sync();
     expect((await objectOf(photo))?.refcount).toBe(2);
+  });
+
+  it('[S4-F1] registering a hash the agency never referenced, without uploading it, is refused; uploaded again it attaches', async () => {
+    const photo = jpeg('foreign');
+    const listingA = await listing(a);
+    await upload(await check(a, [photo], listingA), [photo]);
+    await register(a, listingA, [photo]);
+    await sync();
+    // Processed: the original has left the work bucket (S3-04).
+    await storage().delete('work', media.originalKey(sha(photo)));
+
+    // B learns nothing from a check (no platform-wide existence probe) and cannot attach by hash alone.
+    const listingB = await listing(b);
+    expect((await check(b, [photo], listingB)).files).toEqual([
+      expect.objectContaining({ sha256: sha(photo), status: 'UPLOAD' }),
+    ]);
+    expect(await refusal(register(b, listingB, [photo]))).toBe('MEDIA_NOT_UPLOADED');
+    expect((await as(b, (ctx) => media.listListingMedia(ctx, listingB))).items).toEqual([]);
+
+    // With the file, B uploads it again (re-hashed by the store) and attaches it to the same stored object.
+    expect(await upload(await check(b, [photo], listingB), [photo])).toEqual([200]);
+    const attached = await register(b, listingB, [photo]);
+    expect(attached.items).toEqual([expect.objectContaining({ sha256: sha(photo), isCover: true })]);
+    await sync();
+    expect((await objectOf(photo))?.refcount).toBe(2);
+  });
+
+  it('[S4-F1] the media list leaves the hash out for other agencies', async () => {
+    const photo = jpeg('network');
+    const id = await listing(a);
+    await upload(await check(a, [photo], id), [photo]);
+    await register(a, id, [photo]);
+    await system((tx) =>
+      tx.execute(sql`update properties set visibility = 'SHARED', status = 'ACTIVE' where id = ${id}`),
+    );
+    const own = await as(a, (ctx) => media.listListingMedia(ctx, id));
+    expect(own.items).toEqual([expect.objectContaining({ sha256: sha(photo) })]);
+    const network = await as(b, (ctx) => media.listListingMedia(ctx, id));
+    expect(network.items).toEqual([expect.objectContaining({ id: own.items[0]?.id, sha256: null })]);
+  });
+
+  it('[S4-F1] signed upload URLs are for a listing the caller may change, capped in bytes per agency per hour', async () => {
+    const photo = jpeg('target');
+    const listingA = await listing(a);
+    // another agency's listing, or none at all: nothing is signed
+    expect(await refusal(check(b, [photo], listingA))).toBe('LISTING_NOT_FOUND');
+    expect(await refusal(check(b, [photo], newId()))).toBe('LISTING_NOT_FOUND');
+
+    // A fresh agency: 100 x 40 MB per call, so the 20 GiB hourly cap allows five calls and refuses the sixth.
+    const c = await createFounder();
+    const id = await listing(c);
+    const big = () =>
+      Array.from({ length: MEDIA_BATCH_MAX }, () => ({
+        sha256: createHash('sha256').update(newId()).digest('hex'),
+        sizeBytes: MEDIA_MAX_BYTES,
+        contentType: 'image/jpeg' as const,
+      }));
+    const calls = Math.floor(MEDIA_UPLOAD_BYTES_PER_HOUR / (MEDIA_BATCH_MAX * MEDIA_MAX_BYTES));
+    for (let i = 0; i < calls; i++) {
+      const res = await media.checkUploads(runner(c), MediaCheckBody.parse({ listingId: id, files: big() }));
+      expect(res.files.every((f) => f.status === 'UPLOAD')).toBe(true);
+    }
+    expect(await refusal(media.checkUploads(runner(c), MediaCheckBody.parse({ listingId: id, files: big() })))).toBe(
+      'RATE_LIMITED',
+    );
+    // other agencies are not affected
+    expect((await check(a, [photo], listingA)).files[0]?.status).toBe('UPLOAD');
   });
 
   it('[S3-03] non-image bytes with an image extension are rejected', async () => {
@@ -356,9 +444,10 @@ describe('media upload pipeline', () => {
 
   it('[S3-03] a check of 100 files is one query and signs locally', async () => {
     const files = Array.from({ length: 100 }, (_, i) => fileOf(jpeg(`batch-${i}`)));
-    const n = await countQueries(() => as(a, (ctx) => media.checkUploads(ctx, MediaCheckBody.parse({ files }))));
-    // member context (membership + agency) and the one stored-hash probe
-    expect(n).toBeLessThanOrEqual(4);
+    const listingId = await listing(a);
+    const n = await countQueries(() => media.checkUploads(runner(a), MediaCheckBody.parse({ listingId, files })));
+    // member context (membership + agency), the listing's lock and the one stored-hash probe
+    expect(n).toBeLessThanOrEqual(6);
   });
 
   // --- media manager (S3-06) ---------------------------------------------------------------------------------
