@@ -29,6 +29,8 @@ export interface BuiltDoc {
   developmentId: string | null;
   public: boolean;
   status: string;
+  /** A listing's share scope (network search filter, S5-02); null for units. Never inside the documents. */
+  shareScope: 'ALL' | 'PREFERRED' | null;
   version: number;
   card: ListingCardDoc | UnitCardDoc;
   detail: ListingDetailDoc | UnitDetailDoc;
@@ -141,6 +143,7 @@ export function buildListingDocs(
       developmentId: l.developmentId,
       public: l.visibility === 'PUBLIC',
       status: l.status,
+      shareScope: l.shareScope,
       version: l.version,
       card,
       detail,
@@ -195,6 +198,7 @@ export function buildUnitDocs(
       developmentId: u.developmentId,
       public: d.open,
       status: u.status,
+      shareScope: null,
       version: u.version,
       card,
       detail,

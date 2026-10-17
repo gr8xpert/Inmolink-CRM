@@ -1,0 +1,2 @@
+ALTER TABLE "listing_read_models" ADD COLUMN "share_scope" text;--> statement-breakpoint
+ALTER TABLE "listing_read_models" ADD CONSTRAINT "listing_read_models_share_scope_ck" CHECK ("listing_read_models"."share_scope" is null or "listing_read_models"."share_scope" in ('ALL', 'PREFERRED'));

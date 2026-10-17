@@ -78,6 +78,18 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
      -d '{"name":"request-apps","actions":["search"],"indexes":["*"],"expiresAt":null}'
    ```
 
+   And the worker's **indexing** key (S5-02): settings, documents and tasks of the listings indexes only — never
+   the master key, which can create keys. Put its `key` in `MEILI_INDEXING_KEY` (the worker reads it as
+   `MEILI_MASTER_KEY`):
+
+   ```sh
+   curl -sX POST http://<meili>:7700/keys -H "Authorization: Bearer $MEILI_MASTER_KEY"      -H 'Content-Type: application/json'      -d '{"name":"indexing","actions":["search","documents.*","indexes.*","settings.*","tasks.get","stats.get"],"indexes":["listings*"],"expiresAt":null}'
+   ```
+
+   The worker applies the listings index settings at boot (retrying until search answers). After the first deploy
+   that carries migration 0065 (read-model share scope), run `pnpm ops:rebuild-read-models` once: rows written
+   before it count as PREFERRED (narrowest) until rebuilt.
+
    Turnstile (H3): create a widget for `app.inmolink.es` (+ staging) and set `TURNSTILE_SITE_KEY` /
    `TURNSTILE_SECRET_KEY` for web. Without them, the per-email login ceiling is a hard block again.
 7. First deploy creates the app roles: export `DATABASE_URL_ADMIN=postgres://postgres:<superuser

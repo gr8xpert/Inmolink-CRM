@@ -253,6 +253,11 @@ describe('edge and access', () => {
       if (k.env.clear.APP_ROLE === 'http') expect(k.env.secret, app).not.toContain('MEILI_MASTER_KEY');
     }
     for (const app of ['api', 'feed-api']) expect(kamal(app).env.secret, app).toContain('MEILI_SEARCH_KEY');
+    // S5-02: the indexing pool gets a key scoped to the listings indexes under the variable name, never the master.
+    const worker = kamal('worker');
+    expect(worker.servers.workers?.env?.secret).toContain('MEILI_MASTER_KEY:MEILI_INDEXING_KEY');
+    expect(worker.servers.workers?.env?.secret).not.toContain('MEILI_MASTER_KEY');
+    expect(JSON.stringify(worker.servers.media)).not.toContain('MEILI');
   });
 
   it('[S0-15] CI keys never reach db hosts; images are pinned by digest', () => {

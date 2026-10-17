@@ -27,6 +27,8 @@ export interface ReadModelListing {
   ref: string;
   status: repo.ReadModelRow['status'];
   visibility: repo.ReadModelRow['visibility'];
+  /** Who sees it in network search (index only, never in documents). */
+  shareScope: repo.ReadModelRow['shareScope'];
   transactionType: repo.ReadModelRow['transactionType'];
   priceCents: number | null;
   currency: string;

@@ -26,6 +26,8 @@ servers:
         # Every pool but `media` (its own role below).
         WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,ai,social,pdf,maintenance"
         EMAIL_DRIVER: "smtp"
+        # The api host's Meilisearch accessory (S5-02): the indexing pool applies settings and writes documents.
+        MEILI_URL: "http://inmolink-api-meilisearch:7700"
       # Only these pools: the outbox and cross-tenant jobs (app_system), email, stored credentials, tokens.
       secret:
         - DATABASE_URL_APP_USER
@@ -41,6 +43,8 @@ servers:
         - ENCRYPTION_KEYS
         - ENCRYPTION_ACTIVE_KEY_ID
         - HMAC_KEY
+        # Not the master key (it can mint keys): a key scoped to the listings indexes (docs/runbooks/deploy.md step 6).
+        - MEILI_MASTER_KEY:MEILI_INDEXING_KEY
   # Image decoding of untrusted uploads (S3-04) in its own container: a decoder crash or memory blow-up stays
   # here, away from the outbox, email and the other pools. Budget 512 MB RSS; the hard cap leaves headroom above it.
   # Least privilege (S3-F4): only the shared variables below plus the narrow `app_media` role — no app_system, SMTP,

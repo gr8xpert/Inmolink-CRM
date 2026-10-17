@@ -32,7 +32,8 @@ export async function lockTargets(tx: Tx, ids: readonly string[]): Promise<void>
 
 /**
  * Upserts documents in one statement. A row changes only with a newer source version, or the same version and
- * different content (media processed, a taxonomy rename): never backwards, and an unchanged rebuild writes nothing.
+ * different content (media processed, a taxonomy rename) or share scope: never backwards, and an unchanged rebuild
+ * writes nothing.
  */
 export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<number> {
   if (docs.length === 0) return 0;
@@ -48,6 +49,7 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<num
         developmentId: d.developmentId,
         public: d.public,
         status: d.status,
+        shareScope: d.shareScope,
         version: d.version,
         card: d.card,
         detail: d.detail,
@@ -62,14 +64,18 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<num
         developmentId: excluded('development_id'),
         public: excluded('public'),
         status: excluded('status'),
+        shareScope: excluded('share_scope'),
         version: excluded('version'),
         card: excluded('card'),
         detail: excluded('detail'),
         etag: excluded('etag'),
         updatedAt: sql`now()`,
       },
+      // Share scope is not in the documents (no etag change): a bulk scope change must still reach the row.
       setWhere: sql`excluded.version > ${listingReadModels.version}
-        or (excluded.version = ${listingReadModels.version} and excluded.etag <> ${listingReadModels.etag})`,
+        or (excluded.version = ${listingReadModels.version}
+            and (excluded.etag <> ${listingReadModels.etag}
+                 or excluded.share_scope is distinct from ${listingReadModels.shareScope}))`,
     })
     .returning({ targetId: listingReadModels.targetId });
   return rows.length;
@@ -163,4 +169,31 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
         locale === undefined ? undefined : eq(listingReadModels.locale, locale),
       ),
     );
+}
+
+/**
+ * These targets' rows as the index builder reads them: the card, and only the description and features of the
+ * detail (not its media). Primary key range scans per target.
+ */
+export async function readIndexRows(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      targetId: listingReadModels.targetId,
+      locale: listingReadModels.locale,
+      kind: listingReadModels.kind,
+      agencyId: listingReadModels.agencyId,
+      developmentId: listingReadModels.developmentId,
+      public: listingReadModels.public,
+      status: listingReadModels.status,
+      shareScope: listingReadModels.shareScope,
+      version: listingReadModels.version,
+      etag: listingReadModels.etag,
+      card: listingReadModels.card,
+      description: sql<string | null>`${listingReadModels.detail}->>'description'`,
+      features: sql<{ id: string }[] | null>`${listingReadModels.detail}->'features'`,
+      createdAt: listingReadModels.createdAt,
+    })
+    .from(listingReadModels)
+    .where(inArray(listingReadModels.targetId, [...ids]));
 }

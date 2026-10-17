@@ -456,6 +456,13 @@
       "when": 1792236645348,
       "tag": "0064_listing_read_models",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1792243463350,
+      "tag": "0065_read_model_share_scope",
+      "breakpoints": true
     }
   ]
 }

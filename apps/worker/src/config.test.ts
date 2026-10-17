@@ -50,4 +50,11 @@ describe('worker env per pool', () => {
     expect(Object.keys(workerEnvFor(['media', 'indexing']))).toContain('REDIS_CACHE_URL');
     expect(read('main.ts')).toContain('if (config.REDIS_CACHE_URL) await configureCache(');
   });
+
+  it('[S5-02] the search admin key only with the indexing pool, which applies index settings at boot', () => {
+    expect(Object.keys(workerEnvFor(['indexing']))).toEqual(expect.arrayContaining(['MEILI_URL', 'MEILI_MASTER_KEY']));
+    expect(Object.keys(workerEnvFor(['media']))).not.toContain('MEILI_MASTER_KEY');
+    expect(Object.keys(workerEnvFor(['outbox', 'email']))).not.toContain('MEILI_MASTER_KEY');
+    expect(read('main.ts')).toContain('.ensureListingsIndex()');
+  });
 });

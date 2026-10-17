@@ -11,10 +11,11 @@ import {
   UpdateListingBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withPublicRead, withSystem } from '@inmolink/db';
-import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
+import { createMeiliEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
@@ -302,6 +303,7 @@ describe('listing read models', () => {
           developmentId: null,
           public: false,
           status: 'ACTIVE',
+          shareScope: 'ALL',
           version: latest - 2,
           card: older,
           detail: current?.detail as never,
@@ -575,5 +577,175 @@ describe('unit read models', () => {
     await as(a, (ctx) => developments.deleteDevelopment(ctx, dev.id, current.version));
     await run(await deliver(a));
     expect(await docs(unitId)).toEqual([]);
+  });
+});
+
+describe('listings search index (S5-02)', () => {
+  const engine = () =>
+    createMeiliEngine({ url: process.env.MEILI_URL as string, apiKey: process.env.MEILI_MASTER_KEY as string });
+  const indexDef = search.listingsIndex(`t_listings_${RUN.replace(/[^A-Za-z0-9]/g, '')}`);
+  const indexDocs = (targetIds: string[]) => system((tx) => search.indexDocsFor(tx, targetIds));
+
+  beforeAll(() => loadStackEnv('test'));
+  afterAll(async () => {
+    await engine().dropIndex(indexDef.uid);
+  });
+
+  it('[S5-02] index documents are built from read models: localized text, ids and numbers, nothing client-facing', async () => {
+    const id = await sharedListing(a, { bedrooms: 4, bathrooms: 3, builtM2: 210, priceCents: 89_000_000 });
+    await translate(a, id, 'es', `Chalet con piscina ${RUN}`, 'Descripción larga');
+    await update(a, id, { shareScope: 'PREFERRED' });
+    await as(a, async (ctx) =>
+      properties.setListingFeatures(ctx, id, {
+        version: (await properties.getListing(ctx, id)).version,
+        featureIds: [ids.feature],
+      }),
+    );
+    await run(await deliver(a));
+    const missing = newId();
+    const { docs: built, missing: gone } = await indexDocs([id, missing]);
+    expect(gone).toEqual([missing]);
+    const doc = built[0];
+    expect(doc).toMatchObject({
+      id,
+      kind: 'LISTING',
+      ownerAgencyId: a.agencyId,
+      developmentId: null,
+      status: 'ACTIVE',
+      visibility: 'SHARED',
+      shareScope: 'PREFERRED',
+      transactionType: 'SALE',
+      propertyTypeId: ids.type,
+      featureIds: [ids.feature],
+      priceCents: 89_000_000,
+      priceOnRequest: false,
+      beds: 4,
+      baths: 3,
+      areaM2: 210,
+      title_en: `Villa ${RUN}`,
+      title_es: `Chalet con piscina ${RUN}`,
+      // de has no translation: the fallback text the website shows is what its visitors search.
+      title_de: `Villa ${RUN}`,
+      description_es: 'Descripción larga',
+    });
+    expect(doc?.locationIds).toEqual([ids.country, expect.any(String), ids.city]);
+    expect(doc?.place_en).toBe(`Docton ${RUN}, North ${RUN}, Readland ${RUN}`);
+    // Only these fields: no agency name, contact, commission or media.
+    const allowed = new Set([
+      'id',
+      'kind',
+      'ownerAgencyId',
+      'developmentId',
+      'status',
+      'visibility',
+      'shareScope',
+      'transactionType',
+      'propertyTypeId',
+      'locationIds',
+      'featureIds',
+      'priceCents',
+      'priceOnRequest',
+      'beds',
+      'baths',
+      'areaM2',
+      'plotM2',
+      'geo',
+      'ref',
+      'publishedAt',
+      'version',
+      'sourceHash',
+    ]);
+    const extra = Object.keys(doc ?? {}).filter(
+      (k) => !allowed.has(k) && !/^(title|place|description)_[a-z]{2}$/.test(k),
+    );
+    expect(extra).toEqual([]);
+
+    // A share-scope change alone (same document content) still reaches the read model and the index document.
+    await update(a, id, { shareScope: 'ALL' });
+    await run(await deliver(a));
+    expect((await indexDocs([id])).docs[0]?.shareScope).toBe('ALL');
+  });
+
+  it('[S5-02] index settings are idempotently applied on boot; the index answers filter, facet and locale text queries', async () => {
+    const e = engine();
+    const first = await search.ensureListingsIndex(e, indexDef);
+    expect(first.created).toBe(true);
+    expect(await search.ensureListingsIndex(e, indexDef)).toEqual({ created: false, changed: [] });
+
+    const dev = await as(a, (ctx) =>
+      developments.createDevelopment(
+        ctx,
+        CreateDevelopmentBody.parse({
+          ref: code('IX'),
+          name: `Index Heights ${RUN}`,
+          locationId: ids.city,
+          coordinates: { lat: 36.5, lng: -4.9 },
+        }),
+      ),
+    );
+    const created = await as(a, (ctx) =>
+      developments.createUnits(
+        ctx,
+        dev.id,
+        CreateUnitsBody.parse({
+          units: [{ ref: 'IX-1', propertyTypeId: ids.type, bedrooms: 2, priceCents: 31_000_000 }],
+        }),
+      ),
+    );
+    const unitId = created.items[0]?.id as string;
+    const listingId = await sharedListing(a, {
+      bedrooms: 2,
+      priceCents: 40_000_000,
+      energyRating: 'C',
+      energyEmissionsRating: 'C',
+    });
+    await translate(a, listingId, 'es', `Ático luminoso ${RUN}`);
+    await update(a, listingId, { visibility: 'PUBLIC' });
+    await run(await deliver(a));
+
+    const { docs: built } = await indexDocs([unitId, listingId]);
+    const unit = built.find((d) => d.id === unitId);
+    expect(unit).toMatchObject({
+      kind: 'UNIT',
+      visibility: 'RESTRICTED', // PRIVATE_NETWORK development
+      shareScope: 'ALL',
+      developmentId: dev.id,
+      areaM2: null,
+      geo: { lat: 36.5, lng: -4.9 },
+    });
+    await e.waitForTask(await e.upsert(indexDef.uid, built));
+
+    const mine = { op: 'eq', field: 'ownerAgencyId', value: a.agencyId } as const;
+    const text = await e.search(indexDef, {
+      text: `luminoso ${RUN}`,
+      searchOn: ['title_es'],
+      locale: 'es',
+      filter: mine,
+      limit: 10,
+    });
+    expect(text.ids).toEqual([listingId]);
+
+    const faceted = await e.search(indexDef, {
+      filter: {
+        op: 'and',
+        filters: [
+          mine,
+          { op: 'in', field: 'locationIds', values: [ids.country] },
+          { op: 'range', field: 'beds', gte: 2 },
+        ],
+      },
+      facets: ['kind', 'visibility', 'propertyTypeId'],
+      sort: [{ field: 'priceCents', dir: 'asc' }],
+      limit: 10,
+    });
+    expect(faceted.ids).toEqual([unitId, listingId]);
+    expect(faceted.facets.visibility).toEqual({ PUBLIC: 1, RESTRICTED: 1 });
+    expect(faceted.facets.propertyTypeId).toEqual({ [ids.type]: 2 });
+
+    const websites = await e.search(indexDef, {
+      filter: { op: 'and', filters: [mine, { op: 'eq', field: 'visibility', value: 'PUBLIC' }] },
+      limit: 10,
+    });
+    expect(websites.ids).toEqual([listingId]);
   });
 });

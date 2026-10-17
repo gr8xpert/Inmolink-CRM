@@ -10,12 +10,19 @@
  */
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
+import {
+  type EnsureIndexResult,
+  type IndexDefinition,
+  type SearchEngine,
+  searchEngine,
+} from '@inmolink/platform/search';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { type BuiltDoc, buildListingDocs, buildUnitDocs } from './build';
+import { buildIndexDoc, type IndexSourceRow, type ListingIndexDoc, listingsIndex } from './index-doc';
 import * as repo from './repo';
 
 export type ReadModelKind = BuiltDoc['kind'];
@@ -253,4 +260,39 @@ export async function rebuildAllReadModels(
 /** Tests and ops checks: these targets' stored documents. */
 export function readModelDocs(tx: Tx, ids: readonly string[], locale?: string) {
   return repo.readDocs(tx, ids, locale);
+}
+
+/**
+ * Index documents of these targets, built from their read models (S5-02); `missing` have no read model any more
+ * (their index documents must go). One statement per `READ_MODEL_BATCH` targets. Worker-facing: raw `tx` under `withSystem`.
+ */
+export async function indexDocsFor(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ docs: ListingIndexDoc[]; missing: string[] }> {
+  const unique = [...new Set(ids)];
+  const rows: Awaited<ReturnType<typeof repo.readIndexRows>> = [];
+  // Bounded statements: one per READ_MODEL_BATCH targets.
+  for (let i = 0; i < unique.length; i += READ_MODEL_BATCH) {
+    rows.push(...(await repo.readIndexRows(tx, unique.slice(i, i + READ_MODEL_BATCH))));
+  }
+  const byTarget = new Map<string, IndexSourceRow[]>();
+  for (const { features, ...r } of rows) {
+    const list = byTarget.get(r.targetId) ?? [];
+    list.push({ ...r, featureIds: (features ?? []).map((f) => f.id) });
+    byTarget.set(r.targetId, list);
+  }
+  const docs = [...byTarget.values()].flatMap((r) => buildIndexDoc(r) ?? []);
+  return { docs, missing: unique.filter((id) => !byTarget.has(id)) };
+}
+
+/**
+ * Creates the listings index if missing and applies its settings when they differ (worker boot; idempotent: an
+ * unchanged definition sends nothing). Network I/O: never inside a transaction.
+ */
+export function ensureListingsIndex(
+  engine: SearchEngine = searchEngine(),
+  def: IndexDefinition = listingsIndex(),
+): Promise<EnsureIndexResult> {
+  return engine.ensureIndex(def);
 }

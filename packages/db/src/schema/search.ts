@@ -50,6 +50,11 @@ export const listingReadModels = pgTable(
     /** The listing's or unit's status (ACTIVE, SOLD, AVAILABLE, …): public paths filter on it. */
     status: text('status').notNull(),
     /**
+     * A listing's share scope (ALL | PREFERRED: only agencies the owner prefers see it in network search, S5-02);
+     * null for units. Index-only: never inside the documents.
+     */
+    shareScope: text('share_scope'),
+    /**
      * Monotonic source version: the listing's `version`, or a unit's `version` + its development's `version`
      * (both only grow). An upsert never lowers it (PATTERNS §14).
      */
@@ -71,5 +76,9 @@ export const listingReadModels = pgTable(
     // a development's change: the read models of its units (and listings) that may no longer have one
     index('listing_read_models_development_idx').on(t.developmentId).where(sql`${t.developmentId} is not null`),
     check('listing_read_models_version_ck', sql`${t.version} >= 1`),
+    check(
+      'listing_read_models_share_scope_ck',
+      sql`${t.shareScope} is null or ${t.shareScope} in ('ALL', 'PREFERRED')`,
+    ),
   ],
 );

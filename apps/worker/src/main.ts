@@ -1,10 +1,12 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as media from '@inmolink/core/modules/media';
+import * as search from '@inmolink/core/modules/search';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
+import { configureSearch, searchConfigFromEnv } from '@inmolink/platform/search';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
 import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
@@ -42,6 +44,10 @@ try {
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
   configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));
   if (config.MEDIA_URL_KEY) media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
+  if (config.MEILI_URL && config.MEILI_MASTER_KEY) {
+    configureSearch(searchConfigFromEnv({ MEILI_URL: config.MEILI_URL, MEILI_MASTER_KEY: config.MEILI_MASTER_KEY }));
+    applySearchSettings();
+  }
   registerSubscriptions();
 
   const worker = await startWorker({
@@ -70,4 +76,18 @@ try {
   reportError(err, { phase: 'startup' });
   await telemetry.shutdown();
   process.exit(1);
+}
+
+/**
+ * Index settings are applied by code at boot (S5-02), idempotently: an unchanged definition sends nothing. Search
+ * down must not stop the worker: it retries in the background until it succeeds.
+ */
+function applySearchSettings(attempt = 0): void {
+  search
+    .ensureListingsIndex()
+    .then((r) => logger.info({ created: r.created, changed: r.changed }, 'search index settings applied'))
+    .catch((err: unknown) => {
+      logger.warn({ err, attempt }, 'search index settings not applied; retrying');
+      setTimeout(() => applySearchSettings(attempt + 1), Math.min(60_000, 5_000 * 2 ** attempt)).unref();
+    });
 }

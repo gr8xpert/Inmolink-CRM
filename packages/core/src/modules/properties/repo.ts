@@ -1163,6 +1163,7 @@ const readModelColumns = {
   ref: properties.ref,
   status: properties.status,
   visibility: properties.visibility,
+  shareScope: properties.shareScope,
   transactionType: properties.transactionType,
   priceCents: properties.priceCents,
   currency: properties.currency,

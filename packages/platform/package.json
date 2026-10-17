@@ -89,6 +89,11 @@
       "types": "./dist/rate-limit/index.d.ts",
       "default": "./dist/rate-limit/index.js"
     },
+    "./search": {
+      "@inmolink/source": "./src/search/index.ts",
+      "types": "./dist/search/index.d.ts",
+      "default": "./dist/search/index.js"
+    },
     "./server": {
       "@inmolink/source": "./src/server/index.ts",
       "types": "./dist/server/index.d.ts",

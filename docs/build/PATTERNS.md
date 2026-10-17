@@ -627,6 +627,10 @@ Object storage (`@inmolink/platform/storage`, S1-03): `storage().put(bucket, key
 
 ---
 
+Search (`@inmolink/platform/search`, S5-02, ADR 0005): modules describe an index (`IndexDefinition`) and query it with the engine-neutral `Filter` tree (`{ op: 'and', filters: [{ op: 'eq', field, value }, { op: 'range', field, gte }] }`) — never engine filter strings. Fields must be declared filterable (or comparable for `range`), values are quoted by the adapter. Answers are ids: hydrate them from read models. `ensureIndex(def)` is idempotent (diffs settings, sends only changes). Writes return a task; `waitForTask` only when the caller needs the write visible. Network I/O: outside transactions. The listings index (`search.listingsIndex()`, one doc per listing/unit, `title_<locale>` fields) is built only from `listing_read_models` rows (`search.indexDocsFor`).
+
+---
+
 ## §16 Safe fetch + streaming XML
 
 ```ts

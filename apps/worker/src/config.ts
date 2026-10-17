@@ -9,6 +9,7 @@ import {
   mediaEnv,
   portVar,
   redisEnv,
+  searchEnv,
   storageEnv,
   telemetryEnv,
   webUrlEnv,
@@ -74,6 +75,12 @@ const systemEnv = {
   ...webUrlEnv,
 };
 
+/** The `indexing` pool (S5-02): the search engine's admin key applies index settings and writes documents. */
+const indexingEnv = {
+  MEILI_URL: searchEnv.MEILI_URL,
+  MEILI_MASTER_KEY: searchEnv.MEILI_MASTER_KEY,
+};
+
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
  * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys, no cache (S3-F7).
@@ -95,11 +102,12 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(others ? systemEnv : {}),
     ...(pools.includes('media') ? mediaPoolEnv : {}),
     ...(pools.includes('email') ? emailEnv : {}),
+    ...(pools.includes('indexing') ? indexingEnv : {}),
   };
 }
 
 /** Every variable any pool reads (the deploy-config check lists them). */
-export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv };
+export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv, ...indexingEnv };
 type Full = Config<typeof workerEnv>;
 /** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */
 export type WorkerConfig = Config<typeof baseEnv> & Partial<Omit<Full, keyof Config<typeof baseEnv>>>;
