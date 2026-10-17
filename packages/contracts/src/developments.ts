@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { Commission } from './agency-profile';
 import { CurrencyCode, Money, PageQuery, pageOf } from './common';
-import { DEVELOPMENT_DOCUMENT_KINDS } from './values';
+import { DEVELOPMENT_DOCUMENT_KINDS, MAX_UNITS_PER_BULK, MAX_UNITS_PER_DEVELOPMENT } from './values';
 
 export const DevelopmentStatus = z.enum(['OFF_PLAN', 'UNDER_CONSTRUCTION', 'KEY_READY', 'SOLD_OUT']);
 export type DevelopmentStatus = z.infer<typeof DevelopmentStatus>;
@@ -15,10 +15,6 @@ export type UnitStatus = z.infer<typeof UnitStatus>;
 export const Orientation = z.enum(['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']);
 export const PriceListExtractor = z.enum(['AI', 'HUMAN']);
 
-/** Units per development (S4-02): bounds every whole-development query (price list diffs, unit table). */
-export const MAX_UNITS_PER_DEVELOPMENT = 2_000;
-/** Units per bulk create or bulk edit. */
-export const MAX_UNITS_PER_BULK = 500;
 /** Agencies a PRIVATE_NETWORK development may name. */
 export const MAX_DEVELOPMENT_ACCESS = 200;
 
@@ -245,7 +241,17 @@ export const PriceListDto = z.object({
   createdAt: z.iso.datetime(),
 });
 export type PriceListDto = z.infer<typeof PriceListDto>;
-export const PriceListPage = pageOf(PriceListDto);
+/** The diff's size: a list of versions carries these, the full diff comes from `GET …/price-lists/:version` (S4-F5). */
+export const PriceListCounts = z.object({
+  added: z.number().int(),
+  removed: z.number().int(),
+  changed: z.number().int(),
+  unchanged: z.number().int(),
+});
+export type PriceListCounts = z.infer<typeof PriceListCounts>;
+export const PriceListSummaryDto = PriceListDto.omit({ diff: true }).extend({ counts: PriceListCounts });
+export type PriceListSummaryDto = z.infer<typeof PriceListSummaryDto>;
+export const PriceListPage = pageOf(PriceListSummaryDto);
 export type PriceListPage = z.infer<typeof PriceListPage>;
 
 // ── Development documents (S4-F4) ────────────────────────────────────────────────────────────────────────────

@@ -180,6 +180,32 @@ describe('development service', () => {
     expect(next).toMatchObject({ items: [{ version: 1 }], nextCursor: null });
   });
 
+  it('[S4-F5] a list of price lists carries the diff counts only; one version carries the full diff', async () => {
+    const dev = await createDev();
+    await addUnits(dev, [unit('C1', 10_000_000), unit('C2', 11_000_000), unit('C3', 12_000_000)]);
+    const v1 = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({
+          effectiveFrom: '2026-11-01',
+          entries: [
+            { ref: 'C1', priceCents: 10_000_000 },
+            { ref: 'C2', priceCents: 11_500_000 },
+            { ref: 'D1', priceCents: 20_000_000 },
+          ],
+        }),
+      ),
+    );
+    const page = await as(owner, (ctx) => developments.listPriceLists(ctx, dev.id, { limit: 10 }));
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]?.counts).toEqual({ added: 1, removed: 1, changed: 1, unchanged: 1 });
+    expect(page.items[0]).not.toHaveProperty('diff');
+    const one = await as(owner, (ctx) => developments.getPriceList(ctx, dev.id, 1));
+    expect(one.diff).toEqual(v1.diff);
+    expect(one).not.toHaveProperty('counts');
+  });
+
   it('[S4-02] unit status change emits an event within the same transaction', async () => {
     const dev = await createDev();
     const [u] = await addUnits(dev, [unit('S1', 40_000_000)]);
@@ -293,6 +319,19 @@ describe('development service', () => {
       }),
     );
     expect(shared.access).toEqual({ kind: 'PRIVATE_NETWORK', allowedAgencyIds: [allowed.agencyId] });
+    // S4-F5: an agency that does not exist is a validation error, not a 500.
+    expect(
+      await as(owner, (ctx) =>
+        developments.setDevelopmentAccess(ctx, dev.id, {
+          version: shared.version,
+          kind: 'PRIVATE_NETWORK',
+          allowedAgencyIds: [newId()],
+        }),
+      ).then(
+        () => null,
+        (err: { code?: string; details?: unknown }) => ({ code: err.code, details: err.details }),
+      ),
+    ).toEqual({ code: 'VALIDATION_FAILED', details: { field: 'allowedAgencyIds', reason: 'unknown' } });
     const network = await as(allowed, (ctx) => developments.getDevelopment(ctx, dev.id));
     expect(network).toMatchObject({ access: null, commission: { basisPoints: 500 } });
     const units = await as(allowed, (ctx) => developments.listUnits(ctx, dev.id, { limit: 10 }));

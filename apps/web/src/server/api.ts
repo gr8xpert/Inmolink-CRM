@@ -1014,6 +1014,11 @@ export function fetchPriceLists(session: SessionRef | Token, id: string): Promis
   return apiRequest(session, `${developmentPath(id)}/price-lists?limit=20`, PriceListPage);
 }
 
+/** One version with its full diff: the list carries counts only (S4-F5). */
+export function fetchPriceList(session: SessionRef, id: string, version: number): Promise<ApiResult<PriceListDto>> {
+  return apiRequest(session, `${developmentPath(id)}/price-lists/${version}`, PriceListDto);
+}
+
 export function createPriceList(
   session: SessionRef,
   id: string,

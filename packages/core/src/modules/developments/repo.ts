@@ -20,6 +20,9 @@ export type DevelopmentInsert = typeof developments.$inferInsert;
 export type UnitRow = typeof units.$inferSelect;
 export type UnitInsert = typeof units.$inferInsert;
 export type PriceListRow = typeof priceLists.$inferSelect;
+export type PriceListSummaryRow = Omit<PriceListRow, 'entries' | 'diffSummary'> & {
+  counts: { added: number; removed: number; changed: number; unchanged: number };
+};
 export type DocumentRow = typeof developmentDocuments.$inferSelect;
 
 // ── Developments ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -288,14 +291,23 @@ export async function listPriceLists(
   tx: Tx,
   developmentId: string,
   q: { limit: number; beforeVersion?: number },
-): Promise<{ items: Omit<PriceListRow, 'entries'>[]; hasMore: boolean }> {
+): Promise<{ items: PriceListSummaryRow[]; hasMore: boolean }> {
   const where: (SQL | undefined)[] = [
     eq(priceLists.developmentId, developmentId),
     q.beforeVersion === undefined ? undefined : lt(priceLists.version, q.beforeVersion),
   ];
-  const { entries: _entries, ...listColumns } = getTableColumns(priceLists); // entries: up to 2,000 lines each
+  // entries and the diff hold up to 2,000 and 4,000 lines each: a list carries the diff's counts only (S4-F5).
+  const { entries: _entries, diffSummary: _diff, ...listColumns } = getTableColumns(priceLists);
+  const d = priceLists.diffSummary;
   const rows = await tx
-    .select(listColumns)
+    .select({
+      ...listColumns,
+      counts: sql<PriceListSummaryRow['counts']>`jsonb_build_object(
+        'added', jsonb_array_length(${d}->'added'),
+        'removed', jsonb_array_length(${d}->'removed'),
+        'changed', jsonb_array_length(${d}->'changed'),
+        'unchanged', (${d}->>'unchanged')::int)`,
+    })
     .from(priceLists)
     .where(and(...where))
     .orderBy(desc(priceLists.version))

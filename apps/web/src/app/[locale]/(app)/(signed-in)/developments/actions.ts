@@ -34,6 +34,7 @@ import {
   deleteDevelopmentDocument,
   deleteUnit,
   fetchDevelopmentDocuments,
+  fetchPriceList,
   fetchUnits,
   openDevelopmentDocument,
   type SessionRef,
@@ -146,6 +147,12 @@ export async function createPriceListAction(id: string, body: unknown): Promise<
   const parsed = CreatePriceListBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => createPriceList(s, id, parsed.data));
+}
+
+/** One version's full diff, when the person opens it (S4-F5). */
+export async function getPriceListAction(id: string, version: number): Promise<DevResult<PriceListDto>> {
+  if (!Uuid.safeParse(id).success || !Number.isInteger(version) || version < 1) return badId();
+  return withSession((s) => fetchPriceList(s, id, version));
 }
 
 export async function approvePriceListAction(id: string, version: number): Promise<DevResult<PriceListDto>> {

@@ -1,4 +1,4 @@
-import { MAX_UNITS_PER_BULK, MAX_UNITS_PER_DEVELOPMENT } from '@inmolink/contracts';
+import { MAX_UNITS_PER_BULK, MAX_UNITS_PER_DEVELOPMENT } from '@inmolink/contracts/values';
 
 /**
  * The developer's spreadsheets (S4-03): a unit CSV (one row per unit) and a price-list CSV (ref, price, status).

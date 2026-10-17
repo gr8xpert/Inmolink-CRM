@@ -1,26 +1,36 @@
 'use client';
 
-import type { DevelopmentDocumentDto, PriceListDiff, PriceListDto } from '@inmolink/contracts';
+import type { DevelopmentDocumentDto, PriceListDiff, PriceListDto, PriceListSummaryDto } from '@inmolink/contracts';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useRouter } from 'next/navigation';
 import { useFormatter } from 'next-intl';
-import { type ChangeEvent, useId, useState, useTransition } from 'react';
+import { type ChangeEvent, useEffect, useId, useState, useTransition } from 'react';
 import { makeT } from '../../listings/values';
-import { approvePriceListAction, createPriceListAction, type DevResult } from '../actions';
+import { approvePriceListAction, createPriceListAction, type DevResult, getPriceListAction } from '../actions';
 import { type CsvPriceEntry, type CsvProblem, priceListFromCsv } from '../csv';
 import { CsvReport } from './units-panel';
 
 interface Props {
   developmentId: string;
   currency: string;
-  /** Newest first, as the API lists them. */
-  initial: PriceListDto[];
+  /** Newest first, as the API lists them: diff counts only, a version's diff is loaded when it is opened. */
+  initial: PriceListSummaryDto[];
   /** The development's documents: a version may name the one it was read from (S4-F4). */
   documents: DevelopmentDocumentDto[];
   messages: Record<string, unknown>;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+const summary = ({ diff, ...rest }: PriceListDto): PriceListSummaryDto => ({
+  ...rest,
+  counts: {
+    added: diff.added.length,
+    removed: diff.removed.length,
+    changed: diff.changed.length,
+    unchanged: diff.unchanged,
+  },
+});
 
 /**
  * The development's price lists (S4-03): a CSV upload becomes the next version with its diff against the units
@@ -35,6 +45,9 @@ export default function PriceListsPanel({ developmentId, currency, initial, docu
   const ids = useId();
   const [lists, setLists] = useState(initial);
   const [open, setOpen] = useState<number | null>(initial[0]?.version ?? null);
+  // Full versions by number: from an upload or approval, or loaded when a version is opened (S4-F5).
+  const [full, setFull] = useState<Record<number, PriceListDto>>({});
+  const keep = (l: PriceListDto) => setFull((all) => ({ ...all, [l.version]: l }));
   const [csv, setCsv] = useState<{ entries: CsvPriceEntry[]; problems: CsvProblem[] } | null>(null);
   const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [sourceDocumentId, setSourceDocumentId] = useState('');
@@ -68,8 +81,10 @@ export default function PriceListsPanel({ developmentId, currency, initial, docu
         entries: csv.entries,
       });
       if (!res.ok) return fail(res);
-      setLists((all) => [res.data, ...all.filter((l) => l.version !== res.data.version)]);
-      setOpen(res.data.version);
+      const created = res.data;
+      setLists((all) => [summary(created), ...all.filter((l) => l.version !== created.version)]);
+      keep(created);
+      setOpen(created.version);
       setCsv(null);
       setStatus({ kind: 'saved', text: t('priceLists.uploaded', { version: String(res.data.version) }) });
     });
@@ -80,7 +95,9 @@ export default function PriceListsPanel({ developmentId, currency, initial, docu
     startTransition(async () => {
       const res = await approvePriceListAction(developmentId, version);
       if (!res.ok) return fail(res);
-      setLists((all) => all.map((l) => (l.version === version ? res.data : l)));
+      const reviewed = res.data;
+      setLists((all) => all.map((l) => (l.version === version ? summary(reviewed) : l)));
+      keep(reviewed);
       setStatus({ kind: 'saved', text: t('priceLists.approved', { version: String(version) }) });
       // The units changed and the development was marked verified.
       router.refresh();
@@ -88,7 +105,21 @@ export default function PriceListsPanel({ developmentId, currency, initial, docu
   };
 
   const latest = lists[0]?.version ?? null;
-  const shown = lists.find((l) => l.version === open) ?? null;
+  const shown = open === null ? null : (full[open] ?? null);
+  const loaded = open === null || full[open] !== undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `fail` and `keep` only set state
+  useEffect(() => {
+    if (open === null || loaded) return;
+    let live = true;
+    void getPriceListAction(developmentId, open).then((res) => {
+      if (!live) return;
+      if (res.ok) keep(res.data);
+      else fail(res);
+    });
+    return () => {
+      live = false;
+    };
+  }, [developmentId, open, loaded]);
   const date = (iso: string) => format.dateTime(new Date(iso), { dateStyle: 'medium' });
 
   return (

@@ -208,8 +208,11 @@ describe('audit log', () => {
     // Start from a maintained state (the test database may have been migrated in an earlier month).
     await compliance.complianceJobs.maintainPartitions.spec.run({}, {} as never);
     const before = await newest();
-    // Time passes: the months +3 and +4 do not exist yet (they are empty; dropping them loses nothing).
-    const dropped = before.slice(0, 2);
+    // Time passes: the months from +3 on do not exist yet (they are empty; dropping them loses nothing).
+    // pg_partman may keep one month beyond `premake`, so they are found by probing, not by counting.
+    const third = await partitionFor(3);
+    expect(third).toMatch(/^audit_logs_p\d{8}$/);
+    const dropped = before.filter((name) => name >= third);
     try {
       await adminQuery(dropped.map((name) => `drop table public."${name}"`).join(';'));
       // No default partition: a row for a missing month fails loudly instead of hiding in a catch-all.

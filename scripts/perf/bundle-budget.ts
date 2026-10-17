@@ -106,6 +106,8 @@ export function readBuildManifests(nextDir: string): BuildManifests {
  */
 export const EXCLUDED_LIBRARIES: ReadonlyArray<{ route: string; library: string; marker: string }> = [
   { route: '/[locale]/(app)/(signed-in)/listings/page', library: 'zod', marker: '$ZodType' },
+  // S4-F5: the unit CSV reader needs only the unit caps (`@inmolink/contracts/values`).
+  { route: '/[locale]/(app)/(signed-in)/developments/[id]/page', library: 'zod', marker: '$ZodType' },
 ];
 
 /** Failures for `EXCLUDED_LIBRARIES`: a listed route missing from the build, or a chunk of it holding the marker. */

@@ -68,7 +68,7 @@ const FK_FIELDS: Record<string, string> = {
   developments_location_id_locations_id_fk: 'locationId',
   units_property_type_id_property_types_id_fk: 'propertyTypeId',
   units_phase_fk: 'phaseId',
-  development_access_allowed_agency_id_agencies_id_fk: 'allowedAgencyIds',
+  development_access_allowed_agency_id_agencies_agency_id_fk: 'allowedAgencyIds',
   price_lists_source_document_fk: 'sourceDocumentId',
 };
 const UNIQUE_CODES: Record<string, 'DEVELOPMENT_REF_TAKEN' | 'UNIT_REF_TAKEN'> = {

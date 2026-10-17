@@ -84,3 +84,8 @@ export const DEVELOPMENT_DOCUMENT_KINDS = [
 ] as const;
 /** A development document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
 export const DEVELOPMENT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Units per development (S4-02): bounds every whole-development query (price list diffs, unit table). */
+export const MAX_UNITS_PER_DEVELOPMENT = 2_000;
+/** Units per bulk create or bulk edit. */
+export const MAX_UNITS_PER_BULK = 500;

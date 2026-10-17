@@ -11,6 +11,7 @@ import {
   type PriceListDto,
   PriceListEntry,
   type PriceListPage,
+  type PriceListSummaryDto,
   type UnitStatus,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
@@ -51,7 +52,9 @@ export function diffPriceList(entries: readonly PriceListEntry[], units: readonl
   return diff;
 }
 
-function toPriceListDto(row: Omit<repo.PriceListRow, 'entries'>): PriceListDto {
+type PriceListFields = Omit<repo.PriceListRow, 'entries' | 'diffSummary'>;
+
+function priceListFields(row: PriceListFields): Omit<PriceListDto, 'diff'> {
   return {
     id: row.id,
     developmentId: row.developmentId,
@@ -61,9 +64,17 @@ function toPriceListDto(row: Omit<repo.PriceListRow, 'entries'>): PriceListDto {
     extractedBy: row.extractedBy,
     reviewedAt: row.reviewedAt?.toISOString() ?? null,
     reviewedByUserId: row.reviewedByUserId,
-    diff: row.diffSummary as PriceListDiff,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function toPriceListDto(row: Omit<repo.PriceListRow, 'entries'>): PriceListDto {
+  return { ...priceListFields(row), diff: row.diffSummary as PriceListDiff };
+}
+
+/** A list carries the diff's counts only (S4-F5): a full repricing diff is thousands of lines. */
+function toPriceListSummary(row: repo.PriceListSummaryRow): PriceListSummaryDto {
+  return { ...priceListFields(row), counts: row.counts };
 }
 
 /** `POST /v1/developments/:id/price-lists`: the next version, with its diff against the current units. */
@@ -177,7 +188,7 @@ export async function listPriceLists(ctx: Ctx, developmentId: string, q: PageQue
   });
   const last = page.items.at(-1);
   return {
-    items: page.items.map(toPriceListDto),
+    items: page.items.map(toPriceListSummary),
     nextCursor: page.hasMore && last ? Buffer.from(String(last.version)).toString('base64url') : null,
   };
 }
