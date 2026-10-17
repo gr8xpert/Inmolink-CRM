@@ -15,6 +15,7 @@ export {
   updatePreferredAgency,
 } from './preferred';
 export {
+  contentLocalesOf,
   createSignupAgency,
   getAgencyName,
   getMyAgency,

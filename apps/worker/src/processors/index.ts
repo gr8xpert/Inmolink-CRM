@@ -5,6 +5,7 @@ import { identityJobs } from '@inmolink/core/modules/identity';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
+import { searchJobs } from '@inmolink/core/modules/search';
 import type { JobDef } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
 
@@ -16,7 +17,12 @@ import type { Pool } from '../config';
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   imports: [propertiesJobs.runBulkAction],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
-  indexing: [qualityJobs.recomputeListing],
+  indexing: [
+    qualityJobs.recomputeListing,
+    searchJobs.buildReadModel,
+    searchJobs.buildDevelopmentReadModels,
+    searchJobs.buildAgencyReadModels,
+  ],
   matching: [],
   exports: [],
   email: [

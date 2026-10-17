@@ -1153,3 +1153,107 @@ export async function purge(tx: Tx, ids: string[]): Promise<{ id: string; agency
     .where(and(inArray(properties.id, ids), isNotNull(properties.deletedAt)))
     .returning({ id: properties.id, agencyId: properties.agencyId });
 }
+
+// ---- Read models (S5-01) --------------------------------------------------------------------------------------
+
+/** The client-safe columns a read model shows, plus what decides whether it has one. Never privates or commission. */
+const readModelColumns = {
+  id: properties.id,
+  agencyId: properties.agencyId,
+  ref: properties.ref,
+  status: properties.status,
+  visibility: properties.visibility,
+  transactionType: properties.transactionType,
+  priceCents: properties.priceCents,
+  currency: properties.currency,
+  pricePeriod: properties.pricePeriod,
+  priceOnRequest: properties.priceOnRequest,
+  builtM2: properties.builtM2,
+  plotM2: properties.plotM2,
+  terraceM2: properties.terraceM2,
+  bedrooms: properties.bedrooms,
+  bathrooms: properties.bathrooms,
+  yearBuilt: properties.yearBuilt,
+  energyRating: properties.energyRating,
+  energyEmissionsRating: properties.energyEmissionsRating,
+  lat: properties.lat,
+  lng: properties.lng,
+  locationPrecision: properties.locationPrecision,
+  propertyTypeId: properties.propertyTypeId,
+  locationId: properties.locationId,
+  developmentId: properties.developmentId,
+  version: properties.version,
+};
+export type ReadModelRow = { [K in keyof typeof readModelColumns]: ListingRow[K] };
+
+/** These listings' read-model columns where `where` holds (`withSystem`: any agency); primary key probes. */
+export async function readModelRows(tx: Tx, ids: readonly string[], where: SQL): Promise<ReadModelRow[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select(readModelColumns)
+    .from(properties)
+    .where(and(inArray(properties.id, [...ids]), where));
+}
+
+/** How many listings `where` holds for (the full rebuild's progress), optionally one agency's. */
+export async function countWhere(tx: Tx, where: SQL, agencyId?: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(properties)
+    .where(and(where, agencyId === undefined ? undefined : eq(properties.agencyId, agencyId)));
+  return row?.n ?? 0;
+}
+
+/** Every translation of these listings (`property_translations` PK). */
+export async function readModelTranslations(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return (
+    tx
+      .select({
+        propertyId: propertyTranslations.propertyId,
+        locale: propertyTranslations.locale,
+        title: propertyTranslations.title,
+        description: propertyTranslations.description,
+        slug: propertyTranslations.slug,
+        metaTitle: propertyTranslations.metaTitle,
+        metaDescription: propertyTranslations.metaDescription,
+      })
+      .from(propertyTranslations)
+      .where(inArray(propertyTranslations.propertyId, [...ids]))
+      // a stable order: the "any locale" fallback must not flip between rebuilds
+      .orderBy(asc(propertyTranslations.propertyId), asc(propertyTranslations.locale))
+  );
+}
+
+/** Feature ids of these listings (`property_features` PK). */
+export async function readModelFeatures(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ propertyId: propertyFeatures.propertyId, featureId: propertyFeatures.featureId })
+    .from(propertyFeatures)
+    .where(inArray(propertyFeatures.propertyId, [...ids]));
+}
+
+/**
+ * A page of ids of listings that have a read model (`where`), after `after` in id order (`withSystem`, the
+ * full rebuild): the primary key walked with a filter, or one agency's rows (`properties_agency_created_idx`).
+ */
+export async function readModelIdsPage(
+  tx: Tx,
+  where: SQL,
+  page: { after: string | null; limit: number; agencyId?: string },
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: properties.id })
+    .from(properties)
+    .where(
+      and(
+        where,
+        page.after === null ? undefined : sql`${properties.id} > ${page.after}`,
+        page.agencyId === undefined ? undefined : eq(properties.agencyId, page.agencyId),
+      ),
+    )
+    .orderBy(asc(properties.id))
+    .limit(page.limit);
+  return rows.map((r) => r.id);
+}

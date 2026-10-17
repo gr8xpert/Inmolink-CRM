@@ -407,3 +407,12 @@ export async function existingStorageKeys(tx: Tx, keys: string[]): Promise<Set<s
     .where(inArray(agencyVerificationDocuments.storageKey, keys));
   return new Set(rows.map((r) => r.key));
 }
+
+/** The content locales of these agencies (`agency_settings` PK; read models, S5-01). */
+export async function enabledLocalesOf(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ agencyId: agencySettings.agencyId, locales: agencySettings.enabledLocales })
+    .from(agencySettings)
+    .where(inArray(agencySettings.agencyId, [...ids]));
+}

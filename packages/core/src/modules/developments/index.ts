@@ -14,6 +14,13 @@ export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs } from './jobs
 export { CLIENT_MODE_ALLOWED, can, DEVELOPMENTS_ACTIONS, DEVELOPMENTS_IMPERSONATION } from './policy';
 export { approvePriceList, createPriceList, diffPriceList, getPriceList, listPriceLists } from './price-lists';
 export {
+  countUnitsForReadModels,
+  type ReadModelUnit,
+  unitIdsForDevelopment,
+  unitIdsForReadModels,
+  unitsForReadModels,
+} from './read-models';
+export {
   createDevelopment,
   deleteDevelopment,
   getDevelopment,

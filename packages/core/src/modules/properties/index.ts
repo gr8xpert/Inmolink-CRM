@@ -40,6 +40,13 @@ export {
 } from './overrides';
 export { CLIENT_MODE_ALLOWED, can, PROPERTIES_ACTIONS, PROPERTIES_IMPERSONATION } from './policy';
 export {
+  countListingsForReadModels,
+  listingIdsForReadModels,
+  listingsForReadModels,
+  READ_MODEL_LISTING_STATUSES,
+  type ReadModelListing,
+} from './read-models';
+export {
   assertListingReadable,
   createListing,
   deleteListing,

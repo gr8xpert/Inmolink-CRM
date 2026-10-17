@@ -16,6 +16,7 @@ export * from './migration';
 export * from './preferred-agencies';
 export * from './properties';
 export * from './quality';
+export * from './search';
 export * from './staff';
 export * from './taxonomy';
 export * from './values';

@@ -898,3 +898,43 @@ export async function insertAliasesBulk(
   }
   return { inserted, owners };
 }
+
+// ---- Read models (S5-01) ------------------------------------------------------------------------------------------
+
+/** These locations and their ancestors (id, level), by the location asked for. One statement. */
+export async function readModelLineage(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  const res = await tx.execute(sql`
+    with recursive up(origin, id, parent_id, level) as (
+      select l.id, l.id, l.parent_id, l.level from ${locations} l where l.id = any(${textArray([...ids])}::uuid[])
+      union all
+      select up.origin, p.id, p.parent_id, p.level from up join ${locations} p on p.id = up.parent_id
+    )
+    select origin, id, level from up`);
+  return rowsOf<{ origin: string; id: string; level: 'COUNTRY' | 'REGION' | 'CITY' | 'AREA' }>(res);
+}
+
+/** Names and slugs of these locations, property types and features in `locales` (translation PKs). */
+export async function readModelNames(
+  tx: Tx,
+  ids: { locations: readonly string[]; propertyTypes: readonly string[]; features: readonly string[] },
+  locales: readonly string[],
+): Promise<{ id: string; locale: string; name: string; slug: string }[]> {
+  const loc = textArray([...locales]);
+  const parts: SQL[] = [];
+  if (ids.locations.length > 0) {
+    parts.push(sql`select location_id as id, locale, name, slug from ${locationTranslations}
+      where location_id = any(${textArray([...ids.locations])}::uuid[]) and locale = any(${loc}::text[])`);
+  }
+  if (ids.propertyTypes.length > 0) {
+    parts.push(sql`select type_id as id, locale, name, slug from ${propertyTypeTranslations}
+      where type_id = any(${textArray([...ids.propertyTypes])}::uuid[]) and locale = any(${loc}::text[])`);
+  }
+  if (ids.features.length > 0) {
+    parts.push(sql`select feature_id as id, locale, name, slug from ${featureTranslations}
+      where feature_id = any(${textArray([...ids.features])}::uuid[]) and locale = any(${loc}::text[])`);
+  }
+  if (parts.length === 0) return [];
+  // a stable order: the "any locale" fallback must not flip between rebuilds
+  return rowsOf(await tx.execute(sql`${sql.join(parts, sql` union all `)} order by 1, 2`));
+}

@@ -58,6 +58,15 @@ export async function loadTenant(
 }
 
 /**
+ * The content locales of these agencies, for the search worker's read models (S5-01; raw `tx`, `withSystem`, no
+ * authorization — PATTERNS §12). An agency without settings is missing.
+ */
+export async function contentLocalesOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, string[]>> {
+  const rows = await repo.enabledLocalesOf(tx, [...new Set(agencyIds)]);
+  return new Map(rows.map((r) => [r.agencyId, r.locales]));
+}
+
+/**
  * The agency's current status, locked until the transaction ends (S1-05: API keys mirror it). Takes a
  * raw `tx` like `loadTenant`: identity calls it inside its own request transaction or job. `update`
  * also serialises concurrent callers (`FOR NO KEY UPDATE`); `share` only blocks status changes.

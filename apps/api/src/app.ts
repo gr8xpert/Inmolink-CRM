@@ -12,6 +12,7 @@ import { identityRoutes } from './routes/identity/routes';
 import { mediaRoutes } from './routes/media/routes';
 import { propertiesRoutes } from './routes/properties/routes';
 import { qualityRoutes } from './routes/quality/routes';
+import { searchRoutes } from './routes/search/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { staffTaxonomyRoutes } from './routes/taxonomy/staff';
 
@@ -68,5 +69,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(mediaRoutes);
   await app.register(qualityRoutes);
   await app.register(developmentsRoutes);
+  await app.register(searchRoutes);
   return app;
 }

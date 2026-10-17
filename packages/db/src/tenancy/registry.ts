@@ -440,6 +440,23 @@ export const tenantTables: Record<string, TenantTable> = {
     // the media worker counts references to each stored object (S3-F4): the hash, nothing else
     mediaRead: { columns: ['sha256'] },
   },
+  // Read models (S5-01): written by the search worker (`withSystem`), read by public paths (`app_public`) only
+  // where `public` (a PUBLIC listing, a unit of an OPEN development). Client-safe fields only, by construction.
+  listing_read_models: {
+    kind: 'PUBLIC_READ',
+    publicReadSql: 'public',
+    base: {
+      kind: 'LISTING',
+      locale: 'en',
+      public: false,
+      status: 'ACTIVE',
+      version: 1,
+      card: '{}',
+      detail: '{}',
+      etag: 'x',
+    },
+    samples: { visible: [{ public: true }], hidden: [{ public: false }] },
+  },
   // Price and status history: the owner's, not shared, append-only (members read and append, never rewrite).
   property_price_histories: { kind: 'STRICT', immutable: true },
   property_status_histories: { kind: 'STRICT', immutable: true },

@@ -463,3 +463,33 @@ export async function hashesOfListings(tx: Tx, propertyIds: string[]): Promise<M
   }
   return out;
 }
+
+// --- read models (S5-01, withSystem) -------------------------------------------------------------------------------
+
+/**
+ * The shown media of these listings (no documents), in display order, with each object's processing state
+ * (`property_media_property_idx`, then one PK probe per row).
+ */
+export async function readModelMedia(tx: Tx, propertyIds: readonly string[]) {
+  if (propertyIds.length === 0) return [];
+  return tx
+    .select({
+      propertyId: propertyMedia.propertyId,
+      sha256: propertyMedia.sha256,
+      kind: propertyMedia.kind,
+      isCover: propertyMedia.isCover,
+      altText: propertyMedia.altText,
+      roomType: propertyMedia.roomType,
+      videoProvider: propertyMedia.videoProvider,
+      videoId: propertyMedia.videoId,
+      pipeline: mediaObjects.pipeline,
+      variantsReady: mediaObjects.variantsReady,
+      width: mediaObjects.width,
+      height: mediaObjects.height,
+      failedAt: mediaObjects.failedAt,
+    })
+    .from(propertyMedia)
+    .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
+    .where(and(inArray(propertyMedia.propertyId, [...propertyIds]), ne(propertyMedia.kind, 'DOCUMENT')))
+    .orderBy(asc(propertyMedia.propertyId), asc(propertyMedia.position), asc(propertyMedia.id));
+}

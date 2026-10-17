@@ -30,6 +30,7 @@
     "legacy:taxonomy": "tsx --conditions=@inmolink/source scripts/legacy-migration/taxonomy.ts",
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
+    "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
     "staff:grant": "tsx --conditions=@inmolink/source scripts/ops/staff.ts grant",
     "staff:revoke": "tsx --conditions=@inmolink/source scripts/ops/staff.ts revoke",
     "db:generate": "pnpm --filter @inmolink/db db:generate",

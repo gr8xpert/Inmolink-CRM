@@ -8,6 +8,7 @@ import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
+import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 
 /**
@@ -27,6 +28,7 @@ export const MODULES = {
   media,
   quality,
   developments,
+  search,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -38,4 +40,5 @@ export function registerSubscriptions(): void {
   properties.registerPropertiesSubscriptions();
   quality.registerQualitySubscriptions();
   developments.registerDevelopmentsSubscriptions();
+  search.registerSearchSubscriptions();
 }

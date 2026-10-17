@@ -6,7 +6,9 @@ import type { Tx } from '@inmolink/db';
 import {
   developmentAccess,
   developmentDocuments,
+  developmentPhases,
   developments,
+  developmentTranslations,
   priceLists,
   unitPriceHistories,
   unitStatusHistories,
@@ -398,4 +400,121 @@ export async function existingDocumentKeys(tx: Tx, keys: string[]): Promise<Set<
     .from(developmentDocuments)
     .where(inArray(developmentDocuments.storageKey, keys));
   return new Set(rows.map((r) => r.key));
+}
+
+// ---- Read models (S5-01, withSystem) ------------------------------------------------------------------------------
+
+/** These units with their development's shown columns (unit PK, then the development's PK). Never commission. */
+export async function readModelUnits(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: units.id,
+      agencyId: units.agencyId,
+      developmentId: units.developmentId,
+      phaseId: units.phaseId,
+      ref: units.ref,
+      propertyTypeId: units.propertyTypeId,
+      bedrooms: units.bedrooms,
+      bathrooms: units.bathrooms,
+      internalM2: units.internalM2,
+      terraceM2: units.terraceM2,
+      plotM2: units.plotM2,
+      floor: units.floor,
+      orientation: units.orientation,
+      priceCents: units.priceCents,
+      currency: units.currency,
+      status: units.status,
+      version: units.version,
+      development: {
+        name: developments.name,
+        status: developments.status,
+        completionDate: developments.completionDate,
+        locationId: developments.locationId,
+        lat: developments.lat,
+        lng: developments.lng,
+        access: developments.access,
+        version: developments.version,
+        deletedAt: developments.deletedAt,
+      },
+    })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(inArray(units.id, [...ids]));
+}
+
+/** Every translation of these developments (`development_translations` PK). */
+export async function readModelDevelopmentTexts(tx: Tx, developmentIds: readonly string[]) {
+  if (developmentIds.length === 0) return [];
+  return (
+    tx
+      .select({
+        developmentId: developmentTranslations.developmentId,
+        locale: developmentTranslations.locale,
+        title: developmentTranslations.title,
+        description: developmentTranslations.description,
+        paymentTerms: developmentTranslations.paymentTerms,
+        slug: developmentTranslations.slug,
+        metaTitle: developmentTranslations.metaTitle,
+        metaDescription: developmentTranslations.metaDescription,
+      })
+      .from(developmentTranslations)
+      .where(inArray(developmentTranslations.developmentId, [...developmentIds]))
+      // a stable order: the "any locale" fallback must not flip between rebuilds
+      .orderBy(asc(developmentTranslations.developmentId), asc(developmentTranslations.locale))
+  );
+}
+
+/** These phases' shown columns (PK). */
+export async function readModelPhases(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: developmentPhases.id,
+      name: developmentPhases.name,
+      status: developmentPhases.status,
+      completionDate: developmentPhases.completionDate,
+    })
+    .from(developmentPhases)
+    .where(inArray(developmentPhases.id, [...ids]));
+}
+
+/** Every unit id of a development (`units_development_ref_uq`; units per development are capped). */
+export async function unitIdsOf(tx: Tx, developmentId: string): Promise<string[]> {
+  const rows = await tx.select({ id: units.id }).from(units).where(eq(units.developmentId, developmentId));
+  return rows.map((r) => r.id);
+}
+
+/** How many units of live developments there are (the full rebuild's progress), optionally one agency's. */
+export async function countReadModelUnits(tx: Tx, agencyId?: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(and(isNull(developments.deletedAt), agencyId === undefined ? undefined : eq(units.agencyId, agencyId)));
+  return row?.n ?? 0;
+}
+
+/**
+ * A page of ids of units of live developments, after `after` in id order (`withSystem`, the full rebuild): the
+ * units primary key walked, each unit's development by its primary key.
+ */
+export async function readModelUnitIdsPage(
+  tx: Tx,
+  page: { after: string | null; limit: number; agencyId?: string },
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: units.id })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(
+      and(
+        isNull(developments.deletedAt),
+        page.after === null ? undefined : gt(units.id, page.after),
+        page.agencyId === undefined ? undefined : eq(units.agencyId, page.agencyId),
+      ),
+    )
+    .orderBy(asc(units.id))
+    .limit(page.limit);
+  return rows.map((r) => r.id);
 }
