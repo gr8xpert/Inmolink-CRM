@@ -95,7 +95,9 @@ jobs:
         run: pnpm test:int:root
       - name: Throughput checks
         # the media burst child runs the built packages (S4-F2), as the container does
-        run: pnpm turbo run build --filter=@inmolink/core && pnpm test:perf:root
+        # --reporter=dot replaces vitest's automatic GitHub reporter; add it back so a failed budget shows as an
+        # annotation (job logs need a GitHub login, annotations do not)
+        run: pnpm turbo run build --filter=@inmolink/core && pnpm test:perf:root --reporter=github-actions
         # as in the app image: the media RSS budget assumes two glibc malloc arenas (S3-F3)
         env: { MALLOC_ARENA_MAX: '2' }
       - name: Stack logs on failure
