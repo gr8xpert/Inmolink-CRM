@@ -103,6 +103,18 @@ describe('Kamal deploy config', () => {
     expect(media.options?.['read-only']).toBe(true);
   });
 
+  it('[S5-CI] the media container sizes its memory itself: V8 heap within the cgroup cap, a fixed glibc mmap threshold', () => {
+    const media = kamal('worker').servers.media as KamalRole;
+    const clear = media.env?.clear ?? {};
+    const oldSpace = Number(/--max-old-space-size=(\d+)/.exec(clear.NODE_OPTIONS ?? '')?.[1]);
+    const semiSpace = Number(/--max-semi-space-size=(\d+)/.exec(clear.NODE_OPTIONS ?? '')?.[1]);
+    expect(oldSpace).toBeGreaterThan(0);
+    expect(semiSpace).toBeGreaterThan(0);
+    // V8's whole heap (old space + 3 semi-spaces) stays well inside the container's hard cap
+    expect(oldSpace + 3 * semiSpace).toBeLessThan(Number.parseInt(String(media.options?.memory), 10) * 0.6);
+    expect(Number(clear.MALLOC_MMAP_THRESHOLD_)).toBeGreaterThan(0);
+  });
+
   it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
     const k = kamal('worker');
     const media = k.servers.media as KamalRole;

@@ -12,6 +12,7 @@ import { configureStorage, createS3Store, storage, storageConfigFromEnv } from '
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 /**
  * Media processing throughput (S3-04 acceptance): a 12 MP JPEG goes through `media.processObject` — read from
@@ -31,6 +32,16 @@ const NON_LINUX_IDLE_ALLOWANCE = 160 * 1024 * 1024;
 const BURST = 10;
 type UploadType = 'image/jpeg' | 'image/png' | 'image/heic';
 const hashes: string[] = [];
+
+/** The media container's memory settings from its deploy config (`infra/kamal/worker.yml`, role `media`). */
+function mediaContainerMemoryEnv(): { NODE_OPTIONS: string; MALLOC_MMAP_THRESHOLD_: string } {
+  const worker = parse(readFileSync(new URL('../../infra/kamal/worker.yml', import.meta.url), 'utf8')) as {
+    servers: { media: { env: { clear: Record<string, string> } } };
+  };
+  const { NODE_OPTIONS, MALLOC_MMAP_THRESHOLD_ } = worker.servers.media.env.clear;
+  if (!NODE_OPTIONS || !MALLOC_MMAP_THRESHOLD_) throw new Error('worker.yml: the media role sizes no memory');
+  return { NODE_OPTIONS, MALLOC_MMAP_THRESHOLD_ };
+}
 
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
 const bytesOf = (b: Buffer) => new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
@@ -141,7 +152,8 @@ it("[S4-F2] the compiled media worker's total RSS stays < 512 MB under a burst o
     ...Array.from({ length: BURST - 3 }, async (_, i) => upload(await photo12(`b${i}`), 'image/jpeg')),
   ]);
   // In a process of its own (S3-F3): the worker's RSS, not this test's, which generated the inputs with sharp. Plain
-  // node on the built packages (S4-F2: `//#test:perf:root` depends on `@inmolink/core#build`), as the container runs.
+  // node on the built packages (S4-F2: `//#test:perf:root` depends on `@inmolink/core#build`), as the container runs,
+  // with the container's memory settings (S5-CI): unsized, V8 and glibc scale with the CI runner, not the container.
   const started = performance.now();
   const out = execFileSync(
     process.execPath,
@@ -153,7 +165,11 @@ it("[S4-F2] the compiled media worker's total RSS stays < 512 MB under a burst o
     {
       encoding: 'utf8',
       timeout: 240_000,
-      env: { ...process.env, MEDIA_PERF_URL_KEY: `media-perf-key-${RUN}-0123456789abcdef` },
+      env: {
+        ...process.env,
+        ...mediaContainerMemoryEnv(),
+        MEDIA_PERF_URL_KEY: `media-perf-key-${RUN}-0123456789abcdef`,
+      },
     },
   );
   const { base, peak, made } = JSON.parse(out.trim().split(String.fromCharCode(10)).pop() as string) as {
