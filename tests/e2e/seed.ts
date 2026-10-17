@@ -55,10 +55,65 @@ export async function seedAgent(): Promise<{ email: string; company: string; age
 }
 
 /**
- * A verified agency (it may share listings) with one agent, and a small taxonomy to list in: a country, a
- * property type and a feature, named with a random tag (S3-05). The taxonomy cache is invalidated so the API
- * serves the new rows at once.
+ * The small taxonomy the listing flows list in (S3-05): a country, a property type and a feature. Fixed ids
+ * and names: `prepare.ts` writes it once per run, before the servers start, so no process holds a taxonomy
+ * copy from before it. Written later, the api would keep serving its in-process copy for up to 60 s (the
+ * cache's design for other processes), and a select would wait for an option that never comes.
  */
+export const LISTING_TAXONOMY = { location: 'E2E Listland', propertyType: 'E2E Villa', feature: 'E2E Pool' } as const;
+
+const TAXONOMY_IDS = {
+  location: 'e2e00000-0000-4000-8000-000000000001',
+  typeGroup: 'e2e00000-0000-4000-8000-000000000002',
+  type: 'e2e00000-0000-4000-8000-000000000003',
+  featureGroup: 'e2e00000-0000-4000-8000-000000000004',
+  feature: 'e2e00000-0000-4000-8000-000000000005',
+} as const;
+
+/** Writes `LISTING_TAXONOMY` (idempotent: the local test database outlives runs) and invalidates the cache. */
+export async function seedListingTaxonomy(): Promise<void> {
+  const ids = TAXONOMY_IDS;
+  const names = LISTING_TAXONOMY;
+  await asOwner(async (admin) => {
+    const insert = (sql: string, params: unknown[]) => admin.query(`${sql} on conflict do nothing`, params);
+    // A rename here must reach a database seeded by an earlier run: translations take the current name.
+    const translate = (table: string, owner: string, id: string, name: string, slug: string, parent = '') =>
+      admin.query(
+        `insert into ${table} (${owner}, ${parent ? 'parent_id, ' : ''}locale, name, slug)
+         values ($1, ${parent ? 'null, ' : ''}'en', $2, $3)
+         on conflict (${owner}, locale) do update set name = excluded.name, slug = excluded.slug`,
+        [id, name, slug],
+      );
+    await insert(
+      `insert into locations (id, parent_id, level, depth, code) values ($1, null, 'COUNTRY', 1, 'e2e-listland')`,
+      [ids.location],
+    );
+    await translate('location_translations', 'location_id', ids.location, names.location, 'e2e-listland', 'root');
+    await insert(`insert into property_type_groups (id, key) values ($1, 'e2e-houses')`, [ids.typeGroup]);
+    await translate('property_type_group_translations', 'group_id', ids.typeGroup, 'E2E Houses', 'e2e-houses');
+    await insert(`insert into property_types (id, group_id, key) values ($1, $2, 'e2e-villa')`, [
+      ids.type,
+      ids.typeGroup,
+    ]);
+    await translate('property_type_translations', 'type_id', ids.type, names.propertyType, 'e2e-villa');
+    await insert(`insert into feature_groups (id, key) values ($1, 'e2e-outdoor')`, [ids.featureGroup]);
+    await translate('feature_group_translations', 'group_id', ids.featureGroup, 'E2E Outdoor', 'e2e-outdoor');
+    await insert(`insert into features (id, group_id, key, icon) values ($1, $2, 'e2e-pool', 'waves')`, [
+      ids.feature,
+      ids.featureGroup,
+    ]);
+    await translate('feature_translations', 'feature_id', ids.feature, names.feature, 'e2e-pool');
+  });
+  // Redis outlives runs locally: drop the shared copies from before the rows existed.
+  await configureCache({ url: testStackEnv().REDIS_CACHE_URL });
+  try {
+    await cache.invalidateTag('taxonomy');
+  } finally {
+    await closeCache();
+  }
+}
+
+/** A verified agency (it may share listings) with one agent, and the names of `LISTING_TAXONOMY` to list in. */
 export async function seedListingAgent(): Promise<{
   email: string;
   agencyId: string;
@@ -66,55 +121,9 @@ export async function seedListingAgent(): Promise<{
   propertyType: string;
   feature: string;
 }> {
-  const tag = randomBytes(4).toString('hex');
   const agent = await seedAgent();
-  const names = { location: `Listland ${tag}`, propertyType: `Villa ${tag}`, feature: `Pool ${tag}` };
-  await asOwner(async (admin) => {
-    await admin.query(`update agencies set status = 'VERIFIED' where agency_id = $1`, [agent.agencyId]);
-    const [location, typeGroup, type, featureGroup, feature] = Array.from({ length: 5 }, () => randomUUID());
-    await admin.query(`insert into locations (id, parent_id, level, depth, code) values ($1, null, 'COUNTRY', 1, $2)`, [
-      location,
-      `e2e-${tag}`,
-    ]);
-    await admin.query(
-      `insert into location_translations (location_id, parent_id, locale, name, slug) values ($1, null, 'en', $2, $3)`,
-      [location, names.location, `listland-${tag}`],
-    );
-    await admin.query(`insert into property_type_groups (id, key) values ($1, $2)`, [typeGroup, `e2e-houses-${tag}`]);
-    await admin.query(
-      `insert into property_type_group_translations (group_id, locale, name, slug) values ($1, 'en', $2, $3)`,
-      [typeGroup, `Houses ${tag}`, `houses-${tag}`],
-    );
-    await admin.query(`insert into property_types (id, group_id, key) values ($1, $2, $3)`, [
-      type,
-      typeGroup,
-      `e2e-villa-${tag}`,
-    ]);
-    await admin.query(
-      `insert into property_type_translations (type_id, locale, name, slug) values ($1, 'en', $2, $3)`,
-      [type, names.propertyType, `villa-${tag}`],
-    );
-    await admin.query(`insert into feature_groups (id, key) values ($1, $2)`, [featureGroup, `e2e-outdoor-${tag}`]);
-    await admin.query(
-      `insert into feature_group_translations (group_id, locale, name, slug) values ($1, 'en', $2, $3)`,
-      [featureGroup, `Outdoor ${tag}`, `outdoor-${tag}`],
-    );
-    await admin.query(`insert into features (id, group_id, key, icon) values ($1, $2, $3, 'waves')`, [
-      feature,
-      featureGroup,
-      `e2e-pool-${tag}`,
-    ]);
-    await admin.query(`insert into feature_translations (feature_id, locale, name, slug) values ($1, 'en', $2, $3)`, [
-      feature,
-      names.feature,
-      `pool-${tag}`,
-    ]);
-  });
-  await configureCache({ url: testStackEnv().REDIS_CACHE_URL });
-  try {
-    await cache.invalidateTag('taxonomy');
-  } finally {
-    await closeCache();
-  }
-  return { email: agent.email, agencyId: agent.agencyId, ...names };
+  await asOwner((admin) =>
+    admin.query(`update agencies set status = 'VERIFIED' where agency_id = $1`, [agent.agencyId]),
+  );
+  return { email: agent.email, agencyId: agent.agencyId, ...LISTING_TAXONOMY };
 }
