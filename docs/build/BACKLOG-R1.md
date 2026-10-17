@@ -580,6 +580,14 @@ Ref §7 M3 · Mod developments, contracts, api, web, worker · Dep S4-03
 - A shared brochure is readable by an allowed agency and a non-shared contract is not (test)
 - A renamed non-PDF is refused and a deleted document's object is removed by the worker (test)
 
+### S4-F5 · S4 review fixes ⚡
+Ref §16 · Mod developments, contracts, web, perf · Dep S4-F4
+**Build:** the three must-fixes of the S4 review. (1) `withDbErrors` names the access FK as migration 0059 creates it (`development_access_allowed_agency_id_agencies_agency_id_fk`), so an unknown allowed agency is `VALIDATION_FAILED`, not a 500. (2) The price-list list carries the diff's counts only (computed in SQL, `PriceListSummaryDto`); the full diff comes from `GET …/price-lists/:version`, which the panel loads when a version is opened. (3) The unit caps move to `@inmolink/contracts/values`, so the development page's client chunk bundles no zod; `perf:bundle` enforces it.
+**Done when:**
+- An unknown allowed agency id answers `VALIDATION_FAILED` (test)
+- A price-list page carries counts, one version the full diff (test)
+- `/developments/[id]` first load ≤ 250 KB with zod absent from its client chunks (`perf:bundle`)
+
 ---
 
 ## S5 — Search & read models
@@ -625,6 +633,30 @@ Ref §7 M9 · Mod matching · Dep S5-05 S11-04
 **Build:** agent saved searches; alerts on new listing, price drop, back on market (event-driven + daily digest); notification + email.
 **Done when:** a new matching listing produces exactly one alert per saved search (deduplicated)
 *(Note: depends on S11-04 notifications — build alert generation first, delivery when S11-04 is done.)*
+
+### S5-F1 · Development access and audit hardening (S4 review) 🔒
+Ref §3 #21 §5 · Mod developments, db, tests · Dep S4-F5
+**Build:** opening a development document of the caller's own agency needs a writer role (PARTNER members cannot read the owner's contracts, as for listing documents). `setDevelopmentAccess`, a commission change and `approvePriceList` write a `compliance.audit` entry with before and after values. An isolation/int test per case shows units, phases, translations and documents disappear for an unverified reader, an unlisted or suspended owner and a soft-deleted development. Re-uploading the same file with a different `kind`/`shared` updates the row (share check applies) or answers 409, never silently returns the old row. `uploaded_by` and `legacy_id` leave the NETWORK_READ tables (owner-only table) or are recorded as owner-only in the registry. Unknown `allowedAgencyIds` are checked against `agency_directory` with one neutral error. The browser refuses unit and price-list CSVs over 2 MB before reading them. Record (BACKLOG S7-02, S12-04) that override texts are escaped or sanitized when rendered.
+**Done when:**
+- A PARTNER member of the owner cannot open a non-shared development document (test)
+- Changing access, commission or approving a price list writes an audit entry (test)
+- Child rows of a soft-deleted or suspended owner's development are invisible to other agencies (test)
+
+### S5-F2 · Development and document lifecycle (S4 review)
+Ref §7 M3 · Mod developments, media, properties · Dep S4-F5
+**Build:** soft-deleted developments are purged after the restore window with their documents (the S4-F3 listing purge shape: `documentDeleted` per document, objects removed by the worker). `listing_overrides` of a purged listing or a deleted unit/development are removed by a system job subscribed to `properties.listing.purged` and `developments.unit.deleted`. The orphan sweeps (`development-documents/`, listing `documents/`) persist their last key and resume from it, wrapping at the end, so objects past the first 100k keys are swept. The listing purge gets a partial index on `(deleted_at) where deleted_at is not null` (created `CONCURRENTLY`) and queues a continuation when a run ends full.
+**Done when:**
+- A development soft-deleted past retention is purged with its document objects (test)
+- A purged listing's overrides are removed (test)
+- A sweep that stops at its page cap resumes from the next key on the following run (test)
+
+### S5-F3 · Developments performance and structure (S4 review) ⚡
+Ref §16 PATTERNS §9 · Mod developments, contracts, web, tests · Dep S4-F5
+**Build:** approving a price list with `priceListId` set writes no per-unit outbox events (one `priceListApproved` carries it) or `emit` chunks large inserts, so a 2,000-unit repricing stays well under the 65,535-parameter limit and the dashboard p95. `getPriceList` reads without `entries` on the read path; `listOwnDevelopments` and `listUnits` select only the DTO's columns. The CSV price and unit-type parsing moves from `apps/web/.../developments/csv.ts` into contracts or core (S4-04 and S6 imports reuse it; the web keeps file reading). The development currency defaults to the agency's currency, not a hard-coded `'EUR'`. The `[S0-15]` Kamal env test (38 s alone, 60 s timeout under a full run) gets a margin or a cheaper import. Integration tests stop leaving agencies behind (the test DB holds 80k; `[S1-09]` times out under load): factories clean up or suites share founders, and the staff tenant search gets a trigram index on `agencies.name` (or a prefix search on an indexed key).
+**Done when:**
+- Approving a 2,000-unit price list stays within the dashboard budget (test)
+- No list repo in `developments` selects every column (test or lint)
+- `[S1-09]` passes in a full `verify:all` run
 
 ---
 
