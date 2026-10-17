@@ -74,6 +74,10 @@ export async function createPriceList(
 ): Promise<PriceListDto> {
   // The development's row lock serializes version numbers.
   const dev = await ownForChange(ctx, developmentId, 'development.update');
+  // S4-F4: the source is one of this development's documents (the FK alone only checks the agency).
+  if (input.sourceDocumentId && !(await repo.getDocument(ctx.tx, developmentId, input.sourceDocumentId))) {
+    throw new AppError('VALIDATION_FAILED', { field: 'sourceDocumentId', reason: 'unknown' });
+  }
   const version = (await repo.latestPriceListVersion(ctx.tx, developmentId)) + 1;
   const diff = diffPriceList(input.entries, await repo.unitPrices(ctx.tx, developmentId));
   const row = await withDbErrors(() =>

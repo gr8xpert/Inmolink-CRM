@@ -19,6 +19,9 @@ import {
   type CreatePriceListBody,
   type CreateUnitsBody,
   type DecideVerificationBody,
+  DevelopmentDocumentDto,
+  DevelopmentDocumentList,
+  DevelopmentDocumentUrlDto,
   DevelopmentDto,
   DevelopmentPage,
   DirectorySearchResult,
@@ -75,6 +78,7 @@ import {
   type UpdateAgencySettingsInput,
   type UpdateBookmarkBody,
   type UpdateDevelopmentBody,
+  type UpdateDevelopmentDocumentBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
@@ -1029,10 +1033,73 @@ export function approvePriceList(session: SessionRef, id: string, version: numbe
   });
 }
 
+// --- development documents (S4-F4): the owner's all, a collaborating agency's the shared ones ---
+
+export function fetchDevelopmentDocuments(
+  session: SessionRef | Token,
+  id: string,
+): Promise<ApiResult<DevelopmentDocumentList>> {
+  return apiRequest(session, `${developmentPath(id)}/documents`, DevelopmentDocumentList);
+}
+
+/** One PDF as a raw body; the API checks its real type by magic bytes. */
+export function uploadDevelopmentDocument(
+  session: SessionRef,
+  id: string,
+  query: { fileName: string; kind: string; shared: boolean },
+  bytes: Uint8Array,
+): Promise<ApiResult<DevelopmentDocumentDto>> {
+  const qs = new URLSearchParams({ fileName: query.fileName, kind: query.kind, shared: String(query.shared) });
+  return apiRequest(session, `${developmentPath(id)}/documents?${qs}`, DevelopmentDocumentDto, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/pdf' },
+    timeoutMs: 60_000,
+  });
+}
+
+export function openDevelopmentDocument(
+  session: SessionRef,
+  id: string,
+  documentId: string,
+): Promise<ApiResult<DevelopmentDocumentUrlDto>> {
+  return apiRequest(
+    session,
+    `${developmentPath(id)}/documents/${encodeURIComponent(documentId)}/url`,
+    DevelopmentDocumentUrlDto,
+  );
+}
+
+export function updateDevelopmentDocument(
+  session: SessionRef,
+  id: string,
+  documentId: string,
+  body: UpdateDevelopmentDocumentBody,
+): Promise<ApiResult<DevelopmentDocumentDto>> {
+  return apiRequest(
+    session,
+    `${developmentPath(id)}/documents/${encodeURIComponent(documentId)}`,
+    DevelopmentDocumentDto,
+    {
+      method: 'PATCH',
+      body,
+    },
+  );
+}
+
+export function deleteDevelopmentDocument(
+  session: SessionRef,
+  id: string,
+  documentId: string,
+): Promise<ApiResult<null>> {
+  return apiRequest(session, `${developmentPath(id)}/documents/${encodeURIComponent(documentId)}`, z.null(), {
+    method: 'DELETE',
+  });
+}
+
 /**
- * The development page: the development, its first page of units, its price lists, the taxonomy and (for the
- * owner's sharing settings) the preferred agencies — one minted token, in parallel. Price lists and preferred
- * agencies are the owner's only: null for another agency's development or when refused.
+ * The development page: the development, its first page of units, its price lists, its documents, the taxonomy
+ * and (for the owner's sharing settings) the preferred agencies — one minted token, in parallel. Price lists and
+ * preferred agencies are the owner's only: null for another agency's development or when refused.
  */
 export async function fetchDevelopmentPage(
   session: SessionRef,
@@ -1043,6 +1110,7 @@ export async function fetchDevelopmentPage(
       development: Exclude<ApiResult<DevelopmentDto>, 'revoked'>;
       units: UnitPage | null;
       priceLists: PriceListPage | null;
+      documents: DevelopmentDocumentList | null;
       taxonomy: TaxonomyDto | null;
       partners: PreferredAgencyPage | null;
     }
@@ -1059,14 +1127,16 @@ export async function fetchDevelopmentPage(
       development: { ok: false, status: 0, error: null },
       units: null,
       priceLists: null,
+      documents: null,
       taxonomy: null,
       partners: null,
     };
   }
-  const [development, units, priceLists, taxonomy, partners] = await Promise.all([
+  const [development, units, priceLists, documents, taxonomy, partners] = await Promise.all([
     apiRequest({ token }, developmentPath(id), DevelopmentDto),
     fetchUnits({ token }, id),
     fetchPriceLists({ token }, id),
+    fetchDevelopmentDocuments({ token }, id),
     apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
     apiRequest({ token }, '/v1/agency/preferred-agencies?limit=100', PreferredAgencyPage),
   ]);
@@ -1076,6 +1146,7 @@ export async function fetchDevelopmentPage(
     development,
     units: data(units),
     priceLists: data(priceLists),
+    documents: data(documents),
     taxonomy: data(taxonomy),
     partners: data(partners),
   };

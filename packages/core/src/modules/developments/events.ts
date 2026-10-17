@@ -45,4 +45,10 @@ export const developmentsEvents = {
   priceListCreated: defineEvent('developments.priceList.created', 1, z.object(priceList)),
   /** A person approved the version and its prices were applied. */
   priceListApproved: defineEvent('developments.priceList.approved', 1, z.object(priceList)),
+  /** S4-F4: the row is gone; the worker deletes the object (`developments.deleteDocumentObject`). */
+  documentDeleted: defineEvent(
+    'developments.document.deleted',
+    1,
+    z.object({ documentId: z.uuid(), developmentId: z.uuid(), agencyId: z.uuid() }),
+  ),
 };

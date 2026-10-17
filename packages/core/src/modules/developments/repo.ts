@@ -5,6 +5,7 @@
 import type { Tx } from '@inmolink/db';
 import {
   developmentAccess,
+  developmentDocuments,
   developments,
   priceLists,
   unitPriceHistories,
@@ -19,6 +20,7 @@ export type DevelopmentInsert = typeof developments.$inferInsert;
 export type UnitRow = typeof units.$inferSelect;
 export type UnitInsert = typeof units.$inferInsert;
 export type PriceListRow = typeof priceLists.$inferSelect;
+export type DocumentRow = typeof developmentDocuments.$inferSelect;
 
 // ── Developments ─────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -299,4 +301,89 @@ export async function listPriceLists(
     .orderBy(desc(priceLists.version))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
+}
+
+// ── Documents (S4-F4) ────────────────────────────────────────────────────────────────────────────────────────
+
+/** A development's documents the caller can read (RLS: the owner's all, another agency's the shared ones). */
+export async function listDocuments(tx: Tx, developmentId: string): Promise<DocumentRow[]> {
+  return tx
+    .select()
+    .from(developmentDocuments)
+    .where(eq(developmentDocuments.developmentId, developmentId))
+    .orderBy(asc(developmentDocuments.createdAt), asc(developmentDocuments.id))
+    .limit(500); // bounded: an upload caps a development at DEVELOPMENT_DOCUMENTS_MAX
+}
+
+/** One document of the development the caller can read (RLS), or null. */
+export async function getDocument(tx: Tx, developmentId: string, id: string): Promise<DocumentRow | null> {
+  const [row] = await tx
+    .select()
+    .from(developmentDocuments)
+    .where(and(eq(developmentDocuments.id, id), eq(developmentDocuments.developmentId, developmentId)));
+  return row ?? null;
+}
+
+export async function insertDocument(tx: Tx, row: typeof developmentDocuments.$inferInsert): Promise<DocumentRow> {
+  const [inserted] = await tx.insert(developmentDocuments).values(row).returning();
+  return inserted as DocumentRow;
+}
+
+export async function updateDocument(
+  tx: Tx,
+  agencyId: string,
+  developmentId: string,
+  id: string,
+  patch: Partial<Pick<DocumentRow, 'kind' | 'shared'>>,
+): Promise<DocumentRow | null> {
+  const [row] = await tx
+    .update(developmentDocuments)
+    .set(patch)
+    .where(
+      and(
+        eq(developmentDocuments.id, id),
+        eq(developmentDocuments.developmentId, developmentId),
+        eq(developmentDocuments.agencyId, agencyId),
+      ),
+    )
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Deletes the own document; price lists that named it as their source keep their entries and lose the link
+ * (`price_lists_source_document_fk` has no cascade). Two statements; false when there was no such document.
+ */
+export async function deleteDocument(tx: Tx, agencyId: string, developmentId: string, id: string): Promise<boolean> {
+  await tx
+    .update(priceLists)
+    .set({ sourceDocumentId: null })
+    .where(
+      and(
+        eq(priceLists.sourceDocumentId, id),
+        eq(priceLists.developmentId, developmentId),
+        eq(priceLists.agencyId, agencyId),
+      ),
+    );
+  const rows = await tx
+    .delete(developmentDocuments)
+    .where(
+      and(
+        eq(developmentDocuments.id, id),
+        eq(developmentDocuments.developmentId, developmentId),
+        eq(developmentDocuments.agencyId, agencyId),
+      ),
+    )
+    .returning({ id: developmentDocuments.id });
+  return rows.length > 0;
+}
+
+/** Which of `keys` a document row still names (`development_documents_key_uq`); the orphan sweep (system). */
+export async function existingDocumentKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const rows = await tx
+    .select({ key: developmentDocuments.storageKey })
+    .from(developmentDocuments)
+    .where(inArray(developmentDocuments.storageKey, keys));
+  return new Set(rows.map((r) => r.key));
 }

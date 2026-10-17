@@ -123,6 +123,9 @@
     "pending": "Pendiente de aprobación",
     "approve": "Aprobar y aplicar",
     "approved": "Versión {version} aprobada: precios y estados aplicados.",
+    "source": "Documento de origen",
+    "noSource": "Ninguno",
+    "sourceOf": "Origen: {name}",
     "diff": {
       "title": "Cambios de la versión {version}",
       "added": "Referencias nuevas ({count})",
@@ -136,6 +139,41 @@
       "price": "Precio",
       "status": "Estado",
       "arrow": "{from} → {to}"
+    }
+  },
+  "documents": {
+    "title": "Documentos",
+    "intro": "Folletos, planos, listas de precios y documentación legal (PDF). Los documentos compartidos pueden leerlos las agencias con las que se comparte esta promoción; los demás quedan en tu agencia.",
+    "readOnlyIntro": "Los documentos que el promotor comparte con tu agencia.",
+    "choose": "Subir PDF",
+    "input": "Archivos PDF para subir",
+    "hint": "Solo PDF, máximo {max} MB cada uno.",
+    "kindForUpload": "Tipo de la próxima subida",
+    "sharedForUpload": "Compartir la próxima subida con las agencias colaboradoras",
+    "progressLabel": "Progreso de la subida",
+    "empty": "Aún no hay documentos.",
+    "open": "Abrir",
+    "remove": "Quitar",
+    "kindOf": "Tipo de {name}",
+    "shared": "Compartido",
+    "sharedOf": "Compartir {name} con las agencias colaboradoras",
+    "kinds": {
+      "BROCHURE": "Folleto",
+      "PRICE_LIST": "Lista de precios",
+      "FLOOR_PLAN": "Plano",
+      "SPECIFICATIONS": "Memoria de calidades",
+      "PAYMENT_PLAN": "Plan de pagos",
+      "LEGAL": "Legal",
+      "OTHER": "Otro"
+    },
+    "errors": {
+      "DOCUMENT_TYPE_NOT_ALLOWED": "Solo se pueden subir archivos PDF. Este archivo no es un PDF.",
+      "DOCUMENT_LIMIT_REACHED": "Una promoción admite como máximo 100 documentos.",
+      "PAYLOAD_TOO_LARGE": "El archivo supera los {max} MB.",
+      "DEVELOPMENT_DOCUMENT_NOT_FOUND": "Este documento ya no existe; recarga la página.",
+      "FORBIDDEN": "No puedes cambiar los documentos de esta promoción.",
+      "RATE_LIMITED": "Demasiadas subidas a la vez; espera un momento.",
+      "generic": "No se pudo guardar el documento. Inténtalo de nuevo."
     }
   },
   "priceOnRequest": "A consultar",

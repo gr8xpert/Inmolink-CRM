@@ -8,6 +8,7 @@ import { fetchDevelopmentPage, sessionRef } from '@/server/api';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { AccessPanel } from './access-panel';
 import { DevelopmentEditor } from './development-editor';
+import DocumentsPanel from './documents-panel';
 import { UnitsPanel } from './units-panel';
 
 // The price-list diff view and the override editor load as their own chunks.
@@ -21,8 +22,9 @@ const OverridePanel = dynamic(() => import('../../listings/[id]/override-panel')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * A development (S4-03): its details, sharing, units (inline edit, bulk status, CSV import) and price lists
- * (CSV upload, diff view, approval) — one round of parallel calls, then each panel saves its own changes. The
+ * A development (S4-03): its details, sharing, units (inline edit, bulk status, CSV import), documents (S4-F4:
+ * the owner's all, another agency's the shared ones) and price lists (CSV upload naming a source document, diff
+ * view, approval) — one round of parallel calls, then each panel saves its own changes. The
  * owner's sharing settings (`access`) mark the owner's view; another agency's development opens read-only with
  * the override panel (S3-10) for the agency's own texts. After an approval the page is refreshed and the unit
  * table (keyed by the latest approved version) starts again from the applied prices.
@@ -83,11 +85,18 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
             readOnly={!own}
             messages={messages.developments}
           />
+          <DocumentsPanel
+            developmentId={dev.id}
+            initial={res.documents?.items ?? []}
+            readOnly={!own}
+            messages={messages.developments}
+          />
           {own ? (
             <PriceListsPanel
               developmentId={dev.id}
               currency={dev.currency}
               initial={res.priceLists?.items ?? []}
+              documents={res.documents?.items ?? []}
               messages={messages.developments}
             />
           ) : (

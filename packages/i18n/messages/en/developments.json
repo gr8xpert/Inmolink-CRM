@@ -123,6 +123,9 @@
     "pending": "Waiting for approval",
     "approve": "Approve and apply",
     "approved": "Version {version} approved: prices and statuses applied.",
+    "source": "Source document",
+    "noSource": "None",
+    "sourceOf": "Source: {name}",
     "diff": {
       "title": "Changes in version {version}",
       "added": "New references ({count})",
@@ -136,6 +139,41 @@
       "price": "Price",
       "status": "Status",
       "arrow": "{from} → {to}"
+    }
+  },
+  "documents": {
+    "title": "Documents",
+    "intro": "Brochures, plans, price lists and legal files (PDF). Shared documents can be read by the agencies this development is shared with; the others stay with your agency.",
+    "readOnlyIntro": "The documents the developer shares with your agency.",
+    "choose": "Upload PDFs",
+    "input": "PDF files to upload",
+    "hint": "PDF only, at most {max} MB each.",
+    "kindForUpload": "Kind of the next upload",
+    "sharedForUpload": "Share the next upload with collaborating agencies",
+    "progressLabel": "Upload progress",
+    "empty": "No documents yet.",
+    "open": "Open",
+    "remove": "Remove",
+    "kindOf": "Kind of {name}",
+    "shared": "Shared",
+    "sharedOf": "Share {name} with collaborating agencies",
+    "kinds": {
+      "BROCHURE": "Brochure",
+      "PRICE_LIST": "Price list",
+      "FLOOR_PLAN": "Floor plan",
+      "SPECIFICATIONS": "Specifications",
+      "PAYMENT_PLAN": "Payment plan",
+      "LEGAL": "Legal",
+      "OTHER": "Other"
+    },
+    "errors": {
+      "DOCUMENT_TYPE_NOT_ALLOWED": "Only PDF files can be uploaded. This file is not a PDF.",
+      "DOCUMENT_LIMIT_REACHED": "A development holds at most 100 documents.",
+      "PAYLOAD_TOO_LARGE": "The file is larger than {max} MB.",
+      "DEVELOPMENT_DOCUMENT_NOT_FOUND": "This document no longer exists; reload the page.",
+      "FORBIDDEN": "You cannot change this development's documents.",
+      "RATE_LIMITED": "Too many uploads at once; wait a moment.",
+      "generic": "The document could not be saved. Try again."
     }
   },
   "priceOnRequest": "On request",

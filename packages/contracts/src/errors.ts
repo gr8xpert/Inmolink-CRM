@@ -164,6 +164,8 @@ export const ErrorCodes = {
   PRICE_LIST_REVIEWED: 409,
   /** A newer price list version exists: approve that one. */
   PRICE_LIST_SUPERSEDED: 409,
+  // development documents (S4-F4)
+  DEVELOPMENT_DOCUMENT_NOT_FOUND: 404,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

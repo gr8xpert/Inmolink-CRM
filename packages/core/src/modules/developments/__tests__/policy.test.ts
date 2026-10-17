@@ -25,7 +25,9 @@ describe('developments policy', () => {
     const admin = ctxAs('DEVELOPER_ADMIN');
     const agent = ctxAs('DEVELOPER_AGENT');
     for (const action of DEVELOPMENTS_ACTIONS) expect(can(admin, action, mine)).toBe(true);
-    for (const action of DEVELOPMENTS_ACTIONS.filter((a) => a !== 'development.read')) {
+    for (const action of DEVELOPMENTS_ACTIONS.filter(
+      (a) => a !== 'development.read' && a !== 'developmentDocument.read',
+    )) {
       expect(can(admin, action, theirs)).toBe(false);
     }
     expect(can(agent, 'development.update', mine)).toBe(true);
@@ -35,6 +37,7 @@ describe('developments policy', () => {
       'development.share',
       'development.commission',
       'priceList.approve',
+      'developmentDocument.share',
     ] as const) {
       expect(can(agent, action, mine)).toBe(false);
     }

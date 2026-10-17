@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { Commission } from './agency-profile';
 import { CurrencyCode, Money, PageQuery, pageOf } from './common';
+import { DEVELOPMENT_DOCUMENT_KINDS } from './values';
 
 export const DevelopmentStatus = z.enum(['OFF_PLAN', 'UNDER_CONSTRUCTION', 'KEY_READY', 'SOLD_OUT']);
 export type DevelopmentStatus = z.infer<typeof DevelopmentStatus>;
@@ -246,3 +247,49 @@ export const PriceListDto = z.object({
 export type PriceListDto = z.infer<typeof PriceListDto>;
 export const PriceListPage = pageOf(PriceListDto);
 export type PriceListPage = z.infer<typeof PriceListPage>;
+
+// ── Development documents (S4-F4) ────────────────────────────────────────────────────────────────────────────
+
+export const DevelopmentDocumentKind = z.enum(DEVELOPMENT_DOCUMENT_KINDS);
+export type DevelopmentDocumentKind = z.infer<typeof DevelopmentDocumentKind>;
+/** Documents per development. */
+export const DEVELOPMENT_DOCUMENTS_MAX = 100;
+/** How long an opened document's signed URL works. */
+export const DEVELOPMENT_DOCUMENT_URL_TTL_SECONDS = 300;
+
+export const UploadDevelopmentDocumentQuery = z
+  .object({
+    fileName: z.string().trim().min(1).max(200),
+    kind: DevelopmentDocumentKind.optional(),
+    /** Readable by the agencies the development is shared with; owner-only when false (the default). */
+    shared: z.enum(['true', 'false']).optional(),
+  })
+  .strict();
+export type UploadDevelopmentDocumentQuery = z.infer<typeof UploadDevelopmentDocumentQuery>;
+
+export const UpdateDevelopmentDocumentBody = z
+  .object({ kind: DevelopmentDocumentKind.optional(), shared: z.boolean().optional() })
+  .strict()
+  .refine((b) => b.kind !== undefined || b.shared !== undefined, 'nothing to change');
+export type UpdateDevelopmentDocumentBody = z.infer<typeof UpdateDevelopmentDocumentBody>;
+
+export const DevelopmentDocumentDto = z.object({
+  id: z.uuid(),
+  developmentId: z.uuid(),
+  kind: DevelopmentDocumentKind,
+  fileName: z.string(),
+  sizeBytes: z.number().int(),
+  shared: z.boolean(),
+  createdAt: z.iso.datetime(),
+});
+export type DevelopmentDocumentDto = z.infer<typeof DevelopmentDocumentDto>;
+
+export const DevelopmentDocumentList = z.object({ items: z.array(DevelopmentDocumentDto) });
+export type DevelopmentDocumentList = z.infer<typeof DevelopmentDocumentList>;
+
+export const DevelopmentDocumentParams = z.object({ id: z.uuid(), documentId: z.uuid() }).strict();
+export type DevelopmentDocumentParams = z.infer<typeof DevelopmentDocumentParams>;
+
+/** A short signed GET; the file downloads under its name. */
+export const DevelopmentDocumentUrlDto = z.object({ url: z.string(), expiresAt: z.iso.datetime() });
+export type DevelopmentDocumentUrlDto = z.infer<typeof DevelopmentDocumentUrlDto>;

@@ -1,6 +1,6 @@
 'use client';
 
-import type { PriceListDiff, PriceListDto } from '@inmolink/contracts';
+import type { DevelopmentDocumentDto, PriceListDiff, PriceListDto } from '@inmolink/contracts';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useRouter } from 'next/navigation';
 import { useFormatter } from 'next-intl';
@@ -15,6 +15,8 @@ interface Props {
   currency: string;
   /** Newest first, as the API lists them. */
   initial: PriceListDto[];
+  /** The development's documents: a version may name the one it was read from (S4-F4). */
+  documents: DevelopmentDocumentDto[];
   messages: Record<string, unknown>;
 }
 
@@ -26,7 +28,7 @@ const today = () => new Date().toISOString().slice(0, 10);
  * the latest version applies its prices and statuses (the page then reloads the units). New and missing
  * references are not applied: the person creates or deletes those units (S4-02 decision 3).
  */
-export default function PriceListsPanel({ developmentId, currency, initial, messages }: Props) {
+export default function PriceListsPanel({ developmentId, currency, initial, documents, messages }: Props) {
   const t = makeT(messages);
   const format = useFormatter();
   const router = useRouter();
@@ -35,6 +37,10 @@ export default function PriceListsPanel({ developmentId, currency, initial, mess
   const [open, setOpen] = useState<number | null>(initial[0]?.version ?? null);
   const [csv, setCsv] = useState<{ entries: CsvPriceEntry[]; problems: CsvProblem[] } | null>(null);
   const [effectiveFrom, setEffectiveFrom] = useState(today);
+  const [sourceDocumentId, setSourceDocumentId] = useState('');
+  const docName = new Map(documents.map((d) => [d.id, d.fileName]));
+  // Price list documents first: the usual source.
+  const sources = [...documents].sort((a, b) => Number(b.kind === 'PRICE_LIST') - Number(a.kind === 'PRICE_LIST'));
   const [status, setStatus] = useState<{ kind: 'error' | 'saved'; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -57,6 +63,7 @@ export default function PriceListsPanel({ developmentId, currency, initial, mess
     startTransition(async () => {
       const res = await createPriceListAction(developmentId, {
         effectiveFrom,
+        sourceDocumentId: docName.has(sourceDocumentId) ? sourceDocumentId : null,
         extractedBy: 'HUMAN',
         entries: csv.entries,
       });
@@ -110,6 +117,24 @@ export default function PriceListsPanel({ developmentId, currency, initial, mess
               onChange={(e) => setEffectiveFrom(e.target.value)}
             />
           </div>
+          {sources.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={`${ids}-source`}>{t('priceLists.source')}</Label>
+              <select
+                id={`${ids}-source`}
+                className="h-9 max-w-64 rounded-md border bg-background px-3 text-sm"
+                value={sourceDocumentId}
+                onChange={(e) => setSourceDocumentId(e.target.value)}
+              >
+                <option value="">{t('priceLists.noSource')}</option>
+                {sources.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.fileName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {csv && csv.problems.length === 0 ? (
             <Button type="button" size="sm" disabled={pending || !effectiveFrom} onClick={upload}>
               {t('priceLists.upload')}
@@ -136,6 +161,11 @@ export default function PriceListsPanel({ developmentId, currency, initial, mess
                 {t('priceLists.version', { version: String(l.version) })} ·{' '}
                 {t('priceLists.effective', { date: date(`${l.effectiveFrom}T12:00:00Z`) })}
               </button>
+              {l.sourceDocumentId && docName.has(l.sourceDocumentId) ? (
+                <span className="text-xs text-muted-foreground">
+                  {t('priceLists.sourceOf', { name: docName.get(l.sourceDocumentId) ?? '' })}
+                </span>
+              ) : null}
               <span className="flex items-center gap-2 text-muted-foreground">
                 {l.reviewedAt ? t('priceLists.approvedAt', { date: date(l.reviewedAt) }) : t('priceLists.pending')}
                 {!l.reviewedAt && l.version === latest ? (

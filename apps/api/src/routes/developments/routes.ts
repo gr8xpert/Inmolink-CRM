@@ -3,6 +3,11 @@ import {
   CreateDevelopmentBody,
   CreatePriceListBody,
   CreateUnitsBody,
+  DEVELOPMENT_DOCUMENT_MAX_BYTES,
+  DevelopmentDocumentDto,
+  DevelopmentDocumentList,
+  DevelopmentDocumentParams,
+  DevelopmentDocumentUrlDto,
   DevelopmentDto,
   DevelopmentPage,
   DevelopmentParams,
@@ -19,12 +24,16 @@ import {
   UnitPage,
   UnitParams,
   UpdateDevelopmentBody,
+  UpdateDevelopmentDocumentBody,
   UpdateUnitBody,
+  UploadDevelopmentDocumentQuery,
 } from '@inmolink/contracts';
 import * as developments from '@inmolink/core/modules/developments';
+import { AppError } from '@inmolink/platform/errors';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
+import { takeUploadSlot } from '../media/routes';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'developments.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -327,6 +336,137 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => developments.approvePriceList(ctx, req.params.id, req.params.version));
+    },
+  );
+
+  // ── Documents (S4-F4) ──────────────────────────────────────────────────────────────────────────────────────
+
+  app.get(
+    '/v1/developments/:id/documents',
+    {
+      schema: {
+        tags,
+        operationId: 'developments.listDocuments',
+        summary: "A development's documents: the owner's all, a collaborating agency's the shared ones",
+        params: DevelopmentParams,
+        response: { 200: DevelopmentDocumentList },
+      },
+      ...read,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => developments.listDevelopmentDocuments(ctx, req.params.id));
+    },
+  );
+
+  app.get(
+    '/v1/developments/:id/documents/:documentId/url',
+    {
+      schema: {
+        tags,
+        operationId: 'developments.openDocument',
+        summary: 'A short signed download URL of a development document the caller may read',
+        params: DevelopmentDocumentParams,
+        response: { 200: DevelopmentDocumentUrlDto },
+      },
+      ...read,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        developments.openDevelopmentDocument(ctx, { developmentId: req.params.id, documentId: req.params.documentId }),
+      );
+    },
+  );
+
+  app.patch(
+    '/v1/developments/:id/documents/:documentId',
+    {
+      schema: {
+        tags,
+        operationId: 'developments.updateDocument',
+        summary: "Change a document's kind, or whether collaborating agencies may read it",
+        params: DevelopmentDocumentParams,
+        body: UpdateDevelopmentDocumentBody,
+        response: { 200: DevelopmentDocumentDto },
+      },
+      ...write,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) =>
+        developments.updateDevelopmentDocument(ctx, {
+          developmentId: req.params.id,
+          documentId: req.params.documentId,
+          patch: req.body,
+        }),
+      );
+    },
+  );
+
+  app.delete(
+    '/v1/developments/:id/documents/:documentId',
+    {
+      schema: {
+        tags,
+        operationId: 'developments.deleteDocument',
+        summary: 'Remove a development document; its file is deleted by the worker',
+        params: DevelopmentDocumentParams,
+        response: { 204: z.null() },
+      },
+      ...write,
+    },
+    async (req, reply) => {
+      await app.withCtx(req, (ctx) =>
+        developments.deleteDevelopmentDocument(ctx, {
+          developmentId: req.params.id,
+          documentId: req.params.documentId,
+        }),
+      );
+      return reply.status(204).send(null);
+    },
+  );
+
+  await app.register(documentUploadRoute);
+}
+
+/**
+ * The document upload, in its own plugin: its body is the raw file (only this route accepts binary bodies, up to
+ * 20 MB). The declared type only routes the body here; the service checks the real type by magic bytes.
+ */
+async function documentUploadRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    ['application/pdf', 'application/octet-stream'],
+    { parseAs: 'buffer', bodyLimit: DEVELOPMENT_DOCUMENT_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/developments/:id/documents',
+    {
+      schema: {
+        tags: ['developments'],
+        operationId: 'developments.uploadDocument',
+        summary: 'Upload one development document (raw PDF body, max 20 MB); owner-only unless shared=true',
+        params: DevelopmentParams,
+        querystring: UploadDevelopmentDocumentQuery,
+        response: { 201: DevelopmentDocumentDto },
+      },
+      bodyLimit: DEVELOPMENT_DOCUMENT_MAX_BYTES,
+      onRequest: [upload.requireSession, takeUploadSlot],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      const doc = await developments.uploadDevelopmentDocument(upload.ctxRunner(req), {
+        developmentId: req.params.id,
+        fileName: req.query.fileName,
+        kind: req.query.kind,
+        shared: req.query.shared === 'true',
+        body,
+      });
+      return reply.status(201).send(doc);
     },
   );
 }

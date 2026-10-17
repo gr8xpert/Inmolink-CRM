@@ -5,6 +5,9 @@ import {
   CreateDevelopmentBody,
   CreatePriceListBody,
   CreateUnitsBody,
+  type DevelopmentDocumentDto,
+  type DevelopmentDocumentList,
+  type DevelopmentDocumentUrlDto,
   type DevelopmentDto,
   type PriceListDto,
   SetDevelopmentAccessBody,
@@ -13,6 +16,7 @@ import {
   type UnitPage,
   UnitStatus,
   UpdateDevelopmentBody,
+  UpdateDevelopmentDocumentBody,
   UpdateUnitBody,
 } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
@@ -27,12 +31,16 @@ import {
   createDevelopment,
   createPriceList,
   createUnits,
+  deleteDevelopmentDocument,
   deleteUnit,
+  fetchDevelopmentDocuments,
   fetchUnits,
+  openDevelopmentDocument,
   type SessionRef,
   sessionRef,
   setDevelopmentAccess,
   updateDevelopment,
+  updateDevelopmentDocument,
   updateUnit,
 } from '@/server/api';
 
@@ -143,4 +151,36 @@ export async function createPriceListAction(id: string, body: unknown): Promise<
 export async function approvePriceListAction(id: string, version: number): Promise<DevResult<PriceListDto>> {
   if (!Uuid.safeParse(id).success || !Number.isInteger(version) || version < 1) return badId();
   return withSession((s) => approvePriceList(s, id, version));
+}
+
+/** A short signed download URL of one development document (S4-F4). */
+export async function openDocumentAction(
+  id: string,
+  documentId: string,
+): Promise<DevResult<DevelopmentDocumentUrlDto>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(documentId).success) return badId();
+  return withSession((s) => openDevelopmentDocument(s, id, documentId));
+}
+
+/** A document's kind or shared flag. */
+export async function updateDocumentAction(
+  id: string,
+  documentId: string,
+  body: unknown,
+): Promise<DevResult<DevelopmentDocumentDto>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(documentId).success) return badId();
+  const parsed = UpdateDevelopmentDocumentBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => updateDevelopmentDocument(s, id, documentId, parsed.data));
+}
+
+/** Removes a document; answers the documents left. */
+export async function deleteDocumentAction(
+  id: string,
+  documentId: string,
+): Promise<DevResult<DevelopmentDocumentList>> {
+  if (!Uuid.safeParse(id).success || !Uuid.safeParse(documentId).success) return badId();
+  const removed = await withSession((s) => deleteDevelopmentDocument(s, id, documentId));
+  if (!removed.ok) return removed;
+  return withSession((s) => fetchDevelopmentDocuments(s, id));
 }

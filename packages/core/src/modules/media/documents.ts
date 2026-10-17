@@ -26,7 +26,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import { detectFileType, storage } from '@inmolink/platform/storage';
+import { detectFileType, scanDocument, storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
 import * as compliance from '../compliance';
 import * as properties from '../properties';
@@ -34,14 +34,8 @@ import { mediaEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
 
-/** A virus scanner's verdict; `clean` unless one is configured (security rules: "if a scanner is configured"). */
-export type DocumentScanner = (bytes: Uint8Array) => Promise<'clean' | 'infected'>;
-let scanner: DocumentScanner = async () => 'clean';
-
-/** Plugs in a scanner (e.g. ClamAV in the worker image, later); tests pass a fake. */
-export function configureDocumentScanner(next: DocumentScanner): void {
-  scanner = next;
-}
+/** The scan hook lives in `platform/storage` (S4-F4: development documents share it); re-exported here. */
+export { configureDocumentScanner, type DocumentScanner } from '@inmolink/platform/storage';
 
 /** Where a document's object lives in the private bucket: per agency and listing, the id unguessable (UUIDv7). */
 export const DOCUMENTS_PREFIX = 'documents/';
@@ -98,7 +92,7 @@ export async function uploadListingDocument(
     assertCan(ctx, 'media.documents.manage');
     return properties.lockListingForMedia(ctx, input.listingId);
   });
-  if ((await scanner(input.body)) !== 'clean') throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { reason: 'scan' });
+  if ((await scanDocument(input.body)) !== 'clean') throw new AppError('DOCUMENT_TYPE_NOT_ALLOWED', { reason: 'scan' });
 
   const sha256 = createHash('sha256').update(input.body).digest('hex');
   const id = newId();

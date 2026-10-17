@@ -51,6 +51,10 @@ export const AUDIT_TYPES = [
   'media.document.uploaded',
   'media.document.opened',
   'media.document.deleted',
+  'developments.document.uploaded',
+  'developments.document.opened',
+  'developments.document.changed',
+  'developments.document.deleted',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',
@@ -61,7 +65,15 @@ export const AUDIT_TYPES = [
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
 export interface AuditTarget {
-  type: 'user' | 'apiKey' | 'agency' | 'verificationRequest' | 'invite' | 'taxonomy' | 'listingDocument';
+  type:
+    | 'user'
+    | 'apiKey'
+    | 'agency'
+    | 'verificationRequest'
+    | 'invite'
+    | 'taxonomy'
+    | 'listingDocument'
+    | 'developmentDocument';
   id: string;
 }
 

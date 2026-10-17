@@ -17,6 +17,15 @@ export const DEVELOPMENTS_ACTIONS = [
   'priceList.read',
   /** Approve a price list version: its prices are applied to the units. */
   'priceList.approve',
+  /**
+   * Open a development's documents (S4-F4): the owner's all, another agency's the shared ones (RLS). Never in
+   * Client Mode: documents are internal (a brochure may carry the owner's branding).
+   */
+  'developmentDocument.read',
+  /** Upload, re-classify and delete the own development's documents. */
+  'developmentDocument.manage',
+  /** Make a document readable by collaborating agencies, or not (admins, like `development.share`). */
+  'developmentDocument.share',
 ] as const;
 export type DevelopmentsAction = (typeof DEVELOPMENTS_ACTIONS)[number];
 
@@ -37,6 +46,10 @@ export const DEVELOPMENTS_IMPERSONATION: ImpersonationRules<DevelopmentsAction> 
   'development.commission': 'forbidden',
   'priceList.read': 'allowed',
   'priceList.approve': 'forbidden',
+  // Like listing documents (S4-F1): private files are neither opened nor changed by staff.
+  'developmentDocument.read': 'forbidden',
+  'developmentDocument.manage': 'forbidden',
+  'developmentDocument.share': 'forbidden',
 };
 
 /** Roles that administer the agency's developments. */
@@ -53,13 +66,16 @@ export function can(ctx: Ctx, action: DevelopmentsAction, resource?: { agencyId:
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'development.read':
+    case 'developmentDocument.read':
       return true; // RLS decides which developments are visible; the service picks the view
     case 'development.create':
     case 'development.update':
     case 'priceList.read':
+    case 'developmentDocument.manage':
       return sameAgency && WRITER_ROLES.has(role);
     case 'development.delete':
     case 'development.share':
+    case 'developmentDocument.share':
     case 'development.commission':
     case 'priceList.approve':
       return sameAgency && ADMIN_ROLES.has(role);

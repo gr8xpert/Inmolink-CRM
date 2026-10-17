@@ -37,4 +37,5 @@ export function registerSubscriptions(): void {
   media.registerMediaSubscriptions();
   properties.registerPropertiesSubscriptions();
   quality.registerQualitySubscriptions();
+  developments.registerDevelopmentsSubscriptions();
 }

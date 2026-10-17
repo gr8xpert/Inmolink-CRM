@@ -71,3 +71,16 @@ export function normalizeListingTag(raw: string): string | null {
 export function isOneOf<const T extends readonly string[]>(list: T, value: unknown): value is T[number] {
   return typeof value === 'string' && (list as readonly string[]).includes(value);
 }
+
+/** S4-F4: what a development document is (brochure, plans, price list, legal file …). */
+export const DEVELOPMENT_DOCUMENT_KINDS = [
+  'BROCHURE',
+  'PRICE_LIST',
+  'FLOOR_PLAN',
+  'SPECIFICATIONS',
+  'PAYMENT_PLAN',
+  'LEGAL',
+  'OTHER',
+] as const;
+/** A development document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
+export const DEVELOPMENT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;

@@ -497,4 +497,5 @@ export function storageConfigFromEnv(env: {
   };
 }
 
+export { configureDocumentScanner, type DocumentScanner, scanDocument } from './scan';
 export { type DetectedFile, detectFileType, SNIFF_BYTES } from './sniff';

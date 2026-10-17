@@ -255,12 +255,12 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
 
 /**
  * Buffered document bodies per user and per process (S3 review): the web relay caps its own process, this caps
- * the API for callers that send bodies to it directly. Taken in `onRequest` (after the session, before the body
+ * the API for callers that send bodies to it directly. Development documents (S4-F4) take the same slots. Taken in `onRequest` (after the session, before the body
  * is read) and released when the response is done or the connection closes.
  */
 export const listingDocumentUploads = createUploadSlots(LISTING_DOCUMENT_UPLOAD_SLOTS, LISTING_DOCUMENT_UPLOAD_TOTAL);
 
-async function takeUploadSlot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+export async function takeUploadSlot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   if (!req.auth) throw new AppError('NOT_AUTHENTICATED');
   const release = listingDocumentUploads.take(req.auth.userId);
   if (!release) throw new AppError('RATE_LIMITED');
