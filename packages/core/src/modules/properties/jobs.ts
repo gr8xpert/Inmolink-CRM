@@ -11,11 +11,17 @@ import * as repo from './repo';
 const BULK_ATTEMPTS = 5;
 const BULK_TIMEOUT_MS = 30 * 60_000;
 /**
- * A waiting or running bulk action that has not moved for this long is given up (`properties.failStaleBulkActions`):
- * a chunk takes about a second, so it means the job is lost (worker gone, timed out on its last attempt). Until
- * then the member's one-at-a-time slot stays taken.
+ * A running bulk action that has not moved for this long is given up (`properties.failStaleBulkActions`): a chunk
+ * takes about a second, so it means the job is lost (worker gone, timed out on its last attempt). Until then the
+ * member's one-at-a-time slot stays taken.
  */
 export const BULK_STALE_MS = 2 * 3_600_000;
+/**
+ * A queued action that never started is given up only after this long (S4-F3): it waits in the `imports` pool
+ * behind feed imports (S6), one action per agency at a time, so hours in the queue are normal — only a job lost
+ * before it ever ran stays QUEUED for a day.
+ */
+export const BULK_QUEUED_STALE_MS = 24 * 3_600_000;
 /** Freshness sweep: rows per transaction (each kind), and at most this many transactions per run. */
 const FRESHNESS_BATCH = 500;
 const FRESHNESS_MAX_BATCHES = 40;
@@ -31,8 +37,9 @@ const FRESHNESS_MAX_BATCHES = 40;
  * suspended meanwhile, stops the action (FAILED with the code); any other error retries from the last committed
  * chunk, and the last attempt marks it FAILED whatever ended it (an abort included).
  *
- * `properties.failStaleBulkActions` (every 10 minutes, pool `maintenance`): marks FAILED (`STALLED`) the actions
- * that have not moved for `BULK_STALE_MS` — a job lost to a crash or a timeout never marks its own record.
+ * `properties.failStaleBulkActions` (every 10 minutes, pool `maintenance`): marks FAILED (`STALLED`) the running
+ * actions that have not moved for `BULK_STALE_MS`, and the queued ones not started for `BULK_QUEUED_STALE_MS` — a
+ * job lost to a crash or a timeout never marks its own record.
  *
  * `properties.sweepFreshness` (S3-08; every hour, pool `maintenance`, all agencies via `withSystem`): hides from the
  * network the active listings unconfirmed for 120 days and prompts (`properties.listing.confirmationDue`) those
@@ -82,8 +89,13 @@ export const propertiesJobs = {
     every: 10 * 60_000,
     attempts: 3,
     async run(_p, { log }) {
-      const before = new Date(clock.now().getTime() - BULK_STALE_MS);
-      const failed = await withSystem('properties.failStaleBulkActions', (tx) => repo.failStaleBulks(tx, before));
+      const now = clock.now().getTime();
+      const failed = await withSystem('properties.failStaleBulkActions', (tx) =>
+        repo.failStaleBulks(tx, {
+          runningBefore: new Date(now - BULK_STALE_MS),
+          queuedBefore: new Date(now - BULK_QUEUED_STALE_MS),
+        }),
+      );
       if (failed > 0) log.warn({ failed }, 'stale bulk actions marked FAILED');
       return { failed };
     },

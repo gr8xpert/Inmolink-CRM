@@ -517,6 +517,16 @@ export const searchJobs = {
 
 `apps/worker/src/processors/indexing.ts` only does `registerPool('indexing', [searchJobs.reindexListing, ...])`.
 
+**Cross-module functions for workers (S4-F3).** A job that works across agencies (`withSystem`) and needs another
+module's data calls that module's public API with the raw `tx` — `properties.sweepFreshnessBatch(tx, …)`,
+`properties.listingsDueForPurge(tx, …)`, `media.listingImageSizes(tx, …)` — so the whole step is one transaction.
+Such functions: take `tx: Tx` (never build a fake system `ctx`: there is no actor, policy or locale to carry), are
+named for the worker that uses them, do no authorization (the caller's `withSystem` reason is the audit), and are
+never called from request code (requests go through `ctx` services). A job acting *as* a member (bulk actions)
+builds a real member `ctx` with `withMemberCtx` instead. The module graph still decides who calls whom: a job that
+must read module A's rows before module B deletes them lives in the module that may import the other (media →
+properties, `media.purgeDeletedListings`).
+
 ---
 
 ## §13 Bulk load (feeds, migration)

@@ -6,7 +6,7 @@
  */
 import type { Tx } from '@inmolink/db';
 import { listingDocuments, mediaObjects, propertyMedia } from '@inmolink/db/schema/media';
-import { and, asc, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 
 export type MediaRow = Pick<
   typeof propertyMedia.$inferSelect,
@@ -446,4 +446,20 @@ export async function existingDocumentKeys(tx: Tx, keys: string[]): Promise<Set<
     .from(listingDocuments)
     .where(inArray(listingDocuments.storageKey, keys));
   return new Set(rows.map((r) => r.key));
+}
+
+/** Each listing's stored files among `propertyIds` (`property_media_property_idx`), for the purge (S4-F3). */
+export async function hashesOfListings(tx: Tx, propertyIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (propertyIds.length === 0) return out;
+  const rows = await tx
+    .select({ propertyId: propertyMedia.propertyId, sha256: propertyMedia.sha256 })
+    .from(propertyMedia)
+    .where(and(inArray(propertyMedia.propertyId, propertyIds), isNotNull(propertyMedia.sha256)));
+  for (const r of rows) {
+    const list = out.get(r.propertyId) ?? [];
+    list.push(r.sha256 as string);
+    out.set(r.propertyId, list);
+  }
+  return out;
 }

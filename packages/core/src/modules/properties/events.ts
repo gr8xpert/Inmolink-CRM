@@ -24,6 +24,8 @@ export const propertiesEvents = {
   ),
   deleted: defineEvent('properties.listing.deleted', 1, z.object(listing)),
   restored: defineEvent('properties.listing.restored', 1, z.object(listing)),
+  /** S4-F3: a listing soft-deleted past its restore window is gone for good (rows and children deleted). */
+  purged: defineEvent('properties.listing.purged', 1, z.object({ listingId: z.uuid(), agencyId: z.uuid() })),
   /**
    * S3-08: the listing has gone 90 days without a confirmation (once per lapse; the freshness sweep). The agent
    * is prompted in the editor; notifications (later) tell them.

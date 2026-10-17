@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { CreateListingBody, parseVideoUrl } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
@@ -13,7 +14,7 @@ import {
   storageConfigFromEnv,
 } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
@@ -297,6 +298,51 @@ describe('listing document hygiene and audit', () => {
     expect((await storage().list('private', prefix, { limit: 10 })).objects).toEqual([]);
     // Only that listing's prefix: the agency's other listing keeps its document.
     expect(await storage().head('private', keptKey)).not.toBeNull();
+  });
+
+  it('[S4-F3] a listing soft-deleted past retention is purged with its documents; its photos are recounted', async () => {
+    const [old, recent] = [await listing(a), await listing(a)];
+    const doc = await media.uploadListingDocument(runner(a), { listingId: old, fileName: 'n.pdf', body: pdf('purge') });
+    const docKey = `documents/${a.agencyId}/${old}/${doc.id}`;
+    const photo = createHash('sha256').update(`purge-photo-${RUN}`).digest('hex');
+    await rows(sql`insert into property_media (id, property_id, agency_id, sha256, kind, position, is_cover)
+                   values (${newId()}, ${old}, ${a.agencyId}, ${photo}, 'IMAGE', 0, true)`);
+    for (const id of [old, recent]) await as(a, (ctx) => properties.deleteListing(ctx, id));
+    // past the 30-day restore window, and one still inside it
+    await rows(sql`update properties set deleted_at = now() - interval '31 days' where id = ${old}`);
+    await rows(sql`update properties set deleted_at = now() - interval '10 days' where id = ${recent}`);
+
+    // The document purge is queue I/O after the commit: run each queued job inline.
+    const queued: Parameters<typeof media.mediaDocumentJobs.purgeDocuments.enqueue>[0][] = [];
+    const enqueue = vi.spyOn(media.mediaDocumentJobs.purgeDocuments, 'enqueue').mockImplementation(async (payload) => {
+      queued.push(payload);
+      return { id: 'test' };
+    });
+    try {
+      await media.mediaDocumentJobs.purgeDeletedListings.spec.run({}, jobCtx());
+    } finally {
+      enqueue.mockRestore();
+    }
+    const mine = queued.filter((q) => q.listingId === old);
+    expect(mine).toEqual([expect.objectContaining({ agencyId: a.agencyId, listingId: old })]);
+    expect(queued.some((q) => q.listingId === recent)).toBe(false);
+    for (const q of mine) await media.mediaDocumentJobs.purgeDocuments.spec.run(q, jobCtx());
+
+    // The listing and its children are gone; the one inside the window stays restorable.
+    expect(await rows(sql`select id from properties where id = ${old}`)).toEqual([]);
+    expect(await rows(sql`select id from listing_documents where property_id = ${old}`)).toEqual([]);
+    expect(await rows(sql`select id from property_media where property_id = ${old}`)).toEqual([]);
+    expect(await storage().head('private', docKey)).toBeNull();
+    expect(await rows(sql`select id from properties where id = ${recent}`)).toEqual([{ id: recent }]);
+    // properties says so, and media recounts the listing's photo under its agency
+    expect(
+      await rows(sql`select agency_id from outbox_events
+                      where type = 'properties.listing.purged' and payload->>'listingId' = ${old}`),
+    ).toEqual([{ agency_id: a.agencyId }]);
+    expect(
+      await rows(sql`select agency_id, payload->'objects' as objects from outbox_events
+                      where type = 'media.object.referencesChanged' and payload->>'listingId' = ${old}`),
+    ).toEqual([{ agency_id: a.agencyId, objects: [{ sha256: photo, upload: null }] }]);
   });
 
   it('[S3-F8] an hour-old documents/ object without a row is swept; one with a row stays', async () => {

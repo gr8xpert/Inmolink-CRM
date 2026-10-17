@@ -34,6 +34,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     propertiesJobs.sweepFreshness,
     mediaDocumentJobs.deleteDocumentObject,
     mediaDocumentJobs.purgeDocuments,
+    mediaDocumentJobs.purgeDeletedListings,
     mediaDocumentJobs.sweepOrphanDocuments,
   ],
   ai: [],

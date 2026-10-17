@@ -23,6 +23,7 @@ import {
   type UpdateListingBody,
   type Visibility,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -666,6 +667,28 @@ export async function deleteListing(ctx: Ctx, id: string): Promise<void> {
   const updated = await repo.updateWithVersion(ctx.tx, id, current.version, { deletedAt: clock.now() });
   if (!updated) throw new AppError('VERSION_CONFLICT');
   await emit(ctx.tx, propertiesEvents.deleted({ listingId: id, agencyId: updated.agencyId, version: updated.version }));
+}
+
+/**
+ * For the listing purge (S4-F3, media's `media.purgeDeletedListings`, `withSystem`): up to `limit` listings
+ * soft-deleted more than `LISTING_RESTORE_DAYS` before `now`, locked for the purge in `tx`.
+ */
+export function listingsDueForPurge(tx: Tx, now: Date, limit: number): Promise<{ id: string; agencyId: string }[]> {
+  return repo.dueForPurge(tx, new Date(now.getTime() - LISTING_RESTORE_DAYS * 86_400_000), limit);
+}
+
+/**
+ * Deletes soft-deleted listings for good in `tx` (translations, features, media rows, documents' rows, history:
+ * FK cascade) with one `properties.listing.purged` per listing. The caller has read what it needs of the children
+ * first (media: the objects to recount).
+ */
+export async function purgeListings(tx: Tx, ids: string[]): Promise<{ id: string; agencyId: string }[]> {
+  const purged = await repo.purge(tx, ids);
+  await emit(
+    tx,
+    purged.map((l) => propertiesEvents.purged({ listingId: l.id, agencyId: l.agencyId })),
+  );
+  return purged;
 }
 
 /** `POST /v1/listings/:id/restore`: within 30 days of the delete, as it was (status, visibility). */

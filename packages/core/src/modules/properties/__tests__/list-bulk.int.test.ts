@@ -460,10 +460,11 @@ describe('bulk actions (S3-07)', () => {
     );
     expect(left).toEqual({ state: 'FAILED', processed: 0, error: 'FORBIDDEN' });
 
-    // A job lost to a crash never marks its record: the sweep does, once it has not moved for 2 hours.
+    // A job lost to a crash never marks its record: the sweep does, once a running action has not moved for 2 hours.
     const stuck = await startBulk(team, { action: { type: 'ADD_TAG', tag: 'x' }, target: { ids: listingIds } });
     await system((tx) =>
-      tx.execute(sql`update listing_bulk_actions set updated_at = now() - interval '3 hours' where id = ${stuck.id}`),
+      tx.execute(sql`update listing_bulk_actions set state = 'RUNNING', updated_at = now() - interval '3 hours'
+                      where id = ${stuck.id}`),
     );
     await properties.propertiesJobs.failStaleBulkActions.spec.run({}, jobCtx());
     expect(await bulkOf(team, stuck.id)).toMatchObject({ state: 'FAILED', error: 'STALLED' });
@@ -471,6 +472,31 @@ describe('bulk actions (S3-07)', () => {
     expect((await startBulk(team, { action: { type: 'ADD_TAG', tag: 'y' }, target: { ids: listingIds } })).state).toBe(
       'QUEUED',
     );
+  });
+
+  it('[S4-F3] a bulk action queued for 3 h behind other jobs still runs; one never started for a day is given up', async () => {
+    const team = await createFounder();
+    created.push(team.agencyId);
+    await setAgencyStatus(team.agencyId, 'VERIFIED');
+    const listingIds = await seedListings(team.agencyId, team.userId, 3, 'QW');
+    const waiting = await startBulk(team, { action: { type: 'ADD_TAG', tag: 'queued' }, target: { ids: listingIds } });
+    // three hours in the `imports` queue behind feed imports, never started
+    await system((tx) =>
+      tx.execute(sql`update listing_bulk_actions set updated_at = now() - interval '3 hours' where id = ${waiting.id}`),
+    );
+    await properties.propertiesJobs.failStaleBulkActions.spec.run({}, jobCtx());
+    expect(await bulkOf(team, waiting.id)).toMatchObject({ state: 'QUEUED' });
+    // its job's turn comes: it runs to the end
+    await runJob(team, waiting);
+    expect(await bulkOf(team, waiting.id)).toMatchObject({ state: 'DONE', succeeded: 3 });
+
+    // a job lost before it ever ran: the action is given up after a day, freeing the member's slot
+    const lost = await startBulk(team, { action: { type: 'ADD_TAG', tag: 'lost' }, target: { ids: listingIds } });
+    await system((tx) =>
+      tx.execute(sql`update listing_bulk_actions set updated_at = now() - interval '25 hours' where id = ${lost.id}`),
+    );
+    await properties.propertiesJobs.failStaleBulkActions.spec.run({}, jobCtx());
+    expect(await bulkOf(team, lost.id)).toMatchObject({ state: 'FAILED', error: 'STALLED' });
   });
 
   it('[S3-07] each listing follows the edit rules: agents only their own, lifecycle, CEE for PUBLIC; failures are kept, the rest change', async () => {

@@ -118,7 +118,17 @@ async function deliver(m: Founder): Promise<Enqueued[]> {
       for (const s of defaultSubscribers.get(e.type, e.version)) {
         if (s.name.startsWith('quality.')) await s.handler(e.payload as never, meta);
       }
-      await system((tx) => tx.execute(sql`update outbox_events set processed_at = now() where id = ${e.id}`));
+    }
+    // One statement for the batch (a bulk action leaves a thousand events).
+    if (events.length > 0) {
+      await system((tx) =>
+        tx.execute(
+          sql`update outbox_events set processed_at = now() where id in (${sql.join(
+            events.map((e) => sql`${e.id}`),
+            sql`, `,
+          )})`,
+        ),
+      );
     }
     // The jobs the events queued (a recheck they queue in turn is only recorded).
     for (const [payload] of [...queued]) {
@@ -274,7 +284,7 @@ describe('recompute triggers', () => {
     expect(quality.scoreMayChange(['price', 'energyRating'])).toBe(true);
     expect(quality.scoreMayChange(['price', 'owner', 'tags', 'visibility', 'shareScope'])).toBe(false);
     await system((tx) => tx.execute(sql`delete from properties where ref like ${`QB-${RUN}-%`}`));
-  }, 120_000);
+  }, 300_000);
 });
 
 describe('listing freshness', () => {

@@ -19,7 +19,7 @@ import {
   propertyTags,
   propertyTranslations,
 } from '@inmolink/db/schema/properties';
-import { and, asc, eq, gte, inArray, isNull, lt, lte, notInArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ListingRow = typeof properties.$inferSelect;
@@ -552,14 +552,20 @@ export async function failBulk(tx: Tx, agencyId: string, id: string, error: stri
 }
 
 /**
- * Marks FAILED (`STALLED`) every waiting or running action not moved since `before` (all agencies, `withSystem`;
- * the partial `listing_bulk_actions_member_active_uq` holds exactly these rows). Answers how many.
+ * Marks FAILED (`STALLED`) every running action not moved since `runningBefore` and every queued one not started
+ * since `queuedBefore` (all agencies, `withSystem`; the partial `listing_bulk_actions_member_active_uq` holds exactly
+ * the waiting and running rows). Answers how many.
  */
-export async function failStaleBulks(tx: Tx, before: Date): Promise<number> {
+export async function failStaleBulks(tx: Tx, cutoff: { runningBefore: Date; queuedBefore: Date }): Promise<number> {
   const rows = await tx
     .update(listingBulkActions)
     .set({ state: 'FAILED', error: 'STALLED', finishedAt: sql`now()`, updatedAt: sql`now()` })
-    .where(and(inArray(listingBulkActions.state, ['QUEUED', 'RUNNING']), lt(listingBulkActions.updatedAt, before)))
+    .where(
+      or(
+        and(eq(listingBulkActions.state, 'RUNNING'), lt(listingBulkActions.updatedAt, cutoff.runningBefore)),
+        and(eq(listingBulkActions.state, 'QUEUED'), lt(listingBulkActions.updatedAt, cutoff.queuedBefore)),
+      ),
+    )
     .returning({ id: listingBulkActions.id });
   return rows.length;
 }
@@ -1120,4 +1126,30 @@ export async function translationsFor(
     })
     .from(propertyTranslations)
     .where(and(inArray(propertyTranslations.propertyId, [...ids]), eq(propertyTranslations.locale, locale)));
+}
+
+// ---- Purge (S4-F3) --------------------------------------------------------------------------------------------
+
+/**
+ * Up to `limit` listings soft-deleted before `before` (all agencies, `withSystem`), longest deleted first, rows
+ * locked (skipping those another purge holds). The partial `properties_agency_deleted_idx` holds exactly the
+ * soft-deleted rows, few next to the table.
+ */
+export async function dueForPurge(tx: Tx, before: Date, limit: number): Promise<{ id: string; agencyId: string }[]> {
+  return tx
+    .select({ id: properties.id, agencyId: properties.agencyId })
+    .from(properties)
+    .where(and(isNotNull(properties.deletedAt), lt(properties.deletedAt, before)))
+    .orderBy(asc(properties.deletedAt))
+    .limit(limit)
+    .for('update', { skipLocked: true });
+}
+
+/** Deletes these soft-deleted listings for good (children cascade); answers the ones deleted. */
+export async function purge(tx: Tx, ids: string[]): Promise<{ id: string; agencyId: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .delete(properties)
+    .where(and(inArray(properties.id, ids), isNotNull(properties.deletedAt)))
+    .returning({ id: properties.id, agencyId: properties.agencyId });
 }

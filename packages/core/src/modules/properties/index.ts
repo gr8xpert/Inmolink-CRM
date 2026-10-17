@@ -45,8 +45,10 @@ export {
   deleteListing,
   getListing,
   LISTING_RESTORE_DAYS,
+  listingsDueForPurge,
   listListings,
   lockListingForMedia,
+  purgeListings,
   restoreListing,
   updateListing,
 } from './service';
