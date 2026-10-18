@@ -17,6 +17,9 @@ export interface EmitOptions {
 /** Payloads carry IDs and small parameters (workers.md); data is loaded by the consumer. */
 export const MAX_EVENT_PAYLOAD_BYTES = 10_240;
 
+/** Rows per insert statement (6 bind parameters each): far below Postgres's 65,535-parameter limit (S5-F3). */
+export const EMIT_CHUNK_ROWS = 1_000;
+
 function agencyOf(message: OutboxMessage, options: EmitOptions): string | null {
   const p = message.payload as { agencyId?: unknown } | null;
   const fromPayload = p && typeof p === 'object' && typeof p.agencyId === 'string' ? p.agencyId : null;
@@ -51,7 +54,9 @@ export async function emit(
       sql`(${newId()}, coalesce(${agencyOf(m, options)}::uuid, nullif(current_setting('app.agency_id', true), '')::uuid, ${PLATFORM_AGENCY_ID}::uuid),
            ${m.type}, ${m.version}, ${JSON.stringify(m.payload)}::jsonb, ${traceParent})`,
   );
-  await tx.execute(
-    sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values, sql`, `)}`,
-  );
+  for (let i = 0; i < values.length; i += EMIT_CHUNK_ROWS) {
+    await tx.execute(
+      sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values.slice(i, i + EMIT_CHUNK_ROWS), sql`, `)}`,
+    );
+  }
 }

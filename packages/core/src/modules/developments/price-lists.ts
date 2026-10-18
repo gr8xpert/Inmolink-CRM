@@ -24,7 +24,6 @@ import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import * as repo from './repo';
 import { actorId, ownForChange, ownForRead, withDbErrors } from './service';
-import { recordUnitChanges } from './units';
 
 /**
  * At most this many unit changes, and this many bytes of them, are spelled out in an approval's audit entry (the
@@ -79,7 +78,7 @@ export function diffPriceList(entries: readonly PriceListEntry[], units: readonl
   return diff;
 }
 
-type PriceListFields = Omit<repo.PriceListRow, 'entries' | 'diffSummary'>;
+type PriceListFields = Omit<repo.PriceListRow, 'diffSummary'>;
 
 function priceListFields(row: PriceListFields): Omit<PriceListDto, 'diff'> {
   return {
@@ -95,7 +94,7 @@ function priceListFields(row: PriceListFields): Omit<PriceListDto, 'diff'> {
   };
 }
 
-function toPriceListDto(row: Omit<repo.PriceListRow, 'entries'>): PriceListDto {
+function toPriceListDto(row: repo.PriceListRow): PriceListDto {
   return { ...priceListFields(row), diff: row.diffSummary as PriceListDiff };
 }
 
@@ -142,37 +141,53 @@ export async function createPriceList(
 /**
  * `POST /v1/developments/:id/price-lists/:version/approve`: applies the latest version's prices (and statuses)
  * to the units it names. Added and removed references are left to the person (create or delete those units).
+ *
+ * S5-F3: a repricing touches up to 2,000 units. Their history rows name the version; no per-unit events — the one
+ * `developments.priceList.approved` tells consumers (read models) to reload the development's units. Ten statements
+ * whatever the size; the unit update and the history inserts bind one array per column (`unnest`).
  */
 export async function approvePriceList(ctx: Ctx, developmentId: string, version: number): Promise<PriceListDto> {
   const dev = await ownForChange(ctx, developmentId, 'priceList.approve');
-  const list = await repo.getPriceList(ctx.tx, developmentId, version);
+  const list = await repo.getPriceListToApprove(ctx.tx, developmentId, version);
   if (!list) throw new AppError('PRICE_LIST_NOT_FOUND');
   if (list.reviewedAt) throw new AppError('PRICE_LIST_REVIEWED');
-  if ((await repo.latestPriceListVersion(ctx.tx, developmentId)) !== version) {
-    throw new AppError('PRICE_LIST_SUPERSEDED');
-  }
+  if (list.latestVersion !== version) throw new AppError('PRICE_LIST_SUPERSEDED');
   const entries = z.array(PriceListEntry).parse(list.entries);
-  const units = await repo.allUnitsForUpdate(ctx.tx, developmentId);
+  const units = await repo.unitPricesForUpdate(ctx.tx, developmentId);
   const diff = diffPriceList(entries, units);
   const byId = new Map(units.map((u) => [u.id, u]));
-  const after = await repo.setUnitPrices(
+  await repo.setUnitPrices(
     ctx.tx,
+    developmentId,
     diff.changed.map((c) => {
-      const u = byId.get(c.unitId) as repo.UnitRow;
+      const u = byId.get(c.unitId) as repo.UnitPriceRow;
       return { id: u.id, priceCents: c.priceCents ? c.priceCents.to : u.priceCents, status: c.status?.to ?? u.status };
     }),
   );
-  const afterById = new Map(after.map((r) => [r.id, r]));
-  await recordUnitChanges(
-    ctx,
-    diff.changed.map((c) => ({
-      before: byId.get(c.unitId) as repo.UnitRow,
-      after: afterById.get(c.unitId) as repo.UnitRow,
-    })),
-    list.id,
-  );
+  const userId = actorId(ctx);
+  await repo.insertPriceListHistories(ctx.tx, {
+    agencyId: dev.agencyId,
+    priceListId: list.id,
+    changedByUserId: userId,
+    prices: diff.changed.flatMap((c) =>
+      c.priceCents
+        ? [
+            {
+              id: newId(),
+              unitId: c.unitId,
+              from: c.priceCents.from,
+              to: c.priceCents.to,
+              currency: (byId.get(c.unitId) as repo.UnitPriceRow).currency,
+            },
+          ]
+        : [],
+    ),
+    statuses: diff.changed.flatMap((c) =>
+      c.status ? [{ id: newId(), unitId: c.unitId, from: c.status.from, to: c.status.to }] : [],
+    ),
+  });
   const reviewed = await repo.markPriceListReviewed(ctx.tx, list.id, {
-    reviewedByUserId: actorId(ctx),
+    reviewedByUserId: userId,
     diffSummary: diff,
   });
   // Publishing new prices to every agency that sees the development: who, which version, how much changed (S5-F1).

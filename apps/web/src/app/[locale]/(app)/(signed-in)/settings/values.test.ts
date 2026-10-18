@@ -38,6 +38,7 @@ describe('settings form values', () => {
     const values = settingsValues({
       defaultCommission: { type: 'PCT', basisPoints: 500, includesVat: false },
       defaultSplitBp: 5000,
+      currency: 'EUR',
       registrationValidityDays: 180,
       viewingResponseDays: 3,
       enabledLocales: ['es'],

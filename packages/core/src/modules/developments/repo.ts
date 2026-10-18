@@ -38,13 +38,26 @@ import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
  */
 const { legacyId: _legacyId, ...developmentColumns } = getTableColumns(developments);
 const { uploadedBy: _uploadedBy, ...documentColumns } = getTableColumns(developmentDocuments);
+/** S5-F3: lists select the DTO's columns only — `toDevelopmentDto` and `toUnitDto` read nothing else. */
+const { deletedAt: _deletedAt, ...developmentListColumns } = developmentColumns;
+const { agencyId: _unitAgencyId, createdAt: _unitCreatedAt, ...unitListColumns } = getTableColumns(units);
+/** A price list without its lines (up to 2,000): no read path returns them (S5-F3). */
+const { entries: _entries, ...priceListColumns } = getTableColumns(priceLists);
+
+/** Column sets of the list queries, for the S5-F3 test that they stay narrow. */
+export const listColumns = {
+  developments: Object.keys(developmentListColumns),
+  units: Object.keys(unitListColumns),
+};
 
 export type DevelopmentRow = Omit<typeof developments.$inferSelect, 'legacyId'>;
+export type DevelopmentListRow = Omit<DevelopmentRow, 'deletedAt'>;
 export type DevelopmentInsert = typeof developments.$inferInsert;
 export type UnitRow = typeof units.$inferSelect;
+export type UnitListRow = Omit<UnitRow, 'agencyId' | 'createdAt'>;
 export type UnitInsert = typeof units.$inferInsert;
-export type PriceListRow = typeof priceLists.$inferSelect;
-export type PriceListSummaryRow = Omit<PriceListRow, 'entries' | 'diffSummary'> & {
+export type PriceListRow = Omit<typeof priceLists.$inferSelect, 'entries'>;
+export type PriceListSummaryRow = Omit<PriceListRow, 'diffSummary'> & {
   counts: { added: number; removed: number; changed: number; unchanged: number };
 };
 export type DocumentRow = Omit<typeof developmentDocuments.$inferSelect, 'uploadedBy'>;
@@ -94,9 +107,9 @@ export async function listOwnDevelopments(
   tx: Tx,
   agencyId: string,
   q: { limit: number; cursor?: KeysetCursor },
-): Promise<{ items: DevelopmentRow[]; hasMore: boolean }> {
+): Promise<{ items: DevelopmentListRow[]; hasMore: boolean }> {
   const rows = await tx
-    .select(developmentColumns)
+    .select(developmentListColumns)
     .from(developments)
     .where(
       and(
@@ -162,9 +175,9 @@ export async function listUnits(
   tx: Tx,
   developmentId: string,
   q: { limit: number; afterRef?: string; status?: UnitRow['status'] },
-): Promise<{ items: UnitRow[]; hasMore: boolean }> {
+): Promise<{ items: UnitListRow[]; hasMore: boolean }> {
   const rows = await tx
-    .select()
+    .select(unitListColumns)
     .from(units)
     .where(
       and(
@@ -178,9 +191,25 @@ export async function listUnits(
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
 }
 
-/** Every unit of a development (at most `MAX_UNITS_PER_DEVELOPMENT`), locked for a price list apply. */
-export async function allUnitsForUpdate(tx: Tx, developmentId: string): Promise<UnitRow[]> {
-  return tx.select().from(units).where(eq(units.developmentId, developmentId)).orderBy(asc(units.ref)).for('update');
+export type UnitPriceRow = Pick<UnitRow, 'id' | 'ref' | 'priceCents' | 'status' | 'currency'>;
+
+/**
+ * Every unit of a development (at most `MAX_UNITS_PER_DEVELOPMENT`), locked for a price list apply: the columns
+ * the diff compares and the price history records.
+ */
+export async function unitPricesForUpdate(tx: Tx, developmentId: string): Promise<UnitPriceRow[]> {
+  return tx
+    .select({
+      id: units.id,
+      ref: units.ref,
+      priceCents: units.priceCents,
+      status: units.status,
+      currency: units.currency,
+    })
+    .from(units)
+    .where(eq(units.developmentId, developmentId))
+    .orderBy(asc(units.ref))
+    .for('update');
 }
 
 /** Every unit of a development (at most `MAX_UNITS_PER_DEVELOPMENT`): the columns a price list diff compares. */
@@ -233,18 +262,25 @@ export async function updateUnits(
     .returning();
 }
 
-/** A price and status per unit (a price list apply), one statement. */
+/**
+ * One bind parameter per column, whatever the row count (S5-F3): a 2,000-unit repricing as `unnest` of arrays
+ * binds in a few milliseconds, where a VALUES row per unit (16,000 parameters) took ~200 ms per statement.
+ */
+const array = (values: readonly unknown[], type: string) => sql`${sql.param(values)}::${sql.raw(type)}[]`;
+
+/**
+ * A price and status per unit of one development (a price list apply), one statement. The development filter keeps
+ * the plan on `units_development_ref_uq`: joined on `id` alone, a loaded planner scanned other agencies' units and
+ * ran the network-read policy's subqueries per row (statement timeout in a full verify).
+ */
 export async function setUnitPrices(
   tx: Tx,
+  developmentId: string,
   values: readonly { id: string; priceCents: number | null; status: UnitRow['status'] }[],
-): Promise<UnitRow[]> {
-  if (values.length === 0) return [];
-  const rows = sql.join(
-    values.map((v) => sql`(${v.id}::uuid, ${v.priceCents}::bigint, ${v.status}::unit_status)`),
-    sql`, `,
-  );
+): Promise<void> {
+  if (values.length === 0) return;
   const v = sql`v`;
-  return tx
+  await tx
     .update(units)
     .set({
       priceCents: sql`${v}.price_cents`,
@@ -252,9 +288,74 @@ export async function setUnitPrices(
       version: sql`${units.version} + 1`,
       updatedAt: sql`now()`,
     })
-    .from(sql`(values ${rows}) as v(id, price_cents, status)`)
-    .where(sql`${units.id} = ${v}.id`)
-    .returning();
+    .from(
+      sql`unnest(${array(
+        values.map((r) => r.id),
+        'uuid',
+      )}, ${array(
+        values.map((r) => r.priceCents),
+        'bigint',
+      )}, ${array(
+        values.map((r) => r.status),
+        'unit_status',
+      )}) as v(id, price_cents, status)`,
+    )
+    .where(and(eq(units.developmentId, developmentId), sql`${units.id} = ${v}.id`));
+}
+
+/** The history rows of an approved price list (S5-F3): two statements, each one parameter per column. */
+export async function insertPriceListHistories(
+  tx: Tx,
+  h: {
+    agencyId: string;
+    priceListId: string;
+    changedByUserId: string | null;
+    prices: readonly { id: string; unitId: string; from: number | null; to: number | null; currency: string }[];
+    statuses: readonly { id: string; unitId: string; from: UnitRow['status']; to: UnitRow['status'] }[];
+  },
+): Promise<void> {
+  const { agencyId, priceListId, changedByUserId: by } = h;
+  if (h.prices.length > 0) {
+    const p = h.prices;
+    await tx.execute(sql`insert into ${unitPriceHistories}
+        (id, unit_id, agency_id, price_list_id, previous_price_cents, price_cents, currency, changed_by_user_id)
+      select v.id, v.unit_id, ${agencyId}::uuid, ${priceListId}::uuid, v.prev, v.price, v.currency, ${by}::uuid
+        from unnest(${array(
+          p.map((r) => r.id),
+          'uuid',
+        )}, ${array(
+          p.map((r) => r.unitId),
+          'uuid',
+        )}, ${array(
+          p.map((r) => r.from),
+          'bigint',
+        )}, ${array(
+          p.map((r) => r.to),
+          'bigint',
+        )}, ${array(
+          p.map((r) => r.currency),
+          'text',
+        )}) as v(id, unit_id, prev, price, currency)`);
+  }
+  if (h.statuses.length > 0) {
+    const s = h.statuses;
+    await tx.execute(sql`insert into ${unitStatusHistories}
+        (id, unit_id, agency_id, price_list_id, from_status, to_status, changed_by_user_id)
+      select v.id, v.unit_id, ${agencyId}::uuid, ${priceListId}::uuid, v.from_status, v.to_status, ${by}::uuid
+        from unnest(${array(
+          s.map((r) => r.id),
+          'uuid',
+        )}, ${array(
+          s.map((r) => r.unitId),
+          'uuid',
+        )}, ${array(
+          s.map((r) => r.from),
+          'unit_status',
+        )}, ${array(
+          s.map((r) => r.to),
+          'unit_status',
+        )}) as v(id, unit_id, from_status, to_status)`);
+  }
 }
 
 export async function deleteUnit(tx: Tx, developmentId: string, id: string): Promise<boolean> {
@@ -285,13 +386,31 @@ export async function latestPriceListVersion(tx: Tx, developmentId: string): Pro
 }
 
 export async function insertPriceList(tx: Tx, row: typeof priceLists.$inferInsert): Promise<PriceListRow> {
-  const [inserted] = await tx.insert(priceLists).values(row).returning();
+  const [inserted] = await tx.insert(priceLists).values(row).returning(priceListColumns);
   return inserted as PriceListRow;
 }
 
+/** One version without its lines (the read path). */
 export async function getPriceList(tx: Tx, developmentId: string, version: number): Promise<PriceListRow | null> {
   const [row] = await tx
-    .select()
+    .select(priceListColumns)
+    .from(priceLists)
+    .where(and(eq(priceLists.developmentId, developmentId), eq(priceLists.version, version)));
+  return row ?? null;
+}
+
+/** One version to approve: its lines and the development's latest version, one statement. */
+export async function getPriceListToApprove(
+  tx: Tx,
+  developmentId: string,
+  version: number,
+): Promise<(PriceListRow & { entries: unknown; latestVersion: number }) | null> {
+  const latest = tx
+    .select({ v: sql<number>`max(${priceLists.version})` })
+    .from(priceLists)
+    .where(eq(priceLists.developmentId, developmentId));
+  const [row] = await tx
+    .select({ ...priceListColumns, entries: priceLists.entries, latestVersion: sql<number>`(${latest})::int` })
     .from(priceLists)
     .where(and(eq(priceLists.developmentId, developmentId), eq(priceLists.version, version)));
   return row ?? null;
@@ -306,7 +425,7 @@ export async function markPriceListReviewed(
     .update(priceLists)
     .set({ ...patch, reviewedAt: sql`now()` })
     .where(eq(priceLists.id, id))
-    .returning();
+    .returning(priceListColumns);
   return row as PriceListRow;
 }
 
@@ -321,11 +440,11 @@ export async function listPriceLists(
     q.beforeVersion === undefined ? undefined : lt(priceLists.version, q.beforeVersion),
   ];
   // entries and the diff hold up to 2,000 and 4,000 lines each: a list carries the diff's counts only (S4-F5).
-  const { entries: _entries, diffSummary: _diff, ...listColumns } = getTableColumns(priceLists);
+  const { diffSummary: _diff, ...summaryColumns } = priceListColumns;
   const d = priceLists.diffSummary;
   const rows = await tx
     .select({
-      ...listColumns,
+      ...summaryColumns,
       counts: sql<PriceListSummaryRow['counts']>`jsonb_build_object(
         'added', jsonb_array_length(${d}->'added'),
         'removed', jsonb_array_length(${d}->'removed'),

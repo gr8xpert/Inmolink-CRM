@@ -9,7 +9,8 @@ let unsubscribe: (() => void)[] | undefined;
 
 /**
  * Development fields its units' documents never show: an edit of only these (a commission change, the "prices are
- * current" confirmation of a price-list approval — whose price changes arrive as unit events) rebuilds nothing.
+ * current" confirmation of a price-list approval — whose price changes arrive as `priceList.approved`) rebuilds
+ * nothing.
  */
 export const DEVELOPMENT_IGNORED_FIELDS: ReadonlySet<string> = new Set([
   'commission',
@@ -24,7 +25,8 @@ const { developmentsEvents } = developments;
 /**
  * Outbox → read models (S5-01, PATTERNS §14). Every change a read model shows queues a debounced rebuild of its
  * target: a listing created, edited, moved through its lifecycle, shared, deleted, restored or purged, or its media
- * changed; a unit created, edited, repriced or deleted; a development's text, place or access changed or the
+ * changed; a unit created, edited, repriced or deleted; a price list approved (all its development's units); a
+ * development's text, place or access changed or the
  * development deleted (all its units); the agency's content locales changed (all its documents). The rebuild reads
  * current state, so a duplicate or late event costs one rebuild and changes nothing. The tenant is `meta.agencyId`
  * (RLS-checked when the event was written), the fair-share group. Called once by the worker.
@@ -58,6 +60,8 @@ export function registerSearchSubscriptions(): void {
     subscribe(developmentsEvents.unitStatusChanged, unit, { name: 'search.readModel.unitStatusChanged' }),
     subscribe(developmentsEvents.unitPriceChanged, unit, { name: 'search.readModel.unitPriceChanged' }),
     subscribe(developmentsEvents.unitDeleted, unit, { name: 'search.readModel.unitDeleted' }),
+    // S5-F3: one event for a whole repricing (no per-unit events): every unit of the development is rebuilt.
+    subscribe(developmentsEvents.priceListApproved, development, { name: 'search.readModel.priceListApproved' }),
     subscribe(
       developmentsEvents.updated,
       async (payload, meta) => {

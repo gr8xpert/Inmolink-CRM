@@ -15,6 +15,11 @@
       "@inmolink/source": "./src/values.ts",
       "types": "./dist/values.d.ts",
       "default": "./dist/values.js"
+    },
+    "./developments-csv": {
+      "@inmolink/source": "./src/developments-csv.ts",
+      "types": "./dist/developments-csv.d.ts",
+      "default": "./dist/developments-csv.js"
     }
   },
   "scripts": {

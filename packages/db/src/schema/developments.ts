@@ -396,7 +396,8 @@ export const unitPriceHistories = pgTable(
       name: 'unit_price_histories_price_list_fk',
       columns: [t.priceListId, t.agencyId],
       foreignColumns: [priceLists.id, priceLists.agencyId],
-    }),
+      // S5-F3: price lists go only with their development; NO ACTION failed that delete (units cascade later)
+    }).onDelete('cascade'),
     // FK + a unit's price history, newest first
     index('unit_price_histories_unit_idx').on(t.unitId, t.changedAt, t.id),
     // FK
@@ -430,7 +431,8 @@ export const unitStatusHistories = pgTable(
       name: 'unit_status_histories_price_list_fk',
       columns: [t.priceListId, t.agencyId],
       foreignColumns: [priceLists.id, priceLists.agencyId],
-    }),
+      // S5-F3: price lists go only with their development; NO ACTION failed that delete (units cascade later)
+    }).onDelete('cascade'),
     // FK + a unit's status history, newest first
     index('unit_status_histories_unit_idx').on(t.unitId, t.changedAt, t.id),
     // FK

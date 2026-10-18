@@ -18,6 +18,7 @@ const settingsColumns = {
   defaultCommissionCurrency: agencySettings.defaultCommissionCurrency,
   defaultCommissionIncludesVat: agencySettings.defaultCommissionIncludesVat,
   defaultSplitBp: agencySettings.defaultSplitBp,
+  currency: agencySettings.currency,
   viewingResponseDays: agencySettings.viewingResponseDays,
   whiteLabelReferencePrefix: agencySettings.whiteLabelReferencePrefix,
   whiteLabelShowPoweredBy: agencySettings.whiteLabelShowPoweredBy,
@@ -37,6 +38,7 @@ export interface SettingsRow {
   defaultCommissionCurrency: string | null;
   defaultCommissionIncludesVat: boolean;
   defaultSplitBp: number;
+  currency: string;
   viewingResponseDays: number;
   whiteLabelReferencePrefix: string | null;
   whiteLabelShowPoweredBy: boolean;

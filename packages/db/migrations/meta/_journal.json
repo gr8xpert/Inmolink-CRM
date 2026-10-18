@@ -512,6 +512,13 @@
       "when": 1792340521372,
       "tag": "0072_purge_and_checkpoints",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792345510115,
+      "tag": "0073_price_list_cascade_agency_currency",
+      "breakpoints": true
     }
   ]
 }

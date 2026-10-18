@@ -1,6 +1,7 @@
 import {
   CreateDevelopmentBody,
   CreateListingBody,
+  CreatePriceListBody,
   CreateUnitsBody,
   ListingCardDoc,
   ListingDetailDoc,
@@ -576,6 +577,21 @@ describe('unit read models', () => {
     const opened = (await docs(unitId, 'en'))[0];
     expect(opened?.public).toBe(true);
     expect(opened?.version).toBeGreaterThan(before);
+
+    // [S5-F3] An approved price list: one development rebuild (no per-unit events) carries the new price.
+    const list = await as(a, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({ effectiveFrom: '2026-11-01', entries: [{ ref: 'A-1', priceCents: 32_500_000 }] }),
+      ),
+    );
+    await run(await deliver(a));
+    await as(a, (ctx) => developments.approvePriceList(ctx, dev.id, list.version));
+    const repriced = await deliver(a);
+    expect(repriced.map((q) => q.job)).toEqual(['buildDevelopmentReadModels']);
+    await run(repriced);
+    expect(UnitDetailDoc.parse((await docs(unitId, 'en'))[0]?.detail).price).toMatchObject({ amountCents: 32_500_000 });
 
     // Deleted development: its units' documents go.
     const current = await as(a, (ctx) => developments.getDevelopment(ctx, dev.id));

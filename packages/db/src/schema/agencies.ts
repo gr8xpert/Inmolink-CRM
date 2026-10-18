@@ -101,6 +101,8 @@ export const agencySettings = pgTable(
     defaultCommissionIncludesVat: boolean('default_commission_includes_vat').notNull().default(false),
     /** The collaborating agent's share of that commission (PLAN §3 #7): 5000 = 50/50, 0–10000. */
     defaultSplitBp: integer('default_split_bp').notNull().default(5000),
+    /** The agency's currency (S5-F3): the default of its new developments (ISO 4217). */
+    currency: char('currency', { length: 3 }).notNull().default('EUR'),
     /** Days the agency has to answer a viewing request from another agency (M10). */
     viewingResponseDays: integer('viewing_response_days').notNull().default(3),
     /** White-label (PLAN §3 #6): prefix of listing references shown to clients (`CH-1234`). */
@@ -119,6 +121,7 @@ export const agencySettings = pgTable(
   (t) => [
     check('agency_settings_locales_ck', sql`cardinality(${t.enabledLocales}) between 1 and 20`),
     check('agency_settings_split_ck', sql`${t.defaultSplitBp} between 0 and 10000`),
+    check('agency_settings_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check('agency_settings_registration_days_ck', sql`${t.registrationValidityDays} between 1 and 1095`),
     check('agency_settings_viewing_days_ck', sql`${t.viewingResponseDays} between 1 and 30`),
     check(

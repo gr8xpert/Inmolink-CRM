@@ -41,9 +41,69 @@ export async function setupTestDb(appRole: 'http' | 'worker' | 'script' = 'http'
   }
   await runMigrations(cfg, silent);
   await runRls(cfg, silent, undefined, { ifStale: true });
+  await pruneStaleTestAgencies(cfg.DATABASE_URL_ADMIN as string);
   const db = loadConfig(dbEnv);
   await configureDb({ ...db, APP_ROLE: appRole });
   return cfg;
+}
+
+/** Test agencies untouched for this long are left over from earlier runs (S5-F3). */
+export const STALE_TEST_AGENCY_HOURS = 6;
+const PRUNE_BATCH = 500;
+/** `pg_try_advisory_lock` key: one process prunes, the others go on with their tests. */
+const PRUNE_LOCK = 5_303_001;
+/** Children of `agencies` without ON DELETE CASCADE, deleted first (their own children cascade). */
+const PRUNE_FIRST = [
+  'listing_read_models',
+  'listing_overrides',
+  'listing_bulk_actions',
+  'properties',
+  'developments',
+] as const;
+
+/**
+ * Removes agencies earlier test runs left behind (S5-F3): integration tests create founders and never delete
+ * them, and the test DB had grown to 80k agencies, slowing every agency-wide query (`[S1-09]` timed out). An agency
+ * is stale when both `created_at` and `updated_at` are older than `STALE_TEST_AGENCY_HOURS` — tests that backdate
+ * `created_at` (keyset, give-to-get grace) leave `updated_at` alone, so a running test never loses its agency.
+ * Batches of 500 per transaction; users, audit rows and outbox events stay (no foreign key to the agency).
+ */
+export async function pruneStaleTestAgencies(adminUrl: string): Promise<number> {
+  const admin = new pg.Client({ connectionString: adminUrl });
+  await admin.connect();
+  let pruned = 0;
+  try {
+    const [lock] = (await admin.query<{ ok: boolean }>('select pg_try_advisory_lock($1) as ok', [PRUNE_LOCK])).rows;
+    if (!lock?.ok) return 0;
+    for (;;) {
+      await admin.query('begin');
+      try {
+        const ids = (
+          await admin.query<{ id: string }>(
+            `select agency_id as id from agencies
+              where created_at < now() - make_interval(hours => $1) and updated_at < now() - make_interval(hours => $1)
+              limit $2 for update skip locked`,
+            [STALE_TEST_AGENCY_HOURS, PRUNE_BATCH],
+          )
+        ).rows.map((r) => r.id);
+        if (ids.length === 0) {
+          await admin.query('commit');
+          return pruned;
+        }
+        for (const table of PRUNE_FIRST) {
+          await admin.query(`delete from ${pg.escapeIdentifier(table)} where agency_id = any($1::uuid[])`, [ids]);
+        }
+        await admin.query('delete from agencies where agency_id = any($1::uuid[])', [ids]);
+        await admin.query('commit');
+        pruned += ids.length;
+      } catch (err) {
+        await admin.query('rollback');
+        throw err;
+      }
+    }
+  } finally {
+    await admin.end();
+  }
 }
 
 /**

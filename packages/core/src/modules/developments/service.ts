@@ -105,7 +105,7 @@ export async function withDbErrors<T>(fn: () => Promise<T>): Promise<T> {
  * The DTO for `ctx`: the owner gets the sharing settings, other agencies the network view, and Client Mode
  * neither the commission nor, on another agency's development, who maintains it.
  */
-export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentRow, allowed: string[] | null): DevelopmentDto {
+export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed: string[] | null): DevelopmentDto {
   const own = row.agencyId === ctx.tenant.agencyId;
   const lat = num(row.lat);
   const lng = num(row.lng);
@@ -174,11 +174,14 @@ export async function ownForRead(ctx: Ctx, id: string, action: DevelopmentsActio
 const point = (c: { lat: number; lng: number } | null | undefined) =>
   c === undefined ? {} : c === null ? { lat: null, lng: null } : { lat: String(c.lat), lng: String(c.lng) };
 
-/** `POST /v1/developments`: a PRIVATE_NETWORK development of the caller's agency, shared with nobody yet. */
+/**
+ * `POST /v1/developments`: a PRIVATE_NETWORK development of the caller's agency, shared with nobody yet, in the
+ * agency's currency unless the body names one (S5-F3).
+ */
 export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody): Promise<DevelopmentDto> {
   assertCan(ctx, 'development.create');
   if (input.commission != null) assertCan(ctx, 'development.commission');
-  const currency = input.currency ?? 'EUR';
+  const currency = input.currency ?? (await agencies.getAgencySettings(ctx)).currency;
   assertCommissionCurrency(input.commission, currency);
   const agencyId = ctx.tenant.agencyId;
   const row = await withDbErrors(() =>

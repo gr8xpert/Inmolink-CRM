@@ -1,7 +1,8 @@
 /**
  * Units of a development (S4-02): the owner creates them (one or a CSV's worth), edits one with `version`, or
  * applies one change to many (availability toggles). Every status and price change writes history and emits
- * `developments.unit.statusChanged` / `priceChanged` in the transaction of the change.
+ * `developments.unit.statusChanged` / `priceChanged` in the transaction of the change; an approved price list
+ * writes the history and one `developments.priceList.approved` instead (`price-lists.ts`, S5-F3).
  */
 import {
   type BulkUpdateUnitsBody,
@@ -68,7 +69,7 @@ async function auditUnitCommission(
 const area = (v: number | null | undefined) => (v === undefined ? undefined : v === null ? null : String(v));
 
 /** Units are readable wherever their development is; Client Mode never gets the commission. */
-export function toUnitDto(ctx: Ctx, row: repo.UnitRow): UnitDto {
+export function toUnitDto(ctx: Ctx, row: repo.UnitListRow): UnitDto {
   return {
     id: row.id,
     developmentId: row.developmentId,
@@ -106,11 +107,10 @@ function unitPatch(input: UnitPatchInput): Partial<repo.UnitInsert> {
   return patch;
 }
 
-/** History rows and events for units changed from `before` to `after` (same order, same ids). */
-export async function recordUnitChanges(
+/** History rows and events for units edited by hand from `before` to `after` (same order, same ids). */
+async function recordUnitChanges(
   ctx: Ctx,
   pairs: readonly { before: repo.UnitRow; after: repo.UnitRow }[],
-  priceListId: string | null,
 ): Promise<void> {
   const userId = actorId(ctx);
   const prices: Parameters<typeof repo.insertPriceHistories>[1] = [];
@@ -130,7 +130,7 @@ export async function recordUnitChanges(
         id: newId(),
         unitId: after.id,
         agencyId: after.agencyId,
-        priceListId,
+        priceListId: null,
         fromStatus: before.status,
         toStatus: after.status,
         changedByUserId: userId,
@@ -144,13 +144,13 @@ export async function recordUnitChanges(
         id: newId(),
         unitId: after.id,
         agencyId: after.agencyId,
-        priceListId,
+        priceListId: null,
         previousPriceCents: before.priceCents,
         priceCents: after.priceCents,
         currency: after.currency,
         changedByUserId: userId,
       });
-      events.push(developmentsEvents.unitPriceChanged({ ...ids, version: after.version, priceListId }));
+      events.push(developmentsEvents.unitPriceChanged({ ...ids, version: after.version, priceListId: null }));
     }
   }
   await repo.insertStatusHistories(ctx.tx, statuses);
@@ -231,7 +231,7 @@ export async function updateUnit(
   const { version, ...fields } = input;
   const after = await withDbErrors(() => repo.updateUnit(ctx.tx, unitId, version, unitPatch(fields)));
   if (!after) throw new AppError('VERSION_CONFLICT');
-  await recordUnitChanges(ctx, [{ before, after }], null);
+  await recordUnitChanges(ctx, [{ before, after }]);
   if (input.commission !== undefined) await auditUnitCommission(ctx, developmentId, [{ before, after }]);
   return toUnitDto(ctx, after);
 }
@@ -248,7 +248,7 @@ export async function bulkUpdateUnits(ctx: Ctx, developmentId: string, input: Bu
   );
   const afterById = new Map(after.map((r) => [r.id, r]));
   const changes = before.map((b) => ({ before: b, after: afterById.get(b.id) as repo.UnitRow }));
-  await recordUnitChanges(ctx, changes, null);
+  await recordUnitChanges(ctx, changes);
   if (input.patch.commission !== undefined) await auditUnitCommission(ctx, developmentId, changes);
   return { items: before.map((b) => toUnitDto(ctx, afterById.get(b.id) as repo.UnitRow)) };
 }

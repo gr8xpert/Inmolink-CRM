@@ -37,7 +37,7 @@ import * as repo from './settings-repo';
 export const AGENCY_SETTINGS_CACHE_TTL_SECONDS = 300;
 
 export function agencySettingsCacheKey(agencyId: string): CacheKey {
-  return cacheKey({ v: 2, module: 'agencies', entity: 'settings', scope: { agencyId } });
+  return cacheKey({ v: 3, module: 'agencies', entity: 'settings', scope: { agencyId } });
 }
 
 /**
@@ -78,6 +78,7 @@ export function toSettingsDto(row: repo.SettingsRow): AgencySettingsDto {
   return {
     defaultCommission: toCommission(row),
     defaultSplitBp: row.defaultSplitBp,
+    currency: row.currency,
     registrationValidityDays: row.registrationValidityDays,
     viewingResponseDays: row.viewingResponseDays,
     enabledLocales: row.enabledLocales,
@@ -92,9 +93,10 @@ export function toSettingsDto(row: repo.SettingsRow): AgencySettingsDto {
   };
 }
 
-function toSettingsPatch(input: UpdateAgencySettingsBody): repo.SettingsPatch {
+function toSettingsPatch(input: UpdateAgencySettingsBody, current: repo.SettingsRow): repo.SettingsPatch {
   const c = input.defaultCommission;
   return {
+    currency: input.currency ?? current.currency,
     enabledLocales: input.enabledLocales,
     registrationValidityDays: input.registrationValidityDays,
     defaultCommissionType: c.type,
@@ -115,6 +117,7 @@ function toSettingsPatch(input: UpdateAgencySettingsBody): repo.SettingsPatch {
 const SETTINGS_FIELDS = [
   'defaultCommission',
   'defaultSplitBp',
+  'currency',
   'registrationValidityDays',
   'viewingResponseDays',
   'enabledLocales',
@@ -240,7 +243,7 @@ export async function updateAgencySettings(ctx: Ctx, input: UpdateAgencySettings
   if (!current) throw new AppError('NOT_FOUND');
   if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
   const before = toSettingsDto(current);
-  const patch = toSettingsPatch(input);
+  const patch = toSettingsPatch(input, current);
   const changed = changedFields(before, toSettingsDto({ ...current, ...patch }));
   if (changed.length === 0) return before;
 

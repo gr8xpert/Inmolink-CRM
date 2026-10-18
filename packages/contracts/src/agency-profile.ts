@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Money } from './common';
+import { CurrencyCode, Money } from './common';
 import { Email } from './identity';
 
 /**
@@ -202,12 +202,16 @@ const settingsFields = {
  */
 export const AgencySettingsDto = z.object({
   ...settingsFields,
+  /** The agency's currency (S5-F3): new developments default to it. */
+  currency: CurrencyCode,
   version: z.number().int(),
   updatedAt: z.iso.datetime(),
 });
 export type AgencySettingsDto = z.infer<typeof AgencySettingsDto>;
 
-/** `PUT /v1/agency/settings` — replaces the settings (optimistic `version`). */
-export const UpdateAgencySettingsBody = z.object({ version: z.number().int().positive(), ...settingsFields }).strict();
+/** `PUT /v1/agency/settings` — replaces the settings (optimistic `version`); no `currency` keeps the current one. */
+export const UpdateAgencySettingsBody = z
+  .object({ version: z.number().int().positive(), ...settingsFields, currency: CurrencyCode.optional() })
+  .strict();
 export type UpdateAgencySettingsBody = z.infer<typeof UpdateAgencySettingsBody>;
 export type UpdateAgencySettingsInput = z.input<typeof UpdateAgencySettingsBody>;

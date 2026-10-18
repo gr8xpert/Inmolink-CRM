@@ -203,7 +203,7 @@ describe('edge and access', () => {
       }
     }
     expect(missing).toEqual([]);
-  }, 60_000); // imports five apps' config modules (core, platform)
+  }, 180_000); // imports five apps' config modules (core, platform): 38 s alone, more under a full verify (S5-F3)
 
   it('[S0-15] behind Cloudflare, apps trust exactly kamal-proxy + Cloudflare (the origin lock allows the same ranges)', () => {
     expect(groupVars.cloudflare_ips.length).toBeGreaterThan(10);

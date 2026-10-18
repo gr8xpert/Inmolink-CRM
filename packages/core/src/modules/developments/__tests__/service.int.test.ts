@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
+import * as agencies from '../../agencies';
 import * as taxonomy from '../../taxonomy';
 import * as developments from '../index';
 
@@ -572,5 +573,119 @@ describe('development service', () => {
     expect(entry?.metadata.truncated).toBe(true);
     expect(entry?.metadata.changes.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(entry?.metadata))).toBeLessThanOrEqual(4096);
+  });
+
+  it('[S5-F3] approving a 2,000-unit price list stays within the dashboard budget', async () => {
+    const dev = await createDev();
+    const ref = (i: number) => `R${String(i).padStart(4, '0')}`;
+    for (let b = 0; b < 4; b++) {
+      await addUnits(
+        dev,
+        Array.from({ length: 500 }, (_, i) => unit(ref(b * 500 + i), 20_000_000)),
+      );
+    }
+    const list = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({
+          effectiveFrom: '2026-11-01',
+          entries: Array.from({ length: 2_000 }, (_, i) => ({
+            ref: ref(i),
+            priceCents: 21_000_000 + i,
+            ...(i % 2 === 0 ? { status: 'RESERVED' as const } : {}),
+          })),
+        }),
+      ),
+    );
+    let approved: { diff: { changed: unknown[] } } | undefined;
+    const started = performance.now();
+    const queries = await as(owner, (ctx) =>
+      countQueries(async () => {
+        approved = await developments.approvePriceList(ctx, dev.id, list.version);
+      }),
+    );
+    const ms = performance.now() - started;
+    expect(approved?.diff.changed).toHaveLength(2_000);
+    // Dashboard budget: ≤ 10 statements whatever the size (no per-unit events; no statement near 65,535 parameters)
+    expect(queries).toBeLessThanOrEqual(10);
+    // Budget p95 < 300 ms, measured on staging (H4): on the local Docker Desktop disk one approval takes 390–850 ms
+    // (the same statements vary 2–3× run to run). This guards the shape — the old path wrote 6,000 outbox rows.
+    expect(ms).toBeLessThan(2_000);
+    const unitEvents = await rows<{ n: number }>(sql`select count(*)::int as n from outbox_events
+      where payload->>'developmentId' = ${dev.id} and type in
+        ('developments.unit.updated', 'developments.unit.priceChanged', 'developments.unit.statusChanged')`);
+    expect(unitEvents[0]?.n).toBe(0);
+    const approvedEvents = await rows<{ n: number }>(sql`select count(*)::int as n from outbox_events
+      where type = 'developments.priceList.approved' and payload->>'priceListId' = ${list.id}`);
+    expect(approvedEvents[0]?.n).toBe(1);
+    const history = await rows<{ prices: number; statuses: number }>(sql`select
+      (select count(*)::int from unit_price_histories where price_list_id = ${list.id}) as prices,
+      (select count(*)::int from unit_status_histories where price_list_id = ${list.id}) as statuses`);
+    expect(history[0]).toEqual({ prices: 2_000, statuses: 1_000 });
+    const units = (await as(owner, (ctx) => developments.listUnits(ctx, dev.id, { limit: 2 }))).items;
+    expect(units.map((u) => [u.ref, u.price?.amountCents, u.status])).toEqual([
+      ['R0000', 21_000_000, 'RESERVED'],
+      ['R0001', 21_000_001, 'AVAILABLE'],
+    ]);
+  }, 120_000);
+
+  it('[S5-F3] no list repo in developments selects every column; one price list is read without its lines', async () => {
+    const { listColumns } = await import('../repo');
+    expect(listColumns.developments).not.toContain('deletedAt');
+    expect(listColumns.developments).not.toContain('legacyId');
+    expect(listColumns.units).not.toContain('agencyId');
+    expect(listColumns.units).not.toContain('createdAt');
+    // The lists still fill every DTO field; one version carries its diff, not its lines.
+    const dev = await createDev();
+    await addUnits(dev, [unit('L1', 1_000)]);
+    const [listed] = (await as(owner, (ctx) => developments.listUnits(ctx, dev.id, { limit: 1 }))).items;
+    expect(listed).toMatchObject({ ref: 'L1', developmentId: dev.id, price: { amountCents: 1_000 } });
+    const own = await as(owner, (ctx) => developments.listDevelopments(ctx, { limit: 100 }));
+    expect(own.items.find((d) => d.id === dev.id)).toMatchObject({ ref: dev.ref, currency: dev.currency });
+    const list = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({ effectiveFrom: '2026-11-01', entries: [{ ref: 'L1', priceCents: 2_000 }] }),
+      ),
+    );
+    const one = await as(owner, (ctx) => developments.getPriceList(ctx, dev.id, list.version));
+    expect(one.diff.changed).toHaveLength(1);
+    expect(one).not.toHaveProperty('entries');
+  });
+
+  it('[S5-F3] a new development takes the agency currency unless it names one', async () => {
+    const f = await createFounder();
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    const current = await as(f, (ctx) => agencies.getMyAgencySettings(ctx));
+    expect(current.currency).toBe('EUR');
+    const { updatedAt: _u, version, ...fields } = current;
+    await as(f, (ctx) => agencies.updateAgencySettings(ctx, { ...fields, version, currency: 'GBP' }));
+    expect((await createDev(f)).currency).toBe('GBP');
+    expect((await createDev(f, { currency: 'USD' })).currency).toBe('USD');
+    // A settings save without a currency keeps it.
+    const saved = await as(f, (ctx) => agencies.getMyAgencySettings(ctx));
+    const { updatedAt: _u2, currency: _c, version: v2, ...rest } = saved;
+    const kept = await as(f, (ctx) =>
+      agencies.updateAgencySettings(ctx, { ...rest, version: v2, registrationValidityDays: 90 }),
+    );
+    expect(kept.currency).toBe('GBP');
+  });
+
+  it('[S5-F3] a development with an approved price list can be deleted for good (purge)', async () => {
+    const dev = await createDev();
+    await addUnits(dev, [unit('P1', 1_000)]);
+    const list = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({ effectiveFrom: '2026-11-01', entries: [{ ref: 'P1', priceCents: 2_000 }] }),
+      ),
+    );
+    await as(owner, (ctx) => developments.approvePriceList(ctx, dev.id, list.version));
+    await rows(sql`delete from developments where id = ${dev.id}`);
+    expect(await rows(sql`select id from price_lists where id = ${list.id}`)).toEqual([]);
+    expect(await rows(sql`select id from unit_price_histories where price_list_id = ${list.id}`)).toEqual([]);
   });
 });

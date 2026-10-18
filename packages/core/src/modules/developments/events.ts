@@ -30,7 +30,10 @@ export const developmentsEvents = {
     1,
     z.object({ ...unit, from: unitStatus, to: unitStatus }),
   ),
-  /** `priceListId`: the approved price list that changed it (null: a manual edit). */
+  /**
+   * A manual price edit (`priceListId` null). An approved price list emits no per-unit events since S5-F3:
+   * `priceList.approved` stands for all the units it changed (their history rows name it).
+   */
   unitPriceChanged: defineEvent(
     'developments.unit.priceChanged',
     1,
@@ -43,7 +46,7 @@ export const developmentsEvents = {
   ),
   /** A new price list version was uploaded (diff computed, waiting for review). */
   priceListCreated: defineEvent('developments.priceList.created', 1, z.object(priceList)),
-  /** A person approved the version and its prices were applied. */
+  /** A person approved the version and its prices and statuses were applied: reload the development's units. */
   priceListApproved: defineEvent('developments.priceList.approved', 1, z.object(priceList)),
   /** S4-F4: the row is gone; the worker deletes the object (`developments.deleteDocumentObject`). */
   documentDeleted: defineEvent(
