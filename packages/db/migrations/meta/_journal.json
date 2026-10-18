@@ -477,6 +477,13 @@
       "when": 1792298658867,
       "tag": "0067_search_index_queue_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1792312655717,
+      "tag": "0068_listing_search_docs",
+      "breakpoints": true
     }
   ]
 }

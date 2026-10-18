@@ -4,10 +4,12 @@
  * Read models are written by the search worker only (`withSystem`).
  */
 import type { Tx } from '@inmolink/db';
-import { listingReadModels, searchIndexQueue } from '@inmolink/db/schema/search';
+import { listingReadModels, listingSearchDocs, searchIndexQueue } from '@inmolink/db/schema/search';
 import { newId } from '@inmolink/platform/ids';
+import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { BuiltDoc } from './build';
+import type { ListingIndexDoc } from './index-doc';
 
 type Kind = BuiltDoc['kind'];
 
@@ -381,4 +383,280 @@ export async function existingTargets(tx: Tx, ids: readonly string[]): Promise<S
   const res = await tx.execute(sql`
     select distinct target_id from ${listingReadModels} where target_id = any(${uuidArray(ids)})`);
   return new Set((res.rows as { target_id: string }[]).map((r) => r.target_id));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Postgres fallback search (S5-04)
+
+const SEARCH_DOC_COLUMNS = [
+  'kind',
+  'owner_agency_id',
+  'development_id',
+  'status',
+  'transaction_type',
+  'property_type_id',
+  'location_ids',
+  'feature_ids',
+  'price_cents',
+  'price_on_request',
+  'beds',
+  'baths',
+  'area_m2',
+  'plot_m2',
+  'lat',
+  'lng',
+  'ref',
+  'published_at',
+  'version',
+  'source_hash',
+] as const;
+const camel = (c: string) => c.replace(/_([a-z0-9])/g, (_, x: string) => x.toUpperCase());
+
+/**
+ * Writes the PUBLIC index documents' filter fields (one statement). A row changes only when its document did
+ * (`sourceHash`, `version`): an unchanged rebuild writes nothing.
+ */
+export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[]): Promise<void> {
+  if (docs.length === 0) return;
+  await tx
+    .insert(listingSearchDocs)
+    .values(
+      docs.map((d) => ({
+        targetId: d.id,
+        kind: d.kind,
+        ownerAgencyId: d.ownerAgencyId,
+        developmentId: d.developmentId,
+        status: d.status,
+        transactionType: d.transactionType,
+        propertyTypeId: d.propertyTypeId,
+        locationIds: d.locationIds,
+        featureIds: d.featureIds,
+        priceCents: d.priceCents,
+        priceOnRequest: d.priceOnRequest,
+        beds: d.beds,
+        baths: d.baths,
+        areaM2: d.areaM2,
+        plotM2: d.plotM2,
+        lat: d.geo?.lat ?? null,
+        lng: d.geo?.lng ?? null,
+        ref: d.ref,
+        publishedAt: d.publishedAt,
+        version: d.version,
+        sourceHash: d.sourceHash,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: listingSearchDocs.targetId,
+      set: {
+        ...Object.fromEntries(SEARCH_DOC_COLUMNS.map((c) => [camel(c), sql.raw(`excluded.${c}`)])),
+        updatedAt: sql`now()`,
+      },
+      setWhere: sql`excluded.source_hash <> ${listingSearchDocs.sourceHash}
+        or excluded.version <> ${listingSearchDocs.version}`,
+    });
+}
+
+/** Drops the fallback rows of these targets (no read model any more, or no longer PUBLIC). PK probes. */
+export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await tx.execute(sql`delete from ${listingSearchDocs} where target_id = any(${uuidArray(ids)})`);
+}
+
+type ColumnType = 'text' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
+type FieldSpec = { column: string; type: ColumnType } | { constant: string };
+
+/**
+ * Filterable fields of the listings index → fallback columns. `visibility` is a constant (every row is PUBLIC);
+ * `shareScope` is network-only and not stored: a filter on it fails, like a field the index does not declare.
+ */
+const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
+  kind: { column: 'kind::text', type: 'text' },
+  ownerAgencyId: { column: 'owner_agency_id', type: 'uuid' },
+  developmentId: { column: 'development_id', type: 'uuid' },
+  status: { column: 'status', type: 'text' },
+  visibility: { constant: 'PUBLIC' },
+  transactionType: { column: 'transaction_type', type: 'text' },
+  propertyTypeId: { column: 'property_type_id', type: 'uuid' },
+  locationIds: { column: 'location_ids', type: 'uuid[]' },
+  featureIds: { column: 'feature_ids', type: 'uuid[]' },
+  priceOnRequest: { column: 'price_on_request', type: 'bool' },
+  priceCents: { column: 'price_cents', type: 'bigint' },
+  beds: { column: 'beds', type: 'int' },
+  baths: { column: 'baths', type: 'int' },
+  areaM2: { column: 'area_m2', type: 'numeric' },
+  plotM2: { column: 'plot_m2', type: 'numeric' },
+  publishedAt: { column: 'published_at', type: 'bigint' },
+};
+
+/** Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction). */
+const FALLBACK_SORTS: Readonly<Record<string, { column: string; nullable: boolean }>> = {
+  publishedAt: { column: 'published_at', nullable: false },
+  priceCents: { column: 'price_cents', nullable: true },
+  beds: { column: 'beds', nullable: true },
+  areaM2: { column: 'area_m2', nullable: true },
+};
+
+const NUMERIC: readonly ColumnType[] = ['bigint', 'int', 'numeric'];
+
+function fieldOf(name: string): FieldSpec {
+  const f = FALLBACK_FIELDS[name];
+  if (!f) throw new SearchError(`field is not filterable in the fallback: ${name}`);
+  return f;
+}
+
+function finite(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new SearchError('filter value must be a finite number');
+  return v;
+}
+
+const paramOf = (type: ColumnType, v: FieldValue) => (NUMERIC.includes(type) ? finite(v) : v);
+
+function typedArray(values: readonly FieldValue[], type: ColumnType): SQL {
+  const element = type === 'uuid[]' ? 'uuid' : type;
+  return sql`array[${sql.join(
+    values.map((v) => sql`${paramOf(element as ColumnType, v)}`),
+    sql`, `,
+  )}]::${sql.raw(element)}[]`;
+}
+
+/**
+ * The engine-neutral filter → a SQL condition on `listing_search_docs`, with the engine's semantics: an array field
+ * equals a value when it holds it (`@>`) and is `in` values when it shares one (`&&`); a range never matches a null.
+ * Values are always parameters; column names come from the map above, never from the caller.
+ */
+export function fallbackCondition(filter: Filter): SQL {
+  switch (filter.op) {
+    case 'and':
+    case 'or': {
+      if (filter.filters.length === 0) throw new SearchError(`empty ${filter.op}`);
+      return sql`(${sql.join(filter.filters.map(fallbackCondition), sql.raw(filter.op === 'and' ? ' and ' : ' or '))})`;
+    }
+    case 'not':
+      return sql`(not coalesce(${fallbackCondition(filter.filter)}, false))`;
+    case 'eq': {
+      const f = fieldOf(filter.field);
+      if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
+      if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} @> ${typedArray([filter.value], f.type)}`;
+      return sql`${sql.raw(f.column)} = ${paramOf(f.type, filter.value)}`;
+    }
+    case 'in': {
+      if (filter.values.length === 0) throw new SearchError('empty in');
+      const f = fieldOf(filter.field);
+      if ('constant' in f) return filter.values.includes(f.constant) ? sql`true` : sql`false`;
+      if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} && ${typedArray(filter.values, f.type)}`;
+      return sql`${sql.raw(f.column)} = any(${typedArray(filter.values, f.type)})`;
+    }
+    case 'range': {
+      const f = fieldOf(filter.field);
+      if ('constant' in f || !NUMERIC.includes(f.type))
+        throw new SearchError(`field is not comparable: ${filter.field}`);
+      const parts: SQL[] = [sql`${sql.raw(f.column)} is not null`];
+      if (filter.gte !== undefined) parts.push(sql`${sql.raw(f.column)} >= ${finite(filter.gte)}`);
+      if (filter.lte !== undefined) parts.push(sql`${sql.raw(f.column)} <= ${finite(filter.lte)}`);
+      return sql`(${sql.join(parts, sql` and `)})`;
+    }
+    case 'geoBox': {
+      const [n, s, w, e] = [filter.north, filter.south, filter.west, filter.east].map(finite) as [
+        number,
+        number,
+        number,
+        number,
+      ];
+      // A box across the antimeridian (west > east) wraps.
+      const lng = w <= e ? sql`lng between ${w} and ${e}` : sql`(lng >= ${w} or lng <= ${e})`;
+      return sql`(lat between ${s} and ${n} and ${lng})`;
+    }
+    case 'geoRadius': {
+      const [lat, lng, m] = [filter.lat, filter.lng, filter.meters].map(finite) as [number, number, number];
+      // The circle's bounding box first (index-friendly), then the haversine distance in meters.
+      const dLat = m / 111_320;
+      const dLng = m / (111_320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01));
+      return sql`(lat between ${lat - dLat} and ${lat + dLat}
+        and lng between ${lng - dLng} and ${lng + dLng}
+        and 12742000 * asin(sqrt(power(sin(radians(lat - ${lat}) / 2), 2)
+          + cos(radians(${lat})) * cos(radians(lat)) * power(sin(radians(lng - ${lng}) / 2), 2))) <= ${m})`;
+    }
+  }
+}
+
+export interface FallbackPosition {
+  /** 0: rows with a sort value; 1: rows without one (they come last). */
+  phase: 0 | 1;
+  /** The last row's sort value (phase 0), else null. */
+  value: number | null;
+  id: string;
+}
+
+export interface FallbackQuery {
+  filter: Filter;
+  /** A reference (the fallback's only text match), case-insensitive. */
+  ref?: string;
+  sort: { field: string; dir: 'asc' | 'desc' };
+  limit: number;
+  /** Keyset: the page after this row. */
+  after?: FallbackPosition;
+  /** An engine cursor's offset (the engine went away mid-pagination); bounded by the caller. */
+  offset?: number;
+  /** `total` is exact up to this many rows. */
+  countCap: number;
+}
+
+/**
+ * One page of the fallback, its total (exact up to `countCap`) and the next position, in one statement. Order: the
+ * sort value, then the id; rows without a value last in either direction. Pages continue by keyset — each branch an
+ * index-ordered scan with a limit — not by a growing OFFSET.
+ */
+export async function fallbackSearch(
+  tx: Tx,
+  q: FallbackQuery,
+): Promise<{ ids: string[]; total: number; next: FallbackPosition | null }> {
+  const res = await tx.execute(fallbackSearchSql(q));
+  const rows = res.rows as { total: number; target_id: string | null; k: number | null; phase: 0 | 1 }[];
+  const hits = rows.flatMap((r) => (r.target_id === null ? [] : [{ ...r, target_id: r.target_id }]));
+  const page = hits.slice(0, q.limit);
+  const last = page[page.length - 1];
+  return {
+    ids: page.map((r) => r.target_id),
+    total: rows[0]?.total ?? 0,
+    next: hits.length > q.limit && last ? { phase: last.phase, value: last.k, id: last.target_id } : null,
+  };
+}
+
+/** The fallback's one statement (`fallbackSearch`; perf tests EXPLAIN it). */
+export function fallbackSearchSql(q: FallbackQuery): SQL {
+  const sort = FALLBACK_SORTS[q.sort.field];
+  if (!sort) throw new SearchError(`field is not sortable in the fallback: ${q.sort.field}`);
+  const col = sql.raw(sort.column);
+  const dir = sql.raw(q.sort.dir);
+  const cmp = sql.raw(q.sort.dir === 'asc' ? '>' : '<');
+  const where = sql.join(
+    [fallbackCondition(q.filter), ...(q.ref === undefined ? [] : [sql`lower(ref) = lower(${q.ref})`])],
+    sql` and `,
+  );
+  const offset = q.offset ?? 0;
+  const take = offset + q.limit + 1;
+  const branches: SQL[] = [];
+  if (!q.after || q.after.phase === 0) {
+    const keyset = q.after ? sql`and (${col}, target_id) ${cmp} (${q.after.value}, ${q.after.id}::uuid)` : sql``;
+    branches.push(sql`(select target_id, ${col}::float8 as k, 0 as phase from ${listingSearchDocs}
+       where ${where} ${sort.nullable ? sql`and ${col} is not null` : sql``} ${keyset}
+       order by ${col} ${dir}, target_id ${dir} limit ${take})`);
+  }
+  if (sort.nullable) {
+    const keyset = q.after?.phase === 1 ? sql`and target_id ${cmp} ${q.after.id}::uuid` : sql``;
+    branches.push(sql`(select target_id, null::float8 as k, 1 as phase from ${listingSearchDocs}
+       where ${where} and ${col} is null ${keyset}
+       order by target_id ${dir} limit ${take})`);
+  }
+  if (branches.length === 0) throw new SearchError(`no rows without a value when sorting by ${q.sort.field}`);
+  // The count and the page plan apart: a page with a small limit may walk an ordered index, which a count of
+  // `countCap` rows must not (with a large limit the planner walks it for selective filters too).
+  return sql`
+    select c.n as total, p.target_id, p.k, p.phase
+      from (select count(*)::int as n
+              from (select 1 from ${listingSearchDocs} where ${where} limit ${q.countCap}) x) c
+      left join lateral (
+        select * from (${sql.join(branches, sql` union all `)}) u
+         order by phase, k ${dir}, target_id ${dir}
+        offset ${offset} limit ${q.limit + 1}) p on true`;
 }

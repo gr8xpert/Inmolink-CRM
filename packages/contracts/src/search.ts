@@ -1,8 +1,16 @@
 /** search DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
+import { Cursor } from './common';
 import { DevelopmentStatus, Orientation, UnitStatus } from './developments';
 import { ListingMediaKind, ListingRoomType, VideoProvider } from './media';
-import { CeeRating, ListingStatus, LocationPrecision, PricePeriod, TransactionType } from './properties';
+import {
+  CeeRating,
+  ContentLocaleCode,
+  ListingStatus,
+  LocationPrecision,
+  PricePeriod,
+  TransactionType,
+} from './properties';
 
 /**
  * Read-model documents (S5-01, PATTERNS §14): what `listing_read_models.card` / `.detail` hold for one listing or
@@ -149,3 +157,71 @@ export const UnitDetailDoc = z.strictObject({
     .nullable(),
 });
 export type UnitDetailDoc = z.infer<typeof UnitDetailDoc>;
+
+/**
+ * Website search (S5-04, PLAN §5.4): the filters a public site sends, answered by the search engine or — when it is
+ * down or slow — by the Postgres fallback (`backend`). Results are ids; callers hydrate read models. Only what a
+ * visitor may choose: the site's inventory (owner agencies) is a separate, server-side argument from its policy
+ * (S7-01), so a visitor can never ask which agency owns a listing.
+ */
+export const PUBLIC_SEARCH_SORTS = ['newest', 'price_asc', 'price_desc', 'beds_desc', 'area_desc'] as const;
+export const PublicSearchSort = z.enum(PUBLIC_SEARCH_SORTS);
+export type PublicSearchSort = z.infer<typeof PublicSearchSort>;
+
+/** Facets a site may ask for (the engine only: the fallback answers none). */
+export const PUBLIC_SEARCH_FACETS = ['propertyTypeId', 'locationIds', 'featureIds', 'beds', 'transactionType'] as const;
+export const PublicSearchFacet = z.enum(PUBLIC_SEARCH_FACETS);
+
+/** Statuses a visitor may filter on (listings and new-build units that are on the market). */
+export const PUBLIC_SEARCH_STATUSES = ['ACTIVE', 'UNDER_OFFER', 'AVAILABLE', 'RESERVED'] as const;
+export const PublicSearchStatus = z.enum(PUBLIC_SEARCH_STATUSES);
+
+const Ids = (max: number) => z.array(z.uuid()).min(1).max(max);
+const Amount = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const Lat = z.number().min(-90).max(90);
+const Lng = z.number().min(-180).max(180);
+
+export const PublicListingSearch = z.strictObject({
+  /** Full text in `locale` (engine); the fallback matches it against references only. */
+  text: z.string().trim().min(1).max(100).optional(),
+  locale: ContentLocaleCode,
+  kind: z.enum(['LISTING', 'UNIT']).optional(),
+  developmentId: z.uuid().optional(),
+  /** Live statuses only: drafts, withdrawn and sold listings are not a visitor's to list. */
+  statuses: z.array(PublicSearchStatus).min(1).max(PUBLIC_SEARCH_STATUSES.length).default(['ACTIVE', 'AVAILABLE']),
+  transactionType: TransactionType.optional(),
+  /** Any of these types. */
+  propertyTypeIds: Ids(50).optional(),
+  /** Anywhere under any of these locations. */
+  locationIds: Ids(50).optional(),
+  /** Every one of these features. */
+  featureIds: Ids(20).optional(),
+  priceMinCents: Amount.optional(),
+  priceMaxCents: Amount.optional(),
+  bedsMin: z.number().int().min(0).max(50).optional(),
+  bathsMin: z.number().int().min(0).max(50).optional(),
+  areaMinM2: z.number().min(0).max(1_000_000).optional(),
+  areaMaxM2: z.number().min(0).max(1_000_000).optional(),
+  /** Map view. */
+  geoBox: z
+    .strictObject({ north: Lat, west: Lng, south: Lat, east: Lng })
+    .refine((b) => b.south <= b.north, { message: 'south must not be above north', path: ['south'] })
+    .optional(),
+  facets: z.array(PublicSearchFacet).max(PUBLIC_SEARCH_FACETS.length).default([]),
+  sort: PublicSearchSort.default('newest'),
+  limit: z.number().int().min(1).max(100).default(24),
+  cursor: Cursor.optional(),
+});
+export type PublicListingSearch = z.input<typeof PublicListingSearch>;
+
+export const PublicListingSearchResult = z.object({
+  ids: z.array(z.uuid()),
+  /** Matching documents: exact up to 10,000 from the engine, 1,000 from the fallback (then that cap). */
+  total: z.number().int(),
+  /** Value → count per requested facet; empty from the fallback. */
+  facets: z.record(z.string(), z.record(z.string(), z.number().int())),
+  nextCursor: Cursor.nullable(),
+  /** Who answered: the search engine, or the Postgres fallback (simpler ranking, no facets). */
+  backend: z.enum(['engine', 'fallback']),
+});
+export type PublicListingSearchResult = z.infer<typeof PublicListingSearchResult>;

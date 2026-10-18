@@ -10,6 +10,8 @@
  * definition, so caller input can never change a filter's structure.
  */
 
+export { type BreakerOptions, type BreakerPermit, type BreakerState, CircuitBreaker } from './breaker';
+
 /** A scalar a document field holds and a filter compares with. */
 export type FieldValue = string | number | boolean;
 

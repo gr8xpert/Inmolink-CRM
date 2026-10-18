@@ -24,3 +24,13 @@ describe('Postgres alerts', () => {
     expect(await promtool('test', 'rules', '/rules/postgres.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });
+
+describe('Search alerts', () => {
+  it('[S5-04] search fallback alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/search.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S5-04] the fallback alert fires when the breaker stays open 2 min, and on a high fallback share', async () => {
+    expect(await promtool('test', 'rules', '/rules/search.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});

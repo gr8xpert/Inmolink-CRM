@@ -56,4 +56,18 @@ export {
   registerSearchSubscriptions,
   unregisterSearchSubscriptions,
 } from './subscriptions';
+export {
+  FALLBACK_COUNT_CAP,
+  type PublicSearchSite,
+  publicFallbackSql,
+  publicSearchFilter,
+  resetSearchBreaker,
+  SEARCH_BREAKER_FAILURES,
+  SEARCH_BREAKER_OPEN_MS,
+  SEARCH_ENGINE_TIMEOUT_MS,
+  SEARCH_RESULT_CAP,
+  SEARCH_SLOW_MS,
+  searchBreakerState,
+  searchPublicListings,
+} from './website';
 // Never export repo or schema.

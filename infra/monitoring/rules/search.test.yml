@@ -1,0 +1,61 @@
+# promtool test rules search.test.yml — run by tests/ops/alerts.int.test.ts (S5-04).
+rule_files:
+  - search.yml
+evaluation_interval: 15s
+
+tests:
+  # The breaker opens at 1m and stays open: pending for 2 minutes, then firing; closed again at 5m: resolved.
+  - interval: 15s
+    input_series:
+      - series: 'inmolink_search_breaker_open{instance="feed-api-1"}'
+        values: "0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0"
+      - series: 'inmolink_search_breaker_open{instance="feed-api-2"}'
+        values: "0x23"
+    alert_rule_test:
+      - eval_time: 2m30s # open 1m30s: pending
+        alertname: SearchFallbackActive
+        exp_alerts: []
+      - eval_time: 3m15s # open over 2 min: firing, for the one instance only
+        alertname: SearchFallbackActive
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: feed-api-1 }
+            exp_annotations:
+              summary: "Website search on feed-api-1 has used the Postgres fallback for over 2 minutes"
+              runbook: docs/runbooks/search.md#fallback-active
+      - eval_time: 5m30s # closed again
+        alertname: SearchFallbackActive
+        exp_alerts: []
+
+  # 10 % of queries fall back for 15 minutes (breaker never open long): the share alert fires after 10 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_search_queries_total{backend="engine", instance="feed-api-1"}'
+        values: "0+540x20"
+      - series: 'inmolink_search_queries_total{backend="fallback", reason="engine_error", instance="feed-api-1"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SearchFallbackShareHigh
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: SearchFallbackShareHigh
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "10% of website searches answered by the Postgres fallback"
+              runbook: docs/runbooks/search.md#fallback-active
+
+  # A healthy engine (no fallback series yet): nothing fires.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_search_queries_total{backend="engine", instance="feed-api-1"}'
+        values: "0+600x20"
+      - series: 'inmolink_search_breaker_open{instance="feed-api-1"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SearchFallbackShareHigh
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SearchFallbackActive
+        exp_alerts: []

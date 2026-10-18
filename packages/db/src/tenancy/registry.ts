@@ -601,6 +601,12 @@ export const globalTables: Record<string, GlobalTable> = {
     mediaWrite: true,
     base: { sha256: ISOLATION_SHA256, content_type: 'image/jpeg' },
   },
+  // Postgres fallback search (S5-04): PUBLIC index documents only, written with read models via withSystem().
+  // Not under RLS: array and numeric comparisons are not leakproof, so a policy would keep them out of index scans.
+  listing_search_docs: {
+    reason: 'search filter fields of PUBLIC listings and units of every agency (website search fallback)',
+    publicRead: true,
+  },
   // Search index sync queue (S5-03): written with read models by the search worker via withSystem().
   search_index_queue: {
     reason: 'targets of every agency whose search index document must be pushed again (worker-only work queue)',

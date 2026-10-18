@@ -60,6 +60,9 @@ it('[S2-F5] EXPLAIN on scale: exact and fuzzy resolver statements use their inde
       ...Array.from({ length: 250 }, (_, i) => `qzw ${i} kvj`),
     ];
 
+    // Production's planner costs (infra/ansible/roles/postgres/templates/postgresql.conf.j2, SSD): with the
+    // docker default 4, the 500-key exact statement priced its index probes above one Seq Scan on some runs.
+    await q('set local random_page_cost = 1.1');
     await q('set local role app_system');
     const threshold = render(fuzzyThresholdSql());
     await q(threshold.sql, threshold.params); // as `fuzzyMatches` does

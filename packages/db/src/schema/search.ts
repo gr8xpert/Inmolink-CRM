@@ -11,11 +11,14 @@
 
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -109,5 +112,72 @@ export const searchIndexQueue = pgTable(
   (t) => [
     // claim: oldest first
     index('search_index_queue_queued_idx').on(t.queuedAt),
+  ],
+);
+
+/**
+ * Postgres fallback search (S5-04, PLAN §5.4, ADR 0005 #5): the PUBLIC listings index documents as rows, so website
+ * search keeps answering basic filters when the engine is down or slow. Written with the read models in the same
+ * transaction (never stale); a target that is not PUBLIC has no row. Mirrors `ListingIndexDoc` field for field (the
+ * same engine-neutral filter compiles to either), without the text — the fallback matches references only.
+ *
+ * Global, not tenant-scoped: every row is a PUBLIC listing or unit, readable by public paths like the documents
+ * themselves. Not under RLS on purpose: array (`&&`, `@>`) and `numeric` comparisons are not leakproof, so under a
+ * policy they could never be index conditions. `owner_agency_id` is a filter only, never served.
+ */
+export const listingSearchDocs = pgTable(
+  'listing_search_docs',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    kind: readModelKindEnum('kind').notNull(),
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    developmentId: uuid('development_id'),
+    status: text('status').notNull(),
+    transactionType: text('transaction_type').notNull(),
+    propertyTypeId: uuid('property_type_id').notNull(),
+    /** Country, region, city and area ids (a filter on any level matches everything below it). */
+    locationIds: uuid('location_ids').array().notNull(),
+    featureIds: uuid('feature_ids').array().notNull(),
+    /** Null when the price is on request. */
+    priceCents: bigint('price_cents', { mode: 'number' }),
+    priceOnRequest: boolean('price_on_request').notNull(),
+    beds: integer('beds'),
+    baths: integer('baths'),
+    areaM2: numeric('area_m2', { precision: 10, scale: 2, mode: 'number' }),
+    plotM2: numeric('plot_m2', { precision: 12, scale: 2, mode: 'number' }),
+    lat: doublePrecision('lat'),
+    lng: doublePrecision('lng'),
+    ref: text('ref').notNull(),
+    /** Epoch seconds, as in the index document ("newest" sort and its keyset cursor). */
+    publishedAt: bigint('published_at', { mode: 'number' }).notNull(),
+    version: integer('version').notNull(),
+    /** The index document's `sourceHash`: an unchanged rebuild writes nothing. */
+    sourceHash: text('source_hash').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // an agency website, newest first (and any other sort within one agency's few thousand rows)
+    index('listing_search_docs_owner_idx').on(t.ownerAgencyId, t.publishedAt, t.targetId),
+    // network-wide pages, newest first
+    index('listing_search_docs_newest_idx').on(t.publishedAt, t.targetId),
+    // network-wide pages by price
+    index('listing_search_docs_price_idx').on(t.priceCents, t.targetId),
+    // network-wide pages by bedrooms and by area
+    index('listing_search_docs_beds_idx').on(t.beds, t.targetId),
+    index('listing_search_docs_area_idx').on(t.areaM2, t.targetId),
+    // rare transaction types and statuses network-wide (short-term rentals, reserved units): common ones stop a
+    // capped scan early, rare ones would read the whole table without it
+    index('listing_search_docs_transaction_idx').on(t.transactionType, t.status),
+    // type filters (ANDed with the location and feature bitmaps before the heap is read)
+    index('listing_search_docs_type_idx').on(t.propertyTypeId),
+    // location and feature filters (`@>`, `&&`)
+    index('listing_search_docs_locations_idx').using('gin', t.locationIds),
+    index('listing_search_docs_features_idx').using('gin', t.featureIds),
+    // a development's units
+    index('listing_search_docs_development_idx').on(t.developmentId).where(sql`${t.developmentId} is not null`),
+    // a reference typed in the search box
+    index('listing_search_docs_ref_idx').on(sql`lower(${t.ref})`),
+    // map view (a box: a lat range, lng checked in the index)
+    index('listing_search_docs_geo_idx').on(t.lat, t.lng).where(sql`${t.lat} is not null`),
   ],
 );

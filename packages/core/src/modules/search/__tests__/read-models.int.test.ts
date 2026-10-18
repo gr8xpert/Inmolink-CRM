@@ -503,8 +503,9 @@ describe('listing read models', () => {
     for (let i = 0; i < 4; i++) many.push(await sharedListing(a));
     const single = await countQueries(() => build('LISTING', one));
     const batch = await countQueries(() => system((tx) => search.rebuildListingReadModels(tx, many)));
-    // About ten, plus the index push queued with the documents (S5-03).
-    expect(single).toBeLessThanOrEqual(11);
+    // About ten, plus the index push queued with the documents (S5-03) and the fallback rows' refresh (S5-04:
+    // read, upsert, delete).
+    expect(single).toBeLessThanOrEqual(14);
     expect(batch).toBe(single);
   });
 });

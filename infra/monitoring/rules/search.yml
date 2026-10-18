@@ -1,0 +1,30 @@
+# Website search fallback alerts (S5-04, PLAN §5.4, ADR 0005 #5). Loaded by Prometheus on the monitoring host
+# (Ansible role `monitoring`). Unit tests: search.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: feed-api / api processes (OpenTelemetry → Prometheus exporter), from packages/core/src/modules/search/website.ts:
+#   inmolink_search_breaker_open   1 while a process skips the search engine (breaker open or probing), else 0
+#   inmolink_search_queries_total  website search queries by `backend` (engine | fallback) and `reason`
+groups:
+  - name: search
+    rules:
+      # The breaker opened (the engine failed or answered slower than 250 ms five times in a row) and has not closed
+      # since: websites are served by the Postgres fallback (no facets, references-only text search).
+      - alert: SearchFallbackActive
+        expr: max by (instance) (inmolink_search_breaker_open) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Website search on {{ $labels.instance }} has used the Postgres fallback for over 2 minutes"
+          runbook: docs/runbooks/search.md#fallback-active
+      # The engine keeps failing single queries without staying down (flapping, slow spikes): a share of website
+      # searches is answered by the fallback even while the breaker closes again.
+      - alert: SearchFallbackShareHigh
+        expr: >
+          sum(rate(inmolink_search_queries_total{backend="fallback"}[5m]))
+            / sum(rate(inmolink_search_queries_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of website searches answered by the Postgres fallback"
+          runbook: docs/runbooks/search.md#fallback-active

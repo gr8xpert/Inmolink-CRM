@@ -95,12 +95,35 @@ export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Pro
   };
 }
 
-/** Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03). */
+/**
+ * Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03) and brings their
+ * fallback rows up to date (S5-04).
+ */
 async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[]) {
   const deleted = await repo.deleteOthers(tx, ids, docs);
   const written = await repo.upsertDocs(tx, docs);
-  await repo.queueIndexSync(tx, [...deleted, ...written]);
+  await changed(tx, [...deleted, ...written]);
   return { written: written.length, deleted: deleted.length };
+}
+
+/** These targets' read models changed: queue their index push and refresh their fallback rows. */
+async function changed(tx: Tx, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await repo.queueIndexSync(tx, ids);
+  await refreshSearchDocs(tx, ids);
+}
+
+/**
+ * Makes these targets' fallback rows (S5-04) match their read models: the PUBLIC index document's filter fields, no
+ * row otherwise. Three statements per `READ_MODEL_BATCH` targets; unchanged rows are not rewritten.
+ */
+async function refreshSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> {
+  const { docs, missing } = await indexDocsFor(tx, ids);
+  await repo.upsertSearchDocs(
+    tx,
+    docs.filter((d) => d.visibility === 'PUBLIC'),
+  );
+  await repo.deleteSearchDocs(tx, [...missing, ...docs.filter((d) => d.visibility !== 'PUBLIC').map((d) => d.id)]);
 }
 
 export const rebuildReadModels = (tx: Tx, kind: ReadModelKind, ids: readonly string[]) =>
@@ -241,6 +264,8 @@ export async function rebuildAllReadModels(
             agencyId: options.agencyId,
           });
           await repo.queueIndexSync(tx, swept);
+          // Every live target of the page, changed or not: the full rebuild also fills and repairs the fallback.
+          await refreshSearchDocs(tx, [...ids, ...swept]);
           return { ...res, deleted: res.deleted + swept.length };
         });
         progress.done += ids.length;

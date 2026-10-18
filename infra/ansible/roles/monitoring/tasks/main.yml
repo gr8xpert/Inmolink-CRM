@@ -29,9 +29,10 @@
 
 - name: Alert rules (infra/monitoring/rules — unit-tested with promtool in tests/ops)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../monitoring/rules/postgres.yml"
-    dest: /etc/inmolink/monitoring/rules/postgres.yml
+    src: "{{ playbook_dir }}/../monitoring/rules/{{ item }}"
+    dest: "/etc/inmolink/monitoring/rules/{{ item }}"
     mode: "0644"
+  loop: [postgres.yml, search.yml]
   register: monitoring_rules
 
 - name: Grafana dashboards (infra/grafana/dashboards)
