@@ -19,7 +19,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [
     qualityJobs.recomputeListing,
-    searchJobs.buildReadModel,
+    searchJobs.buildReadModels,
+    searchJobs.sweepReadModelQueue,
     searchJobs.buildDevelopmentReadModels,
     searchJobs.buildAgencyReadModels,
     searchJobs.syncIndex,

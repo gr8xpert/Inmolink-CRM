@@ -62,8 +62,8 @@ type Queued = { job: string; payload: unknown };
 async function deliver(m: Founder): Promise<Queued[]> {
   const queued: Queued[] = [];
   const spies = [
-    vi.spyOn(search.searchJobs.buildReadModel, 'enqueue').mockImplementation(async (payload) => {
-      queued.push({ job: 'buildReadModel', payload });
+    vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockImplementation(async (payload) => {
+      queued.push({ job: 'buildReadModels', payload });
       return { id: 'test' };
     }),
     vi.spyOn(search.searchJobs.buildDevelopmentReadModels, 'enqueue').mockImplementation(async (payload) => {
@@ -111,12 +111,17 @@ async function deliver(m: Founder): Promise<Queued[]> {
   return queued;
 }
 
-/** Runs queued jobs (a recheck or index sync they queue in turn is only recorded). */
+/** Makes an agency's queued rebuilds due now (the debounce is time, not part of what a test checks). */
+const dueNow = (agencyId: string) =>
+  rows(sql`update read_model_queue set due_at = now() where owner_agency_id = ${agencyId} and due_at > now()`);
+
+/** Runs queued jobs (a later run or index sync they queue in turn is only recorded). */
 async function run(jobs: Queued[]): Promise<void> {
-  const enqueue = vi.spyOn(search.searchJobs.buildReadModel, 'enqueue').mockResolvedValue({ id: 'test' });
+  const enqueue = vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockResolvedValue({ id: 'test' });
   const sync = vi.spyOn(search.searchJobs.syncIndex, 'enqueue').mockResolvedValue({ id: 'test' });
   try {
     for (const { job, payload } of jobs) {
+      if (job === 'buildReadModels') await dueNow((payload as { agencyId: string }).agencyId);
       const def = search.searchJobs[job as keyof typeof search.searchJobs];
       await def.spec.run(def.spec.payload.parse(payload) as never, jobCtx());
     }
@@ -221,6 +226,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await system(async (tx) => {
+    await tx.execute(sql`delete from read_model_queue where owner_agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from listing_read_models where agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from units where agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from developments where agency_id = ${a.agencyId}`);
@@ -240,7 +246,7 @@ describe('listing read models', () => {
       }),
     );
     const queued = await deliver(a);
-    expect(queued.every((q) => q.job === 'buildReadModel')).toBe(true);
+    expect(queued.every((q) => q.job === 'buildReadModels')).toBe(true);
     await run(queued);
 
     const stored = await docs(id);
@@ -435,18 +441,28 @@ describe('listing read models', () => {
     await rows(sql`insert into property_media (id, property_id, agency_id, sha256, kind, position, is_cover)
       values (${newId()}, ${id}, ${a.agencyId}, ${ready}, 'IMAGE', 0, true),
              (${newId()}, ${id}, ${a.agencyId}, ${pending}, 'IMAGE', 1, false)`);
-    const enqueue = vi.spyOn(search.searchJobs.buildReadModel, 'enqueue').mockResolvedValue({ id: 'test' });
+    const enqueue = vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockResolvedValue({ id: 'test' });
+    const sync = vi.spyOn(search.searchJobs.syncIndex, 'enqueue').mockResolvedValue({ id: 'test' });
     try {
-      await search.searchJobs.buildReadModel.spec.run(
-        { kind: 'LISTING', id, agencyId: a.agencyId, recheck: 0 },
-        jobCtx(),
+      await system((tx) => repo.queueReadModels(tx, [{ kind: 'LISTING', targetId: id, agencyId: a.agencyId }], 0));
+      const result = await search.searchJobs.buildReadModels.spec.run({ agencyId: a.agencyId }, jobCtx());
+      expect(result).toMatchObject({ built: 1, rechecked: 1 });
+      // Queued again a minute on (one recheck used), and the agency's later run asked for.
+      const [row] = await rows<{ rechecks: number; wait: number }>(
+        sql`select rechecks, extract(epoch from due_at - now())::float8 as wait from read_model_queue
+             where target_id = ${id}`,
       );
+      expect(row?.rechecks).toBe(1);
+      expect(row?.wait).toBeGreaterThan(50);
       expect(enqueue).toHaveBeenCalledWith(
-        { kind: 'LISTING', id, agencyId: a.agencyId, recheck: 1 },
-        { debounceMs: 60_000, debounceKey: `${id}.recheck` },
+        { agencyId: a.agencyId },
+        { throttleMs: expect.any(Number), debounceKey: 'later' },
       );
+      expect(enqueue.mock.calls[0]?.[1]?.throttleMs).toBeGreaterThan(50_000);
     } finally {
       enqueue.mockRestore();
+      sync.mockRestore();
+      await rows(sql`delete from read_model_queue where target_id = ${id}`);
     }
     const detail = ListingDetailDoc.parse((await docs(id, 'en'))[0]?.detail);
     expect(detail.media).toHaveLength(1);
@@ -770,6 +786,74 @@ describe('listings search index (S5-02)', () => {
       limit: 10,
     });
     expect(websites.ids).toEqual([listingId]);
+  });
+});
+
+describe('read-model queue (S5-F4)', () => {
+  it('[S5-F4] a burst of changes across many listings is rebuilt in one batched transaction, each target once', async () => {
+    await run(await deliver(a));
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) ids.push(await sharedListing(a));
+    for (const id of ids.slice(0, 10)) await update(a, id, { priceCents: 47_000_000 });
+    const queued = await deliver(a);
+    expect(queued.length).toBeGreaterThanOrEqual(40);
+    expect(new Set(queued.map((q) => JSON.stringify(q)))).toEqual(
+      new Set([JSON.stringify({ job: 'buildReadModels', payload: { agencyId: a.agencyId } })]),
+    );
+    // One row per target, however many events.
+    const [{ n } = { n: 0 }] = await rows<{ n: number }>(
+      sql`select count(*)::int as n from read_model_queue where target_id in (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
+    );
+    expect(n).toBe(30);
+
+    await dueNow(a.agencyId);
+    const sync = vi.spyOn(search.searchJobs.syncIndex, 'enqueue').mockResolvedValue({ id: 'test' });
+    const later = vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockResolvedValue({ id: 'test' });
+    try {
+      let result: unknown;
+      const statements = await countQueries(async () => {
+        result = await search.searchJobs.buildReadModels.spec.run({ agencyId: a.agencyId }, jobCtx());
+      });
+      expect(result).toMatchObject({ batches: 1, built: 30, nextDueMs: null });
+      // One claim, one rebuild transaction (~14 statements for any number of targets) with the queue's finish, the
+      // final look at the queue — where one job per target took ~14 statements each (420 for these 30).
+      expect(statements).toBeLessThanOrEqual(30);
+      expect(sync).toHaveBeenCalledTimes(1);
+    } finally {
+      sync.mockRestore();
+      later.mockRestore();
+    }
+    for (const id of ids) expect((await docs(id, 'en'))[0]?.version).toBe(await versionOf(a, id));
+  });
+
+  it('[S5-F4] a change during its rebuild stays queued; an agency whose run was lost is swept', async () => {
+    const id = await sharedListing(a);
+    await run(await deliver(a));
+    const change = [{ kind: 'LISTING' as const, targetId: id, agencyId: a.agencyId }];
+    await system((tx) => repo.queueReadModels(tx, change, 0));
+    const claim = await system((tx) => repo.claimReadModels(tx, a.agencyId, 10, 60_000));
+    expect(claim.rows.map((r) => r.targetId)).toContain(id);
+    await system((tx) => repo.queueReadModels(tx, change, 0)); // changed again while being rebuilt
+    await system((tx) => repo.finishReadModels(tx, claim));
+    const left = await rows<{ claim_token: string | null }>(
+      sql`select claim_token from read_model_queue where target_id = ${id}`,
+    );
+    expect(left).toEqual([{ claim_token: null }]);
+
+    // Its job never came (Redis was down when it was queued): the sweep asks for the agency's run again.
+    await rows(sql`update read_model_queue set due_at = now() - interval '5 minutes' where target_id = ${id}`);
+    const enqueue = vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockResolvedValue({ id: 'test' });
+    try {
+      await search.searchJobs.sweepReadModelQueue.spec.run({}, jobCtx());
+      expect(enqueue).toHaveBeenCalledWith({ agencyId: a.agencyId }, { throttleMs: 2_000, debounceKey: 'now' });
+    } finally {
+      enqueue.mockRestore();
+    }
+    await run([{ job: 'buildReadModels', payload: { agencyId: a.agencyId } }]);
+    expect(await rows(sql`select 1 from read_model_queue where target_id = ${id}`)).toEqual([]);
   });
 });
 

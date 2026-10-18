@@ -17,7 +17,8 @@ import { runId, setupQueueTest, teardownQueueTest, waitFor } from '../queue/help
 
 /**
  * Search indexer acceptance (S5-03) through the worker's real path: outbox events → the search subscriptions →
- * debounced `search.buildReadModel` jobs on a real `indexing` pool (BullMQ, Redis) → read models and the index
+ * `read_model_queue` rows and the agency's throttled `search.buildReadModels` runs (S5-F4) on a real `indexing` pool
+ * (BullMQ, Redis) → read models and the index
  * queue in one transaction → throttled and scheduled `search.syncIndex` jobs → Meilisearch. Only the dispatcher's
  * claim is stood in for: the shared test database holds other suites' events, so this file delivers its own
  * agency's events every 250 ms (the dispatcher's poll, ADR 0014; its pickup is measured in S0-06 / S2-F3).
@@ -153,7 +154,9 @@ beforeAll(async () => {
     return { location, type };
   });
   search.registerSearchSubscriptions();
-  pool = registerPool(POOL, [search.searchJobs.buildReadModel, search.searchJobs.syncIndex], { concurrency: 10 });
+  pool = registerPool(POOL, [search.searchJobs.buildReadModels, search.searchJobs.syncIndex], {
+    concurrency: 10,
+  });
   await pool.scheduled;
   delivery = (async () => {
     while (delivering) {
@@ -171,6 +174,7 @@ afterAll(async () => {
   await real().dropIndex(UID);
   if (targets.length > 0) {
     await rows(sql`delete from search_index_queue where target_id in (${inList(targets)})`);
+    await rows(sql`delete from read_model_queue where target_id in (${inList(targets)})`);
     await rows(sql`delete from listing_read_models where target_id in (${inList(targets)})`);
   }
   if (m) await rows(sql`delete from properties where agency_id = ${m.agencyId}`);

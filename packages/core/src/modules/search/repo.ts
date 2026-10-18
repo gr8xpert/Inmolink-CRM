@@ -4,7 +4,7 @@
  * Read models are written by the search worker only (`withSystem`).
  */
 import type { Tx } from '@inmolink/db';
-import { listingReadModels, listingSearchDocs, searchIndexQueue } from '@inmolink/db/schema/search';
+import { listingReadModels, listingSearchDocs, readModelQueue, searchIndexQueue } from '@inmolink/db/schema/search';
 import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
@@ -206,6 +206,142 @@ export async function readIndexRows(tx: Tx, ids: readonly string[]) {
     })
     .from(listingReadModels)
     .where(inArray(listingReadModels.targetId, [...ids]));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Read-model rebuild queue (S5-F4)
+
+export interface ReadModelChange {
+  kind: Kind;
+  targetId: string;
+  agencyId: string;
+}
+
+/**
+ * Queues rebuilds of these targets, due `delayMs` from now. A target already queued gets a new generation (a rebuild
+ * holding it builds again later), a new due time (debounce: a burst is rebuilt once, after it settled) and its
+ * image rechecks reset. One statement for any number; rows in id order (no deadlock between two writers).
+ */
+export async function queueReadModels(tx: Tx, changes: readonly ReadModelChange[], delayMs: number): Promise<void> {
+  const unique = [...new Map(changes.map((c) => [c.targetId, c])).values()];
+  if (unique.length === 0) return;
+  const kinds = sql`array[${sql.join(
+    unique.map((c) => sql`${c.kind}`),
+    sql`, `,
+  )}]::text[]`;
+  await tx.execute(sql`
+    insert into ${readModelQueue} (target_id, kind, owner_agency_id, due_at)
+    select t, k, a, now() + make_interval(secs => ${delayMs / 1000})
+      from unnest(${uuidArray(unique.map((c) => c.targetId))}, ${kinds},
+                  ${uuidArray(unique.map((c) => c.agencyId))}) as x(t, k, a)
+     order by 1
+    on conflict (target_id) do update
+      set generation = ${readModelQueue}.generation + 1, due_at = excluded.due_at, rechecks = 0`);
+}
+
+export interface ReadModelClaim {
+  token: string;
+  rows: { targetId: string; kind: Kind; generation: number }[];
+}
+
+/**
+ * Claims up to `limit` of an agency's due targets, oldest first, that no live rebuild holds, for `leaseMs`. Rows a
+ * concurrent claim is taking are skipped. `read_model_queue_agency_due_idx`.
+ */
+export async function claimReadModels(
+  tx: Tx,
+  agencyId: string,
+  limit: number,
+  leaseMs: number,
+): Promise<ReadModelClaim> {
+  const token = newId();
+  const res = await tx.execute(sql`
+    update ${readModelQueue} q
+       set claimed_until = now() + make_interval(secs => ${leaseMs / 1000}), claim_token = ${token}
+      from (select target_id from ${readModelQueue}
+             where owner_agency_id = ${agencyId} and due_at <= now()
+               and (claimed_until is null or claimed_until < now())
+             order by due_at
+             limit ${limit}
+               for update skip locked) c
+     where q.target_id = c.target_id
+    returning q.target_id, q.kind, q.generation`);
+  return {
+    token,
+    rows: (res.rows as { target_id: string; kind: Kind; generation: number }[]).map((r) => ({
+      targetId: r.target_id,
+      kind: r.kind,
+      generation: r.generation,
+    })),
+  };
+}
+
+const claimedRows = (claim: ReadModelClaim, ids?: ReadonlySet<string>) => {
+  const rows = ids ? claim.rows.filter((r) => ids.has(r.targetId)) : claim.rows;
+  return sql`unnest(${uuidArray(rows.map((r) => r.targetId))}, array[${sql.join(
+    rows.map((r) => sql`${r.generation}`),
+    sql`, `,
+  )}]::int[]) as c(target_id, generation)`;
+};
+
+/**
+ * Images still processing: these claimed targets are rebuilt again `delayMs` later, at most `max` times — unless
+ * they changed since the claim (that change's rebuild comes first anyway). Must run before `finishReadModels`.
+ */
+export async function rescheduleReadModels(
+  tx: Tx,
+  claim: ReadModelClaim,
+  ids: readonly string[],
+  max: number,
+  delayMs: number,
+): Promise<number> {
+  const pending = new Set(ids);
+  if (!claim.rows.some((r) => pending.has(r.targetId))) return 0;
+  const res = await tx.execute(sql`
+    update ${readModelQueue} q
+       set rechecks = q.rechecks + 1, due_at = now() + make_interval(secs => ${delayMs / 1000}),
+           claimed_until = null, claim_token = null
+      from ${claimedRows(claim, pending)}
+     where q.target_id = c.target_id and q.generation = c.generation and q.claim_token = ${claim.token}
+       and q.rechecks < ${max}`);
+  return res.rowCount ?? 0;
+}
+
+/**
+ * Rebuilt (in the same transaction): deletes the claimed rows whose generation is unchanged and frees the others
+ * (changed again since the claim: rebuilt again when due). Rows another claim took over are left alone.
+ */
+export async function finishReadModels(tx: Tx, claim: ReadModelClaim): Promise<void> {
+  if (claim.rows.length === 0) return;
+  await tx.execute(sql`
+    delete from ${readModelQueue} q using ${claimedRows(claim)}
+     where q.target_id = c.target_id and q.generation = c.generation and q.claim_token = ${claim.token}`);
+  await releaseReadModels(tx, claim.token);
+}
+
+/** Not rebuilt (the transaction failed): frees the rows this claim still holds. */
+export async function releaseReadModels(tx: Tx, token: string): Promise<void> {
+  await tx.execute(sql`
+    update ${readModelQueue} set claimed_until = null, claim_token = null where claim_token = ${token}`);
+}
+
+/** Milliseconds until the agency's next unclaimed target is due (≤ 0: due now), or null when none is queued. */
+export async function nextReadModelDue(tx: Tx, agencyId: string): Promise<number | null> {
+  const res = await tx.execute(sql`
+    select (extract(epoch from min(due_at) - now()) * 1000)::float8 as ms from ${readModelQueue}
+     where owner_agency_id = ${agencyId} and (claimed_until is null or claimed_until < now())`);
+  const ms = (res.rows[0] as { ms: number | null } | undefined)?.ms;
+  return ms === null || ms === undefined ? null : ms;
+}
+
+/** Agencies with targets overdue by more than `overdueMs` and unclaimed (their job was lost): the sweep's work. */
+export async function overdueReadModelAgencies(tx: Tx, overdueMs: number, limit: number): Promise<string[]> {
+  const res = await tx.execute(sql`
+    select distinct owner_agency_id from ${readModelQueue}
+     where due_at < now() - make_interval(secs => ${overdueMs / 1000})
+       and (claimed_until is null or claimed_until < now())
+     limit ${limit}`);
+  return (res.rows as { owner_agency_id: string }[]).map((r) => r.owner_agency_id);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -608,8 +744,8 @@ export interface FallbackQuery {
 
 /**
  * One page of the fallback, its total (exact up to `countCap`) and the next position, in one statement. Order: the
- * sort value, then the id; rows without a value last in either direction. Pages continue by keyset — each branch an
- * index-ordered scan with a limit — not by a growing OFFSET.
+ * sort value, then the id; rows without a value last in either direction. Pages continue by keyset — over the capped
+ * matches, or each branch an index-ordered scan with a limit — not by a growing OFFSET.
  */
 export async function fallbackSearch(
   tx: Tx,
@@ -654,16 +790,32 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
        order by target_id ${dir} limit ${take})`);
   }
   if (branches.length === 0) throw new SearchError(`no rows without a value when sorting by ${q.sort.field}`);
-  // The count and the page plan apart: a page with a small limit may walk an ordered index, which a count of
-  // `countCap` rows must not (with a large limit the planner walks it for selective filters too).
+  // The filter is matched once (S5-F4): `m` holds at most `countCap + 1` matches with their sort value. Within the cap
+  // (selective filters, most searches) it gives the total and the page — sorted in memory, no second index walk. Past
+  // it, the total is the cap and the page comes from the index-ordered branches (a broad filter finds its first page
+  // in a few index entries). Each side is gated by an InitPlan, so only one of them runs.
+  const after = !q.after
+    ? sql``
+    : q.after.phase === 0
+      ? sql`and ((k is not null and (k, target_id) ${cmp} (${q.after.value}::float8, ${q.after.id}::uuid)) or k is null)`
+      : sql`and k is null and target_id ${cmp} ${q.after.id}::uuid`;
   return sql`
-    select c.n as total, p.target_id, p.k, p.phase
-      from (select count(*)::int as n
-              from (select 1 from ${listingSearchDocs} where ${where} limit ${q.countCap}) x) c
+    with m as materialized (
+      select target_id, ${col}::float8 as k from ${listingSearchDocs} where ${where} limit ${q.countCap + 1}),
+    c as materialized (select count(*)::int as n from m)
+    select least(c.n, ${q.countCap}) as total, p.target_id, p.k, p.phase
+      from c
       left join lateral (
-        select * from (${sql.join(branches, sql` union all `)}) u
-         order by phase, k ${dir}, target_id ${dir}
-        offset ${offset} limit ${q.limit + 1}) p on true`;
+        (select target_id, k, (k is null)::int as phase from m
+          where (select n from c) <= ${q.countCap} ${after}
+          order by phase, k ${dir}, target_id ${dir}
+         offset ${offset} limit ${q.limit + 1})
+        union all
+        (select * from (${sql.join(branches, sql` union all `)}) u
+          where (select n from c) > ${q.countCap}
+          order by phase, k ${dir}, target_id ${dir}
+         offset ${offset} limit ${q.limit + 1})) p on true
+     order by p.phase, p.k ${dir}, p.target_id ${dir}`;
 }
 
 /**

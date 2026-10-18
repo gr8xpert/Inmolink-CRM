@@ -26,11 +26,12 @@ export {
   syncIndex,
 } from './indexer';
 export {
-  enqueueReadModel,
   INDEX_SYNC_THROTTLE_MS,
+  queueReadModel,
   READ_MODEL_DEBOUNCE_MS,
   READ_MODEL_PENDING_RECHECKS,
   requestIndexSync,
+  requestReadModelBuild,
   searchJobs,
 } from './jobs';
 export {
@@ -45,6 +46,9 @@ export {
 export { CLIENT_MODE_ALLOWED, can } from './policy';
 export {
   countReadModelTargets,
+  type DrainOptions,
+  type DrainResult,
+  drainReadModelQueue,
   ensureListingsIndex,
   type FullRebuildOptions,
   type FullRebuildProgress,

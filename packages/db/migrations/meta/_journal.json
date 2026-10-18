@@ -519,6 +519,13 @@
       "when": 1792345510115,
       "tag": "0073_price_list_cascade_agency_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792354784055,
+      "tag": "0074_overrated_genesis",
+      "breakpoints": true
     }
   ]
 }

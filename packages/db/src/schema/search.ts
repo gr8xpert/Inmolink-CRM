@@ -121,6 +121,34 @@ export const searchIndexQueue = pgTable(
 );
 
 /**
+ * Read-model rebuild queue (S5-F4): listings and units whose read models must be rebuilt, written by the search
+ * subscriptions (one row per target, however many events) and drained by `search.buildReadModels` in batches of
+ * `READ_MODEL_BATCH` per transaction, per agency (fair share). Worker-only (`withSystem`), no tenant access.
+ */
+export const readModelQueue = pgTable(
+  'read_model_queue',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    /** LISTING | UNIT */
+    kind: text('kind').notNull(),
+    /** The target's agency: the rebuild job's fair-share group (not an access boundary: the table is worker-only). */
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    /** Bumped by every change queued again: a rebuild that claimed an older generation leaves the row queued. */
+    generation: integer('generation').notNull().default(1),
+    /** Debounce: a burst of changes to one target is rebuilt once, after its last change settled. */
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Images still processing: rebuilds left (a recheck pushes `due_at` a minute on). A change resets it. */
+    rechecks: integer('rechecks').notNull().default(0),
+    claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    claimToken: uuid('claim_token'),
+  },
+  (t) => [
+    // claim: an agency's due targets, oldest first; the sweep's agencies with due rows
+    index('read_model_queue_agency_due_idx').on(t.ownerAgencyId, t.dueAt),
+  ],
+);
+
+/**
  * Postgres fallback search (S5-04, PLAN §5.4, ADR 0005 #5): the PUBLIC listings index documents as rows, so website
  * search keeps answering basic filters when the engine is down or slow. Written with the read models in the same
  * transaction (never stale); a target that is not PUBLIC has no row. Mirrors `ListingIndexDoc` field for field (the

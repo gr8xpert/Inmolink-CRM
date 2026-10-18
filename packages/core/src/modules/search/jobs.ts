@@ -1,8 +1,13 @@
-import { withSystem } from '@inmolink/db';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
-import { rebuildAllReadModels, rebuildDevelopmentReadModels, rebuildReadModels } from './service';
+import {
+  drainReadModelQueue,
+  overdueReadModelAgencies,
+  queueReadModelChanges,
+  rebuildAllReadModels,
+  rebuildDevelopmentReadModels,
+} from './service';
 
 /** Bursts of changes to one target (autosave, a batch of photos) collapse into one rebuild this long after the last. */
 export const READ_MODEL_DEBOUNCE_MS = 2_000;
@@ -11,16 +16,22 @@ const PENDING_RECHECK_MS = 60_000;
 export const READ_MODEL_PENDING_RECHECKS = 10;
 /** A read-model change reaches the index this long after it was written (at most; a throttle, not a debounce). */
 export const INDEX_SYNC_THROTTLE_MS = 500;
-
-const ReadModelKind = z.enum(['LISTING', 'UNIT']);
+/** A rebuild run's time box: it stops claiming then (what is left stays queued) and its rows' lease outlasts it. */
+const READ_MODEL_RUN_BUDGET_MS = 50_000;
+const READ_MODEL_LEASE_MS = 120_000;
+/** Targets due this long ago and not claimed: their run was lost (Redis down when queued); the sweep asks again. */
+const READ_MODEL_OVERDUE_MS = 30_000;
 
 /**
  * search worker jobs (PATTERNS §12), pool `indexing`. Idempotent (a rebuild reads current state and never moves a
  * read model backwards), per-tenant fair share (`meta.agencyId`).
  *
- * `search.buildReadModel` (from listing, media and unit events, debounced per target): rebuilds one listing's or
- * unit's documents, or drops them when it has none any more. While images are still processing it queues itself
+ * `search.buildReadModels` (S5-F4; listing, media and unit events queue their target in `read_model_queue`, debounced
+ * per target, and ask for their agency's run): rebuilds the agency's due targets `READ_MODEL_BATCH` per transaction,
+ * dropping the documents of targets that have none any more. Targets whose images are still processing are queued
  * again a minute later (≤ `READ_MODEL_PENDING_RECHECKS` times).
+ *
+ * `search.sweepReadModelQueue` (every minute): asks again for the runs of agencies whose targets are overdue.
  *
  * `search.buildDevelopmentReadModels` (a development's text, place, access or deletion; debounced): rebuilds the
  * development's units.
@@ -40,27 +51,49 @@ const ReadModelKind = z.enum(['LISTING', 'UNIT']);
  * `search.repairIndex` (after drift): queues every target whose index document is missing, other or orphaned.
  */
 export const searchJobs = {
-  buildReadModel: defineJob({
-    name: 'search.buildReadModel',
+  buildReadModels: defineJob({
+    name: 'search.buildReadModels',
     pool: 'indexing',
-    payload: z.object({
-      kind: ReadModelKind,
-      id: z.uuid(),
-      agencyId: z.uuid(),
-      recheck: z.number().int().min(0).max(READ_MODEL_PENDING_RECHECKS).default(0),
-    }),
+    payload: z.object({ agencyId: z.uuid() }),
     group: (p) => p.agencyId,
     attempts: 5,
     backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: READ_MODEL_LEASE_MS,
+    async run(p, { log, signal }) {
+      const result = await drainReadModelQueue(p.agencyId, {
+        recheckMs: PENDING_RECHECK_MS,
+        maxRechecks: READ_MODEL_PENDING_RECHECKS,
+        leaseMs: READ_MODEL_LEASE_MS,
+        budgetMs: READ_MODEL_RUN_BUDGET_MS,
+        waitMs: READ_MODEL_DEBOUNCE_MS,
+        signal,
+        // Each batch's documents reach the index while the run goes on (a long burst must not hold them back).
+        onBatch: async (r) => {
+          if (r.written + r.deleted > 0) await requestIndexSync();
+        },
+      });
+      // Targets due later (a recheck, a burst still settling): one run then. A run already waiting for that keeps
+      // its time; the sweep catches anything a lost job left behind.
+      if (result.nextDueMs !== null) await requestReadModelBuild(p.agencyId, Math.max(result.nextDueMs, 0), 'later');
+      log.debug({ agencyId: p.agencyId, ...result }, 'read models built');
+      return result;
+    },
+  }),
+
+  sweepReadModelQueue: defineJob({
+    name: 'search.sweepReadModelQueue',
+    pool: 'indexing',
+    payload: z.object({}),
+    every: 60_000,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 60_000,
-    async run(p, { log }) {
-      const result = await withSystem('search.buildReadModel', (tx) => rebuildReadModels(tx, p.kind, [p.id]));
-      if (result.written + result.deleted > 0) await requestIndexSync();
-      if (result.pendingMedia.length > 0 && p.recheck < READ_MODEL_PENDING_RECHECKS) {
-        await enqueueReadModel(p.kind, p.id, p.agencyId, { recheck: p.recheck + 1, debounceMs: PENDING_RECHECK_MS });
-      }
-      log.debug({ kind: p.kind, id: p.id, ...result }, 'read model built');
-      return { built: result.built, written: result.written, deleted: result.deleted };
+    async run(_p, { log }) {
+      const agencies = await overdueReadModelAgencies(READ_MODEL_OVERDUE_MS, 1_000);
+      for (const agencyId of agencies) await requestReadModelBuild(agencyId);
+      if (agencies.length > 0)
+        log.warn({ agencies: agencies.length }, 'read-model rebuilds overdue: jobs queued again');
+      return { agencies: agencies.length };
     },
   }),
 
@@ -170,19 +203,23 @@ export async function requestIndexSync(): Promise<void> {
   await searchJobs.syncIndex.enqueue({}, { throttleMs: INDEX_SYNC_THROTTLE_MS, debounceKey: 'sync' });
 }
 
-/** Queues a (debounced) rebuild of one target. Network I/O (the queue): never inside a transaction. */
-export async function enqueueReadModel(
-  kind: 'LISTING' | 'UNIT',
-  id: string,
+/**
+ * Queues a rebuild of these targets (debounced per target) and asks for their agencies' rebuild run. Called by the
+ * search subscriptions. Network I/O (the queue): never inside a transaction.
+ */
+export async function queueReadModel(kind: 'LISTING' | 'UNIT', id: string, agencyId: string): Promise<void> {
+  await queueReadModelChanges([{ kind, targetId: id, agencyId }], READ_MODEL_DEBOUNCE_MS);
+  await requestReadModelBuild(agencyId);
+}
+
+/**
+ * Asks for one agency's rebuild run `delayMs` from now (throttled per agency and key: changes until then join the
+ * run). `later` (a run for targets due later) is keyed apart, so it never holds back the run a change asks for.
+ */
+export async function requestReadModelBuild(
   agencyId: string,
-  options: { recheck?: number; debounceMs?: number } = {},
+  delayMs: number = READ_MODEL_DEBOUNCE_MS,
+  key: 'now' | 'later' = 'now',
 ): Promise<void> {
-  await searchJobs.buildReadModel.enqueue(
-    { kind, id, agencyId, recheck: options.recheck ?? 0 },
-    // A recheck has its own key: it must never replace (and delay) the rebuild an edit queued.
-    {
-      debounceMs: options.debounceMs ?? READ_MODEL_DEBOUNCE_MS,
-      debounceKey: options.recheck ? `${id}.recheck` : id,
-    },
-  );
+  await searchJobs.buildReadModels.enqueue({ agencyId }, { throttleMs: Math.max(delayMs, 100), debounceKey: key });
 }

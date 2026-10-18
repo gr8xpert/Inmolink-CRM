@@ -3,7 +3,7 @@ import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
-import { enqueueReadModel, READ_MODEL_DEBOUNCE_MS, searchJobs } from './jobs';
+import { queueReadModel, READ_MODEL_DEBOUNCE_MS, searchJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -24,7 +24,7 @@ const { developmentsEvents } = developments;
 
 /**
  * Outbox → read models (S5-01, PATTERNS §14). Every change a read model shows queues a debounced rebuild of its
- * target: a listing created, edited, moved through its lifecycle, shared, deleted, restored or purged, or its media
+ * target (S5-F4: a `read_model_queue` row, rebuilt with the agency's other due targets in batches): a listing created, edited, moved through its lifecycle, shared, deleted, restored or purged, or its media
  * changed; a unit created, edited, repriced or deleted; a price list approved (all its development's units); a
  * development's text, place or access changed or the
  * development deleted (all its units); the agency's content locales changed (all its documents). The rebuild reads
@@ -37,9 +37,9 @@ const { developmentsEvents } = developments;
 export function registerSearchSubscriptions(): void {
   if (unsubscribe) return;
   const listing = (payload: { listingId: string }, meta: { agencyId: string }) =>
-    enqueueReadModel('LISTING', payload.listingId, meta.agencyId);
+    queueReadModel('LISTING', payload.listingId, meta.agencyId);
   const unit = (payload: { unitId: string }, meta: { agencyId: string }) =>
-    enqueueReadModel('UNIT', payload.unitId, meta.agencyId);
+    queueReadModel('UNIT', payload.unitId, meta.agencyId);
   const development = (payload: { developmentId: string; changed?: string[] }, meta: { agencyId: string }) =>
     searchJobs.buildDevelopmentReadModels.enqueue(
       { developmentId: payload.developmentId, agencyId: meta.agencyId },

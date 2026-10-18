@@ -658,6 +658,14 @@ Ref §16 PATTERNS §9 · Mod developments, contracts, web, tests · Dep S4-F5
 - No list repo in `developments` selects every column (test or lint)
 - `[S1-09]` passes in a full `verify:all` run
 
+### S5-F4 · S5 review must-fixes (search performance) ⚡
+Ref §16 PATTERNS §12 §14 · Mod search, db, worker, tests · Dep S5-04 S5-01
+**Build:** the Postgres fallback matches its filter once — a `MATERIALIZED` set capped at `countCap + 1` gives the total and, within the cap, the page; the index-ordered branches run only past it (InitPlan-gated). Read-model rebuilds are batched: listing and unit events queue their target in `read_model_queue` (worker-only, one row per target, debounced by `due_at`, generation-guarded like `search_index_queue`) and ask for the agency's throttled `search.buildReadModels` run, which rebuilds up to `READ_MODEL_BATCH` targets per transaction, requeues image rechecks and pushes each batch to the index as it commits; `search.sweepReadModelQueue` (every minute) asks again for agencies whose run was lost.
+**Done when:**
+- Every website fallback shape's statement runs under 20 ms at 500k rows (fastest of 5 EXPLAINs; perf test)
+- A burst of changes across many listings is rebuilt in one batched transaction, each target once (test)
+- A listing edit is still searchable in < 10 s p95 (S5-03 perf test)
+
 ---
 
 ## S6 — Imports
@@ -710,6 +718,30 @@ Ref §5.3 (7) §3 #39 · Mod imports, admin · Dep S6-02 · ⚡
 **Done when:**
 - With 500 simultaneous feeds, no tenant's queue wait exceeds 15 min (load test)
 - A feed that suddenly drops 40% of listings pauses instead of withdrawing them
+
+### S6-F1 · Search access and public-path hardening (S5 review) 🔒
+Ref §3 #5 #57 §5 · Mod search, agencies, properties, db · Dep S5-F4
+**Build:** a suspended or unlisted owner agency's PUBLIC listings and OPEN-development units leave the public read models, `listing_search_docs` and the PUBLIC index (an agency-status condition in the read-model loaders; an agency status change queues its targets' rebuild). `listing_read_models` becomes read-only for `app_user` (only the worker writes it): the registry/generator gives PUBLIC_READ read models no user DML. The `app_public` grant honours `hiddenColumns` (`share_scope`, `allowed_agency_ids` unreadable on public paths). `listing_search_docs` is granted to `app_public` only (not `app_user`, which maps every PUBLIC listing to its owner without the verified gate). `properties.removeOverrides` checks inside its transaction that the target is gone and belongs to `meta.agencyId`. The network search total is documented as approximate (or the engine filter excludes freshness-hidden listings and unlisted owners — with S6-F2's `networkHidden`). The give-to-get exemption takes a staff reason and audits before and after.
+**Done when:**
+- A suspended agency's PUBLIC listing disappears from website search (engine and fallback) after its status change (test)
+- `app_user` cannot insert or update a `listing_read_models` row, and `app_public` cannot read `share_scope` (isolation test)
+- `removeOverrides` for a live listing, or one of another agency, removes nothing (test)
+
+### S6-F2 · Search correctness and structure (S5 review)
+Ref §5.3 §7 M10 · Mod search, agencies, developments, properties, web · Dep S5-F4
+**Build:** the repair walk pages the index by id (`id > last`), not by offset, so deletions during the walk skip nothing. An engine cursor that continues in the fallback restarts at the fallback's first keyset page with a "results changed" flag instead of an SQL `OFFSET`. Index documents carry `networkHidden` (freshness-hidden listings) and network search excludes it, so pages are full and totals right. PREFERRED listings are filtered by a `preferredAgencyIds` field on the document (`eq preferredAgencyIds = viewer`) instead of up to 2,000 owner ids per query (`NETWORK_PREFERRING_CAP` goes). New-build units can be bookmarked on `/network` (unit bookmarks, S3-09 note) — or the gap is recorded under Decisions. `developments` `unitsForUpdate` selects only the columns the approval needs; `properties/read-models.ts` binds its status list (`sql.join`/`inArray`), no string splice. `UNIT_SPLIT_BP` (units pay 100 % to the selling agency) moves to config or a development field after Shahzaib's decision (S5 review). Note for S7-03: wire `searchPublicListings` into feed-api with Cache-Control and ETag.
+**Done when:**
+- A repair walk with documents deleted during it finds every orphan (test)
+- A freshness-hidden listing is not counted in a network search total (test)
+- A network search by an agency preferred by 2,001 owners still shows their PREFERRED listings (test)
+
+### S6-F3 · Search and lifecycle performance (S5 review) ⚡
+Ref §16 §5.4 · Mod search, developments, db, tests · Dep S5-F4 · before S6-02
+**Build:** website search's engine timeout ~100 ms and slow threshold ~80 ms (from config), and the breaker opens on a slow-or-failed share over a window, not only 5 in a row — or the fallback starts at ~80 ms and the first answer wins. The full read-model rebuild refreshes `listing_search_docs` once per target (not in `changed()` and again per page); re-run `tests/perf/read-model-rebuild`. The development purge bounds a transaction by units (≈ 5k), not by 100 developments. Network hydration reads the viewer's locale and fallback first and any locale only for ids still missing (no `distinct on` detoasting every locale's card). `properties_agency_network_idx` (0069) joins `CONCURRENT_INDEXES` before imports fill `properties`. `quality.recomputeListing` gets the S5-F4 queue shape (one job per listing today; imports emit one event per row). Integration and perf suites delete their `search_index_queue` / `read_model_queue` rows (495 stale rows from killed runs were found; a shared global queue's leftovers slow other suites' syncs).
+**Done when:**
+- A website search with the engine answering in 200 ms stays within feed-api's 150 ms p95 (test with a slowed engine)
+- A full rebuild writes each target's fallback row once (statement count test)
+- Purging a development with 20,000 units runs in transactions of ≤ 5,000 units (test)
 
 ---
 

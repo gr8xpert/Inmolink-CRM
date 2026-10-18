@@ -156,11 +156,98 @@ export async function rebuildDevelopmentReadModels(
   return total;
 }
 
-function add(total: RebuildResult, r: RebuildResult): void {
+export interface DrainOptions {
+  /** Images still processing: rebuild again this much later, at most `maxRechecks` times. */
+  recheckMs: number;
+  maxRechecks: number;
+  /** A claimed row is held this long; a rebuild that died is retried after it. */
+  leaseMs: number;
+  /** Stop claiming after this long (the job's time box); what is left stays queued. */
+  budgetMs: number;
+  /** Wait in-process for targets due within this long (the tail of a burst) rather than queue a later run. */
+  waitMs: number;
+  batch?: number;
+  signal?: AbortSignal;
+  /** After each committed batch (outside its transaction): the index push for what it changed. */
+  onBatch?: (r: Omit<RebuildResult, 'pendingMedia'>) => Promise<void>;
+}
+
+export interface DrainResult extends Omit<RebuildResult, 'pendingMedia'> {
+  /** Rebuild transactions run. */
+  batches: number;
+  /** Targets queued again for their images. */
+  rechecked: number;
+  /** Milliseconds until the agency's next queued target is due, or null when the queue holds none of it. */
+  nextDueMs: number | null;
+}
+
+/**
+ * Drains an agency's due read-model rebuilds (S5-F4): claims up to `batch` targets, rebuilds them in one transaction
+ * per claim (about ten statements per kind, however many targets), queues image rechecks and deletes the rows it
+ * built — in that same transaction, so a crash leaves them queued. Repeats until nothing is due or the budget is
+ * spent. Idempotent: a rebuild reads current state.
+ */
+export async function drainReadModelQueue(agencyId: string, options: DrainOptions): Promise<DrainResult> {
+  const batch = options.batch ?? READ_MODEL_BATCH;
+  const deadline = Date.now() + options.budgetMs;
+  const total: DrainResult = { built: 0, written: 0, deleted: 0, batches: 0, rechecked: 0, nextDueMs: null };
+  const reason = 'search.buildReadModels';
+  for (;;) {
+    if (options.signal?.aborted || Date.now() >= deadline) break;
+    const claim = await withSystem(reason, (tx) => repo.claimReadModels(tx, agencyId, batch, options.leaseMs));
+    if (claim.rows.length === 0) {
+      const next = await withSystem(reason, (tx) => repo.nextReadModelDue(tx, agencyId));
+      if (next === null || next > options.waitMs || Date.now() + next >= deadline) break;
+      await new Promise((r) => setTimeout(r, Math.max(next, 0) + 10));
+      continue;
+    }
+    const done = { built: 0, written: 0, deleted: 0 };
+    try {
+      await withSystem(reason, async (tx) => {
+        for (const kind of ['LISTING', 'UNIT'] as const) {
+          const ids = claim.rows.filter((r) => r.kind === kind).map((r) => r.targetId);
+          if (ids.length === 0) continue;
+          const r = await rebuildReadModels(tx, kind, ids);
+          add(done, r);
+          total.rechecked += await repo.rescheduleReadModels(
+            tx,
+            claim,
+            r.pendingMedia,
+            options.maxRechecks,
+            options.recheckMs,
+          );
+        }
+        await repo.finishReadModels(tx, claim);
+      });
+    } catch (err) {
+      await withSystem(reason, (tx) => repo.releaseReadModels(tx, claim.token));
+      throw err;
+    }
+    total.batches += 1;
+    total.built += done.built;
+    total.written += done.written;
+    total.deleted += done.deleted;
+    await options.onBatch?.(done);
+  }
+  total.nextDueMs = await withSystem(reason, (tx) => repo.nextReadModelDue(tx, agencyId));
+  return total;
+}
+
+/** Queues rebuilds (debounced by `delayMs`), outside any caller transaction. */
+export function queueReadModelChanges(changes: readonly repo.ReadModelChange[], delayMs: number): Promise<void> {
+  return withSystem('search.queueReadModels', (tx) => repo.queueReadModels(tx, changes, delayMs));
+}
+
+/** Agencies whose queued rebuilds are overdue and unclaimed (their job was lost). */
+export function overdueReadModelAgencies(overdueMs: number, limit: number): Promise<string[]> {
+  return withSystem('search.sweepReadModelQueue', (tx) => repo.overdueReadModelAgencies(tx, overdueMs, limit));
+}
+
+function add(total: Omit<RebuildResult, 'pendingMedia'> & { pendingMedia?: string[] }, r: RebuildResult): void {
   total.built += r.built;
   total.written += r.written;
   total.deleted += r.deleted;
-  total.pendingMedia.push(...r.pendingMedia);
+  total.pendingMedia?.push(...r.pendingMedia);
 }
 
 /** Targets per rebuild transaction: ~10 statements and ≤ this many advisory locks each. */
