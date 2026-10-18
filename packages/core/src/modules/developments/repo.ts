@@ -14,7 +14,21 @@ import {
   unitStatusHistories,
   units,
 } from '@inmolink/db/schema/developments';
-import { and, asc, count, desc, eq, getTableColumns, gt, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -408,6 +422,47 @@ export async function existingDocumentKeys(tx: Tx, keys: string[]): Promise<Set<
     .from(developmentDocuments)
     .where(inArray(developmentDocuments.storageKey, keys));
   return new Set(rows.map((r) => r.key));
+}
+
+// ---- Purge (S5-F2, withSystem) -----------------------------------------------------------------------------------
+
+/**
+ * Up to `limit` developments soft-deleted before `before` (all agencies), longest deleted first, rows locked
+ * (skipping those another purge holds). Served by the partial `developments_deleted_idx`.
+ */
+export async function dueForPurge(tx: Tx, before: Date, limit: number): Promise<{ id: string; agencyId: string }[]> {
+  return tx
+    .select({ id: developments.id, agencyId: developments.agencyId })
+    .from(developments)
+    .where(and(isNotNull(developments.deletedAt), lt(developments.deletedAt, before)))
+    .orderBy(asc(developments.deletedAt))
+    .limit(limit)
+    .for('update', { skipLocked: true });
+}
+
+/** The documents of these developments (`development_documents_development_idx`). */
+export async function documentsOfDevelopments(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ id: string; developmentId: string; agencyId: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: developmentDocuments.id,
+      developmentId: developmentDocuments.developmentId,
+      agencyId: developmentDocuments.agencyId,
+    })
+    .from(developmentDocuments)
+    .where(inArray(developmentDocuments.developmentId, [...ids]));
+}
+
+/** Deletes these soft-deleted developments for good (children cascade); answers the ones deleted. */
+export async function purge(tx: Tx, ids: readonly string[]): Promise<{ id: string; agencyId: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .delete(developments)
+    .where(and(inArray(developments.id, [...ids]), isNotNull(developments.deletedAt)))
+    .returning({ id: developments.id, agencyId: developments.agencyId });
 }
 
 // ---- Read models (S5-01, withSystem) ------------------------------------------------------------------------------

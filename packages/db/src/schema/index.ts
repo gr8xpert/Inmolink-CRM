@@ -9,6 +9,7 @@ export * from './compliance';
 export * from './developments';
 export * from './flags';
 export * from './identity';
+export * from './jobs';
 export * from './media';
 export * from './migration';
 export * from './outbox';

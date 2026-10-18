@@ -4,6 +4,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { withMemberCtx } from '../../member';
+import * as developments from '../developments';
 import { runBulkChunk } from './bulk';
 import { sweepFreshnessBatch } from './freshness';
 import * as repo from './repo';
@@ -25,6 +26,8 @@ export const BULK_QUEUED_STALE_MS = 24 * 3_600_000;
 /** Freshness sweep: rows per transaction (each kind), and at most this many transactions per run. */
 const FRESHNESS_BATCH = 500;
 const FRESHNESS_MAX_BATCHES = 40;
+/** Override removal: targets per statement (a development's units). */
+const OVERRIDE_TARGETS_PER_DELETE = 1_000;
 
 /**
  * properties worker jobs (PATTERNS §12). Idempotent, batched, per-tenant fair share.
@@ -45,6 +48,12 @@ const FRESHNESS_MAX_BATCHES = 40;
  * network the active listings unconfirmed for 120 days and prompts (`properties.listing.confirmationDue`) those
  * unconfirmed for 90, `FRESHNESS_BATCH` of each per transaction with their events, until a batch comes back short
  * (≤ 20,000 of each per run; the next run continues). Idempotent: hidden or prompted rows are not selected again.
+ *
+ * `properties.removeOverrides` (S5-F2; one per `properties.listing.purged`, `developments.unit.deleted` or
+ * `developments.development.deleted` event, job ID = the event's id, pool `maintenance`, all agencies via
+ * `withSystem`): removes every agency's `listing_overrides` of the target — of a development, of its units too (a
+ * soft-deleted development keeps its units until its purge, and nothing restores it). Idempotent: a second run
+ * finds nothing.
  */
 export const propertiesJobs = {
   runBulkAction: defineJob({
@@ -121,6 +130,36 @@ export const propertiesJobs = {
       }
       if (hidden + prompted > 0) log.info({ hidden, prompted }, 'listing freshness swept');
       return { hidden, prompted };
+    },
+  }),
+
+  removeOverrides: defineJob({
+    name: 'properties.removeOverrides',
+    pool: 'maintenance',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      targetKind: z.enum(['LISTING', 'UNIT', 'DEVELOPMENT']),
+      targetId: z.uuid(),
+    }),
+    jobId: (p) => `properties.removeOverrides:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p, { log }) {
+      const removed = await withSystem('properties.removeOverrides', async (tx) => {
+        let n = await repo.deleteOverridesOf(tx, p.targetKind, [p.targetId]);
+        if (p.targetKind === 'DEVELOPMENT') {
+          const units = await developments.unitIdsForDevelopment(tx, p.targetId);
+          for (let i = 0; i < units.length; i += OVERRIDE_TARGETS_PER_DELETE) {
+            n += await repo.deleteOverridesOf(tx, 'UNIT', units.slice(i, i + OVERRIDE_TARGETS_PER_DELETE));
+          }
+        }
+        return n;
+      });
+      if (removed > 0) log.info({ removed, targetKind: p.targetKind }, 'overrides of a removed target deleted');
+      return { removed };
     },
   }),
 };

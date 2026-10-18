@@ -10,15 +10,25 @@
  *
  * `developments.sweepOrphanDocuments` (schedule: every hour): `development-documents/` objects older than an hour
  * that no `development_documents` row names — a crash between store and record, a cascade from a removed
- * development — are deleted. One query per listed page.
+ * development — are deleted. One query per listed page. A run stops at its page cap (100k keys) and saves the last
+ * key it listed (`job_checkpoints`, S5-F2); the next run resumes after it, and one that reaches the end clears it,
+ * so the following run wraps to the start.
+ *
+ * `developments.purgeDeletedDevelopments` (S5-F2, schedule: every hour, all agencies via `withSystem`):
+ * developments soft-deleted more than `DEVELOPMENT_RETENTION_DAYS` ago, `PURGE_BATCH` per transaction, are deleted
+ * for good (phases, units, price lists, documents' rows: FK cascade) with one `developments.document.deleted` per
+ * document, so `deleteDocumentObject` removes each object as for a single delete (the listing purge's shape,
+ * S4-F3). A run that ends with full batches queues a continuation. Idempotent: a purged development is gone; a
+ * lost delete job leaves an object the orphan sweep removes.
  */
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
-import { defineJob } from '@inmolink/platform/queue';
+import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
+import { defineJob, readCheckpoint, writeCheckpoint } from '@inmolink/platform/queue';
 import { storage } from '@inmolink/platform/storage';
 import { z } from 'zod';
 import { DEVELOPMENT_DOCUMENTS_PREFIX, developmentDocumentKey } from './documents';
-import type { developmentsEvents } from './events';
+import { developmentsEvents } from './events';
 import * as repo from './repo';
 
 /** An object this young may still be between "stored" and "recorded" in an upload: leave it alone. */
@@ -27,6 +37,19 @@ const LIST_PAGE = 500;
 /** Pages per run (100k objects): bounds one run; the next run continues. */
 const MAX_PAGES = 200;
 const STORAGE_CONCURRENCY = 16;
+/** Soft-deleted developments stay this long before the purge removes them (as listings, S4-F3). */
+export const DEVELOPMENT_RETENTION_DAYS = 30;
+/** Developments purged per transaction, and at most this many transactions per run (a continuation follows). */
+const PURGE_BATCH = 100;
+const PURGE_MAX_BATCHES = 20;
+
+/** A sweep's bounds: the schedule passes none; tests make the page cap small. */
+const sweepPayload = z
+  .object({
+    pageSize: z.number().int().min(1).max(1_000).optional(),
+    maxPages: z.number().int().min(1).max(MAX_PAGES).optional(),
+  })
+  .strict();
 
 /** Runs `fn` over `items` with at most `limit` in flight. */
 async function eachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
@@ -60,28 +83,84 @@ export const developmentsJobs = {
   sweepOrphanDocuments: defineJob({
     name: 'developments.sweepOrphanDocuments',
     pool: 'maintenance',
+    payload: sweepPayload,
+    every: 60 * 60_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(p, { log, signal }) {
+      const name = 'developments.sweepOrphanDocuments';
+      const cutoff = clock.now().getTime() - DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS;
+      let scanned = 0;
+      let deleted = 0;
+      let last = await withSystem(name, (tx) => readCheckpoint(tx, name));
+      let end = false;
+      for (let page = 0; page < (p.maxPages ?? MAX_PAGES) && !signal.aborted; page++) {
+        const listed = await storage().list('private', DEVELOPMENT_DOCUMENTS_PREFIX, {
+          limit: p.pageSize ?? LIST_PAGE,
+          startAfter: last,
+        });
+        scanned += listed.objects.length;
+        const old = listed.objects.filter((o) => o.lastModified.getTime() <= cutoff).map((o) => o.key);
+        const known = await withSystem(name, (tx) => repo.existingDocumentKeys(tx, old));
+        const garbage = old.filter((k) => !known.has(k));
+        await eachLimit(garbage, STORAGE_CONCURRENCY, (k) => storage().delete('private', k));
+        deleted += garbage.length;
+        last = listed.objects.at(-1)?.key ?? last;
+        if (!listed.next) {
+          end = true;
+          break;
+        }
+      }
+      // Cut short: the next run resumes after the last key; at the end it wraps to the start.
+      await withSystem(name, (tx) => writeCheckpoint(tx, name, end ? null : (last ?? null)));
+      log.info({ scanned, deleted, end }, 'orphan development documents swept');
+      return { scanned, deleted, end };
+    },
+  }),
+
+  purgeDeletedDevelopments: defineJob({
+    name: 'developments.purgeDeletedDevelopments',
+    pool: 'maintenance',
     payload: z.object({}).strict(),
     every: 60 * 60_000,
     attempts: 3,
     timeoutMs: 10 * 60_000,
     async run(_p, { log, signal }) {
-      const cutoff = clock.now().getTime() - DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS;
-      let scanned = 0;
-      let deleted = 0;
-      let after: string | undefined;
-      for (let page = 0; page < MAX_PAGES && !signal.aborted; page++) {
-        const listed = await storage().list('private', DEVELOPMENT_DOCUMENTS_PREFIX, { limit: LIST_PAGE, after });
-        scanned += listed.objects.length;
-        const old = listed.objects.filter((o) => o.lastModified.getTime() <= cutoff).map((o) => o.key);
-        const known = await withSystem('developments.sweepOrphanDocuments', (tx) => repo.existingDocumentKeys(tx, old));
-        const garbage = old.filter((k) => !known.has(k));
-        await eachLimit(garbage, STORAGE_CONCURRENCY, (k) => storage().delete('private', k));
-        deleted += garbage.length;
-        if (!listed.next) break;
-        after = listed.next;
+      let purged = 0;
+      let full = false;
+      for (let i = 0; i < PURGE_MAX_BATCHES && !signal.aborted; i++) {
+        const gone = await withSystem('developments.purgeDeletedDevelopments', async (tx) => {
+          const before = new Date(clock.now().getTime() - DEVELOPMENT_RETENTION_DAYS * 86_400_000);
+          const due = await repo.dueForPurge(tx, before, PURGE_BATCH);
+          const ids = due.map((d) => d.id);
+          const documents = await repo.documentsOfDevelopments(tx, ids);
+          const deleted = await repo.purge(tx, ids);
+          const kept = new Set(deleted.map((d) => d.id));
+          // The rows are gone with the development: each object leaves storage like a single delete, under its agency.
+          const byAgency = new Map<string, OutboxMessage[]>();
+          for (const d of documents) {
+            if (!kept.has(d.developmentId)) continue;
+            const messages = byAgency.get(d.agencyId) ?? [];
+            messages.push(
+              developmentsEvents.documentDeleted({
+                documentId: d.id,
+                developmentId: d.developmentId,
+                agencyId: d.agencyId,
+              }),
+            );
+            byAgency.set(d.agencyId, messages);
+          }
+          for (const [agencyId, messages] of byAgency) await emit(tx, messages, { agencyId });
+          return deleted;
+        });
+        purged += gone.length;
+        full = gone.length === PURGE_BATCH;
+        if (!full) break;
       }
-      log.info({ scanned, deleted }, 'orphan development documents swept');
-      return { scanned, deleted };
+      // Queue I/O after the commits: the run ended full, so more are due — continue now, not in an hour.
+      if (full && !signal.aborted) await developmentsJobs.purgeDeletedDevelopments.enqueue({});
+      if (purged > 0) log.info({ purged, more: full }, 'soft-deleted developments purged');
+      return { purged, more: full };
     },
   }),
 };

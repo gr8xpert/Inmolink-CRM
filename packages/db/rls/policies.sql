@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_read_models', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_read_models', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -374,6 +374,12 @@ create policy staff_insert on public."features" for insert to app_staff with che
 create policy staff_update on public."features" for update to app_staff using (app_is_staff()) with check (app_is_staff());
 create policy staff_delete on public."features" for delete to app_staff using (app_is_staff());
 grant select, insert, update, delete on table public."features" to app_staff;
+
+-- job_checkpoints: GLOBAL
+alter table public."job_checkpoints" enable row level security;
+alter table public."job_checkpoints" force row level security;
+revoke all on table public."job_checkpoints" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select, insert, update, delete on table public."job_checkpoints" to app_system;
 
 -- legacy_id_maps: GLOBAL
 alter table public."legacy_id_maps" enable row level security;

@@ -2,6 +2,7 @@ import { CreateDevelopmentBody, CreateUnitsBody, PutListingOverrideBody } from '
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
+import { createLogger } from '@inmolink/platform/logger';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
@@ -32,6 +33,29 @@ const refusal = (p: Promise<unknown>) =>
   );
 const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('properties.overrides.test', fn);
 const rows = <T>(q: ReturnType<typeof sql>) => system(async (tx) => (await tx.execute(q)).rows as T[]);
+const log = createLogger({ service: 'test', level: 'silent' });
+const jobCtx = () => ({
+  log,
+  jobId: 'test',
+  attempt: 1,
+  progress: async () => {},
+  signal: new AbortController().signal,
+});
+const overridesOf = (targetId: string) =>
+  rows<{ agency_id: string }>(sql`select agency_id from listing_overrides where target_id = ${targetId}`);
+
+/** The dispatcher's part (S5-F2): the event's `properties.removeOverrides` job, as the subscription queues it. */
+async function runRemoveJob(type: string, field: string, targetKind: Kind, targetId: string): Promise<void> {
+  const [e] = await rows<{ id: string; agency_id: string }>(
+    sql`select id, agency_id from outbox_events where type = ${type} and payload->>${field} = ${targetId}`,
+  );
+  if (!e) throw new Error(`no ${type} event`);
+  await properties.propertiesJobs.removeOverrides.spec.run(
+    { eventId: e.id, agencyId: e.agency_id, targetKind, targetId },
+    jobCtx(),
+  );
+}
+
 const overrideEvents = (targetId: string) =>
   rows<{ payload: Record<string, unknown> }>(
     sql`select payload from outbox_events
@@ -190,5 +214,57 @@ describe('listing overrides', () => {
       'LISTING_OVERRIDE_NOT_FOUND',
     );
     expect(await overrideEvents(listing)).toHaveLength(2);
+  });
+
+  it("[S5-F2] a purged listing's overrides are removed; so are a deleted unit's and a deleted development's", async () => {
+    const [purged, kept] = [await seedListing(owner, 'OV4'), await seedListing(owner, 'OV5')];
+    for (const l of [purged, kept]) {
+      await save(presenter, 'LISTING', l, { title: 'Ours' });
+      await save(presenter, 'LISTING', l, { title: 'Nuestro' }, 'es');
+    }
+    await rows(sql`update properties set deleted_at = now() - interval '31 days' where id = ${purged}`);
+    await system((tx) => properties.purgeListings(tx, [purged]));
+    await runRemoveJob('properties.listing.purged', 'listingId', 'LISTING', purged);
+    expect(await overridesOf(purged)).toEqual([]);
+    expect(await overridesOf(kept)).toHaveLength(2);
+
+    // New builds: a deleted unit's overrides go; a deleted development's go with its remaining units'.
+    const dev = await as(owner, (ctx) =>
+      developments.createDevelopment(
+        ctx,
+        CreateDevelopmentBody.parse({ ref: code('DOV2'), name: 'Purge Heights', locationId: ids.location }),
+      ),
+    );
+    const shared = await as(owner, (ctx) =>
+      developments.setDevelopmentAccess(ctx, dev.id, {
+        version: dev.version,
+        kind: 'PRIVATE_NETWORK',
+        allowedAgencyIds: [presenter.agencyId],
+      }),
+    );
+    const created = await as(owner, (ctx) =>
+      developments.createUnits(
+        ctx,
+        dev.id,
+        CreateUnitsBody.parse({
+          units: ['B1', 'B2'].map((ref) => ({ ref, propertyTypeId: ids.type, priceCents: 40000000 })),
+        }),
+      ),
+    );
+    const [b1, b2] = ['B1', 'B2'].map((ref) => created.items.find((u) => u.ref === ref)?.id) as [string, string];
+    await save(presenter, 'DEVELOPMENT', dev.id, { title: 'Our heights' });
+    for (const u of [b1, b2]) await save(presenter, 'UNIT', u, { title: 'Our unit' });
+
+    await as(owner, (ctx) => developments.deleteUnit(ctx, dev.id, b1));
+    await runRemoveJob('developments.unit.deleted', 'unitId', 'UNIT', b1);
+    expect(await overridesOf(b1)).toEqual([]);
+    expect(await overridesOf(b2)).toHaveLength(1);
+
+    await as(owner, (ctx) => developments.deleteDevelopment(ctx, dev.id, shared.version));
+    await runRemoveJob('developments.development.deleted', 'developmentId', 'DEVELOPMENT', dev.id);
+    expect(await overridesOf(dev.id)).toEqual([]);
+    expect(await overridesOf(b2)).toEqual([]);
+    // A second run (a duplicate delivery) finds nothing.
+    await runRemoveJob('developments.development.deleted', 'developmentId', 'DEVELOPMENT', dev.id);
   });
 });

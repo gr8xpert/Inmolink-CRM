@@ -72,7 +72,10 @@ export interface RangeRead {
 
 export interface ListOptions {
   limit: number;
+  /** The previous page's `next` (a continuation token). */
   after?: string;
+  /** Start after this key (S5-F2: a sweep resumes from the last key a run saved); not with `after`. */
+  startAfter?: string;
 }
 
 export interface ListPage {
@@ -326,6 +329,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       url.searchParams.set('prefix', prefix);
       url.searchParams.set('max-keys', String(limit));
       if (options.after) url.searchParams.set('continuation-token', options.after);
+      else if (options.startAfter) url.searchParams.set('start-after', options.startAfter);
       const res = await send(url, { method: 'GET' });
       if (!res.ok) throw new StorageError(`storage LIST failed (${res.status})`, res.status);
       return parseListPage(await res.text());
@@ -433,7 +437,10 @@ export function createMemoryStore(): MemoryStore {
       assertListPrefix(prefix);
       const start = `${bucket}/${prefix}`;
       const keys = [...objects.keys()]
-        .filter((k) => k.startsWith(start) && (options.after === undefined || k > `${bucket}/${options.after}`))
+        .filter((k) => {
+          const from = options.after ?? options.startAfter;
+          return k.startsWith(start) && (from === undefined || k > `${bucket}/${from}`);
+        })
         .sort();
       const page = keys.slice(0, options.limit);
       const last = page.at(-1);

@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { bootstrapRoles, credentialFromUrl } from './bootstrap';
+import { buildConcurrentIndexes } from './concurrent-indexes';
 import { CATALOG_STAMP_FUNCTION, checkRls, rlsCatalogStamp } from './tenancy/guard';
 import { registry, type TenantRegistry } from './tenancy/registry';
 import { applyRls, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
@@ -38,7 +39,8 @@ async function connect(url: string): Promise<pg.Client> {
 
 /**
  * `pnpm db:migrate`: (1) with DATABASE_URL_ADMIN, create/update roles and grants; (2) apply
- * pending drizzle-kit migrations as `app_owner` over a direct (non-PgBouncer) connection.
+ * pending drizzle-kit migrations as `app_owner` over a direct (non-PgBouncer) connection, after building the
+ * large tables' new indexes concurrently (`concurrent-indexes.ts`).
  */
 export async function runMigrations(
   cfg: MigrateConfig,
@@ -72,6 +74,8 @@ export async function runMigrations(
     if (!admin) await lock(owner);
 
     if (existsSync(join(folder, 'meta', '_journal.json'))) {
+      // Large tables' new indexes first, outside the migrator's transaction (S5-F2).
+      await buildConcurrentIndexes(owner, log);
       await migrate(drizzle({ client: owner }), { migrationsFolder: folder });
       log.info({ folder }, 'migrations applied');
     } else {

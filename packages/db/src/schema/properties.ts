@@ -205,6 +205,8 @@ export const properties = pgTable(
     index('properties_agency_deleted_idx')
       .on(t.agencyId, keysetTime(t.createdAt), t.id)
       .where(sql`${t.deletedAt} is not null`),
+    // the purge (S5-F2): soft-deleted listings of every agency, longest deleted first (built CONCURRENTLY)
+    index('properties_deleted_idx').on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
     foreignKey({
       name: 'properties_owner_member_fk',
       columns: [t.agencyId, t.ownerUserId],
@@ -606,6 +608,8 @@ export const listingOverrides = pgTable(
   (t) => [
     // FK + the agency's overrides of a set of targets in one locale (serializers) or all locales (editor)
     uniqueIndex('listing_overrides_target_locale_uq').on(t.agencyId, t.targetKind, t.targetId, t.locale),
+    // every agency's overrides of a purged or deleted target (S5-F2, built CONCURRENTLY)
+    index('listing_overrides_target_idx').on(t.targetKind, t.targetId),
     check('listing_overrides_locale_ck', sql`${t.locale} ~ '^[a-z]{2}(-[A-Z]{2})?$'`),
     check('listing_overrides_text_ck', sql`${t.title} is not null or ${t.description} is not null`),
     check(

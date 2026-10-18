@@ -111,6 +111,8 @@ export const developments = pgTable(
     index('developments_location_idx').on(t.locationId),
     // migration: legacy id → development within an agency
     index('developments_agency_legacy_idx').on(t.agencyId, t.legacyId).where(sql`${t.legacyId} is not null`),
+    // the purge (S5-F2): soft-deleted developments of every agency, longest deleted first
+    index('developments_deleted_idx').on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
     check('developments_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check(
       'developments_commission_ck',

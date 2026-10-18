@@ -505,6 +505,13 @@
       "when": 1792326135117,
       "tag": "0071_read_model_allowed_agencies",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792340521372,
+      "tag": "0072_purge_and_checkpoints",
+      "breakpoints": true
     }
   ]
 }

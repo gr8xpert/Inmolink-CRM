@@ -1154,6 +1154,23 @@ export async function purge(tx: Tx, ids: string[]): Promise<{ id: string; agency
     .returning({ id: properties.id, agencyId: properties.agencyId });
 }
 
+/**
+ * Every agency's overrides of these targets (S5-F2, `withSystem`): the target was purged or deleted. Served by
+ * `listing_overrides_target_idx`; answers how many went.
+ */
+export async function deleteOverridesOf(
+  tx: Tx,
+  targetKind: OverrideRow['targetKind'],
+  targetIds: readonly string[],
+): Promise<number> {
+  if (targetIds.length === 0) return 0;
+  const gone = await tx
+    .delete(listingOverrides)
+    .where(and(eq(listingOverrides.targetKind, targetKind), inArray(listingOverrides.targetId, [...targetIds])))
+    .returning({ id: listingOverrides.id });
+  return gone.length;
+}
+
 // ---- Read models (S5-01) --------------------------------------------------------------------------------------
 
 /** The client-safe columns a read model shows, plus what decides whether it has one. Never privates or commission. */

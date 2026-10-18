@@ -17,17 +17,19 @@
  * for deletion as usual); after the commit, `requestDocumentPurge` deletes each listing's documents from storage.
  * It lives here, not in properties, because media sits above properties in the module graph: it must read its own
  * rows before the cascade removes them. Idempotent: a purged listing is gone; a crash before the document purge
- * leaves objects the orphan sweep below removes.
+ * leaves objects the orphan sweep below removes. A run that ends with full batches queues a continuation (S5-F2).
  *
  * `media.sweepOrphanDocuments` (schedule: every hour): `documents/` objects older than an hour that no
  * `listing_documents` row names — a crash between store and record, a cascade from a deleted listing — are
- * deleted. One query per listed page.
+ * deleted. One query per listed page. A run stops at its page cap (100k keys) and saves the last key it listed
+ * (`job_checkpoints`, S5-F2); the next run resumes after it, and one that reaches the end clears it, so the
+ * following run wraps to the start.
  */
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
-import { defineJob } from '@inmolink/platform/queue';
+import { defineJob, readCheckpoint, writeCheckpoint } from '@inmolink/platform/queue';
 import { storage } from '@inmolink/platform/storage';
 import { z } from 'zod';
 import * as properties from '../properties';
@@ -45,6 +47,14 @@ const STORAGE_CONCURRENCY = 16;
 /** Listings purged per transaction, and at most this many transactions per run (the next run continues). */
 const PURGE_BATCH = 100;
 const PURGE_MAX_BATCHES = 20;
+
+/** A sweep's bounds: the schedule passes none; tests make the page cap small. */
+const sweepPayload = z
+  .object({
+    pageSize: z.number().int().min(1).max(1_000).optional(),
+    maxPages: z.number().int().min(1).max(MAX_PAGES).optional(),
+  })
+  .strict();
 
 const purgePayload = z.object({
   agencyId: z.uuid(),
@@ -125,6 +135,7 @@ export const mediaDocumentJobs = {
     timeoutMs: 10 * 60_000,
     async run(_p, { log, signal }) {
       let purged = 0;
+      let full = false;
       for (let i = 0; i < PURGE_MAX_BATCHES && !signal.aborted; i++) {
         const gone = await withSystem('media.purgeDeletedListings', async (tx) => {
           const due = await properties.listingsDueForPurge(tx, clock.now(), PURGE_BATCH);
@@ -155,38 +166,51 @@ export const mediaDocumentJobs = {
         const trigger = newId();
         await Promise.all(gone.map((l) => requestDocumentPurge({ agencyId: l.agencyId, listingId: l.id, trigger })));
         purged += gone.length;
-        if (gone.length < PURGE_BATCH) break;
+        full = gone.length === PURGE_BATCH;
+        if (!full) break;
       }
-      if (purged > 0) log.info({ purged }, 'soft-deleted listings purged');
-      return { purged };
+      // The run ended full, so more are due: continue now, not in an hour (S5-F2).
+      if (full && !signal.aborted) await mediaDocumentJobs.purgeDeletedListings.enqueue({});
+      if (purged > 0) log.info({ purged, more: full }, 'soft-deleted listings purged');
+      return { purged, more: full };
     },
   }),
 
   sweepOrphanDocuments: defineJob({
     name: 'media.sweepOrphanDocuments',
     pool: 'maintenance',
-    payload: z.object({}).strict(),
+    payload: sweepPayload,
     every: 60 * 60_000,
     attempts: 3,
     timeoutMs: 10 * 60_000,
-    async run(_p, { log, signal }) {
+    async run(p, { log, signal }) {
+      const name = 'media.sweepOrphanDocuments';
       const cutoff = clock.now().getTime() - DOCUMENT_ORPHAN_MIN_AGE_MS;
       let scanned = 0;
       let deleted = 0;
-      let after: string | undefined;
-      for (let page = 0; page < MAX_PAGES && !signal.aborted; page++) {
-        const listed = await storage().list('private', DOCUMENTS_PREFIX, { limit: LIST_PAGE, after });
+      let last = await withSystem(name, (tx) => readCheckpoint(tx, name));
+      let end = false;
+      for (let page = 0; page < (p.maxPages ?? MAX_PAGES) && !signal.aborted; page++) {
+        const listed = await storage().list('private', DOCUMENTS_PREFIX, {
+          limit: p.pageSize ?? LIST_PAGE,
+          startAfter: last,
+        });
         scanned += listed.objects.length;
         const old = listed.objects.filter((o) => o.lastModified.getTime() <= cutoff).map((o) => o.key);
-        const known = await withSystem('media.sweepOrphanDocuments', (tx) => repo.existingDocumentKeys(tx, old));
+        const known = await withSystem(name, (tx) => repo.existingDocumentKeys(tx, old));
         const garbage = old.filter((k) => !known.has(k));
         await mapLimit(garbage, STORAGE_CONCURRENCY, (k) => storage().delete('private', k));
         deleted += garbage.length;
-        if (!listed.next) break;
-        after = listed.next;
+        last = listed.objects.at(-1)?.key ?? last;
+        if (!listed.next) {
+          end = true;
+          break;
+        }
       }
-      log.info({ scanned, deleted }, 'orphan listing documents swept');
-      return { scanned, deleted };
+      // Cut short: the next run resumes after the last key; at the end it wraps to the start.
+      await withSystem(name, (tx) => writeCheckpoint(tx, name, end ? null : (last ?? null)));
+      log.info({ scanned, deleted, end }, 'orphan listing documents swept');
+      return { scanned, deleted, end };
     },
   }),
 };

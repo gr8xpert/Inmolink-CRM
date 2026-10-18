@@ -5,6 +5,7 @@ import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { writeCheckpoint } from '@inmolink/platform/queue';
 import {
   configureDocumentScanner,
   configureStorage,
@@ -352,5 +353,62 @@ describe('development documents', () => {
     }
     expect(await storage().head('private', orphan)).toBeNull();
     expect(await storage().head('private', keyOf(dev, kept.id))).not.toBeNull();
+  });
+
+  it('[S5-F2] a development soft-deleted past retention is purged with its document objects', async () => {
+    const [old, recent] = [await sharedDev(), await sharedDev()];
+    const docs = [await upload(old, 'purge1'), await upload(old, 'purge2')];
+    const recentDoc = await upload(recent, 'recent');
+    for (const d of [old, recent]) await as(owner, (ctx) => developments.deleteDevelopment(ctx, d.id, d.version));
+    // past the 30-day retention, and one still inside it
+    await rows(sql`update developments set deleted_at = now() - interval '31 days' where id = ${old.id}`);
+    await rows(sql`update developments set deleted_at = now() - interval '10 days' where id = ${recent.id}`);
+
+    await developments.developmentsJobs.purgeDeletedDevelopments.spec.run({}, jobCtx());
+    expect(await rows(sql`select id from developments where id = ${old.id}`)).toEqual([]);
+    expect(await rows(sql`select id from development_documents where development_id = ${old.id}`)).toEqual([]);
+    expect(await rows(sql`select id from developments where id = ${recent.id}`)).toEqual([{ id: recent.id }]);
+    // One delete event per document, under the owner agency; the worker removes each object.
+    for (const d of docs) {
+      expect(await storage().head('private', keyOf(old, d.id))).not.toBeNull();
+      await runDeleteJob(d.id);
+      expect(await storage().head('private', keyOf(old, d.id))).toBeNull();
+    }
+    expect(await storage().head('private', keyOf(recent, recentDoc.id))).not.toBeNull();
+  });
+
+  it('[S5-F2] a sweep that stops at its page cap resumes from the next key on the following run', async () => {
+    const name = 'developments.sweepOrphanDocuments';
+    const dev = await sharedDev();
+    const prefix = keyOf(dev, ''); // `development-documents/<agency>/<development>/`: sorts before its keys
+    const orphans = [newId(), newId(), newId()].map((id) => keyOf(dev, id)).sort();
+    for (const k of orphans) {
+      keys.push(k);
+      await storage().put('private', k, pdf('capped'), { contentType: 'application/pdf' });
+    }
+    const checkpoint = () =>
+      rows<{ value: string }>(sql`select value from job_checkpoints where name = ${name}`).then((r) => r[0]?.value);
+    // An earlier run stopped right before this development's keys.
+    await withSystem('developments.documents.test', (tx) => writeCheckpoint(tx, name, prefix));
+    const capped = () =>
+      developments.developmentsJobs.sweepOrphanDocuments.spec.run({ pageSize: 1, maxPages: 1 }, jobCtx());
+    useFakeClock(Date.now() + developments.DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS + 60_000);
+    try {
+      // Each capped run sweeps the key after the last one saved, and saves its own.
+      for (const [i, k] of orphans.slice(0, -1).entries()) {
+        expect(await capped()).toMatchObject({ scanned: 1, deleted: 1, end: false });
+        expect(await checkpoint()).toBe(k);
+        expect(await storage().head('private', k)).toBeNull();
+        for (const later of orphans.slice(i + 1)) expect(await storage().head('private', later)).not.toBeNull();
+      }
+      // A run that reaches the end sweeps the rest and clears it: the next one starts from the first key again.
+      expect(await developments.developmentsJobs.sweepOrphanDocuments.spec.run({}, jobCtx())).toMatchObject({
+        end: true,
+      });
+      expect(await storage().head('private', orphans.at(-1) as string)).toBeNull();
+      expect(await checkpoint()).toBeUndefined();
+    } finally {
+      restoreClock();
+    }
   });
 });
