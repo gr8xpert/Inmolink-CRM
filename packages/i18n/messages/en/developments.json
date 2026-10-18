@@ -187,7 +187,8 @@
       "duplicate": "this reference appears twice",
       "tooMany": "too many rows",
       "empty": "no rows",
-      "noHeader": "the header row lacks the required columns"
+      "noHeader": "the header row lacks the required columns",
+      "tooLarge": "the file is larger than 2 MB"
     }
   },
   "errors": {

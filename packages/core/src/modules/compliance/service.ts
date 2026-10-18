@@ -56,6 +56,10 @@ export const AUDIT_TYPES = [
   'developments.document.opened',
   'developments.document.changed',
   'developments.document.deleted',
+  'developments.development.accessChanged',
+  'developments.development.commissionChanged',
+  'developments.unit.commissionChanged',
+  'developments.priceList.approved',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',
@@ -74,6 +78,9 @@ export interface AuditTarget {
     | 'invite'
     | 'taxonomy'
     | 'listingDocument'
+    | 'development'
+    | 'unit'
+    | 'priceList'
     | 'developmentDocument';
   id: string;
 }

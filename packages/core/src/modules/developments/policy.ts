@@ -19,7 +19,9 @@ export const DEVELOPMENTS_ACTIONS = [
   'priceList.approve',
   /**
    * Open a development's documents (S4-F4): the owner's all, another agency's the shared ones (RLS). Never in
-   * Client Mode: documents are internal (a brochure may carry the owner's branding).
+   * Client Mode: documents are internal (a brochure may carry the owner's branding). The owner's non-shared ones
+   * (contracts, internal price lists) need a writer role: PARTNER members read the shared ones only (S5-F1), as
+   * they never open listing documents.
    */
   'developmentDocument.read',
   /** Upload, re-classify and delete the own development's documents. */
@@ -57,7 +59,8 @@ const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
 /** Roles that maintain developments; PARTNER members only read. */
 const WRITER_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT']);
 
-export function can(ctx: Ctx, action: DevelopmentsAction, resource?: { agencyId: string }): boolean {
+/** `shared` is a document's flag (`developmentDocument.read`); other actions ignore it. */
+export function can(ctx: Ctx, action: DevelopmentsAction, resource?: { agencyId: string; shared?: boolean }): boolean {
   if (ctx.actor.kind !== 'user') return false;
   if (ctx.clientMode && !CLIENT_MODE_ALLOWED.has(action)) return false;
   if (deniedByImpersonation(ctx, DEVELOPMENTS_IMPERSONATION, action)) return false;
@@ -66,8 +69,10 @@ export function can(ctx: Ctx, action: DevelopmentsAction, resource?: { agencyId:
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'development.read':
-    case 'developmentDocument.read':
       return true; // RLS decides which developments are visible; the service picks the view
+    case 'developmentDocument.read':
+      // RLS shows other agencies the shared documents only; the own agency's internal ones need a writer.
+      return !resource || !sameAgency || resource.shared === true || WRITER_ROLES.has(role);
     case 'development.create':
     case 'development.update':
     case 'priceList.read':

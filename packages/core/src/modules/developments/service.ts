@@ -20,6 +20,7 @@ import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
+import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import { assertCan, type DevelopmentsAction } from './policy';
 import * as repo from './repo';
@@ -55,6 +56,16 @@ export function commissionOf(
   }
   return null;
 }
+
+/** A commission as one audit value (`PCT 500bp` / `FIXED 1500000 EUR`, `+VAT` when included); `null` for none. */
+export function commissionLabel(c: Commission | null): string | null {
+  if (c === null) return null;
+  const vat = c.includesVat ? ' +VAT' : '';
+  return c.type === 'PCT' ? `PCT ${c.basisPoints}bp${vat}` : `FIXED ${c.amount.amountCents} ${c.amount.currency}${vat}`;
+}
+
+/** At most this many added and this many removed agency ids go into an access audit entry (4 KB metadata cap). */
+export const ACCESS_AUDIT_IDS = 20;
 
 /** A fixed commission is in the development's currency (the DTO reports it in that currency). */
 export function assertCommissionCurrency(commission: Commission | null | undefined, currency: string): void {
@@ -238,6 +249,18 @@ export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevel
   const changed = (Object.keys(after) as (keyof DevelopmentDto)[]).filter(
     (k) => !['version', 'updatedAt'].includes(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k]),
   );
+  if (changed.includes('commission')) {
+    // The deal offered to collaborating agencies: who changed it, from what to what (S5-F1).
+    await compliance.audit(
+      ctx,
+      'developments.development.commissionChanged',
+      { type: 'development', id },
+      {
+        before: commissionLabel(commissionOf(current, current.currency)),
+        after: commissionLabel(commissionOf(updated, updated.currency)),
+      },
+    );
+  }
   await emit(
     ctx.tx,
     developmentsEvents.updated({ developmentId: id, agencyId: updated.agencyId, version: updated.version, changed }),
@@ -251,7 +274,8 @@ async function getDevelopmentDtoOf(ctx: Ctx, row: repo.DevelopmentRow): Promise<
 
 /**
  * `PUT /v1/developments/:id/access`: OPEN (every verified agency) or PRIVATE_NETWORK with the agencies named.
- * Reaching other agencies needs a verified agency (PLAN §3 #3), like sharing a listing.
+ * Reaching other agencies needs a verified agency (PLAN §3 #3), like sharing a listing. Audited with the kind and
+ * the agencies added and removed.
  */
 export async function setDevelopmentAccess(
   ctx: Ctx,
@@ -263,9 +287,34 @@ export async function setDevelopmentAccess(
   if (input.allowedAgencyIds.includes(current.agencyId)) {
     throw new AppError('VALIDATION_FAILED', { field: 'allowedAgencyIds', reason: 'own_agency' });
   }
+  const previous = (await repo.accessOf(ctx.tx, [id])).get(id) ?? [];
+  const added = input.allowedAgencyIds.filter((a) => !previous.includes(a));
+  // Only agencies in the directory (listed, verified): an unknown, unlisted or suspended one gets the same answer,
+  // so the call reveals nothing about agencies the caller cannot see (S5-F1). Already allowed ones stay.
+  if (added.length > 0) {
+    const listed = await agencies.networkAgencyNames(ctx, added);
+    if (added.some((a) => !listed.has(a))) {
+      throw new AppError('VALIDATION_FAILED', { field: 'allowedAgencyIds', reason: 'unknown' });
+    }
+  }
   const updated = await repo.updateDevelopment(ctx.tx, id, input.version, { access: input.kind });
   if (!updated) throw new AppError('VERSION_CONFLICT');
   await withDbErrors(() => repo.replaceAccess(ctx.tx, updated, input.allowedAgencyIds));
+  const removed = previous.filter((a) => !input.allowedAgencyIds.includes(a));
+  await compliance.audit(
+    ctx,
+    'developments.development.accessChanged',
+    { type: 'development', id },
+    {
+      kindBefore: current.access,
+      kindAfter: input.kind,
+      allowedBefore: previous.length,
+      allowedAfter: input.allowedAgencyIds.length,
+      added: added.slice(0, ACCESS_AUDIT_IDS),
+      removed: removed.slice(0, ACCESS_AUDIT_IDS),
+      truncated: added.length > ACCESS_AUDIT_IDS || removed.length > ACCESS_AUDIT_IDS,
+    },
+  );
   await emit(
     ctx.tx,
     developmentsEvents.accessChanged({ developmentId: id, agencyId: updated.agencyId, version: updated.version }),

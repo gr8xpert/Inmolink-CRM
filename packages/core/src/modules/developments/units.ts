@@ -17,6 +17,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
@@ -24,12 +25,45 @@ import {
   actorId,
   assertCommissionCurrency,
   commissionColumns,
+  commissionLabel,
   commissionOf,
   num,
   ownForChange,
   readable,
   withDbErrors,
 } from './service';
+
+/** At most this many unit ids and distinct previous commissions go into one audit entry (4 KB metadata cap). */
+const UNIT_AUDIT_IDS = 20;
+
+/**
+ * Audits the units whose commission (the deal offered to collaborating agencies) changed: one entry per call —
+ * the new commission, the distinct previous ones and the units (S5-F1).
+ */
+async function auditUnitCommission(
+  ctx: Ctx,
+  developmentId: string,
+  changes: readonly { before: repo.UnitRow; after: repo.UnitRow }[],
+): Promise<void> {
+  const label = (u: repo.UnitRow) => commissionLabel(commissionOf(u, u.currency));
+  const changed = changes.filter((c) => label(c.before) !== label(c.after));
+  const first = changed[0];
+  if (!first) return;
+  const before = [...new Set(changed.map((c) => label(c.before) ?? 'none'))];
+  await compliance.audit(
+    ctx,
+    'developments.unit.commissionChanged',
+    changed.length === 1 ? { type: 'unit', id: first.after.id } : null,
+    {
+      developmentId,
+      units: changed.length,
+      unitIds: changed.slice(0, UNIT_AUDIT_IDS).map((c) => c.after.id),
+      before: before.slice(0, UNIT_AUDIT_IDS),
+      after: label(first.after),
+      truncated: changed.length > UNIT_AUDIT_IDS || before.length > UNIT_AUDIT_IDS,
+    },
+  );
+}
 
 const area = (v: number | null | undefined) => (v === undefined ? undefined : v === null ? null : String(v));
 
@@ -198,6 +232,7 @@ export async function updateUnit(
   const after = await withDbErrors(() => repo.updateUnit(ctx.tx, unitId, version, unitPatch(fields)));
   if (!after) throw new AppError('VERSION_CONFLICT');
   await recordUnitChanges(ctx, [{ before, after }], null);
+  if (input.commission !== undefined) await auditUnitCommission(ctx, developmentId, [{ before, after }]);
   return toUnitDto(ctx, after);
 }
 
@@ -212,11 +247,9 @@ export async function bulkUpdateUnits(ctx: Ctx, developmentId: string, input: Bu
     repo.updateUnits(ctx.tx, developmentId, input.unitIds, unitPatch(input.patch)),
   );
   const afterById = new Map(after.map((r) => [r.id, r]));
-  await recordUnitChanges(
-    ctx,
-    before.map((b) => ({ before: b, after: afterById.get(b.id) as repo.UnitRow })),
-    null,
-  );
+  const changes = before.map((b) => ({ before: b, after: afterById.get(b.id) as repo.UnitRow }));
+  await recordUnitChanges(ctx, changes, null);
+  if (input.patch.commission !== undefined) await auditUnitCommission(ctx, developmentId, changes);
   return { items: before.map((b) => toUnitDto(ctx, afterById.get(b.id) as repo.UnitRow)) };
 }
 

@@ -722,7 +722,7 @@ Ref §9.1 §6 Website delivery · Mod websites · Dep S5-01 S1-05
 
 ### S7-02 · Website serializer
 Ref §3 #6 #54 §9.1 · Mod websites · Dep S7-01 S3-10 · 🔒
-**Build:** per-site serialization of read-model documents: presenting agency branding and contacts, reference prefix, overrides precedence (override > site content > owner text), canonical-only for duplicate clusters (no-op until R2 dedupe), sanitizer hook (S12-03).
+**Build:** per-site serialization of read-model documents: presenting agency branding and contacts, reference prefix, overrides precedence (override > site content > owner text), canonical-only for duplicate clusters (no-op until R2 dedupe), sanitizer hook (S12-03). Override texts (`listing_overrides` title/description, S3-10) are agency input shown on other agencies' and public pages: escape them on render, or pass them through the S12-03 sanitizer — never raw HTML (S5-F1).
 **Done when:**
 - Serialized network listings contain no owner agency name, phone, email or commission (property-based test over fixtures)
 - Override text is used for the overriding site only
@@ -960,7 +960,7 @@ Ref §8 #2 · Mod ai-features · Dep S12-01
 
 ### S12-04 · Selections
 Ref §7 M13 · Mod presentations, public · Dep S3-09 S7-02 S12-03
-**Build:** create from search/bookmarks; ordered items; branded live page in `apps/public` (prices/status live from read models, white-labelled, client language); share via WhatsApp deep link/email; view/like/enquire events → CRM timeline; expiry.
+**Build:** create from search/bookmarks; ordered items; branded live page in `apps/public` (prices/status live from read models, white-labelled, client language); share via WhatsApp deep link/email; view/like/enquire events → CRM timeline; expiry. Override texts in selection items are escaped or sanitized (S12-03) when rendered, as in the website serializer (S5-F1).
 **Done when:**
 - Owner price change shows on the selection within 5 min
 - Selection page passes the white-label test and Lighthouse ≥ 90

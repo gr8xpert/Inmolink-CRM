@@ -20,10 +20,37 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { z } from 'zod';
 import type { Ctx } from '../../context';
+import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import * as repo from './repo';
 import { actorId, ownForChange, ownForRead, withDbErrors } from './service';
 import { recordUnitChanges } from './units';
+
+/**
+ * At most this many unit changes, and this many bytes of them, are spelled out in an approval's audit entry (the
+ * metadata cap is 4 KB; a ref of 40 non-Latin characters alone is 120 bytes).
+ */
+const PRICE_LIST_AUDIT_CHANGES = 20;
+const PRICE_LIST_AUDIT_BYTES = 2048;
+
+/** `ref price from→to status from→to` for the first changes that fit; all of them are in the history rows. */
+function auditChanges(changed: PriceListDiff['changed']): string[] {
+  const out: string[] = [];
+  let bytes = 0;
+  for (const c of changed.slice(0, PRICE_LIST_AUDIT_CHANGES)) {
+    const line = [
+      c.ref,
+      c.priceCents ? `price ${c.priceCents.from ?? 'none'}→${c.priceCents.to ?? 'none'}` : null,
+      c.status ? `status ${c.status.from}→${c.status.to}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    bytes += Buffer.byteLength(line) + 3; // quotes and comma in the JSON
+    if (bytes > PRICE_LIST_AUDIT_BYTES) break;
+    out.push(line);
+  }
+  return out;
+}
 
 type UnitPrice = { id: string; ref: string; priceCents: number | null; status: UnitStatus };
 
@@ -148,6 +175,24 @@ export async function approvePriceList(ctx: Ctx, developmentId: string, version:
     reviewedByUserId: actorId(ctx),
     diffSummary: diff,
   });
+  // Publishing new prices to every agency that sees the development: who, which version, how much changed (S5-F1).
+  // Per-unit before and after values are the price and status history rows of this price list.
+  const changes = auditChanges(diff.changed);
+  await compliance.audit(
+    ctx,
+    'developments.priceList.approved',
+    { type: 'priceList', id: list.id },
+    {
+      developmentId,
+      version,
+      unitsChanged: diff.changed.length,
+      pricesChanged: diff.changed.filter((c) => c.priceCents).length,
+      statusesChanged: diff.changed.filter((c) => c.status).length,
+      lastVerifiedBefore: dev.lastVerifiedAt?.toISOString() ?? null,
+      changes,
+      truncated: changes.length < diff.changed.length,
+    },
+  );
   // Units and prices were just confirmed (freshness SLA, PLAN §3 #21).
   const touched = await repo.updateDevelopment(ctx.tx, developmentId, dev.version, { lastVerifiedAt: clock.now() });
   if (!touched) throw new AppError('VERSION_CONFLICT'); // unreachable: the development is row-locked

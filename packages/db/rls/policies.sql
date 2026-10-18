@@ -252,7 +252,14 @@ create policy own_rows on public."development_documents" to app_user
 create policy network_read on public."development_documents" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (shared and exists (select 1 from public.developments d where d.id = development_documents.development_id)));
 revoke all on table public."development_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
-grant select, insert, update, delete on table public."development_documents" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."development_documents"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['uploaded_by']);
+  execute format('grant select (%s) on table public."development_documents" to app_user', cols);
+end $$;
+grant insert, update, delete on table public."development_documents" to app_user;
 grant select, insert, update, delete on table public."development_documents" to app_system;
 
 -- development_phases: NETWORK_READ
@@ -285,7 +292,14 @@ create policy own_rows on public."developments" to app_user
 create policy network_read on public."developments" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (deleted_at is null and exists (select 1 from public.agency_directory d where d.agency_id = developments.agency_id and d.listed) and (access = 'OPEN' or exists (select 1 from public.development_access a where a.development_id = developments.id and a.allowed_agency_id = app_agency()))));
 revoke all on table public."developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
-grant select, insert, update, delete on table public."developments" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."developments"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['legacy_id']);
+  execute format('grant select (%s) on table public."developments" to app_user', cols);
+end $$;
+grant insert, update, delete on table public."developments" to app_user;
 grant select, insert, update, delete on table public."developments" to app_system;
 
 -- feature_aliases: GLOBAL

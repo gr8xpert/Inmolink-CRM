@@ -14,7 +14,14 @@ import {
   saveUnitAction,
   unitsPageAction,
 } from '../actions';
-import { type CsvProblem, type CsvUnit, priceToCents, type UnitStatusValue, unitsFromCsv } from '../csv';
+import {
+  type CsvProblem,
+  type CsvUnit,
+  csvSizeProblem,
+  priceToCents,
+  type UnitStatusValue,
+  unitsFromCsv,
+} from '../csv';
 
 const SELECT = 'h-8 rounded-md border bg-background px-2 text-sm disabled:opacity-60';
 const STATUSES: UnitStatusValue[] = ['AVAILABLE', 'RESERVED', 'SOLD'];
@@ -131,6 +138,8 @@ export function UnitsPanel({ developmentId, currency, initial, propertyTypes, re
   const readCsv = async (e: ChangeEvent<HTMLInputElement>) => {
     setStatus(null);
     const file = e.target.files?.[0];
+    const tooLarge = file ? csvSizeProblem(file.size) : null;
+    if (tooLarge) return setCsv({ units: [], problems: [tooLarge] });
     setCsv(file ? unitsFromCsv(await file.text(), typeId) : null);
   };
 

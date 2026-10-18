@@ -516,6 +516,8 @@ export const tenantTables: Record<string, TenantTable> = {
       and exists (select 1 from public.agency_directory d where d.agency_id = developments.agency_id and d.listed)
       and (access = 'OPEN' or exists (select 1 from public.development_access a
         where a.development_id = developments.id and a.allowed_agency_id = app_agency()))`,
+    // Owner-only data on a shared row (S5-F1): the legacy import's key is read as app_system only.
+    hiddenColumns: ['legacy_id'],
     samples: {
       visible: [{ access: 'OPEN' }],
       hidden: [{ access: 'PRIVATE_NETWORK' }, { access: 'OPEN', deleted_at: new Date() }],
@@ -549,6 +551,8 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'NETWORK_READ',
     networkReadSql:
       'shared and exists (select 1 from public.developments d where d.id = development_documents.development_id)',
+    // Which member uploaded a file is the owner's internal record, not the reader's (S5-F1): app_system only.
+    hiddenColumns: ['uploaded_by'],
     base: { content_type: 'application/pdf', sha256: ISOLATION_SHA256 },
     samples: { visible: [], hidden: [{}, { shared: true }] },
   },

@@ -36,9 +36,12 @@ const as = <T>(f: Founder, fn: (tx: Tx) => Promise<T>) => withTenant({ agencyId:
 const system = <T>(fn: (tx: Tx) => Promise<T>) => withSystem('developments.test', fn);
 
 /** A development of `owner` with one row in every child table (one shared and one internal document). */
-async function seedDevelopment(over: Partial<typeof developments.$inferInsert> = {}): Promise<string> {
+async function seedDevelopment(
+  over: Partial<typeof developments.$inferInsert> = {},
+  by: Founder = owner,
+): Promise<string> {
   const id = newId();
-  const agencyId = owner.agencyId;
+  const agencyId = by.agencyId;
   await system(async (tx) => {
     await tx.insert(developments).values({
       id,
@@ -86,7 +89,7 @@ async function seedDevelopment(over: Partial<typeof developments.$inferInsert> =
         sha256: (shared ? 'c' : 'd').repeat(64),
         storageKey: `developments/${agencyId}/${id}/${docKey}`,
         shared,
-        uploadedBy: owner.userId,
+        uploadedBy: by.userId,
       });
     }
     const priceListId = newId();
@@ -216,8 +219,13 @@ describe('development tables', () => {
     const id = await seedDevelopment({ access: 'PRIVATE_NETWORK' });
     await allow(id, allowed);
     const changed = await as(allowed, async (tx) => ({
-      development: (await tx.update(developments).set({ name: 'Hijacked' }).where(eq(developments.id, id)).returning())
-        .length,
+      development: (
+        await tx
+          .update(developments)
+          .set({ name: 'Hijacked' })
+          .where(eq(developments.id, id))
+          .returning({ id: developments.id })
+      ).length,
       units: (await tx.update(units).set({ status: 'SOLD' }).where(eq(units.developmentId, id)).returning()).length,
       access: (await tx.delete(developmentAccess).where(eq(developmentAccess.developmentId, id)).returning()).length,
     }));
@@ -259,5 +267,59 @@ describe('development tables', () => {
     ]) {
       await expect(as(owner, op)).rejects.toMatchObject({ cause: { code: '42501' } });
     }
+  });
+
+  it("[S5-F1] child rows of a soft-deleted or suspended owner's development are invisible to other agencies", async () => {
+    // Its own owner, so suspending it leaves the other tests alone.
+    const owned = await createFounder();
+    await setAgencyStatus(owned.agencyId, 'VERIFIED');
+    const id = await seedDevelopment({ access: 'OPEN' }, owned);
+    const allowOwned = system((tx) =>
+      tx
+        .insert(developmentAccess)
+        .values({ developmentId: id, agencyId: owned.agencyId, allowedAgencyId: allowed.agencyId }),
+    );
+    await allowOwned;
+    expect(await visibleTo(stranger, id)).toEqual(NETWORK_VIEW);
+    // An unverified reader: nothing, even named in the access list.
+    expect(await visibleTo(unverified, id)).toEqual(NOTHING);
+
+    // A suspended owner drops out of the directory: units, phases, translations and documents go with it.
+    await setAgencyStatus(owned.agencyId, 'SUSPENDED');
+    expect(await visibleTo(stranger, id)).toEqual(NOTHING);
+    expect(await visibleTo(allowed, id)).toEqual(NOTHING);
+    // An unlisted owner (directory row off, e.g. re-verification pending): the same.
+    await setAgencyStatus(owned.agencyId, 'VERIFIED');
+    expect(await visibleTo(stranger, id)).toEqual(NETWORK_VIEW);
+    await system((tx) =>
+      tx.execute(sql`update agency_directory set listed = false where agency_id = ${owned.agencyId}`),
+    );
+    expect(await visibleTo(stranger, id)).toEqual(NOTHING);
+    await system((tx) =>
+      tx.execute(sql`update agency_directory set listed = true where agency_id = ${owned.agencyId}`),
+    );
+    expect(await visibleTo(stranger, id)).toEqual(NETWORK_VIEW);
+
+    // Soft-deleted: off the network with every child row (PRIVATE_NETWORK too).
+    await system((tx) => tx.update(developments).set({ deletedAt: new Date() }).where(eq(developments.id, id)));
+    expect(await visibleTo(stranger, id)).toEqual(NOTHING);
+    expect(await visibleTo(allowed, id)).toEqual(NOTHING);
+  });
+
+  it('[S5-F1] legacy_id and uploaded_by are owner-only: no app_user reads them, on shared rows or its own', async () => {
+    const id = await seedDevelopment({ access: 'OPEN', legacyId: `legacy-${RUN}` });
+    for (const f of [stranger, owner]) {
+      await expect(
+        as(f, (tx) => tx.execute(sql`select legacy_id from developments where id = ${id}`)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+      await expect(
+        as(f, (tx) => tx.execute(sql`select uploaded_by from development_documents where development_id = ${id}`)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+    }
+    // The workers' role reads them.
+    const [row] = await system((tx) =>
+      tx.select({ legacyId: developments.legacyId }).from(developments).where(eq(developments.id, id)),
+    );
+    expect(row?.legacyId).toBe(`legacy-${RUN}`);
   });
 });

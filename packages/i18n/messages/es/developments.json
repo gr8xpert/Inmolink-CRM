@@ -187,7 +187,8 @@
       "duplicate": "esta referencia aparece dos veces",
       "tooMany": "demasiadas filas",
       "empty": "no hay filas",
-      "noHeader": "a la fila de cabecera le faltan columnas obligatorias"
+      "noHeader": "a la fila de cabecera le faltan columnas obligatorias",
+      "tooLarge": "el archivo supera los 2 MB"
     }
   },
   "errors": {

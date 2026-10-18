@@ -17,7 +17,15 @@ import {
 import { and, asc, count, desc, eq, getTableColumns, gt, inArray, isNull, lt, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
-export type DevelopmentRow = typeof developments.$inferSelect;
+/**
+ * `legacy_id` (developments) and `uploaded_by` (documents) are owner-only data on rows other agencies read:
+ * `app_user` has no SELECT on them (registry `hiddenColumns`, S5-F1), so every read and RETURNING names the
+ * columns below. The legacy import and support read them as `app_system`.
+ */
+const { legacyId: _legacyId, ...developmentColumns } = getTableColumns(developments);
+const { uploadedBy: _uploadedBy, ...documentColumns } = getTableColumns(developmentDocuments);
+
+export type DevelopmentRow = Omit<typeof developments.$inferSelect, 'legacyId'>;
 export type DevelopmentInsert = typeof developments.$inferInsert;
 export type UnitRow = typeof units.$inferSelect;
 export type UnitInsert = typeof units.$inferInsert;
@@ -25,19 +33,19 @@ export type PriceListRow = typeof priceLists.$inferSelect;
 export type PriceListSummaryRow = Omit<PriceListRow, 'entries' | 'diffSummary'> & {
   counts: { added: number; removed: number; changed: number; unchanged: number };
 };
-export type DocumentRow = typeof developmentDocuments.$inferSelect;
+export type DocumentRow = Omit<typeof developmentDocuments.$inferSelect, 'uploadedBy'>;
 
 // ── Developments ─────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function insertDevelopment(tx: Tx, row: DevelopmentInsert): Promise<DevelopmentRow> {
-  const [inserted] = await tx.insert(developments).values(row).returning();
+  const [inserted] = await tx.insert(developments).values(row).returning(developmentColumns);
   return inserted as DevelopmentRow;
 }
 
 /** A development the caller can read (own or shared through RLS), not deleted. */
 export async function getDevelopment(tx: Tx, id: string): Promise<DevelopmentRow | null> {
   const [row] = await tx
-    .select()
+    .select(developmentColumns)
     .from(developments)
     .where(and(eq(developments.id, id), isNull(developments.deletedAt)));
   return row ?? null;
@@ -46,7 +54,7 @@ export async function getDevelopment(tx: Tx, id: string): Promise<DevelopmentRow
 /** The agency's own, not deleted development, row-locked: changes of one development run one after another. */
 export async function getOwnForUpdate(tx: Tx, agencyId: string, id: string): Promise<DevelopmentRow | null> {
   const [row] = await tx
-    .select()
+    .select(developmentColumns)
     .from(developments)
     .where(and(eq(developments.id, id), eq(developments.agencyId, agencyId), isNull(developments.deletedAt)))
     .for('update');
@@ -63,7 +71,7 @@ export async function updateDevelopment(
     .update(developments)
     .set({ ...patch, version: sql`${developments.version} + 1`, updatedAt: sql`now()` })
     .where(and(eq(developments.id, id), eq(developments.version, version)))
-    .returning();
+    .returning(developmentColumns);
   return row ?? null; // null → version conflict
 }
 
@@ -74,7 +82,7 @@ export async function listOwnDevelopments(
   q: { limit: number; cursor?: KeysetCursor },
 ): Promise<{ items: DevelopmentRow[]; hasMore: boolean }> {
   const rows = await tx
-    .select()
+    .select(developmentColumns)
     .from(developments)
     .where(
       and(
@@ -322,7 +330,7 @@ export async function listPriceLists(
 /** A development's documents the caller can read (RLS: the owner's all, another agency's the shared ones). */
 export async function listDocuments(tx: Tx, developmentId: string): Promise<DocumentRow[]> {
   return tx
-    .select()
+    .select(documentColumns)
     .from(developmentDocuments)
     .where(eq(developmentDocuments.developmentId, developmentId))
     .orderBy(asc(developmentDocuments.createdAt), asc(developmentDocuments.id))
@@ -332,14 +340,14 @@ export async function listDocuments(tx: Tx, developmentId: string): Promise<Docu
 /** One document of the development the caller can read (RLS), or null. */
 export async function getDocument(tx: Tx, developmentId: string, id: string): Promise<DocumentRow | null> {
   const [row] = await tx
-    .select()
+    .select(documentColumns)
     .from(developmentDocuments)
     .where(and(eq(developmentDocuments.id, id), eq(developmentDocuments.developmentId, developmentId)));
   return row ?? null;
 }
 
 export async function insertDocument(tx: Tx, row: typeof developmentDocuments.$inferInsert): Promise<DocumentRow> {
-  const [inserted] = await tx.insert(developmentDocuments).values(row).returning();
+  const [inserted] = await tx.insert(developmentDocuments).values(row).returning(documentColumns);
   return inserted as DocumentRow;
 }
 
@@ -360,7 +368,7 @@ export async function updateDocument(
         eq(developmentDocuments.agencyId, agencyId),
       ),
     )
-    .returning();
+    .returning(documentColumns);
   return row ?? null;
 }
 

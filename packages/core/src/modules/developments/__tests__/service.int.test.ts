@@ -376,4 +376,201 @@ describe('development service', () => {
     await as(owner, (ctx) => developments.deleteDevelopment(ctx, dev.id, changed.version));
     expect(await refusal(as(allowed, (ctx) => developments.getDevelopment(ctx, dev.id)))).toBe('DEVELOPMENT_NOT_FOUND');
   });
+
+  it('[S5-F1] changing access, commission or approving a price list writes an audit entry with before and after', async () => {
+    const dev = await createDev();
+    const auditOf = (targetId: string) =>
+      rows<{ type: string; agency_id: string; actor_user_id: string; metadata: Record<string, unknown> }>(
+        sql`select type, agency_id, actor_user_id, metadata from audit_logs where target_id = ${targetId} order by id`,
+      );
+
+    const shared = await as(owner, (ctx) =>
+      developments.setDevelopmentAccess(ctx, dev.id, {
+        version: dev.version,
+        kind: 'PRIVATE_NETWORK',
+        allowedAgencyIds: [allowed.agencyId],
+      }),
+    );
+    const opened = await as(owner, (ctx) =>
+      developments.setDevelopmentAccess(ctx, dev.id, {
+        version: shared.version,
+        kind: 'OPEN',
+        allowedAgencyIds: [stranger.agencyId],
+      }),
+    );
+    const changed = await as(owner, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, {
+        version: opened.version,
+        commission: { type: 'FIXED', amount: { amountCents: 1_500_000, currency: 'EUR' }, includesVat: true },
+      }),
+    );
+    // A change that leaves the commission alone writes no commission entry.
+    await as(owner, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: changed.version, name: 'Renamed' }),
+    );
+    expect(await auditOf(dev.id)).toEqual([
+      {
+        type: 'developments.development.accessChanged',
+        agency_id: owner.agencyId,
+        actor_user_id: owner.userId,
+        metadata: {
+          kindBefore: 'PRIVATE_NETWORK',
+          kindAfter: 'PRIVATE_NETWORK',
+          allowedBefore: 0,
+          allowedAfter: 1,
+          added: [allowed.agencyId],
+          removed: [],
+          truncated: false,
+        },
+      },
+      {
+        type: 'developments.development.accessChanged',
+        agency_id: owner.agencyId,
+        actor_user_id: owner.userId,
+        metadata: {
+          kindBefore: 'PRIVATE_NETWORK',
+          kindAfter: 'OPEN',
+          allowedBefore: 1,
+          allowedAfter: 1,
+          added: [stranger.agencyId],
+          removed: [allowed.agencyId],
+          truncated: false,
+        },
+      },
+      {
+        type: 'developments.development.commissionChanged',
+        agency_id: owner.agencyId,
+        actor_user_id: owner.userId,
+        metadata: { before: 'PCT 500bp', after: 'FIXED 1500000 EUR +VAT' },
+      },
+    ]);
+
+    // A unit's commission, one unit and many.
+    const [u1, u2] = await addUnits(dev, [unit('U1', 10_000_000), unit('U2', 11_000_000)]);
+    if (!u1 || !u2) throw new Error('units not created');
+    await as(owner, (ctx) =>
+      developments.updateUnit(
+        ctx,
+        dev.id,
+        u1.id,
+        UpdateUnitBody.parse({
+          version: u1.version,
+          commission: { type: 'PCT', basisPoints: 300, includesVat: false },
+        }),
+      ),
+    );
+    expect((await auditOf(u1.id)).map((a) => [a.type, a.metadata])).toEqual([
+      [
+        'developments.unit.commissionChanged',
+        { developmentId: dev.id, units: 1, unitIds: [u1.id], before: ['none'], after: 'PCT 300bp', truncated: false },
+      ],
+    ]);
+    await as(owner, (ctx) =>
+      developments.bulkUpdateUnits(
+        ctx,
+        dev.id,
+        BulkUpdateUnitsBody.parse({ unitIds: [u1.id, u2.id], patch: { commission: null } }),
+      ),
+    );
+    const bulk = await rows<{ target_id: string | null; metadata: Record<string, unknown> }>(
+      sql`select target_id, metadata from audit_logs
+           where type = 'developments.unit.commissionChanged' and metadata->>'developmentId' = ${dev.id} order by id`,
+    );
+    expect(bulk[1]).toEqual({
+      target_id: u1.id, // only U1 had a commission to remove
+      metadata: {
+        developmentId: dev.id,
+        units: 1,
+        unitIds: [u1.id],
+        before: ['PCT 300bp'],
+        after: null,
+        truncated: false,
+      },
+    });
+
+    // Approving a price list: the version, what changed from what to what.
+    const list = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({
+          effectiveFrom: '2026-11-01',
+          entries: [
+            { ref: 'U1', priceCents: 12_000_000 },
+            { ref: 'U2', priceCents: 11_000_000, status: 'SOLD' },
+          ],
+        }),
+      ),
+    );
+    await as(owner, (ctx) => developments.approvePriceList(ctx, dev.id, list.version));
+    expect((await auditOf(list.id)).map((a) => [a.type, a.actor_user_id, a.metadata])).toEqual([
+      [
+        'developments.priceList.approved',
+        owner.userId,
+        {
+          developmentId: dev.id,
+          version: list.version,
+          unitsChanged: 2,
+          pricesChanged: 1,
+          statusesChanged: 1,
+          lastVerifiedBefore: null,
+          changes: ['U1 price 10000000→12000000', 'U2 status AVAILABLE→SOLD'],
+          truncated: false,
+        },
+      ],
+    ]);
+  });
+
+  it('[S5-F1] unknown, unlisted or suspended allowed agencies are refused with one neutral error', async () => {
+    const [pending, suspended] = await Promise.all([createFounder(), createFounder()]);
+    await setAgencyStatus(suspended.agencyId, 'VERIFIED');
+    await setAgencyStatus(suspended.agencyId, 'SUSPENDED');
+    const dev = await createDev();
+    const share = (allowedAgencyIds: string[]) =>
+      as(owner, (ctx) =>
+        developments.setDevelopmentAccess(ctx, dev.id, {
+          version: dev.version,
+          kind: 'PRIVATE_NETWORK',
+          allowedAgencyIds,
+        }),
+      );
+    const answers = await Promise.all(
+      [newId(), pending.agencyId, suspended.agencyId].map((id) =>
+        share([allowed.agencyId, id]).then(
+          () => 'resolved',
+          (err: { code?: string; details?: unknown }) => [err.code, err.details],
+        ),
+      ),
+    );
+    const neutral = ['VALIDATION_FAILED', { field: 'allowedAgencyIds', reason: 'unknown' }];
+    expect(answers).toEqual([neutral, neutral, neutral]);
+    expect((await share([allowed.agencyId])).access?.allowedAgencyIds).toEqual([allowed.agencyId]);
+  });
+
+  it('[S5-F1] an approval of many long non-Latin unit refs stays within the audit metadata cap', async () => {
+    const dev = await createDev();
+    const ref = (i: number) => `${'ж'.repeat(37)}${String(i).padStart(3, '0')}`; // 40 characters, 114 bytes
+    await addUnits(
+      dev,
+      Array.from({ length: 25 }, (_, i) => unit(ref(i), 10_000_000)),
+    );
+    const list = await as(owner, (ctx) =>
+      developments.createPriceList(
+        ctx,
+        dev.id,
+        CreatePriceListBody.parse({
+          effectiveFrom: '2026-11-01',
+          entries: Array.from({ length: 25 }, (_, i) => ({ ref: ref(i), priceCents: 20_000_000, status: 'RESERVED' })),
+        }),
+      ),
+    );
+    await as(owner, (ctx) => developments.approvePriceList(ctx, dev.id, list.version));
+    const [entry] = await rows<{ metadata: { unitsChanged: number; changes: string[]; truncated: boolean } }>(
+      sql`select metadata from audit_logs where target_id = ${list.id}`,
+    );
+    expect(entry?.metadata.unitsChanged).toBe(25);
+    expect(entry?.metadata.truncated).toBe(true);
+    expect(entry?.metadata.changes.length).toBeGreaterThan(0);
+    expect(Buffer.byteLength(JSON.stringify(entry?.metadata))).toBeLessThanOrEqual(4096);
+  });
 });

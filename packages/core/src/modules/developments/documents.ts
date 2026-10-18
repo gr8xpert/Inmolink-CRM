@@ -8,7 +8,7 @@
  * The upload follows the listing documents (S3-F5): the body arrives whole (the web route relays it), the type
  * comes from its magic bytes, the scan hook runs, and the object is stored outside any transaction between a
  * check and a recording transaction; a failed recording removes the object again, and a retried upload of the
- * same file answers with the document it made.
+ * same file answers with the document it made (changed to the kind and sharing asked for, S5-F1).
  *
  * Hygiene: a delete emits `developments.document.deleted` in its transaction and the worker deletes the object,
  * retried (`jobs.ts`); an hourly sweep removes `development-documents/` objects without a row. Uploading,
@@ -34,7 +34,7 @@ import { detectFileType, scanDocument, storage } from '@inmolink/platform/storag
 import type { Ctx, CtxRunner } from '../../context';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
-import { assertCan } from './policy';
+import { assertCan, can } from './policy';
 import * as repo from './repo';
 import { actorId, ownForChange, readable } from './service';
 
@@ -71,7 +71,9 @@ function pdfName(raw: string): string {
 export async function listDevelopmentDocuments(ctx: Ctx, developmentId: string): Promise<DevelopmentDocumentList> {
   assertCan(ctx, 'developmentDocument.read');
   await readable(ctx, developmentId);
-  return { items: (await repo.listDocuments(ctx.tx, developmentId)).map(toDto) };
+  const rows = await repo.listDocuments(ctx.tx, developmentId);
+  // A PARTNER member of the owner sees what collaborating agencies see: the shared ones (S5-F1).
+  return { items: rows.filter((r) => can(ctx, 'developmentDocument.read', r)).map(toDto) };
 }
 
 /** `POST /v1/developments/:id/documents?fileName=&kind=&shared=`: one PDF (raw body, ≤ 20 MB). */
@@ -112,14 +114,35 @@ export async function uploadDevelopmentDocument(
       const locked = await ownForChange(ctx, input.developmentId, 'developmentDocument.manage');
       if (locked.agencyId !== dev.agencyId) throw new AppError('FORBIDDEN');
       const current = await repo.listDocuments(ctx.tx, locked.id);
-      // A retried upload of the same file answers with the document it made.
+      // A retried upload of the same file answers with the document it made; one asking for another kind or
+      // sharing changes that document, as a PATCH would (the share check included), never answers the old row.
       const same = current.find((d) => d.sha256 === sha256);
       if (same) {
-        await compliance.audit(ctx, 'developments.document.uploaded', target(same.id), {
+        const patch = {
+          ...(input.kind !== undefined && input.kind !== same.kind ? { kind: input.kind } : {}),
+          ...(input.shared !== undefined && input.shared !== same.shared ? { shared: input.shared } : {}),
+        };
+        if (patch.shared !== undefined) assertCan(ctx, 'developmentDocument.share');
+        const row =
+          Object.keys(patch).length === 0
+            ? same
+            : await repo.updateDocument(ctx.tx, locked.agencyId, locked.id, same.id, patch);
+        if (!row) throw new AppError('DEVELOPMENT_DOCUMENT_NOT_FOUND'); // unreachable: the development is locked
+        await compliance.audit(ctx, 'developments.document.uploaded', target(row.id), {
           developmentId: locked.id,
           duplicate: true,
         });
-        return { dto: toDto(same), duplicate: true };
+        if (row !== same) {
+          // The same entry a PATCH writes: a change of sharing is found under `document.changed`, however made.
+          await compliance.audit(ctx, 'developments.document.changed', target(row.id), {
+            developmentId: locked.id,
+            kind: row.kind,
+            shared: row.shared,
+            kindBefore: same.kind,
+            sharedBefore: same.shared,
+          });
+        }
+        return { dto: toDto(row), duplicate: true };
       }
       if (current.length >= DEVELOPMENT_DOCUMENTS_MAX) {
         throw new AppError('DOCUMENT_LIMIT_REACHED', { max: DEVELOPMENT_DOCUMENTS_MAX });
@@ -166,6 +189,8 @@ export async function openDevelopmentDocument(
   // RLS: another agency's non-shared document is simply not there.
   const row = await repo.getDocument(ctx.tx, input.developmentId, input.documentId);
   if (!row) throw new AppError('DEVELOPMENT_DOCUMENT_NOT_FOUND');
+  // The owner's internal files (contracts) are not for its PARTNER members (S5-F1).
+  assertCan(ctx, 'developmentDocument.read', row);
   // Who opened which file, and when (signing is local: no network in the transaction).
   await compliance.audit(ctx, 'developments.document.opened', target(row.id), {
     developmentId: input.developmentId,

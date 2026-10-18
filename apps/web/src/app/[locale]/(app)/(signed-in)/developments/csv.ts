@@ -11,7 +11,15 @@ export interface CsvProblem {
   line: number;
   /** The column at fault, or `file` for the file as a whole. */
   column: string;
-  reason: 'required' | 'invalid' | 'unknownType' | 'duplicate' | 'tooMany' | 'empty' | 'noHeader';
+  reason: 'required' | 'invalid' | 'unknownType' | 'duplicate' | 'tooMany' | 'empty' | 'noHeader' | 'tooLarge';
+}
+
+/** Bigger files are refused before they are read (S5-F1): 2,000 units fit in far less. */
+export const CSV_MAX_BYTES = 2 * 1024 * 1024;
+
+/** The file-level problem of a file over `CSV_MAX_BYTES`, or null: check before `file.text()`. */
+export function csvSizeProblem(sizeBytes: number): CsvProblem | null {
+  return sizeBytes > CSV_MAX_BYTES ? { line: 1, column: 'file', reason: 'tooLarge' } : null;
 }
 
 export type UnitStatusValue = 'AVAILABLE' | 'RESERVED' | 'SOLD';

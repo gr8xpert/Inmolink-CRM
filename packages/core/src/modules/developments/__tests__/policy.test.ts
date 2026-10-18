@@ -45,6 +45,18 @@ describe('developments policy', () => {
     expect(can(ctxAs('PARTNER'), 'development.read', theirs)).toBe(true);
   });
 
+  it("[S5-F1] a PARTNER member of the owner reads the shared documents only, never the owner's internal ones", () => {
+    const partner = ctxAs('PARTNER');
+    const internal = { agencyId: AGENCY, shared: false };
+    expect(can(partner, 'developmentDocument.read', internal)).toBe(false);
+    expect(can(partner, 'developmentDocument.read', { agencyId: AGENCY, shared: true })).toBe(true);
+    // Another agency's documents reach the caller through RLS only when shared; the role does not matter.
+    expect(can(partner, 'developmentDocument.read', { agencyId: OTHER_AGENCY, shared: true })).toBe(true);
+    for (const role of ['AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT']) {
+      expect(can(ctxAs(role), 'developmentDocument.read', internal)).toBe(true);
+    }
+  });
+
   it('denies non-user actors', () => {
     const system = { ...ctxAs('AGENCY_ADMIN'), actor: { kind: 'system', reason: 'test' } } as Ctx;
     expect(can(system, 'development.read')).toBe(false);

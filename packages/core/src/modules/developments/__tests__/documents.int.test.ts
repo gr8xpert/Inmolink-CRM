@@ -34,6 +34,9 @@ const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>, clientMode = false) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, (ctx) =>
     fn(clientMode ? { ...ctx, clientMode: true } : ctx),
   );
+/** The owner's member with the PARTNER role (the role is per request; the service reads it from `ctx`). */
+const asPartner = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
+  as(m, (ctx) => fn({ ...ctx, actor: { ...ctx.actor, role: 'PARTNER' } as Ctx['actor'] }));
 const runner =
   (m: Founder) =>
   <T>(fn: (ctx: Ctx) => Promise<T>) =>
@@ -207,6 +210,66 @@ describe('development documents', () => {
       }),
     );
     expect(await ids(allowed)).toEqual([]);
+  });
+
+  it('[S5-F1] a PARTNER member of the owner cannot open a non-shared development document', async () => {
+    const dev = await sharedDev();
+    const brochure = await upload(dev, 'p-brochure', { kind: 'BROCHURE', shared: true });
+    const contract = await upload(dev, 'p-contract', { kind: 'LEGAL' });
+    const list = await asPartner(owner, (ctx) => developments.listDevelopmentDocuments(ctx, dev.id));
+    expect(list.items.map((d) => d.id)).toEqual([brochure.id]);
+    const open = (documentId: string) =>
+      asPartner(owner, (ctx) => developments.openDevelopmentDocument(ctx, { developmentId: dev.id, documentId }));
+    expect(await refusal(open(contract.id))).toBe('FORBIDDEN');
+    expect((await open(brochure.id)).url).toContain(brochure.id);
+    // The refused open leaves no "opened" entry.
+    const opened = await rows<{ n: number }>(
+      sql`select count(*)::int as n from audit_logs
+           where type = 'developments.document.opened' and target_id = ${contract.id}`,
+    );
+    expect(opened[0]?.n).toBe(0);
+  });
+
+  it('[S5-F1] re-uploading the same file with another kind or sharing changes that document (share check applies)', async () => {
+    const dev = await sharedDev();
+    const doc = await upload(dev, 'again', { kind: 'BROCHURE' });
+    // Another kind: the same document, re-classified.
+    const reKinded = await upload(dev, 'again', { kind: 'LEGAL' });
+    expect(reKinded).toMatchObject({ id: doc.id, kind: 'LEGAL', shared: false });
+    // Sharing it through a re-upload needs the share right, like a PATCH: an agent is refused.
+    const asAgent = <T>(fn: (ctx: Ctx) => Promise<T>) =>
+      as(owner, (ctx) => fn({ ...ctx, actor: { ...ctx.actor, role: 'AGENT' } as Ctx['actor'] }));
+    expect(
+      await refusal(
+        developments.uploadDevelopmentDocument(asAgent, {
+          developmentId: dev.id,
+          fileName: 'again.pdf',
+          body: pdf('again'),
+          shared: true,
+        }),
+      ),
+    ).toBe('FORBIDDEN');
+    expect(await upload(dev, 'again', { shared: true })).toMatchObject({ id: doc.id, kind: 'LEGAL', shared: true });
+    // Each change is in the log as `document.changed`, as a PATCH would be.
+    const changes = await rows<{ metadata: Record<string, unknown> }>(
+      sql`select metadata from audit_logs where type = 'developments.document.changed' and target_id = ${doc.id} order by id`,
+    );
+    expect(
+      changes.map((c) => [c.metadata.kindBefore, c.metadata.kind, c.metadata.sharedBefore, c.metadata.shared]),
+    ).toEqual([
+      ['BROCHURE', 'LEGAL', false, false],
+      ['LEGAL', 'LEGAL', false, true],
+    ]);
+    expect((await as(allowed, (ctx) => developments.listDevelopmentDocuments(ctx, dev.id))).items).toHaveLength(1);
+    // An agent may re-upload with the same sharing (nothing to share): the row is answered as it is.
+    expect(
+      await developments.uploadDevelopmentDocument(asAgent, {
+        developmentId: dev.id,
+        fileName: 'again.pdf',
+        body: pdf('again'),
+        kind: 'LEGAL',
+      }),
+    ).toMatchObject({ id: doc.id, kind: 'LEGAL', shared: true });
   });
 
   it("[S4-F4] a renamed non-PDF is refused and a deleted document's object is removed by the worker", async () => {

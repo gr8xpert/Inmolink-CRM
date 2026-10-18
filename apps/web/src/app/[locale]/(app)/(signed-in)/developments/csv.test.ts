@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { parseCsv, priceListFromCsv, priceToCents, unitsFromCsv } from './csv';
+import { CSV_MAX_BYTES, csvSizeProblem, parseCsv, priceListFromCsv, priceToCents, unitsFromCsv } from './csv';
 
 const TYPE = '01900000-0000-7000-8000-000000000001';
 const typeId = (v: string) => (v.toLowerCase() === 'apartment' || v === TYPE ? TYPE : null);
 
 describe('development CSVs', () => {
+  it('[S5-F1] refuses unit and price-list CSVs over 2 MB before reading them', () => {
+    expect(CSV_MAX_BYTES).toBe(2 * 1024 * 1024);
+    expect(csvSizeProblem(CSV_MAX_BYTES)).toBeNull();
+    expect(csvSizeProblem(CSV_MAX_BYTES + 1)).toEqual({ line: 1, column: 'file', reason: 'tooLarge' });
+  });
+
   it('[S4-03] parses comma and semicolon files with quotes and CRLF', () => {
     expect(parseCsv('ref,type\r\n"A-1, east",Apartment\r\n')).toEqual([
       ['ref', 'type'],

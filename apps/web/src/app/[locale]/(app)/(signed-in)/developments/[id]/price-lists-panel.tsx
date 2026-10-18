@@ -7,7 +7,7 @@ import { useFormatter } from 'next-intl';
 import { type ChangeEvent, useEffect, useId, useState, useTransition } from 'react';
 import { makeT } from '../../listings/values';
 import { approvePriceListAction, createPriceListAction, type DevResult, getPriceListAction } from '../actions';
-import { type CsvPriceEntry, type CsvProblem, priceListFromCsv } from '../csv';
+import { type CsvPriceEntry, type CsvProblem, csvSizeProblem, priceListFromCsv } from '../csv';
 import { CsvReport } from './units-panel';
 
 interface Props {
@@ -67,6 +67,8 @@ export default function PriceListsPanel({ developmentId, currency, initial, docu
   const readCsv = async (e: ChangeEvent<HTMLInputElement>) => {
     setStatus(null);
     const file = e.target.files?.[0];
+    const tooLarge = file ? csvSizeProblem(file.size) : null;
+    if (tooLarge) return setCsv({ entries: [], problems: [tooLarge] });
     setCsv(file ? priceListFromCsv(await file.text()) : null);
   };
 
