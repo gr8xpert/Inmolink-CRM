@@ -82,6 +82,18 @@ describe('queue', () => {
     expect(seen).toEqual([20]);
   });
 
+  it('[S5-03] throttled jobs run once per window and steady enqueues never push the run back', async () => {
+    const started = Date.now();
+    // An enqueue every 50 ms for 1.2 s: a debounce would never run; a 300 ms throttle runs about every window.
+    for (let version = 1; Date.now() - started < 1_200; version++) {
+      await debounced.enqueue({ entity: 'T1', version }, { throttleMs: 300, debounceKey: 'T1' });
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // Several runs while enqueues kept coming, far fewer than enqueues.
+    expect(runs.get('deb:T1') ?? 0).toBeGreaterThanOrEqual(2);
+    expect(runs.get('deb:T1') ?? 0).toBeLessThanOrEqual(6);
+  });
+
   it('[S0-06] transient failures retry with backoff, then land in the dead-letter queue', async () => {
     const { id } = await flaky.enqueue({ key: 'f1', permanent: false });
     await waitFor(async () => (await deadLetterOf(id)) !== undefined, 10_000);

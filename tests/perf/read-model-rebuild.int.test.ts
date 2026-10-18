@@ -47,6 +47,10 @@ let ids: { location: string; type: string; features: string[] };
 const photos = Array.from({ length: 2 }, (_, i) => `${RUN}${i}`.padEnd(64, 'c'));
 
 async function cleanup(): Promise<void> {
+  // The rebuild queues every target's index push (S5-03); nothing syncs them here.
+  await rows(
+    sql`delete from search_index_queue where target_id in (select id from properties where ref ~ ${REF.source})`,
+  );
   await rows(sql`delete from listing_read_models where agency_id in
     (select distinct agency_id from properties where ref ~ ${REF.source})`);
   await rows(sql`delete from properties where ref ~ ${REF.source}`);

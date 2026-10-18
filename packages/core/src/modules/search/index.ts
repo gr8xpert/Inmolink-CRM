@@ -12,9 +12,25 @@ export {
   listingsIndex,
 } from './index-doc';
 export {
+  checkIndexDrift,
+  configureSearchIndex,
+  DRIFT_SAMPLE,
+  type DriftReport,
+  INDEX_SYNC_BATCH,
+  INDEX_SYNC_LEASE_MS,
+  listingsIndexUid,
+  REPAIR_PAGE,
+  type RepairResult,
+  repairIndex,
+  type SyncResult,
+  syncIndex,
+} from './indexer';
+export {
   enqueueReadModel,
+  INDEX_SYNC_THROTTLE_MS,
   READ_MODEL_DEBOUNCE_MS,
   READ_MODEL_PENDING_RECHECKS,
+  requestIndexSync,
   searchJobs,
 } from './jobs';
 export { CLIENT_MODE_ALLOWED, can } from './policy';

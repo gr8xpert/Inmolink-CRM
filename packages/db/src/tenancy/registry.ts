@@ -601,6 +601,11 @@ export const globalTables: Record<string, GlobalTable> = {
     mediaWrite: true,
     base: { sha256: ISOLATION_SHA256, content_type: 'image/jpeg' },
   },
+  // Search index sync queue (S5-03): written with read models by the search worker via withSystem().
+  search_index_queue: {
+    reason: 'targets of every agency whose search index document must be pushed again (worker-only work queue)',
+    noUserRead: true,
+  },
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
   legacy_id_maps: {
     reason: 'every legacy ID and the v2 ID it became (ADR 0006), permanent',

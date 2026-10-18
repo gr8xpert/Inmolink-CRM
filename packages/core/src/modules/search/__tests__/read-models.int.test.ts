@@ -15,7 +15,7 @@ import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
-import { createMeiliEngine } from '@inmolink/platform/search';
+import { configureSearch, createMeiliEngine, type SearchEngine, SearchError } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
@@ -110,9 +110,10 @@ async function deliver(m: Founder): Promise<Queued[]> {
   return queued;
 }
 
-/** Runs queued jobs (a recheck they queue in turn is only recorded). */
+/** Runs queued jobs (a recheck or index sync they queue in turn is only recorded). */
 async function run(jobs: Queued[]): Promise<void> {
   const enqueue = vi.spyOn(search.searchJobs.buildReadModel, 'enqueue').mockResolvedValue({ id: 'test' });
+  const sync = vi.spyOn(search.searchJobs.syncIndex, 'enqueue').mockResolvedValue({ id: 'test' });
   try {
     for (const { job, payload } of jobs) {
       const def = search.searchJobs[job as keyof typeof search.searchJobs];
@@ -120,6 +121,7 @@ async function run(jobs: Queued[]): Promise<void> {
     }
   } finally {
     enqueue.mockRestore();
+    sync.mockRestore();
   }
 }
 
@@ -311,7 +313,7 @@ describe('listing read models', () => {
         },
       ]),
     );
-    expect(written).toBe(0);
+    expect(written).toEqual([]);
     expect((await docs(id, 'en'))[0]?.version).toBe(latest);
 
     // Concurrent rebuilds of one listing (a slow job and a fresh one) are serialised: the result is the latest.
@@ -501,7 +503,8 @@ describe('listing read models', () => {
     for (let i = 0; i < 4; i++) many.push(await sharedListing(a));
     const single = await countQueries(() => build('LISTING', one));
     const batch = await countQueries(() => system((tx) => search.rebuildListingReadModels(tx, many)));
-    expect(single).toBeLessThanOrEqual(10);
+    // About ten, plus the index push queued with the documents (S5-03).
+    expect(single).toBeLessThanOrEqual(11);
     expect(batch).toBe(single);
   });
 });
@@ -747,5 +750,234 @@ describe('listings search index (S5-02)', () => {
       limit: 10,
     });
     expect(websites.ids).toEqual([listingId]);
+  });
+});
+
+describe('search indexer (S5-03)', () => {
+  const real = () =>
+    createMeiliEngine({ url: process.env.MEILI_URL as string, apiKey: process.env.MEILI_MASTER_KEY as string });
+  const uid = `t_sync_${RUN.replace(/[^A-Za-z0-9]/g, '')}`;
+  const targets: string[] = [];
+  type QueueRow = { target_id: string; generation: number; claimed_until: string | null };
+  const queueRow = async (id: string) =>
+    (
+      await rows<QueueRow>(
+        sql`select target_id, generation, claimed_until from search_index_queue where target_id = ${id}`,
+      )
+    )[0];
+  /** The index holds exactly what the read models say: each target's sourceHash, none for targets without. */
+  async function expectConverged(ids: readonly string[]) {
+    const { docs: expected, missing } = await system((tx) => search.indexDocsFor(tx, ids));
+    const indexed = await real().fetch(uid, ids, ['id', 'sourceHash']);
+    expect(Object.fromEntries(indexed.map((d) => [d.id, d.sourceHash]))).toEqual(
+      Object.fromEntries(expected.map((d) => [d.id, d.sourceHash])),
+    );
+    expect(indexed.filter((d) => missing.includes(String(d.id)))).toEqual([]);
+  }
+  const listing = async () => {
+    const id = await sharedListing(a);
+    targets.push(id);
+    return id;
+  };
+
+  beforeAll(async () => {
+    loadStackEnv('test');
+    configureSearch(real());
+    search.configureSearchIndex({ uid, scope: targets });
+    await search.ensureListingsIndex(real(), search.listingsIndex(uid));
+  });
+  afterAll(async () => {
+    await real().dropIndex(uid);
+    if (targets.length > 0) {
+      await rows(
+        sql`delete from search_index_queue where target_id in (${sql.join(
+          targets.map((t) => sql`${t}`),
+          sql`, `,
+        )}) returning target_id`,
+      );
+    }
+  });
+
+  it('[S5-03] a read-model change queues its index push in the same transaction; a rolled-back one queues nothing', async () => {
+    const id = await listing();
+    await run(await deliver(a));
+    const first = await queueRow(id);
+    expect(first).toMatchObject({ target_id: id, claimed_until: null });
+
+    // A rebuild that rolls back leaves neither the document nor the queue row changed.
+    await update(a, id, { priceCents: 61_000_000 });
+    await expect(
+      system(async (tx) => {
+        await search.rebuildReadModels(tx, 'LISTING', [id]);
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+    expect((await queueRow(id))?.generation).toBe(first?.generation);
+
+    // A committed change while queued: a new generation. An unchanged rebuild writes and queues nothing.
+    await run(await deliver(a));
+    expect((await queueRow(id))?.generation).toBe((first?.generation ?? 0) + 1);
+    await build('LISTING', id);
+    expect((await queueRow(id))?.generation).toBe((first?.generation ?? 0) + 1);
+  });
+
+  it('[S5-03] sync pushes current documents and removals; a target changed during its push stays queued', async () => {
+    const kept = await listing();
+    const changing = await listing();
+    const removed = await listing();
+    await run(await deliver(a));
+    expect(await search.syncIndex()).toMatchObject({ more: false });
+    await expectConverged([kept, changing, removed]);
+    expect(await queueRow(kept)).toBeUndefined();
+
+    // A change committed while the push is in flight: the row's generation moves, so the push leaves it queued.
+    await update(a, changing, { priceCents: 72_000_000 });
+    await update(a, removed, { visibility: 'PRIVATE' });
+    const engine = real();
+    const racing: SearchEngine = {
+      ...engine,
+      upsert: async (u, docs) => {
+        await update(a, changing, { priceCents: 73_000_000 });
+        await run(await deliver(a));
+        return engine.upsert(u, docs);
+      },
+    };
+    await run(await deliver(a));
+    await search.syncIndex({ engine: racing });
+    expect(await queueRow(changing)).toMatchObject({ claimed_until: null });
+    expect(await queueRow(removed)).toBeUndefined();
+    expect(await real().fetch(uid, [removed], ['id'])).toEqual([]);
+
+    await search.syncIndex();
+    expect(await queueRow(changing)).toBeUndefined();
+    await expectConverged([kept, changing, removed]);
+  });
+
+  it('[S5-03] search down: the sync fails and keeps every change; the next sync converges with none lost', async () => {
+    const ids = [await listing(), await listing(), await listing()];
+    await run(await deliver(a));
+    await search.syncIndex();
+    const down = createMeiliEngine({ url: 'http://127.0.0.1:9', apiKey: 'x', timeoutMs: 500 });
+    // Several rounds of edits while the engine is unreachable, each sync failing.
+    for (let round = 0; round < 3; round++) {
+      for (const [i, id] of ids.entries()) await update(a, id, { priceCents: 80_000_000 + round * 1_000 + i });
+      await run(await deliver(a));
+      await expect(search.syncIndex({ engine: down })).rejects.toThrow();
+    }
+    await update(a, ids[2] as string, { visibility: 'PRIVATE' });
+    await run(await deliver(a));
+    for (const id of ids) expect(await queueRow(id)).toMatchObject({ claimed_until: null });
+
+    await search.syncIndex();
+    for (const id of ids) expect(await queueRow(id)).toBeUndefined();
+    await expectConverged(ids);
+    expect((await real().fetch(uid, ids, ['priceCents'])).map((d) => d.priceCents).sort()).toEqual([
+      80_002_000, 80_002_001,
+    ]);
+  });
+
+  it('[S5-03] the drift check finds missing, stale and orphan documents; the repair walk queues them and the sync converges', async () => {
+    const [gone, stale, fine] = [await listing(), await listing(), await listing()];
+    await run(await deliver(a));
+    await search.syncIndex();
+    expect(await search.checkIndexDrift()).toMatchObject({ drift: false, mismatched: [] });
+
+    const engine = real();
+    const orphan = newId();
+    const [staleDoc] = (await system((tx) => search.indexDocsFor(tx, [stale]))).docs;
+    await engine.waitForTask(await engine.delete(uid, [gone]));
+    await engine.waitForTask(
+      await engine.upsert(uid, [
+        { ...staleDoc, sourceHash: 'stale' },
+        { id: orphan, kind: 'LISTING', ownerAgencyId: a.agencyId, sourceHash: 'orphan' },
+      ]),
+    );
+
+    const report = await search.checkIndexDrift();
+    expect(report.drift).toBe(true);
+    expect(report.mismatched.sort()).toEqual([gone, stale].sort());
+    expect((await queueRow(gone))?.target_id).toBe(gone);
+
+    const repaired = await search.repairIndex({ page: 2 });
+    expect(repaired).toMatchObject({ orphans: 1 });
+    expect(repaired.targets).toBe(report.targets);
+    expect(await queueRow(orphan)).toMatchObject({ target_id: orphan });
+
+    targets.push(orphan); // the scoped sync may take it
+    await search.syncIndex();
+    expect(await engine.fetch(uid, [orphan], ['id'])).toEqual([]);
+    await expectConverged([gone, stale, fine]);
+    expect(await search.checkIndexDrift()).toMatchObject({ drift: false, mismatched: [] });
+  });
+
+  it('[S5-03] a sync whose lease ran out writes nothing more and never touches rows another sync took over', async () => {
+    const id = await listing();
+    await run(await deliver(a));
+    // Repo level: the first claim's lease expires, a second claim takes the row; the first can neither finish
+    // (delete) nor release it.
+    const first = await system((tx) => repo.claimIndexSync(tx, 10, 1, [id]));
+    expect(first.rows.map((r) => r.targetId)).toEqual([id]);
+    await new Promise((r) => setTimeout(r, 20));
+    const second = await system((tx) => repo.claimIndexSync(tx, 10, 300_000, [id]));
+    expect(second.rows.map((r) => r.targetId)).toEqual([id]);
+    expect(await system((tx) => repo.finishIndexSync(tx, first))).toBe(0);
+    // still held by the second claim
+    expect(await queueRow(id)).toMatchObject({ target_id: id, claimed_until: expect.anything() });
+    await system((tx) => repo.releaseIndexSync(tx, second.token));
+
+    // Indexer level: a push stalled until its lease is nearly over stops before its next engine write and gives
+    // the rows back.
+    const engine = real();
+    const deletes: string[][] = [];
+    const stalling: SearchEngine = {
+      ...engine,
+      upsert: async (u, docs) => {
+        await new Promise((r) => setTimeout(r, 700));
+        return engine.upsert(u, docs);
+      },
+      delete: async (u, ids) => {
+        deletes.push([...ids]);
+        return engine.delete(u, ids);
+      },
+    };
+    expect(await search.syncIndex({ engine: stalling, leaseMs: 1_000 })).toMatchObject({ done: 0, more: true });
+    expect(deletes).toEqual([]);
+    expect(await queueRow(id)).toMatchObject({ claimed_until: null });
+    await search.syncIndex();
+    expect(await queueRow(id)).toBeUndefined();
+    await expectConverged([id]);
+  });
+
+  it('[S5-03] a document the engine refuses backs off alone; the rest of its batch is pushed', async () => {
+    const ids = [await listing(), await listing(), await listing(), await listing()];
+    const bad = ids[2] as string;
+    await run(await deliver(a));
+    const engine = real();
+    const refusing: SearchEngine = {
+      ...engine,
+      upsert: async (u, docs) => {
+        if (docs.some((d) => (d as { id: string }).id === bad)) {
+          throw new SearchError('invalid geo', 400, 'invalid_document_geo_field');
+        }
+        return engine.upsert(u, docs);
+      },
+    };
+    const result = await search.syncIndex({ engine: refusing });
+    expect(result.rejected).toEqual([{ targetId: bad, attempts: 1 }]);
+    await expectConverged(ids.filter((i) => i !== bad));
+    const parked = (
+      await rows<{ not_before: string | null; claimed_until: string | null }>(
+        sql`select not_before, claimed_until from search_index_queue where target_id = ${bad}`,
+      )
+    )[0];
+    expect(parked?.claimed_until).toBeNull();
+    expect(new Date(parked?.not_before ?? 0).getTime()).toBeGreaterThan(Date.now());
+    // Backing off: the next sync does not take it (and is not blocked by it).
+    expect(await search.syncIndex()).toMatchObject({ done: 0 });
+    // A new change of the target ends the backoff.
+    await update(a, bad, { priceCents: 66_000_000 });
+    await run(await deliver(a));
+    expect(await search.syncIndex()).toMatchObject({ rejected: [] });
+    await expectConverged(ids);
   });
 });

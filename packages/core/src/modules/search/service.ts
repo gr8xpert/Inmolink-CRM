@@ -95,10 +95,12 @@ export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Pro
   };
 }
 
+/** Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03). */
 async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[]) {
   const deleted = await repo.deleteOthers(tx, ids, docs);
   const written = await repo.upsertDocs(tx, docs);
-  return { written, deleted };
+  await repo.queueIndexSync(tx, [...deleted, ...written]);
+  return { written: written.length, deleted: deleted.length };
 }
 
 export const rebuildReadModels = (tx: Tx, kind: ReadModelKind, ids: readonly string[]) =>
@@ -238,7 +240,8 @@ export async function rebuildAllReadModels(
             since,
             agencyId: options.agencyId,
           });
-          return { ...res, deleted: res.deleted + swept };
+          await repo.queueIndexSync(tx, swept);
+          return { ...res, deleted: res.deleted + swept.length };
         });
         progress.done += ids.length;
         progress.built += r.built;

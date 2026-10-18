@@ -82,3 +82,32 @@ export const listingReadModels = pgTable(
     ),
   ],
 );
+
+/**
+ * Targets whose index document must be pushed again (S5-03, PLAN §5.3 #6): written in the same transaction as each
+ * read-model change, so an update survives the search engine being down for any time. `search.syncIndex` claims rows
+ * with a lease (one holder per target keeps pushes ordered), pushes the target's current document — or its removal —
+ * and deletes the row only when its `generation` is unchanged (no newer change arrived meanwhile). Worker-only, every
+ * agency's targets: no agency id (the push batches across agencies), no tenant access.
+ */
+export const searchIndexQueue = pgTable(
+  'search_index_queue',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    /** Bumped by every change queued again: a claim that saw an older generation leaves the row for the next push. */
+    generation: integer('generation').notNull().default(1),
+    queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+    /** A sync holds the row until then; past it (the holder died) anyone may claim it. */
+    claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    /** The claim holding the row: finishing or releasing touches only rows its own claim still holds. */
+    claimToken: uuid('claim_token'),
+    /** Pushes tried (a document the engine keeps rejecting backs off by it). */
+    attempts: integer('attempts').notNull().default(0),
+    /** A document the engine rejected waits until then (a new change of the target clears it). */
+    notBefore: timestamp('not_before', { withTimezone: true }),
+  },
+  (t) => [
+    // claim: oldest first
+    index('search_index_queue_queued_idx').on(t.queuedAt),
+  ],
+);

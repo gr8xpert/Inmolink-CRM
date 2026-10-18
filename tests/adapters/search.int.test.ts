@@ -133,6 +133,11 @@ describe('platform/search (Meilisearch)', () => {
     const fetched = await engine.fetch(uid, ['a', 'zzz'], ['id', 'price']);
     expect(fetched).toEqual([{ id: 'a', price: 500 }]);
     expect(await engine.stats(uid)).toMatchObject({ documents: 3 });
+    // [S5-03] the repair walk pages through every document's id.
+    const first = await engine.browse(uid, { offset: 0, limit: 2, fields: ['id'] });
+    const rest = await engine.browse(uid, { offset: 2, limit: 2, fields: ['id'] });
+    expect(first.total).toBe(3);
+    expect([...first.results, ...rest.results].map((d) => d.id).sort()).toEqual(['a', 'b', 'c']);
 
     await engine.waitForTask(await engine.delete(uid, ['a', 'missing']));
     expect(await engine.stats(uid)).toMatchObject({ documents: 2 });

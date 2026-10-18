@@ -49,6 +49,11 @@ export interface EnqueueOptions {
   debounceMs?: number;
   /** Debounce key; defaults to the stable job ID, else the payload hash. */
   debounceKey?: string;
+  /**
+   * Throttle (S5-03): the first enqueue runs `throttleMs` later; enqueues until then are dropped (the queued run
+   * sees their work). Unlike a debounce, steady enqueues never push the run back. Keyed like `debounceKey`.
+   */
+  throttleMs?: number;
   delayMs?: number;
 }
 
@@ -113,7 +118,10 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     }
     const group = spec.group?.(payload);
     const stable = spec.jobId ? stableJobId(spec.name, spec.jobId(payload)) : undefined;
-    const debounced = options.debounceMs !== undefined && options.debounceMs > 0;
+    const throttled = options.throttleMs !== undefined && options.throttleMs > 0;
+    if (throttled && options.debounceMs)
+      throw new TypeError(`${spec.name}: debounceMs and throttleMs exclude each other`);
+    const debounced = throttled || (options.debounceMs !== undefined && options.debounceMs > 0);
     // A debounced burst replaces its delayed job, so each enqueue needs a fresh ID.
     const jobId = debounced || !stable ? newId() : stable;
     // Scoped to the group (tenant): one tenant's debounce key can never replace another tenant's job.
@@ -140,7 +148,10 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
       // If the stable job already exists, BullMQ ignores the add: do not count it in the backlog.
       fair = { group, member, existingJobKey: debounced ? undefined : `${queuePrefix()}:${spec.pool}:${jobId}` };
     }
-    if (debounced) {
+    if (throttled) {
+      opts.deduplication = { id: dedupId as string, ttl: options.throttleMs };
+      opts.delay = options.throttleMs;
+    } else if (debounced) {
       opts.deduplication = { id: dedupId as string, ttl: options.debounceMs, extend: true, replace: true };
       opts.delay = options.debounceMs;
     } else if (options.delayMs) {

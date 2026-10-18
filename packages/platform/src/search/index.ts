@@ -104,6 +104,14 @@ export interface SearchEngine {
   search(def: IndexDefinition, query: SearchQuery): Promise<SearchResult>;
   /** These documents' `fields` (drift checks). Missing ids are absent from the answer. */
   fetch(uid: string, ids: readonly string[], fields: readonly string[]): Promise<Record<string, unknown>[]>;
+  /**
+   * A page of the index's documents in the engine's order (repair walks; not for request paths). Writes between
+   * pages can shift it: a walk may miss a document added or see one twice.
+   */
+  browse(
+    uid: string,
+    page: { offset: number; limit: number; fields: readonly string[] },
+  ): Promise<{ results: Record<string, unknown>[]; total: number }>;
   /** Document count and whether writes are pending, or null when the index does not exist. */
   stats(uid: string): Promise<{ documents: number; indexing: boolean } | null>;
   /** Deletes the index (tests, reindex swaps). Missing: no-op. */
@@ -517,6 +525,16 @@ export function createMeiliEngine(config: MeiliConfig): SearchEngine {
         limit: ids.length,
       });
       return answer?.results ?? [];
+    },
+
+    async browse(uid, page) {
+      assertUid(uid);
+      const answer = await call<{ results: Record<string, unknown>[]; total: number }>(
+        'POST',
+        `/indexes/${uid}/documents/fetch`,
+        { offset: page.offset, limit: page.limit, fields: page.fields },
+      );
+      return { results: answer?.results ?? [], total: answer?.total ?? 0 };
     },
 
     async stats(uid) {
