@@ -46,6 +46,45 @@ describe('RLS generator', () => {
     expect(out.match(/^grant select on table .*app_public;$/gm)).toHaveLength(2);
   });
 
+  it('[S5-05] a PUBLIC_READ table with a network predicate also gets the guarded network_read policy', () => {
+    const sqlOut = generateRlsSql({
+      ...reg,
+      tenant: {
+        ...reg.tenant,
+        listing_read_models: {
+          kind: 'PUBLIC_READ',
+          publicReadSql: 'published',
+          networkReadSql: 'exists (select 1 from public.properties p where p.id = listing_read_models.target_id)',
+          samples: { visible: [], hidden: [] },
+        },
+      },
+    });
+    expect(sqlOut).toContain(`create policy network_read on public."listing_read_models" for select to app_user
+  using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.properties p where p.id = listing_read_models.target_id)));`);
+    expect(sqlOut).toContain(`create policy public_read on public."listing_read_models" for select to app_public`);
+    expect(out).not.toContain(`create policy network_read on public."listing_read_models"`);
+  });
+
+  it('[S5-05] table-level hiddenColumns: app_user gets SELECT on the other columns only, writes stay table-wide', () => {
+    const sqlOut = generateRlsSql({
+      ...reg,
+      tenant: {
+        ...reg.tenant,
+        listing_read_models: {
+          kind: 'PUBLIC_READ',
+          publicReadSql: 'published',
+          hiddenColumns: ['share_scope'],
+          samples: { visible: [], hidden: [] },
+        },
+      },
+    });
+    expect(sqlOut).toContain(`attname <> all (array['share_scope'])`);
+    expect(sqlOut).toContain(`grant insert, update, delete on table public."listing_read_models" to app_user;`);
+    expect(sqlOut).not.toContain(
+      `grant select, insert, update, delete on table public."listing_read_models" to app_user;`,
+    );
+  });
+
   it('[S0-05] global tables are read-only for app_user and written only by app_system', () => {
     expect(out).toContain(`grant select, insert, update, delete on table public."locations" to app_system;`);
     expect(out).not.toMatch(/grant [^;]*insert[^;]*"locations" to app_user/);

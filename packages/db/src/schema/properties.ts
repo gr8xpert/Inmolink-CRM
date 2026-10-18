@@ -225,6 +225,13 @@ export const properties = pgTable(
     index('properties_network_hide_idx')
       .on(t.lastConfirmedAt)
       .where(sql`${t.status} = 'ACTIVE' and ${t.deletedAt} is null and ${t.networkHiddenAt} is null`),
+    // give-to-get (S5-05, PLAN §3 #5): an agency's listings on the network now — counted up to the threshold on
+    // every network search, so it reads only those rows, not the agency's PRIVATE or inactive ones
+    index('properties_agency_network_idx')
+      .on(t.agencyId)
+      .where(
+        sql`${t.visibility} <> 'PRIVATE' and ${t.status} = 'ACTIVE' and ${t.deletedAt} is null and ${t.networkHiddenAt} is null`,
+      ),
     // duplicate clusters (later sprint)
     index('properties_duplicate_cluster_idx').on(t.duplicateClusterId).where(sql`${t.duplicateClusterId} is not null`),
     check('properties_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),

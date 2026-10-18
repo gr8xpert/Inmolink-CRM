@@ -27,6 +27,7 @@ describe('getMyCapabilities', () => {
   it('[S1-10] role-based navigation: admins of either family see every section, agents only the shared ones', () => {
     const all = [
       'listings',
+      'network',
       'developments',
       'team',
       'apiKeys',
@@ -43,6 +44,7 @@ describe('getMyCapabilities', () => {
     for (const role of ['AGENT', 'DEVELOPER_AGENT']) {
       expect(getMyCapabilities(ctxAs(role)).sections).toEqual([
         'listings',
+        'network',
         'developments',
         'team',
         'settings',
@@ -59,6 +61,11 @@ describe('getMyCapabilities', () => {
     });
   });
 
+  it('[S5-05] network search is a section for members, never in Client Mode (owner agencies and commission)', () => {
+    expect(getMyCapabilities(ctxAs('AGENT')).sections).toContain('network');
+    expect(getMyCapabilities(ctxAs('AGENT', { clientMode: true })).sections).not.toContain('network');
+  });
+
   it('[S3-05] every member, partners included, gets the listings section', () => {
     for (const role of ['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_AGENT', 'PARTNER']) {
       expect(getMyCapabilities(ctxAs(role)).sections[0]).toBe('listings');
@@ -71,6 +78,7 @@ describe('getMyCapabilities', () => {
     // Read-only areas stay visible; nothing forbidden to staff is offered (not the agency's staff-access record).
     expect(caps.sections).toEqual([
       'listings',
+      'network',
       'developments',
       'team',
       'apiKeys',

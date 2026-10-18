@@ -1,13 +1,18 @@
 'use server';
 
-import { ImpersonationParams, StartImpersonationBody, TenantParams } from '@inmolink/contracts';
+import {
+  ImpersonationParams,
+  SetGiveToGetExemptionBody,
+  StartImpersonationBody,
+  TenantParams,
+} from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { forgetImpersonation, readImpersonation, rememberImpersonation } from '@/server/impersonation';
-import { endImpersonation, fetchStaffMe, startImpersonation } from '@/server/staff-api';
+import { endImpersonation, fetchStaffMe, setGiveToGetExemption, startImpersonation } from '@/server/staff-api';
 
 /**
  * Impersonation actions (S1-09, transport only). The API decides who may impersonate whom and records
@@ -94,4 +99,18 @@ export async function endSessionAsSuperAdminAction(form: FormData): Promise<void
   if (res === 'revoked') redirect('/session/expired');
   const path = getPathname({ href: '/staff/sessions', locale: await getLocale() });
   redirect(res.ok || res.status === 404 ? `${path}?notice=ended` : path);
+}
+
+/** Give-to-get exemption (S5-05): support flags a buyer-only agency; the API decides who may and audits it. */
+export async function setGiveToGetExemptionAction(form: FormData): Promise<void> {
+  const tenant = TenantParams.safeParse({ agencyId: text(form, 'agencyId') });
+  if (!tenant.success) redirect('/');
+  const body = SetGiveToGetExemptionBody.safeParse({ exempt: text(form, 'exempt') === 'true' });
+  if (!body.success) return toTenant(tenant.data.agencyId, { error: 'VALIDATION_FAILED' });
+  const res = await setGiveToGetExemption(await session(), tenant.data.agencyId, body.data.exempt);
+  if (res === 'revoked') redirect('/session/expired');
+  if (!res.ok) {
+    return toTenant(tenant.data.agencyId, { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
+  }
+  return toTenant(tenant.data.agencyId, {});
 }

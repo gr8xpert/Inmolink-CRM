@@ -1,0 +1,70 @@
+{
+  "title": "Network search",
+  "intro": "Other agencies' shared listings and new-builds, with the commission you earn.",
+  "filters": {
+    "label": "Search filters",
+    "text": "Reference, title or place",
+    "kind": "Show",
+    "kindAll": "Listings and new-builds",
+    "kindListing": "Listings only",
+    "kindUnit": "New-build units only",
+    "newBuilds": "New-builds only",
+    "preferred": "Preferred agencies only",
+    "type": "Property type",
+    "typeAll": "Any type",
+    "location": "Location",
+    "locationAll": "Anywhere",
+    "min": "Min price",
+    "max": "Max price",
+    "beds": "Min bedrooms",
+    "sort": "Sort by",
+    "sorts": {
+      "newest": "Newest",
+      "price_asc": "Price, low to high",
+      "price_desc": "Price, high to low",
+      "beds_desc": "Most bedrooms",
+      "area_desc": "Largest"
+    },
+    "submit": "Search",
+    "reset": "Clear"
+  },
+  "view": {
+    "list": "List",
+    "map": "Map",
+    "mapFailed": "The map could not be loaded."
+  },
+  "gate": {
+    "lockedTitle": "Share listings to search the network",
+    "lockedBody": "Network search is for agencies that share: {shared} of {threshold} active listings shared with the network so far.",
+    "lockedCta": "Share your listings",
+    "grace": "You are in your welcome period until {date}. Share {threshold} active listings with the network to keep searching it.",
+    "exempt": "Your agency searches the network without sharing (buyer-only agency)."
+  },
+  "results": {
+    "count": "{count, plural, =0 {No results} one {# result} other {# results}}",
+    "none": "Nothing on the network matches these filters.",
+    "more": "More results",
+    "owner": "Listing agent: {name}",
+    "preferred": "Preferred agency",
+    "unit": "New-build",
+    "priceOnRequest": "Price on request",
+    "beds": "{count, plural, one {# bed} other {# beds}}",
+    "m2": "{value} m²"
+  },
+  "commission": {
+    "pct": "Commission {total} · split {split}",
+    "fixed": "Commission {amount} · split {split}",
+    "vat": "incl. VAT",
+    "earn": "You earn {amount}",
+    "earnUnknown": "Your share: ask the listing agent",
+    "none": "No commission terms set",
+    "splitUnknown": "not set"
+  },
+  "errors": {
+    "FORBIDDEN": "Network search is not available in Client Mode or for your role.",
+    "VERIFICATION_REQUIRED": "Network search opens once your agency is verified.",
+    "SERVICE_UNAVAILABLE": "Network search is unavailable right now. Try again in a moment.",
+    "VALIDATION_FAILED": "Some filters are not valid.",
+    "generic": "Network search failed. Try again."
+  }
+}

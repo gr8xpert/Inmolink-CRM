@@ -53,6 +53,7 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
         public: d.public,
         status: d.status,
         shareScope: d.shareScope,
+        allowedAgencyIds: d.allowedAgencyIds,
         version: d.version,
         card: d.card,
         detail: d.detail,
@@ -68,17 +69,20 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
         public: excluded('public'),
         status: excluded('status'),
         shareScope: excluded('share_scope'),
+        allowedAgencyIds: excluded('allowed_agency_ids'),
         version: excluded('version'),
         card: excluded('card'),
         detail: excluded('detail'),
         etag: excluded('etag'),
         updatedAt: sql`now()`,
       },
-      // Share scope is not in the documents (no etag change): a bulk scope change must still reach the row.
+      // Share scope and the allowed agencies are not in the documents (no etag change): a change of either must
+      // still reach the row.
       setWhere: sql`excluded.version > ${listingReadModels.version}
         or (excluded.version = ${listingReadModels.version}
             and (excluded.etag <> ${listingReadModels.etag}
-                 or excluded.share_scope is distinct from ${listingReadModels.shareScope}))`,
+                 or excluded.share_scope is distinct from ${listingReadModels.shareScope}
+                 or excluded.allowed_agency_ids is distinct from ${listingReadModels.allowedAgencyIds}))`,
     })
     .returning({ targetId: listingReadModels.targetId });
   return rows.map((r) => r.targetId);
@@ -192,6 +196,7 @@ export async function readIndexRows(tx: Tx, ids: readonly string[]) {
       public: listingReadModels.public,
       status: listingReadModels.status,
       shareScope: listingReadModels.shareScope,
+      allowedAgencyIds: listingReadModels.allowedAgencyIds,
       version: listingReadModels.version,
       etag: listingReadModels.etag,
       card: listingReadModels.card,
@@ -659,4 +664,24 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
         select * from (${sql.join(branches, sql` union all `)}) u
          order by phase, k ${dir}, target_id ${dir}
         offset ${offset} limit ${q.limit + 1}) p on true`;
+}
+
+/**
+ * Network search hydration (S5-05): each target's card in the best locale it has — `locale`, then `fallback`, then
+ * any — read as `app_user`, so another agency's row is returned only where the reader may read the listing or unit
+ * itself (the read models' network policy). One statement over the primary key.
+ */
+export async function networkCards(
+  tx: Tx,
+  ids: readonly string[],
+  locale: string,
+  fallback: string,
+): Promise<{ targetId: string; kind: Kind; card: unknown }[]> {
+  if (ids.length === 0) return [];
+  const result = await tx.execute(sql`
+    select distinct on (target_id) target_id as "targetId", kind, card
+      from ${listingReadModels}
+     where target_id = any(${uuidArray(ids)})
+     order by target_id, (locale = ${locale}) desc, (locale = ${fallback}) desc, locale`);
+  return result.rows as { targetId: string; kind: Kind; card: unknown }[];
 }

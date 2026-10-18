@@ -6,6 +6,13 @@
 export { agenciesErrors } from './errors';
 export { agenciesEvents } from './events';
 export { agenciesJobs } from './jobs';
+export {
+  getNetworkStanding,
+  NETWORK_PREFERRING_CAP,
+  type NetworkStanding,
+  networkAgencyNames,
+  setGiveToGetExemption,
+} from './network';
 export { type AgenciesAction, assertVerified, can, type VerifiedAction } from './policy';
 export {
   addPreferredAgency,

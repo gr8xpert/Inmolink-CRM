@@ -1,11 +1,13 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as media from '@inmolink/core/modules/media';
+import * as search from '@inmolink/core/modules/search';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
+import { configureSearch, searchConfigFromEnv } from '@inmolink/platform/search';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
 import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
@@ -43,6 +45,25 @@ try {
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
   media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
+  // Network search (S5-05): the search-only key; the master key only on a developer's machine or in tests (security
+  // review: never in a shared environment, whatever its NODE_ENV).
+  const localKey =
+    config.NODE_ENV === 'development' || config.NODE_ENV === 'test' ? config.MEILI_MASTER_KEY : undefined;
+  if (config.MEILI_SEARCH_KEY || localKey) {
+    configureSearch(
+      searchConfigFromEnv({
+        MEILI_URL: config.MEILI_URL,
+        MEILI_SEARCH_KEY: config.MEILI_SEARCH_KEY,
+        MEILI_MASTER_KEY: config.MEILI_SEARCH_KEY ? undefined : localKey,
+      }),
+    );
+  } else {
+    logger.warn('no MEILI_SEARCH_KEY: network search answers 503 until it is set');
+  }
+  search.configureNetworkSearch({
+    giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
+    giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,
+  });
 
   const app = await buildApp({
     logger,

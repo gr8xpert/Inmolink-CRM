@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
-import { agencyDirectory, preferredAgencies, preferredAgencyNotes } from '@inmolink/db/schema/agencies';
-import { and, asc, count, eq, ilike, isNotNull, ne, sql } from 'drizzle-orm';
+import { agencies, agencyDirectory, preferredAgencies, preferredAgencyNotes } from '@inmolink/db/schema/agencies';
+import { and, asc, count, eq, ilike, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -178,4 +178,38 @@ export async function searchDirectory(tx: Tx, selfId: string, q: string, limit: 
     )
     .orderBy(sql`lower(${agencyDirectory.name})`, asc(agencyDirectory.agencyId))
     .limit(limit);
+}
+
+/** The caller's agency as network search sees it (S5-05): one query. */
+export interface NetworkStandingRow {
+  createdAt: Date;
+  giveToGetExempt: boolean;
+  /** Agencies that list the caller as preferred (theirs to show it PREFERRED listings), at most `cap`. */
+  preferring: string[];
+  /** The caller's own preferred list (≤ `MAX_PREFERRED_AGENCIES`). */
+  preferred: string[];
+}
+
+export async function networkStanding(tx: Tx, agencyId: string, cap: number): Promise<NetworkStandingRow | null> {
+  const [row] = await tx
+    .select({
+      createdAt: agencies.createdAt,
+      giveToGetExempt: agencies.giveToGetExempt,
+      // The listing policy's own helper (S1-07): exactly the owners whose PREFERRED listings RLS shows the caller.
+      preferring: sql<string[]>`array(select a::text from public.app_preferring_agencies() a limit ${cap})`,
+      preferred: sql<string[]>`array(select p.preferred_agency_id::text from public.preferred_agencies p
+        where p.agency_id = ${agencyId})`,
+    })
+    .from(agencies)
+    .where(eq(agencies.id, agencyId));
+  return row ?? null;
+}
+
+/** Directory names of these agencies (listed ones, as RLS shows them to a verified agency): one primary-key probe each. */
+export async function directoryNames(tx: Tx, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: agencyDirectory.agencyId, name: agencyDirectory.name })
+    .from(agencyDirectory)
+    .where(inArray(agencyDirectory.agencyId, [...ids]));
 }

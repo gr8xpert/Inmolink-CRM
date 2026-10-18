@@ -126,6 +126,7 @@ export type MeDto = z.infer<typeof MeDto>;
 /** Dashboard areas a member may open (S1-10): the shell's navigation shows exactly these. */
 export const DashboardSection = z.enum([
   'listings',
+  'network',
   'developments',
   'team',
   'apiKeys',

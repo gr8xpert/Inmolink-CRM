@@ -50,6 +50,18 @@ export function fetchTenantMembers(session: SessionRef, agencyId: string): Promi
   return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}/members?limit=100`, MemberPage);
 }
 
+/** Support exempts a buyer-only agency from give-to-get, or ends it (S5-05); the API audits it. */
+export function setGiveToGetExemption(
+  session: SessionRef,
+  agencyId: string,
+  exempt: boolean,
+): Promise<ApiResult<TenantDetailDto>> {
+  return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}/give-to-get`, TenantDetailDto, {
+    method: 'PUT',
+    body: { exempt },
+  });
+}
+
 /** The read is audited by the API (`staff.auditLog.read`). */
 export function fetchStaffAuditLog(
   session: SessionRef,

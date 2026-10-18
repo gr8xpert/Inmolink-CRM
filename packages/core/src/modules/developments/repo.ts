@@ -426,6 +426,9 @@ export async function readModelUnits(tx: Tx, ids: readonly string[]) {
       currency: units.currency,
       status: units.status,
       version: units.version,
+      // the development's access list (`development_access` PK prefix): network search filters units by it (S5-05)
+      allowedAgencyIds: sql<string[]>`array(select a.allowed_agency_id::text from ${developmentAccess} a
+        where a.development_id = ${units.developmentId} order by 1)`,
       development: {
         name: developments.name,
         status: developments.status,
@@ -517,4 +520,26 @@ export async function readModelUnitIdsPage(
     .orderBy(asc(units.id))
     .limit(page.limit);
   return rows.map((r) => r.id);
+}
+
+/** Network search terms (S5-05): other agencies' units among `ids` with their development's commission, under RLS. */
+export async function networkUnitTerms(tx: Tx, selfId: string, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: units.id,
+      agencyId: units.agencyId,
+      priceCents: units.priceCents,
+      currency: units.currency,
+      unitCommissionBp: units.commissionBp,
+      unitCommissionFixedCents: units.commissionFixedCents,
+      unitCommissionIncludesVat: units.commissionIncludesVat,
+      developmentCommissionBp: developments.commissionBp,
+      developmentCommissionFixedCents: developments.commissionFixedCents,
+      developmentCommissionIncludesVat: developments.commissionIncludesVat,
+      developmentCurrency: developments.currency,
+    })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(and(inArray(units.id, [...ids]), sql`${units.agencyId} <> ${selfId}`));
 }

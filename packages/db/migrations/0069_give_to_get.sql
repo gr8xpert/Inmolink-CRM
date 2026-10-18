@@ -1,0 +1,3 @@
+ALTER TABLE "agencies" ADD COLUMN "give_to_get_exempt" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+-- migration-check: allow pre-launch: properties is still empty in production (no servers yet, imports start in S6)
+CREATE INDEX "properties_agency_network_idx" ON "properties" USING btree ("agency_id") WHERE "properties"."visibility" <> 'PRIVATE' and "properties"."status" = 'ACTIVE' and "properties"."deleted_at" is null and "properties"."network_hidden_at" is null;

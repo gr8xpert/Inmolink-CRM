@@ -22,6 +22,7 @@ export interface NavItem {
 /** Display order of the member sections; the API decides which of them the caller gets. */
 const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
   ['listings', '/listings'],
+  ['network', '/network'],
   ['developments', '/developments'],
   ['team', '/team'],
   ['preferredAgencies', '/preferred-agencies'],

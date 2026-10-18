@@ -484,6 +484,27 @@
       "when": 1792312655717,
       "tag": "0068_listing_search_docs",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792325146995,
+      "tag": "0069_give_to_get",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1792325162579,
+      "tag": "0070_agencies_guard_v4",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792326135117,
+      "tag": "0071_read_model_allowed_agencies",
+      "breakpoints": true
     }
   ]
 }

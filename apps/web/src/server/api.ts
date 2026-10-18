@@ -55,6 +55,8 @@ import {
   MemberDto,
   MemberPage,
   MyCapabilitiesDto,
+  type NetworkSearchBody,
+  NetworkSearchResult,
   PreferredAgencyDto,
   PreferredAgencyPage,
   PriceListDto,
@@ -1155,4 +1157,30 @@ export async function fetchDevelopmentPage(
     taxonomy: data(taxonomy),
     partners: data(partners),
   };
+}
+
+/**
+ * The network search page (S5-05): one page of network results (or the give-to-get upsell) and the taxonomy for the
+ * filters — one minted token, in parallel. A search is a POST (filters as JSON), never cached.
+ */
+export async function fetchNetworkPage(
+  session: SessionRef,
+  body: NetworkSearchBody,
+): Promise<'revoked' | { result: Exclude<ApiResult<NetworkSearchResult>, 'revoked'>; taxonomy: TaxonomyDto | null }> {
+  let token: string;
+  try {
+    token = await mintFor(session, '/v1/network/search');
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    return { result: { ok: false, status: 0, error: null }, taxonomy: null };
+  }
+  const [result, taxonomy] = await Promise.all([
+    apiRequest({ token }, '/v1/network/search', NetworkSearchResult, { method: 'POST', body }),
+    apiRequest({ token }, '/v1/taxonomy', TaxonomyDto),
+  ]);
+  if (result === 'revoked') return 'revoked';
+  return { result, taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null };
 }

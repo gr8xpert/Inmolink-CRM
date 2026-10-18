@@ -58,6 +58,11 @@ export const listingReadModels = pgTable(
      */
     shareScope: text('share_scope'),
     /**
+     * A unit of a PRIVATE_NETWORK development: the agencies it is shared with (network search filters on it, S5-05);
+     * null for listings and units of OPEN developments. Index-only: never inside the documents.
+     */
+    allowedAgencyIds: uuid('allowed_agency_ids').array(),
+    /**
      * Monotonic source version: the listing's `version`, or a unit's `version` + its development's `version`
      * (both only grow). An upsert never lowers it (PATTERNS §14).
      */

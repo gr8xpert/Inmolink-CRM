@@ -24,3 +24,20 @@ references, and facet counts are missing. Detail pages and cached pages are not 
 
 The fallback reads `listing_search_docs`, which is written in the same transaction as the read models, so it is
 never stale. If it ever looks wrong, `pnpm ops:rebuild-read-models` rebuilds it along with the read models.
+
+## Network search rollout (S5-05)
+
+Migration 0071 adds `listing_read_models.allowed_agency_ids` (who a PRIVATE_NETWORK development is shared with) and
+the index gains the filterable field `allowedAgencyIds`. Existing rows have it null, so units of developments shared
+before the deploy stay out of the partners' network search until rebuilt. After the first deploy with 0071:
+
+1. Let the worker boot apply the index settings and wait until Meilisearch has finished the settings task (a new
+   filterable attribute re-indexes the whole index; until then network search answers `503 SERVICE_UNAVAILABLE`,
+   website search falls back to Postgres as usual).
+2. Run `pnpm ops:rebuild-read-models` once (it rewrites unit read models whose `allowed_agency_ids` changed and queues
+   their index pushes).
+3. Check: a partner of a PRIVATE_NETWORK development finds its units with **New-builds only** on `/network`.
+
+The api needs `MEILI_SEARCH_KEY` (search-only key) for network search; without it the route answers 503 and the api
+logs `no MEILI_SEARCH_KEY` at boot. Give-to-get is configured by `NETWORK_GIVE_TO_GET_MIN_SHARED` (default 5) and
+`NETWORK_GIVE_TO_GET_GRACE_DAYS` (default 30).

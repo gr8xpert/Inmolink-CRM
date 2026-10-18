@@ -31,6 +31,8 @@ export interface BuiltDoc {
   status: string;
   /** A listing's share scope (network search filter, S5-02); null for units. Never inside the documents. */
   shareScope: 'ALL' | 'PREFERRED' | null;
+  /** A PRIVATE_NETWORK unit's allowed agencies, sorted (network search filter, S5-05); null otherwise. Never inside the documents. */
+  allowedAgencyIds: string[] | null;
   version: number;
   card: ListingCardDoc | UnitCardDoc;
   detail: ListingDetailDoc | UnitDetailDoc;
@@ -144,6 +146,7 @@ export function buildListingDocs(
       public: l.visibility === 'PUBLIC',
       status: l.status,
       shareScope: l.shareScope,
+      allowedAgencyIds: null,
       version: l.version,
       card,
       detail,
@@ -199,6 +202,7 @@ export function buildUnitDocs(
       public: d.open,
       status: u.status,
       shareScope: null,
+      allowedAgencyIds: d.open ? null : [...d.allowedAgencyIds].sort(),
       version: u.version,
       card,
       detail,

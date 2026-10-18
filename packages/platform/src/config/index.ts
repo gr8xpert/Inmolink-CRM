@@ -142,6 +142,15 @@ export const searchEnv = {
 };
 
 /**
+ * Network search give-to-get (PLAN §3 #5, S5-05): ACTIVE listings an agency must share with the network to search
+ * it, and the grace period of a new agency (days from sign-up).
+ */
+export const networkEnv = {
+  NETWORK_GIVE_TO_GET_MIN_SHARED: z.coerce.number().int().min(0).max(1_000).default(5),
+  NETWORK_GIVE_TO_GET_GRACE_DAYS: z.coerce.number().int().min(0).max(365).default(30),
+};
+
+/**
  * Cloudflare Turnstile (S1-F5): the challenge shown once a per-email login ceiling is reached. Both or
  * neither; unset, the ceiling stays a hard block. Cloudflare's test keys are refused in production.
  */

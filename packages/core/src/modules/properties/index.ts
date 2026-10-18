@@ -30,6 +30,7 @@ export {
   sweepFreshnessBatch,
 } from './freshness';
 export { propertiesJobs } from './jobs';
+export { countNetworkSharedListings, type NetworkListingTerms, networkListingTerms } from './network';
 export {
   applyListingOverrides,
   deleteListingOverride,

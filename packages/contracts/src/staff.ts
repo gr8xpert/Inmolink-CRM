@@ -93,6 +93,8 @@ export const TenantDetailDto = TenantSummaryDto.extend({
   city: z.string().nullable(),
   region: z.string().nullable(),
   onboarded: z.boolean(),
+  /** Searches the network without sharing listings (give-to-get exemption, PLAN §3 #5; S5-05). */
+  giveToGetExempt: z.boolean(),
   version: z.number().int(),
   updatedAt: z.iso.datetime(),
   verification: z
@@ -105,6 +107,10 @@ export const TenantDetailDto = TenantSummaryDto.extend({
     .nullable(),
 });
 export type TenantDetailDto = z.infer<typeof TenantDetailDto>;
+
+/** `PUT /v1/staff/agencies/:agencyId/give-to-get`: exempt a buyer-only agency from give-to-get, or end it (S5-05). */
+export const SetGiveToGetExemptionBody = z.strictObject({ exempt: z.boolean() });
+export type SetGiveToGetExemptionBody = z.infer<typeof SetGiveToGetExemptionBody>;
 
 /** Audit types are `<module>.<entity>.<change>`. */
 export const AuditTypeFilter = z

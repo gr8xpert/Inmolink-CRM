@@ -1,0 +1,1 @@
+ALTER TABLE "listing_read_models" ADD COLUMN "allowed_agency_ids" uuid[];

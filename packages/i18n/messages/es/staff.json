@@ -109,7 +109,12 @@
       "DEACTIVATED": "Desactivado"
     },
     "recentAudit": "Últimas entradas de auditoría",
-    "fullAudit": "Registro completo"
+    "fullAudit": "Registro completo",
+    "giveToGet": "Dar para recibir",
+    "giveToGetExempt": "Exenta (agencia solo compradora)",
+    "giveToGetRequired": "Debe compartir inmuebles para buscar en la red",
+    "giveToGetGrant": "Eximir de dar para recibir",
+    "giveToGetEnd": "Quitar exención"
   },
   "impersonation": {
     "start": "Actuar como {name}",

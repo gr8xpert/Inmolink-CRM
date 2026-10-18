@@ -16,6 +16,7 @@ export const AGENCIES_ACTIONS = [
   'agencies.preferred.add',
   'agencies.preferred.manage',
   'agencies.directory.search',
+  'agencies.network.read',
 ] as const;
 export type AgenciesAction = (typeof AGENCIES_ACTIONS)[number];
 
@@ -40,6 +41,7 @@ export const AGENCIES_IMPERSONATION: ImpersonationRules<AgenciesAction> = {
   'agencies.preferred.add': 'forbidden',
   'agencies.preferred.manage': 'allowed',
   'agencies.directory.search': 'allowed',
+  'agencies.network.read': 'allowed',
 };
 
 /** Roles that administer their agency (PLAN §3 #2). */
@@ -67,6 +69,8 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
     case 'agencies.preferred.read':
     case 'agencies.directory.search':
+    // Network search's view of the agency (S5-05): give-to-get standing and partners — agent side only.
+    case 'agencies.network.read':
       // Members see whom their agency trusts (they choose PREFERRED sharing on listings); the list and
       // its internal notes are never shown to a client.
       return sameAgency && !ctx.clientMode;
@@ -81,7 +85,11 @@ export function assertCan(...args: Parameters<typeof can>): void {
  * Staff actions in agencies (S1-03, S1-09). Verification is support work; data ops do not decide it.
  * Every staff role reads the tenants list and a tenant's company details (the console's starting point).
  */
-export type StaffAgenciesAction = 'staff.verification.read' | 'staff.verification.decide' | 'staff.tenants.read';
+export type StaffAgenciesAction =
+  | 'staff.verification.read'
+  | 'staff.verification.decide'
+  | 'staff.tenants.read'
+  | 'staff.giveToGet.manage';
 
 const VERIFICATION_STAFF = new Set(['SUPER_ADMIN', 'STAFF_SUPPORT']);
 
@@ -90,6 +98,8 @@ export function canStaff(ctx: StaffCtx, action: StaffAgenciesAction): boolean {
   switch (action) {
     case 'staff.verification.read':
     case 'staff.verification.decide':
+    // Exempting a buyer-only agency from give-to-get (S5-05) is support's call, like verification.
+    case 'staff.giveToGet.manage':
       return VERIFICATION_STAFF.has(ctx.actor.role);
     case 'staff.tenants.read':
       return true;
@@ -112,7 +122,9 @@ export type VerifiedAction =
   | 'apiKey.create'
   | 'preferredAgency.add'
   | 'directory.search'
-  | 'development.share';
+  | 'development.share'
+  /** Network search (S5-05): only verified agencies take part in the network. */
+  | 'network.search';
 
 export function assertVerified(ctx: Ctx, action: VerifiedAction): void {
   if (!ctx.tenant.verified) throw new AppError('VERIFICATION_REQUIRED', { action });

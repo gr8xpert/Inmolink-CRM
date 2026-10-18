@@ -1258,3 +1258,37 @@ export async function readModelIdsPage(
     .limit(page.limit);
   return rows.map((r) => r.id);
 }
+
+/** Network search terms (S5-05): other agencies' listings among `ids` that RLS lets the caller read. */
+export async function networkListingTerms(tx: Tx, selfId: string, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: properties.id,
+      agencyId: properties.agencyId,
+      priceCents: properties.priceCents,
+      currency: properties.currency,
+      priceOnRequest: properties.priceOnRequest,
+      commissionBp: properties.commissionBp,
+      commissionFixedCents: properties.commissionFixedCents,
+      splitBp: properties.splitBp,
+      commissionIncludesVat: properties.commissionIncludesVat,
+    })
+    .from(properties)
+    .where(and(inArray(properties.id, [...ids]), sql`${properties.agencyId} <> ${selfId}`));
+}
+
+/**
+ * Give-to-get (S5-05): the agency's listings on the network now and shared with every agency (PREFERRED ones need not
+ * reach anyone: security review), up to `cap` (`properties_agency_network_idx`, scope checked on its rows).
+ */
+export async function countNetworkShared(tx: Tx, agencyId: string, cap: number): Promise<number> {
+  const result = await tx.execute(sql`
+    select count(*)::int as n from (
+      select 1 from ${properties}
+       where ${properties.agencyId} = ${agencyId} and ${properties.visibility} <> 'PRIVATE'
+         and ${properties.status} = 'ACTIVE' and ${properties.deletedAt} is null and ${properties.networkHiddenAt} is null
+         and ${properties.shareScope} = 'ALL'
+       limit ${cap}) s`);
+  return (result.rows[0] as { n: number }).n;
+}

@@ -306,6 +306,7 @@ describe('listing read models', () => {
           public: false,
           status: 'ACTIVE',
           shareScope: 'ALL',
+          allowedAgencyIds: null,
           version: latest - 2,
           card: older,
           detail: current?.detail as never,
@@ -643,6 +644,8 @@ describe('listings search index (S5-02)', () => {
       'status',
       'visibility',
       'shareScope',
+      // filter-only (S5-05): the agencies a PRIVATE_NETWORK unit is shared with; never displayed (`displayed: ['id']`)
+      'allowedAgencyIds',
       'transactionType',
       'propertyTypeId',
       'locationIds',

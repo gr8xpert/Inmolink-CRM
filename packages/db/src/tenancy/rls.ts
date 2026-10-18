@@ -55,9 +55,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       if (def.appendOnly || def.immutable) {
         throw new Error(`${name}: userSelect is not valid for appendOnly or immutable tables`);
       }
-      for (const c of def.userSelect.hiddenColumns ?? []) {
-        if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
-      }
+    }
+    for (const c of hiddenColumnsOf(def)) {
+      if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
     }
     for (const c of def.mediaRead?.columns ?? []) {
       if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
@@ -196,7 +196,9 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   for (const [key, cmd] of AUTH_COMMANDS) {
     if (def.staff?.[key] !== undefined) out.push({ name: `staff_${key}`, cmd, roles: ['app_staff'] });
   }
-  if (def.kind === 'NETWORK_READ') out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
+  if (def.kind === 'NETWORK_READ' || (def.kind === 'PUBLIC_READ' && def.networkReadSql !== undefined)) {
+    out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
+  }
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   return out;
 }
@@ -290,12 +292,17 @@ end $$;`,
   ].join('\n');
 }
 
+/** Columns `app_user` may not read: the table's own `hiddenColumns` and `userSelect.hiddenColumns`. */
+export function hiddenColumnsOf(def: TenantTable): readonly string[] {
+  return [...(def.hiddenColumns ?? []), ...(def.userSelect?.hiddenColumns ?? [])];
+}
+
 /**
- * `app_user`'s grant. With `userSelect.hiddenColumns` the table-level SELECT becomes a column list of every
+ * `app_user`'s grant. With hidden columns (`hiddenColumns`, `userSelect.hiddenColumns`) the table-level SELECT becomes a column list of every
  * other column, read from the catalog when the SQL runs (ADR 0016); INSERT, UPDATE and DELETE stay table-wide.
  */
 function userGrantSql(t: string, def: TenantTable): string {
-  const hidden = def.userSelect?.hiddenColumns ?? [];
+  const hidden = hiddenColumnsOf(def);
   const privileges = expectedPrivileges(def).app_user;
   if (hidden.length === 0) return `grant ${grantList(privileges)} on table ${t} to app_user;`;
   const others = privileges.filter((p) => p !== 'SELECT');
@@ -341,12 +348,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
         ]),
   ];
-  if (def.kind === 'NETWORK_READ') {
+  const networkReadSql = def.kind === 'STRICT' ? undefined : def.networkReadSql;
+  if (networkReadSql !== undefined) {
     // Only a tenant reads the network: a connection with no agency set sees nothing at all. Only a
     // verified one (PLAN §3 #3, S1-07): added here, not by the registry, so no predicate can weaken it;
     // as a sub-select it is an init plan, evaluated once per statement rather than per row.
     out.push(`create policy network_read on ${t} for select to app_user
-  using (app_agency() is not null and (select public.app_agency_verified()) and (${predicate(name, def.networkReadSql)}));`);
+  using (app_agency() is not null and (select public.app_agency_verified()) and (${predicate(name, networkReadSql)}));`);
   }
   if (def.kind === 'PUBLIC_READ') {
     out.push(`create policy public_read on ${t} for select to app_public

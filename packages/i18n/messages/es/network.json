@@ -1,0 +1,70 @@
+{
+  "title": "Búsqueda en la red",
+  "intro": "Inmuebles compartidos y obra nueva de otras agencias, con la comisión que ganas.",
+  "filters": {
+    "label": "Filtros de búsqueda",
+    "text": "Referencia, título o lugar",
+    "kind": "Mostrar",
+    "kindAll": "Inmuebles y obra nueva",
+    "kindListing": "Solo inmuebles",
+    "kindUnit": "Solo unidades de obra nueva",
+    "newBuilds": "Solo obra nueva",
+    "preferred": "Solo agencias preferidas",
+    "type": "Tipo de inmueble",
+    "typeAll": "Cualquier tipo",
+    "location": "Ubicación",
+    "locationAll": "Cualquier lugar",
+    "min": "Precio mínimo",
+    "max": "Precio máximo",
+    "beds": "Dormitorios mínimos",
+    "sort": "Ordenar por",
+    "sorts": {
+      "newest": "Más recientes",
+      "price_asc": "Precio, de menor a mayor",
+      "price_desc": "Precio, de mayor a menor",
+      "beds_desc": "Más dormitorios",
+      "area_desc": "Más grandes"
+    },
+    "submit": "Buscar",
+    "reset": "Limpiar"
+  },
+  "view": {
+    "list": "Lista",
+    "map": "Mapa",
+    "mapFailed": "No se ha podido cargar el mapa."
+  },
+  "gate": {
+    "lockedTitle": "Comparte inmuebles para buscar en la red",
+    "lockedBody": "La búsqueda en la red es para agencias que comparten: llevas {shared} de {threshold} inmuebles activos compartidos con la red.",
+    "lockedCta": "Comparte tus inmuebles",
+    "grace": "Estás en tu periodo de bienvenida hasta el {date}. Comparte {threshold} inmuebles activos con la red para seguir buscando en ella.",
+    "exempt": "Tu agencia busca en la red sin compartir (agencia solo compradora)."
+  },
+  "results": {
+    "count": "{count, plural, =0 {Sin resultados} one {# resultado} other {# resultados}}",
+    "none": "Nada en la red coincide con estos filtros.",
+    "more": "Más resultados",
+    "owner": "Agencia captadora: {name}",
+    "preferred": "Agencia preferida",
+    "unit": "Obra nueva",
+    "priceOnRequest": "Precio a consultar",
+    "beds": "{count, plural, one {# dormitorio} other {# dormitorios}}",
+    "m2": "{value} m²"
+  },
+  "commission": {
+    "pct": "Comisión {total} · reparto {split}",
+    "fixed": "Comisión {amount} · reparto {split}",
+    "vat": "IVA incl.",
+    "earn": "Ganas {amount}",
+    "earnUnknown": "Tu parte: consulta a la agencia captadora",
+    "none": "Sin condiciones de comisión",
+    "splitUnknown": "sin definir"
+  },
+  "errors": {
+    "FORBIDDEN": "La búsqueda en la red no está disponible en Modo Cliente ni para tu rol.",
+    "VERIFICATION_REQUIRED": "La búsqueda en la red se abre cuando tu agencia esté verificada.",
+    "SERVICE_UNAVAILABLE": "La búsqueda en la red no está disponible ahora mismo. Inténtalo de nuevo en un momento.",
+    "VALIDATION_FAILED": "Algunos filtros no son válidos.",
+    "generic": "La búsqueda en la red ha fallado. Inténtalo de nuevo."
+  }
+}

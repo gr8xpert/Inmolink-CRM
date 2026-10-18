@@ -50,6 +50,11 @@ export const agencies = pgTable(
     languages: text('languages').array().notNull().default(sql`'{}'::text[]`),
     /** Company details complete; staff verification can start. */
     onboardedAt: timestamp('onboarded_at', { withTimezone: true }),
+    /**
+     * Give-to-get exemption (PLAN §3 #5, S5-05): a buyer-only agency searches the network without sharing listings.
+     * Staff set it (guard migration 0070); the agency itself never can.
+     */
+    giveToGetExempt: boolean('give_to_get_exempt').notNull().default(false),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

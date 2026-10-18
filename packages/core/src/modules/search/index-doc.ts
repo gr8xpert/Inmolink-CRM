@@ -31,6 +31,8 @@ export interface ListingIndexDoc {
   status: string;
   visibility: IndexVisibility;
   shareScope: 'ALL' | 'PREFERRED';
+  /** RESTRICTED units: the agencies their development is shared with (network search, S5-05); else empty. */
+  allowedAgencyIds: string[];
   transactionType: string;
   propertyTypeId: string;
   /** Country, region, city and area ids: a filter on any level matches everything below it. */
@@ -66,6 +68,7 @@ export interface IndexSourceRow {
   public: boolean;
   status: string;
   shareScope: string | null;
+  allowedAgencyIds: string[] | null;
   version: number;
   etag: string;
   card: unknown;
@@ -97,6 +100,7 @@ export function listingsIndex(
       { field: 'status' },
       { field: 'visibility' },
       { field: 'shareScope' },
+      { field: 'allowedAgencyIds' },
       { field: 'transactionType' },
       { field: 'propertyTypeId' },
       { field: 'locationIds' },
@@ -146,6 +150,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     visibility: first.public ? 'PUBLIC' : isListing ? 'SHARED' : 'RESTRICTED',
     // A listing row from before share scopes reached read models (null) stays PREFERRED: never wider than it was.
     shareScope: isListing ? (first.shareScope === 'ALL' ? 'ALL' : 'PREFERRED') : 'ALL',
+    allowedAgencyIds: first.public ? [] : [...(first.allowedAgencyIds ?? [])].sort(),
     transactionType: card.kind === 'LISTING' ? card.transactionType : 'SALE',
     propertyTypeId: card.propertyType.id,
     locationIds: placeIds(card.place),
@@ -161,7 +166,20 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     publishedAt: Math.floor(Math.min(...sorted.map((r) => r.createdAt.getTime())) / 1000),
     version: Math.max(...sorted.map((r) => r.version)),
     sourceHash: createHash('sha256')
-      .update(JSON.stringify(sorted.map((r) => [r.locale, r.etag, r.public, r.status, r.shareScope, r.featureIds])))
+      .update(
+        JSON.stringify(
+          // The allowed agencies only where there are any: other documents keep their hash (no repair walk).
+          sorted.map((r) => [
+            r.locale,
+            r.etag,
+            r.public,
+            r.status,
+            r.shareScope,
+            r.featureIds,
+            ...(r.allowedAgencyIds ? [r.allowedAgencyIds] : []),
+          ]),
+        ),
+      )
       .digest('base64url')
       .slice(0, 22),
   };

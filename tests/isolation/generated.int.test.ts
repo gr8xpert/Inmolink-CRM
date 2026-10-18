@@ -252,6 +252,22 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
     }
 
+    if (def.hiddenColumns?.length) {
+      it(`[S5-05] ${table}: hidden columns (${def.hiddenColumns.join(', ')}) cannot be read by app_user, even on its own rows`, async () => {
+        for (const column of def.hiddenColumns ?? []) {
+          const id = sql.identifier(column);
+          const t = sql.identifier(table);
+          for (const read of [
+            sql`select ${id} from ${t} where agency_id = ${a}`,
+            sql`select * from ${t} where agency_id = ${a}`,
+            sql`select count(*) from ${t} where agency_id = ${a} and ${id} is not null`,
+          ]) {
+            await expectSqlState(() => withTenant(as(a), (tx) => tx.execute(read)), DENIED);
+          }
+        }
+      });
+    }
+
     if (def.kind === 'NETWORK_READ') {
       it(`[S0-05] ${table}: tenant B reads tenant A's rows only where the network predicate holds`, async () => {
         expect(await withTenant(as(b), (tx) => count(tx, table, a))).toBe(visible.length);

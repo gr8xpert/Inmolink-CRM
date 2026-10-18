@@ -35,6 +35,8 @@ export interface ReadModelUnit {
     lng: number | null;
     /** OPEN developments are public; PRIVATE_NETWORK ones only reach the agencies they are shared with. */
     open: boolean;
+    /** The agencies a PRIVATE_NETWORK development is shared with (network search, S5-05). */
+    allowedAgencyIds: string[];
     translations: {
       locale: string;
       title: string;
@@ -95,6 +97,7 @@ export async function unitsForReadModels(tx: Tx, ids: readonly string[]): Promis
       lat: num(r.development.lat),
       lng: num(r.development.lng),
       open: r.development.access === 'OPEN',
+      allowedAgencyIds: r.allowedAgencyIds,
       translations: textsOf.get(r.developmentId) ?? [],
     },
     phase: (r.phaseId && phaseOf.get(r.phaseId)) || null,

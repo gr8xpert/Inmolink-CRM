@@ -33,6 +33,15 @@ export {
   requestIndexSync,
   searchJobs,
 } from './jobs';
+export {
+  type CommissionTerms,
+  configureNetworkSearch,
+  GIVE_TO_GET_DEFAULTS,
+  giveToGetGate,
+  NETWORK_ENGINE_TIMEOUT_MS,
+  networkCommission,
+  searchNetwork,
+} from './network';
 export { CLIENT_MODE_ALLOWED, can } from './policy';
 export {
   countReadModelTargets,

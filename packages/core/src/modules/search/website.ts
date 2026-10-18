@@ -28,6 +28,7 @@ import {
 import { metrics } from '@opentelemetry/api';
 import type { SQL } from 'drizzle-orm';
 import { z } from 'zod';
+import { attributeFilters } from './filters';
 import { listingsIndex } from './index-doc';
 import { listingsIndexUid } from './indexer';
 import * as repo from './repo';
@@ -159,20 +160,7 @@ export function publicSearchFilter(site: Pick<PublicSearchSite, 'ownerAgencyIds'
     { op: 'in', field: 'status', values: q.statuses },
   ];
   if (site.ownerAgencyIds) filters.push({ op: 'in', field: 'ownerAgencyId', values: [...site.ownerAgencyIds] });
-  if (q.kind) filters.push({ op: 'eq', field: 'kind', value: q.kind });
-  if (q.developmentId) filters.push({ op: 'eq', field: 'developmentId', value: q.developmentId });
-  if (q.transactionType) filters.push({ op: 'eq', field: 'transactionType', value: q.transactionType });
-  if (q.propertyTypeIds) filters.push({ op: 'in', field: 'propertyTypeId', values: q.propertyTypeIds });
-  if (q.locationIds) filters.push({ op: 'in', field: 'locationIds', values: q.locationIds });
-  for (const id of q.featureIds ?? []) filters.push({ op: 'eq', field: 'featureIds', value: id });
-  const range = (field: string, gte?: number, lte?: number) => {
-    if (gte !== undefined || lte !== undefined) filters.push({ op: 'range', field, gte, lte });
-  };
-  range('priceCents', q.priceMinCents, q.priceMaxCents);
-  range('beds', q.bedsMin);
-  range('baths', q.bathsMin);
-  range('areaM2', q.areaMinM2, q.areaMaxM2);
-  if (q.geoBox) filters.push({ op: 'geoBox', ...q.geoBox });
+  filters.push(...attributeFilters(q));
   return { op: 'and', filters };
 }
 

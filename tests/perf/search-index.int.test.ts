@@ -89,6 +89,7 @@ function doc(i: number): search.ListingIndexDoc {
     status: r() < 0.85 ? 'ACTIVE' : r() < 0.5 ? 'UNDER_OFFER' : 'SOLD',
     visibility: v < 0.6 ? 'PUBLIC' : v < 0.95 ? 'SHARED' : 'RESTRICTED',
     shareScope: r() < 0.8 ? 'ALL' : 'PREFERRED',
+    allowedAgencyIds: [],
     transactionType: r() < 0.8 ? 'SALE' : 'RENT_LONG_TERM',
     propertyTypeId: type(Math.floor(r() * TYPES)),
     locationIds: [COUNTRY, region(Math.floor(c / CITIES_PER_REGION)), city(c), area(a)],

@@ -5,7 +5,7 @@ import { getFormatter, getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { requireStaff } from '@/server/staff';
 import { fetchStaffAuditLog, fetchTenant, fetchTenantMembers } from '@/server/staff-api';
-import { startImpersonationAction } from '../../actions';
+import { setGiveToGetExemptionAction, startImpersonationAction } from '../../actions';
 
 const ERRORS = ['FORBIDDEN', 'NOT_FOUND', 'IMPERSONATION_TARGET_INVALID', 'VALIDATION_FAILED', 'generic'] as const;
 const MINUTES = [15, IMPERSONATION_DEFAULT_MINUTES, IMPERSONATION_MAX_MINUTES];
@@ -100,6 +100,22 @@ export default async function TenantPage({
           </dd>
           <dt className="text-muted-foreground">{t('tenant.created')}</dt>
           <dd>{date(a.createdAt)}</dd>
+          <dt className="text-muted-foreground">{t('tenant.giveToGet')}</dt>
+          <dd className="flex flex-wrap items-center gap-2">
+            <span data-testid="tenant-give-to-get">
+              {a.giveToGetExempt ? t('tenant.giveToGetExempt') : t('tenant.giveToGetRequired')}
+            </span>
+            {/* Support roles only (the API refuses data ops too): a buyer-only agency searches without sharing. */}
+            {canImpersonate ? (
+              <form action={setGiveToGetExemptionAction}>
+                <input type="hidden" name="agencyId" value={a.id} />
+                <input type="hidden" name="exempt" value={a.giveToGetExempt ? 'false' : 'true'} />
+                <Button type="submit" variant="outline" size="sm">
+                  {a.giveToGetExempt ? t('tenant.giveToGetEnd') : t('tenant.giveToGetGrant')}
+                </Button>
+              </form>
+            ) : null}
+          </dd>
         </dl>
       </section>
 

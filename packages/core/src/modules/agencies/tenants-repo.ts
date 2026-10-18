@@ -67,12 +67,26 @@ export async function getTenant(tx: Tx, id: string) {
       city: agencies.city,
       region: agencies.region,
       onboarded: sql<boolean>`${agencies.onboardedAt} is not null`,
+      giveToGetExempt: agencies.giveToGetExempt,
       version: agencies.version,
       updatedAt: agencies.updatedAt,
     })
     .from(agencies)
     .where(eq(agencies.id, id));
   return row ?? null;
+}
+
+/**
+ * Staff set or end an agency's give-to-get exemption (S5-05); the guard (migration 0070) lets staff change only this
+ * and the status. The version is left alone: it versions the company details staff verify. False: no such agency.
+ */
+export async function setGiveToGetExempt(tx: Tx, id: string, exempt: boolean, now: Date): Promise<boolean> {
+  const rows = await tx
+    .update(agencies)
+    .set({ giveToGetExempt: exempt, updatedAt: now })
+    .where(eq(agencies.id, id))
+    .returning({ id: agencies.id });
+  return rows.length === 1;
 }
 
 /** Names for a page of ids in one query (the staff audit viewer): unknown ids are simply absent. */

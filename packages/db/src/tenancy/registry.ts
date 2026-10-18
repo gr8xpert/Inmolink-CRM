@@ -36,6 +36,12 @@ interface TenantBase {
   /** Values for NOT NULL columns the isolation suite cannot invent (geometry, check-constrained text, …). */
   base?: SampleRow;
   /**
+   * Columns `app_user` cannot read at all, on any row (S5-05): SELECT is granted on the other columns only (ADR
+   * 0016), like `userSelect.hiddenColumns`. For rows RLS shares with other agencies whose worker-only columns are no
+   * reader's business; workers read them as `app_system`.
+   */
+  hiddenColumns?: readonly string[];
+  /**
    * STRICT only: `app_user` may INSERT its own agency's rows and nothing else (no SELECT, UPDATE or
    * DELETE) — write-only queues such as the outbox. Reads and acknowledgements go through `withSystem()`.
    */
@@ -146,6 +152,13 @@ export type TenantTable = TenantBase &
         kind: 'PUBLIC_READ';
         publicReadSql: string;
         samples: PredicateSamples;
+        /**
+         * Optional: verified agencies (`app_user`) also read rows matching this predicate, as on NETWORK_READ (the
+         * generator adds the same tenant and verified guard). Use an `exists` over a NETWORK_READ table, so the
+         * network side follows that table's policy; the isolation suite seeds no parent row, so it checks the
+         * hidden side, and the owning module tests the readable side.
+         */
+        networkReadSql?: string;
       }
   );
 
@@ -217,7 +230,7 @@ export const tenantTables: Record<string, TenantTable> = {
   agencies: {
     kind: 'STRICT',
     singleRow: true,
-    triggers: ['agencies_guard', 'agencies_directory_sync'],
+    triggers: ['agencies_guard', 'agencies_guard_insert', 'agencies_directory_sync'],
     staff: { select: 'true', update: 'true' },
     auth: {
       select: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
@@ -442,9 +455,16 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // Read models (S5-01): written by the search worker (`withSystem`), read by public paths (`app_public`) only
   // where `public` (a PUBLIC listing, a unit of an OPEN development). Client-safe fields only, by construction.
+  // Network search (S5-05) hydrates its results from them: a verified agency reads another's read model exactly
+  // where it may read the listing or unit itself (the `exists` runs under the reader's RLS on `properties` /
+  // `units`: share scope, preferred agencies, freshness, development access). Readable side tested in search.
   listing_read_models: {
     kind: 'PUBLIC_READ',
     publicReadSql: 'public',
+    // Index-only: who a PRIVATE_NETWORK development is shared with, and a listing's share scope (security review).
+    hiddenColumns: ['share_scope', 'allowed_agency_ids'],
+    networkReadSql: `(kind = 'LISTING' and exists (select 1 from public.properties p where p.id = listing_read_models.target_id))
+      or (kind = 'UNIT' and exists (select 1 from public.units u where u.id = listing_read_models.target_id))`,
     base: {
       kind: 'LISTING',
       locale: 'en',

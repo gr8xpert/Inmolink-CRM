@@ -48,6 +48,7 @@ export const AUDIT_TYPES = [
   'identity.apiKey.revoked',
   'agencies.verification.decided',
   'agencies.profile.updated',
+  'agencies.giveToGet.changed',
   'media.document.uploaded',
   'media.document.opened',
   'media.document.deleted',

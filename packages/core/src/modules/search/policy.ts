@@ -2,7 +2,8 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 
 /** Who may do what in search (PATTERNS §6). Deny by default; services call `assertCan`. */
-export type SearchAction = 'search.read';
+/** `search.network`: network search (S5-05) — owner agencies and commission, so agent side only, never Client Mode. */
+export type SearchAction = 'search.read' | 'search.network';
 
 /** Client Mode is read-only (PATTERNS §6): list every read action here, never a write. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<SearchAction> = new Set<SearchAction>(['search.read']);
@@ -14,6 +15,8 @@ export function can(ctx: Ctx, action: SearchAction, resource?: { agencyId: strin
   switch (action) {
     case 'search.read':
       return sameAgency;
+    case 'search.network':
+      return sameAgency && !ctx.clientMode;
   }
 }
 

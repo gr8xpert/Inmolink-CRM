@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
-import { APP_ROLE_NAMES, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS } from './rls';
+import { APP_ROLE_NAMES, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS, hiddenColumnsOf } from './rls';
 
 /**
  * RLS guard (CI): compares the database with the tenant registry. Returns one message per problem,
@@ -232,10 +232,11 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     }
   }
 
-  // S1-F10: a table with `userSelect` grants app_user SELECT on every column except the hidden ones.
+  // S1-F10, S5-05: a table with `userSelect` or `hiddenColumns` grants app_user SELECT on every column except the
+  // hidden ones.
   for (const [name, def] of Object.entries(registry.tenant)) {
-    if (!def.userSelect || !seen.has(name)) continue;
-    const hidden = def.userSelect.hiddenColumns ?? [];
+    const hidden = hiddenColumnsOf(def);
+    if ((!def.userSelect && hidden.length === 0) || !seen.has(name)) continue;
     const cols = await client.query<{ column: string; readable: boolean }>(
       `select a.attname as column, has_column_privilege('app_user', c.oid, a.attnum, 'SELECT') as readable
          from pg_attribute a join pg_class c on c.oid = a.attrelid

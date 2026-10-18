@@ -109,7 +109,12 @@
       "DEACTIVATED": "Deactivated"
     },
     "recentAudit": "Latest audit entries",
-    "fullAudit": "Full audit log"
+    "fullAudit": "Full audit log",
+    "giveToGet": "Give-to-get",
+    "giveToGetExempt": "Exempt (buyer-only agency)",
+    "giveToGetRequired": "Must share listings to search the network",
+    "giveToGetGrant": "Exempt from give-to-get",
+    "giveToGetEnd": "End exemption"
   },
   "impersonation": {
     "start": "Act as {name}",

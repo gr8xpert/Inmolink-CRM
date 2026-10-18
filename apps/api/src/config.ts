@@ -7,6 +7,7 @@ import {
   httpEnv,
   loadConfigOrExit,
   mediaEnv,
+  networkEnv,
   portVar,
   rateLimitEnv,
   redisEnv,
@@ -18,7 +19,7 @@ import {
 /**
  * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
  * routes (S1-03), `app_auth` for staff login checks (S1-F7, S1-F9), both Redis instances (rate limits on
- * redis-queue, S1-F6), search, object storage (verification documents, media uploads and preview URLs).
+ * redis-queue, S1-F6), search (network search, S5-05), object storage (verification documents, media uploads and preview URLs).
  */
 export const apiEnv = {
   ...coreEnv,
@@ -42,6 +43,10 @@ export const apiEnv = {
   MEILI_URL: searchEnv.MEILI_URL,
   /** Search-only key (S1-F5) — never the master key in a request app. */
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
+  /** Development only (production refuses it in request apps): network search without a provisioned search key. */
+  MEILI_MASTER_KEY: searchEnv.MEILI_MASTER_KEY.optional(),
+  /** Network search give-to-get (S5-05). */
+  ...networkEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */

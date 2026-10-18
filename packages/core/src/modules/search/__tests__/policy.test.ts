@@ -33,4 +33,11 @@ describe('search policy', () => {
     for (const action of CLIENT_MODE_ALLOWED) expect(action).toMatch(/\.(read|list|get)$/);
     expect(can({ ...user, clientMode: true }, 'search.read')).toBe(true);
   });
+
+  it('[S5-05] network search is agent side only: never in Client Mode, never for another agency', () => {
+    expect(can(user, 'search.network')).toBe(true);
+    expect(can({ ...user, clientMode: true }, 'search.network')).toBe(false);
+    expect(can(user, 'search.network', { agencyId: OTHER_AGENCY })).toBe(false);
+    expect(can(ctxAs({ kind: 'system', reason: 'test' }), 'search.network')).toBe(false);
+  });
 });

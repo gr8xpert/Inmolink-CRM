@@ -6,6 +6,7 @@ import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as identity from '../identity';
 import * as properties from '../properties';
+import * as search from '../search';
 
 /**
  * Which dashboard areas each module's policy opens to the caller (S1-10). A section is listed when the
@@ -13,6 +14,8 @@ import * as properties from '../properties';
  */
 const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boolean]> = [
   ['listings', (ctx) => properties.can(ctx, 'listing.read')],
+  // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
+  ['network', (ctx) => search.can(ctx, 'search.network')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).
   ['developments', (ctx) => developments.can(ctx, 'development.create')],
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
