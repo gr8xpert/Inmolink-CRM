@@ -177,6 +177,13 @@ export const ErrorCodes = {
   /** A run of this connection is already queued or running (one at a time per connection). */
   FEED_RUN_ACTIVE: 409,
   FEED_CONNECTION_DISABLED: 409,
+  // generic XML mapper (S6-04)
+  /** The sample is not XML we can read (not XML by its first bytes, malformed, a DTD, no records). */
+  FEED_SAMPLE_INVALID: 422,
+  /** The mapping is invalid (unknown field, bad path, no reference or property type). */
+  FEED_MAPPING_INVALID: 422,
+  /** The connector needs a mapping profile and the connection has none. */
+  FEED_MAPPING_REQUIRED: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

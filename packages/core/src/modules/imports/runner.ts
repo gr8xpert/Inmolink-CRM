@@ -6,7 +6,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { isSafeFetchError } from '@inmolink/platform/safe-fetch';
 import { isXmlStreamError } from '@inmolink/platform/xml';
 import { decryptCredentials, RUNS } from './config';
-import { type ConnectorContext, FeedHttpStatusError, getConnector } from './connectors';
+import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
 import { importsEvents } from './events';
 import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
@@ -63,6 +63,7 @@ export function classifyRunError(err: unknown): Classified {
   if (err instanceof FeedHttpStatusError) {
     return { code: 'FEED_HTTP_STATUS', retryable: err.status >= 500 || err.status === 429 || err.status === 408 };
   }
+  if (err instanceof FeedMappingError) return { code: 'FEED_MAPPING_INVALID', retryable: false };
   if (isXmlStreamError(err)) {
     return err.code === 'DOCTYPE_NOT_ALLOWED'
       ? { code: 'FEED_DTD_NOT_ALLOWED', retryable: false }

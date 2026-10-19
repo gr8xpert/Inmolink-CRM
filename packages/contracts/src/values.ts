@@ -89,3 +89,43 @@ export const DEVELOPMENT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 export const MAX_UNITS_PER_DEVELOPMENT = 2_000;
 /** Units per bulk create or bulk edit. */
 export const MAX_UNITS_PER_BULK = 500;
+
+/** S6-04: connector key of the profile-driven generic XML connector. */
+export const XML_MAPPED_CONNECTOR = 'xml-mapped';
+
+/** S6-04: the scalar fields a generic XML mapping fills (`XmlMapping.fields`); `ref` and `propertyType` are required. */
+export const XML_MAPPED_FIELDS = [
+  'ref',
+  'propertyType',
+  'transactionType',
+  'status',
+  'price',
+  'currency',
+  'pricePeriod',
+  'builtM2',
+  'plotM2',
+  'terraceM2',
+  'bedrooms',
+  'bathrooms',
+  'yearBuilt',
+  'energyRating',
+  'energyEmissionsRating',
+  'latitude',
+  'longitude',
+  'country',
+  'region',
+  'city',
+  'area',
+] as const;
+export type XmlMappedField = (typeof XML_MAPPED_FIELDS)[number];
+/** Fields whose values are a fixed set of words: the mapper offers a value translation for them. */
+export const XML_MAPPED_ENUM_FIELDS = {
+  transactionType: ['SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM'],
+  status: ['ACTIVE', 'UNDER_OFFER', 'SOLD', 'RENTED'],
+  pricePeriod: ['NIGHT', 'WEEK', 'MONTH'],
+  energyRating: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'EXEMPT', 'PENDING'],
+  energyEmissionsRating: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'EXEMPT', 'PENDING'],
+} as const;
+
+/** The sample the visual mapper reads: at most this many bytes (an upload over it is refused, a URL is cut off). */
+export const MAPPER_SAMPLE = { maxBytes: 2 * 1024 * 1024, maxRecords: 25, maxPaths: 300, maxCandidates: 12 } as const;

@@ -8,6 +8,7 @@ export {
   type FeedConnector,
   FeedHttpStatusError,
   type FeedItemProblem,
+  FeedMappingError,
   type FeedRecord,
   type FeedSource,
   getConnector,
@@ -32,6 +33,16 @@ export {
   type SinkRun,
   sourceOf,
 } from './load';
+export {
+  createMappingProfile,
+  dryRunMapping,
+  getMappingProfile,
+  listMappingProfiles,
+  previewMapping,
+  sampleFromUpload,
+  sampleFromUrl,
+  updateMappingProfile,
+} from './mapper';
 export type { ItemError, PendingBatch, PipelineTotals, ValidItem } from './pipeline';
 export { CLIENT_MODE_ALLOWED, can, IMPORTS_ACTIONS, IMPORTS_IMPERSONATION, type ImportsAction } from './policy';
 export { classifyRunError, executeRun, LeaseLostError, type RunOutcome } from './runner';
@@ -47,4 +58,5 @@ export {
   updateFeedConnection,
 } from './service';
 export { registerImportsSubscriptions } from './subscriptions';
+export { xmlMappedConnector } from './xml-mapped/connector';
 // Never export repo or schema from index.

@@ -9,4 +9,7 @@ export const importsErrors = [
   'FEED_URL_NOT_ALLOWED',
   'FEED_RUN_ACTIVE',
   'FEED_CONNECTION_DISABLED',
+  'FEED_SAMPLE_INVALID',
+  'FEED_MAPPING_INVALID',
+  'FEED_MAPPING_REQUIRED',
 ] as const satisfies readonly ErrorCode[];

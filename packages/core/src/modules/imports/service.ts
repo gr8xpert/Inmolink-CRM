@@ -109,8 +109,15 @@ function checkedUrl(url: string): string {
   }
 }
 
-async function assertMappingProfile(ctx: Ctx, id: string | null | undefined): Promise<void> {
-  if (id && !(await repo.mappingProfileExists(ctx.tx, id))) throw new AppError('FEED_MAPPING_PROFILE_NOT_FOUND');
+/** A profile belongs to one connector; connectors that need one (generic XML) are refused without (S6-04). */
+async function assertMappingProfile(ctx: Ctx, connector: string, id: string | null | undefined): Promise<void> {
+  if (id) {
+    const profileConnector = await repo.profileConnector(ctx.tx, id);
+    if (profileConnector === null) throw new AppError('FEED_MAPPING_PROFILE_NOT_FOUND');
+    if (profileConnector !== connector) throw new AppError('FEED_MAPPING_INVALID', { reason: 'WRONG_CONNECTOR' });
+  } else if (getConnector(connector)?.requiresMapping && id !== undefined) {
+    throw new AppError('FEED_MAPPING_REQUIRED');
+  }
 }
 
 const nextRun = (enabled: boolean, scheduleMinutes: number | null) =>
@@ -120,7 +127,7 @@ const nextRun = (enabled: boolean, scheduleMinutes: number | null) =>
  * Credentials (header, basic or query key) are only ever sent over https: a plain-http feed may not keep any
  * (local fixture servers allowed by a test excepted).
  */
-function assertSecretsOverTls(url: string, hasCredentials: boolean): void {
+export function assertSecretsOverTls(url: string, hasCredentials: boolean): void {
   if (hasCredentials && new URL(url).protocol !== 'https:' && !isTestOrigin(url)) {
     throw new AppError('FEED_URL_NOT_ALLOWED', { reason: 'CREDENTIALS_NEED_HTTPS' });
   }
@@ -132,7 +139,10 @@ export async function createFeedConnection(ctx: Ctx, input: CreateFeedConnection
   if (!getConnector(input.connector)) throw new AppError('FEED_CONNECTOR_UNKNOWN');
   const url = checkedUrl(input.url);
   assertSecretsOverTls(url, Boolean(input.credentials));
-  await assertMappingProfile(ctx, input.mappingProfileId);
+  if (getConnector(input.connector)?.requiresMapping && !input.mappingProfileId) {
+    throw new AppError('FEED_MAPPING_REQUIRED');
+  }
+  await assertMappingProfile(ctx, input.connector, input.mappingProfileId);
   const id = newId();
   const agencyId = ctx.tenant.agencyId;
   const enabled = input.enabled ?? true;
@@ -196,7 +206,7 @@ export async function updateFeedConnection(
   if (!current) throw new AppError('FEED_CONNECTION_NOT_FOUND');
   assertCan(ctx, 'imports.manage', current);
   if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
-  await assertMappingProfile(ctx, input.mappingProfileId);
+  await assertMappingProfile(ctx, current.connector, input.mappingProfileId);
   const enabled = input.enabled ?? current.enabled;
   const scheduleMinutes = input.scheduleMinutes === undefined ? current.scheduleMinutes : input.scheduleMinutes;
   const replan = enabled !== current.enabled || scheduleMinutes !== current.scheduleMinutes;

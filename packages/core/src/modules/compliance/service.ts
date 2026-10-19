@@ -62,6 +62,8 @@ export const AUDIT_TYPES = [
   'developments.priceList.approved',
   'imports.connection.created',
   'imports.connection.changed',
+  'imports.mappingProfile.created',
+  'imports.mappingProfile.changed',
   'imports.connection.deleted',
   'imports.run.requested',
   'staff.impersonation.started',
@@ -86,7 +88,8 @@ export interface AuditTarget {
     | 'unit'
     | 'priceList'
     | 'developmentDocument'
-    | 'feedConnection';
+    | 'feedConnection'
+    | 'feedMappingProfile';
   id: string;
 }
 

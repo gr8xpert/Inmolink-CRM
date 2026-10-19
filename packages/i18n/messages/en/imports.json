@@ -63,7 +63,8 @@
     "FEED_LEASE_EXPIRED": "The import stopped unexpectedly; it will run again at the next scheduled time.",
     "FEED_NEVER_STARTED": "The import did not start in time.",
     "FEED_NO_OWNER": "No active member of your agency can own the imported listings. Ask an admin to check the team.",
-    "INTERNAL": "Something went wrong on our side."
+    "INTERNAL": "Something went wrong on our side.",
+    "FEED_MAPPING_INVALID": "The mapping profile of this feed is missing or no longer valid. Open the mapper and save it again."
   },
   "notices": {
     "queued": "The run was queued; it starts in a moment.",
@@ -79,14 +80,17 @@
     "VALIDATION_FAILED": "The request was not valid.",
     "FEED_URL_NOT_ALLOWED": "This address is not allowed (private or internal networks are refused).",
     "VERSION_CONFLICT": "Someone else changed this feed. Reload and try again.",
-    "FEED_CONNECTOR_UNKNOWN": "This feed format is not available."
+    "FEED_CONNECTOR_UNKNOWN": "This feed format is not available.",
+    "FEED_MAPPING_REQUIRED": "Choose a mapping profile for a generic XML feed.",
+    "FEED_MAPPING_INVALID": "This mapping profile is not valid for this feed format.",
+    "FEED_MAPPING_PROFILE_NOT_FOUND": "This mapping profile no longer exists."
   },
   "form": {
-    "connect": "Connect a Kyero feed",
+    "connect": "Connect a feed",
     "edit": "Edit feed",
-    "createTitle": "Connect a Kyero feed",
+    "createTitle": "Connect a feed",
     "editTitle": "Edit {name}",
-    "intro": "Paste the address of your Kyero (v3) XML feed. Listings are imported on the schedule you choose; values we cannot match to our locations, types or features hold the listing as a draft until our team maps them.",
+    "intro": "Choose the format and paste the address of your feed. Listings are imported on the schedule you choose; values we cannot match to our locations, types or features hold the listing as a draft until our team maps them.",
     "name": "Name",
     "url": "Feed address (URL)",
     "urlHint": "An http or https address. Feeds on private or internal networks are refused.",
@@ -107,14 +111,138 @@
     "countryHint": "Kyero feeds do not state a country. Leave empty for Spain.",
     "schedule": "Import",
     "schedules": {
-      "manual": "Manually only",
       "60": "Every hour",
       "360": "Every 6 hours",
-      "1440": "Every day"
+      "1440": "Every day",
+      "manual": "Manually only"
     },
     "enabled": "Feed is on",
     "create": "Connect feed",
     "save": "Save changes",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "format": "Format",
+    "formats": {
+      "kyero": "Kyero (v3 XML)",
+      "xml-mapped": "Any XML feed (mapped)"
+    },
+    "profile": "Mapping profile",
+    "noProfile": "No profile (Kyero feeds)",
+    "profileHint": "Generic XML feeds need the profile you saved in the mapper.",
+    "openMapper": "Open the mapper"
+  },
+  "mapper": {
+    "open": "Map an XML feed",
+    "title": "Map an XML feed",
+    "back": "All feeds",
+    "intro": "Connect any XML export without code: read a sample, pick where each listing field lives in it, check the result and save the mapping. Nothing is imported until you connect a feed with the saved profile.",
+    "step1": "1. Read a sample",
+    "sampleHint": "Upload an XML file or give the address of the feed. Only the first {mb} MB are read.",
+    "upload": "XML file",
+    "readFile": "Read the file",
+    "fromUrl": "Or the address of the feed",
+    "readUrl": "Read the address",
+    "step2": "2. The listing element",
+    "detected": "The feed repeats the element {element}; {count} of them are in the sample.",
+    "truncated": "The sample was cut at the size limit.",
+    "recordElement": "Element that holds one listing",
+    "step3": "3. Where does each field come from?",
+    "fieldsHint": "Pick the path in the sample for each field. The values found there are shown below the picker. Only the reference and the property type are required.",
+    "decimalSeparator": "Numbers are written with",
+    "decimalPoint": "a decimal point (1250.50)",
+    "decimalComma": "a decimal comma (1.250,50)",
+    "notMapped": "Not mapped",
+    "constant": "A fixed text for every listing",
+    "constantFor": "Fixed text for {field}",
+    "repeats": "repeats",
+    "translate": "Translate the words of the feed into ours ({values}).",
+    "translateExample": "venta = SALE",
+    "separator": "Separator inside the text (optional)",
+    "lists": {
+      "features": "Features",
+      "images": "Image addresses"
+    },
+    "translations": "Titles and descriptions",
+    "locale": "Language",
+    "text": {
+      "title": "Title",
+      "description": "Description"
+    },
+    "addLanguage": "Add a language",
+    "removeLanguage": "Remove the last language",
+    "fields": {
+      "ref": "Reference",
+      "propertyType": "Property type",
+      "transactionType": "Sale or rental",
+      "status": "Status",
+      "price": "Price",
+      "currency": "Currency",
+      "pricePeriod": "Price period (rentals)",
+      "builtM2": "Built area (m2)",
+      "plotM2": "Plot area (m2)",
+      "terraceM2": "Terrace area (m2)",
+      "bedrooms": "Bedrooms",
+      "bathrooms": "Bathrooms",
+      "yearBuilt": "Year built",
+      "energyRating": "Energy rating",
+      "energyEmissionsRating": "Emissions rating",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "country": "Country",
+      "region": "Region or province",
+      "city": "City or town",
+      "area": "Area or neighbourhood"
+    },
+    "step4": "4. Preview",
+    "needRequired": "Pick the reference and the property type to see the listings.",
+    "loading": "Reading the sample listings...",
+    "preview": {
+      "ref": "Reference",
+      "what": "Listing",
+      "price": "Price",
+      "where": "Location",
+      "result": "Result",
+      "ok": "Valid"
+    },
+    "step5": "5. Dry run",
+    "dryRunHint": "Shows what an import of the sample would do, without writing anything: which listings would be created or updated, held as drafts or refused, and which locations, types or features we cannot match yet.",
+    "dryRun": "Run a dry run",
+    "report": {
+      "summary": "{total} listings read: {created} would be created, {updated} updated, {held} held as drafts, {refused} refused.",
+      "refused": "Refused",
+      "unmatched": "Values without a match",
+      "unmatchedHint": "Our team maps these; listings that use them are held as drafts until then.",
+      "kinds": {
+        "location": "Location",
+        "propertyType": "Property type",
+        "feature": "Feature"
+      }
+    },
+    "step6": "6. Save the mapping",
+    "profileName": "Name of the mapping profile",
+    "save": "Save the profile",
+    "saveHint": "After saving you connect the feed with this profile and choose how often it is imported.",
+    "errors": {
+      "generic": "Something went wrong. Please try again.",
+      "FORBIDDEN": "Only agency admins can map feeds.",
+      "VALIDATION_FAILED": "The request was not valid.",
+      "FEED_URL_NOT_ALLOWED": "This address is not allowed (private or internal networks are refused).",
+      "FEED_SAMPLE_INVALID": "This sample cannot be read as an XML feed.",
+      "FEED_MAPPING_INVALID": "The mapping is not valid yet. Check the paths and the required fields.",
+      "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
+      "RATE_LIMITED": "Too many samples at once. Wait a moment and try again.",
+      "PAYLOAD_TOO_LARGE": "The file is larger than the sample limit.",
+      "UNSUPPORTED_MEDIA_TYPE": "Send the file as XML.",
+      "reason": {
+        "NOT_XML": "The file does not start like an XML document.",
+        "EMPTY": "The file is empty.",
+        "NO_RECORDS": "No repeating listing element was found.",
+        "DOCTYPE_NOT_ALLOWED": "Documents with a DTD or entities are refused for security.",
+        "MALFORMED": "The XML is not well-formed.",
+        "CONTENT_TYPE": "The address did not return XML.",
+        "HTTP_404": "The address was not found.",
+        "HTTP_401": "The feed asked for a login.",
+        "HTTP_403": "The feed refused access."
+      }
+    }
   }
 }

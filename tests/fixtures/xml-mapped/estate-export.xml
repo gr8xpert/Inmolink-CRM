@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A non-Kyero export (S6-04): attributes, nested groups, European number format, Spanish deal words. -->
+<estate-export generated="2026-10-19">
+  <meta>
+    <vendor>Casa Datos CRM</vendor>
+    <currency-note>prices as shown</currency-note>
+  </meta>
+  <objects>
+    <object code="CD-1001">
+      <deal>venta</deal>
+      <category>E2E Villa</category>
+      <place>
+        <nation>E2E Listland</nation>
+        <town>Seaside</town>
+      </place>
+      <price currency="EUR">1.250.000,00</price>
+      <rooms><bed>4</bed><bath>3</bath></rooms>
+      <size><living>180,5</living><plot>800</plot></size>
+      <geo lat="36.5100" lon="-4.8800"/>
+      <tags><tag>E2E Pool</tag><tag>Sea view</tag></tags>
+      <photos>
+        <photo url="https://images.example.com/cd-1001/1.jpg"/>
+        <photo url="https://images.example.com/cd-1001/2.jpg"/>
+      </photos>
+      <title_en>Villa with pool by the sea</title_en>
+      <body_en>&lt;p&gt;Bright villa, four bedrooms.&lt;/p&gt;</body_en>
+      <title_es>Villa con piscina junto al mar</title_es>
+      <body_es>Villa luminosa de cuatro dormitorios.</body_es>
+    </object>
+    <object code="CD-1002">
+      <deal>alquiler</deal>
+      <category>E2E Villa</category>
+      <place>
+        <nation>E2E Listland</nation>
+        <town>Seaside</town>
+      </place>
+      <price currency="EUR">2.400,00</price>
+      <rooms><bed>2</bed><bath>1</bath></rooms>
+      <size><living>95</living><plot>0</plot></size>
+      <tags><tag>E2E Pool</tag></tags>
+      <title_en>Seaside rental</title_en>
+      <body_en>Long let, furnished.</body_en>
+    </object>
+    <object code="CD-1003">
+      <deal>venta</deal>
+      <category>E2E Villa</category>
+      <place>
+        <nation>E2E Listland</nation>
+        <town>Seaside</town>
+      </place>
+      <price currency="EUR">on request soon</price>
+      <rooms><bed>3</bed><bath>2</bath></rooms>
+      <title_en>Price not a number</title_en>
+    </object>
+    <object code="CD-1004">
+      <deal>venta</deal>
+      <category>E2E Villa</category>
+      <place>
+        <nation>E2E Listland</nation>
+        <town>Hillview</town>
+      </place>
+      <price currency="EUR">345.000,50</price>
+      <rooms><bed>3</bed><bath>2</bath></rooms>
+      <size><living>120</living><plot>300</plot></size>
+      <geo lat="36.6000" lon="-4.9000"/>
+      <tags><tag>E2E Pool</tag></tags>
+      <photos><photo url="https://images.example.com/cd-1004/1.jpg"/></photos>
+      <title_en>Hillview house</title_en>
+      <body_en>Quiet street.</body_en>
+    </object>
+  </objects>
+</estate-export>

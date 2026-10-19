@@ -17,6 +17,7 @@ import {
   type CreateDevelopmentBody,
   type CreateFeedConnectionBody,
   type CreateListingBody,
+  type CreateMappingProfileBody,
   type CreatePriceListBody,
   type CreateUnitsBody,
   type DecideVerificationBody,
@@ -55,6 +56,14 @@ import {
   type ListingViewBody,
   ListingViewDto,
   ListingViewList,
+  type MapperDryRunBody,
+  MapperDryRunDto,
+  type MapperPreviewBody,
+  MapperPreviewDto,
+  MapperSampleDto,
+  type MapperSampleUrlBody,
+  MappingProfileDto,
+  MappingProfilePage,
   MeDto,
   type MediaCheckBody,
   MediaCheckResult,
@@ -1282,4 +1291,56 @@ export function requestFeedRun(session: SessionRef, connectionId: string): Promi
   return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(connectionId)}/runs`, FeedRunDto, {
     method: 'POST',
   });
+}
+
+// ── Generic XML mapper (S6-04) ───────────────────────────────────────────────────────────────────────────────
+
+/** The head of a feed URL: the API fetches it (SSRF-checked) and detects the records. */
+export function sampleFromUrl(session: SessionRef, body: MapperSampleUrlBody): Promise<ApiResult<MapperSampleDto>> {
+  return apiRequest(session, '/v1/imports/mapper/sample-url', MapperSampleDto, {
+    method: 'POST',
+    body,
+    timeoutMs: 30_000,
+  });
+}
+
+/** An uploaded XML sample as a raw body; the API checks its first bytes. */
+export function uploadMapperSample(
+  session: SessionRef,
+  bytes: Uint8Array,
+  recordElement?: string,
+): Promise<ApiResult<MapperSampleDto>> {
+  const qs = new URLSearchParams(recordElement ? { recordElement } : {});
+  return apiRequest(session, `/v1/imports/mapper/sample?${qs}`, MapperSampleDto, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/xml' },
+    timeoutMs: 30_000,
+  });
+}
+
+export function previewMapperMapping(
+  session: SessionRef,
+  body: MapperPreviewBody,
+): Promise<ApiResult<MapperPreviewDto>> {
+  return apiRequest(session, '/v1/imports/mapper/preview', MapperPreviewDto, { method: 'POST', body });
+}
+
+export function dryRunMapperMapping(session: SessionRef, body: MapperDryRunBody): Promise<ApiResult<MapperDryRunDto>> {
+  return apiRequest(session, '/v1/imports/mapper/dry-run', MapperDryRunDto, {
+    method: 'POST',
+    body,
+    timeoutMs: 30_000,
+  });
+}
+
+export function createMappingProfile(
+  session: SessionRef,
+  body: CreateMappingProfileBody,
+): Promise<ApiResult<MappingProfileDto>> {
+  return apiRequest(session, '/v1/imports/mapping-profiles', MappingProfileDto, { method: 'POST', body });
+}
+
+/** The agency's mapping profiles (the connection form's profile picker). */
+export function fetchMappingProfiles(session: SessionRef): Promise<ApiResult<MappingProfilePage>> {
+  return apiRequest(session, `/v1/imports/mapping-profiles?${page(undefined, 100)}`, MappingProfilePage);
 }

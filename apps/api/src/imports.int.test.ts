@@ -116,4 +116,117 @@ describe('feed import routes', () => {
       expect(res.json(), url).toMatchObject({ error: { code: 'FEED_URL_NOT_ALLOWED' } });
     }
   });
+
+  it('[S6-04] the mapper routes: an XML upload is read by its bytes, a profile is saved, a mapping is previewed and dry-run, non-XML and private URLs are refused', async () => {
+    const owner = await createFounder();
+    const headers = await bearer(owner.userId, owner.agencyId);
+    const xml = `<?xml version="1.0"?><feed>${[1, 2, 3]
+      .map((i) => `<item code="A${i}"><kind>Villa</kind><cost>${i}00000</cost><town>Nowhere</town></item>`)
+      .join('')}</feed>`;
+
+    const sample = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/sample',
+      headers: { ...headers, 'content-type': 'application/xml' },
+      payload: xml,
+    });
+    expect(sample.statusCode).toBe(200);
+    const body = sample.json() as {
+      recordElement: string;
+      recordCount: number;
+      paths: { path: string }[];
+      records: unknown[];
+    };
+    expect(body).toMatchObject({ recordElement: 'item', recordCount: 3 });
+    expect(body.paths.map((p) => p.path)).toEqual(expect.arrayContaining(['@code', 'kind', 'cost', 'town']));
+
+    // not XML: refused by its first bytes, whatever the declared type says
+    const zip = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/sample',
+      headers: { ...headers, 'content-type': 'application/xml' },
+      payload: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x3c, 0x61, 0x3e]),
+    });
+    expect(zip.statusCode).toBe(422);
+    expect(zip.json()).toMatchObject({ error: { code: 'FEED_SAMPLE_INVALID' } });
+    const json = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/sample',
+      headers: { ...headers, 'content-type': 'application/json' },
+      payload: { a: 1 },
+    });
+    expect(json.statusCode).toBeGreaterThanOrEqual(400);
+
+    const mapping = {
+      schemaVersion: 1,
+      recordElement: 'item',
+      fields: {
+        ref: { path: '@code' },
+        propertyType: { path: 'kind' },
+        price: { path: 'cost' },
+        city: { path: 'town' },
+      },
+    };
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/preview',
+      headers,
+      payload: { mapping, records: body.records },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect((preview.json() as { items: { ref: string; listing: { priceCents: number } }[] }).items[0]).toMatchObject({
+      ref: 'A1',
+      listing: { priceCents: 10_000_000 },
+    });
+    const dry = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/dry-run',
+      headers,
+      payload: { mapping, records: body.records },
+    });
+    expect(dry.statusCode).toBe(200);
+    expect(dry.json()).toMatchObject({ total: 3, valid: 3, wouldCreate: 3, comparedWithConnection: false });
+
+    // an invalid mapping is a validation error, a saved one comes back and is listed
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapping-profiles',
+      headers,
+      payload: {
+        name: 'Bad',
+        mapping: { ...mapping, fields: { ref: { path: '../x' }, propertyType: { path: 'kind' } } },
+      },
+    });
+    expect(invalid.statusCode).toBe(422);
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapping-profiles',
+      headers,
+      payload: { name: 'Items feed', mapping },
+    });
+    expect(saved.statusCode).toBe(201);
+    const profile = saved.json() as { id: string; connector: string };
+    expect(profile.connector).toBe('xml-mapped');
+    const listed = await app.inject({ method: 'GET', url: '/v1/imports/mapping-profiles', headers });
+    expect((listed.json() as { items: { id: string }[] }).items.map((p) => p.id)).toContain(profile.id);
+    // another agency neither sees it nor can attach it
+    const stranger = await createFounder();
+    const theirs = await app.inject({
+      method: 'GET',
+      url: `/v1/imports/mapping-profiles/${profile.id}`,
+      headers: await bearer(stranger.userId, stranger.agencyId),
+    });
+    expect(theirs.statusCode).toBe(422);
+    expect(theirs.json()).toMatchObject({ error: { code: 'FEED_MAPPING_PROFILE_NOT_FOUND' } });
+
+    // a private address is never fetched for a sample
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/mapper/sample-url',
+      headers,
+      payload: { url: 'http://169.254.169.254/latest/meta-data' },
+    });
+    expect(blocked.statusCode).toBe(422);
+    expect(blocked.json()).toMatchObject({ error: { code: 'FEED_URL_NOT_ALLOWED' } });
+  });
 });

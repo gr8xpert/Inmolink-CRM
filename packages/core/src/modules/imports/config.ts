@@ -75,4 +75,6 @@ export const RUNS = {
 export const FEED_FETCH = {
   TIMEOUT_MS: 20 * 60_000,
   MAX_BYTES: 500 * 1024 * 1024,
+  /** The mapper's sample fetch (a request, not a run): short deadline (S6-04). */
+  SAMPLE_TIMEOUT_MS: 15_000,
 } as const;

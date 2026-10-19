@@ -340,3 +340,20 @@ export function pruneImportSeen(tx: Tx, before: Date, limit: number): Promise<nu
 export function lockListingsForFeedImages(tx: Tx, agencyId: string, ids: readonly string[]): Promise<string[]> {
   return repo.lockLive(tx, agencyId, ids);
 }
+
+/**
+ * Which of these feed references a connection has imported already (live listings only): the mapper's dry run
+ * reports them as "would update", the others as "would create". Read-only, one statement for the whole list.
+ */
+export async function existingImportRefs(
+  tx: Tx,
+  scope: { agencyId: string; source: string; connectionId: string },
+  refs: readonly string[],
+): Promise<Set<string>> {
+  const rows = await repo.existingByRefs(
+    tx,
+    { agencyId: scope.agencyId, externalSource: `${scope.source}:${scope.connectionId}` },
+    refs,
+  );
+  return new Set(rows.filter((r) => r.live).map((r) => r.ref));
+}

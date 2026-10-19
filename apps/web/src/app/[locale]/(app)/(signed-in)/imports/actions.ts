@@ -32,12 +32,19 @@ const KNOWN_ERRORS = [
   'FEED_URL_NOT_ALLOWED',
   'VERSION_CONFLICT',
   'FEED_CONNECTOR_UNKNOWN',
+  'FEED_MAPPING_REQUIRED',
+  'FEED_MAPPING_INVALID',
+  'FEED_MAPPING_PROFILE_NOT_FOUND',
 ] as const;
 
 const text = (form: FormData, name: string) => {
   const v = form.get(name);
   return typeof v === 'string' ? v.trim() : '';
 };
+
+/** The formats a connection can be created with from this form. */
+const CONNECTORS = new Set(['kyero', 'xml-mapped']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SCHEDULES = new Set(['60', '360', '1440']);
 const scheduleOf = (form: FormData) => {
@@ -89,19 +96,22 @@ export async function runNowAction(form: FormData): Promise<void> {
   return back({ error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
 }
 
-/** Connect a Kyero feed (admins): back to the list on success, to the form with the error code otherwise. */
+/** Connect a feed: Kyero, or generic XML with a mapping profile (admins): back to the list on success, to the form with the error code otherwise. */
 export async function createConnectionAction(form: FormData): Promise<void> {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
   const locale = await getLocale();
   const to = (href: string, query: Record<string, string>): never =>
     redirect(`${getPathname({ href, locale })}?${new URLSearchParams(query)}`);
+  const connector = CONNECTORS.has(text(form, 'connector')) ? text(form, 'connector') : 'kyero';
+  const profile = UUID.test(text(form, 'mappingProfileId')) ? text(form, 'mappingProfileId') : undefined;
   const parsed = CreateFeedConnectionBody.safeParse({
     name: text(form, 'name'),
-    connector: 'kyero',
+    connector,
     url: text(form, 'url'),
     credentials: credentialsOf(form),
-    settings: kyeroSettings(form),
+    settings: connector === 'kyero' ? kyeroSettings(form) : {},
+    ...(profile ? { mappingProfileId: profile } : {}),
     scheduleMinutes: scheduleOf(form),
     enabled: form.get('enabled') === 'on',
   });
@@ -132,7 +142,10 @@ export async function updateConnectionAction(form: FormData): Promise<void> {
     name: text(form, 'name'),
     url: text(form, 'url'),
     credentials: credentialsOf(form),
-    settings: { ...otherSettings, ...kyeroSettings(form) },
+    settings: current.data.connector === 'kyero' ? { ...otherSettings, ...kyeroSettings(form) } : current.data.settings,
+    ...(current.data.connector === 'xml-mapped' && UUID.test(text(form, 'mappingProfileId'))
+      ? { mappingProfileId: text(form, 'mappingProfileId') }
+      : {}),
     scheduleMinutes: scheduleOf(form),
     enabled: form.get('enabled') === 'on',
   });

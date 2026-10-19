@@ -1,4 +1,4 @@
-import type { FeedCredentials, FeedSettings } from '@inmolink/contracts';
+import { type FeedCredentials, FeedListing, type FeedSettings } from '@inmolink/contracts';
 import { type SafeFetchOptions, safeFetch } from '@inmolink/platform/safe-fetch';
 import { streamXmlRecords, type XmlElement, type XmlStreamOptions } from '@inmolink/platform/xml';
 import { FEED_FETCH } from './config';
@@ -53,6 +53,8 @@ export type MapResult<Item> =
 export interface FeedConnector<Raw = unknown, Item = unknown> {
   /** Registry key, stored on the connection (`kyero`, `generic-xml`). */
   key: string;
+  /** The connection needs a mapping profile (generic XML): creating one without is refused. */
+  requiresMapping?: boolean;
   /** Opens the feed. Most connectors use `httpSource(ctx, { contentTypes })`. */
   fetch(ctx: ConnectorContext): Promise<FeedSource>;
   /** Streams records out of the source. Must not buffer the whole document. */
@@ -145,4 +147,23 @@ export async function* xmlRecords(
 ): AsyncGenerator<FeedRecord<XmlElement>> {
   let position = 0;
   for await (const raw of streamXmlRecords(source.body, options)) yield { position: position++, raw };
+}
+
+/** Thrown by a profile-driven connector whose mapping is missing or invalid (the run fails with `FEED_MAPPING_INVALID`). */
+export class FeedMappingError extends Error {
+  override readonly name = 'FeedMappingError';
+  constructor() {
+    super('the connection has no valid mapping profile');
+  }
+}
+
+/** The shared `validate` of connectors that produce `FeedListing`s: the contract's own checks, first five issues. */
+export function feedListingProblems(item: unknown): FeedItemProblem[] {
+  const parsed = FeedListing.safeParse(item);
+  if (parsed.success) return [];
+  return parsed.error.issues.slice(0, 5).map((i) => ({
+    code: 'INVALID_FIELD',
+    field: i.path.map(String).join('.') || undefined,
+    message: i.message.slice(0, 200),
+  }));
 }

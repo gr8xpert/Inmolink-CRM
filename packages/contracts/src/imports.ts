@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { CurrencyCode, PageQuery, pageOf } from './common';
 import { MEDIA_PER_LISTING_MAX } from './media';
 import { CeeRating, ContentLocaleCode, LocationPrecision, PricePeriod, TransactionType } from './properties';
+import { MAPPER_SAMPLE, XML_MAPPED_CONNECTOR } from './values';
+
+export { XML_MAPPED_CONNECTOR };
 
 /** Connector keys are code-registry names (`kyero`, `generic-xml`, …; S6-03+). */
 export const FeedConnectorKey = z.string().regex(/^[a-z][a-z0-9-]{1,31}$/, 'a connector key such as kyero');
@@ -200,6 +203,7 @@ export const FEED_RUN_ERROR_CODES = [
   'FEED_DTD_NOT_ALLOWED',
   'FEED_MALFORMED',
   'FEED_CONNECTOR_UNKNOWN',
+  'FEED_MAPPING_INVALID',
   'FEED_CONNECTION_DISABLED',
   'FEED_LEASE_EXPIRED',
   'FEED_NEVER_STARTED',
@@ -318,3 +322,235 @@ export const FeedLoaderSettings = z.object({
   withdrawAfterMissedRuns: z.number().int().min(1).max(100).optional(),
 });
 export type FeedLoaderSettings = z.infer<typeof FeedLoaderSettings>;
+
+// ── Generic XML connector and visual mapper (S6-04) ────────────────────────────────────────────────────────────
+
+const NAME = '[A-Za-z_][A-Za-z0-9_.:-]{0,63}';
+/**
+ * A path from the record element down: element names separated by `/`, the last one may be an attribute (`@id`);
+ * `@id` alone is an attribute of the record element itself. No wildcards, no indexes: every element with that
+ * path is read (a repeated element gives several values).
+ */
+const PATH_RE = new RegExp(`^(?:@${NAME}|${NAME}(?:/${NAME}){0,7}(?:/@${NAME})?)$`);
+export const XmlPath = z.string().trim().max(300).regex(PATH_RE, 'a path such as price, location/lat or @id');
+export type XmlPath = z.infer<typeof XmlPath>;
+const ElementName = z.string().regex(new RegExp(`^${NAME}$`), 'an element name');
+
+const ValueMap = z
+  .record(z.string().min(1).max(120), z.string().max(200))
+  .refine((v) => Object.keys(v).length <= 100, 'at most 100 value translations');
+
+/** Where one value comes from: a path in the record, or a constant; `map` translates the feed's words (case-insensitive). */
+export const MappedValue = z
+  .object({
+    path: XmlPath.optional(),
+    constant: z.string().trim().min(1).max(200).optional(),
+    map: ValueMap.optional(),
+  })
+  .strict()
+  .refine((v) => (v.path === undefined) !== (v.constant === undefined), 'give either a path or a constant');
+export type MappedValue = z.infer<typeof MappedValue>;
+
+const ListSource = z.object({ path: XmlPath, separator: z.string().min(1).max(3).optional() }).strict();
+
+/** A mapping profile of the `xml-mapped` connector: paths relative to the record element. */
+export const XmlMapping = z
+  .object({
+    schemaVersion: z.literal(1),
+    /** The repeating element, as written in the document (`property`, `g:item`). */
+    recordElement: ElementName,
+    /** `point`: 1250.50; `comma`: 1.250,50 (the point groups thousands). */
+    decimalSeparator: z.enum(['point', 'comma']).default('point'),
+    /** `ref` and `propertyType` are required; the rest is optional. */
+    fields: z
+      .object({
+        ref: MappedValue,
+        propertyType: MappedValue,
+        transactionType: MappedValue.optional(),
+        status: MappedValue.optional(),
+        price: MappedValue.optional(),
+        currency: MappedValue.optional(),
+        pricePeriod: MappedValue.optional(),
+        builtM2: MappedValue.optional(),
+        plotM2: MappedValue.optional(),
+        terraceM2: MappedValue.optional(),
+        bedrooms: MappedValue.optional(),
+        bathrooms: MappedValue.optional(),
+        yearBuilt: MappedValue.optional(),
+        energyRating: MappedValue.optional(),
+        energyEmissionsRating: MappedValue.optional(),
+        latitude: MappedValue.optional(),
+        longitude: MappedValue.optional(),
+        country: MappedValue.optional(),
+        region: MappedValue.optional(),
+        city: MappedValue.optional(),
+        area: MappedValue.optional(),
+      })
+      .strict(),
+    features: z.array(ListSource).max(10).default([]),
+    images: z.array(ListSource).max(10).default([]),
+    translations: z
+      .array(
+        z
+          .object({ locale: ContentLocaleCode, title: MappedValue.optional(), description: MappedValue.optional() })
+          .strict(),
+      )
+      .max(30)
+      .default([]),
+  })
+  .strict()
+  .refine((m) => JSON.stringify(m).length <= 32_768, 'mapping too large');
+export type XmlMapping = z.infer<typeof XmlMapping>;
+export type XmlMappingInput = z.input<typeof XmlMapping>;
+
+/** One record of the sample as the parser read it (names, attributes, text, children): what the mapper previews. */
+export interface XmlRecordNode {
+  name: string;
+  attributes: Record<string, string>;
+  text: string;
+  children: XmlRecordNode[];
+}
+const RECORD_LIMITS = { depth: 12, nodes: 4_000 } as const;
+/**
+ * One schema per level (not a lazy recursive one): a body nested deeper than `RECORD_LIMITS.depth` fails at the
+ * leaf level (no children allowed) instead of recursing until the stack is gone.
+ */
+function recordSchema(levels: number): z.ZodType<XmlRecordNode> {
+  const node = (children: z.ZodType<XmlRecordNode[]>) =>
+    z
+      .object({
+        name: z.string().max(64),
+        attributes: z.record(z.string().max(64), z.string().max(2_000)),
+        text: z.string().max(20_000),
+        children,
+      })
+      .strict();
+  let schema: z.ZodType<XmlRecordNode> = node(z.array(z.never()).max(0) as unknown as z.ZodType<XmlRecordNode[]>);
+  for (let i = 0; i < levels; i++) schema = node(z.array(schema).max(RECORD_LIMITS.nodes));
+  return schema;
+}
+export const XmlRecord = recordSchema(RECORD_LIMITS.depth);
+const nodeCount = (n: XmlRecordNode, depth = 0): number =>
+  depth > RECORD_LIMITS.depth
+    ? Number.POSITIVE_INFINITY
+    : 1 + n.children.reduce((a, c) => a + nodeCount(c, depth + 1), 0);
+const SampleRecords = z
+  .array(XmlRecord)
+  .min(1)
+  .max(MAPPER_SAMPLE.maxRecords)
+  .refine((r) => r.every((n) => nodeCount(n) <= RECORD_LIMITS.nodes), 'a record is too large')
+  .refine((r) => JSON.stringify(r).length <= 1_000_000, 'sample too large');
+
+/** A path of the sample with how many records carry it and a few values (clipped). */
+export const MapperPathDto = z.object({
+  path: z.string(),
+  /** Records (of the sample) in which the path has a value. */
+  count: z.number().int(),
+  /** The path repeats inside one record (a list: images, features). */
+  repeated: z.boolean(),
+  samples: z.array(z.string()),
+});
+export type MapperPathDto = z.infer<typeof MapperPathDto>;
+
+export const MapperSampleDto = z.object({
+  /** The repeating element chosen (detected, or the one asked for). */
+  recordElement: z.string(),
+  /** Repeating elements that could be the record, best first. */
+  candidates: z.array(z.object({ name: z.string(), count: z.number().int() })),
+  /** Records read into the sample (at most `MAPPER_SAMPLE.maxRecords`). */
+  recordCount: z.number().int(),
+  /** The body was cut at the sample size. */
+  truncated: z.boolean(),
+  bytes: z.number().int(),
+  paths: z.array(MapperPathDto),
+  /** A first guess per field (`ref` → `@code`) from the names in the sample: the mapper starts from it. */
+  suggested: z.record(z.string(), z.string()),
+  records: z.array(XmlRecord),
+});
+export type MapperSampleDto = z.infer<typeof MapperSampleDto>;
+
+/** A sample from a URL (fetched through `safeFetch`, bounded). */
+export const MapperSampleUrlBody = z
+  .object({ url: FeedUrl, credentials: FeedCredentials.nullable().optional(), recordElement: ElementName.optional() })
+  .strict();
+export type MapperSampleUrlBody = z.infer<typeof MapperSampleUrlBody>;
+/** A raw upload's query: re-detect with this record element. */
+export const MapperSampleUploadQuery = z.object({ recordElement: ElementName.optional() }).strict();
+export type MapperSampleUploadQuery = z.infer<typeof MapperSampleUploadQuery>;
+
+export const MapperPreviewBody = z.object({ mapping: XmlMapping, records: SampleRecords }).strict();
+export type MapperPreviewBody = z.infer<typeof MapperPreviewBody>;
+
+const MapperProblem = z.object({ code: z.string(), field: z.string().nullable(), message: z.string().nullable() });
+export type MapperProblem = z.infer<typeof MapperProblem>;
+export const MapperPreviewDto = z.object({
+  items: z.array(
+    z.object({
+      position: z.number().int(),
+      ref: z.string().nullable(),
+      /** The listing as it would be imported (null when refused). */
+      listing: z.record(z.string(), z.unknown()).nullable(),
+      problems: z.array(MapperProblem),
+    }),
+  ),
+});
+export type MapperPreviewDto = z.infer<typeof MapperPreviewDto>;
+
+/** `connectionId`: compare with the listings that connection imported (created vs updated); without it all are new. */
+export const MapperDryRunBody = z
+  .object({ mapping: XmlMapping, records: SampleRecords, connectionId: z.uuid().optional() })
+  .strict();
+export type MapperDryRunBody = z.infer<typeof MapperDryRunBody>;
+
+export const MAPPER_REPORT_ROWS = 50;
+export const MapperDryRunDto = z.object({
+  total: z.number().int(),
+  /** Records that map to a valid listing. */
+  valid: z.number().int(),
+  wouldCreate: z.number().int(),
+  wouldUpdate: z.number().int(),
+  /** Of the valid ones: held as DRAFT because a location, type or feature has no match yet. */
+  wouldHold: z.number().int(),
+  refused: z.number().int(),
+  /** The first `MAPPER_REPORT_ROWS` refusals. */
+  refusals: z.array(z.object({ position: z.number().int(), itemRef: z.string().nullable(), problem: MapperProblem })),
+  /** Taxonomy values without a match, with the number of records carrying them. */
+  unmatched: z.array(
+    z.object({ kind: z.enum(['location', 'propertyType', 'feature']), text: z.string(), count: z.number().int() }),
+  ),
+  /** True when created/updated were compared with a connection's listings. */
+  comparedWithConnection: z.boolean(),
+});
+export type MapperDryRunDto = z.infer<typeof MapperDryRunDto>;
+
+export const MappingProfileDto = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  connector: FeedConnectorKey,
+  mapping: XmlMapping,
+  version: z.number().int(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type MappingProfileDto = z.infer<typeof MappingProfileDto>;
+/** The list shows names, not mappings (a mapping is up to 32 KB): open one to read its mapping. */
+export const MappingProfileSummaryDto = MappingProfileDto.omit({ mapping: true });
+export type MappingProfileSummaryDto = z.infer<typeof MappingProfileSummaryDto>;
+export const MappingProfilePage = pageOf(MappingProfileSummaryDto);
+export type MappingProfilePage = z.infer<typeof MappingProfilePage>;
+
+export const CreateMappingProfileBody = z
+  .object({ name: z.string().trim().min(1).max(120), mapping: XmlMapping })
+  .strict();
+export type CreateMappingProfileBody = z.infer<typeof CreateMappingProfileBody>;
+export const UpdateMappingProfileBody = z
+  .object({
+    version: z.number().int().positive(),
+    name: z.string().trim().min(1).max(120).optional(),
+    mapping: XmlMapping.optional(),
+  })
+  .strict();
+export type UpdateMappingProfileBody = z.infer<typeof UpdateMappingProfileBody>;
+export const MappingProfileParams = z.object({ id: z.uuid() }).strict();
+export const ListMappingProfilesQuery = PageQuery.extend({}).strict();
+export type ListMappingProfilesQuery = z.infer<typeof ListMappingProfilesQuery>;

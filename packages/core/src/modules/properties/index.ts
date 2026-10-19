@@ -33,6 +33,7 @@ export {
 } from './freshness';
 export {
   discardImportSeen,
+  existingImportRefs,
   type ImportBatchResult,
   type ImportHold,
   type ImportListing,

@@ -35,6 +35,12 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
         <Link href="/imports/new" className="text-sm font-medium underline-offset-4 hover:underline">
           {t('form.connect')}
         </Link>
+        <span className="mx-3 text-muted-foreground" aria-hidden="true">
+          ·
+        </span>
+        <Link href="/imports/mapper" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('mapper.open')}
+        </Link>
       </div>
       <ImportNotice done={params.done} error={params.error} />
       {!res.ok ? (

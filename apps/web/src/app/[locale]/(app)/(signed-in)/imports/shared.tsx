@@ -14,6 +14,9 @@ const NOTICE_ERRORS = [
   'FEED_URL_NOT_ALLOWED',
   'VERSION_CONFLICT',
   'FEED_CONNECTOR_UNKNOWN',
+  'FEED_MAPPING_REQUIRED',
+  'FEED_MAPPING_INVALID',
+  'FEED_MAPPING_PROFILE_NOT_FOUND',
 ] as const;
 
 export function scheduleLabel(t: ImportsT, minutes: number | null): string {

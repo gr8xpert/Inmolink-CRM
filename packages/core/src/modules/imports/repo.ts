@@ -5,6 +5,8 @@
  * Request paths run under RLS (`withTenant`): the explicit `agency_id` filters only help the indexes. The worker's
  * run writes run as the agency too (`withTenant`); the scheduler and the prune are cross-agency (`withSystem`).
  */
+
+import { XML_MAPPED_CONNECTOR } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { feedConnections, feedItemErrors, feedMappingProfiles, feedRuns } from '@inmolink/db/schema/imports';
 import { and, asc, eq, gt, or, type SQL, sql } from 'drizzle-orm';
@@ -118,14 +120,6 @@ export async function listConnections(
     .orderBy(...keysetOrder(feedConnections.createdAt, feedConnections.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
-}
-
-export async function mappingProfileExists(tx: Tx, id: string): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: feedMappingProfiles.id })
-    .from(feedMappingProfiles)
-    .where(eq(feedMappingProfiles.id, id));
-  return row !== undefined;
 }
 
 // ── Runs (request paths) ───────────────────────────────────────────────────────────────────────────────────────
@@ -475,4 +469,93 @@ export async function pruneRuns(tx: Tx, before: Date, limit: number): Promise<nu
       order by created_at
       limit ${limit})`);
   return r.rowCount ?? 0;
+}
+
+// ── Mapping profiles (request paths, S6-04) ────────────────────────────────────────────────────────────────────
+
+const profileColumns = {
+  id: feedMappingProfiles.id,
+  agencyId: feedMappingProfiles.agencyId,
+  name: feedMappingProfiles.name,
+  connector: feedMappingProfiles.connector,
+  mapping: feedMappingProfiles.mapping,
+  version: feedMappingProfiles.version,
+  createdAt: feedMappingProfiles.createdAt,
+  updatedAt: feedMappingProfiles.updatedAt,
+};
+const { mapping: _mapping, ...summaryColumns } = profileColumns;
+export type ProfileSummary = Omit<ProfileView, 'mapping'>;
+const profileQuery = (tx: Tx) => tx.select(profileColumns).from(feedMappingProfiles);
+export type ProfileView = Awaited<ReturnType<typeof profileQuery>>[number];
+export type ProfileInsert = typeof feedMappingProfiles.$inferInsert;
+
+export async function insertProfile(tx: Tx, row: ProfileInsert): Promise<ProfileView> {
+  const [created] = await tx.insert(feedMappingProfiles).values(row).returning(profileColumns);
+  return created as ProfileView;
+}
+
+export async function getProfile(tx: Tx, id: string): Promise<ProfileView | null> {
+  const [row] = await tx
+    .select(profileColumns)
+    .from(feedMappingProfiles)
+    .where(and(eq(feedMappingProfiles.id, id), eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR)));
+  return row ?? null;
+}
+
+export async function getProfileForUpdate(tx: Tx, id: string): Promise<ProfileView | null> {
+  const [row] = await tx
+    .select(profileColumns)
+    .from(feedMappingProfiles)
+    .where(and(eq(feedMappingProfiles.id, id), eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR)))
+    .for('update');
+  return row ?? null;
+}
+
+export async function updateProfileWithVersion(
+  tx: Tx,
+  id: string,
+  version: number,
+  patch: Partial<Pick<ProfileInsert, 'name' | 'mapping'>>,
+): Promise<ProfileView | null> {
+  const [row] = await tx
+    .update(feedMappingProfiles)
+    .set({ ...patch, version: sql`${feedMappingProfiles.version} + 1`, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(feedMappingProfiles.id, id),
+        eq(feedMappingProfiles.version, version),
+        eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR),
+      ),
+    )
+    .returning(profileColumns);
+  return row ?? null;
+}
+
+export async function listProfiles(
+  tx: Tx,
+  agencyId: string,
+  q: { limit: number; cursor?: KeysetCursor },
+): Promise<{ items: ProfileSummary[]; hasMore: boolean }> {
+  const rows = await tx
+    .select(summaryColumns)
+    .from(feedMappingProfiles)
+    .where(
+      and(
+        eq(feedMappingProfiles.agencyId, agencyId),
+        eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR),
+        keysetAfter(feedMappingProfiles.createdAt, feedMappingProfiles.id, q.cursor, 'desc'),
+      ),
+    )
+    .orderBy(...keysetOrder(feedMappingProfiles.createdAt, feedMappingProfiles.id, 'desc'))
+    .limit(q.limit + 1);
+  return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
+}
+
+/** The connector key of a profile, or null when it does not exist (for this agency). */
+export async function profileConnector(tx: Tx, id: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ connector: feedMappingProfiles.connector })
+    .from(feedMappingProfiles)
+    .where(eq(feedMappingProfiles.id, id));
+  return row?.connector ?? null;
 }

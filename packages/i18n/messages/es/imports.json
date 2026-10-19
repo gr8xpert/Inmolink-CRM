@@ -63,7 +63,8 @@
     "FEED_LEASE_EXPIRED": "La importación se detuvo de forma inesperada; se ejecutará de nuevo en la próxima hora programada.",
     "FEED_NEVER_STARTED": "La importación no empezó a tiempo.",
     "FEED_NO_OWNER": "Ningún miembro activo de tu agencia puede ser titular de los inmuebles importados. Pide a un administrador que revise el equipo.",
-    "INTERNAL": "Algo falló por nuestra parte."
+    "INTERNAL": "Algo falló por nuestra parte.",
+    "FEED_MAPPING_INVALID": "El perfil de mapeo de este feed falta o ya no es válido. Abre el mapeador y guárdalo de nuevo."
   },
   "notices": {
     "queued": "La ejecución está en cola; empezará en un momento.",
@@ -79,14 +80,17 @@
     "VALIDATION_FAILED": "La petición no era válida.",
     "FEED_URL_NOT_ALLOWED": "Esta dirección no está permitida (se rechazan las redes privadas o internas).",
     "VERSION_CONFLICT": "Otra persona ha cambiado este feed. Recarga e inténtalo de nuevo.",
-    "FEED_CONNECTOR_UNKNOWN": "Este formato de feed no está disponible."
+    "FEED_CONNECTOR_UNKNOWN": "Este formato de feed no está disponible.",
+    "FEED_MAPPING_REQUIRED": "Elige un perfil de mapeo para un feed XML genérico.",
+    "FEED_MAPPING_INVALID": "Este perfil de mapeo no es válido para este formato de feed.",
+    "FEED_MAPPING_PROFILE_NOT_FOUND": "Este perfil de mapeo ya no existe."
   },
   "form": {
-    "connect": "Conectar un feed de Kyero",
+    "connect": "Conectar un feed",
     "edit": "Editar feed",
-    "createTitle": "Conectar un feed de Kyero",
+    "createTitle": "Conectar un feed",
     "editTitle": "Editar {name}",
-    "intro": "Pega la dirección de tu feed XML de Kyero (v3). Los anuncios se importan con la frecuencia que elijas; los valores que no podamos asociar a nuestras ubicaciones, tipos o características dejan el anuncio como borrador hasta que nuestro equipo los asocie.",
+    "intro": "Elige el formato y pega la dirección de tu feed. Los anuncios se importan con la frecuencia que elijas; los valores que no podamos asociar a nuestras ubicaciones, tipos o características dejan el anuncio como borrador hasta que nuestro equipo los asocie.",
     "name": "Nombre",
     "url": "Dirección del feed (URL)",
     "urlHint": "Una dirección http o https. Se rechazan los feeds en redes privadas o internas.",
@@ -107,14 +111,138 @@
     "countryHint": "Los feeds de Kyero no indican el país. Déjalo vacío para España.",
     "schedule": "Importación",
     "schedules": {
-      "manual": "Solo manualmente",
       "60": "Cada hora",
       "360": "Cada 6 horas",
-      "1440": "Cada día"
+      "1440": "Cada día",
+      "manual": "Solo manualmente"
     },
     "enabled": "Feed activado",
     "create": "Conectar feed",
     "save": "Guardar cambios",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "format": "Formato",
+    "formats": {
+      "kyero": "Kyero (XML v3)",
+      "xml-mapped": "Cualquier feed XML (mapeado)"
+    },
+    "profile": "Perfil de mapeo",
+    "noProfile": "Sin perfil (feeds de Kyero)",
+    "profileHint": "Los feeds XML genéricos necesitan el perfil que guardaste en el mapeador.",
+    "openMapper": "Abrir el mapeador"
+  },
+  "mapper": {
+    "open": "Mapear un feed XML",
+    "title": "Mapear un feed XML",
+    "back": "Todos los feeds",
+    "intro": "Conecta cualquier exportación XML sin código: lee una muestra, elige dónde está cada campo del anuncio, revisa el resultado y guarda el mapeo. No se importa nada hasta que conectes un feed con el perfil guardado.",
+    "step1": "1. Leer una muestra",
+    "sampleHint": "Sube un archivo XML o indica la dirección del feed. Solo se leen los primeros {mb} MB.",
+    "upload": "Archivo XML",
+    "readFile": "Leer el archivo",
+    "fromUrl": "O la dirección del feed",
+    "readUrl": "Leer la dirección",
+    "step2": "2. El elemento del anuncio",
+    "detected": "El feed repite el elemento {element}; la muestra contiene {count}.",
+    "truncated": "La muestra se cortó en el límite de tamaño.",
+    "recordElement": "Elemento que contiene un anuncio",
+    "step3": "3. ¿De dónde viene cada campo?",
+    "fieldsHint": "Elige la ruta de la muestra para cada campo. Los valores que hay en ella se muestran bajo el selector. Solo la referencia y el tipo de inmueble son obligatorios.",
+    "decimalSeparator": "Los números se escriben con",
+    "decimalPoint": "punto decimal (1250.50)",
+    "decimalComma": "coma decimal (1.250,50)",
+    "notMapped": "Sin asignar",
+    "constant": "Un texto fijo para todos los anuncios",
+    "constantFor": "Texto fijo para {field}",
+    "repeats": "se repite",
+    "translate": "Traduce las palabras del feed a las nuestras ({values}).",
+    "translateExample": "venta = SALE",
+    "separator": "Separador dentro del texto (opcional)",
+    "lists": {
+      "features": "Características",
+      "images": "Direcciones de imágenes"
+    },
+    "translations": "Títulos y descripciones",
+    "locale": "Idioma",
+    "text": {
+      "title": "Título",
+      "description": "Descripción"
+    },
+    "addLanguage": "Añadir un idioma",
+    "removeLanguage": "Quitar el último idioma",
+    "fields": {
+      "ref": "Referencia",
+      "propertyType": "Tipo de inmueble",
+      "transactionType": "Venta o alquiler",
+      "status": "Estado",
+      "price": "Precio",
+      "currency": "Moneda",
+      "pricePeriod": "Periodo del precio (alquileres)",
+      "builtM2": "Superficie construida (m2)",
+      "plotM2": "Superficie de parcela (m2)",
+      "terraceM2": "Superficie de terraza (m2)",
+      "bedrooms": "Dormitorios",
+      "bathrooms": "Baños",
+      "yearBuilt": "Año de construcción",
+      "energyRating": "Calificación energética",
+      "energyEmissionsRating": "Calificación de emisiones",
+      "latitude": "Latitud",
+      "longitude": "Longitud",
+      "country": "País",
+      "region": "Región o provincia",
+      "city": "Ciudad o municipio",
+      "area": "Zona o barrio"
+    },
+    "step4": "4. Vista previa",
+    "needRequired": "Elige la referencia y el tipo de inmueble para ver los anuncios.",
+    "loading": "Leyendo los anuncios de la muestra...",
+    "preview": {
+      "ref": "Referencia",
+      "what": "Anuncio",
+      "price": "Precio",
+      "where": "Ubicación",
+      "result": "Resultado",
+      "ok": "Válido"
+    },
+    "step5": "5. Prueba en seco",
+    "dryRunHint": "Muestra qué haría una importación de la muestra, sin escribir nada: qué anuncios se crearían o actualizarían, quedarían como borrador o se rechazarían, y qué ubicaciones, tipos o características aún no podemos asociar.",
+    "dryRun": "Hacer una prueba en seco",
+    "report": {
+      "summary": "{total} anuncios leídos: se crearían {created}, se actualizarían {updated}, {held} quedarían como borrador y {refused} se rechazarían.",
+      "refused": "Rechazados",
+      "unmatched": "Valores sin correspondencia",
+      "unmatchedHint": "Nuestro equipo los asocia; los anuncios que los usan quedan como borrador hasta entonces.",
+      "kinds": {
+        "location": "Ubicación",
+        "propertyType": "Tipo de inmueble",
+        "feature": "Característica"
+      }
+    },
+    "step6": "6. Guardar el mapeo",
+    "profileName": "Nombre del perfil de mapeo",
+    "save": "Guardar el perfil",
+    "saveHint": "Después de guardar conectas el feed con este perfil y eliges cada cuánto se importa.",
+    "errors": {
+      "generic": "Algo ha salido mal. Inténtalo de nuevo.",
+      "FORBIDDEN": "Solo los administradores de la agencia pueden mapear feeds.",
+      "VALIDATION_FAILED": "La solicitud no era válida.",
+      "FEED_URL_NOT_ALLOWED": "Esta dirección no está permitida (se rechazan las redes privadas o internas).",
+      "FEED_SAMPLE_INVALID": "Esta muestra no se puede leer como feed XML.",
+      "FEED_MAPPING_INVALID": "El mapeo aún no es válido. Revisa las rutas y los campos obligatorios.",
+      "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
+      "RATE_LIMITED": "Demasiadas muestras a la vez. Espera un momento e inténtalo de nuevo.",
+      "PAYLOAD_TOO_LARGE": "El archivo supera el límite de la muestra.",
+      "UNSUPPORTED_MEDIA_TYPE": "Envía el archivo como XML.",
+      "reason": {
+        "NOT_XML": "El archivo no empieza como un documento XML.",
+        "EMPTY": "El archivo está vacío.",
+        "NO_RECORDS": "No se encontró ningún elemento de anuncio que se repita.",
+        "DOCTYPE_NOT_ALLOWED": "Se rechazan los documentos con DTD o entidades por seguridad.",
+        "MALFORMED": "El XML no está bien formado.",
+        "CONTENT_TYPE": "La dirección no devolvió XML.",
+        "HTTP_404": "No se encontró la dirección.",
+        "HTTP_401": "El feed pidió iniciar sesión.",
+        "HTTP_403": "El feed rechazó el acceso."
+      }
+    }
   }
 }

@@ -111,14 +111,24 @@ const LEVELS: readonly { key: 'country' | 'region' | 'city' | 'area'; level: Loc
   { key: 'area', level: 'AREA' },
 ];
 
-type Kind = 'location' | 'propertyType' | 'feature';
+export type Kind = 'location' | 'propertyType' | 'feature';
 
 /**
  * Taxonomy resolution for a run: `resolveAndQueue` per (kind, hints) group of distinct values, one call per group;
  * matches are remembered for the run (bounded), unmatched values are resolved — and counted for staff — again in
  * every batch that has them.
  */
-class RunResolver {
+/** What taxonomy resolution needs: the id each value resolves to (null: unmatched). The dry run swaps in a read-only one. */
+export interface TaxonomyResolver {
+  resolve(
+    tx: Tx,
+    kind: Kind,
+    values: readonly { text: string; example: string }[],
+    hints?: taxonomy.ResolveHints,
+  ): Promise<(string | null)[]>;
+}
+
+class RunResolver implements TaxonomyResolver {
   private readonly known = new Map<string, string>();
 
   private key(kind: Kind, hints: taxonomy.ResolveHints, text: string): string {
@@ -155,13 +165,13 @@ class RunResolver {
   }
 }
 
-interface Parsed {
+export interface Parsed {
   position: number;
   listing: FeedListing;
 }
 
 /** Resolved taxonomy of each parsed item (same order). */
-interface Resolved {
+export interface Resolved {
   locationId: string | null;
   propertyTypeId: string | null;
   featureIds: string[];
@@ -169,7 +179,13 @@ interface Resolved {
 }
 
 /** Location level by level: each value under the level above it when that one was given and matched. */
-async function resolveLocations(tx: Tx, resolver: RunResolver, items: readonly Parsed[], out: Resolved[]) {
+async function resolveLocations(
+  tx: Tx,
+  resolver: TaxonomyResolver,
+  items: readonly Parsed[],
+  out: Resolved[],
+  levelOnly: boolean,
+) {
   /** The matched id at the previous level, per item (undefined: that level was not given). */
   const above: (string | undefined)[] = items.map(() => undefined);
   const blocked = items.map(() => false);
@@ -177,7 +193,7 @@ async function resolveLocations(tx: Tx, resolver: RunResolver, items: readonly P
     const groups = new Map<string, number[]>();
     items.forEach((p, i) => {
       if (blocked[i] || !p.listing.location[key]) return;
-      const group = above[i] ?? '';
+      const group = levelOnly ? '' : (above[i] ?? '');
       groups.set(group, [...(groups.get(group) ?? []), i]);
     });
     for (const [parentId, members] of groups) {
@@ -207,9 +223,19 @@ async function resolveLocations(tx: Tx, resolver: RunResolver, items: readonly P
   }
 }
 
-async function resolveTaxonomy(tx: Tx, resolver: RunResolver, items: readonly Parsed[]): Promise<Resolved[]> {
+/**
+ * `levelOnly` (the mapper dry run, a request): every location level is looked up in one statement for all items, by
+ * level alone and not under each item parent, so the cost is constant whatever the sample. A name that exists under
+ * several parents is then reported unmatched; a real run resolves it under its parent.
+ */
+export async function resolveTaxonomy(
+  tx: Tx,
+  resolver: TaxonomyResolver,
+  items: readonly Parsed[],
+  opts: { levelOnly?: boolean } = {},
+): Promise<Resolved[]> {
   const out: Resolved[] = items.map(() => ({ locationId: null, propertyTypeId: null, featureIds: [], held: [] }));
-  await resolveLocations(tx, resolver, items, out);
+  await resolveLocations(tx, resolver, items, out, opts.levelOnly ?? false);
   const types = await resolver.resolve(
     tx,
     'propertyType',

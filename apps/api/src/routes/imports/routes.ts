@@ -1,5 +1,6 @@
 import {
   CreateFeedConnectionBody,
+  CreateMappingProfileBody,
   FeedConnectionDto,
   FeedConnectionPage,
   FeedConnectionParams,
@@ -10,11 +11,26 @@ import {
   ListFeedConnectionsQuery,
   ListFeedItemErrorsQuery,
   ListFeedRunsQuery,
+  ListMappingProfilesQuery,
+  MAPPER_SAMPLE,
+  MapperDryRunBody,
+  MapperDryRunDto,
+  MapperPreviewBody,
+  MapperPreviewDto,
+  MapperSampleDto,
+  MapperSampleUploadQuery,
+  MapperSampleUrlBody,
+  MappingProfileDto,
+  MappingProfilePage,
+  MappingProfileParams,
   UpdateFeedConnectionBody,
+  UpdateMappingProfileBody,
 } from '@inmolink/contracts';
 import * as imports from '@inmolink/core/modules/imports';
-import type { RateLimitRule } from '@inmolink/platform/rate-limit';
+import { AppError } from '@inmolink/platform/errors';
+import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -31,6 +47,28 @@ const RUN_LIMITS: readonly RateLimitRule[] = [
   { name: 'imports.run.user', scope: 'user', limit: 20, windowSeconds: 60 },
   { name: 'imports.run.tenant', scope: 'tenant', limit: 60, windowSeconds: 60 },
 ];
+
+/**
+ * The mapper's sample calls read up to 2 MB of an upload or of a remote feed: a few at a time per user and process
+ * (the body is buffered), and few per minute (a URL sample is an outbound fetch).
+ */
+const SAMPLE_LIMITS: readonly RateLimitRule[] = [
+  { name: 'imports.sample.user', scope: 'user', limit: 20, windowSeconds: 60 },
+  { name: 'imports.sample.tenant', scope: 'tenant', limit: 60, windowSeconds: 60 },
+];
+/** The mapper previews after every pick (debounced): its own bucket, so a busy session cannot lock out "save". */
+const PREVIEW_LIMITS: readonly RateLimitRule[] = [
+  { name: 'imports.preview.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+  { name: 'imports.preview.user', scope: 'user', limit: 300, windowSeconds: 60 },
+];
+const sampleSlots = createUploadSlots(2, 16);
+async function takeSampleSlot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!req.auth) throw new AppError('NOT_AUTHENTICATED');
+  const release = sampleSlots.take(req.auth.userId);
+  if (!release) throw new AppError('RATE_LIMITED');
+  reply.raw.once('close', release);
+  reply.raw.once('finish', release);
+}
 
 /**
  * Feed imports (S6-01): the agency's feed connections (credentials write-only), "run now", and the run history
@@ -205,6 +243,175 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => imports.listFeedItemErrors(ctx, req.params.runId, req.query));
+    },
+  );
+
+  // ── Generic XML mapper (S6-04) ──────────────────────────────────────────────────────────────────────────────
+  app.post(
+    '/v1/imports/mapper/sample-url',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.sampleFromUrl',
+        summary: 'Read the head of a feed URL (2 MB, SSRF-checked) and detect its records (admins)',
+        body: MapperSampleUrlBody,
+        response: { 200: MapperSampleDto },
+      },
+      onRequest: [app.requireSession, takeSampleSlot],
+      config: { rateLimit: SAMPLE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return imports.sampleFromUrl(app.ctxRunner(req), req.body);
+    },
+  );
+
+  app.post(
+    '/v1/imports/mapper/preview',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.previewMapping',
+        summary: 'Map the sample records with a mapping and show each listing or its problem (admins)',
+        body: MapperPreviewBody,
+        response: { 200: MapperPreviewDto },
+      },
+      bodyLimit: 2 * 1024 * 1024,
+      onRequest: [app.requireSession],
+      config: { rateLimit: PREVIEW_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.previewMapping(ctx, req.body));
+    },
+  );
+
+  app.post(
+    '/v1/imports/mapper/dry-run',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.dryRunMapping',
+        summary: 'What an import of the sample records would create, update, hold or refuse; writes nothing (admins)',
+        body: MapperDryRunBody,
+        response: { 200: MapperDryRunDto },
+      },
+      bodyLimit: 2 * 1024 * 1024,
+      ...write,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.dryRunMapping(ctx, req.body));
+    },
+  );
+
+  app.get(
+    '/v1/imports/mapping-profiles',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.listMappingProfiles',
+        summary: 'The mapping profiles of the agency, newest first, cursor ≤ 100',
+        querystring: ListMappingProfilesQuery,
+        response: { 200: MappingProfilePage },
+      },
+      ...read,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.listMappingProfiles(ctx, req.query));
+    },
+  );
+
+  app.post(
+    '/v1/imports/mapping-profiles',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.createMappingProfile',
+        summary: 'Save a generic XML mapping profile (admins)',
+        body: CreateMappingProfileBody,
+        response: { 201: MappingProfileDto },
+      },
+      ...write,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(201).send(await app.withCtx(req, (ctx) => imports.createMappingProfile(ctx, req.body)));
+    },
+  );
+
+  app.get(
+    '/v1/imports/mapping-profiles/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.getMappingProfile',
+        summary: 'A mapping profile',
+        params: MappingProfileParams,
+        response: { 200: MappingProfileDto },
+      },
+      ...read,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.getMappingProfile(ctx, req.params.id));
+    },
+  );
+
+  app.patch(
+    '/v1/imports/mapping-profiles/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.updateMappingProfile',
+        summary:
+          'Change a mapping profile (admins, optimistic concurrency); its connections use it from their next run',
+        params: MappingProfileParams,
+        body: UpdateMappingProfileBody,
+        response: { 200: MappingProfileDto },
+      },
+      ...write,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.updateMappingProfile(ctx, req.params.id, req.body));
+    },
+  );
+
+  await app.register(sampleUploadRoute);
+}
+
+/**
+ * The sample upload, in its own plugin: its body is the raw XML file (only this route accepts these content types,
+ * up to 2 MB). The declared type only routes the body here; the service checks the real content by magic bytes.
+ */
+async function sampleUploadRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    ['application/xml', 'text/xml', 'application/octet-stream'],
+    { parseAs: 'buffer', bodyLimit: MAPPER_SAMPLE.maxBytes },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/imports/mapper/sample',
+    {
+      schema: {
+        tags: ['imports'],
+        operationId: 'imports.sampleFromUpload',
+        summary: 'Read an uploaded XML sample (raw body, max 2 MB) and detect its records (admins)',
+        querystring: MapperSampleUploadQuery,
+        response: { 200: MapperSampleDto },
+      },
+      bodyLimit: MAPPER_SAMPLE.maxBytes,
+      onRequest: [upload.requireSession, takeSampleSlot],
+      config: { rateLimit: SAMPLE_LIMITS },
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      reply.header('cache-control', 'no-store');
+      const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      return imports.sampleFromUpload(upload.ctxRunner(req), bytes, { recordElement: req.query.recordElement });
     },
   );
 }

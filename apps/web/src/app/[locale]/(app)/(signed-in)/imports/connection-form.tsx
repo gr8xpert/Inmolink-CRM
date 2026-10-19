@@ -12,9 +12,25 @@ import { createConnectionAction, updateConnectionAction } from './actions';
 const SCHEDULES = ['', '60', '360', '1440'] as const;
 const CRED_TYPES = ['none', 'query', 'header', 'basic'] as const;
 
-export async function ConnectionForm({ connection }: { connection?: FeedConnectionDto }) {
+export interface FormPrefill {
+  connector?: string | undefined;
+  profile?: string | undefined;
+  url?: string | undefined;
+}
+
+export async function ConnectionForm({
+  connection,
+  profiles = [],
+  prefill = {},
+}: {
+  connection?: FeedConnectionDto;
+  profiles?: { id: string; name: string }[];
+  prefill?: FormPrefill;
+}) {
   const t = await getTranslations('imports.form');
   const editing = Boolean(connection);
+  const connector = connection?.connector ?? (prefill.connector === 'xml-mapped' ? 'xml-mapped' : 'kyero');
+  const profile = connection?.mappingProfileId ?? prefill.profile ?? '';
   const schedule = connection?.scheduleMinutes ? String(connection.scheduleMinutes) : connection ? '' : '1440';
   const country = typeof connection?.settings.defaultCountry === 'string' ? connection.settings.defaultCountry : '';
   return (
@@ -25,6 +41,27 @@ export async function ConnectionForm({ connection }: { connection?: FeedConnecti
           <input type="hidden" name="version" value={connection.version} />
         </>
       ) : null}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="feed-format">{t('format')}</Label>
+        {editing ? (
+          <>
+            <input type="hidden" name="connector" value={connector} />
+            <p id="feed-format" className="text-sm">
+              {t(`formats.${connector === 'xml-mapped' ? 'xml-mapped' : 'kyero'}`)}
+            </p>
+          </>
+        ) : (
+          <select
+            id="feed-format"
+            name="connector"
+            defaultValue={connector}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+          >
+            <option value="kyero">{t('formats.kyero')}</option>
+            <option value="xml-mapped">{t('formats.xml-mapped')}</option>
+          </select>
+        )}
+      </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="feed-name">{t('name')}</Label>
         <Input id="feed-name" name="name" maxLength={120} required defaultValue={connection?.name ?? ''} />
@@ -38,7 +75,7 @@ export async function ConnectionForm({ connection }: { connection?: FeedConnecti
           maxLength={2048}
           required
           placeholder="https://feeds.example.com/kyero.xml"
-          defaultValue={connection?.url ?? ''}
+          defaultValue={connection?.url ?? prefill.url ?? ''}
           aria-describedby="feed-url-hint"
         />
         <p id="feed-url-hint" className="text-xs text-muted-foreground">
@@ -75,19 +112,46 @@ export async function ConnectionForm({ connection }: { connection?: FeedConnecti
           </div>
         </div>
       </fieldset>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="feed-country">{t('country')}</Label>
-        <Input
-          id="feed-country"
-          name="defaultCountry"
-          maxLength={200}
-          defaultValue={country}
-          aria-describedby="feed-country-hint"
-        />
-        <p id="feed-country-hint" className="text-xs text-muted-foreground">
-          {t('countryHint')}
-        </p>
-      </div>
+      {connector === 'xml-mapped' || !editing ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="feed-profile">{t('profile')}</Label>
+          <select
+            id="feed-profile"
+            name="mappingProfileId"
+            defaultValue={profile}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+            aria-describedby="feed-profile-hint"
+          >
+            <option value="">{t('noProfile')}</option>
+            {profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <p id="feed-profile-hint" className="text-xs text-muted-foreground">
+            {t('profileHint')}{' '}
+            <Link href="/imports/mapper" className="underline underline-offset-4">
+              {t('openMapper')}
+            </Link>
+          </p>
+        </div>
+      ) : null}
+      {connector === 'kyero' || !editing ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="feed-country">{t('country')}</Label>
+          <Input
+            id="feed-country"
+            name="defaultCountry"
+            maxLength={200}
+            defaultValue={country}
+            aria-describedby="feed-country-hint"
+          />
+          <p id="feed-country-hint" className="text-xs text-muted-foreground">
+            {t('countryHint')}
+          </p>
+        </div>
+      ) : null}
       <div className="flex flex-col gap-2">
         <Label htmlFor="feed-schedule">{t('schedule')}</Label>
         <select

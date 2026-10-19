@@ -254,3 +254,99 @@ export function childText(el: XmlElement, name: string): string | undefined {
   const text = childOf(el, name)?.text.trim();
   return text ? text : undefined;
 }
+
+/** What `scanXmlStructure` found for one element name. */
+export interface XmlElementStat {
+  /** The element name as written. */
+  name: string;
+  /** How often it occurs in the scanned part of the document. */
+  count: number;
+  /** The shallowest depth it occurs at (the root is 0). */
+  depth: number;
+  /** Distinct names of child elements seen under it. */
+  childNames: number;
+}
+
+export interface XmlScanOptions {
+  maxDepth?: number;
+  maxTokenChars?: number;
+  /** Elements counted before the scan stops (default 200,000). */
+  maxElements?: number;
+  /** Distinct element names kept (default 2,000); later new names are ignored. */
+  maxNames?: number;
+}
+
+/**
+ * Structure of a (possibly cut-off) document, without building any tree: per element name its count, depth and
+ * how many different child names it has. The visual mapper uses it to find the repeating record element. Same
+ * safety as `streamXmlRecords` (no DOCTYPE, undeclared entities refused, depth and token bounds); a document that
+ * ends early (a sample cut at a byte limit) is not an error — the scan reports what it saw.
+ */
+export async function scanXmlStructure(
+  source: AsyncIterable<Uint8Array | string>,
+  options: XmlScanOptions = {},
+): Promise<XmlElementStat[]> {
+  const maxDepth = options.maxDepth ?? DEFAULTS.maxDepth;
+  const maxTokenChars = options.maxTokenChars ?? DEFAULTS.maxTokenChars;
+  const maxElements = options.maxElements ?? 200_000;
+  const maxNames = options.maxNames ?? 2_000;
+  const parser = new SaxesParser({ xmlns: false, position: true });
+  const stats = new Map<string, XmlElementStat & { children: Set<string> }>();
+  const stack: string[] = [];
+  let elements = 0;
+  let sinceEvent = 0;
+  let stop = false;
+
+  parser.on('doctype', () => {
+    throw new XmlStreamError('DOCTYPE_NOT_ALLOWED', 'documents with a DOCTYPE (DTD, entities) are refused');
+  });
+  parser.on('opentag', (tag: SaxesTagPlain) => {
+    sinceEvent = 0;
+    if (stack.length + 1 > maxDepth)
+      throw new XmlStreamError('DEPTH_EXCEEDED', `elements nest deeper than ${maxDepth}`);
+    const parent = stack.at(-1);
+    stack.push(tag.name);
+    if (++elements > maxElements) stop = true;
+    let stat = stats.get(tag.name);
+    if (!stat && stats.size < maxNames) {
+      stat = { name: tag.name, count: 0, depth: stack.length - 1, childNames: 0, children: new Set() };
+      stats.set(tag.name, stat);
+    }
+    if (stat) {
+      stat.count++;
+      stat.depth = Math.min(stat.depth, stack.length - 1);
+    }
+    if (parent !== undefined) {
+      const p = stats.get(parent);
+      if (p && p.children.size < 200) p.children.add(tag.name);
+    }
+  });
+  const reset = () => {
+    sinceEvent = 0;
+  };
+  parser.on('text', reset);
+  parser.on('cdata', reset);
+  parser.on('comment', reset);
+  parser.on('processinginstruction', reset);
+  parser.on('closetag', () => {
+    sinceEvent = 0;
+    stack.pop();
+  });
+
+  scan: for await (const text of decode(source)) {
+    for (let i = 0; i < text.length; i += 64 * 1024) {
+      const slice = text.slice(i, i + 64 * 1024);
+      sinceEvent += slice.length;
+      try {
+        parser.write(slice);
+      } catch (err) {
+        throw err instanceof XmlStreamError ? err : new XmlStreamError('MALFORMED', malformed(err));
+      }
+      if (sinceEvent > maxTokenChars) {
+        throw new XmlStreamError('TOKEN_TOO_LARGE', `a single token exceeds ${maxTokenChars} characters`);
+      }
+      if (stop) break scan;
+    }
+  }
+  return [...stats.values()].map(({ children, ...s }) => ({ ...s, childNames: children.size }));
+}

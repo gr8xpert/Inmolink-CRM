@@ -147,7 +147,11 @@ export interface ExistingImport {
  * by the reference list (`property_privates_source_ref_uq`, then the listing by primary key): never planned on the
  * statistics of rows this run just wrote.
  */
-export async function existingByRefs(tx: Tx, scope: ImportScope, refs: readonly string[]): Promise<ExistingImport[]> {
+export async function existingByRefs(
+  tx: Tx,
+  scope: Pick<ImportScope, 'agencyId' | 'externalSource'>,
+  refs: readonly string[],
+): Promise<ExistingImport[]> {
   if (refs.length === 0) return [];
   const res = await tx.execute(sql`
     select pp.external_ref as ref, pp.property_id as id, p.deleted_at is null as live, pp.import_hash as hash,

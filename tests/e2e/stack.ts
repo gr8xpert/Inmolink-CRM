@@ -25,6 +25,8 @@ export const PORTS = {
   workerHealth: 54_112,
   /** Lighthouse talks to its own Chromium over the DevTools protocol (S1-10). */
   devtools: 54_113,
+  /** The fixture feed host the generic XML import reads (S6-04). */
+  feed: 54_114,
 };
 
 export const MAILPIT_URL = env.MAILPIT_URL ?? 'http://localhost:58025';

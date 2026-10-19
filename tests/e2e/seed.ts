@@ -127,3 +127,27 @@ export async function seedListingAgent(): Promise<{
   );
   return { email: agent.email, agencyId: agent.agencyId, ...LISTING_TAXONOMY };
 }
+
+/**
+ * A verified agency with its admin (S6-04): admins set up feed imports. An admin owes a second factor, so a test
+ * signs in with `passTwoFactor` (enrolment the first time). Uses the names of `LISTING_TAXONOMY`.
+ */
+export async function seedImportAdmin(): Promise<{ email: string; agencyId: string; company: string }> {
+  const tag = randomBytes(4).toString('hex');
+  const email = `admin-${tag}@example.com`;
+  const company = `Importers ${tag} S.L.`;
+  return asOwner(async (admin) => {
+    const [userId, agencyId] = [randomUUID(), randomUUID()];
+    await admin.query(INSERT_USER, [userId, email, await hashPassword(SEED_PASSWORD), 'Elena']);
+    await admin.query(`insert into agencies (agency_id, kind, name, status) values ($1, 'AGENCY', $2, 'VERIFIED')`, [
+      agencyId,
+      company,
+    ]);
+    await admin.query(`insert into agency_settings (agency_id, enabled_locales) values ($1, '{en}')`, [agencyId]);
+    await admin.query(
+      `insert into agency_members (agency_id, user_id, role, name, email) values ($1, $2, 'AGENCY_ADMIN', 'Elena', $3)`,
+      [agencyId, userId, email],
+    );
+    return { email, agencyId, company };
+  });
+}

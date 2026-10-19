@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchFeedConnection, sessionRef } from '@/server/api';
+import { fetchFeedConnection, fetchMappingProfiles, sessionRef } from '@/server/api';
 import { ConnectionForm } from '../../connection-form';
 import { ImportNotice } from '../../shared';
 
@@ -24,6 +24,8 @@ export default async function EditFeedPage({
   const res = await fetchFeedConnection(sessionRef(session.user), id);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok && res.status === 404) notFound();
+  const profiles =
+    res.ok && res.data.connector === 'xml-mapped' ? await fetchMappingProfiles(sessionRef(session.user)) : null;
   const t = await getTranslations('imports');
   const q = await searchParams;
   if (!res.ok) {
@@ -39,7 +41,14 @@ export default async function EditFeedPage({
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('form.editTitle', { name: res.data.name })}</h1>
       <ImportNotice error={q.error} />
-      <ConnectionForm connection={res.data} />
+      <ConnectionForm
+        connection={res.data}
+        profiles={
+          profiles && profiles !== 'revoked' && profiles.ok
+            ? profiles.data.items.map((p) => ({ id: p.id, name: p.name }))
+            : []
+        }
+      />
     </div>
   );
 }

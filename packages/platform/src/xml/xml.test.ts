@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
   childText,
+  scanXmlStructure,
   sniffEncoding,
   streamXmlRecords,
   type XmlElement,
@@ -108,5 +109,27 @@ describe('streamXmlRecords', () => {
     const [b] = await collect(Readable.from([bom]), { recordElement: 'p' });
     expect(b?.text).toBe('ñ');
     expect(() => sniffEncoding(Buffer.from('<?xml version="1.0" encoding="EBCDIC-XYZ"?>'))).toThrow(XmlStreamError);
+  });
+});
+
+describe('scanXmlStructure', () => {
+  it('[S6-04] counts elements per name with their depth and distinct child names, without building records', async () => {
+    const stats = await scanXmlStructure(
+      bytes('<feed><meta><v>1</v></meta><item id="1"><a>1</a><b>2</b></item><item id="2"><a>3</a></item></feed>'),
+    );
+    const by = new Map(stats.map((s) => [s.name, s]));
+    expect(by.get('feed')).toMatchObject({ count: 1, depth: 0, childNames: 2 });
+    expect(by.get('item')).toMatchObject({ count: 2, depth: 1, childNames: 2 });
+    expect(by.get('a')).toMatchObject({ count: 2, depth: 2, childNames: 0 });
+  });
+
+  it('[S6-04] is as strict as the record parser: a DOCTYPE is refused, a cut-off document is not an error', async () => {
+    expect(await code(scanXmlStructure(bytes('<?xml version="1.0"?><!DOCTYPE a [<!ENTITY x "y">]><a>&x;</a>')))).toBe(
+      'DOCTYPE_NOT_ALLOWED',
+    );
+    expect(await code(scanXmlStructure(bytes('<a><b>&nope;</b></a>')))).toBe('MALFORMED');
+    const cut = await scanXmlStructure(bytes('<a><b>1</b><b>2</b><b>par'));
+    expect(cut.find((s) => s.name === 'b')?.count).toBe(3); // the third was opened before the cut
+    expect(await code(scanXmlStructure(bytes('<a><b><c><d/></c></b></a>'), { maxDepth: 3 }))).toBe('DEPTH_EXCEEDED');
   });
 });
