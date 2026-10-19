@@ -17,10 +17,11 @@ export const IMPERSONATION_MAX_MINUTES = 60;
 export const IMPERSONATION_DEFAULT_MINUTES = 30;
 
 /**
- * Why staff impersonate (support ticket, what they will check). Stored on the session row, never in
- * the audit log (free text). Line breaks normalized; other control characters and < > refused.
+ * Why staff act (support ticket, what they will check): 10–500 characters. Stored on the row the action changes (the
+ * impersonation session, the agency's give-to-get exemption), never in the audit log (free text). Line breaks
+ * normalized; other control characters and < > refused.
  */
-export const ImpersonationReason = z
+export const StaffReason = z
   .string()
   .transform((v) => v.replace(/\r\n?/g, '\n').trim())
   .pipe(
@@ -30,6 +31,9 @@ export const ImpersonationReason = z
       .max(500)
       .regex(/^(?:[^\p{Cc}<>]|\n)*$/u, 'no control characters (except line breaks) or < >'),
   );
+
+/** Why staff impersonate (S1-09): a `StaffReason`. */
+export const ImpersonationReason = StaffReason;
 
 /** `POST /v1/staff/impersonations`: act as one active member of an agency, for at most 60 minutes. */
 export const StartImpersonationBody = z
@@ -95,6 +99,8 @@ export const TenantDetailDto = TenantSummaryDto.extend({
   onboarded: z.boolean(),
   /** Searches the network without sharing listings (give-to-get exemption, PLAN §3 #5; S5-05). */
   giveToGetExempt: z.boolean(),
+  /** Why staff last set or ended the exemption (S6-F1); null when they never changed it. */
+  giveToGetReason: z.string().nullable(),
   version: z.number().int(),
   updatedAt: z.iso.datetime(),
   verification: z
@@ -108,8 +114,11 @@ export const TenantDetailDto = TenantSummaryDto.extend({
 });
 export type TenantDetailDto = z.infer<typeof TenantDetailDto>;
 
-/** `PUT /v1/staff/agencies/:agencyId/give-to-get`: exempt a buyer-only agency from give-to-get, or end it (S5-05). */
-export const SetGiveToGetExemptionBody = z.strictObject({ exempt: z.boolean() });
+/**
+ * `PUT /v1/staff/agencies/:agencyId/give-to-get`: exempt a buyer-only agency from give-to-get, or end it (S5-05). S6-F1:
+ * with the staff member's reason, kept on the agency; the audit entry records the exemption before and after.
+ */
+export const SetGiveToGetExemptionBody = z.strictObject({ exempt: z.boolean(), reason: StaffReason });
 export type SetGiveToGetExemptionBody = z.infer<typeof SetGiveToGetExemptionBody>;
 
 /** Audit types are `<module>.<entity>.<change>`. */

@@ -63,6 +63,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
     }
     if (def.mediaRead && def.mediaRead.columns.length === 0) throw new Error(`${name}: mediaRead needs columns`);
+    if (def.userReadOnly && def.kind !== 'PUBLIC_READ') {
+      throw new Error(`${name}: userReadOnly is only valid for PUBLIC_READ tables`);
+    }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
     if (def.immutable && (def.auth?.update !== undefined || def.staff?.update !== undefined)) {
@@ -88,9 +91,7 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
     if (def.mediaWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be mediaWrite`);
-    if (def.noUserRead && (def.access || def.publicRead)) {
-      throw new Error(`${name}: noUserRead is not valid for publicRead or ${def.access ?? 'access'} tables`);
-    }
+    if (def.noUserRead && def.access) throw new Error(`${name}: noUserRead is not valid for ${def.access} tables`);
   }
 }
 
@@ -124,7 +125,13 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_media: def.mediaWrite ? DML : [],
     };
   }
-  const user: Privilege[] = def.appendOnly ? ['INSERT'] : def.immutable ? APPEND_READ : DML;
+  const user: Privilege[] = def.appendOnly
+    ? ['INSERT']
+    : def.immutable
+      ? APPEND_READ
+      : def.userReadOnly
+        ? ['SELECT']
+        : DML;
   return {
     app_user: user,
     app_system: def.immutable ? APPEND_READ : DML,
@@ -166,9 +173,8 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
         { name: 'staff_self', cmd: 'SELECT', roles: ['app_staff'] },
       ];
     }
-    const read: PolicySpec[] = def.noUserRead
-      ? []
-      : [{ name: 'global_read', cmd: 'SELECT', roles: def.publicRead ? ['app_public', 'app_user'] : ['app_user'] }];
+    const readers = [...globalReaders(def)].sort();
+    const read: PolicySpec[] = readers.length ? [{ name: 'global_read', cmd: 'SELECT', roles: readers }] : [];
     const media: PolicySpec[] = def.mediaWrite ? [{ name: 'media_rows', cmd: 'ALL', roles: ['app_media'] }] : [];
     if (!def.staffWrite) return [...read, ...media];
     return [
@@ -187,7 +193,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
         { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
         { name: 'user_select', cmd: 'SELECT', roles: ['app_user'] },
       ]
-    : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : 'ALL', roles: ['app_user'] }];
+    : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : def.userReadOnly ? 'SELECT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   if (def.mediaRead) out.push({ name: 'media_read', cmd: 'SELECT', roles: ['app_media'] });
   for (const [key, cmd] of AUTH_COMMANDS) {
@@ -201,6 +207,11 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   }
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   return out;
+}
+
+/** Roles that read every row of a plain global table (`global_read`). */
+function globalReaders(def: GlobalTable): ('app_public' | 'app_user')[] {
+  return [...(def.noUserRead ? [] : (['app_user'] as const)), ...(def.publicRead ? (['app_public'] as const) : [])];
 }
 
 function predicate(table: string, sql: string): string {
@@ -297,14 +308,19 @@ export function hiddenColumnsOf(def: TenantTable): readonly string[] {
   return [...(def.hiddenColumns ?? []), ...(def.userSelect?.hiddenColumns ?? [])];
 }
 
+/** Columns `app_public` may not read on a PUBLIC_READ table (S6-F1): the table's own `hiddenColumns`. */
+export function publicHiddenColumnsOf(def: TenantTable): readonly string[] {
+  return def.kind === 'PUBLIC_READ' ? (def.hiddenColumns ?? []) : [];
+}
+
 /**
- * `app_user`'s grant. With hidden columns (`hiddenColumns`, `userSelect.hiddenColumns`) the table-level SELECT becomes a column list of every
- * other column, read from the catalog when the SQL runs (ADR 0016); INSERT, UPDATE and DELETE stay table-wide.
+ * A role's grant. With hidden columns the table-level SELECT becomes a column list of every other column, read from
+ * the catalog when the SQL runs (ADR 0016); INSERT, UPDATE and DELETE stay table-wide.
  */
-function userGrantSql(t: string, def: TenantTable): string {
-  const hidden = hiddenColumnsOf(def);
-  const privileges = expectedPrivileges(def).app_user;
-  if (hidden.length === 0) return `grant ${grantList(privileges)} on table ${t} to app_user;`;
+function grantSql(t: string, role: AppRole, privileges: readonly Privilege[], hidden: readonly string[]): string {
+  if (hidden.length === 0 || !privileges.includes('SELECT')) {
+    return `grant ${grantList([...privileges])} on table ${t} to ${role};`;
+  }
   const others = privileges.filter((p) => p !== 'SELECT');
   const literals = hidden.map((c) => `'${c}'`).join(', ');
   return [
@@ -313,12 +329,17 @@ declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
    where attrelid = '${t}'::regclass and attnum > 0 and not attisdropped and attname <> all (array[${literals}]);
-  execute format('grant select (%s) on table ${t} to app_user', cols);
+  execute format('grant select (%s) on table ${t} to ${role}', cols);
 end $$;`,
-    others.length ? `grant ${grantList(others)} on table ${t} to app_user;` : '',
+    others.length ? `grant ${grantList(others)} on table ${t} to ${role};` : '',
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** `app_user`'s grant: its hidden columns are `hiddenColumns` and `userSelect.hiddenColumns`. */
+function userGrantSql(t: string, def: TenantTable): string {
+  return grantSql(t, 'app_user', expectedPrivileges(def).app_user, hiddenColumnsOf(def));
 }
 
 function tenantTableSql(name: string, def: TenantTable): string[] {
@@ -341,10 +362,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
           def.appendOnly
             ? `create policy own_rows on ${t} for insert to app_user
   with check (agency_id = app_agency());`
-            : def.userInsert !== undefined
-              ? `create policy own_rows on ${t} to app_user
+            : def.userReadOnly
+              ? `create policy own_rows on ${t} for select to app_user
+  using (agency_id = app_agency());`
+              : def.userInsert !== undefined
+                ? `create policy own_rows on ${t} to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency() and (${predicate(name, def.userInsert)}));`
-              : `create policy own_rows on ${t} to app_user
+                : `create policy own_rows on ${t} to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());`,
         ]),
   ];
@@ -365,7 +389,7 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     userGrantSql(t, def),
     `grant ${grantList(expectedPrivileges(def).app_system)} on table ${t} to app_system;`,
   );
-  if (def.kind === 'PUBLIC_READ') out.push(`grant select on table ${t} to app_public;`);
+  if (def.kind === 'PUBLIC_READ') out.push(grantSql(t, 'app_public', ['SELECT'], publicHiddenColumnsOf(def)));
   if (def.mediaRead) {
     // The media worker's reference counts (S3-F4): every agency's rows, through a column grant of what it counts.
     const cols = def.mediaRead.columns.map((c) => `"${c}"`).join(', ');
@@ -445,7 +469,7 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
       `grant select, insert, update, delete on table ${t} to app_system;`,
     ];
   }
-  const readers = def.publicRead ? 'app_user, app_public' : 'app_user';
+  const readers = globalReaders(def).join(', ');
   const staffWrite = def.staffWrite
     ? [
         // Reference data edited by the staff console (S2-04): any active staff member at the database level;
@@ -457,7 +481,8 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
         `grant select, insert, update, delete on table ${t} to app_staff;`,
       ]
     : [];
-  // noUserRead (S3-F1): no reader policy or grant; app_system bypasses RLS, staff have their own policies.
+  // noUserRead (S3-F1): no app_user policy or grant; app_system bypasses RLS, staff have their own policies. With
+  // publicRead (S6-F1) app_public alone reads it.
   // mediaWrite (S3-F4): the media worker's own table, every row, nothing else.
   const mediaWrite = def.mediaWrite
     ? [
@@ -466,9 +491,9 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
       ]
     : [];
   return [
-    ...(def.noUserRead ? [] : [`create policy global_read on ${t} for select to ${readers} using (true);`]),
+    ...(readers ? [`create policy global_read on ${t} for select to ${readers} using (true);`] : []),
     `revoke all on table ${t} from ${APP_ROLES};`,
-    ...(def.noUserRead ? [] : [`grant select on table ${t} to ${readers};`]),
+    ...(readers ? [`grant select on table ${t} to ${readers};`] : []),
     `grant select, insert, update, delete on table ${t} to app_system;`,
     ...staffWrite,
     ...mediaWrite,

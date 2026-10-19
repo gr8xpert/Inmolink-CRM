@@ -114,7 +114,9 @@
     "giveToGetExempt": "Exenta (agencia solo compradora)",
     "giveToGetRequired": "Debe compartir inmuebles para buscar en la red",
     "giveToGetGrant": "Eximir de dar para recibir",
-    "giveToGetEnd": "Quitar exención"
+    "giveToGetEnd": "Quitar exención",
+    "giveToGetReason": "Motivo (ticket de soporte, por qué la agencia es solo compradora) — se guarda con la exención",
+    "giveToGetLastReason": "Motivo indicado: {reason}"
   },
   "impersonation": {
     "start": "Actuar como {name}",

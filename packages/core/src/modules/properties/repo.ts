@@ -1154,6 +1154,12 @@ export async function purge(tx: Tx, ids: string[]): Promise<{ id: string; agency
     .returning({ id: properties.id, agencyId: properties.agencyId });
 }
 
+/** The overrides cleanup's check (S6-F1): no listing row has this id any more (purged; a soft-deleted one still has). */
+export async function isPurged(tx: Tx, id: string): Promise<boolean> {
+  const rows = await tx.select({ id: properties.id }).from(properties).where(eq(properties.id, id)).limit(1);
+  return rows.length === 0;
+}
+
 /**
  * Every agency's overrides of these targets (S5-F2, `withSystem`): the target was purged or deleted. Served by
  * `listing_overrides_target_idx`; answers how many went.

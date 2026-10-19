@@ -1,7 +1,15 @@
 import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
-import { APP_ROLE_NAMES, expectedPolicies, expectedPrivileges, HELPER_FUNCTIONS, hiddenColumnsOf } from './rls';
+import {
+  APP_ROLE_NAMES,
+  type AppRole,
+  expectedPolicies,
+  expectedPrivileges,
+  HELPER_FUNCTIONS,
+  hiddenColumnsOf,
+  publicHiddenColumnsOf,
+} from './rls';
 
 /**
  * RLS guard (CI): compares the database with the tenant registry. Returns one message per problem,
@@ -233,21 +241,27 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
   }
 
   // S1-F10, S5-05: a table with `userSelect` or `hiddenColumns` grants app_user SELECT on every column except the
-  // hidden ones.
+  // hidden ones; S6-F1: a PUBLIC_READ table with `hiddenColumns` does the same for app_public.
   for (const [name, def] of Object.entries(registry.tenant)) {
+    if (!seen.has(name)) continue;
+    const checks: [AppRole, readonly string[]][] = [];
     const hidden = hiddenColumnsOf(def);
-    if ((!def.userSelect && hidden.length === 0) || !seen.has(name)) continue;
-    const cols = await client.query<{ column: string; readable: boolean }>(
-      `select a.attname as column, has_column_privilege('app_user', c.oid, a.attnum, 'SELECT') as readable
-         from pg_attribute a join pg_class c on c.oid = a.attrelid
-        where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
-      [`public."${name}"`],
-    );
-    for (const c of cols.rows) {
-      if (hidden.includes(c.column) && c.readable)
-        problems.push(`${name}: app_user can read hidden column ${c.column}`);
-      if (!hidden.includes(c.column) && !c.readable) {
-        problems.push(`${name}: app_user cannot read column ${c.column} (run pnpm db:rls)`);
+    if (def.userSelect || hidden.length > 0) checks.push(['app_user', hidden]);
+    const publicHidden = publicHiddenColumnsOf(def);
+    if (publicHidden.length > 0) checks.push(['app_public', publicHidden]);
+    for (const [role, columns] of checks) {
+      const cols = await client.query<{ column: string; readable: boolean }>(
+        `select a.attname as column, has_column_privilege($2, c.oid, a.attnum, 'SELECT') as readable
+           from pg_attribute a join pg_class c on c.oid = a.attrelid
+          where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
+        [`public."${name}"`, role],
+      );
+      for (const c of cols.rows) {
+        if (columns.includes(c.column) && c.readable)
+          problems.push(`${name}: ${role} can read hidden column ${c.column}`);
+        if (!columns.includes(c.column) && !c.readable) {
+          problems.push(`${name}: ${role} cannot read column ${c.column} (run pnpm db:rls)`);
+        }
       }
     }
   }

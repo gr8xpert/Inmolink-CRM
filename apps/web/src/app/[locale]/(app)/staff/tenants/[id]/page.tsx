@@ -101,16 +101,31 @@ export default async function TenantPage({
           <dt className="text-muted-foreground">{t('tenant.created')}</dt>
           <dd>{date(a.createdAt)}</dd>
           <dt className="text-muted-foreground">{t('tenant.giveToGet')}</dt>
-          <dd className="flex flex-wrap items-center gap-2">
+          <dd className="flex flex-col gap-2">
             <span data-testid="tenant-give-to-get">
               {a.giveToGetExempt ? t('tenant.giveToGetExempt') : t('tenant.giveToGetRequired')}
             </span>
+            {a.giveToGetReason ? (
+              <span className="text-xs text-muted-foreground" data-testid="tenant-give-to-get-reason">
+                {t('tenant.giveToGetLastReason', { reason: a.giveToGetReason })}
+              </span>
+            ) : null}
             {/* Support roles only (the API refuses data ops too): a buyer-only agency searches without sharing. */}
             {canImpersonate ? (
-              <form action={setGiveToGetExemptionAction}>
+              <form action={setGiveToGetExemptionAction} className="flex flex-col gap-2">
                 <input type="hidden" name="agencyId" value={a.id} />
                 <input type="hidden" name="exempt" value={a.giveToGetExempt ? 'false' : 'true'} />
-                <Button type="submit" variant="outline" size="sm">
+                <Label htmlFor="give-to-get-reason">{t('tenant.giveToGetReason')}</Label>
+                <textarea
+                  id="give-to-get-reason"
+                  name="reason"
+                  required
+                  minLength={10}
+                  maxLength={500}
+                  rows={2}
+                  className="rounded-md border bg-background p-2 text-sm"
+                />
+                <Button type="submit" variant="outline" size="sm" className="self-start">
                   {a.giveToGetExempt ? t('tenant.giveToGetEnd') : t('tenant.giveToGetGrant')}
                 </Button>
               </form>

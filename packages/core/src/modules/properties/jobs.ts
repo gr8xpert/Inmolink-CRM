@@ -53,7 +53,10 @@ const OVERRIDE_TARGETS_PER_DELETE = 1_000;
  * `developments.development.deleted` event, job ID = the event's id, pool `maintenance`, all agencies via
  * `withSystem`): removes every agency's `listing_overrides` of the target — of a development, of its units too (a
  * soft-deleted development keeps its units until its purge, and nothing restores it). Idempotent: a second run
- * finds nothing.
+ * finds nothing. S6-F1: inside its transaction it first checks that the target is gone (no listing or unit row; no
+ * development row, or a soft-deleted one of the event's agency) — else it removes nothing. A purged listing or deleted
+ * unit has no row left to name its owner: removing every agency's overrides of a target that no longer exists is
+ * harmless whoever's event asked.
  */
 export const propertiesJobs = {
   runBulkAction: defineJob({
@@ -149,6 +152,13 @@ export const propertiesJobs = {
     timeoutMs: 60_000,
     async run(p, { log }) {
       const removed = await withSystem('properties.removeOverrides', async (tx) => {
+        // S6-F1: only a target that is gone — and, while its row remains (a soft-deleted development), the event's
+        // agency's. A live target, or another agency's, keeps every agency's overrides.
+        const gone =
+          p.targetKind === 'LISTING'
+            ? await repo.isPurged(tx, p.targetId)
+            : await developments.isRemovedTarget(tx, p.targetKind, p.targetId, p.agencyId);
+        if (!gone) return null;
         let n = await repo.deleteOverridesOf(tx, p.targetKind, [p.targetId]);
         if (p.targetKind === 'DEVELOPMENT') {
           const units = await developments.unitIdsForDevelopment(tx, p.targetId);
@@ -158,8 +168,15 @@ export const propertiesJobs = {
         }
         return n;
       });
+      if (removed === null) {
+        log.warn(
+          { targetKind: p.targetKind, eventId: p.eventId },
+          'overrides kept: the target is live or not the agency’s',
+        );
+        return { removed: 0, kept: true };
+      }
       if (removed > 0) log.info({ removed, targetKind: p.targetKind }, 'overrides of a removed target deleted');
-      return { removed };
+      return { removed, kept: false };
     },
   }),
 };

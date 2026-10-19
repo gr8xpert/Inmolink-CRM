@@ -5,6 +5,7 @@ import {
   type NetworkSearchBody,
   type NetworkSearchResult,
   SetDevelopmentAccessBody,
+  SetGiveToGetExemptionBody,
   UpdateListingBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
@@ -43,6 +44,8 @@ let ids: { country: string; villa: string; flat: string };
 const L: Record<string, string> = {};
 const U: Record<string, string> = {};
 const DEV: Record<string, string> = {};
+/** A staff reason for the give-to-get exemption (S6-F1). */
+const REASON = 'Ticket 4711: buyer-only agency, confirmed by phone';
 
 const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -339,7 +342,7 @@ describe('give-to-get', () => {
       const asStaff = <T>(fn: Parameters<typeof withStaffCtx<T>>[1]) =>
         withStaffCtx({ userId: staff.userId, requestId: newId(), reason: 'network test' }, fn);
       const detail = await asStaff((ctx) =>
-        agencies.setGiveToGetExemption(ctx, { agencyId: v.agencyId, exempt: true }),
+        agencies.setGiveToGetExemption(ctx, { agencyId: v.agencyId, exempt: true, reason: REASON }),
       );
       expect(detail.giveToGetExempt).toBe(true);
       expect(ok(await net(v)).gate.state).toBe('EXEMPT');
@@ -348,18 +351,65 @@ describe('give-to-get', () => {
           ctx.tx.execute(sql`update agencies set give_to_get_exempt = false where agency_id = ${v.agencyId}`),
         ),
       ).rejects.toMatchObject({ cause: { code: '42501' } });
-      const audit = await rows<{ metadata: { exempt: boolean } }>(
+      const audit = await rows<{ metadata: { after: boolean } }>(
         sql`select metadata from audit_logs where agency_id = ${v.agencyId} and type = 'agencies.giveToGet.changed'`,
       );
-      expect(audit.map((r) => r.metadata.exempt)).toEqual([true]);
+      expect(audit.map((r) => r.metadata.after)).toEqual([true]);
 
       // Exemption ended, five shared listings: open on the threshold.
-      await asStaff((ctx) => agencies.setGiveToGetExemption(ctx, { agencyId: v.agencyId, exempt: false }));
+      await asStaff((ctx) =>
+        agencies.setGiveToGetExemption(ctx, { agencyId: v.agencyId, exempt: false, reason: REASON }),
+      );
       search.configureNetworkSearch({ giveToGetMinShared: 1 });
       expect(ok(await net(v)).gate.state).toBe('OPEN');
     } finally {
       search.configureNetworkSearch({ giveToGetMinShared: 1 });
       await rows(sql`update agencies set created_at = now() where agency_id = ${v.agencyId}`);
     }
+  });
+
+  it('[S6-F1] the give-to-get exemption takes a staff reason and audits the exemption before and after', async () => {
+    const m = await createFounder();
+    const staff = await createStaffUser('STAFF_SUPPORT');
+    const asStaff = <T>(fn: Parameters<typeof withStaffCtx<T>>[1]) =>
+      withStaffCtx({ userId: staff.userId, requestId: newId(), reason: 'network test' }, fn);
+    const set = (exempt: boolean, reason: string) =>
+      asStaff((ctx) => agencies.setGiveToGetExemption(ctx, { agencyId: m.agencyId, exempt, reason }));
+
+    // The body needs a reason of 10–500 characters (no markup).
+    for (const reason of [undefined, 'too short', '<b>ticket 4711: buyer-only</b>', 'x'.repeat(501)]) {
+      expect(SetGiveToGetExemptionBody.safeParse({ exempt: true, reason }).success, String(reason)).toBe(false);
+    }
+    expect(
+      SetGiveToGetExemptionBody.parse({
+        exempt: true,
+        reason: `  ${REASON}
+`,
+      }).reason,
+    ).toBe(REASON);
+
+    expect((await set(true, REASON)).giveToGetReason).toBe(REASON);
+    // The same value again is still a staff decision: audited, with its own reason.
+    const again = await set(true, 'Ticket 4712: confirmed again by phone');
+    expect(again).toMatchObject({ giveToGetExempt: true, giveToGetReason: 'Ticket 4712: confirmed again by phone' });
+    await set(false, 'Ticket 4713: the agency now lists homes');
+
+    const audit = await rows<{ metadata: Record<string, unknown>; actor_kind: string }>(
+      sql`select metadata, actor_kind from audit_logs
+           where agency_id = ${m.agencyId} and type = 'agencies.giveToGet.changed' order by occurred_at, id`,
+    );
+    expect(audit.map((r) => r.metadata)).toEqual([
+      { before: false, after: true },
+      { before: true, after: true },
+      { before: true, after: false },
+    ]);
+    expect(new Set(audit.map((r) => r.actor_kind))).toEqual(new Set(['staff']));
+    // Free text stays out of the audit log; the agency cannot write the reason itself.
+    expect(JSON.stringify(audit)).not.toContain('Ticket');
+    await expect(
+      as(m, (ctx) =>
+        ctx.tx.execute(sql`update agencies set give_to_get_reason = 'self-granted' where agency_id = ${m.agencyId}`),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
   });
 });

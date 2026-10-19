@@ -1,0 +1,2 @@
+ALTER TABLE "agencies" ADD COLUMN "give_to_get_reason" text;--> statement-breakpoint
+ALTER TABLE "agencies" ADD CONSTRAINT "agencies_give_to_get_reason_ck" CHECK (char_length("agencies"."give_to_get_reason") <= 500);

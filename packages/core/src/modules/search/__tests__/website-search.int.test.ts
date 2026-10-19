@@ -7,6 +7,7 @@ import {
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
+import { defaultSubscribers } from '@inmolink/platform/outbox';
 import {
   configureSearch,
   createMeiliEngine,
@@ -15,10 +16,11 @@ import {
   type SearchResult,
 } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
+import * as agencies from '../../agencies';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as search from '../index';
@@ -39,6 +41,8 @@ const stopped = () => createMeiliEngine({ url: 'http://127.0.0.1:9', apiKey: 'x'
 
 let a: Founder;
 let b: Founder;
+/** S6-F1: the agency that is suspended (its own, so the other tests' fixtures stay put). */
+let c: Founder | undefined;
 let ids: { region: string; cityA: string; cityB: string; villa: string; flat: string; pool: string; garden: string };
 const L: Record<string, string> = {};
 
@@ -207,8 +211,13 @@ afterAll(async () => {
     );
     await tx.execute(sql`delete from search_index_queue where target_id in (${all})`);
     await tx.execute(sql`delete from listing_search_docs where target_id in (${all})`);
-    await tx.execute(sql`delete from listing_read_models where agency_id in (${a.agencyId}, ${b.agencyId})`);
-    await tx.execute(sql`delete from properties where agency_id in (${a.agencyId}, ${b.agencyId})`);
+    const owners = sql.join(
+      [a, b, ...(c ? [c] : [])].map((m) => sql`${m.agencyId}`),
+      sql`, `,
+    );
+    await tx.execute(sql`delete from read_model_queue where owner_agency_id in (${owners})`);
+    await tx.execute(sql`delete from listing_read_models where agency_id in (${owners})`);
+    await tx.execute(sql`delete from properties where agency_id in (${owners})`);
   });
   await closeDb();
 });
@@ -444,5 +453,90 @@ describe('website search', () => {
     );
     expect(count).toBe(1);
     search.resetSearchBreaker();
+  });
+});
+
+describe('owner agency status', () => {
+  /** The worker's part: the status event reaches the search subscription; the queued rebuild runs; the index syncs. */
+  async function statusChanged(m: Founder, from: 'VERIFIED' | 'SUSPENDED', to: 'VERIFIED' | 'SUSPENDED') {
+    await setAgencyStatus(m.agencyId, to);
+    const build = vi.spyOn(search.searchJobs.buildReadModels, 'enqueue').mockResolvedValue({ id: 'test' });
+    search.registerSearchSubscriptions();
+    try {
+      const event = agencies.agenciesEvents.statusChanged({ agencyId: m.agencyId, from, to, version: 1 });
+      const handlers = defaultSubscribers
+        .get(event.type, event.version)
+        .filter((h) => h.name === 'search.readModel.agencyStatus');
+      expect(handlers).toHaveLength(1);
+      const meta = {
+        eventId: newId(),
+        agencyId: m.agencyId,
+        type: event.type,
+        version: 1,
+        createdAt: new Date(),
+        attempt: 1,
+      };
+      for (const h of handlers) await h.handler(event.payload as never, meta);
+      expect(build).toHaveBeenCalledWith({ agencyId: m.agencyId }, expect.anything());
+    } finally {
+      search.unregisterSearchSubscriptions();
+      build.mockRestore();
+    }
+    await rows(sql`update read_model_queue set due_at = now() where owner_agency_id = ${m.agencyId}`);
+    const drained = await search.drainReadModelQueue(m.agencyId, {
+      recheckMs: 60_000,
+      maxRechecks: 0,
+      leaseMs: 60_000,
+      budgetMs: 30_000,
+      waitMs: 0,
+    });
+    expect(drained.built).toBeGreaterThan(0);
+    await search.syncIndex();
+  }
+
+  /** Both backends, for the suspended agency's site. */
+  async function found(m: Founder): Promise<{ engine: string[]; fallback: string[] }> {
+    search.resetSearchBreaker();
+    const engine = await search.searchPublicListings(ours([m.agencyId]), site(), { engine: real() });
+    expect(engine.backend).toBe('engine');
+    const fallback = await search.searchPublicListings(ours([m.agencyId]), site(), { engine: stopped() });
+    expect(fallback.backend).toBe('fallback');
+    search.resetSearchBreaker();
+    return { engine: [...engine.ids], fallback: [...fallback.ids] };
+  }
+
+  it("[S6-F1] a suspended agency's PUBLIC listing disappears from website search (engine and fallback) after its status change", async () => {
+    const m = await createFounder();
+    c = m;
+    await setAgencyStatus(m.agencyId, 'VERIFIED');
+    L.suspended = await listing(m, { priceCents: 33_000_000 });
+    search.configureSearchIndex({ uid: UID, scope: Object.values(L) });
+    await search.syncIndex();
+    expect(await found(m)).toEqual({ engine: [L.suspended], fallback: [L.suspended] });
+
+    await statusChanged(m, 'VERIFIED', 'SUSPENDED');
+    expect(await found(m)).toEqual({ engine: [], fallback: [] });
+    // Its documents stay, not public: app_public reads nothing of it; no fallback row.
+    const docs = await rows<{ public: boolean }>(
+      sql`select public from listing_read_models where target_id = ${L.suspended}`,
+    );
+    expect(docs.length).toBeGreaterThan(0);
+    expect(docs.every((d) => !d.public)).toBe(true);
+    expect(await rows(sql`select 1 from listing_search_docs where target_id = ${L.suspended}`)).toHaveLength(0);
+
+    // A large agency is queued a page per statement: every target of agency a, two at a time.
+    const targets = await rows<{ n: number }>(
+      sql`select count(distinct target_id)::int as n from listing_read_models where agency_id = ${a.agencyId}`,
+    );
+    expect(await search.queueAgencyReadModelChanges(a.agencyId, 60_000, 2)).toBe(targets[0]?.n);
+    const queued = await rows<{ n: number }>(
+      sql`select count(*)::int as n from read_model_queue where owner_agency_id = ${a.agencyId}`,
+    );
+    expect(queued[0]?.n).toBe(targets[0]?.n);
+    await rows(sql`delete from read_model_queue where owner_agency_id = ${a.agencyId}`);
+
+    // Reinstated: back on its website.
+    await statusChanged(m, 'SUSPENDED', 'VERIFIED');
+    expect(await found(m)).toEqual({ engine: [L.suspended], fallback: [L.suspended] });
   });
 });

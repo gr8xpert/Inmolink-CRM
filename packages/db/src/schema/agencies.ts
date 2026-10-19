@@ -55,6 +55,8 @@ export const agencies = pgTable(
      * Staff set it (guard migration 0070); the agency itself never can.
      */
     giveToGetExempt: boolean('give_to_get_exempt').notNull().default(false),
+    /** Why staff last set or ended the exemption (S6-F1, ≤ 500 characters); the audit log holds before and after. */
+    giveToGetReason: text('give_to_get_reason'),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -68,6 +70,7 @@ export const agencies = pgTable(
     index('agencies_created_idx').on(sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`, t.id),
     // staff tenant search (S1-F9): `name ilike '%q%'` — a leading wildcard cannot use a btree; trigram GIN (pg_trgm, initdb)
     index('agencies_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),
+    check('agencies_give_to_get_reason_ck', sql`char_length(${t.giveToGetReason}) <= 500`),
   ],
 );
 

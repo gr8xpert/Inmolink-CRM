@@ -318,7 +318,12 @@ export const NetworkSearchResult = z.discriminatedUnion('status', [
     status: z.literal('OK'),
     gate: GiveToGetGate,
     items: z.array(NetworkSearchItem),
-    /** Matching documents (estimated, ≤ 10,000); results the caller may no longer read are left out of a page. */
+    /**
+     * Approximate (S6-F1): the engine's estimate of the matching index documents, ≤ 10,000. Results the caller may not
+     * read under RLS (a listing hidden for freshness, an owner that is suspended or unlisted, a share just narrowed)
+     * are still counted here but left out of the page, so pages can be short and the total can exceed what paging
+     * reaches. Show it as "about N".
+     */
     total: z.number().int(),
     nextCursor: Cursor.nullable(),
   }),

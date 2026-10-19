@@ -101,13 +101,16 @@ export async function endSessionAsSuperAdminAction(form: FormData): Promise<void
   redirect(res.ok || res.status === 404 ? `${path}?notice=ended` : path);
 }
 
-/** Give-to-get exemption (S5-05): support flags a buyer-only agency; the API decides who may and audits it. */
+/** Give-to-get exemption (S5-05, S6-F1): support flags a buyer-only agency with a reason; the API decides who may and audits it. */
 export async function setGiveToGetExemptionAction(form: FormData): Promise<void> {
   const tenant = TenantParams.safeParse({ agencyId: text(form, 'agencyId') });
   if (!tenant.success) redirect('/');
-  const body = SetGiveToGetExemptionBody.safeParse({ exempt: text(form, 'exempt') === 'true' });
+  const body = SetGiveToGetExemptionBody.safeParse({
+    exempt: text(form, 'exempt') === 'true',
+    reason: text(form, 'reason'),
+  });
   if (!body.success) return toTenant(tenant.data.agencyId, { error: 'VALIDATION_FAILED' });
-  const res = await setGiveToGetExemption(await session(), tenant.data.agencyId, body.data.exempt);
+  const res = await setGiveToGetExemption(await session(), tenant.data.agencyId, body.data);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok) {
     return toTenant(tenant.data.agencyId, { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });

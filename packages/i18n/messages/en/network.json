@@ -41,7 +41,7 @@
     "exempt": "Your agency searches the network without sharing (buyer-only agency)."
   },
   "results": {
-    "count": "{count, plural, =0 {No results} one {# result} other {# results}}",
+    "count": "{count, plural, =0 {No results} one {# result} other {About # results}}",
     "none": "Nothing on the network matches these filters.",
     "more": "More results",
     "owner": "Listing agent: {name}",

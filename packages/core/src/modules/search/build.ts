@@ -27,6 +27,7 @@ export interface BuiltDoc {
   kind: 'LISTING' | 'UNIT';
   agencyId: string;
   developmentId: string | null;
+  /** Public paths may read it: a PUBLIC listing or an OPEN development's unit, of an owner that publishes (S6-F1). */
   public: boolean;
   status: string;
   /** A listing's share scope (network search filter, S5-02); null for units. Never inside the documents. */
@@ -88,12 +89,19 @@ function coverOf(items: readonly ReadModelMedia[]): ReadModelImage | null {
   return images.find((m) => m.cover) ?? images[0] ?? null;
 }
 
+/** The owner agency as documents need it: its content locales, and whether it may publish (S6-F1: VERIFIED). */
+export interface DocOwner {
+  locales: readonly string[];
+  publishes: boolean;
+}
+
 export function buildListingDocs(
   l: properties.ReadModelListing,
   mediaSet: media.ReadModelMediaSet | undefined,
   tax: taxonomy.ReadModelTaxonomy,
-  locales: readonly string[],
+  owner: DocOwner,
 ): BuiltDoc[] {
+  const { locales } = owner;
   const items = mediaSet?.items ?? [];
   const cover = coverOf(items);
   const imageCount = items.filter((m) => m.kind === 'IMAGE').length;
@@ -143,7 +151,7 @@ export function buildListingDocs(
       kind: 'LISTING',
       agencyId: l.agencyId,
       developmentId: l.developmentId,
-      public: l.visibility === 'PUBLIC',
+      public: owner.publishes && l.visibility === 'PUBLIC',
       status: l.status,
       shareScope: l.shareScope,
       allowedAgencyIds: null,
@@ -158,8 +166,9 @@ export function buildListingDocs(
 export function buildUnitDocs(
   u: developments.ReadModelUnit,
   tax: taxonomy.ReadModelTaxonomy,
-  locales: readonly string[],
+  owner: DocOwner,
 ): BuiltDoc[] {
+  const { locales } = owner;
   const d = u.development;
   return locales.map((locale) => {
     const picked = pickText(d.translations, locale, locales);
@@ -199,7 +208,7 @@ export function buildUnitDocs(
       kind: 'UNIT',
       agencyId: u.agencyId,
       developmentId: u.developmentId,
-      public: d.open,
+      public: owner.publishes && d.open,
       status: u.status,
       shareScope: null,
       allowedAgencyIds: d.open ? null : [...d.allowedAgencyIds].sort(),

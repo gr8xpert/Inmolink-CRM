@@ -57,13 +57,23 @@ export async function loadTenant(
   return row ? { status: row.status, locales: row.enabledLocales } : null;
 }
 
+export interface ReadModelOwner {
+  /** The agency's content locales: one document per locale. */
+  locales: string[];
+  /**
+   * The agency may publish (S6-F1): VERIFIED now — listed in the directory, its API keys active. A suspended or
+   * unlisted owner's PUBLIC listings and OPEN-development units leave the public read models and the PUBLIC index.
+   */
+  publishes: boolean;
+}
+
 /**
- * The content locales of these agencies, for the search worker's read models (S5-01; raw `tx`, `withSystem`, no
- * authorization — PATTERNS §12). An agency without settings is missing.
+ * The owners of a batch of read models (S5-01, S6-F1): content locales and whether they may publish, in one statement
+ * (raw `tx`, `withSystem`, no authorization — PATTERNS §12). An agency without settings is missing.
  */
-export async function contentLocalesOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, string[]>> {
-  const rows = await repo.enabledLocalesOf(tx, [...new Set(agencyIds)]);
-  return new Map(rows.map((r) => [r.agencyId, r.locales]));
+export async function readModelOwnersOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, ReadModelOwner>> {
+  const rows = await repo.readModelOwners(tx, [...new Set(agencyIds)]);
+  return new Map(rows.map((r) => [r.agencyId, { locales: r.locales, publishes: r.verified }]));
 }
 
 /**

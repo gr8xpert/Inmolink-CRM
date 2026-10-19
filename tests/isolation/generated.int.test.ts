@@ -335,18 +335,24 @@ describe.each(tenantNames)('tenant table %s', (table) => {
         expect(await adminCount(a)).toBe(visible.length + hidden.length);
       });
     } else {
+      // A userReadOnly table (S6-F1) refuses the statement outright (no grant): stronger than matching no row.
+      const changes = async (run: () => Promise<{ rowCount: number | null }>) => {
+        if (def.userReadOnly) await expectSqlState(run, DENIED);
+        else expect((await run()).rowCount).toBe(0);
+      };
+
       it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
-        const res = await withTenant(as(b), (tx) =>
-          tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+        await changes(() =>
+          withTenant(as(b), (tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
+          ),
         );
-        expect(res.rowCount).toBe(0);
       });
 
       it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
-        const res = await withTenant(as(b), (tx) =>
-          tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`),
+        await changes(() =>
+          withTenant(as(b), (tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
         );
-        expect(res.rowCount).toBe(0);
         expect(await adminCount(a)).toBe(visible.length + hidden.length);
       });
     }
@@ -386,6 +392,23 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     it(`[S0-05] ${table}: app_public reads only rows matching the public predicate`, async () => {
       expect(await withPublicRead((tx) => count(tx, table, a))).toBe(visible.length);
     });
+
+    if (def.hiddenColumns?.length) {
+      it(`[S6-F1] ${table}: app_public cannot read the hidden columns (${def.hiddenColumns.join(', ')}), even on public rows`, async () => {
+        for (const column of def.hiddenColumns ?? []) {
+          const id = sql.identifier(column);
+          const t = sql.identifier(table);
+          for (const read of [
+            sql`select ${id} from ${t} where agency_id = ${a}`,
+            sql`select * from ${t} where agency_id = ${a}`,
+            sql`select count(*) from ${t} where agency_id = ${a} and ${id} is not null`,
+            sql`select agency_id from ${t} where agency_id = ${a} order by ${id}`,
+          ]) {
+            await expectSqlState(() => withPublicRead((tx) => tx.execute(read)), DENIED);
+          }
+        }
+      });
+    }
   } else {
     it(`[S0-05] ${table}: app_public cannot read it`, async () => {
       await expectSqlState(() => withPublicRead((tx) => count(tx, table, a)), DENIED);
@@ -435,6 +458,35 @@ describe.each(tenantNames)('tenant table %s', (table) => {
           });
         expect(await count(tx, table, b)).toBe(1 + (inserted ?? 0));
       });
+      expect(await adminCount(b)).toBe(1);
+    });
+  } else if (!def.appendOnly && def.userReadOnly) {
+    // A read model only workers write (S6-F1): tenants read their own rows (the positive control) and change none.
+    it(`[S6-F1] ${table}: read-only for app_user — tenant B reads its own rows but cannot insert, update or delete any`, async () => {
+      expect(await withTenant(as(b), (tx) => count(tx, table, b))).toBe(1);
+      for (const agencyId of [a, b]) {
+        await expectSqlState(
+          () => rb(b, (tx) => tx.execute(insertSql(table, build({ agency_id: agencyId }))).then(() => undefined)),
+          DENIED,
+        );
+        await expectSqlState(
+          () =>
+            rb(b, (tx) =>
+              tx
+                .execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${agencyId}`)
+                .then(() => undefined),
+            ),
+          DENIED,
+        );
+        await expectSqlState(
+          () =>
+            rb(b, (tx) =>
+              tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`).then(() => undefined),
+            ),
+          DENIED,
+        );
+      }
+      expect(await adminCount(a)).toBe(visible.length + hidden.length);
       expect(await adminCount(b)).toBe(1);
     });
   } else if (!def.appendOnly) {

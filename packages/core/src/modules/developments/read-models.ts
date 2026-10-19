@@ -109,6 +109,14 @@ export function unitIdsForDevelopment(tx: Tx, developmentId: string): Promise<st
   return repo.unitIdsOf(tx, developmentId);
 }
 
+/**
+ * For the overrides cleanup (S6-F1): the unit or development is gone — no unit row; no development row, or one of
+ * `agencyId` that is soft-deleted. A live target, or another agency's, is not removed.
+ */
+export function isRemovedTarget(tx: Tx, kind: 'UNIT' | 'DEVELOPMENT', id: string, agencyId: string): Promise<boolean> {
+  return repo.isRemoved(tx, kind, id, agencyId);
+}
+
 /** The full rebuild's progress: how many units have a read model (one agency's, or all). */
 export function countUnitsForReadModels(tx: Tx, agencyId?: string): Promise<number> {
   return repo.countReadModelUnits(tx, agencyId);

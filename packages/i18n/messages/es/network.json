@@ -41,7 +41,7 @@
     "exempt": "Tu agencia busca en la red sin compartir (agencia solo compradora)."
   },
   "results": {
-    "count": "{count, plural, =0 {Sin resultados} one {# resultado} other {# resultados}}",
+    "count": "{count, plural, =0 {Sin resultados} one {# resultado} other {Aprox. # resultados}}",
     "none": "Nada en la red coincide con estos filtros.",
     "more": "Más resultados",
     "owner": "Agencia captadora: {name}",

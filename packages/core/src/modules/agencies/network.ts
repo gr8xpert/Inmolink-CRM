@@ -56,20 +56,29 @@ export async function networkAgencyNames(ctx: Ctx, ids: readonly string[]): Prom
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 
-/** `PUT /v1/staff/agencies/:agencyId/give-to-get`: support exempts a buyer-only agency, or ends it; audited. */
+/**
+ * `PUT /v1/staff/agencies/:agencyId/give-to-get`: support exempts a buyer-only agency, or ends it, with a reason (S6-F1:
+ * kept on the agency, shown on its staff page). Audited with the exemption before and after — the reason is free text,
+ * so it stays out of the audit metadata (`AuditMetadata`).
+ */
 export async function setGiveToGetExemption(
   ctx: StaffCtx,
   input: SetGiveToGetExemptionBody & { agencyId: string },
 ): Promise<TenantDetailDto> {
   assertStaffCan(ctx, 'staff.giveToGet.manage');
-  const changed = await tenantsRepo.setGiveToGetExempt(ctx.tx, input.agencyId, input.exempt, clock.now());
+  const changed = await tenantsRepo.setGiveToGetExempt(
+    ctx.tx,
+    input.agencyId,
+    { exempt: input.exempt, reason: input.reason },
+    clock.now(),
+  );
   if (!changed) throw new AppError('NOT_FOUND', { entity: 'agency' });
   await compliance.auditStaff(
     ctx,
     input.agencyId,
     'agencies.giveToGet.changed',
     { type: 'agency', id: input.agencyId },
-    { exempt: input.exempt },
+    { before: changed.before, after: input.exempt },
   );
   return getTenant(ctx, { agencyId: input.agencyId });
 }

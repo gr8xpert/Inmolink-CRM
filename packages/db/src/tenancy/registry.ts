@@ -117,6 +117,12 @@ interface TenantBase {
    * of content-addressed objects (a column grant: nothing else of the row). Never writable by it.
    */
   mediaRead?: { columns: readonly string[] };
+  /**
+   * PUBLIC_READ only (S6-F1): a read model written by workers alone (`app_system`). `app_user` reads its own rows (and
+   * the network rows `networkReadSql` opens) but gets no INSERT, UPDATE or DELETE grant — `own_rows` is a SELECT
+   * policy — so no request path can plant or change what public paths serve.
+   */
+  userReadOnly?: true;
 }
 
 export interface AuthAccess {
@@ -147,7 +153,10 @@ export type TenantTable = TenantBase &
         networkReadSql: string;
         samples: PredicateSamples;
       }
-    /** Own agency, plus `app_public` (feed-api, portal) may read matching rows — whole rows, so no private columns. */
+    /**
+     * Own agency, plus `app_public` (feed-api, portal) may read matching rows — whole rows, so no private columns —
+     * except `hiddenColumns`, which neither `app_user` nor `app_public` may read (S6-F1).
+     */
     | {
         kind: 'PUBLIC_READ';
         publicReadSql: string;
@@ -191,7 +200,8 @@ export interface GlobalTable {
   /**
    * `app_user` gets no read (no `global_read` policy, no grant): rows carry other agencies' data (listing refs,
    * feed names) or tenant mappings. Only `app_system` and, with `staffWrite`, active staff reach it (S3-F1).
-   * Not with `publicRead` or `access`.
+   * Not with `access`. With `publicRead` (S6-F1): `app_public` reads it and `app_user` does not — public-path data
+   * that would tell a tenant more than its own network view does.
    */
   noUserRead?: true;
   /** `app_media` (the media worker, S3-F4) reads and writes every row; it reaches nothing else. */
@@ -230,6 +240,8 @@ export const tenantTables: Record<string, TenantTable> = {
   agencies: {
     kind: 'STRICT',
     singleRow: true,
+    // S6-F1: staff's give-to-get reason is theirs (staff read it as app_staff), not the agency's to read.
+    hiddenColumns: ['give_to_get_reason'],
     triggers: ['agencies_guard', 'agencies_guard_insert', 'agencies_directory_sync'],
     staff: { select: 'true', update: 'true' },
     auth: {
@@ -458,10 +470,13 @@ export const tenantTables: Record<string, TenantTable> = {
   // Network search (S5-05) hydrates its results from them: a verified agency reads another's read model exactly
   // where it may read the listing or unit itself (the `exists` runs under the reader's RLS on `properties` /
   // `units`: share scope, preferred agencies, freshness, development access). Readable side tested in search.
+  // S6-F1: only the worker writes them (no user DML); `public` is false for an owner agency that is not VERIFIED.
   listing_read_models: {
     kind: 'PUBLIC_READ',
+    userReadOnly: true,
     publicReadSql: 'public',
-    // Index-only: who a PRIVATE_NETWORK development is shared with, and a listing's share scope (security review).
+    // Index-only: who a PRIVATE_NETWORK development is shared with, and a listing's share scope (security review);
+    // unreadable by app_user and app_public alike (S6-F1).
     hiddenColumns: ['share_scope', 'allowed_agency_ids'],
     networkReadSql: `(kind = 'LISTING' and exists (select 1 from public.properties p where p.id = listing_read_models.target_id))
       or (kind = 'UNIT' and exists (select 1 from public.units u where u.id = listing_read_models.target_id))`,
@@ -636,9 +651,11 @@ export const globalTables: Record<string, GlobalTable> = {
   },
   // Postgres fallback search (S5-04): PUBLIC index documents only, written with read models via withSystem().
   // Not under RLS: array and numeric comparisons are not leakproof, so a policy would keep them out of index scans.
+  // S6-F1: public paths only — a member session would map every PUBLIC listing to its owner without the verified gate.
   listing_search_docs: {
     reason: 'search filter fields of PUBLIC listings and units of every agency (website search fallback)',
     publicRead: true,
+    noUserRead: true,
   },
   // Search index sync queue (S5-03): written with read models by the search worker via withSystem().
   search_index_queue: {

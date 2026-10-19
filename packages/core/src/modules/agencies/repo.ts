@@ -409,10 +409,15 @@ export async function existingStorageKeys(tx: Tx, keys: string[]): Promise<Set<s
 }
 
 /** The content locales of these agencies (`agency_settings` PK; read models, S5-01). */
-export async function enabledLocalesOf(tx: Tx, ids: readonly string[]) {
+export async function readModelOwners(tx: Tx, ids: readonly string[]) {
   if (ids.length === 0) return [];
   return tx
-    .select({ agencyId: agencySettings.agencyId, locales: agencySettings.enabledLocales })
+    .select({
+      agencyId: agencySettings.agencyId,
+      locales: agencySettings.enabledLocales,
+      verified: sql<boolean>`${agencies.status} = 'VERIFIED'`,
+    })
     .from(agencySettings)
+    .innerJoin(agencies, eq(agencies.id, agencySettings.agencyId))
     .where(inArray(agencySettings.agencyId, [...ids]));
 }

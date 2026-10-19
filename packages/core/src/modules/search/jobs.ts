@@ -4,6 +4,7 @@ import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
 import {
   drainReadModelQueue,
   overdueReadModelAgencies,
+  queueAgencyReadModelChanges,
   queueReadModelChanges,
   rebuildAllReadModels,
   rebuildDevelopmentReadModels,
@@ -210,6 +211,17 @@ export async function requestIndexSync(): Promise<void> {
 export async function queueReadModel(kind: 'LISTING' | 'UNIT', id: string, agencyId: string): Promise<void> {
   await queueReadModelChanges([{ kind, targetId: id, agencyId }], READ_MODEL_DEBOUNCE_MS);
   await requestReadModelBuild(agencyId);
+}
+
+/**
+ * Queues a rebuild of every read-model target of an agency whose status changed (S6-F1: a suspended or unlisted owner's
+ * documents stop being public; a verified one's become public) and asks for its rebuild run. Called by the search
+ * subscriptions. Network I/O (the queue): never inside a transaction.
+ */
+export async function queueAgencyReadModels(agencyId: string): Promise<number> {
+  const queued = await queueAgencyReadModelChanges(agencyId, READ_MODEL_DEBOUNCE_MS);
+  if (queued > 0) await requestReadModelBuild(agencyId);
+  return queued;
 }
 
 /**

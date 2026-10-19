@@ -267,4 +267,65 @@ describe('listing overrides', () => {
     // A second run (a duplicate delivery) finds nothing.
     await runRemoveJob('developments.development.deleted', 'developmentId', 'DEVELOPMENT', dev.id);
   });
+
+  it('[S6-F1] removeOverrides for a live target, or one of another agency, removes nothing', async () => {
+    /** The job as a forged or misrouted event would queue it: any target, any agency. */
+    const job = (agencyId: string, targetKind: Kind, targetId: string) =>
+      properties.propertiesJobs.removeOverrides.spec.run(
+        { eventId: newId(), agencyId, targetKind, targetId },
+        jobCtx(),
+      ) as Promise<{ removed: number; kept?: boolean }>;
+
+    // Listings: a live one, and a soft-deleted one (restorable; not purged) keep every agency's overrides.
+    const [live, deleted] = [await seedListing(owner, 'OV6'), await seedListing(owner, 'OV7')];
+    for (const l of [live, deleted]) await save(presenter, 'LISTING', l, { title: 'Ours' });
+    await rows(sql`update properties set deleted_at = now() where id = ${deleted}`);
+    for (const agencyId of [owner.agencyId, stranger.agencyId]) {
+      expect(await job(agencyId, 'LISTING', live)).toEqual({ removed: 0, kept: true });
+      expect(await job(agencyId, 'LISTING', deleted)).toEqual({ removed: 0, kept: true });
+    }
+    expect(await overridesOf(live)).toHaveLength(1);
+    expect(await overridesOf(deleted)).toHaveLength(1);
+
+    // New builds: a live development and unit keep theirs, for any agency.
+    const dev = await as(owner, (ctx) =>
+      developments.createDevelopment(
+        ctx,
+        CreateDevelopmentBody.parse({ ref: code('DOV3'), name: 'Kept Heights', locationId: ids.location }),
+      ),
+    );
+    await as(owner, (ctx) =>
+      developments.setDevelopmentAccess(ctx, dev.id, {
+        version: dev.version,
+        kind: 'PRIVATE_NETWORK',
+        allowedAgencyIds: [presenter.agencyId],
+      }),
+    );
+    const created = await as(owner, (ctx) =>
+      developments.createUnits(
+        ctx,
+        dev.id,
+        CreateUnitsBody.parse({ units: [{ ref: 'C1', propertyTypeId: ids.type, priceCents: 40000000 }] }),
+      ),
+    );
+    const unit = created.items[0]?.id as string;
+    await save(presenter, 'DEVELOPMENT', dev.id, { title: 'Our heights' });
+    await save(presenter, 'UNIT', unit, { title: 'Our unit' });
+    for (const agencyId of [owner.agencyId, stranger.agencyId]) {
+      expect(await job(agencyId, 'DEVELOPMENT', dev.id)).toEqual({ removed: 0, kept: true });
+      expect(await job(agencyId, 'UNIT', unit)).toEqual({ removed: 0, kept: true });
+    }
+
+    // Deleted (soft) by its owner: another agency's job still removes nothing; the owner's removes them all.
+    await as(owner, async (ctx) =>
+      developments.deleteDevelopment(ctx, dev.id, (await developments.getDevelopment(ctx, dev.id)).version),
+    );
+    expect(await job(stranger.agencyId, 'DEVELOPMENT', dev.id)).toEqual({ removed: 0, kept: true });
+    expect(await job(presenter.agencyId, 'DEVELOPMENT', dev.id)).toEqual({ removed: 0, kept: true });
+    expect(await overridesOf(dev.id)).toHaveLength(1);
+    expect(await overridesOf(unit)).toHaveLength(1);
+    expect(await job(owner.agencyId, 'DEVELOPMENT', dev.id)).toEqual({ removed: 2, kept: false });
+    expect(await overridesOf(dev.id)).toEqual([]);
+    expect(await overridesOf(unit)).toEqual([]);
+  });
 });

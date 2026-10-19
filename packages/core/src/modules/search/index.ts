@@ -27,6 +27,7 @@ export {
 } from './indexer';
 export {
   INDEX_SYNC_THROTTLE_MS,
+  queueAgencyReadModels,
   queueReadModel,
   READ_MODEL_DEBOUNCE_MS,
   READ_MODEL_PENDING_RECHECKS,
@@ -45,6 +46,7 @@ export {
 } from './network';
 export { CLIENT_MODE_ALLOWED, can } from './policy';
 export {
+  AGENCY_QUEUE_PAGE,
   countReadModelTargets,
   type DrainOptions,
   type DrainResult,
@@ -54,6 +56,7 @@ export {
   type FullRebuildProgress,
   indexDocsFor,
   MAX_LOCKS_IN_FLIGHT,
+  queueAgencyReadModelChanges,
   READ_MODEL_BATCH,
   type ReadModelKind,
   type RebuildResult,

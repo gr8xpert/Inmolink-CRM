@@ -670,6 +670,23 @@ export async function unitIdsOf(tx: Tx, developmentId: string): Promise<string[]
   return rows.map((r) => r.id);
 }
 
+/**
+ * The overrides cleanup's check (S6-F1): a unit is removed when no row is left; a development when no row is left, or
+ * when it is `agencyId`'s and soft-deleted (it is never restored). Two primary-key lookups at most.
+ */
+export async function isRemoved(tx: Tx, kind: 'UNIT' | 'DEVELOPMENT', id: string, agencyId: string): Promise<boolean> {
+  if (kind === 'UNIT') {
+    const rows = await tx.select({ id: units.id }).from(units).where(eq(units.id, id)).limit(1);
+    return rows.length === 0;
+  }
+  const [row] = await tx
+    .select({ agencyId: developments.agencyId, deletedAt: developments.deletedAt })
+    .from(developments)
+    .where(eq(developments.id, id))
+    .limit(1);
+  return !row || (row.agencyId === agencyId && row.deletedAt !== null);
+}
+
 /** How many units of live developments there are (the full rebuild's progress), optionally one agency's. */
 export async function countReadModelUnits(tx: Tx, agencyId?: string): Promise<number> {
   const [row] = await tx

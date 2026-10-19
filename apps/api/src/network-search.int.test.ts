@@ -82,16 +82,22 @@ describe('network search route', () => {
     const f = await createFounder();
     const support = await createStaffUser('STAFF_SUPPORT');
     const dataOps = await createStaffUser('STAFF_DATA_OPS');
-    const put = async (staffUserId: string, agencyId: string, exempt: boolean) =>
+    const put = async (staffUserId: string, agencyId: string, exempt: boolean, reason?: string) =>
       app.inject({
         method: 'PUT',
         url: `/v1/staff/agencies/${agencyId}/give-to-get`,
         headers: { authorization: `Bearer ${(await signer.sign({ sub: staffUserId, aud: 'api', sv: 1 })).token}` },
-        payload: { exempt },
+        payload: { exempt, reason: reason ?? 'Ticket 4711: buyer-only agency' },
       });
+    // S6-F1: a reason is required.
+    expect((await put(support.userId, f.agencyId, true, '')).statusCode).toBe(422);
     const ok = await put(support.userId, f.agencyId, true);
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ id: f.agencyId, giveToGetExempt: true });
+    expect(ok.json()).toMatchObject({
+      id: f.agencyId,
+      giveToGetExempt: true,
+      giveToGetReason: 'Ticket 4711: buyer-only agency',
+    });
     expect((await put(dataOps.userId, f.agencyId, false)).statusCode).toBe(403);
     expect((await put(support.userId, newId(), true)).statusCode).toBe(404);
     // A tenant token is not staff.
@@ -99,7 +105,7 @@ describe('network search route', () => {
       method: 'PUT',
       url: `/v1/staff/agencies/${f.agencyId}/give-to-get`,
       headers: await bearer(f.userId, f.agencyId),
-      payload: { exempt: false },
+      payload: { exempt: false, reason: 'Ticket 4711: self-service attempt' },
     });
     expect(tenant.statusCode).toBe(403);
   });

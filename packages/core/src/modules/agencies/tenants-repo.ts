@@ -68,6 +68,7 @@ export async function getTenant(tx: Tx, id: string) {
       region: agencies.region,
       onboarded: sql<boolean>`${agencies.onboardedAt} is not null`,
       giveToGetExempt: agencies.giveToGetExempt,
+      giveToGetReason: agencies.giveToGetReason,
       version: agencies.version,
       updatedAt: agencies.updatedAt,
     })
@@ -77,16 +78,28 @@ export async function getTenant(tx: Tx, id: string) {
 }
 
 /**
- * Staff set or end an agency's give-to-get exemption (S5-05); the guard (migration 0070) lets staff change only this
- * and the status. The version is left alone: it versions the company details staff verify. False: no such agency.
+ * Staff set or end an agency's give-to-get exemption with their reason (S5-05, S6-F1); the guard (migration 0077) lets
+ * staff change only these and the status. The version is left alone: it versions the company details staff verify.
+ * Answers the exemption before the change (the row locked first, so two staff members' changes record a true
+ * before), or null: no such agency.
  */
-export async function setGiveToGetExempt(tx: Tx, id: string, exempt: boolean, now: Date): Promise<boolean> {
-  const rows = await tx
-    .update(agencies)
-    .set({ giveToGetExempt: exempt, updatedAt: now })
+export async function setGiveToGetExempt(
+  tx: Tx,
+  id: string,
+  change: { exempt: boolean; reason: string },
+  now: Date,
+): Promise<{ before: boolean } | null> {
+  const [current] = await tx
+    .select({ exempt: agencies.giveToGetExempt })
+    .from(agencies)
     .where(eq(agencies.id, id))
-    .returning({ id: agencies.id });
-  return rows.length === 1;
+    .for('no key update');
+  if (!current) return null;
+  await tx
+    .update(agencies)
+    .set({ giveToGetExempt: change.exempt, giveToGetReason: change.reason, updatedAt: now })
+    .where(eq(agencies.id, id));
+  return { before: current.exempt };
 }
 
 /** Names for a page of ids in one query (the staff audit viewer): unknown ids are simply absent. */

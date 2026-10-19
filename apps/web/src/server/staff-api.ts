@@ -50,15 +50,15 @@ export function fetchTenantMembers(session: SessionRef, agencyId: string): Promi
   return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}/members?limit=100`, MemberPage);
 }
 
-/** Support exempts a buyer-only agency from give-to-get, or ends it (S5-05); the API audits it. */
+/** Support exempts a buyer-only agency from give-to-get, or ends it, with a reason (S5-05, S6-F1); the API audits it. */
 export function setGiveToGetExemption(
   session: SessionRef,
   agencyId: string,
-  exempt: boolean,
+  change: { exempt: boolean; reason: string },
 ): Promise<ApiResult<TenantDetailDto>> {
   return apiRequest(session, `/v1/staff/agencies/${encodeURIComponent(agencyId)}/give-to-get`, TenantDetailDto, {
     method: 'PUT',
-    body: { exempt },
+    body: change,
   });
 }
 

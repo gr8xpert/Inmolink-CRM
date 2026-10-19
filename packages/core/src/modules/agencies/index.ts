@@ -22,13 +22,14 @@ export {
   updatePreferredAgency,
 } from './preferred';
 export {
-  contentLocalesOf,
   createSignupAgency,
   getAgencyName,
   getMyAgency,
   initialLocales,
   loadTenant,
   lockAgencyStatus,
+  type ReadModelOwner,
+  readModelOwnersOf,
   replaceSignupAgency,
   updateAgencyDetails,
 } from './service';

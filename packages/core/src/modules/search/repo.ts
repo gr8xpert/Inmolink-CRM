@@ -76,11 +76,12 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
         etag: excluded('etag'),
         updatedAt: sql`now()`,
       },
-      // Share scope and the allowed agencies are not in the documents (no etag change): a change of either must
-      // still reach the row.
+      // Share scope, the allowed agencies and `public` are not in the documents (no etag change; S6-F1: the owner's
+      // status changes `public` without a new version): a change of any must still reach the row.
       setWhere: sql`excluded.version > ${listingReadModels.version}
         or (excluded.version = ${listingReadModels.version}
             and (excluded.etag <> ${listingReadModels.etag}
+                 or excluded.public <> ${listingReadModels.public}
                  or excluded.share_scope is distinct from ${listingReadModels.shareScope}
                  or excluded.allowed_agency_ids is distinct from ${listingReadModels.allowedAgencyIds}))`,
     })
@@ -237,6 +238,33 @@ export async function queueReadModels(tx: Tx, changes: readonly ReadModelChange[
      order by 1
     on conflict (target_id) do update
       set generation = ${readModelQueue}.generation + 1, due_at = excluded.due_at, rechecks = 0`);
+}
+
+/**
+ * Queues a rebuild of one page of an agency's targets of `kind` that have read models (S6-F1: its status decides
+ * `public`), due `delayMs` from now, like `queueReadModels`: the next `limit` target ids after `after`, in
+ * `listing_read_models_agency_idx` order (an index range, one statement). Answers how many, and the page's last id
+ * (null: the last page).
+ */
+export async function queueAgencyReadModels(
+  tx: Tx,
+  page: { agencyId: string; kind: Kind; after: string | null; limit: number },
+  delayMs: number,
+): Promise<{ queued: number; last: string | null }> {
+  const after = page.after === null ? sql`` : sql`and target_id > ${page.after}`;
+  const res = await tx.execute<{ target_id: string }>(sql`
+    with page as (
+      select distinct target_id from ${listingReadModels}
+       where agency_id = ${page.agencyId} and kind = ${page.kind} ${after}
+       order by target_id limit ${page.limit})
+    insert into ${readModelQueue} (target_id, kind, owner_agency_id, due_at)
+    select target_id, ${page.kind}, ${page.agencyId}::uuid, now() + make_interval(secs => ${delayMs / 1000})
+      from page order by 1
+    on conflict (target_id) do update
+      set generation = ${readModelQueue}.generation + 1, due_at = excluded.due_at, rechecks = 0
+    returning target_id`);
+  const ids = res.rows.map((r) => r.target_id).sort();
+  return { queued: ids.length, last: ids.length < page.limit ? null : (ids.at(-1) ?? null) };
 }
 
 export interface ReadModelClaim {

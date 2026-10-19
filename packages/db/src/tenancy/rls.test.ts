@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TenantRegistry } from './registry';
+import type { TenantRegistry, TenantTable } from './registry';
 import { mergeRegistries, registry } from './registry';
 import { expectedPolicies, expectedPrivileges, generateRlsSql, tablesSql } from './rls';
 
@@ -359,7 +359,7 @@ describe('RLS generator', () => {
     );
   });
 
-  it('[S3-F1] noUserRead: no app_user policy or grant; staff keep their gated policies; refused with publicRead', () => {
+  it('[S3-F1] noUserRead: no app_user policy or grant; staff keep their gated policies; refused on access tables', () => {
     const r: TenantRegistry = {
       tenant: {},
       global: { queue: { reason: 'staff queue', staffWrite: true, noUserRead: true } },
@@ -374,8 +374,50 @@ describe('RLS generator', () => {
     expect(expectedPrivileges(def).app_user).toEqual([]);
     expect(expectedPolicies(def).map((p) => p.name)).not.toContain('global_read');
     expect(() =>
-      generateRlsSql({ tenant: {}, global: { x: { reason: 'x', publicRead: true, noUserRead: true } } }),
+      generateRlsSql({ tenant: {}, global: { x: { reason: 'x', access: 'auth', noUserRead: true } } }),
     ).toThrow(/noUserRead/);
+  });
+
+  it('[S6-F1] noUserRead with publicRead: app_public alone reads the global table', () => {
+    const def = { reason: 'fallback rows', publicRead: true, noUserRead: true } as const;
+    const sql = generateRlsSql({ tenant: {}, global: { docs: def } });
+    expect(sql).toContain('create policy global_read on public."docs" for select to app_public using (true);');
+    expect(sql).toContain('grant select on table public."docs" to app_public;');
+    expect(sql).not.toMatch(/(policy|grant)[^;]*"docs"[^;]*app_user/);
+    expect(expectedPrivileges(def)).toMatchObject({ app_user: [], app_public: ['SELECT'] });
+    expect(expectedPolicies(def)).toEqual([{ name: 'global_read', cmd: 'SELECT', roles: ['app_public'] }]);
+  });
+
+  it('[S6-F1] userReadOnly PUBLIC_READ: app_user only reads (own rows, network); app_public is refused the hidden columns', () => {
+    const def: TenantTable = {
+      kind: 'PUBLIC_READ',
+      userReadOnly: true,
+      publicReadSql: 'published',
+      hiddenColumns: ['share_scope'],
+      networkReadSql: 'exists (select 1 from public.properties p where p.id = listing_read_models.target_id)',
+      samples: { visible: [], hidden: [] },
+    };
+    const sqlOut = generateRlsSql({ ...reg, tenant: { ...reg.tenant, listing_read_models: def } });
+    const t = 'public."listing_read_models"';
+    expect(sqlOut).toContain(`create policy own_rows on ${t} for select to app_user
+  using (agency_id = app_agency());`);
+    expect(sqlOut).not.toMatch(/grant [^;]*(insert|update|delete)[^;]*"listing_read_models" to app_user/);
+    // Column grants for both readers, without the hidden column.
+    expect(sqlOut).toContain(`execute format('grant select (%s) on table ${t} to app_user', cols);`);
+    expect(sqlOut).toContain(`execute format('grant select (%s) on table ${t} to app_public', cols);`);
+    expect(sqlOut).not.toContain(`grant select on table ${t} to app_public;`);
+    expect(expectedPrivileges(def)).toMatchObject({ app_user: ['SELECT'], app_public: ['SELECT'] });
+    expect(expectedPolicies(def).find((p) => p.name === 'own_rows')).toEqual({
+      name: 'own_rows',
+      cmd: 'SELECT',
+      roles: ['app_user'],
+    });
+    // Only on PUBLIC_READ tables; the production read models are registered so.
+    expect(() => generateRlsSql({ tenant: { x: { kind: 'STRICT', userReadOnly: true } }, global: {} })).toThrow(
+      /userReadOnly/,
+    );
+    expect(registry.tenant.listing_read_models).toMatchObject({ userReadOnly: true });
+    expect(registry.global.listing_search_docs).toMatchObject({ publicRead: true, noUserRead: true });
   });
 
   it('[S3-F4] media access: app_media gets its global table whole and a column grant on mediaRead tables, nothing else', () => {

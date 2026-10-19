@@ -8,7 +8,10 @@
  *   PREFERRED by an owner that prefers the caller; units of OPEN developments or of the PRIVATE_NETWORK ones shared
  *   with the caller (their documents name the allowed agencies); never the caller's own, never PRIVATE (those have no index document). The engine only finds
  *   ids: every result is then read under the caller's RLS (terms and card), so a document the index still holds but
- *   the caller may no longer read (just made PREFERRED, unshared, hidden for freshness) is left out of the page.
+ *   the caller may no longer read (just made PREFERRED, unshared, hidden for freshness, an owner suspended or unlisted)
+ *   is left out of the page. So the total is approximate (S6-F1): the engine's estimate of matching documents, which
+ *   counts those too — a page can be short, and the total can exceed what paging reaches. S6-F2's `networkHidden`
+ *   narrows the engine filter.
  * - **Commission:** the total, the split and the caller's own earnings, from the listing's or unit's own values.
  *
  * Three steps, the engine outside any transaction (CLAUDE.md rule 6): the caller's standing and partners (two

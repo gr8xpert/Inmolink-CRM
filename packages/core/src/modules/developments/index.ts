@@ -16,6 +16,7 @@ export { CLIENT_MODE_ALLOWED, can, DEVELOPMENTS_ACTIONS, DEVELOPMENTS_IMPERSONAT
 export { approvePriceList, createPriceList, diffPriceList, getPriceList, listPriceLists } from './price-lists';
 export {
   countUnitsForReadModels,
+  isRemovedTarget,
   type ReadModelUnit,
   unitIdsForDevelopment,
   unitIdsForReadModels,

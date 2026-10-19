@@ -59,7 +59,14 @@ alter table public."agencies" force row level security;
 create policy own_rows on public."agencies" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agencies" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
-grant select, insert, update, delete on table public."agencies" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."agencies"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['give_to_get_reason']);
+  execute format('grant select (%s) on table public."agencies" to app_user', cols);
+end $$;
+grant insert, update, delete on table public."agencies" to app_user;
 grant select, insert, update, delete on table public."agencies" to app_system;
 create policy auth_select on public."agencies" for select to app_auth
   using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
@@ -468,8 +475,8 @@ grant select, insert, update, delete on table public."listing_overrides" to app_
 -- listing_read_models: PUBLIC_READ
 alter table public."listing_read_models" enable row level security;
 alter table public."listing_read_models" force row level security;
-create policy own_rows on public."listing_read_models" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_rows on public."listing_read_models" for select to app_user
+  using (agency_id = app_agency());
 create policy network_read on public."listing_read_models" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and ((kind = 'LISTING' and exists (select 1 from public.properties p where p.id = listing_read_models.target_id)) or (kind = 'UNIT' and exists (select 1 from public.units u where u.id = listing_read_models.target_id))));
 create policy public_read on public."listing_read_models" for select to app_public
@@ -482,16 +489,21 @@ begin
    where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids']);
   execute format('grant select (%s) on table public."listing_read_models" to app_user', cols);
 end $$;
-grant insert, update, delete on table public."listing_read_models" to app_user;
 grant select, insert, update, delete on table public."listing_read_models" to app_system;
-grant select on table public."listing_read_models" to app_public;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids']);
+  execute format('grant select (%s) on table public."listing_read_models" to app_public', cols);
+end $$;
 
 -- listing_search_docs: GLOBAL
 alter table public."listing_search_docs" enable row level security;
 alter table public."listing_search_docs" force row level security;
-create policy global_read on public."listing_search_docs" for select to app_user, app_public using (true);
+create policy global_read on public."listing_search_docs" for select to app_public using (true);
 revoke all on table public."listing_search_docs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
-grant select on table public."listing_search_docs" to app_user, app_public;
+grant select on table public."listing_search_docs" to app_public;
 grant select, insert, update, delete on table public."listing_search_docs" to app_system;
 
 -- listing_views: STRICT

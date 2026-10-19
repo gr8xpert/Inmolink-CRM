@@ -21,7 +21,7 @@ import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
-import { type BuiltDoc, buildListingDocs, buildUnitDocs } from './build';
+import { type BuiltDoc, buildListingDocs, buildUnitDocs, type DocOwner } from './build';
 import { buildIndexDoc, type IndexSourceRow, type ListingIndexDoc, listingsIndex } from './index-doc';
 import * as repo from './repo';
 
@@ -38,13 +38,25 @@ export interface RebuildResult {
   pendingMedia: string[];
 }
 
-/** Rebuilds the read models of these listings (any agency). About ten statements for any number. */
+/** An agency without settings: no locales, so no documents. */
+const NO_OWNER: DocOwner = { locales: [], publishes: false };
+
+/** Every content locale these owners use (a batch spans agencies). */
+const localesIn = (owners: Map<string, agencies.ReadModelOwner>) => [
+  ...new Set([...owners.values()].flatMap((o) => o.locales)),
+];
+
+/**
+ * Rebuilds the read models of these listings (any agency). About ten statements for any number. A PUBLIC listing of an
+ * owner that does not publish (suspended, unlisted: S6-F1) keeps its documents for its own and network paths, with
+ * `public` false — so it leaves `app_public`'s reads, the fallback rows and the PUBLIC index.
+ */
 export async function rebuildListingReadModels(tx: Tx, ids: readonly string[]): Promise<RebuildResult> {
   const unique = [...new Set(ids)];
   await repo.lockTargets(tx, unique);
   const listings = await properties.listingsForReadModels(tx, unique);
   const live = listings.map((l) => l.id);
-  const localesOf = await agencies.contentLocalesOf(
+  const ownerOf = await agencies.readModelOwnersOf(
     tx,
     listings.map((l) => l.agencyId),
   );
@@ -58,10 +70,12 @@ export async function rebuildListingReadModels(tx: Tx, ids: readonly string[]): 
         propertyTypes: listings.map((l) => l.propertyTypeId),
         features: listings.flatMap((l) => l.featureIds),
       },
-      [...new Set([...localesOf.values()].flat())],
+      localesIn(ownerOf),
     ),
   ]);
-  const docs = listings.flatMap((l) => buildListingDocs(l, mediaOf.get(l.id), tax, localesOf.get(l.agencyId) ?? []));
+  const docs = listings.flatMap((l) =>
+    buildListingDocs(l, mediaOf.get(l.id), tax, ownerOf.get(l.agencyId) ?? NO_OWNER),
+  );
   return {
     ...(await write(tx, unique, docs)),
     built: new Set(docs.map((d) => d.targetId)).size,
@@ -74,7 +88,7 @@ export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Pro
   const unique = [...new Set(ids)];
   await repo.lockTargets(tx, unique);
   const units = await developments.unitsForReadModels(tx, unique);
-  const localesOf = await agencies.contentLocalesOf(
+  const ownerOf = await agencies.readModelOwnersOf(
     tx,
     units.map((u) => u.agencyId),
   );
@@ -85,9 +99,9 @@ export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Pro
       propertyTypes: units.map((u) => u.propertyTypeId),
       features: [],
     },
-    [...new Set([...localesOf.values()].flat())],
+    localesIn(ownerOf),
   );
-  const docs = units.flatMap((u) => buildUnitDocs(u, tax, localesOf.get(u.agencyId) ?? []));
+  const docs = units.flatMap((u) => buildUnitDocs(u, tax, ownerOf.get(u.agencyId) ?? NO_OWNER));
   return {
     ...(await write(tx, unique, docs)),
     built: new Set(docs.map((d) => d.targetId)).size,
@@ -236,6 +250,35 @@ export async function drainReadModelQueue(agencyId: string, options: DrainOption
 /** Queues rebuilds (debounced by `delayMs`), outside any caller transaction. */
 export function queueReadModelChanges(changes: readonly repo.ReadModelChange[], delayMs: number): Promise<void> {
   return withSystem('search.queueReadModels', (tx) => repo.queueReadModels(tx, changes, delayMs));
+}
+
+/** Targets queued per statement when a whole agency is queued (S6-F1). */
+export const AGENCY_QUEUE_PAGE = 5_000;
+
+/**
+ * Queues a rebuild of all of an agency's read-model targets (S6-F1: its status changed, which decides whether they are
+ * public), outside any caller transaction: `AGENCY_QUEUE_PAGE` per transaction, so a large agency never makes one
+ * long statement. Answers how many were queued.
+ */
+export async function queueAgencyReadModelChanges(
+  agencyId: string,
+  delayMs: number,
+  pageSize: number = AGENCY_QUEUE_PAGE,
+): Promise<number> {
+  let queued = 0;
+  for (const kind of ['LISTING', 'UNIT'] as const) {
+    let after: string | null = null;
+    for (;;) {
+      const from: string | null = after;
+      const page: { queued: number; last: string | null } = await withSystem('search.queueAgencyReadModels', (tx) =>
+        repo.queueAgencyReadModels(tx, { agencyId, kind, after: from, limit: pageSize }, delayMs),
+      );
+      queued += page.queued;
+      if (page.last === null) break;
+      after = page.last;
+    }
+  }
+  return queued;
 }
 
 /** Agencies whose queued rebuilds are overdue and unclaimed (their job was lost). */
