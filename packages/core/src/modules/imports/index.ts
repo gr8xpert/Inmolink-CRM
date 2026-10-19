@@ -45,6 +45,7 @@ export {
 } from './mapper';
 export type { ItemError, PendingBatch, PipelineTotals, ValidItem } from './pipeline';
 export { CLIENT_MODE_ALLOWED, can, IMPORTS_ACTIONS, IMPORTS_IMPERSONATION, type ImportsAction } from './policy';
+export { resalesConnector } from './resales/connector';
 export { classifyRunError, executeRun, LeaseLostError, type RunOutcome } from './runner';
 export {
   createFeedConnection,

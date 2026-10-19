@@ -1,0 +1,186 @@
+{
+  "transaction": {
+    "status": "success"
+  },
+  "QueryInfo": {
+    "PropertyCount": 6,
+    "CurrentPage": 1,
+    "PageSize": 3
+  },
+  "Property": [
+    {
+      "Reference": "R3000001",
+      "AgencyRef": "OWN-001",
+      "AgencyId": "AG-1001",
+      "Country": "Spain",
+      "Province": "Málaga",
+      "Area": "Costa del Sol",
+      "Location": "Marbella",
+      "SubLocation": "Centro",
+      "PropertyType": {
+        "Type": "Villa",
+        "TypeId": "1-1",
+        "Subtype1": "Detached"
+      },
+      "Status": {
+        "system": "Available"
+      },
+      "Bedrooms": 4,
+      "Bathrooms": 2,
+      "Currency": "EUR",
+      "Price": "1250000",
+      "OriginalPrice": "1250000",
+      "Built": 120,
+      "GardenPlot": 500,
+      "Terrace": 20,
+      "Pool": 1,
+      "Parking": 1,
+      "Garden": 1,
+      "Latitude": "36.5100",
+      "Longitude": "-4.8800",
+      "Description": "<p>Lovely home in Marbella.</p>",
+      "MainImage": "https://cdn.example.com/R3000001/1.jpg",
+      "PropertyFeatures": {
+        "Category": [
+          {
+            "Type": "Setting",
+            "Value": ["Close To Golf", "Close To Sea"]
+          },
+          {
+            "Type": "Pool",
+            "Value": ["Private"]
+          }
+        ]
+      },
+      "Pictures": {
+        "Count": 2,
+        "Picture": [
+          {
+            "Id": 1,
+            "PictureURL": "https://cdn.example.com/R3000001/1.jpg"
+          },
+          {
+            "Id": 2,
+            "PictureURL": "https://cdn.example.com/R3000001/2.jpg"
+          }
+        ]
+      }
+    },
+    {
+      "Reference": "R9000001",
+      "AgencyRef": "X-001",
+      "AgencyId": "AG-7777",
+      "Country": "Spain",
+      "Province": "Málaga",
+      "Area": "Costa del Sol",
+      "Location": "Marbella",
+      "SubLocation": "Centro",
+      "PropertyType": {
+        "Type": "Villa",
+        "TypeId": "1-1",
+        "Subtype1": "Detached"
+      },
+      "Status": {
+        "system": "Available"
+      },
+      "Bedrooms": 5,
+      "Bathrooms": 2,
+      "Currency": "EUR",
+      "Price": "2100000",
+      "OriginalPrice": "2100000",
+      "Built": 120,
+      "GardenPlot": 500,
+      "Terrace": 20,
+      "Pool": 1,
+      "Parking": 1,
+      "Garden": 1,
+      "Latitude": "36.5100",
+      "Longitude": "-4.8800",
+      "Description": "<p>Lovely home in Marbella.</p>",
+      "MainImage": "https://cdn.example.com/R9000001/1.jpg",
+      "PropertyFeatures": {
+        "Category": [
+          {
+            "Type": "Setting",
+            "Value": ["Close To Golf", "Close To Sea"]
+          },
+          {
+            "Type": "Pool",
+            "Value": ["Private"]
+          }
+        ]
+      },
+      "Pictures": {
+        "Count": 2,
+        "Picture": [
+          {
+            "Id": 1,
+            "PictureURL": "https://cdn.example.com/R9000001/1.jpg"
+          },
+          {
+            "Id": 2,
+            "PictureURL": "https://cdn.example.com/R9000001/2.jpg"
+          }
+        ]
+      }
+    },
+    {
+      "Reference": "R3000002",
+      "AgencyRef": "OWN-002",
+      "AgencyId": "AG-1001",
+      "Country": "Spain",
+      "Province": "Málaga",
+      "Area": "Costa del Sol",
+      "Location": "Estepona",
+      "SubLocation": "Centro",
+      "PropertyType": {
+        "Type": "Apartment",
+        "TypeId": "1-1",
+        "Subtype1": "Detached"
+      },
+      "Status": {
+        "system": "Available"
+      },
+      "Bedrooms": 2,
+      "Bathrooms": 2,
+      "Currency": "EUR",
+      "Price": "385000",
+      "OriginalPrice": "385000",
+      "Built": 120,
+      "GardenPlot": 500,
+      "Terrace": 20,
+      "Pool": 1,
+      "Parking": 1,
+      "Garden": 1,
+      "Latitude": "36.5100",
+      "Longitude": "-4.8800",
+      "Description": "<p>Lovely home in Estepona.</p>",
+      "MainImage": "https://cdn.example.com/R3000002/1.jpg",
+      "PropertyFeatures": {
+        "Category": [
+          {
+            "Type": "Setting",
+            "Value": ["Close To Golf", "Close To Sea"]
+          },
+          {
+            "Type": "Pool",
+            "Value": ["Private"]
+          }
+        ]
+      },
+      "Pictures": {
+        "Count": 2,
+        "Picture": [
+          {
+            "Id": 1,
+            "PictureURL": "https://cdn.example.com/R3000002/1.jpg"
+          },
+          {
+            "Id": 2,
+            "PictureURL": "https://cdn.example.com/R3000002/2.jpg"
+          }
+        ]
+      }
+    }
+  ]
+}

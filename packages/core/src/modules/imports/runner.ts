@@ -12,6 +12,7 @@ import { importsEvents } from './events';
 import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
+import { ResalesApiError, ResalesConfigError } from './resales/connector';
 import { SheetFileMissingError } from './sheet/connector';
 
 /**
@@ -89,6 +90,9 @@ export function classifyRunError(err: unknown): Classified {
       ? { code: 'FEED_DTD_NOT_ALLOWED', retryable: false }
       : { code: 'FEED_MALFORMED', retryable: false };
   }
+  // Resales Online: bad configuration or a refused API answer; retrying only re-sends the key.
+  if (err instanceof ResalesConfigError) return { code: 'FEED_DESTINATION_BLOCKED', retryable: false };
+  if (err instanceof ResalesApiError) return { code: 'FEED_MALFORMED', retryable: false };
   return { code: 'INTERNAL', retryable: true };
 }
 
