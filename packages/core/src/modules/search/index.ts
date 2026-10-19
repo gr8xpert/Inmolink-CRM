@@ -29,6 +29,7 @@ export {
   INDEX_SYNC_THROTTLE_MS,
   queueAgencyReadModels,
   queueReadModel,
+  queueReadModels,
   READ_MODEL_DEBOUNCE_MS,
   READ_MODEL_PENDING_RECHECKS,
   requestIndexSync,

@@ -3,7 +3,7 @@ import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
-import { queueAgencyReadModels, queueReadModel, READ_MODEL_DEBOUNCE_MS, searchJobs } from './jobs';
+import { queueAgencyReadModels, queueReadModel, queueReadModels, READ_MODEL_DEBOUNCE_MS, searchJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -56,6 +56,12 @@ export function registerSearchSubscriptions(): void {
     subscribe(propertiesEvents.deleted, listing, { name: 'search.readModel.listingDeleted' }),
     subscribe(propertiesEvents.restored, listing, { name: 'search.readModel.listingRestored' }),
     subscribe(propertiesEvents.purged, listing, { name: 'search.readModel.listingPurged' }),
+    // S6-02: a feed import batch's created, updated and withdrawn listings — one queue write and request per event.
+    subscribe(
+      propertiesEvents.imported,
+      (payload, meta) => queueReadModels('LISTING', payload.listingIds, meta.agencyId),
+      { name: 'search.readModel.listingsImported' },
+    ),
     subscribe(media.mediaEvents.referencesChanged, listing, { name: 'search.readModel.media' }),
     subscribe(media.mediaEvents.listingChanged, listing, { name: 'search.readModel.mediaEdited' }),
     subscribe(developmentsEvents.unitCreated, unit, { name: 'search.readModel.unitCreated' }),

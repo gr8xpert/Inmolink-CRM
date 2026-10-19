@@ -51,6 +51,9 @@ try {
         ENCRYPTION_KEYS: config.ENCRYPTION_KEYS,
         ENCRYPTION_ACTIVE_KEY_ID: config.ENCRYPTION_ACTIVE_KEY_ID,
       }),
+      ...(config.IMPORT_WITHDRAW_AFTER_MISSED_RUNS
+        ? { withdrawAfterMissedRuns: config.IMPORT_WITHDRAW_AFTER_MISSED_RUNS }
+        : {}),
     });
   }
   configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));

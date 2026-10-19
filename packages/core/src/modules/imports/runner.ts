@@ -1,5 +1,5 @@
 import { FEED_ERRORS_KEPT, type FeedRunErrorCode } from '@inmolink/contracts';
-import { type Tx, withTenant } from '@inmolink/db';
+import { withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
@@ -8,7 +8,8 @@ import { isXmlStreamError } from '@inmolink/platform/xml';
 import { decryptCredentials, RUNS } from './config';
 import { type ConnectorContext, FeedHttpStatusError, getConnector } from './connectors';
 import { importsEvents } from './events';
-import { type PendingBatch, runFeedPipeline, type ValidItem } from './pipeline';
+import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
+import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
 
 /**
@@ -17,26 +18,10 @@ import * as repo from './repo';
  *
  * Mutual exclusion: the run row is the lock. `claimRun` takes it with a fresh fencing token and a lease; a
  * heartbeat renews the lease; every batch commit locks the row and checks the token before it writes anything —
- * the sink's write included — and the end of the run checks it too. A worker that stalls past its lease and
+ * the loader's write included — and the end of the run checks it too (the loader's withdrawals are fenced by it). A worker that stalls past its lease and
  * finds the run reclaimed (or failed by the scheduler) stops without writing: two runs of one connection never
  * write at the same time, and at most one QUEUED or RUNNING run exists per connection (unique index).
  */
-
-/** Where valid items go (S6-02 plugs in the staging + MERGE loader); runs inside the fenced batch transaction. */
-export interface FeedSink {
-  write(
-    tx: Tx,
-    items: ValidItem[],
-    run: { runId: string; agencyId: string; connectionId: string; connector: string },
-  ): Promise<{ created: number; updated: number; unchanged: number }>;
-}
-
-/** Until the loader lands (S6-02): validates and counts, writes nothing. */
-export const countOnlySink: FeedSink = {
-  async write() {
-    return { created: 0, updated: 0, unchanged: 0 };
-  },
-};
 
 export class LeaseLostError extends Error {
   override readonly name = 'LeaseLostError';
@@ -93,17 +78,25 @@ export interface RunJobContext {
   lastAttempt: boolean;
 }
 
-/** Ends the run (if this worker still holds it) and announces the outcome, in one transaction. */
+/**
+ * Ends the run (if this worker still holds it) and announces the outcome, in one transaction: the loader's end of
+ * run — withdrawals after a success, cleanup after a failure — commits with it or not at all.
+ */
 async function finish(
   agencyId: string,
   runId: string,
   token: string,
   state: 'SUCCEEDED' | 'FAILED',
   errorCode: FeedRunErrorCode | null,
+  loader: RunLoader | null,
 ): Promise<boolean> {
   return withTenant({ agencyId }, async (tx) => {
     const done = await repo.finishRun(tx, runId, token, { state, errorCode });
     if (!done) return false;
+    if (loader && state === 'SUCCEEDED') {
+      const withdrawn = await loader.finish(tx, { valid: done.itemsValid });
+      if (withdrawn > 0) await repo.setWithdrawn(tx, runId, withdrawn);
+    } else if (loader) await loader.abandon(tx);
     await emit(tx, importsEvents.runFinished({ runId, connectionId: done.connectionId, agencyId, state, errorCode }));
     return true;
   });
@@ -125,7 +118,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 export async function executeRun(
   p: { runId: string; agencyId: string },
   job: RunJobContext,
-  sink: FeedSink = countOnlySink,
+  sink: FeedSink = listingSink,
 ): Promise<RunOutcome> {
   const { runId, agencyId } = p;
   const token = newId();
@@ -143,8 +136,9 @@ export async function executeRun(
   }
   const connection = await withTenant({ agencyId }, (tx) => repo.connectionForRun(tx, claimed.connectionId));
   if (!connection) return { kind: 'skipped' }; // deleted with its runs meanwhile
+  let loader: RunLoader | null = null;
   const end = async (state: 'SUCCEEDED' | 'FAILED', code: FeedRunErrorCode | null): Promise<RunOutcome> =>
-    (await finish(agencyId, runId, token, state, code))
+    (await finish(agencyId, runId, token, state, code, loader))
       ? { kind: 'finished', state, errorCode: code }
       : { kind: 'lost' };
 
@@ -165,6 +159,14 @@ export async function executeRun(
   heartbeat.unref();
 
   try {
+    const runLoader = await sink.start({
+      runId,
+      agencyId,
+      connectionId: connection.id,
+      connector: connection.connector,
+      settings: (connection.settings ?? {}) as Record<string, unknown>,
+    });
+    loader = runLoader;
     const ctx: ConnectorContext = {
       connectionId: connection.id,
       agencyId,
@@ -176,31 +178,34 @@ export async function executeRun(
         : null,
       signal: abort.signal,
     };
-    const commit = (batch: PendingBatch) =>
-      withTenant({ agencyId }, async (tx) => {
+    const commit = async (batch: PendingBatch) => {
+      // Outside the fenced transaction: item checks and taxonomy resolution (their own short transactions).
+      const { prepared, errors: prepErrors } = await runLoader.prepare(batch.valid);
+      await withTenant({ agencyId }, async (tx) => {
         const logged = await repo.lockRunForBatch(tx, runId, token);
         if (logged === null) throw new LeaseLostError();
-        const counts = await sink.write(tx, batch.valid, {
-          runId,
-          agencyId,
-          connectionId: connection.id,
-          connector: connection.connector,
-        });
-        const keep = batch.errors.slice(0, Math.max(0, FEED_ERRORS_KEPT - logged));
+        const failedBefore = [...batch.errors, ...prepErrors];
+        // Failed items still in the feed (they have a reference): never counted missing, never withdrawn.
+        const seenRefs = failedBefore.flatMap((e) => (e.itemRef?.trim() ? [e.itemRef.trim()] : []));
+        const { errors: writeErrors, ...counts } = await runLoader.write(tx, prepared, seenRefs);
+        const errors: ItemError[] = [...failedBefore, ...writeErrors].sort((a, b) => a.position - b.position);
+        const keep = errors.slice(0, Math.max(0, FEED_ERRORS_KEPT - logged));
         await repo.insertItemErrors(
           tx,
           keep.map((e) => ({ id: newId(), agencyId, runId, ...e })),
         );
+        const failed = errors.length;
         const held = await repo.addBatchCounts(tx, runId, token, RUNS.LEASE_MS, {
           total: batch.total,
-          valid: batch.valid.length,
-          failed: batch.errors.length,
+          valid: batch.total - failed,
+          failed,
           ...counts,
           logged: keep.length,
           bytesRead: batch.bytesRead,
         });
         if (!held) throw new LeaseLostError();
       });
+    };
     const totals = await runFeedPipeline({ connector, ctx, batchSize: RUNS.BATCH_SIZE, commit });
     job.log.info({ runId, connector: connection.connector, ...totals }, 'feed run done');
     return await end('SUCCEEDED', null);
@@ -210,6 +215,7 @@ export async function executeRun(
       job.log.warn({ runId }, 'feed run lease lost; another worker owns the run');
       return { kind: 'lost' };
     }
+    if (err instanceof FeedNoOwnerError) return end('FAILED', 'FEED_NO_OWNER');
     const { code, retryable } = classifyRunError(err);
     job.log.warn({ runId, code, retryable, err: code === 'INTERNAL' ? err : undefined }, 'feed run failed');
     if (retryable && !job.lastAttempt) {

@@ -10,7 +10,7 @@ import { ImportNotice, StateBadge, scheduleLabel } from '../shared';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
-const COUNT_KEYS = ['total', 'valid', 'failed', 'created', 'updated', 'unchanged'] as const;
+const COUNT_KEYS = ['total', 'valid', 'failed', 'created', 'updated', 'unchanged', 'held', 'withdrawn'] as const;
 
 /**
  * One feed's run history (S6-01): every run with its trigger, status, timings and counts, newest first; a failed

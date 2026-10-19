@@ -1,7 +1,7 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import { enqueueDocumentDelete } from './document-jobs';
 import { mediaEvents } from './events';
-import { mediaJobs } from './jobs';
+import { mediaJobs, requestFeedImages } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -42,6 +42,10 @@ export function registerMediaSubscriptions(): void {
       },
       { name: 'media.objects.process' },
     ),
+    // S6-02: feed images queued by an import batch: the agency's throttled run fetches them.
+    subscribe(mediaEvents.feedImagesQueued, (_payload, meta) => requestFeedImages(meta.agencyId), {
+      name: 'media.feedImages.request',
+    }),
     // S3-F8: a deleted document's object, retried by its job until it is gone.
     subscribe(mediaEvents.documentDeleted, (payload, meta) => enqueueDocumentDelete(payload, meta), {
       name: 'media.documents.delete',

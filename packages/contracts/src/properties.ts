@@ -41,6 +41,7 @@ export const LOCKABLE_LISTING_FIELDS = [
   'coordinates',
   'propertyType',
   'location',
+  'features',
 ] as const;
 export const LockableListingField = z.enum(LOCKABLE_LISTING_FIELDS);
 export type LockableListingField = z.infer<typeof LockableListingField>;

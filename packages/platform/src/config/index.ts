@@ -163,6 +163,14 @@ export const websiteSearchEnv = {
 };
 
 /**
+ * Feed imports (S6-02): successful runs in a row a listing may be missing from its feed before the run withdraws it
+ * (a connection's `withdrawAfterMissedRuns` setting overrides it).
+ */
+export const importsEnv = {
+  IMPORT_WITHDRAW_AFTER_MISSED_RUNS: z.coerce.number().int().min(1).max(100).default(3),
+};
+
+/**
  * Network search give-to-get (PLAN §3 #5, S5-05): ACTIVE listings an agency must share with the network to search
  * it, and the grace period of a new agency (days from sign-up).
  */

@@ -70,7 +70,8 @@ async function connection(over: Partial<CreateFeedConnectionBody> = {}, m: Found
 const runNow = (c: Pick<FeedConnectionDto, 'id'>, m: Founder = owner) =>
   as(m, (ctx) => imports.requestFeedRun(ctx, c.id));
 const execute = (runId: string, m: Founder = owner, over: JobOver = {}) =>
-  imports.executeRun({ runId, agencyId: m.agencyId }, job(over));
+  // The run machinery (S6-01) with the count-only sink; the listing loader has its own suite (loader.int.test.ts).
+  imports.executeRun({ runId, agencyId: m.agencyId }, job(over), imports.countOnlySink);
 const runRow = async (runId: string) =>
   (
     await rows<{

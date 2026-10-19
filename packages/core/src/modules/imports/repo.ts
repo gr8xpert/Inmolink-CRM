@@ -49,6 +49,8 @@ const runColumns = {
   itemsCreated: feedRuns.itemsCreated,
   itemsUpdated: feedRuns.itemsUpdated,
   itemsUnchanged: feedRuns.itemsUnchanged,
+  itemsHeld: feedRuns.itemsHeld,
+  itemsWithdrawn: feedRuns.itemsWithdrawn,
   errorsLogged: feedRuns.errorsLogged,
   bytesRead: feedRuns.bytesRead,
   errorCode: feedRuns.errorCode,
@@ -231,6 +233,8 @@ export async function claimRun(
       itemsCreated: 0,
       itemsUpdated: 0,
       itemsUnchanged: 0,
+      itemsHeld: 0,
+      itemsWithdrawn: 0,
       errorsLogged: 0,
       bytesRead: 0,
       updatedAt: sql`now()`,
@@ -285,6 +289,7 @@ export async function addBatchCounts(
     created: number;
     updated: number;
     unchanged: number;
+    held: number;
     logged: number;
     bytesRead: number;
   },
@@ -298,6 +303,7 @@ export async function addBatchCounts(
       itemsCreated: sql`${feedRuns.itemsCreated} + ${d.created}`,
       itemsUpdated: sql`${feedRuns.itemsUpdated} + ${d.updated}`,
       itemsUnchanged: sql`${feedRuns.itemsUnchanged} + ${d.unchanged}`,
+      itemsHeld: sql`${feedRuns.itemsHeld} + ${d.held}`,
       errorsLogged: sql`${feedRuns.errorsLogged} + ${d.logged}`,
       bytesRead: d.bytesRead,
       leaseUntil: leaseUntil(leaseMs),
@@ -337,7 +343,7 @@ export async function finishRun(
   runId: string,
   token: string,
   outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: string | null },
-): Promise<{ connectionId: string; agencyId: string } | null> {
+): Promise<{ connectionId: string; agencyId: string; itemsValid: number } | null> {
   const [row] = await tx
     .update(feedRuns)
     .set({
@@ -349,13 +355,18 @@ export async function finishRun(
       updatedAt: sql`now()`,
     })
     .where(and(eq(feedRuns.id, runId), eq(feedRuns.state, 'RUNNING'), eq(feedRuns.leaseToken, token)))
-    .returning({ connectionId: feedRuns.connectionId, agencyId: feedRuns.agencyId });
+    .returning({ connectionId: feedRuns.connectionId, agencyId: feedRuns.agencyId, itemsValid: feedRuns.itemsValid });
   if (!row) return null;
   await tx
     .update(feedConnections)
     .set({ lastRunAt: sql`now()`, lastRunState: outcome.state })
     .where(eq(feedConnections.id, row.connectionId));
   return row;
+}
+
+/** Records the listings the end of a run withdrew (the caller ended the run in this transaction). */
+export async function setWithdrawn(tx: Tx, runId: string, withdrawn: number): Promise<void> {
+  await tx.update(feedRuns).set({ itemsWithdrawn: withdrawn }).where(eq(feedRuns.id, runId));
 }
 
 /** A run's state and how long its current lease still runs (ms, ≤ 0 when lapsed), or null. */

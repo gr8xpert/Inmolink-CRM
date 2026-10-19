@@ -323,20 +323,23 @@ describe('unmatched queue', () => {
   });
 
   it('[S2-05] the queue pages by cursor and only data ops write', async () => {
+    // Counts far above any other suite's: the queue is global, and feed imports running in parallel (S6-02) queue
+    // their own unmatched values (a few listings each), which sort after these.
+    const own = new Set(['Piscinaa Zorbo', 'Piscinaa Zorbo Dos', 'Piscinaa Zorbo Tres']);
     await system((tx) =>
       taxonomy.resolveAndQueue(tx, 'feature', [
-        { text: 'Piscinaa Zorbo', count: 5 },
-        { text: 'Piscinaa Zorbo Dos', count: 4 },
-        { text: 'Piscinaa Zorbo Tres', count: 3 },
+        { text: 'Piscinaa Zorbo', count: 5_000 },
+        { text: 'Piscinaa Zorbo Dos', count: 4_000 },
+        { text: 'Piscinaa Zorbo Tres', count: 3_000 },
       ]),
     );
     const p1 = await asStaff((ctx) => taxonomy.listStaffUnmatched(ctx, { kind: 'feature', status: 'OPEN', limit: 2 }));
-    expect(p1.items.map((i) => i.count)).toEqual([5, 4]);
+    expect(p1.items.map((i) => i.count)).toEqual([5_000, 4_000]);
     const p2 = await asStaff((ctx) =>
       taxonomy.listStaffUnmatched(ctx, { kind: 'feature', status: 'OPEN', limit: 2, cursor: p1.nextCursor as string }),
     );
-    expect(p2.items.map((i) => i.count)).toEqual([3]);
-    expect(p2.nextCursor).toBeNull();
+    expect(p2.items[0]?.count).toBe(3_000);
+    expect(p2.items.filter((i) => own.has(i.value)).map((i) => i.count)).toEqual([3_000]);
 
     const support = (await createStaffUser('STAFF_SUPPORT')).userId;
     await expect(

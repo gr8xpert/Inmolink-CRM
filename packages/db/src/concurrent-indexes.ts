@@ -39,6 +39,14 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "properties" USING btree ("agency_id") WHERE "properties"."visibility" <> 'PRIVATE' and "properties"."status" = 'ACTIVE' and "properties"."deleted_at" is null and "properties"."network_hidden_at" is null`,
     declaredBy: '0069_give_to_get',
   },
+  {
+    // the end of a feed run (S6-02): a connection's listings missing from the run. Its columns arrive in 0080, which
+    // builds it (pre-launch, `property_privates` is small); from then on a rebuild runs concurrently
+    name: 'property_privates_import_connection_idx',
+    table: 'property_privates',
+    definition: `ON "property_privates" USING btree ("agency_id","import_connection_id","external_ref") WHERE "property_privates"."import_connection_id" is not null`,
+    declaredBy: '0080_feed_loader',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

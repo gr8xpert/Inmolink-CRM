@@ -36,7 +36,9 @@
     "failed": "Refused",
     "created": "New",
     "updated": "Updated",
-    "unchanged": "Unchanged"
+    "unchanged": "Unchanged",
+    "held": "Held",
+    "withdrawn": "Withdrawn"
   },
   "showErrors": "Show refused items",
   "itemErrors": "Refused items of the run started {date}",
@@ -60,6 +62,7 @@
     "FEED_CONNECTION_DISABLED": "The feed was switched off.",
     "FEED_LEASE_EXPIRED": "The import stopped unexpectedly; it will run again at the next scheduled time.",
     "FEED_NEVER_STARTED": "The import did not start in time.",
+    "FEED_NO_OWNER": "No active member of your agency can own the imported listings. Ask an admin to check the team.",
     "INTERNAL": "Something went wrong on our side."
   },
   "notices": {

@@ -136,7 +136,8 @@
       "energyRating": "Energy rating",
       "coordinates": "Position",
       "propertyType": "Property type",
-      "location": "Location"
+      "location": "Location",
+      "features": "Features"
     },
     "translations": {
       "missing": "Not written",

@@ -66,3 +66,25 @@ export function gatedConnector(
     validate: () => [],
   };
 }
+
+/**
+ * `memoryConnector`: listing items (S6-02 `FeedListing` input) straight from memory — no fetch — so loader tests
+ * change the feed between runs by changing what `items()` returns.
+ */
+export function memoryConnector(
+  key: string,
+  items: (connectionId: string) => readonly { ref: string }[],
+): FeedConnector<{ ref: string }, unknown> {
+  return {
+    key,
+    async fetch(): Promise<FeedSource> {
+      return { body: (async function* () {})(), bytesRead: () => 0, contentType: 'application/json' };
+    },
+    async *parse(_source, ctx) {
+      let position = 0;
+      for (const raw of items(ctx.connectionId)) yield { position: position++, raw };
+    },
+    map: (raw) => ({ ok: true, ref: raw.ref, item: raw }),
+    validate: () => [],
+  };
+}

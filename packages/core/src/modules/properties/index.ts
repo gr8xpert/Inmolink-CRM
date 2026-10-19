@@ -21,7 +21,7 @@ export {
   slugOf,
 } from './content';
 export { propertiesErrors } from './errors';
-export { propertiesEvents } from './events';
+export { IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {
   confirmListing,
   type ListingQualityInputs,
@@ -31,6 +31,17 @@ export {
   setListingQualityScores,
   sweepFreshnessBatch,
 } from './freshness';
+export {
+  discardImportSeen,
+  type ImportBatchResult,
+  type ImportHold,
+  type ImportListing,
+  type ImportRun,
+  importListingBatch,
+  lockListingsForFeedImages,
+  pruneImportSeen,
+  withdrawMissingImports,
+} from './imports';
 export { propertiesJobs } from './jobs';
 export { countNetworkSharedListings, type NetworkListingTerms, networkListingTerms } from './network';
 export {

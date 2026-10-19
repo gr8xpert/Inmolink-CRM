@@ -1,7 +1,7 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as media from '../media';
 import * as properties from '../properties';
-import { enqueueRecompute } from './jobs';
+import { enqueueRecompute, enqueueRecomputes } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -49,6 +49,13 @@ export function registerQualitySubscriptions(): void {
       { name: 'quality.recompute.updated' },
     ),
     subscribe(propertiesEvents.restored, recompute, { name: 'quality.recompute.restored' }),
+    // S6-02: a feed import batch — one queue write and one throttled run request per event, not per listing.
+    subscribe(
+      propertiesEvents.imported,
+      (payload, meta) =>
+        enqueueRecomputes(payload.listingIds.map((listingId) => ({ listingId, agencyId: meta.agencyId }))),
+      { name: 'quality.recompute.imported' },
+    ),
     subscribe(propertiesEvents.statusChanged, recompute, { name: 'quality.recompute.statusChanged' }),
     subscribe(propertiesEvents.confirmationDue, recompute, { name: 'quality.recompute.confirmationDue' }),
     subscribe(media.mediaEvents.referencesChanged, recompute, { name: 'quality.recompute.media' }),

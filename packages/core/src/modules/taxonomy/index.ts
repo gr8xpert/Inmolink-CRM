@@ -57,6 +57,7 @@ export {
   importAliases,
   locationAncestors,
   locationLineage,
+  locationLineages,
   resolveFeatureAlias,
   resolveLocationAlias,
   resolvePropertyTypeAlias,

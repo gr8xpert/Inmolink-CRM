@@ -36,7 +36,9 @@
     "failed": "Rechazados",
     "created": "Nuevos",
     "updated": "Actualizados",
-    "unchanged": "Sin cambios"
+    "unchanged": "Sin cambios",
+    "held": "Retenidas",
+    "withdrawn": "Retiradas"
   },
   "showErrors": "Ver elementos rechazados",
   "itemErrors": "Elementos rechazados de la ejecución iniciada el {date}",
@@ -60,6 +62,7 @@
     "FEED_CONNECTION_DISABLED": "El feed se desactivó.",
     "FEED_LEASE_EXPIRED": "La importación se detuvo de forma inesperada; se ejecutará de nuevo en la próxima hora programada.",
     "FEED_NEVER_STARTED": "La importación no empezó a tiempo.",
+    "FEED_NO_OWNER": "Ningún miembro activo de tu agencia puede ser titular de los inmuebles importados. Pide a un administrador que revise el equipo.",
     "INTERNAL": "Algo falló por nuestra parte."
   },
   "notices": {

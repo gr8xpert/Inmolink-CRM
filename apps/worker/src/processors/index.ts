@@ -16,7 +16,13 @@ import type { Pool } from '../config';
  * Pools stay empty until their first module lands.
  */
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
-  imports: [importsJobs.runFeed, importsJobs.scheduleFeeds, propertiesJobs.runBulkAction],
+  imports: [
+    importsJobs.runFeed,
+    importsJobs.scheduleFeeds,
+    propertiesJobs.runBulkAction,
+    mediaJobs.importFeedImages,
+    mediaJobs.sweepFeedImages,
+  ],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [
     qualityJobs.recomputeListings,

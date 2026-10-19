@@ -123,6 +123,31 @@ export async function lineage(tx: Tx, id: string): Promise<{ depth: number; byDe
   return { depth: Math.max(...rows.map((r) => r.depth)), byDepth: new Map(rows.map((r) => [r.depth, r.id])) };
 }
 
+/**
+ * Each location's own id and its ancestors' ids by depth (1 country … 4 area), for many locations: one statement per
+ * 1,000 (feed imports, S6-02). A missing id has no entry.
+ */
+export async function lineages(tx: Tx, ids: readonly string[]): Promise<Map<string, Map<number, string>>> {
+  const out = new Map<string, Map<number, string>>();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 1000) {
+    const res = await tx.execute(sql`
+      with recursive up(origin, id, parent_id, depth) as (
+        select l.id, l.id, l.parent_id, l.depth::int from ${locations} l
+         where l.id = any(${textArray(unique.slice(i, i + 1000))}::uuid[])
+        union all
+        select up.origin, p.id, p.parent_id, p.depth::int from up join ${locations} p on p.id = up.parent_id
+      )
+      select origin, id, depth from up`);
+    for (const r of rowsOf<{ origin: string; id: string; depth: number }>(res)) {
+      const byDepth = out.get(r.origin) ?? new Map<number, string>();
+      byDepth.set(r.depth, r.id);
+      out.set(r.origin, byDepth);
+    }
+  }
+  return out;
+}
+
 /** The deepest location whose polygon covers the point: GiST on `polygon`, then the deepest level wins. */
 export async function deepestAt(tx: Tx, lon: number, lat: number): Promise<string | null> {
   const rows = await tx

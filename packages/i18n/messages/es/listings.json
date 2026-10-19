@@ -136,7 +136,8 @@
       "energyRating": "Certificado energético",
       "coordinates": "Posición",
       "propertyType": "Tipo de inmueble",
-      "location": "Ubicación"
+      "location": "Ubicación",
+      "features": "Características"
     },
     "translations": {
       "missing": "Sin escribir",

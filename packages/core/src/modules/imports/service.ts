@@ -87,6 +87,8 @@ export function toRunDto(row: repo.RunView): FeedRunDto {
       created: row.itemsCreated,
       updated: row.itemsUpdated,
       unchanged: row.itemsUnchanged,
+      held: row.itemsHeld,
+      withdrawn: row.itemsWithdrawn,
     },
     errorsLogged: row.errorsLogged,
     bytesRead: row.bytesRead,

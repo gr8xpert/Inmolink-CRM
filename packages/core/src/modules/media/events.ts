@@ -41,4 +41,9 @@ export const mediaEvents = {
    * key is derived from the event's agency and these ids (`documents/<agency>/<listing>/<id>`), never carried.
    */
   documentDeleted: defineEvent('media.document.deleted', 1, z.object({ listingId: z.uuid(), documentId: z.uuid() })),
+  /**
+   * S6-02: a feed import queued listings' image URLs (`feed_image_queue`); the subscription asks for the agency's
+   * throttled `media.importFeedImages` run. One per import batch, not per listing.
+   */
+  feedImagesQueued: defineEvent('media.feedImages.queued', 1, z.object({ listings: z.number().int().positive() })),
 };

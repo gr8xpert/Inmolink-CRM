@@ -291,6 +291,20 @@ export const propertyPrivates = pgTable(
      * freshness part would tell other agencies the listing went unconfirmed (S4-F1).
      */
     qualityScore: integer('quality_score'),
+    /**
+     * Feed import state (S6-02, owner only). `import_hash`: SHA-256 of the listing as last imported — the feed's
+     * values with their resolved taxonomy ids — so an unchanged item is skipped without touching the row;
+     * `import_images_hash` the same for its image URLs. `import_connection_id` is the feed connection that last
+     * delivered it (no foreign key: imports owns connections; a deleted connection's listings simply stay).
+     * `import_missed_runs` counts the connection's successful runs in a row without it (at N it is WITHDRAWN,
+     * `import_withdrawn_at`); `import_held` names the taxonomy kinds that hold it as DRAFT, until staff map them.
+     */
+    importHash: char('import_hash', { length: 64 }),
+    importImagesHash: char('import_images_hash', { length: 64 }),
+    importConnectionId: uuid('import_connection_id'),
+    importMissedRuns: smallint('import_missed_runs').notNull().default(0),
+    importWithdrawnAt: timestamp('import_withdrawn_at', { withTimezone: true }),
+    importHeld: text('import_held').array(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -305,12 +319,105 @@ export const propertyPrivates = pgTable(
       .on(t.agencyId, t.externalSource, t.externalRef)
       .where(sql`${t.externalRef} is not null`),
     check('property_privates_external_ck', sql`(${t.externalSource} is null) = (${t.externalRef} is null)`),
+    // the end of a feed run (S6-02): the connection's listings, to find the ones missing from this run (built CONCURRENTLY)
+    index('property_privates_import_connection_idx')
+      .on(t.agencyId, t.importConnectionId, t.externalRef)
+      .where(sql`${t.importConnectionId} is not null`),
     check('property_privates_quality_ck', sql`${t.qualityScore} is null or ${t.qualityScore} between 0 and 100`),
+    check('property_privates_import_missed_ck', sql`${t.importMissedRuns} >= 0`),
+    check(
+      'property_privates_import_hash_ck',
+      sql`(${t.importHash} is null or ${t.importHash} ~ '^[0-9a-f]{64}$')
+        and (${t.importImagesHash} is null or ${t.importImagesHash} ~ '^[0-9a-f]{64}$')`,
+    ),
     check(
       'property_privates_coordinates_ck',
       sql`(${t.exactLat} is null) = (${t.exactLng} is null)
         and (${t.exactLat} is null or (${t.exactLat} between -90 and 90 and ${t.exactLng} between -180 and 180))`,
     ),
+  ],
+);
+
+/**
+ * The feed references a run saw (S6-02): every item of the feed — imported, unchanged or failed with a reference —
+ * so the end of a successful run finds the connection's listings missing from it. Written per batch in the batch
+ * transaction; deleted when the run ends (`imports.pruneRuns` removes what a crashed run left).
+ */
+export const propertyImportSeen = pgTable(
+  'property_import_seen',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The feed run (no foreign key: imports owns runs). */
+    runId: uuid('run_id').notNull(),
+    externalRef: text('external_ref').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the missing-listing anti-join of a run, and its delete
+    primaryKey({ columns: [t.runId, t.externalRef] }),
+    // FK + the prune of rows a crashed run left, oldest first
+    index('property_import_seen_agency_created_idx').on(t.agencyId, t.createdAt),
+    index('property_import_seen_created_idx').on(t.createdAt),
+    check('property_import_seen_ref_ck', sql`char_length(${t.externalRef}) between 1 and 200`),
+  ],
+);
+
+/**
+ * Feed import staging (S6-02, PATTERNS §13): a batch's items, COPY'd in, matched and MERGEd into `properties`, then
+ * deleted — all in the batch transaction, so no row is ever visible to another transaction. UNLOGGED (set in 0080:
+ * nothing to recover after a crash) and RLS like any tenant table (app roles have no TEMPORARY, S0-04). `batch_id`
+ * keys one batch; the lookup columns (`existing_id` …) are filled by the match step.
+ */
+export const propertyImportStaging = pgTable(
+  'property_import_staging',
+  {
+    batchId: uuid('batch_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    ref: text('ref').notNull(),
+    hash: char('hash', { length: 64 }).notNull(),
+    imagesHash: char('images_hash', { length: 64 }),
+    held: text('held').array().notNull(),
+    status: listingStatusEnum('status').notNull(),
+    transactionType: transactionTypeEnum('transaction_type').notNull(),
+    priceCents: bigint('price_cents', { mode: 'number' }),
+    currency: char('currency', { length: 3 }).notNull(),
+    pricePeriod: pricePeriodEnum('price_period'),
+    priceOnRequest: boolean('price_on_request').notNull(),
+    builtM2: numeric('built_m2', { precision: 10, scale: 2 }),
+    plotM2: numeric('plot_m2', { precision: 10, scale: 2 }),
+    terraceM2: numeric('terrace_m2', { precision: 10, scale: 2 }),
+    bedrooms: integer('bedrooms'),
+    bathrooms: integer('bathrooms'),
+    yearBuilt: integer('year_built'),
+    energyRating: ceeRatingEnum('energy_rating'),
+    energyEmissionsRating: ceeRatingEnum('energy_emissions_rating'),
+    lat: numeric('lat', { precision: 9, scale: 6 }),
+    lng: numeric('lng', { precision: 9, scale: 6 }),
+    exactLat: numeric('exact_lat', { precision: 9, scale: 6 }),
+    exactLng: numeric('exact_lng', { precision: 9, scale: 6 }),
+    locationPrecision: locationPrecisionEnum('location_precision').notNull(),
+    propertyTypeId: uuid('property_type_id'),
+    locationId: uuid('location_id'),
+    countryId: uuid('country_id'),
+    regionId: uuid('region_id'),
+    cityId: uuid('city_id'),
+    featureIds: uuid('feature_ids').array().notNull(),
+    translations: jsonb('translations').notNull(),
+    newId: uuid('new_id').notNull(),
+    newRef: text('new_ref').notNull(),
+    existingId: uuid('existing_id'),
+    live: boolean('live').notNull().default(false),
+    oldHash: char('old_hash', { length: 64 }),
+    oldImagesHash: char('old_images_hash', { length: 64 }),
+    oldMissed: smallint('old_missed').notNull().default(0),
+    oldWithdrawn: boolean('old_withdrawn').notNull().default(false),
+    oldConn: uuid('old_conn'),
+  },
+  (t) => [
+    // one batch's rows by feed reference (every statement of the batch filters on batch_id)
+    primaryKey({ columns: [t.batchId, t.ref] }),
   ],
 );
 

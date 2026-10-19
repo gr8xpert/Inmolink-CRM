@@ -585,6 +585,29 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   feed_runs: { kind: 'STRICT', base: { trigger: 'MANUAL' } },
   feed_item_errors: { kind: 'STRICT', base: { position: 0, code: 'ISOLATION' } },
+  // S6-02: the feed references a run saw (the agency's own feed runs; written in the batch transaction).
+  property_import_seen: { kind: 'STRICT', base: { external_ref: 'isolation' } },
+  // S6-02: feed import staging (UNLOGGED); a batch's rows live and die inside its transaction.
+  property_import_staging: {
+    kind: 'STRICT',
+    base: {
+      ref: 'isolation',
+      hash: ISOLATION_SHA256,
+      held: '{}',
+      status: 'ACTIVE',
+      transaction_type: 'SALE',
+      currency: 'EUR',
+      price_on_request: false,
+      location_precision: 'APPROX',
+      feature_ids: '{}',
+      translations: '[]',
+      new_ref: 'ISOLATN1',
+    },
+  },
+  // S6-02: a listing's feed image URLs waiting for the media worker, and URL → content hash (hash-first). The
+  // generated suite seeds no parent listing for the queue (composite FK); its own rows are tested in media.
+  feed_image_queue: { kind: 'STRICT', base: { urls: '{https://example.com/a.jpg}' } },
+  feed_image_sources: { kind: 'STRICT', base: { url_key: ISOLATION_SHA256, sha256: ISOLATION_SHA256 } },
 };
 
 /**

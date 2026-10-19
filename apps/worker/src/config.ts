@@ -5,6 +5,7 @@ import {
   databaseEnv,
   emailEnv,
   httpEnv,
+  importsEnv,
   loadConfigOrExit,
   mediaEnv,
   portVar,
@@ -73,6 +74,8 @@ const systemEnv = {
   // Exports and the orphan sweeps (S1-F7) read and write object storage.
   ...storageEnv,
   ...webUrlEnv,
+  // Feed runs (S6-02): when a listing missing from its feed is withdrawn.
+  ...importsEnv,
 };
 
 /** The `indexing` pool (S5-02): the search engine's admin key applies index settings and writes documents. */

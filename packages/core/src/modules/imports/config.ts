@@ -1,4 +1,5 @@
 import type { FeedCredentials } from '@inmolink/contracts';
+import { importsEnv, loadConfig } from '@inmolink/platform/config';
 import { aadFor, type Keyring } from '@inmolink/platform/crypto';
 
 /**
@@ -8,12 +9,23 @@ import { aadFor, type Keyring } from '@inmolink/platform/crypto';
 export interface ImportsConfig {
   /** `ENCRYPTION_KEYS` / `ENCRYPTION_ACTIVE_KEY_ID` (platform/crypto, AES-256-GCM with key IDs). */
   keyring: Keyring;
+  /**
+   * `IMPORT_WITHDRAW_AFTER_MISSED_RUNS` (S6-02): successful runs in a row a listing may be missing from its feed before
+   * it is withdrawn, unless the connection's `withdrawAfterMissedRuns` setting says otherwise. Read from the
+   * environment when not given.
+   */
+  withdrawAfterMissedRuns?: number;
 }
 
 let current: ImportsConfig | undefined;
 
 export function configureImports(config: ImportsConfig): void {
   current = config;
+}
+
+/** The default number of missed runs before a withdrawal (config; a connection setting overrides it). */
+export function defaultWithdrawAfterMissedRuns(): number {
+  return current?.withdrawAfterMissedRuns ?? loadConfig(importsEnv).IMPORT_WITHDRAW_AFTER_MISSED_RUNS;
 }
 
 function keyring(): Keyring {
@@ -53,8 +65,10 @@ export const RUNS = {
   SCHEDULE_BATCH: 200,
   /** …and of one agency at most this many per tick (fair share between agencies). */
   SCHEDULE_PER_AGENCY: 10,
-  /** Refs remembered per run for duplicate detection (the S6-02 staging table checks beyond). */
+  /** Refs remembered per run for duplicate detection (beyond, a repeated ref updates the listing it made). */
   MAX_TRACKED_REFS: 250_000,
+  /** Taxonomy resolutions (exact or fuzzy) a run remembers, so later batches skip the resolver for known values. */
+  MAX_CACHED_RESOLUTIONS: 50_000,
 } as const;
 
 /** Fetch limits for feeds (PATTERNS §16), unless a connector asks for less. */

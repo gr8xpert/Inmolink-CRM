@@ -1,6 +1,8 @@
 /** imports DTOs (PATTERNS §9): feed connections, runs and per-item errors (S6-01). */
 import { z } from 'zod';
-import { PageQuery, pageOf } from './common';
+import { CurrencyCode, PageQuery, pageOf } from './common';
+import { MEDIA_PER_LISTING_MAX } from './media';
+import { CeeRating, ContentLocaleCode, LocationPrecision, PricePeriod, TransactionType } from './properties';
 
 /** Connector keys are code-registry names (`kyero`, `generic-xml`, …; S6-03+). */
 export const FeedConnectorKey = z.string().regex(/^[a-z][a-z0-9-]{1,31}$/, 'a connector key such as kyero');
@@ -145,6 +147,10 @@ export const FeedRunDto = z.object({
     created: z.number().int(),
     updated: z.number().int(),
     unchanged: z.number().int(),
+    /** Listings of this run held as DRAFT for an unmatched location, type or feature (S6-02). */
+    held: z.number().int(),
+    /** Listings this run withdrew: missing from the feed for the connection's number of runs (S6-02). */
+    withdrawn: z.number().int(),
   }),
   /** Per-item errors kept for this run (the first `FEED_ERRORS_KEPT`; `counts.failed` counts all). */
   errorsLogged: z.number().int(),
@@ -188,6 +194,118 @@ export const FEED_RUN_ERROR_CODES = [
   'FEED_CONNECTION_DISABLED',
   'FEED_LEASE_EXPIRED',
   'FEED_NEVER_STARTED',
+  'FEED_NO_OWNER',
   'INTERNAL',
 ] as const;
 export type FeedRunErrorCode = (typeof FEED_RUN_ERROR_CODES)[number];
+
+/** Statuses a feed may give a listing; WITHDRAWN comes from missing runs, DRAFT from holds (S6-02). */
+export const FEED_LISTING_STATUSES = ['ACTIVE', 'UNDER_OFFER', 'SOLD', 'RENTED'] as const;
+
+/** `numeric(10,2)`: below 100,000,000 m². */
+const FeedArea = z.number().min(0).max(99_999_999.99);
+const FeedCount = z.number().int().min(0).max(1000);
+/** No NUL or other control characters (Postgres text refuses NUL; a bad item fails alone, not its batch). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to refuse them
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+const FeedText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine((v) => !CONTROL.test(v), 'control characters are not allowed');
+/** A taxonomy value as the feed writes it (resolved by the S2-05 resolver; longer text is never a name). */
+const FeedTaxonText = FeedText(200)
+  .transform((v) => v.trim())
+  .pipe(z.string().min(1));
+/** Image URLs are fetched later by the media worker through `safeFetch` (S6-02); http(s) only. */
+const FeedImageUrl = z
+  .string()
+  .trim()
+  .max(2_048)
+  .refine((v) => /^https?:\/\/[^\s]+$/i.test(v), 'an http or https URL');
+
+/**
+ * One listing as a connector maps it (S6-02 loader input; S6-03+ connectors produce it). Taxonomy values are the
+ * feed's text, resolved by the loader per location level with the parent as hint; an unmatched value holds the
+ * listing as DRAFT until staff map it. Prices in cents; images in feed order.
+ */
+export const FeedListing = z
+  .object({
+    /** The listing's id in the feed (unique per feed; the re-import key). */
+    ref: FeedText(200)
+      .transform((v) => v.trim())
+      .pipe(z.string().min(1)),
+    transactionType: TransactionType,
+    status: z.enum(FEED_LISTING_STATUSES).default('ACTIVE'),
+    priceCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().default(null),
+    currency: CurrencyCode.default('EUR'),
+    pricePeriod: PricePeriod.nullable().default(null),
+    priceOnRequest: z.boolean().default(false),
+    builtM2: FeedArea.nullable().default(null),
+    plotM2: FeedArea.nullable().default(null),
+    terraceM2: FeedArea.nullable().default(null),
+    bedrooms: FeedCount.nullable().default(null),
+    bathrooms: FeedCount.nullable().default(null),
+    yearBuilt: z.number().int().min(1000).max(3000).nullable().default(null),
+    energyRating: CeeRating.nullable().default(null),
+    energyEmissionsRating: CeeRating.nullable().default(null),
+    coordinates: z
+      .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
+      .strict()
+      .nullable()
+      .default(null),
+    locationPrecision: LocationPrecision.default('APPROX'),
+    propertyType: FeedTaxonText,
+    /** From the country down; at least one level. Each level is resolved under the one above it. */
+    location: z
+      .object({
+        country: FeedTaxonText.optional(),
+        region: FeedTaxonText.optional(),
+        city: FeedTaxonText.optional(),
+        area: FeedTaxonText.optional(),
+      })
+      .strict()
+      .refine((l) => Object.values(l).some(Boolean), 'at least one location level'),
+    features: z.array(FeedTaxonText).max(200).default([]),
+    translations: z
+      .array(
+        z
+          .object({
+            locale: ContentLocaleCode,
+            title: FeedText(200)
+              .transform((v) => v.trim())
+              .pipe(z.string().min(1)),
+            description: FeedText(20_000).nullable().default(null),
+          })
+          .strict(),
+      )
+      .max(30)
+      .default([]),
+    images: z.array(FeedImageUrl).max(MEDIA_PER_LISTING_MAX).default([]),
+  })
+  .strict()
+  .superRefine((l, ctx) => {
+    if (l.transactionType === 'SALE' && l.pricePeriod !== null) {
+      ctx.addIssue({ code: 'custom', path: ['pricePeriod'], message: 'a sale has no price period' });
+    }
+    if (l.status === 'SOLD' && l.transactionType !== 'SALE') {
+      ctx.addIssue({ code: 'custom', path: ['status'], message: 'SOLD is for sales' });
+    }
+    if (l.status === 'RENTED' && l.transactionType === 'SALE') {
+      ctx.addIssue({ code: 'custom', path: ['status'], message: 'RENTED is for rentals' });
+    }
+    if (new Set(l.translations.map((t) => t.locale)).size !== l.translations.length) {
+      ctx.addIssue({ code: 'custom', path: ['translations'], message: 'one translation per locale' });
+    }
+  });
+export type FeedListing = z.infer<typeof FeedListing>;
+export type FeedListingInput = z.input<typeof FeedListing>;
+
+/** Connection settings the loader reads (S6-02); connectors read their own keys from the same record. */
+export const FeedLoaderSettings = z.object({
+  /** The member new imported listings belong to; default: the agency's first active admin. */
+  ownerUserId: z.uuid().optional(),
+  /** Runs a listing may be missing from the feed before it is WITHDRAWN; default from `IMPORT_WITHDRAW_AFTER_MISSED_RUNS`. */
+  withdrawAfterMissedRuns: z.number().int().min(1).max(100).optional(),
+});
+export type FeedLoaderSettings = z.infer<typeof FeedLoaderSettings>;

@@ -140,6 +140,10 @@ export const feedRuns = pgTable(
     itemsCreated: integer('items_created').notNull().default(0),
     itemsUpdated: integer('items_updated').notNull().default(0),
     itemsUnchanged: integer('items_unchanged').notNull().default(0),
+    /** Listings held as DRAFT for an unmatched taxonomy value (S6-02); among created/updated/unchanged. */
+    itemsHeld: integer('items_held').notNull().default(0),
+    /** Listings withdrawn at the end of the run: missing from the feed for N runs (S6-02). */
+    itemsWithdrawn: integer('items_withdrawn').notNull().default(0),
     /** `feed_item_errors` rows kept for this run (capped; `items_failed` counts all). */
     errorsLogged: integer('errors_logged').notNull().default(0),
     bytesRead: bigint('bytes_read', { mode: 'number' }).notNull().default(0),

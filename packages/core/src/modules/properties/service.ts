@@ -69,10 +69,10 @@ export function statusChangeAllowed(from: ListingStatus, to: ListingStatus, tran
 
 /** References: 8 characters without look-alikes (0/O, 1/I), unique per agency. */
 const REF_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-const newRef = () => Array.from({ length: 8 }, () => REF_ALPHABET[randomInt(REF_ALPHABET.length)]).join('');
+export const newRef = () => Array.from({ length: 8 }, () => REF_ALPHABET[randomInt(REF_ALPHABET.length)]).join('');
 
 /** APPROX listings show a point rounded to 0.01° (about 1 km); the exact pin stays in `property_privates`. */
-function shownPoint(
+export function shownPoint(
   exact: { lat: number; lng: number } | null,
   precision: 'EXACT' | 'APPROX',
 ): { lat: string; lng: string } | { lat: null; lng: null } {

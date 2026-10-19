@@ -209,7 +209,23 @@ export async function requestIndexSync(): Promise<void> {
  * search subscriptions. Network I/O (the queue): never inside a transaction.
  */
 export async function queueReadModel(kind: 'LISTING' | 'UNIT', id: string, agencyId: string): Promise<void> {
-  await queueReadModelChanges([{ kind, targetId: id, agencyId }], READ_MODEL_DEBOUNCE_MS);
+  await queueReadModels(kind, [id], agencyId);
+}
+
+/**
+ * `queueReadModel` for many targets of one agency (S6-02: an import batch's listings): one queue statement and one
+ * throttled build request, whatever the count.
+ */
+export async function queueReadModels(
+  kind: 'LISTING' | 'UNIT',
+  ids: readonly string[],
+  agencyId: string,
+): Promise<void> {
+  if (ids.length === 0) return;
+  await queueReadModelChanges(
+    ids.map((targetId) => ({ kind, targetId, agencyId })),
+    READ_MODEL_DEBOUNCE_MS,
+  );
   await requestReadModelBuild(agencyId);
 }
 

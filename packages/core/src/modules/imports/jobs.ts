@@ -4,8 +4,10 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as properties from '../properties';
 import { RUNS } from './config';
 import { importsEvents } from './events';
+import { listingSink } from './load';
 import * as repo from './repo';
 import { executeRun } from './runner';
 
@@ -16,12 +18,15 @@ const RUN_TIMEOUT_MS = 60 * 60_000;
 /** Finished runs deleted per statement, and statements per prune run. */
 const PRUNE_BATCH = 1_000;
 const PRUNE_MAX_BATCHES = 50;
+/** Seen references older than this belong to a run that died (S6-02); deleted `SEEN_PRUNE_BATCH` per statement. */
+const SEEN_RETENTION_MS = 24 * 3_600_000;
+const SEEN_PRUNE_BATCH = 5_000;
 
 /**
  * imports worker jobs (PATTERNS §12). Idempotent, per-tenant fair share.
  *
  * `imports.runFeed` (one per `imports.run.requested` event, job ID = the run's id, pool `imports`, one run per
- * agency at a time): claims the run row (fencing token + lease) and executes it (`runner.ts`). A second delivery
+ * agency at a time): claims the run row (fencing token + lease) and executes it (`runner.ts`) through the listing loader (`load.ts`, S6-02). A second delivery
  * finds the run claimed or ended and does nothing. Retryable failures re-queue the run for the next attempt; the
  * last attempt records it FAILED.
  *
@@ -33,7 +38,8 @@ const PRUNE_MAX_BATCHES = 50;
  * sync when a connection changes or is deleted.
  *
  * `imports.pruneRuns` (daily, pool `maintenance`, all agencies via `withSystem`): deletes finished runs older than
- * `RUNS.RETENTION_DAYS` with their item errors, `PRUNE_BATCH` per statement.
+ * `RUNS.RETENTION_DAYS` with their item errors, `PRUNE_BATCH` per statement; then the seen feed references a run that
+ * died before its end left (S6-02, older than a day).
  */
 export const importsJobs = {
   runFeed: defineJob({
@@ -47,11 +53,11 @@ export const importsJobs = {
     backoff: { type: 'exponential', delay: 60_000 },
     timeoutMs: RUN_TIMEOUT_MS,
     async run(p, job) {
-      const outcome = await executeRun(p, {
-        log: job.log,
-        signal: job.signal,
-        lastAttempt: job.attempt >= RUN_ATTEMPTS,
-      });
+      const outcome = await executeRun(
+        p,
+        { log: job.log, signal: job.signal, lastAttempt: job.attempt >= RUN_ATTEMPTS },
+        listingSink,
+      );
       return outcome;
     },
   }),
@@ -109,8 +115,18 @@ export const importsJobs = {
         deleted += n;
         if (n < PRUNE_BATCH) break;
       }
-      if (deleted > 0) log.info({ deleted }, 'old feed runs pruned');
-      return { deleted };
+      // S6-02: the seen feed references a run that died before its end left behind (a run lasts ≤ RUN_TIMEOUT_MS).
+      const seenBefore = new Date(clock.now().getTime() - SEEN_RETENTION_MS);
+      let seen = 0;
+      for (let i = 0; i < PRUNE_MAX_BATCHES && !signal.aborted; i++) {
+        const n = await withSystem('imports.pruneRuns: stale seen references', (tx) =>
+          properties.pruneImportSeen(tx, seenBefore, SEEN_PRUNE_BATCH),
+        );
+        seen += n;
+        if (n < SEEN_PRUNE_BATCH) break;
+      }
+      if (deleted > 0 || seen > 0) log.info({ deleted, seen }, 'old feed runs pruned');
+      return { deleted, seen };
     },
   }),
 };

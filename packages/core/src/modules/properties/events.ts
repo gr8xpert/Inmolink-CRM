@@ -8,6 +8,9 @@ import { z } from 'zod';
  */
 const listing = { listingId: z.uuid(), agencyId: z.uuid(), version: z.number().int() };
 
+/** Listing ids per `properties.listings.imported` event: 250 × 39 bytes stays under the 10 KB payload cap. */
+export const IMPORTED_PER_EVENT = 250;
+
 export const propertiesEvents = {
   created: defineEvent('properties.listing.created', 1, z.object(listing)),
   /** Any field change; `changed` names the DTO fields (`price`, `visibility`, …). */
@@ -44,6 +47,16 @@ export const propertiesEvents = {
       targetId: z.uuid(),
       locale: z.string(),
     }),
+  ),
+  /**
+   * S6-02: a feed run created, updated or withdrew these listings of the agency (created, updated, statusChanged
+   * and visibility are not emitted per listing for imports). Up to `IMPORTED_PER_EVENT` ids, so one queue write and
+   * one throttled build request per event replace one per listing; consumers reload each listing's current state.
+   */
+  imported: defineEvent(
+    'properties.listings.imported',
+    1,
+    z.object({ agencyId: z.uuid(), runId: z.uuid(), listingIds: z.array(z.uuid()).min(1).max(IMPORTED_PER_EVENT) }),
   ),
   /** A member asked for a bulk action (S3-07); the subscription queues `properties.runBulkAction`. */
   bulkRequested: defineEvent(

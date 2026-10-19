@@ -460,7 +460,7 @@ export function ListingEditor(props: ListingEditorProps) {
 
         {section(
           'features',
-          [],
+          ['features'],
           props.features.map((g) => (
             <fieldset key={g.label} className="flex flex-col gap-2">
               <legend className="mb-1 text-sm font-medium">{g.label}</legend>

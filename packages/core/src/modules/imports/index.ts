@@ -1,5 +1,5 @@
 /** imports — public API (PATTERNS §1). The only import path for other modules and apps. */
-export { configureImports, FEED_FETCH, type ImportsConfig, RUNS } from './config';
+export { configureImports, defaultWithdrawAfterMissedRuns, FEED_FETCH, type ImportsConfig, RUNS } from './config';
 export {
   type ConnectorContext,
   connectorKeys,
@@ -19,9 +19,19 @@ export {
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
 export { importsJobs } from './jobs';
+export {
+  countOnlySink,
+  FeedNoOwnerError,
+  type FeedSink,
+  listingSink,
+  type RunLoader,
+  type SinkCounts,
+  type SinkRun,
+  sourceOf,
+} from './load';
 export type { ItemError, PendingBatch, PipelineTotals, ValidItem } from './pipeline';
 export { CLIENT_MODE_ALLOWED, can, IMPORTS_ACTIONS, IMPORTS_IMPERSONATION, type ImportsAction } from './policy';
-export { classifyRunError, countOnlySink, executeRun, type FeedSink, LeaseLostError, type RunOutcome } from './runner';
+export { classifyRunError, executeRun, LeaseLostError, type RunOutcome } from './runner';
 export {
   createFeedConnection,
   deleteFeedConnection,

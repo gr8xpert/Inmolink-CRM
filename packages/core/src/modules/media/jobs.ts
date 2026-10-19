@@ -6,6 +6,7 @@ import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { type BucketName, storage } from '@inmolink/platform/storage';
 import { z } from 'zod';
 import { mediaEvents } from './events';
+import { FEED_IMAGES, importFeedImages, overdueFeedImageAgencies } from './feed-images';
 import { ImageInputError, normalizeOriginal, renderVariants, withImageSlot } from './processing';
 import * as repo from './repo';
 import { mapLimit, ORIGINALS_BUCKET, originalKey } from './service';
@@ -316,7 +317,50 @@ export const mediaJobs = {
       return { queued: stale.length };
     },
   }),
+
+  /**
+   * S6-02, pool `imports` (it needs `app_user`, storage and the network — the media-only container has neither the
+   * role nor the outbound need): fetches an agency's queued feed images, hash-first (`feed-images.ts`). Throttled per
+   * agency; its own fair-share group, so it never waits behind the agency's feed run. Asks for another run when its
+   * budget ran out with listings still waiting.
+   */
+  importFeedImages: defineJob({
+    name: 'media.importFeedImages',
+    pool: 'imports',
+    payload: z.object({ agencyId: z.uuid() }),
+    group: (p) => `feed-images:${p.agencyId}`,
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: FEED_IMAGES.RUN_BUDGET_MS + FEED_IMAGES.LEASE_MS,
+    async run(p, { log, signal }) {
+      const result = await importFeedImages(p.agencyId, { signal, log });
+      if (result.more) await requestFeedImages(p.agencyId);
+      return result;
+    },
+  }),
+
+  /** S6-02 (every 5 minutes): agencies with feed images nobody claimed for a while get their run asked for again. */
+  sweepFeedImages: defineJob({
+    name: 'media.sweepFeedImages',
+    pool: 'imports',
+    payload: z.object({}).strict(),
+    every: 5 * 60_000,
+    attempts: 3,
+    timeoutMs: 60_000,
+    async run(_p, { log }) {
+      const agencies = await overdueFeedImageAgencies(1_000);
+      for (const agencyId of agencies) await requestFeedImages(agencyId);
+      if (agencies.length > 0) log.warn({ agencies: agencies.length }, 'feed images overdue: runs queued again');
+      return { agencies: agencies.length };
+    },
+  }),
 };
+
+/** Asks for the agency's feed image run (throttled: queued images until then join it). Never inside a transaction. */
+export async function requestFeedImages(agencyId: string): Promise<void> {
+  await mediaJobs.importFeedImages.enqueue({ agencyId }, { throttleMs: FEED_IMAGES.THROTTLE_MS, debounceKey: 'now' });
+}
 
 /**
  * On demand (S3-04): renders the `sizes` of a stored object that are missing for the current pipeline (every

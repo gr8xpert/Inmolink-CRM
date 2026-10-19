@@ -20,6 +20,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -27,6 +28,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { agencies } from './agencies';
 import { properties } from './properties';
 
 const SHA256_HEX = (column: unknown) => sql`${column} ~ '^[0-9a-f]{64}$'`;
@@ -173,5 +175,57 @@ export const listingDocuments = pgTable(
     check('listing_documents_sha256_ck', SHA256_HEX(t.sha256)),
     check('listing_documents_type_ck', sql`${t.contentType} = 'application/pdf'`),
     check('listing_documents_size_ck', sql`${t.sizeBytes} > 0`),
+  ],
+);
+
+/**
+ * A listing's feed images waiting to be fetched (S6-02): the import writes the listing's image URLs, in feed order,
+ * in the batch transaction (one row per listing; a newer list replaces a waiting one); the `media.importFeedImages`
+ * worker downloads them outside any transaction, hashes them first (a URL fetched before, or a hash stored already,
+ * is not downloaded or uploaded again) and attaches the new ones. `claimed_until` leases a row to one worker.
+ */
+export const feedImageQueue = pgTable(
+  'feed_image_queue',
+  {
+    propertyId: uuid('property_id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    urls: text('urls').array().notNull(),
+    claimedUntil: timestamp('claimed_until', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'feed_image_queue_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    // FK + the agency's waiting listings, oldest first (the worker's claim)
+    index('feed_image_queue_agency_created_idx').on(t.agencyId, t.createdAt),
+    // the sweep (`media.sweepFeedImages`): rows untouched for a while, every agency
+    index('feed_image_queue_updated_idx').on(t.updatedAt),
+    check('feed_image_queue_urls_ck', sql`cardinality(${t.urls}) between 1 and 100`),
+  ],
+);
+
+/**
+ * Feed image URL → the content hash it served (S6-02, per agency): hash-first, so a URL already fetched is never
+ * downloaded again while its object is stored. `url_key` is the SHA-256 of the URL (URLs can be long).
+ */
+export const feedImageSources = pgTable(
+  'feed_image_sources',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    urlKey: char('url_key', { length: 64 }).notNull(),
+    sha256: char('sha256', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.urlKey] }),
+    check('feed_image_sources_url_key_ck', SHA256_HEX(t.urlKey)),
+    check('feed_image_sources_sha256_ck', SHA256_HEX(t.sha256)),
   ],
 );
