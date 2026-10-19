@@ -228,6 +228,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await system(async (tx) => {
     await tx.execute(sql`delete from read_model_queue where owner_agency_id = ${a.agencyId}`);
+    // S6-F3: the index pushes its rebuilds queued (a shared global queue: leftovers slow other suites' syncs).
+    await tx.execute(sql`delete from search_index_queue where target_id in (
+      select id from properties where agency_id = ${a.agencyId}
+      union all select id from units where agency_id = ${a.agencyId}
+      union all select target_id from listing_read_models where agency_id = ${a.agencyId})`);
+    await tx.execute(sql`delete from listing_search_docs where owner_agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from listing_read_models where agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from units where agency_id = ${a.agencyId}`);
     await tx.execute(sql`delete from developments where agency_id = ${a.agencyId}`);

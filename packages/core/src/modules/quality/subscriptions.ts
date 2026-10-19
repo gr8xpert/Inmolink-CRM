@@ -31,8 +31,8 @@ const { propertiesEvents } = properties;
  * Outbox → quality worker (S3-08): every change the score reads — a listing created, edited (fields the score reads,
  * translations,
  * features, confirmation), restored or moved through its lifecycle, its photos added or removed
- * (`media.object.referencesChanged`) or edited (`media.listing.changed`: a floor plan turned photo), or its confirmation falling due — queues a debounced
- * `quality.recomputeListing` of that listing. The tenant is `meta.agencyId` (RLS-checked when the event was
+ * (`media.object.referencesChanged`) or edited (`media.listing.changed`: a floor plan turned photo), or its confirmation falling due — queues the
+ * listing in `quality_queue` (debounced, S6-F3) and asks for its agency's `quality.recomputeListings` run. The tenant is `meta.agencyId` (RLS-checked when the event was
  * written), the fair-share group. Called once by the worker.
  */
 export function registerQualitySubscriptions(): void {

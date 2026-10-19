@@ -408,3 +408,15 @@ export async function addListingVideo(ctx: Ctx, input: { listingId: string; url:
 export function listingImageSizes(tx: Tx, listingId: string): Promise<({ width: number; height: number } | null)[]> {
   return repo.imageSizes(tx, listingId);
 }
+
+/** `listingImageSizes` for a batch of listings (S6-F3, the quality queue): one statement; every id has an entry. */
+export async function listingsImageSizes(
+  tx: Tx,
+  listingIds: readonly string[],
+): Promise<Map<string, ({ width: number; height: number } | null)[]>> {
+  const out = new Map<string, ({ width: number; height: number } | null)[]>(listingIds.map((id) => [id, []]));
+  for (const r of await repo.imageSizesOf(tx, [...new Set(listingIds)])) {
+    out.get(r.propertyId)?.push(r.width !== null && r.height !== null ? { width: r.width, height: r.height } : null);
+  }
+  return out;
+}

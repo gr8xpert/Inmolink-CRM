@@ -63,12 +63,34 @@ const PRUNE_FIRST = [
   'feed_mapping_profiles',
 ] as const;
 
+/** Global worker queues keyed by the owner agency (S6-F3). */
+const AGENCY_QUEUES = ['read_model_queue', 'quality_queue'] as const;
+
+/**
+ * Queue rows older than `STALE_TEST_AGENCY_HOURS` (S6-F3): killed runs leave them (495 were found), and a shared
+ * global queue's leftovers slow every other suite's claims and syncs. A live test's rows are minutes old.
+ */
+async function pruneStaleQueueRows(admin: pg.Client): Promise<void> {
+  const stale = [
+    ['search_index_queue', 'queued_at'],
+    ['read_model_queue', 'due_at'],
+    ['quality_queue', 'due_at'],
+  ] as const;
+  for (const [table, column] of stale) {
+    await admin.query(
+      `delete from ${pg.escapeIdentifier(table)} where ${pg.escapeIdentifier(column)} < now() - make_interval(hours => $1)`,
+      [STALE_TEST_AGENCY_HOURS],
+    );
+  }
+}
+
 /**
  * Removes agencies earlier test runs left behind (S5-F3): integration tests create founders and never delete
  * them, and the test DB had grown to 80k agencies, slowing every agency-wide query (`[S1-09]` timed out). An agency
  * is stale when both `created_at` and `updated_at` are older than `STALE_TEST_AGENCY_HOURS` — tests that backdate
  * `created_at` (keyset, give-to-get grace) leave `updated_at` alone, so a running test never loses its agency.
- * Batches of 500 per transaction; users, audit rows and outbox events stay (no foreign key to the agency).
+ * Batches of 500 per transaction; users, audit rows and outbox events stay (no foreign key to the agency). Their queue
+ * rows go with them, and so does any queue row older than the same age (S6-F3).
  */
 export async function pruneStaleTestAgencies(adminUrl: string): Promise<number> {
   const admin = new pg.Client({ connectionString: adminUrl });
@@ -90,7 +112,12 @@ export async function pruneStaleTestAgencies(adminUrl: string): Promise<number> 
         ).rows.map((r) => r.id);
         if (ids.length === 0) {
           await admin.query('commit');
+          await pruneStaleQueueRows(admin);
           return pruned;
+        }
+        // Their queued work (global worker queues name the agency as `owner_agency_id`, S6-F3).
+        for (const table of AGENCY_QUEUES) {
+          await admin.query(`delete from ${pg.escapeIdentifier(table)} where owner_agency_id = any($1::uuid[])`, [ids]);
         }
         for (const table of PRUNE_FIRST) {
           await admin.query(`delete from ${pg.escapeIdentifier(table)} where agency_id = any($1::uuid[])`, [ids]);

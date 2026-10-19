@@ -355,13 +355,18 @@ export async function finishReadModels(tx: Tx, claim: ReadModelClaim): Promise<v
   await tx.execute(sql`
     delete from ${readModelQueue} q using ${claimedRows(claim)}
      where q.target_id = c.target_id and q.generation = c.generation and q.claim_token = ${claim.token}`);
-  await releaseReadModels(tx, claim.token);
+  await releaseReadModels(tx, claim);
 }
 
-/** Not rebuilt (the transaction failed): frees the rows this claim still holds. */
-export async function releaseReadModels(tx: Tx, token: string): Promise<void> {
+/**
+ * Not rebuilt (the transaction failed): frees the rows this claim still holds — by primary key (S6-F3 review: the
+ * token alone has no index, so this read the whole queue once per batch).
+ */
+export async function releaseReadModels(tx: Tx, claim: ReadModelClaim): Promise<void> {
+  if (claim.rows.length === 0) return;
   await tx.execute(sql`
-    update ${readModelQueue} set claimed_until = null, claim_token = null where claim_token = ${token}`);
+    update ${readModelQueue} set claimed_until = null, claim_token = null
+     where target_id = any(${uuidArray(claim.rows.map((r) => r.targetId))}) and claim_token = ${claim.token}`);
 }
 
 /** Milliseconds until the agency's next unclaimed target is due (≤ 0: due now), or null when none is queued. */
@@ -860,7 +865,9 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
 /**
  * Network search hydration (S5-05): each target's card in the best locale it has — `locale`, then `fallback`, then
  * any — read as `app_user`, so another agency's row is returned only where the reader may read the listing or unit
- * itself (the read models' network policy). One statement over the primary key.
+ * itself (the read models' network policy). S6-F3: the viewer's locale and the fallback are read first (two
+ * primary-key probes per target); only a target with neither reads one more row — its first locale, by the primary
+ * key — so no card of every locale is read to keep one. One statement.
  */
 export async function networkCards(
   tx: Tx,
@@ -869,10 +876,20 @@ export async function networkCards(
   fallback: string,
 ): Promise<{ targetId: string; kind: Kind; card: unknown }[]> {
   if (ids.length === 0) return [];
+  const unique = uuidArray([...new Set(ids)]);
   const result = await tx.execute(sql`
-    select distinct on (target_id) target_id as "targetId", kind, card
-      from ${listingReadModels}
-     where target_id = any(${uuidArray(ids)})
-     order by target_id, (locale = ${locale}) desc, (locale = ${fallback}) desc, locale`);
+    with pick as (
+      select distinct on (m.target_id) m.target_id, m.kind, m.card
+        from ${listingReadModels} m
+       where m.target_id = any(${unique}) and m.locale in (${locale}, ${fallback})
+       order by m.target_id, (m.locale = ${locale}) desc)
+    select target_id as "targetId", kind, card from pick
+    union all
+    select o.target_id, o.kind, o.card
+      from unnest(${unique}) as t(id)
+      cross join lateral (
+        select m.target_id, m.kind, m.card from ${listingReadModels} m
+         where m.target_id = t.id order by m.locale limit 1) o
+     where not exists (select 1 from pick p where p.target_id = t.id)`);
   return result.rows as { targetId: string; kind: Kind; card: unknown }[];
 }

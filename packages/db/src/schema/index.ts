@@ -15,5 +15,6 @@ export * from './media';
 export * from './migration';
 export * from './outbox';
 export * from './properties';
+export * from './quality';
 export * from './search';
 export * from './taxonomy';

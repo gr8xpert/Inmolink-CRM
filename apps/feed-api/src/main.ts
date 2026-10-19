@@ -1,5 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as search from '@inmolink/core/modules/search';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
@@ -25,6 +26,17 @@ try {
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
+  });
+  // Website search timing from config (S6-F3); the routes come with S7-03.
+  search.configureWebsiteSearch({
+    engineTimeoutMs: config.SEARCH_ENGINE_TIMEOUT_MS,
+    slowMs: config.SEARCH_SLOW_MS,
+    breakerFailures: config.SEARCH_BREAKER_FAILURES,
+    breakerFailureRatio: config.SEARCH_BREAKER_FAILURE_RATIO,
+    breakerMinCalls: config.SEARCH_BREAKER_MIN_CALLS,
+    breakerWindowMs: config.SEARCH_BREAKER_WINDOW_MS,
+    breakerOpenMs: config.SEARCH_BREAKER_OPEN_MS,
+    hedgeMaxInFlight: config.SEARCH_HEDGE_MAX_IN_FLIGHT,
   });
 
   const app = await buildApp({

@@ -73,17 +73,17 @@ export {
   unregisterSearchSubscriptions,
 } from './subscriptions';
 export {
+  configureWebsiteSearch,
   FALLBACK_COUNT_CAP,
   type PublicSearchSite,
   publicFallbackSql,
   publicSearchFilter,
   resetSearchBreaker,
-  SEARCH_BREAKER_FAILURES,
-  SEARCH_BREAKER_OPEN_MS,
-  SEARCH_ENGINE_TIMEOUT_MS,
   SEARCH_RESULT_CAP,
-  SEARCH_SLOW_MS,
   searchBreakerState,
   searchPublicListings,
+  WEBSITE_SEARCH_DEFAULTS,
+  type WebsiteSearchSettings,
+  websiteSearchSettings,
 } from './website';
 // Never export repo or schema.

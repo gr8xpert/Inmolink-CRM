@@ -18,6 +18,7 @@ import {
   searchEnv,
   telemetryEnv,
   turnstileEnv,
+  websiteSearchEnv,
 } from './index';
 
 const validEnv = {
@@ -276,5 +277,27 @@ describe('loadConfig', () => {
     expect(keys({ ...prod, METRICS_HOST: '203.0.113.9' })).toEqual(['METRICS_HOST']);
     expect(keys({ ...prod, SENTRY_DSN: 'http://k@sentry.example.com/1' })).toEqual(['SENTRY_DSN']);
     expect(keys({ ...prod, SENTRY_DSN: 'https://k@sentry.example.com/1' })).toEqual([]);
+  });
+});
+
+describe('website search timing (S6-F3)', () => {
+  it('[S6-F3] engine timeout and slow threshold come from config, ~100 ms and ~80 ms by default', () => {
+    const defaults = loadConfig(websiteSearchEnv, {});
+    expect(defaults).toMatchObject({
+      SEARCH_ENGINE_TIMEOUT_MS: 100,
+      SEARCH_SLOW_MS: 80,
+      SEARCH_BREAKER_FAILURES: 5,
+      SEARCH_BREAKER_FAILURE_RATIO: 0.5,
+      SEARCH_BREAKER_MIN_CALLS: 20,
+      SEARCH_BREAKER_WINDOW_MS: 10_000,
+      SEARCH_BREAKER_OPEN_MS: 30_000,
+      SEARCH_HEDGE_MAX_IN_FLIGHT: 16,
+    });
+    expect(loadConfig(websiteSearchEnv, { SEARCH_ENGINE_TIMEOUT_MS: '150', SEARCH_SLOW_MS: '120' })).toMatchObject({
+      SEARCH_ENGINE_TIMEOUT_MS: 150,
+      SEARCH_SLOW_MS: 120,
+    });
+    expect(() => loadConfig(websiteSearchEnv, { SEARCH_BREAKER_FAILURE_RATIO: '0' })).toThrow(ConfigError);
+    expect(() => loadConfig(websiteSearchEnv, { SEARCH_SLOW_MS: '5' })).toThrow(ConfigError);
   });
 });

@@ -3,8 +3,12 @@
  * or slow, from the Postgres fallback (`listing_search_docs`). Both run the same engine-neutral filter, so results
  * match; the fallback ranks more simply (the sort only), matches text against references only and has no facets.
  *
- * A circuit breaker per process decides: an engine call that fails, times out (`SEARCH_ENGINE_TIMEOUT_MS`) or answers
- * slower than `SEARCH_SLOW_MS` counts; `SEARCH_BREAKER_FAILURES` in a row switch every request to the fallback for
+ * Timing comes from config (`websiteSearchEnv`, set at boot by `configureWebsiteSearch`; S6-F3): an engine call is
+ * cut at `SEARCH_ENGINE_TIMEOUT_MS` (~100 ms); at `SEARCH_SLOW_MS` (~80 ms) without an answer the fallback starts
+ * beside it and the first answer wins, so a slow engine never costs a request more than about the slow threshold plus
+ * one fallback statement. A circuit breaker per process counts an engine call that fails, times out or answers slower
+ * than `SEARCH_SLOW_MS`: `SEARCH_BREAKER_FAILURES` in a row, or a failed-or-slow share ≥ `SEARCH_BREAKER_FAILURE_RATIO`
+ * of ≥ `SEARCH_BREAKER_MIN_CALLS` calls within `SEARCH_BREAKER_WINDOW_MS`, switch every request to the fallback for
  * `SEARCH_BREAKER_OPEN_MS`, then one request probes the engine. A request whose own engine call fails is answered by
  * the fallback at once: a site never sees the engine's outage as an error.
  *
@@ -33,14 +37,46 @@ import { listingsIndex } from './index-doc';
 import { listingsIndexUid } from './indexer';
 import * as repo from './repo';
 
-/** Longest wait for one engine query before the request is answered by the fallback. */
-export const SEARCH_ENGINE_TIMEOUT_MS = 300;
-/** An engine answer slower than this counts against the engine (it still serves the request). */
-export const SEARCH_SLOW_MS = 250;
-/** Failed or slow engine queries in a row that switch to the fallback. */
-export const SEARCH_BREAKER_FAILURES = 5;
-/** How long the fallback serves alone before one request probes the engine again. */
-export const SEARCH_BREAKER_OPEN_MS = 30_000;
+/**
+ * Website search timing (S6-F3): the defaults of `websiteSearchEnv` (platform config); apps set them from config at
+ * boot (`configureWebsiteSearch`).
+ */
+export interface WebsiteSearchSettings {
+  /** Longest wait for one engine query before the request is answered by the fallback. */
+  engineTimeoutMs: number;
+  /** No engine answer by then: the fallback starts beside it (first answer wins); a slower answer counts against it. */
+  slowMs: number;
+  /** Failed or slow engine queries in a row that switch to the fallback. */
+  breakerFailures: number;
+  /** …or this share of failed or slow queries among `breakerMinCalls` or more within `breakerWindowMs`. */
+  breakerFailureRatio: number;
+  breakerMinCalls: number;
+  breakerWindowMs: number;
+  /** How long the fallback serves alone before one request probes the engine again. */
+  breakerOpenMs: number;
+  /**
+   * Fallback statements started beside a slow engine at once in this process: the losing statement is not cancelled,
+   * so while the engine is slow but the breaker still closed this bounds the extra Postgres load. Past it a request
+   * waits for the engine (up to its timeout).
+   */
+  hedgeMaxInFlight: number;
+}
+
+export const WEBSITE_SEARCH_DEFAULTS: Readonly<WebsiteSearchSettings> = {
+  engineTimeoutMs: 100,
+  slowMs: 80,
+  breakerFailures: 5,
+  breakerFailureRatio: 0.5,
+  breakerMinCalls: 20,
+  breakerWindowMs: 10_000,
+  breakerOpenMs: 30_000,
+  hedgeMaxInFlight: 16,
+};
+
+let settings: WebsiteSearchSettings = { ...WEBSITE_SEARCH_DEFAULTS };
+
+/** The timing in force in this process (tests, health pages). */
+export const websiteSearchSettings = (): Readonly<WebsiteSearchSettings> => settings;
 /** Totals are exact up to this many results (the engine's `maxTotalHits`), and no page goes deeper. */
 export const SEARCH_RESULT_CAP = 10_000;
 /**
@@ -73,9 +109,14 @@ const transitions = meter.createCounter('inmolink.search.breaker.transitions', {
 
 function newBreaker(options: Partial<BreakerOptions> = {}): CircuitBreaker {
   return new CircuitBreaker({
-    failureThreshold: SEARCH_BREAKER_FAILURES,
-    openMs: SEARCH_BREAKER_OPEN_MS,
-    slowMs: SEARCH_SLOW_MS,
+    failureThreshold: settings.breakerFailures,
+    openMs: settings.breakerOpenMs,
+    slowMs: settings.slowMs,
+    window: {
+      windowMs: settings.breakerWindowMs,
+      minCalls: settings.breakerMinCalls,
+      failureRatio: settings.breakerFailureRatio,
+    },
     ...options,
     onChange: (to: BreakerState, from: BreakerState) => {
       transitions.add(1, { to });
@@ -101,6 +142,20 @@ export const searchBreakerState = (): BreakerState => breaker.state;
 /** Tests: a fresh breaker, optionally with other thresholds or clock. */
 export function resetSearchBreaker(options: Partial<BreakerOptions> = {}): void {
   breaker = newBreaker(options);
+}
+
+/**
+ * Boot (S6-F3): the timing from config (`SEARCH_ENGINE_TIMEOUT_MS`, `SEARCH_SLOW_MS`, `SEARCH_BREAKER_*`); omitted
+ * values keep the defaults. Starts a fresh breaker. The slow threshold must be below the timeout (else the fallback
+ * would never start beside a slow engine).
+ */
+export function configureWebsiteSearch(options: Partial<WebsiteSearchSettings>): void {
+  const next = { ...WEBSITE_SEARCH_DEFAULTS, ...options };
+  if (next.slowMs >= next.engineTimeoutMs) {
+    throw new RangeError('website search: SEARCH_SLOW_MS must be below SEARCH_ENGINE_TIMEOUT_MS');
+  }
+  settings = next;
+  breaker = newBreaker();
 }
 
 type Parsed = ReturnType<typeof PublicListingSearch.parse>;
@@ -182,25 +237,68 @@ export async function searchPublicListings(
   const permit = breaker.acquire();
   if (!permit) return fallback(q, filter, cursor, 'breaker_open');
   const started = performance.now();
+  const engineCall = engineSearch(options.engine ?? searchEngine(), q, filter, cursor?.o ?? 0).then(
+    (result) => {
+      permit.success(performance.now() - started);
+      return result;
+    },
+    (err: unknown) => {
+      permit.failure();
+      // Code and status only: an adapter error may carry the request body (the visitor's text).
+      logger().warn(
+        {
+          requestId: scope.requestId,
+          error: err instanceof Error ? err.name : typeof err,
+          ...(err instanceof SearchError ? { code: err.code, status: err.status } : {}),
+        },
+        'search engine query failed: answered by the Postgres fallback',
+      );
+      throw err;
+    },
+  );
+  // The engine's answer within the slow threshold, or null: still waiting.
+  let timer: NodeJS.Timeout | undefined;
+  const slow = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), settings.slowMs);
+  });
   try {
-    const result = await engineSearch(options.engine ?? searchEngine(), q, filter, cursor?.o ?? 0);
-    permit.success(performance.now() - started);
-    queries.add(1, { backend: 'engine' });
-    return result;
-  } catch (err) {
-    permit.failure();
-    // Code and status only: an adapter error may carry the request body (the visitor's text).
-    logger().warn(
-      {
-        requestId: scope.requestId,
-        error: err instanceof Error ? err.name : typeof err,
-        ...(err instanceof SearchError ? { code: err.code, status: err.status } : {}),
-      },
-      'search engine query failed: answered by the Postgres fallback',
-    );
+    const early = await Promise.race([engineCall, slow]);
+    if (early) {
+      queries.add(1, { backend: 'engine' });
+      return early;
+    }
+  } catch {
     return fallback(q, filter, cursor, 'engine_error');
+  } finally {
+    clearTimeout(timer);
+  }
+  // Slow (S6-F3): the fallback starts beside the engine and the first answer wins. The engine call keeps its own
+  // deadline and reports its outcome to the breaker whichever wins. Too many hedges already running: wait for it.
+  if (hedging >= settings.hedgeMaxInFlight) {
+    try {
+      const late = await engineCall;
+      queries.add(1, { backend: 'engine' });
+      return late;
+    } catch {
+      return fallback(q, filter, cursor, 'engine_error');
+    }
+  }
+  hedging += 1;
+  const backup = fallbackPage(q, filter, cursor).finally(() => {
+    hedging -= 1;
+  });
+  try {
+    const first = await Promise.any([engineCall, backup]);
+    queries.add(1, first.backend === 'engine' ? { backend: 'engine' } : { backend: 'fallback', reason: 'engine_slow' });
+    return first;
+  } catch {
+    // Both failed: the fallback's error is the request's (the engine's is logged above).
+    return backup;
   }
 }
+
+/** Fallback statements running beside a slow engine in this process (`hedgeMaxInFlight`). */
+let hedging = 0;
 
 async function engineSearch(
   engine: SearchEngine,
@@ -224,8 +322,9 @@ async function engineSearch(
       sort: [SORTS[q.sort]],
       limit,
       offset,
-      timeoutMs: SEARCH_ENGINE_TIMEOUT_MS,
+      timeoutMs: settings.engineTimeoutMs,
     }),
+    settings.engineTimeoutMs,
   );
   const total = Math.min(answer.total, SEARCH_RESULT_CAP);
   const next = offset + answer.ids.length;
@@ -256,14 +355,11 @@ export function publicFallbackSql(site: Pick<PublicSearchSite, 'ownerAgencyIds'>
   return repo.fallbackSearchSql(fallbackQuery(q, publicSearchFilter(site, q), decode(q.cursor, q.sort)));
 }
 
-/** The engine's answer, or a timeout error after `SEARCH_ENGINE_TIMEOUT_MS` (whatever the adapter does). */
-function deadline<T>(work: Promise<T>): Promise<T> {
+/** The engine's answer, or a timeout error after `ms` (`SEARCH_ENGINE_TIMEOUT_MS`, whatever the adapter does). */
+function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new SearchError(`search timed out after ${SEARCH_ENGINE_TIMEOUT_MS} ms`, undefined, 'timeout')),
-      SEARCH_ENGINE_TIMEOUT_MS,
-    );
+    timer = setTimeout(() => reject(new SearchError(`search timed out after ${ms} ms`, undefined, 'timeout')), ms);
   });
   // The abandoned call may still fail later: nobody waits for it.
   work.catch(() => undefined);
@@ -277,6 +373,15 @@ async function fallback(
   reason: 'breaker_open' | 'engine_error' | 'cursor',
 ): Promise<PublicListingSearchResult> {
   queries.add(1, { backend: 'fallback', reason });
+  return fallbackPage(q, filter, cursor);
+}
+
+/** One fallback page (one statement). */
+async function fallbackPage(
+  q: Parsed,
+  filter: Filter,
+  cursor: CursorState | undefined,
+): Promise<PublicListingSearchResult> {
   // An engine cursor (the engine went away mid-pagination) restarts at the fallback's first keyset page, flagged:
   // the engine's offsets mean nothing in the fallback's order, and an SQL OFFSET would scan up to 10,000 rows per
   // request while the fallback carries all traffic (S6-F2).

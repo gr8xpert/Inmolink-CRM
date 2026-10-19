@@ -105,6 +105,19 @@ export async function imageSizes(tx: Tx, propertyId: string): Promise<({ width: 
   return rows.map((r) => (r.width !== null && r.height !== null ? { width: r.width, height: r.height } : null));
 }
 
+/** `imageSizes` for many listings (S6-F3, the quality queue's batches): one statement over `property_media_property_idx`. */
+export async function imageSizesOf(
+  tx: Tx,
+  propertyIds: readonly string[],
+): Promise<{ propertyId: string; width: number | null; height: number | null }[]> {
+  if (propertyIds.length === 0) return [];
+  return tx
+    .select({ propertyId: propertyMedia.propertyId, width: mediaObjects.width, height: mediaObjects.height })
+    .from(propertyMedia)
+    .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
+    .where(and(inArray(propertyMedia.propertyId, [...propertyIds]), eq(propertyMedia.kind, 'IMAGE')));
+}
+
 /**
  * Changes one media row of the listing (S3-06). `cover: true` passes the cover to it: the old cover loses it
  * first (`property_media_cover_uq` allows one per listing); a row turned into a floor plan stops being the

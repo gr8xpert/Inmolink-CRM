@@ -15,11 +15,12 @@
  * so the following run wraps to the start.
  *
  * `developments.purgeDeletedDevelopments` (S5-F2, schedule: every hour, all agencies via `withSystem`):
- * developments soft-deleted more than `DEVELOPMENT_RETENTION_DAYS` ago, `PURGE_BATCH` per transaction, are deleted
- * for good (phases, units, price lists, documents' rows: FK cascade) with one `developments.document.deleted` per
- * document, so `deleteDocumentObject` removes each object as for a single delete (the listing purge's shape,
- * S4-F3). A run that ends with full batches queues a continuation. Idempotent: a purged development is gone; a
- * lost delete job leaves an object the orphan sweep removes.
+ * developments soft-deleted more than `DEVELOPMENT_RETENTION_DAYS` ago are deleted for good (phases, units, price
+ * lists, documents' rows: FK cascade) with one `developments.document.deleted` per document, so
+ * `deleteDocumentObject` removes each object as for a single delete (the listing purge's shape, S4-F3). A transaction
+ * takes up to `PURGE_BATCH` developments but at most `PURGE_UNIT_BUDGET` units (S6-F3): a development with more units
+ * first loses them `PURGE_UNIT_BUDGET` per transaction. A run that ends with work left queues a continuation.
+ * Idempotent: a purged development is gone; a lost delete job leaves an object the orphan sweep removes.
  */
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
@@ -42,6 +43,8 @@ export const DEVELOPMENT_RETENTION_DAYS = 30;
 /** Developments purged per transaction, and at most this many transactions per run (a continuation follows). */
 const PURGE_BATCH = 100;
 const PURGE_MAX_BATCHES = 20;
+/** Units deleted per purge transaction at most (S6-F3): their histories cascade with them. */
+export const PURGE_UNIT_BUDGET = 5_000;
 
 /** A sweep's bounds: the schedule passes none; tests make the page cap small. */
 const sweepPayload = z
@@ -127,43 +130,73 @@ export const developmentsJobs = {
     timeoutMs: 10 * 60_000,
     async run(_p, { log, signal }) {
       let purged = 0;
-      let full = false;
+      let unitsDeleted = 0;
+      let maxUnitsPerTransaction = 0;
+      let more = false;
       for (let i = 0; i < PURGE_MAX_BATCHES && !signal.aborted; i++) {
-        const gone = await withSystem('developments.purgeDeletedDevelopments', async (tx) => {
-          const before = new Date(clock.now().getTime() - DEVELOPMENT_RETENTION_DAYS * 86_400_000);
-          const due = await repo.dueForPurge(tx, before, PURGE_BATCH);
-          const ids = due.map((d) => d.id);
-          const documents = await repo.documentsOfDevelopments(tx, ids);
-          const deleted = await repo.purge(tx, ids);
-          const kept = new Set(deleted.map((d) => d.id));
-          // The rows are gone with the development: each object leaves storage like a single delete, under its agency.
-          const byAgency = new Map<string, OutboxMessage[]>();
-          for (const d of documents) {
-            if (!kept.has(d.developmentId)) continue;
-            const messages = byAgency.get(d.agencyId) ?? [];
-            messages.push(
-              developmentsEvents.documentDeleted({
-                documentId: d.id,
-                developmentId: d.developmentId,
-                agencyId: d.agencyId,
-              }),
-            );
-            byAgency.set(d.agencyId, messages);
-          }
-          for (const [agencyId, messages] of byAgency) await emit(tx, messages, { agencyId });
-          return deleted;
-        });
-        purged += gone.length;
-        full = gone.length === PURGE_BATCH;
-        if (!full) break;
+        const step = await purgeStep();
+        purged += step.purged;
+        unitsDeleted += step.units;
+        maxUnitsPerTransaction = Math.max(maxUnitsPerTransaction, step.units);
+        more = step.more;
+        if (!more) break;
       }
-      // Queue I/O after the commits: the run ended full, so more are due — continue now, not in an hour.
-      if (full && !signal.aborted) await developmentsJobs.purgeDeletedDevelopments.enqueue({});
-      if (purged > 0) log.info({ purged, more: full }, 'soft-deleted developments purged');
-      return { purged, more: full };
+      // Queue I/O after the commits: work is left, so continue now, not in an hour.
+      if (more && !signal.aborted) await developmentsJobs.purgeDeletedDevelopments.enqueue({});
+      if (purged + unitsDeleted > 0) log.info({ purged, unitsDeleted, more }, 'soft-deleted developments purged');
+      return { purged, more, unitsDeleted, maxUnitsPerTransaction };
     },
   }),
 };
+
+/**
+ * One purge transaction (S6-F3): the due developments that fit `PURGE_UNIT_BUDGET` units together are deleted; when
+ * the first due one alone has more, only `PURGE_UNIT_BUDGET` of its units go. `more`: due work is left.
+ */
+async function purgeStep(): Promise<{ purged: number; units: number; more: boolean }> {
+  return withSystem('developments.purgeDeletedDevelopments', async (tx) => {
+    const before = new Date(clock.now().getTime() - DEVELOPMENT_RETENTION_DAYS * 86_400_000);
+    const due = await repo.dueForPurge(tx, before, PURGE_BATCH);
+    if (due.length === 0) return { purged: 0, units: 0, more: false };
+    const counts = await repo.unitCountsOf(
+      tx,
+      due.map((d) => d.id),
+    );
+    const fits: string[] = [];
+    let units = 0;
+    for (const d of due) {
+      const n = counts.get(d.id) ?? 0;
+      if (units + n > PURGE_UNIT_BUDGET) break;
+      fits.push(d.id);
+      units += n;
+    }
+    const first = due[0] as { id: string };
+    if (fits.length === 0) {
+      // Too large for one transaction: its units go first, a budget at a time (it stays due, locked by none).
+      const n = await repo.deleteUnitsOfDeleted(tx, first.id, PURGE_UNIT_BUDGET);
+      return { purged: 0, units: n, more: true };
+    }
+    const documents = await repo.documentsOfDevelopments(tx, fits);
+    const deleted = await repo.purge(tx, fits);
+    const kept = new Set(deleted.map((d) => d.id));
+    // The rows are gone with the development: each object leaves storage like a single delete, under its agency.
+    const byAgency = new Map<string, OutboxMessage[]>();
+    for (const d of documents) {
+      if (!kept.has(d.developmentId)) continue;
+      const messages = byAgency.get(d.agencyId) ?? [];
+      messages.push(
+        developmentsEvents.documentDeleted({
+          documentId: d.id,
+          developmentId: d.developmentId,
+          agencyId: d.agencyId,
+        }),
+      );
+      byAgency.set(d.agencyId, messages);
+    }
+    for (const [agencyId, messages] of byAgency) await emit(tx, messages, { agencyId });
+    return { purged: deleted.length, units, more: due.length === PURGE_BATCH || fits.length < due.length };
+  });
+}
 
 /** The outbox event's handler: one delete job per deleted document. */
 export const enqueueDocumentDelete = (

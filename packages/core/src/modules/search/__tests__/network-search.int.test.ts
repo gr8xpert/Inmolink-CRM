@@ -24,6 +24,7 @@ import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as search from '../index';
 import { networkFilter } from '../network';
+import * as repo from '../repo';
 
 /**
  * Network search (S5-05) on the real test database and Meilisearch: who sees which listings and units, the
@@ -214,6 +215,7 @@ afterAll(async () => {
       await tx.execute(sql`delete from search_index_queue where target_id in (${list(targets)})`);
       await tx.execute(sql`delete from listing_search_docs where target_id in (${list(targets)})`);
     }
+    await tx.execute(sql`delete from read_model_queue where owner_agency_id in (${list(owners)})`);
     await tx.execute(sql`delete from listing_read_models where agency_id in (${list(owners)})`);
   });
   await closeDb();
@@ -394,6 +396,38 @@ describe('commission', () => {
 
   it('[S5-05] a page is at most ten statements (dashboard budget)', async () => {
     expect(await countQueries(() => net(v))).toBeLessThanOrEqual(10);
+  });
+
+  it("[S6-F3] hydration reads the viewer's locale and the fallback first, another locale only for ids still missing", async () => {
+    const ids = [L.aAll as string, L.bPreferred as string];
+    const reads = { match: /listing_read_models/ };
+    const cards = (locale: string, fallback: string) =>
+      as(v, (ctx) => repo.networkCards(ctx.tx, ids, locale, fallback));
+    let found: Awaited<ReturnType<typeof cards>> = [];
+    // Both have the viewer's locale.
+    expect(
+      await countQueries(async () => {
+        found = await cards('en', 'es');
+      }, reads),
+    ).toBe(1);
+    expect(found.map((c) => c.targetId).sort()).toEqual([...ids].sort());
+    // Neither the viewer's locale nor the fallback exists: the same statement reads one card of another locale each.
+    expect(
+      await countQueries(async () => {
+        found = await cards('xx', 'yy');
+      }, reads),
+    ).toBe(1);
+    expect(found.map((c) => c.targetId).sort()).toEqual([...ids].sort());
+    // The plan: primary-key probes for the two locales, then one row per target still missing (no sort of every card).
+    const plan = await as(v, async (ctx) =>
+      (
+        await ctx.tx.execute(sql`explain select 1 from listing_read_models m
+          where m.target_id = ${ids[0]}::uuid order by m.locale limit 1`)
+      ).rows
+        .map((r) => Object.values(r)[0])
+        .join(' '),
+    );
+    expect(plan).toContain('listing_read_models_pk');
   });
 });
 

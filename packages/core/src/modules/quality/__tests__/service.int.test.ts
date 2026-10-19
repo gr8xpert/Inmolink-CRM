@@ -88,19 +88,45 @@ async function addPhotos(m: Founder, listingId: string, files: Uint8Array[]): Pr
   );
 }
 
-type Enqueued = Parameters<typeof quality.qualityJobs.recomputeListing.enqueue>;
+/** Rows of `quality_queue` (S6-F3) for these listings. */
+const queuedRows = (ids: readonly string[]) =>
+  ids.length === 0
+    ? Promise.resolve([])
+    : rows<{ listing_id: string; rechecks: number; wait: number }>(
+        sql`select listing_id, rechecks, extract(epoch from due_at - now())::float8 as wait from quality_queue
+             where listing_id in (${sql.join(
+               ids.map((id) => sql`${id}`),
+               sql`, `,
+             )})`,
+      );
+
+/** Runs the agency's recompute run now (its fresh rows made due: the debounce is not under test here). */
+async function drain(m: Founder): Promise<quality.QualityDrainResult> {
+  await rows(sql`update quality_queue set due_at = now() where owner_agency_id = ${m.agencyId} and rechecks = 0`);
+  const enqueue = vi.spyOn(quality.qualityJobs.recomputeListings, 'enqueue').mockResolvedValue({ id: 'test' });
+  try {
+    return (await quality.qualityJobs.recomputeListings.spec.run(
+      { agencyId: m.agencyId },
+      jobCtx(),
+    )) as quality.QualityDrainResult;
+  } finally {
+    enqueue.mockRestore();
+  }
+}
 
 /**
- * The worker's part, in order: delivers the agency's pending events to the quality subscriptions (the queue
- * captured), then runs every recompute they queued. Answers what was queued.
+ * The worker's part, in order: delivers the agency's pending events to the quality subscriptions (each queues its
+ * listing in `quality_queue` and asks for the agency's run — captured), then runs the agency's recompute run. Answers
+ * the listings the events queued.
  */
-async function deliver(m: Founder): Promise<Enqueued[]> {
-  const queued: Enqueued[] = [];
-  const enqueue = vi.spyOn(quality.qualityJobs.recomputeListing, 'enqueue').mockImplementation(async (...args) => {
-    queued.push(args);
+async function deliver(m: Founder): Promise<string[]> {
+  const runs: unknown[] = [];
+  const enqueue = vi.spyOn(quality.qualityJobs.recomputeListings, 'enqueue').mockImplementation(async (...args) => {
+    runs.push(args);
     return { id: 'test' };
   });
   quality.registerQualitySubscriptions();
+  const listings = new Set<string>();
   try {
     const events = await rows<{ id: string; agency_id: string; type: string; version: number; payload: unknown }>(
       sql`select id, agency_id, type, version, payload from outbox_events
@@ -130,18 +156,16 @@ async function deliver(m: Founder): Promise<Enqueued[]> {
         ),
       );
     }
-    // The jobs the events queued (a recheck they queue in turn is only recorded).
-    for (const [payload] of [...queued]) {
-      await quality.qualityJobs.recomputeListing.spec.run(
-        quality.qualityJobs.recomputeListing.spec.payload.parse(payload),
-        jobCtx(),
-      );
-    }
+    const ids = events.map((e) => (e.payload as { listingId?: string }).listingId).filter((x): x is string => !!x);
+    for (const r of await queuedRows([...new Set(ids)])) listings.add(r.listing_id);
+    if (listings.size > 0)
+      expect(runs).toContainEqual([{ agencyId: m.agencyId }, { throttleMs: 2_000, debounceKey: 'now' }]);
   } finally {
     quality.unregisterQualitySubscriptions();
     enqueue.mockRestore();
   }
-  return queued;
+  if (listings.size > 0) await drain(m);
+  return [...listings];
 }
 
 const storedScore = async (m: Founder, id: string) =>
@@ -182,6 +206,9 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
+  await system((tx) =>
+    tx.execute(sql`delete from quality_queue where owner_agency_id in (${a.agencyId}, ${b.agencyId})`),
+  );
   await system((tx) => tx.execute(sql`delete from properties where agency_id in (${a.agencyId}, ${b.agencyId})`));
   await closeRateLimit();
   await closeDb();
@@ -191,30 +218,24 @@ describe('listing quality score', () => {
   it('[S3-08] score changes after adding photos without a manual refresh', async () => {
     const id = await createListing(a);
     // Created: the subscription queues a recompute; the worker stores the score.
-    expect(await deliver(a)).toEqual([
-      [
-        { listingId: id, agencyId: a.agencyId, recheck: 0 },
-        { debounceMs: 2_000, debounceKey: id },
-      ],
-    ]);
+    expect(await deliver(a)).toEqual([id]);
     const before = await storedScore(a, id);
     expect(before).toBe((await as(a, (ctx) => quality.getListingQuality(ctx, id))).score);
     expect(before).not.toBeNull();
 
     // Photos added: the media event alone moves the stored score — nobody asks for it.
     await addPhotos(a, id, [jpeg('one'), jpeg('two'), jpeg('three')]);
-    const queued = await deliver(a);
+    expect(await deliver(a)).toContain(id);
     const after = await storedScore(a, id);
     expect(after).toBeGreaterThan(before as number);
     // The editor's live score agrees, and says the photos are still processing…
     const live = await as(a, (ctx) => quality.getListingQuality(ctx, id));
     expect(live).toMatchObject({ listingId: id, score: after, pendingPhotos: 3 });
     expect(live.hints.find((h) => h.code === 'PHOTOS_FEW')?.params).toEqual({ count: 3, target: 15 });
-    // …so the job looks again a minute later, when their size is known.
-    expect(queued.at(-1)).toEqual([
-      { listingId: id, agencyId: a.agencyId, recheck: 1 },
-      { debounceMs: 60_000, debounceKey: `${id}.recheck` },
-    ]);
+    // …so the run looks again a minute later, when their size is known.
+    const [recheck] = await queuedRows([id]);
+    expect(recheck?.rechecks).toBe(1);
+    expect(recheck?.wait).toBeGreaterThan(50);
     // The media worker records and processes them: 640 × 480, below the size a sharp photo needs.
     const small = ['one', 'two', 'three'].map((l) => sql`(${sha(jpeg(l))}, 2048, 'image/jpeg', 1, 640, 480)`);
     await system((tx) =>
@@ -222,13 +243,10 @@ describe('listing quality score', () => {
                      values ${sql.join(small, sql`, `)}
                      on conflict (sha256) do update set pipeline = 1, width = 640, height = 480`),
     );
-    const recheck = queued.at(-1)?.[0];
-    if (!recheck) throw new Error('no recheck queued');
-    await quality.qualityJobs.recomputeListing.spec.run(
-      quality.qualityJobs.recomputeListing.spec.payload.parse(recheck),
-      jobCtx(),
-    );
+    await rows(sql`update quality_queue set due_at = now() where listing_id = ${id}`);
+    await drain(a);
     expect(await storedScore(a, id)).toBe((after as number) - 10); // three small photos: no resolution points
+    expect(await queuedRows([id])).toEqual([]); // sizes known: no further recheck
   });
 
   it('[S3-08] the live score is the owner agency’s: three reads after the member context (5 statements), never another agency’s, never in Client Mode', async () => {
@@ -279,12 +297,62 @@ describe('recompute triggers', () => {
     expect(updates[0]?.n).toBeGreaterThanOrEqual(1_000);
     const mine = new Set(ids_);
     const queued = await deliver(a);
-    expect(queued.filter(([payload]) => mine.has((payload as { listingId: string }).listingId))).toEqual([]);
+    expect(queued.filter((id) => mine.has(id))).toEqual([]);
     // an edit the score reads still recomputes
     expect(quality.scoreMayChange(['price', 'energyRating'])).toBe(true);
     expect(quality.scoreMayChange(['price', 'owner', 'tags', 'visibility', 'shareScope'])).toBe(false);
     await system((tx) => tx.execute(sql`delete from properties where ref like ${`QB-${RUN}-%`}`));
   }, 300_000);
+});
+
+describe('recompute queue (S6-F3)', () => {
+  it('[S6-F3] one event per imported row queues one row per listing; one batch scores them in a few statements', async () => {
+    const created: string[] = [];
+    for (let i = 0; i < 30; i++) created.push(await createListing(a));
+    // Two more events for ten of them (an import touching a row twice, then its photos).
+    const events = [...created, ...created.slice(0, 10), ...created.slice(0, 10)];
+    const runs: unknown[] = [];
+    const enqueue = vi.spyOn(quality.qualityJobs.recomputeListings, 'enqueue').mockImplementation(async (...args) => {
+      runs.push(args);
+      return { id: 'test' };
+    });
+    try {
+      quality.registerQualitySubscriptions();
+      const created_ = defaultSubscribers
+        .get('properties.listing.created', 1)
+        .find((sub) => sub.name === 'quality.recompute.created');
+      if (!created_) throw new Error('no quality subscription for listing.created');
+      for (const listingId of events) {
+        const meta = {
+          eventId: newId(),
+          agencyId: a.agencyId,
+          type: 'x',
+          version: 1,
+          createdAt: new Date(),
+          attempt: 1,
+        };
+        await created_.handler({ listingId } as never, meta);
+      }
+    } finally {
+      quality.unregisterQualitySubscriptions();
+      enqueue.mockRestore();
+    }
+    expect(await queuedRows(created)).toHaveLength(30);
+    // One run for the agency (throttled per agency): never one job per listing.
+    expect(new Set(runs.map((r) => JSON.stringify(r)))).toEqual(
+      new Set([JSON.stringify([{ agencyId: a.agencyId }, { throttleMs: 2_000, debounceKey: 'now' }])]),
+    );
+    let result: quality.QualityDrainResult | undefined;
+    const statements = await countQueries(async () => {
+      result = await drain(a);
+    });
+    expect(result).toMatchObject({ batches: 1 });
+    expect(result?.scored).toBeGreaterThanOrEqual(30);
+    // claim + tenant transaction (~6) + reschedule/finish + the empty claim and due checks: not ~5 per listing
+    expect(statements).toBeLessThanOrEqual(20);
+    expect(await queuedRows(created)).toEqual([]);
+    for (const id of created.slice(0, 3)) expect(await storedScore(a, id)).not.toBeNull();
+  });
 });
 
 describe('listing freshness', () => {

@@ -75,7 +75,7 @@ export async function runMigrations(
 
     if (existsSync(join(folder, 'meta', '_journal.json'))) {
       // Large tables' new indexes first, outside the migrator's transaction (S5-F2).
-      await buildConcurrentIndexes(owner, log);
+      await buildConcurrentIndexes(owner, log, undefined, folder);
       await migrate(drizzle({ client: owner }), { migrationsFolder: folder });
       log.info({ folder }, 'migrations applied');
     } else {

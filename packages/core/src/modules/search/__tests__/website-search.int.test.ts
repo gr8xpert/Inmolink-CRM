@@ -117,9 +117,26 @@ const ours = (owners: string[] = [a.agencyId]): search.PublicSearchSite => ({
   requestId: newId(),
 });
 
+/**
+ * Equivalence tests compare the engine's answer with the fallback's, not timing: the local Meilisearch on the Docker
+ * Desktop VM is sometimes slower than the production slow threshold (80 ms), which would let the fallback win. The
+ * timing tests set the production defaults themselves (`withDefaultTiming`).
+ */
+const RELAXED = { engineTimeoutMs: 5_000, slowMs: 4_000 };
+
+async function withDefaultTiming<T>(fn: () => Promise<T>): Promise<T> {
+  search.configureWebsiteSearch({});
+  try {
+    return await fn();
+  } finally {
+    search.configureWebsiteSearch(RELAXED);
+  }
+}
+
 beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
+  search.configureWebsiteSearch(RELAXED);
   a = await createFounder();
   b = await createFounder();
   for (const m of [a, b]) await setAgencyStatus(m.agencyId, 'VERIFIED');
@@ -256,6 +273,28 @@ describe('Postgres fallback rows', () => {
       sql`select target_id from listing_search_docs where target_id in (${L.cheap}, ${L.shared})`,
     );
     expect(present.map((r) => r.target_id)).toEqual([L.cheap]);
+  });
+
+  it("[S6-F3] a full rebuild writes each target's fallback row once (statement count)", async () => {
+    // Every document of the agency changes (stale etags), so the page's rebuild changes all its targets: the fallback
+    // rows were refreshed for the changed ones and then again for the whole page (two upserts, two deletes).
+    await rows(sql`update listing_read_models set etag = 'stale' where agency_id = ${a.agencyId}`);
+    await rows(sql`delete from listing_search_docs where target_id = ${L.cheap}`);
+    const [{ n } = { n: 0 }] = await rows<{ n: number }>(
+      sql`select count(distinct target_id)::int as n from listing_read_models where agency_id = ${a.agencyId}`,
+    );
+    expect(n).toBeLessThan(search.READ_MODEL_BATCH); // one page
+    let progress: { written: number } | undefined;
+    const writes = await countQueries(
+      async () => {
+        progress = (await search.rebuildAllReadModels({ agencyId: a.agencyId, kinds: ['LISTING'] })).LISTING;
+      },
+      { match: /^\s*(insert into|delete from)\s+"?listing_search_docs"?\s/i },
+    );
+    expect(progress?.written).toBeGreaterThanOrEqual(n);
+    // The page's PUBLIC targets in one upsert, the others' rows in one delete: each target written once.
+    expect(writes).toBe(2);
+    expect(await rows(sql`select 1 from listing_search_docs where target_id = ${L.cheap}`)).toHaveLength(1);
   });
 });
 
@@ -411,40 +450,78 @@ describe('website search', () => {
     let now = 0;
     search.resetSearchBreaker({ now: () => now });
     const down = fakeEngine();
-    for (let i = 0; i < search.SEARCH_BREAKER_FAILURES; i++) {
+    const { breakerFailures, breakerOpenMs } = search.websiteSearchSettings();
+    for (let i = 0; i < breakerFailures; i++) {
       expect((await search.searchPublicListings(ours(), site(), { engine: down.engine })).backend).toBe('fallback');
     }
     expect(search.searchBreakerState()).toBe('open');
     // Open: the engine is not even called.
     await search.searchPublicListings(ours(), site(), { engine: down.engine });
-    expect(down.calls.n).toBe(search.SEARCH_BREAKER_FAILURES);
+    expect(down.calls.n).toBe(breakerFailures);
 
-    now += search.SEARCH_BREAKER_OPEN_MS;
+    now += breakerOpenMs;
     const r = await search.searchPublicListings(ours(), site(), { engine: real() });
     expect(r.backend).toBe('engine');
     expect(search.searchBreakerState()).toBe('closed');
   });
 
-  it('[S5-04] a slow engine is cut at the timeout; the request is answered by the fallback within budget', async () => {
-    search.resetSearchBreaker();
-    const hung = fakeEngine(() => new Promise(() => {}));
-    const started = performance.now();
-    const r = await search.searchPublicListings(ours(), site(), { engine: hung.engine });
-    const ms = performance.now() - started;
-    expect(r.backend).toBe('fallback');
-    expect(r.ids).toHaveLength(5);
-    expect(ms).toBeLessThan(search.SEARCH_ENGINE_TIMEOUT_MS + 150);
-    // Answers slower than SEARCH_SLOW_MS count too: enough of them open the breaker.
-    const slow = fakeEngine(async (q) => {
-      await new Promise((res) => setTimeout(res, search.SEARCH_SLOW_MS + 10));
-      return real().search(search.listingsIndex(UID), q);
-    });
-    for (let i = 0; i < search.SEARCH_BREAKER_FAILURES; i++) {
-      await search.searchPublicListings(ours(), site(), { engine: slow.engine });
-    }
-    expect(search.searchBreakerState()).toBe('open');
-    search.resetSearchBreaker();
-  });
+  it('[S5-04] a slow engine is cut at the timeout; the request is answered by the fallback within budget', () =>
+    withDefaultTiming(async () => {
+      const { engineTimeoutMs, slowMs, breakerFailures } = search.websiteSearchSettings();
+      const hung = fakeEngine(() => new Promise(() => {}));
+      const started = performance.now();
+      const r = await search.searchPublicListings(ours(), site(), { engine: hung.engine });
+      const ms = performance.now() - started;
+      expect(r.backend).toBe('fallback');
+      expect(r.ids).toHaveLength(5);
+      expect(ms).toBeLessThan(engineTimeoutMs + 150);
+      // Answers slower than the slow threshold count too: enough of them open the breaker. Each engine call reports
+      // when it settles, after its request may have been answered by the fallback.
+      search.resetSearchBreaker();
+      const slow = fakeEngine(async (q) => {
+        await new Promise((res) => setTimeout(res, slowMs + 10));
+        return real().search(search.listingsIndex(UID), q);
+      });
+      for (let i = 0; i < breakerFailures; i++) {
+        await search.searchPublicListings(ours(), site(), { engine: slow.engine });
+      }
+      await vi.waitFor(() => expect(search.searchBreakerState()).toBe('open'), { timeout: 2_000 });
+      search.resetSearchBreaker();
+    }));
+
+  it('[S6-F3] with the engine answering in 200 ms, the fallback answers from the slow threshold and the breaker opens', () =>
+    withDefaultTiming(async () => {
+      // The timing is config (feed-api boot); a slow threshold at or past the timeout is refused.
+      expect(search.websiteSearchSettings()).toMatchObject({ engineTimeoutMs: 100, slowMs: 80 });
+      expect(() => search.configureWebsiteSearch({ engineTimeoutMs: 100, slowMs: 100 })).toThrow(RangeError);
+      const slowEngine = fakeEngine(async (q) => {
+        await new Promise((res) => setTimeout(res, 200));
+        return real().search(search.listingsIndex(UID), q);
+      });
+      const run = async (n: number) => {
+        const backends = new Set<string>();
+        for (let i = 0; i < n; i++) {
+          const r = await search.searchPublicListings(ours(), site({ sort: 'price_asc' }), {
+            engine: slowEngine.engine,
+          });
+          backends.add(r.backend);
+          expect(r.ids).toHaveLength(5);
+        }
+        return backends;
+      };
+      // The hedge alone: the fallback, started at the slow threshold, wins every time; the breaker stays closed.
+      search.resetSearchBreaker({ failureThreshold: 1_000, window: undefined });
+      // (The 200 ms engine can still win after an event-loop stall under load: the first answer wins.)
+      expect(await run(10)).toContain('fallback');
+      expect(search.searchBreakerState()).toBe('closed');
+      // The configured breaker: slow answers open it, and then the engine is no longer asked. (The p95 at scale is
+      // checked alone in tests/perf/search-fallback: under the parallel int suites timing says little.)
+      search.resetSearchBreaker();
+      expect(await run(30)).toContain('fallback');
+      await vi.waitFor(() => expect(search.searchBreakerState()).toBe('open'), { timeout: 2_000 });
+      expect(slowEngine.calls.n).toBeLessThan(10 + 30);
+      search.resetSearchBreaker();
+    }));
 
   it('[S5-04] a fallback page is one statement (page, total and next position)', async () => {
     search.resetSearchBreaker({ failureThreshold: 1 });

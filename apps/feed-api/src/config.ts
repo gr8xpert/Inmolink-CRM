@@ -10,6 +10,7 @@ import {
   redisEnv,
   searchEnv,
   telemetryEnv,
+  websiteSearchEnv,
 } from '@inmolink/platform/config';
 
 /** Website API: `app_public` only (read models, PUBLIC_READ) — no `app_user`, no queue (PLAN §5.3 bulkheads). */
@@ -28,6 +29,8 @@ export const feedApiEnv = {
   MEILI_URL: searchEnv.MEILI_URL,
   /** Search-only key (S1-F5) — never the master key in a request app. */
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
+  /** Website search timing: engine timeout, slow threshold, circuit breaker (S6-F3). */
+  ...websiteSearchEnv,
   ...cryptoEnv,
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;

@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { newId } from '@inmolink/platform/ids';
 import pg from 'pg';
@@ -37,6 +38,38 @@ describe('buildConcurrentIndexes', () => {
       expect(rows).toEqual([{ valid: true, def: expect.stringContaining('WHERE (deleted_at IS NOT NULL)') }]);
     } finally {
       await client.end();
+    }
+  });
+
+  it('[S6-F3] an index a pending migration creates without IF NOT EXISTS is left to that migration', async () => {
+    const table = `s6f3_probe_${newId().slice(-8)}`;
+    const name = `${table}_x_idx`;
+    // A migrations folder whose journal has an applied entry (0069's time) and a pending one (far in the future).
+    const folder = mkdtempSync(join(tmpdir(), 's6f3-'));
+    mkdirSync(join(folder, 'meta'));
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as {
+      entries: { tag: string; when: number }[];
+    };
+    const applied = journal.entries.find((e) => e.tag === '0069_give_to_get');
+    writeFileSync(
+      join(folder, 'meta', '_journal.json'),
+      JSON.stringify({ entries: [applied, { tag: '9999_pending', when: 9_999_999_999_999 }] }),
+    );
+    const ix = (declaredBy: string) => [{ name, table, definition: `ON "${table}" ("x")`, declaredBy }];
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL_ADMIN });
+    await client.connect();
+    try {
+      await client.query(`create temporary table "${table}" (x int)`);
+      const built: string[] = [];
+      const log = { info: (o: { index?: string }) => built.push(o.index ?? '') } as never;
+      await buildConcurrentIndexes(client, log, ix('9999_pending'), folder);
+      expect(built).toEqual([]);
+      await buildConcurrentIndexes(client, log, ix('0069_give_to_get'), folder);
+      expect(built).toEqual([name]);
+      expect(CONCURRENT_INDEXES.map((i) => i.name)).toContain('properties_agency_network_idx');
+    } finally {
+      await client.end();
+      rmSync(folder, { recursive: true, force: true });
     }
   });
 

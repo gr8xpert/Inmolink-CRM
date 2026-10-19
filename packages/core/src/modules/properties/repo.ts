@@ -725,6 +725,49 @@ export async function setQualityScore(tx: Tx, id: string, score: number): Promis
   return rows.length > 0;
 }
 
+/** `qualityRow` for many listings (S6-F3, the quality queue's batches): primary-key probes, one statement. */
+export async function qualityRows(tx: Tx, ids: readonly string[]): Promise<(QualityRow & { id: string })[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: properties.id, ...qualityColumns, qualityScore: propertyPrivates.qualityScore })
+    .from(properties)
+    .leftJoin(propertyPrivates, eq(propertyPrivates.propertyId, properties.id))
+    .where(inArray(properties.id, [...ids]));
+}
+
+/** `descriptionLengths` for many listings (`property_translations` PK prefix), one statement. */
+export async function descriptionLengthsOf(
+  tx: Tx,
+  propertyIds: readonly string[],
+): Promise<{ propertyId: string; locale: string; length: number }[]> {
+  if (propertyIds.length === 0) return [];
+  return tx
+    .select({
+      propertyId: propertyTranslations.propertyId,
+      locale: propertyTranslations.locale,
+      length: sql<number>`coalesce(char_length(btrim(${propertyTranslations.description})), 0)::int`,
+    })
+    .from(propertyTranslations)
+    .where(inArray(propertyTranslations.propertyId, [...propertyIds]));
+}
+
+/** Stores recomputed scores (one statement, no `version` bump); answers the listings whose score changed. */
+export async function setQualityScores(tx: Tx, scores: readonly { id: string; score: number }[]): Promise<string[]> {
+  if (scores.length === 0) return [];
+  const res = await tx.execute<{ id: string }>(sql`
+    update ${propertyPrivates} p set quality_score = s.score
+      from unnest(array[${sql.join(
+        scores.map((x) => sql`${x.id}`),
+        sql`, `,
+      )}]::uuid[], array[${sql.join(
+        scores.map((x) => sql`${x.score}`),
+        sql`, `,
+      )}]::int[]) as s(id, score)
+     where p.property_id = s.id and p.quality_score is distinct from s.score
+    returning p.property_id as id`);
+  return res.rows.map((r) => r.id);
+}
+
 export type SweptRow = { id: string; agencyId: string; version: number; visibility: string; shareScope: string };
 
 /**

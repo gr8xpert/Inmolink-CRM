@@ -238,8 +238,17 @@ it('[S5-05] EXPLAIN on scale: give-to-get count and card hydration read by index
     'give-to-get count': `select count(*)::int as n from (select 1 from properties
        where agency_id = '${owners[0]?.agencyId}' and visibility <> 'PRIVATE' and status = 'ACTIVE'
          and deleted_at is null and network_hidden_at is null limit 5) s`,
-    'card hydration': `select distinct on (target_id) target_id, kind, card from listing_read_models
-       where target_id = any(array[${page}]) order by target_id, (locale = 'en') desc, (locale = 'es') desc, locale`,
+    // search repo `networkCards` (S6-F3): the viewer's locale and the fallback first, another only for ids missing
+    'card hydration': `with pick as (
+        select distinct on (m.target_id) m.target_id, m.kind, m.card from listing_read_models m
+         where m.target_id = any(array[${page}]) and m.locale in ('en', 'es')
+         order by m.target_id, (m.locale = 'en') desc)
+      select target_id, kind, card from pick
+      union all
+      select o.target_id, o.kind, o.card from unnest(array[${page}]) as t(id)
+        cross join lateral (select m.target_id, m.kind, m.card from listing_read_models m
+          where m.target_id = t.id order by m.locale limit 1) o
+       where not exists (select 1 from pick p where p.target_id = t.id)`,
     'listing terms': `select id, agency_id, price_cents, commission_bp, split_bp from properties
        where id = any(array[${page}]) and agency_id <> '${viewer.agencyId}'`,
   };

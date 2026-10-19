@@ -578,6 +578,30 @@ export async function documentsOfDevelopments(
     .where(inArray(developmentDocuments.developmentId, [...ids]));
 }
 
+/** Units per development of these (`units_development_ref_uq` prefix: an index-only count). */
+export async function unitCountsOf(tx: Tx, ids: readonly string[]): Promise<Map<string, number>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({ developmentId: units.developmentId, n: sql<number>`count(*)::int` })
+    .from(units)
+    .where(inArray(units.developmentId, [...ids]))
+    .groupBy(units.developmentId);
+  return new Map(rows.map((r) => [r.developmentId, r.n]));
+}
+
+/**
+ * Deletes up to `limit` units of a soft-deleted development (their price and status histories cascade), so a large
+ * development is purged over several bounded transactions (S6-F3). Answers how many.
+ */
+export async function deleteUnitsOfDeleted(tx: Tx, developmentId: string, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    delete from ${units} where id in (
+      select u.id from ${units} u join ${developments} d on d.id = u.development_id
+       where u.development_id = ${developmentId} and d.deleted_at is not null
+       limit ${limit})`);
+  return res.rowCount ?? 0;
+}
+
 /** Deletes these soft-deleted developments for good (children cascade); answers the ones deleted. */
 export async function purge(tx: Tx, ids: readonly string[]): Promise<{ id: string; agencyId: string }[]> {
   if (ids.length === 0) return [];

@@ -20,6 +20,7 @@ export {
   checkUploads,
   detachListingMedia,
   listingImageSizes,
+  listingsImageSizes,
   listListingMedia,
   originalKey,
   registerUploads,

@@ -26,7 +26,9 @@ export {
   confirmListing,
   type ListingQualityInputs,
   listingQualityInputs,
+  listingsQualityInputs,
   setListingQualityScore,
+  setListingQualityScores,
   sweepFreshnessBatch,
 } from './freshness';
 export { propertiesJobs } from './jobs';

@@ -668,6 +668,11 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'listings and units of every agency whose read models must be rebuilt (worker-only work queue)',
     noUserRead: true,
   },
+  // Quality recompute queue (S6-F3): written by the quality subscriptions and drained by the quality worker via withSystem().
+  quality_queue: {
+    reason: 'listings of every agency whose quality score must be computed again (worker-only work queue)',
+    noUserRead: true,
+  },
   // Recurring jobs' resume points (S5-F2): the orphan sweeps' last keys, written by workers via withSystem().
   job_checkpoints: {
     reason: 'where a bounded recurring job (an orphan sweep over every agency) stopped, so the next run resumes',

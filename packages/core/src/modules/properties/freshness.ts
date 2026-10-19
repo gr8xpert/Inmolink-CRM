@@ -106,6 +106,45 @@ export async function listingQualityInputs(tx: Tx, id: string): Promise<ListingQ
   };
 }
 
+/**
+ * `listingQualityInputs` for a batch (S6-F3, the quality queue): the listings `tx` sees, by id. Two statements for any
+ * number.
+ */
+export async function listingsQualityInputs(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<Map<string, ListingQualityInputs>> {
+  const unique = [...new Set(ids)];
+  const [rows, lengths] = [await repo.qualityRows(tx, unique), await repo.descriptionLengthsOf(tx, unique)];
+  const descriptions = new Map<string, { locale: string; length: number }[]>();
+  for (const { propertyId, locale, length } of lengths) {
+    const list = descriptions.get(propertyId) ?? [];
+    list.push({ locale, length });
+    descriptions.set(propertyId, list);
+  }
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        agencyId: row.agencyId,
+        status: row.status,
+        energyRating: row.energyRating,
+        hasCoordinates: row.lat !== null,
+        locationPrecision: row.locationPrecision,
+        lastConfirmedAt: row.lastConfirmedAt,
+        networkHiddenAt: row.networkHiddenAt,
+        qualityScore: row.qualityScore,
+        descriptions: descriptions.get(row.id) ?? [],
+      },
+    ]),
+  );
+}
+
+/** For the quality module's batches: stores recomputed scores (one statement); answers the listings that changed. */
+export function setListingQualityScores(tx: Tx, scores: readonly { id: string; score: number }[]): Promise<string[]> {
+  return repo.setQualityScores(tx, scores);
+}
+
 /** For the quality module's worker job: stores a recomputed score; true when it changed. */
 export function setListingQualityScore(tx: Tx, id: string, score: number): Promise<boolean> {
   return repo.setQualityScore(tx, id, score);

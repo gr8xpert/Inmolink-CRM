@@ -6,8 +6,9 @@
 groups:
   - name: search
     rules:
-      # The breaker opened (the engine failed or answered slower than 250 ms five times in a row) and has not closed
-      # since: websites are served by the Postgres fallback (no facets, references-only text search).
+      # The breaker opened (the engine failed or answered slower than SEARCH_SLOW_MS — 80 ms — five times in a row, or
+      # for half of the calls in a 10 s window; S6-F3) and has not closed since: websites are served by the Postgres
+      # fallback (no facets, references-only text search).
       - alert: SearchFallbackActive
         expr: max by (instance) (inmolink_search_breaker_open) > 0
         for: 2m

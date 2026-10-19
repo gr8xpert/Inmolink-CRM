@@ -142,6 +142,27 @@ export const searchEnv = {
 };
 
 /**
+ * Website search (S5-04, S6-F3, PLAN §5.4): how long a request waits for the engine and when it stops trusting it.
+ * The engine call is cut at `SEARCH_ENGINE_TIMEOUT_MS`; at `SEARCH_SLOW_MS` the Postgres fallback starts beside it and
+ * the first answer wins (an answer slower than that also counts against the engine). The breaker opens on
+ * `SEARCH_BREAKER_FAILURES` failed or slow calls in a row, or on a failed-or-slow share of at least
+ * `SEARCH_BREAKER_FAILURE_RATIO` among ≥ `SEARCH_BREAKER_MIN_CALLS` calls within `SEARCH_BREAKER_WINDOW_MS`, and stays
+ * open `SEARCH_BREAKER_OPEN_MS`. At most `SEARCH_HEDGE_MAX_IN_FLIGHT` fallback statements run beside the engine at once
+ * per process; past that a request waits for the engine up to its timeout. The slow threshold must be below the timeout (checked at boot by the search module).
+ */
+export const websiteSearchEnv = {
+  SEARCH_ENGINE_TIMEOUT_MS: z.coerce.number().int().min(20).max(5_000).default(100),
+  SEARCH_SLOW_MS: z.coerce.number().int().min(10).max(5_000).default(80),
+  SEARCH_BREAKER_FAILURES: z.coerce.number().int().min(1).max(1_000).default(5),
+  SEARCH_BREAKER_FAILURE_RATIO: z.coerce.number().gt(0).max(1).default(0.5),
+  SEARCH_BREAKER_MIN_CALLS: z.coerce.number().int().min(1).max(100_000).default(20),
+  SEARCH_BREAKER_WINDOW_MS: z.coerce.number().int().min(1_000).max(600_000).default(10_000),
+  SEARCH_BREAKER_OPEN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
+  /** Fallback statements started beside a slow engine at once, per process (the losing one is not cancelled). */
+  SEARCH_HEDGE_MAX_IN_FLIGHT: z.coerce.number().int().min(0).max(1_000).default(16),
+};
+
+/**
  * Network search give-to-get (PLAN §3 #5, S5-05): ACTIVE listings an agency must share with the network to search
  * it, and the grace period of a new agency (days from sign-up).
  */

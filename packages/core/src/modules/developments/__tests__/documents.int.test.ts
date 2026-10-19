@@ -377,6 +377,39 @@ describe('development documents', () => {
     expect(await storage().head('private', keyOf(recent, recentDoc.id))).not.toBeNull();
   });
 
+  it('[S6-F3] purging a development with 20,000 units runs in transactions of at most 5,000 units', async () => {
+    const dev = await sharedDev();
+    await as(owner, (ctx) => developments.deleteDevelopment(ctx, dev.id, dev.version));
+    const [type] = await rows<{ id: string }>(sql`select id from property_types order by id limit 1`);
+    await rows(sql`
+      insert into units (id, development_id, agency_id, ref, property_type_id)
+      select gen_random_uuid(), ${dev.id}, ${owner.agencyId}, 'U-' || i, ${type?.id}
+        from generate_series(1, 20000) as i`);
+    await rows(sql`update developments set deleted_at = now() - interval '31 days' where id = ${dev.id}`);
+    const unitsLeft = async () =>
+      (await rows<{ n: number }>(sql`select count(*)::int as n from units where development_id = ${dev.id}`))[0]?.n;
+
+    // Each purge transaction: at most PURGE_UNIT_BUDGET units (with their histories), the development last.
+    const perTransaction: number[] = [];
+    let before = await unitsLeft();
+    let runs = 0;
+    for (;;) {
+      const r = (await developments.developmentsJobs.purgeDeletedDevelopments.spec.run({}, jobCtx())) as {
+        more: boolean;
+        maxUnitsPerTransaction: number;
+      };
+      perTransaction.push(r.maxUnitsPerTransaction);
+      const after = await unitsLeft();
+      expect((before ?? 0) - (after ?? 0)).toBeGreaterThan(0);
+      before = after;
+      if (!r.more || ++runs > 10) break;
+    }
+    expect(developments.PURGE_UNIT_BUDGET).toBe(5_000);
+    expect(Math.max(...perTransaction)).toBeLessThanOrEqual(5_000);
+    expect(await unitsLeft()).toBe(0);
+    expect(await rows(sql`select id from developments where id = ${dev.id}`)).toEqual([]);
+  }, 180_000);
+
   it('[S5-F2] a sweep that stops at its page cap resumes from the next key on the following run', async () => {
     const name = 'developments.sweepOrphanDocuments';
     const dev = await sharedDev();

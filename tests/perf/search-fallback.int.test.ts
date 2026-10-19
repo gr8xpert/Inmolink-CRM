@@ -3,7 +3,7 @@ import * as search from '@inmolink/core/modules/search';
 import { closeDb, withPublicRead, withSystem } from '@inmolink/db';
 import { adminQuery, setupTestDb } from '@inmolink/db/testing';
 import { createLogger } from '@inmolink/platform/logger';
-import { createMeiliEngine } from '@inmolink/platform/search';
+import { createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
@@ -276,5 +276,54 @@ it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or
       expect(rows + removed, `shape ${shape}: ${line.trim()}`).toBeLessThanOrEqual(SEQ_SCAN_MAX_ROWS);
     });
     expect(fastest, `shape ${shape} (median ${ms} ms)`).toBeLessThan(SQL_BUDGET_MS);
+  }
+}, 600_000);
+
+it('[S6-F3] with the engine answering in 200 ms, website search stays within feed-api p95 150 ms at scale', async () => {
+  // An engine that answers every query, 200 ms late (configured timing: slow 80 ms, timeout 100 ms).
+  search.configureWebsiteSearch({});
+  const slow = { n: 0 };
+  let engineWins = 0;
+  const engine = {
+    ...createMeiliEngine({ url: 'http://127.0.0.1:9', apiKey: 'x', timeoutMs: 200 }),
+    search: async () => {
+      slow.n += 1;
+      await new Promise((r) => setTimeout(r, 200));
+      return { ids: [], total: 0, facets: {}, facetStats: {}, tookMs: 200 };
+    },
+  } as SearchEngine;
+  const timed = async (from: number, n: number) => {
+    const ms: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const { site, q } = query(from + i);
+      const started = performance.now();
+      const r = await search.searchPublicListings(site, q, { engine });
+      ms.push(performance.now() - started);
+      // The first answer wins: after an event-loop stall on this VM the 200 ms engine sometimes does (still valid).
+      if (r.backend === 'engine') engineWins += 1;
+    }
+    return ms;
+  };
+  try {
+    // The hedge alone (breaker never opens): every request is answered by the fallback started at 80 ms.
+    search.resetSearchBreaker({ failureThreshold: 1_000_000, window: undefined });
+    const hedged = await timed(5_000, 100);
+    // The configured breaker: the slow share opens it and the fallback answers at once.
+    search.resetSearchBreaker();
+    const configured = await timed(6_000, QUERIES);
+    log.info(
+      { hedgedP95: Math.round(p95(hedged)), p95: Math.round(p95(configured)), engineCalls: slow.n, engineWins },
+      '[S6-F3] website search with a 200 ms engine (feed-api budget p95 150 ms)',
+    );
+    // The hedge alone costs the slow threshold plus one fallback statement: recorded only (on this VM 184–254 ms, with
+    // the fallback's own p95 ~100 ms). The acceptance check is the configured service — hedge, then the breaker —
+    // which is what feed-api serves.
+    expect(p95(configured)).toBeLessThan(SHAPE_P95_BUDGET_MS);
+    expect(slow.n).toBeLessThan(100 + 20); // open: the engine is no longer asked
+    expect(engineWins).toBeLessThan(10);
+  } finally {
+    // Back to this file's stopped-engine setup.
+    search.resetSearchBreaker({ failureThreshold: 1, openMs: 3_600_000 });
+    await search.searchPublicListings({ ownerAgencyIds: [agency(1)], requestId: 'perf' }, { locale: 'en' }, { engine });
   }
 }, 600_000);

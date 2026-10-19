@@ -51,7 +51,11 @@ const localesIn = (owners: Map<string, agencies.ReadModelOwner>) => [
  * owner that does not publish (suspended, unlisted: S6-F1) keeps its documents for its own and network paths, with
  * `public` false — so it leaves `app_public`'s reads, the fallback rows and the PUBLIC index.
  */
-export async function rebuildListingReadModels(tx: Tx, ids: readonly string[]): Promise<RebuildResult> {
+export async function rebuildListingReadModels(
+  tx: Tx,
+  ids: readonly string[],
+  options: WriteOptions = {},
+): Promise<RebuildResult> {
   const unique = [...new Set(ids)];
   await repo.lockTargets(tx, unique);
   const listings = await properties.listingsForReadModels(tx, unique);
@@ -77,14 +81,18 @@ export async function rebuildListingReadModels(tx: Tx, ids: readonly string[]): 
     buildListingDocs(l, mediaOf.get(l.id), tax, ownerOf.get(l.agencyId) ?? NO_OWNER),
   );
   return {
-    ...(await write(tx, unique, docs)),
+    ...(await write(tx, unique, docs, options)),
     built: new Set(docs.map((d) => d.targetId)).size,
     pendingMedia: listings.filter((l) => (mediaOf.get(l.id)?.pending ?? 0) > 0).map((l) => l.id),
   };
 }
 
 /** Rebuilds the read models of these new-build units (any agency). About eight statements for any number. */
-export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Promise<RebuildResult> {
+export async function rebuildUnitReadModels(
+  tx: Tx,
+  ids: readonly string[],
+  options: WriteOptions = {},
+): Promise<RebuildResult> {
   const unique = [...new Set(ids)];
   await repo.lockTargets(tx, unique);
   const units = await developments.unitsForReadModels(tx, unique);
@@ -103,28 +111,33 @@ export async function rebuildUnitReadModels(tx: Tx, ids: readonly string[]): Pro
   );
   const docs = units.flatMap((u) => buildUnitDocs(u, tax, ownerOf.get(u.agencyId) ?? NO_OWNER));
   return {
-    ...(await write(tx, unique, docs)),
+    ...(await write(tx, unique, docs, options)),
     built: new Set(docs.map((d) => d.targetId)).size,
     pendingMedia: [],
   };
 }
 
-/**
- * Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03) and brings their
- * fallback rows up to date (S5-04).
- */
-async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[]) {
-  const deleted = await repo.deleteOthers(tx, ids, docs);
-  const written = await repo.upsertDocs(tx, docs);
-  await changed(tx, [...deleted, ...written]);
-  return { written: written.length, deleted: deleted.length };
+export interface WriteOptions {
+  /**
+   * Refresh the changed targets' fallback rows (default). The full rebuild passes false: it refreshes every target of
+   * its page once itself (S6-F3), changed or not.
+   */
+  refreshSearchDocs?: boolean;
 }
 
-/** These targets' read models changed: queue their index push and refresh their fallback rows. */
-async function changed(tx: Tx, ids: readonly string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await repo.queueIndexSync(tx, ids);
-  await refreshSearchDocs(tx, ids);
+/**
+ * Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03) and brings their
+ * fallback rows up to date (S5-04) unless the caller does (`refreshSearchDocs: false`).
+ */
+async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
+  const deleted = await repo.deleteOthers(tx, ids, docs);
+  const written = await repo.upsertDocs(tx, docs);
+  const changed = [...deleted, ...written];
+  if (changed.length > 0) {
+    await repo.queueIndexSync(tx, changed);
+    if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed);
+  }
+  return { written: written.length, deleted: deleted.length };
 }
 
 /**
@@ -140,8 +153,8 @@ async function refreshSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> 
   await repo.deleteSearchDocs(tx, [...missing, ...docs.filter((d) => d.visibility !== 'PUBLIC').map((d) => d.id)]);
 }
 
-export const rebuildReadModels = (tx: Tx, kind: ReadModelKind, ids: readonly string[]) =>
-  kind === 'LISTING' ? rebuildListingReadModels(tx, ids) : rebuildUnitReadModels(tx, ids);
+export const rebuildReadModels = (tx: Tx, kind: ReadModelKind, ids: readonly string[], options: WriteOptions = {}) =>
+  kind === 'LISTING' ? rebuildListingReadModels(tx, ids, options) : rebuildUnitReadModels(tx, ids, options);
 
 /** A development changed (text, place, access, deleted): its units' documents, and drops those of gone ones. */
 export async function rebuildDevelopmentReadModels(
@@ -234,7 +247,7 @@ export async function drainReadModelQueue(agencyId: string, options: DrainOption
         await repo.finishReadModels(tx, claim);
       });
     } catch (err) {
-      await withSystem(reason, (tx) => repo.releaseReadModels(tx, claim.token));
+      await withSystem(reason, (tx) => repo.releaseReadModels(tx, claim));
       throw err;
     }
     total.batches += 1;
@@ -387,7 +400,8 @@ export async function rebuildAllReadModels(
       for (let page = await nextPage(); page; page = await nextPage()) {
         const { from, until, ids } = page;
         const r = await withSystem(reason, async (tx) => {
-          const res = await rebuildReadModels(tx, kind, ids);
+          // The page's fallback rows are refreshed once below, not also for its changed targets (S6-F3).
+          const res = await rebuildReadModels(tx, kind, ids, { refreshSearchDocs: false });
           const swept = await repo.deleteBetween(tx, {
             kind,
             after: from,
