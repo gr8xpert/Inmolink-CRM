@@ -59,6 +59,8 @@ const PRUNE_FIRST = [
   'listing_bulk_actions',
   'properties',
   'developments',
+  'feed_connections',
+  'feed_mapping_profiles',
 ] as const;
 
 /**
