@@ -8,7 +8,7 @@ import {
 import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import type { XmlElement } from '@inmolink/platform/xml';
 import type { FeedItemProblem, MapResult } from '../connectors';
-import { htmlToPlainText } from '../kyero/html';
+import { htmlToPlainText } from '../html';
 
 /**
  * A record of any XML feed → the loader's `FeedListing`, driven by a mapping profile (S6-04). Pure: no I/O. Paths

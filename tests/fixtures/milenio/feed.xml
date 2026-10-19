@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<inmuebles>
+  <inmueble>
+    <referencia>MIL-001</referencia>
+    <ref_agencia>A-MIL-001</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Disponible</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Marbella</localidad>
+    <zona>Nueva Andalucía</zona>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <latitud>36,5071</latitud>
+    <longitud>-4,9573</longitud>
+    <precio>1.250.000,00</precio>
+    <moneda>EUR</moneda>
+    <habitaciones>5</habitaciones>
+    <banos>4</banos>
+    <m2_construidos>420</m2_construidos>
+    <m2_parcela>1500</m2_parcela>
+    <m2_terraza>80</m2_terraza>
+    <anio_construccion>2008</anio_construccion>
+    <certificacion_energetica>
+      <consumo>C</consumo>
+      <emisiones>B</emisiones>
+    </certificacion_energetica>
+    <caracteristicas>
+      <caracteristica>Piscina</caracteristica>
+      <caracteristica>Aire acondicionado</caracteristica>
+      <caracteristica>Vistas al mar</caracteristica>
+      <caracteristica>piscina</caracteristica>
+    </caracteristicas>
+    <titulos>
+      <titulo idioma="es">Villa con vistas al mar</titulo>
+      <titulo idioma="en">Sea view villa</titulo>
+    </titulos>
+    <descripciones>
+      <descripcion idioma="es">&lt;p&gt;Magnífica villa.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Piscina privada&lt;/li&gt;&lt;/ul&gt;</descripcion>
+      <descripcion idioma="en">Magnificent villa.</descripcion>
+    </descripciones>
+    <fotos>
+      <foto orden="3">https://media.example.test/milenio/MIL-001/1.jpg</foto>
+      <foto orden="2">https://media.example.test/milenio/MIL-001/2.jpg</foto>
+      <foto orden="1">https://media.example.test/milenio/MIL-001/3.jpg</foto>
+    </fotos>
+    <video>https://video.example.test/v1</video>
+    <propietario>
+      <nombre>Propietario Ejemplo</nombre>
+      <telefono>600000000</telefono>
+    </propietario>
+    <comision>3</comision>
+    <notas_internas>Llamar antes de visitar</notas_internas>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-002</referencia>
+    <ref_agencia>A-MIL-002</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Alquiler</operacion>
+    <estado>Disponible</estado>
+    <tipo>Apartamento</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Estepona</localidad>
+    <zona/>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <latitud>36.42</latitud>
+    <longitud>-5.14</longitud>
+    <precio>1800</precio>
+    <moneda>EUR</moneda>
+    <habitaciones>2</habitaciones>
+    <banos>1</banos>
+    <m2_construidos>85</m2_construidos>
+    <certificacion_energetica>
+      <consumo>E</consumo>
+      <emisiones>exento</emisiones>
+    </certificacion_energetica>
+    <caracteristicas>
+      <caracteristica>Terraza</caracteristica>
+    </caracteristicas>
+    <titulos>
+      <titulo idioma="es">Apartamento en alquiler</titulo>
+    </titulos>
+    <descripciones>
+      <descripcion idioma="es">Apartamento luminoso.</descripcion>
+    </descripciones>
+    <fotos>
+      <foto orden="2">https://media.example.test/milenio/MIL-002/1.jpg</foto>
+      <foto orden="1">https://media.example.test/milenio/MIL-002/2.jpg</foto>
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-003</referencia>
+    <ref_agencia>A-MIL-003</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Alquiler vacacional</operacion>
+    <estado>Disponible</estado>
+    <tipo>Ático</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Marbella</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <latitud>0</latitud>
+    <longitud>0</longitud>
+    <precio>250,50</precio>
+    <moneda>EUR</moneda>
+    <periodo>noche</periodo>
+    <habitaciones>3</habitaciones>
+    <banos>2</banos>
+    <m2_construidos>210</m2_construidos>
+    <m2_terraza>0</m2_terraza>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-004</referencia>
+    <ref_agencia>A-MIL-004</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Disponible</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Mijas</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>0</precio>
+    <moneda>EUR</moneda>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-005</referencia>
+    <ref_agencia>A-MIL-005</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Vendido</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Estepona</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>980000</precio>
+    <moneda>EUR</moneda>
+    <habitaciones>4</habitaciones>
+    <banos>3</banos>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+      <descripcion idioma="en">Sold villa</descripcion>
+    </descripciones>
+    <fotos>
+      <foto orden="1">https://media.example.test/milenio/MIL-005/1.jpg</foto>
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-006</referencia>
+    <ref_agencia>A-MIL-006</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Disponible</estado>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Mijas</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>100000</precio>
+    <moneda>EUR</moneda>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-007</referencia>
+    <ref_agencia>A-MIL-007</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Disponible</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Mijas</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>1,250,000</precio>
+    <moneda>EUR</moneda>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <ref_agencia>A-x</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Venta</operacion>
+    <estado>Disponible</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Mijas</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>100000</precio>
+    <moneda>EUR</moneda>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+  <inmueble>
+    <referencia>MIL-009</referencia>
+    <ref_agencia>A-MIL-009</ref_agencia>
+    <fecha_alta>2024-05-02</fecha_alta>
+    <fecha_modificacion>2026-09-30T10:15:00</fecha_modificacion>
+    <operacion>Traspaso</operacion>
+    <estado>Disponible</estado>
+    <tipo>Villa</tipo>
+    <subtipo>Independiente</subtipo>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <localidad>Mijas</localidad>
+    <codigo_postal>29600</codigo_postal>
+    <direccion>Calle Falsa 123</direccion>
+    <precio>100000</precio>
+    <moneda>EUR</moneda>
+    <caracteristicas>
+
+    </caracteristicas>
+    <titulos>
+
+    </titulos>
+    <descripciones>
+
+    </descripciones>
+    <fotos>
+
+    </fotos>
+  </inmueble>
+</inmuebles>

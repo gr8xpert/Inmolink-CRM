@@ -4,9 +4,10 @@ import { FeedListing, type FeedListingInput } from '@inmolink/contracts';
 import { streamXmlRecords, type XmlElement } from '@inmolink/platform/xml';
 import { describe, expect, it } from 'vitest';
 import { credentialHeaders, credentialUrl, getConnector } from '../connectors';
+import { htmlToPlainText } from '../html';
 import { elementPaths, KYERO_V3_FIELDS, renderCoverageReport, ruleFor, unaccountedPaths } from '../kyero/coverage';
-import { htmlToPlainText } from '../kyero/html';
-import { kyeroSettings, mapKyeroProperty, priceToCents } from '../kyero/mapping';
+import { kyeroSettings, mapKyeroProperty } from '../kyero/mapping';
+import { priceToCents } from '../values';
 import '../kyero/connector';
 
 /** The Kyero v3 connector (S6-03): mapping, field coverage, text cleaning. Pure; the run is in kyero.int.test.ts. */

@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<propiedades>
+  <propiedad id="IC-100" actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Marbella</municipio>
+    <barrio>Nueva Andalucía</barrio>
+    <direccion>Avenida del Mar 5</direccion>
+    <lat>36.5071</lat>
+    <lon>-4.9573</lon>
+    <precio moneda="EUR">1250000</precio>
+    <dormitorios>5</dormitorios>
+    <aseos>4</aseos>
+    <superficie_construida>420</superficie_construida>
+    <superficie_parcela>1500</superficie_parcela>
+    <superficie_terraza>75</superficie_terraza>
+    <ano_construccion>2010</ano_construccion>
+    <calificacion_energetica>C</calificacion_energetica>
+    <emisiones_co2>B</emisiones_co2>
+    <extras>
+      <extra>Piscina</extra>
+      <extra>Aire acondicionado</extra>
+      <extra>Jardín</extra>
+    </extras>
+    <titulo>
+      <es>Villa de lujo</es>
+      <en>Luxury villa</en>
+    </titulo>
+    <descripcion>
+      <es>&lt;p&gt;Villa de &lt;b&gt;lujo&lt;/b&gt;.&lt;/p&gt;</es>
+      <en>Luxury villa.</en>
+      <de>Luxusvilla.</de>
+    </descripcion>
+    <fotos>
+      <foto>https://media.example.test/infocasa/IC-100/1.jpg</foto>
+      <foto>https://media.example.test/infocasa/IC-100/2.jpg</foto>
+      <foto>https://media.example.test/infocasa/IC-100/3.jpg</foto>
+    </fotos>
+    <video_url>https://video.example.test/i1</video_url>
+    <contacto>
+      <nombre>Contacto Ejemplo</nombre>
+      <telefono>611111111</telefono>
+    </contacto>
+    <observaciones_privadas>Propietario negocia</observaciones_privadas>
+  </propiedad>
+  <propiedad id="IC-101" actualizado="2026-10-01">
+    <accion>A</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Apartamento</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Estepona</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <lat>36.42</lat>
+    <lon>-5.14</lon>
+    <precio moneda="EUR">1.800,00</precio>
+    <dormitorios>2</dormitorios>
+    <aseos>1</aseos>
+    <superficie_construida>85</superficie_construida>
+    <calificacion_energetica>en tramite</calificacion_energetica>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+      <es>Apartamento.</es>
+    </descripcion>
+    <fotos>
+      <foto>https://media.example.test/infocasa/IC-101/1.jpg</foto>
+      <foto>https://media.example.test/infocasa/IC-101/2.jpg</foto>
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-102" actualizado="2026-10-01">
+    <accion>T</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Ático</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Marbella</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <lat>0</lat>
+    <lon>0</lon>
+    <precio moneda="EUR" periodo="noche">250</precio>
+    <dormitorios>3</dormitorios>
+    <aseos>2</aseos>
+    <superficie_construida>210</superficie_construida>
+    <superficie_terraza>0</superficie_terraza>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-103" actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Mijas</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">0</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-104" actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>vendido</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Estepona</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">980000</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+      <en>Sold villa</en>
+    </descripcion>
+    <fotos>
+      <foto>https://media.example.test/infocasa/IC-104/1.jpg</foto>
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-105" actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>disponible</situacion>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Mijas</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">100000</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-106" actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Mijas</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">1,250,000</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+  <propiedad actualizado="2026-10-01">
+    <accion>V</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Mijas</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">100000</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+  <propiedad id="IC-108" actualizado="2026-10-01">
+    <accion>X</accion>
+    <situacion>disponible</situacion>
+    <tipo_inmueble>Villa</tipo_inmueble>
+    <pais>España</pais>
+    <provincia>Málaga</provincia>
+    <municipio>Mijas</municipio>
+    <direccion>Avenida del Mar 5</direccion>
+    <precio moneda="EUR">100000</precio>
+    <extras>
+
+    </extras>
+    <titulo>
+
+    </titulo>
+    <descripcion>
+
+    </descripcion>
+    <fotos>
+
+    </fotos>
+  </propiedad>
+</propiedades>

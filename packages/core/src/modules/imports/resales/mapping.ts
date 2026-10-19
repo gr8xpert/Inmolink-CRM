@@ -1,8 +1,8 @@
 import type { FeedListingInput } from '@inmolink/contracts';
 import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
 import type { FeedItemProblem, MapResult } from '../connectors';
-import { htmlToPlainText } from '../kyero/html';
-import { priceToCents } from '../kyero/mapping';
+import { htmlToPlainText } from '../html';
+import { priceToCents } from '../values';
 
 /**
  * Resales Online WebAPI V6 `SearchProperties` property to `FeedListing` (S6-06). Pure: no I/O. The field names are

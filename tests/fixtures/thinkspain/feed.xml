@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thinkspain>
+  <property>
+    <reference>TS-1</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-1</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>available</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Marbella</town>
+    <area>Nueva Andalucía</area>
+    <address>Calle Falsa 1</address>
+    <latitude>36.5071</latitude>
+    <longitude>-4.9573</longitude>
+    <price>1250000</price>
+    <currency>EUR</currency>
+    <bedrooms>5</bedrooms>
+    <bathrooms>4</bathrooms>
+    <built_size>420</built_size>
+    <plot_size>1500</plot_size>
+    <terrace_size>90</terrace_size>
+    <year_built>2012</year_built>
+    <energy_class>C</energy_class>
+    <emissions_class>B</emissions_class>
+    <features>
+      <feature>Private pool</feature>
+      <feature>Air conditioning</feature>
+      <feature>Sea views</feature>
+      <feature>private pool</feature>
+    </features>
+    <title lang="en">Luxury sea view villa</title>
+    <title lang="es">Villa de lujo con vistas</title>
+    <description lang="en">&lt;p&gt;Luxury villa.&lt;/p&gt;&lt;br/&gt;Close to golf.</description>
+    <description lang="es">Villa de lujo.</description>
+    <description lang="fr">Villa de luxe.</description>
+    <photos>
+      <photo>https://media.example.test/thinkspain/TS-1/1.jpg</photo>
+      <photo>https://media.example.test/thinkspain/TS-1/2.jpg</photo>
+      <photo>https://media.example.test/thinkspain/TS-1/3.jpg</photo>
+    </photos>
+    <agent>
+      <name>Agent Example</name>
+      <email>agent@example.test</email>
+      <phone>622222222</phone>
+    </agent>
+  </property>
+  <property>
+    <reference>TS-2</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-2</url>
+    <new_build>0</new_build>
+    <listing_type>rent</listing_type>
+    <status>available</status>
+    <type>Apartment</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Estepona</town>
+    <address>Calle Falsa 1</address>
+    <latitude>36.42</latitude>
+    <longitude>-5.14</longitude>
+    <price>1800</price>
+    <currency>EUR</currency>
+    <bedrooms>2</bedrooms>
+    <bathrooms>1</bathrooms>
+    <built_size>85</built_size>
+    <energy_class>in_progress</energy_class>
+    <emissions_class>exempt</emissions_class>
+    <features>
+      <feature>Terrace</feature>
+    </features>
+    <description lang="en">Bright apartment.</description>
+    <photos>
+      <photo>https://media.example.test/thinkspain/TS-2/1.jpg</photo>
+      <photo>https://media.example.test/thinkspain/TS-2/2.jpg</photo>
+    </photos>
+  </property>
+  <property>
+    <reference>TS-3</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-3</url>
+    <new_build>0</new_build>
+    <listing_type>holiday_rent</listing_type>
+    <status>available</status>
+    <type>Penthouse</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Marbella</town>
+    <address>Calle Falsa 1</address>
+    <latitude>0</latitude>
+    <longitude>0</longitude>
+    <price>250</price>
+    <currency>EUR</currency>
+    <price_period>night</price_period>
+    <bedrooms>3</bedrooms>
+    <bathrooms>2</bathrooms>
+    <built_size>210</built_size>
+    <terrace_size>0</terrace_size>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+  <property>
+    <reference>TS-4</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-4</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>available</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Mijas</town>
+    <address>Calle Falsa 1</address>
+    <price>0</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+  <property>
+    <reference>TS-5</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-5</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>sold</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Estepona</town>
+    <address>Calle Falsa 1</address>
+    <price>980000</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <description lang="en">Sold villa</description>
+    <photos>
+      <photo>https://media.example.test/thinkspain/TS-5/1.jpg</photo>
+    </photos>
+  </property>
+  <property>
+    <reference>TS-6</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-6</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>available</status>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Mijas</town>
+    <address>Calle Falsa 1</address>
+    <price>100000</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+  <property>
+    <reference>TS-7</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-7</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>available</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Mijas</town>
+    <address>Calle Falsa 1</address>
+    <price>1,250,000</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+  <property>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/undefined</url>
+    <new_build>0</new_build>
+    <listing_type>sale</listing_type>
+    <status>available</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Mijas</town>
+    <address>Calle Falsa 1</address>
+    <price>100000</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+  <property>
+    <reference>TS-9</reference>
+    <last_updated>2026-10-01 09:00:00</last_updated>
+    <url>https://www.example.test/TS-9</url>
+    <new_build>0</new_build>
+    <listing_type>swap</listing_type>
+    <status>available</status>
+    <type>Villa</type>
+    <country>Spain</country>
+    <region>Costa del Sol</region>
+    <province>Málaga</province>
+    <town>Mijas</town>
+    <address>Calle Falsa 1</address>
+    <price>100000</price>
+    <currency>EUR</currency>
+    <features>
+
+    </features>
+    <photos>
+
+    </photos>
+  </property>
+</thinkspain>

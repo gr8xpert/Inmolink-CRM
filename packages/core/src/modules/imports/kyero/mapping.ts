@@ -2,7 +2,8 @@ import type { FeedListingInput } from '@inmolink/contracts';
 import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
 import { childOf, childText, type XmlElement } from '@inmolink/platform/xml';
 import type { FeedItemProblem, MapResult } from '../connectors';
-import { htmlToPlainText } from './html';
+import { htmlToPlainText } from '../html';
+import { clip, decimal, integer, positive, priceToCents, rating, truthy } from '../values';
 
 /**
  * Kyero v3 `<property>` → the loader's `FeedListing` (S6-03). Pure: no I/O. `coverage.ts` lists every element and
@@ -30,44 +31,6 @@ const problem = (code: string, field: string, message?: string): FeedItemProblem
   ...(message ? { message } : {}),
 });
 
-/** `1234.5` → 123450; thousands separators and other shapes are refused (null), never guessed. */
-export function priceToCents(text: string): number | null {
-  const m = /^(\d{1,12})(?:\.(\d{1,2})0*)?$/.exec(text.trim());
-  if (!m) return null;
-  return Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0') || 0);
-}
-
-function decimal(text: string | undefined): number | null {
-  if (!text) return null;
-  const t = text.trim().replace(',', '.');
-  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** An area: zero ("not given") is no area. */
-function positive(text: string | undefined): number | null {
-  const n = decimal(text);
-  return n !== null && n > 0 ? n : null;
-}
-
-function integer(text: string | undefined): number | null {
-  const n = decimal(text);
-  return n !== null && Number.isInteger(n) && n >= 0 ? n : null;
-}
-
-const truthy = (text: string | undefined) => text !== undefined && /^(1|true|yes|y|si|sí)$/i.test(text.trim());
-
-const RATINGS = new Set(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
-function rating(text: string | undefined): 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'EXEMPT' | 'PENDING' | null {
-  if (!text) return null;
-  const t = text.trim().toUpperCase();
-  if (RATINGS.has(t)) return t as 'A';
-  if (t === 'EXEMPT') return 'EXEMPT';
-  if (t === 'IN_PROGRESS' || t === 'PENDING') return 'PENDING';
-  return null;
-}
-
 /** Language elements below `parent` (`<desc><en>..</en><es>..</es></desc>`): locale (lower-case, 2 letters) → text. */
 function perLanguage(parent: XmlElement | undefined): Map<string, string> {
   const out = new Map<string, string>();
@@ -78,8 +41,6 @@ function perLanguage(parent: XmlElement | undefined): Map<string, string> {
   }
   return out;
 }
-
-const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n).trimEnd());
 
 export function mapKyeroProperty(raw: XmlElement, settings: KyeroSettings): MapResult<FeedListingInput> {
   const ref = childText(raw, 'id') ?? childText(raw, 'ref');

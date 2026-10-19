@@ -1,0 +1,714 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties agency="10" count="9">
+   <property>
+      <reference>10-000017P</reference>
+      <client_ref_num>10-000017P</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>1</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>1</is_for_rent>
+      <is_for_rent_long>1</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Town House</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Estepona</cityname>
+      <subarea id="750">Alcazaba Beach</subarea>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>522.0</mts_build>
+      <mts_plot>800.0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>120.0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms>4</nr_bedrooms>
+      <nr_bathrooms>3</nr_bathrooms>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage id="6">Carport</tr_garage>
+      <tr_garden id="3">Private</tr_garden>
+      <tr_pool id="4">Communal</tr_pool>
+      <dt_construction_year>1981</dt_construction_year>
+      <touristic_code/>
+      <selling_price_eur>260000</selling_price_eur>
+      <rental_price_eur/>
+      <rental_price_eur_long>1500</rental_price_eur_long>
+      <selling_price currency="eur">260000</selling_price>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur">1500</rental_price_long>
+      <rental_price_comment/>
+      <rental_price_comment_long>per month</rental_price_comment_long>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+        <image url="https://media.example.test/inmoba/10-000017P/1.jpg">10-000017P_0.jpg</image>
+        <image url="https://media.example.test/inmoba/10-000017P/2.jpg">10-000017P_1.jpg</image>
+        <image url="https://media.example.test/inmoba/10-000017P/3.jpg">10-000017P_2.jpg</image>
+        <image url="https://media.example.test/inmoba/10-000017P/4.jpg">10-000017P_3.jpg</image>
+      </images>
+      <longitude>-5.119516</longitude>
+      <latitude>36.431116</latitude>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <listed_by2 id="1829">
+        <name>Cris</name>
+        <surname>Manager</surname>
+      </listed_by2>
+      <options>
+        <option type="10">Sea view</option>
+        <option type="11">Air conditioning</option>
+        <option type="12">Lift</option>
+        <option type="13">Pool view</option>
+      </options>
+      <descriptions>
+        <short_description lang="en">Town House in Alcazaba Beach, Estepona</short_description>
+        <long_description lang="en">Town house with &lt;b&gt;4 bedrooms&lt;/b&gt;.&lt;br/&gt;Close to the beach.</long_description>
+        <price_description lang="en"/>
+        <short_description lang="es">Adosado en Alcazaba Beach, Estepona</short_description>
+        <long_description lang="es">Adosado con 4 dormitorios.</long_description>
+        <price_description lang="es"/>
+        <short_description lang="de">Reihenhaus in Estepona</short_description>
+        <long_description lang="de">Reihenhaus mit 4 Schlafzimmern.</long_description>
+        <price_description lang="de"/>
+      </descriptions>
+      <files>
+        <file lang="all" type="onlinebrochure" url="https://files.example.test/plan.png">Plano</file>
+      </files>
+      <links>
+        <link lang="all" type="virtualtour" url="https://www.example.test/tour">Tour</link>
+      </links>
+      <htmls>
+        <html lang="all" type="video">
+          <name>Video</name>
+          <html_code>&lt;iframe src="https://www.example.test/v"&gt;&lt;/iframe&gt;</html_code>
+        </html>
+      </htmls>
+   </property>
+   <property>
+      <reference>AR-789789</reference>
+      <client_ref_num>AR-789789</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>0</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>1</is_for_rent>
+      <is_for_rent_long>1</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Apartment</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Marbella</cityname>
+      <subarea id="750">Nueva Andalucía</subarea>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>95</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms>2</nr_bedrooms>
+      <nr_bathrooms>2</nr_bathrooms>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long>1800</rental_price_eur_long>
+      <selling_price currency="eur"/>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur">1800</rental_price_long>
+      <rental_price_comment/>
+      <rental_price_comment_long>per month</rental_price_comment_long>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+        <image url="https://media.example.test/inmoba/AR-789789/1.jpg">AR-789789_0.jpg</image>
+        <image url="https://media.example.test/inmoba/AR-789789/2.jpg">AR-789789_1.jpg</image>
+      </images>
+      <longitude>-4.95</longitude>
+      <latitude>36.5</latitude>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+        <option type="10">Air conditioning</option>
+        <option type="11">Fully furnished</option>
+      </options>
+      <descriptions>
+        <short_description lang="es">Apartamento en alquiler</short_description>
+        <long_description lang="es">Apartamento de 2 dormitorios.</long_description>
+        <price_description lang="es"/>
+        <short_description lang="en">Apartment for rent</short_description>
+        <long_description lang="en">Two-bedroom apartment.</long_description>
+        <price_description lang="en"/>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>SH-3</reference>
+      <client_ref_num>SH-3</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>0</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>1</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>1</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Penthouse</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Marbella</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>210</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms>3</nr_bedrooms>
+      <nr_bathrooms>2</nr_bathrooms>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur"/>
+      <rental_price currency="eur">250</rental_price>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment>per night</rental_price_comment>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+        <image url="https://media.example.test/inmoba/SH-3/1.jpg">SH-3_0.jpg</image>
+      </images>
+      <longitude>0</longitude>
+      <latitude>0</latitude>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+        <option type="10">Balcony</option>
+      </options>
+      <descriptions>
+        <short_description lang="en">Holiday penthouse</short_description>
+        <long_description lang="en">Holiday rental.</long_description>
+        <price_description lang="en"/>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>POR-4</reference>
+      <client_ref_num>POR-4</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Villa</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Mijas</cityname>
+      <subarea id="750">Calahonda</subarea>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms>3</nr_bedrooms>
+      <nr_bathrooms>2</nr_bathrooms>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">Private</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur"/>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+      </options>
+      <descriptions>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>SOLD-5</reference>
+      <client_ref_num>SOLD-5</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>1</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Villa</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Estepona</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms>5</nr_bedrooms>
+      <nr_bathrooms>4</nr_bathrooms>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur">1250000</selling_price>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+        <image url="https://media.example.test/inmoba/SOLD-5/1.jpg">SOLD-5_0.jpg</image>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+        <option type="10">Garden view</option>
+      </options>
+      <descriptions>
+        <short_description lang="en">Sold villa</short_description>
+        <long_description lang="en">Sold.</long_description>
+        <price_description lang="en"/>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>BAD-6</reference>
+      <client_ref_num>BAD-6</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Mijas</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms/>
+      <nr_bathrooms/>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur">100000</selling_price>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+      </options>
+      <descriptions>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>BAD-7</reference>
+      <client_ref_num>BAD-7</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Villa</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Mijas</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms/>
+      <nr_bathrooms/>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur">1.250.000</selling_price>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+      </options>
+      <descriptions>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <client_ref_num>X</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>1</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Villa</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Mijas</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms/>
+      <nr_bathrooms/>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur">100000</selling_price>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+      </options>
+      <descriptions>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+   <property>
+      <reference>BAD-9</reference>
+      <client_ref_num>BAD-9</client_ref_num>
+      <dt_create_date>2024-03-01</dt_create_date>
+      <dt_last_updated>2026-09-24 16:29:31</dt_last_updated>
+      <dt_added_date>2024-03-01</dt_added_date>
+      <dt_review_date>2026-09-03</dt_review_date>
+      <is_new_property>0</is_new_property>
+      <is_exclusive>0</is_exclusive>
+      <is_featured>0</is_featured>
+      <is_direct>0</is_direct>
+      <is_hot>0</is_hot>
+      <is_luxury>0</is_luxury>
+      <is_for_sale>0</is_for_sale>
+      <is_sold>0</is_sold>
+      <is_special>0</is_special>
+      <is_for_rent>0</is_for_rent>
+      <is_for_rent_long>0</is_for_rent_long>
+      <is_for_rent_short>0</is_for_rent_short>
+      <is_rented>0</is_rented>
+      <propertytype id="4">Villa</propertytype>
+      <propertycategory id="3">Houses</propertycategory>
+      <development_reference/>
+      <country id="6">Spain</country>
+      <province id="7">Málaga</province>
+      <cityname id="11">Mijas</cityname>
+      <subarea id="750"/>
+      <postcode>29680</postcode>
+      <community>150.0</community>
+      <ibi>2100.0</ibi>
+      <garbage>115.0</garbage>
+      <tr_orientation>South</tr_orientation>
+      <mts_build>0</mts_build>
+      <mts_plot>0</mts_plot>
+      <mts_interior>0</mts_interior>
+      <mts_terrace>0</mts_terrace>
+      <nr_floors>2</nr_floors>
+      <nr_level/>
+      <nr_bedrooms/>
+      <nr_bathrooms/>
+      <nr_onsuite_bathrooms>1</nr_onsuite_bathrooms>
+      <nr_toilet>1</nr_toilet>
+      <tr_garage/>
+      <tr_garden id="3">No</tr_garden>
+      <tr_pool id="4">No</tr_pool>
+      <dt_construction_year/>
+      <touristic_code/>
+      <selling_price_eur/>
+      <rental_price_eur/>
+      <rental_price_eur_long/>
+      <selling_price currency="eur"/>
+      <rental_price currency="eur"/>
+      <rental_price_long currency="eur"/>
+      <rental_price_comment/>
+      <rental_price_comment_long/>
+      <tags>
+        <tag>internal-1</tag>
+      </tags>
+      <images>
+      </images>
+      <agency_id>10</agency_id>
+      <listed_by id="2595">
+        <name>Marta</name>
+        <surname>Ejemplo</surname>
+      </listed_by>
+      <options>
+      </options>
+      <descriptions>
+      </descriptions>
+      <files/>
+      <links/>
+      <htmls/>
+   </property>
+</properties>

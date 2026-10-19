@@ -20,6 +20,11 @@ export {
 } from './connectors';
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
+// Never export repo or schema from index.
+export { infocasaConnector } from './infocasa/connector';
+export { INFOCASA_FIELDS, renderInfocasaCoverageReport } from './infocasa/coverage';
+export { inmobaConnector } from './inmoba/connector';
+export { INMOBA_FIELDS, renderInmobaCoverageReport } from './inmoba/coverage';
 export { importsJobs } from './jobs';
 export { kyeroConnector } from './kyero/connector';
 export { KYERO_V3_FIELDS, renderCoverageReport as renderKyeroCoverageReport } from './kyero/coverage';
@@ -43,6 +48,8 @@ export {
   sampleFromUrl,
   updateMappingProfile,
 } from './mapper';
+export { milenioConnector } from './milenio/connector';
+export { MILENIO_FIELDS, renderMilenioCoverageReport } from './milenio/coverage';
 export type { ItemError, PendingBatch, PipelineTotals, ValidItem } from './pipeline';
 export { CLIENT_MODE_ALLOWED, can, IMPORTS_ACTIONS, IMPORTS_IMPERSONATION, type ImportsAction } from './policy';
 export { resalesConnector } from './resales/connector';
@@ -61,5 +68,6 @@ export {
 export { sheetKey, sheetMappedConnector } from './sheet/connector';
 export { startSheetImport, uploadSheet } from './sheet/service';
 export { registerImportsSubscriptions } from './subscriptions';
+export { thinkspainConnector } from './thinkspain/connector';
+export { renderThinkSpainCoverageReport, THINKSPAIN_FIELDS } from './thinkspain/coverage';
 export { xmlMappedConnector } from './xml-mapped/connector';
-// Never export repo or schema from index.
