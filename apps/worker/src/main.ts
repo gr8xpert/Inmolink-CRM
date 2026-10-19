@@ -1,8 +1,10 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
@@ -42,6 +44,15 @@ try {
   if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
   if (config.HMAC_KEY && config.WEB_URL)
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
+  // Feed credentials (S6-01): decrypted by `imports.runFeed`. Encryption keys only reach non-media pools (S3-F7).
+  if (config.ENCRYPTION_KEYS && config.ENCRYPTION_ACTIVE_KEY_ID) {
+    imports.configureImports({
+      keyring: keyringFromEnv({
+        ENCRYPTION_KEYS: config.ENCRYPTION_KEYS,
+        ENCRYPTION_ACTIVE_KEY_ID: config.ENCRYPTION_ACTIVE_KEY_ID,
+      }),
+    });
+  }
   configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));
   if (config.MEDIA_URL_KEY) media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
   if (config.MEILI_URL && config.MEILI_MASTER_KEY) {

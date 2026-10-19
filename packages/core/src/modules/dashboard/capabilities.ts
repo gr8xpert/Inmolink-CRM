@@ -5,6 +5,7 @@ import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as identity from '../identity';
+import * as imports from '../imports';
 import * as properties from '../properties';
 import * as search from '../search';
 
@@ -18,6 +19,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['network', (ctx) => search.can(ctx, 'search.network')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).
   ['developments', (ctx) => developments.can(ctx, 'development.create')],
+  // Feed imports (S6-01): the agency's members who follow them (not partners, not Client Mode).
+  ['imports', (ctx) => imports.can(ctx, 'imports.read')],
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
   ['apiKeys', (ctx) => identity.can(ctx, 'identity.apiKeys.read')],
   ['profile', (ctx) => agencies.can(ctx, 'agencies.profile.update')],

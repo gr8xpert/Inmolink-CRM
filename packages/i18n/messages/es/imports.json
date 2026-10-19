@@ -1,0 +1,76 @@
+{
+  "title": "Importación de feeds",
+  "intro": "Tus feeds de inmuebles y el historial de cada importación: cuántos elementos se leyeron, importaron y rechazaron, y por qué.",
+  "empty": "Todavía no hay feeds conectados.",
+  "connection": "Feed",
+  "connector": "Formato",
+  "schedule": "Programación",
+  "scheduleManual": "Solo manual",
+  "scheduleEvery": "Cada {hours, plural, one {hora} other {# horas}}",
+  "scheduleEveryMinutes": "Cada {minutes} minutos",
+  "lastRun": "Última ejecución",
+  "never": "Nunca",
+  "disabled": "Desactivado",
+  "runNow": "Ejecutar ahora",
+  "history": "Historial de ejecuciones",
+  "back": "Todos los feeds",
+  "next": "Ejecuciones anteriores",
+  "noRuns": "Este feed aún no se ha ejecutado.",
+  "started": "Inicio",
+  "finished": "Fin",
+  "trigger": "Origen",
+  "triggers": {
+    "SCHEDULE": "Programada",
+    "MANUAL": "Manual"
+  },
+  "state": "Estado",
+  "states": {
+    "QUEUED": "En espera",
+    "RUNNING": "En curso",
+    "SUCCEEDED": "Completada",
+    "FAILED": "Fallida"
+  },
+  "counts": {
+    "total": "Leídos",
+    "valid": "Válidos",
+    "failed": "Rechazados",
+    "created": "Nuevos",
+    "updated": "Actualizados",
+    "unchanged": "Sin cambios"
+  },
+  "showErrors": "Ver elementos rechazados",
+  "itemErrors": "Elementos rechazados de la ejecución iniciada el {date}",
+  "itemErrorsCapped": "Solo se conservan los primeros {kept} de {failed} elementos rechazados.",
+  "noItemErrors": "No se rechazó ningún elemento.",
+  "moreErrors": "Más elementos rechazados",
+  "position": "Posición",
+  "itemRef": "Referencia",
+  "code": "Problema",
+  "field": "Campo",
+  "runErrors": {
+    "FEED_DESTINATION_BLOCKED": "La dirección del feed (o una redirección) apunta a una red privada o interna.",
+    "FEED_FETCH_FAILED": "No se pudo descargar el feed.",
+    "FEED_HTTP_STATUS": "El servidor del feed rechazó la petición.",
+    "FEED_TIMEOUT": "La descarga del feed tardó demasiado.",
+    "FEED_TOO_LARGE": "El feed supera el tamaño permitido.",
+    "FEED_CONTENT_TYPE": "La dirección no devolvió un feed en el formato esperado.",
+    "FEED_DTD_NOT_ALLOWED": "El feed declara un DTD o entidades, que se rechazan por seguridad.",
+    "FEED_MALFORMED": "El feed no es un XML bien formado.",
+    "FEED_CONNECTOR_UNKNOWN": "Este formato de feed ya no está disponible.",
+    "FEED_CONNECTION_DISABLED": "El feed se desactivó.",
+    "FEED_LEASE_EXPIRED": "La importación se detuvo de forma inesperada; se ejecutará de nuevo en la próxima hora programada.",
+    "FEED_NEVER_STARTED": "La importación no empezó a tiempo.",
+    "INTERNAL": "Algo falló por nuestra parte."
+  },
+  "notices": {
+    "queued": "La ejecución está en cola; empezará en un momento."
+  },
+  "errors": {
+    "generic": "No pudimos cargar tus feeds. Inténtalo de nuevo.",
+    "FORBIDDEN": "No tienes permiso para hacer esto.",
+    "FEED_RUN_ACTIVE": "Ya hay una ejecución de este feed en espera o en curso.",
+    "FEED_CONNECTION_DISABLED": "Este feed está desactivado.",
+    "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
+    "VALIDATION_FAILED": "La petición no era válida."
+  }
+}

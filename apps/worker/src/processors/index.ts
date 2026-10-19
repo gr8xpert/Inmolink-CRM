@@ -2,6 +2,7 @@ import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
 import { identityJobs } from '@inmolink/core/modules/identity';
+import { importsJobs } from '@inmolink/core/modules/imports';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
@@ -15,7 +16,7 @@ import type { Pool } from '../config';
  * Pools stay empty until their first module lands.
  */
 export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
-  imports: [propertiesJobs.runBulkAction],
+  imports: [importsJobs.runFeed, importsJobs.scheduleFeeds, propertiesJobs.runBulkAction],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [
     qualityJobs.recomputeListing,
@@ -51,6 +52,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.deleteDocumentObject,
     developmentsJobs.sweepOrphanDocuments,
     developmentsJobs.purgeDeletedDevelopments,
+    importsJobs.pruneRuns,
   ],
   ai: [],
   social: [],

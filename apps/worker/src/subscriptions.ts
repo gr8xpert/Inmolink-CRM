@@ -4,6 +4,7 @@ import * as compliance from '@inmolink/core/modules/compliance';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as developments from '@inmolink/core/modules/developments';
 import * as identity from '@inmolink/core/modules/identity';
+import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as properties from '@inmolink/core/modules/properties';
@@ -29,6 +30,7 @@ export const MODULES = {
   quality,
   developments,
   search,
+  imports,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -41,4 +43,5 @@ export function registerSubscriptions(): void {
   quality.registerQualitySubscriptions();
   developments.registerDevelopmentsSubscriptions();
   search.registerSearchSubscriptions();
+  imports.registerImportsSubscriptions();
 }

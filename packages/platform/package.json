@@ -89,6 +89,11 @@
       "types": "./dist/rate-limit/index.d.ts",
       "default": "./dist/rate-limit/index.js"
     },
+    "./safe-fetch": {
+      "@inmolink/source": "./src/safe-fetch/index.ts",
+      "types": "./dist/safe-fetch/index.d.ts",
+      "default": "./dist/safe-fetch/index.js"
+    },
     "./search": {
       "@inmolink/source": "./src/search/index.ts",
       "types": "./dist/search/index.d.ts",
@@ -123,6 +128,11 @@
       "@inmolink/source": "./src/turnstile/index.ts",
       "types": "./dist/turnstile/index.d.ts",
       "default": "./dist/turnstile/index.js"
+    },
+    "./xml": {
+      "@inmolink/source": "./src/xml/index.ts",
+      "types": "./dist/xml/index.d.ts",
+      "default": "./dist/xml/index.js"
     }
   },
   "scripts": {
@@ -161,6 +171,7 @@
     "jose": "6.2.12",
     "nodemailer": "10.1.0",
     "pino": "10.4.0",
+    "saxes": "6.0.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

@@ -9,6 +9,7 @@ import { billingRoutes } from './routes/billing/routes';
 import { complianceRoutes } from './routes/compliance/routes';
 import { developmentsRoutes } from './routes/developments/routes';
 import { identityRoutes } from './routes/identity/routes';
+import { importsRoutes } from './routes/imports/routes';
 import { mediaRoutes } from './routes/media/routes';
 import { propertiesRoutes } from './routes/properties/routes';
 import { qualityRoutes } from './routes/quality/routes';
@@ -70,5 +71,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(qualityRoutes);
   await app.register(developmentsRoutes);
   await app.register(searchRoutes);
+  await app.register(importsRoutes);
   return app;
 }

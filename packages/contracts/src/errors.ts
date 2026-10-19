@@ -166,6 +166,17 @@ export const ErrorCodes = {
   PRICE_LIST_SUPERSEDED: 409,
   // development documents (S4-F4)
   DEVELOPMENT_DOCUMENT_NOT_FOUND: 404,
+  // feed imports (S6-01)
+  FEED_CONNECTION_NOT_FOUND: 404,
+  FEED_RUN_NOT_FOUND: 404,
+  FEED_MAPPING_PROFILE_NOT_FOUND: 422,
+  /** No connector is registered under this key. */
+  FEED_CONNECTOR_UNKNOWN: 422,
+  /** The feed URL is not http(s), carries credentials, or names a private/internal host or address. */
+  FEED_URL_NOT_ALLOWED: 422,
+  /** A run of this connection is already queued or running (one at a time per connection). */
+  FEED_RUN_ACTIVE: 409,
+  FEED_CONNECTION_DISABLED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

@@ -560,6 +560,15 @@ export const tenantTables: Record<string, TenantTable> = {
   price_lists: { kind: 'STRICT' },
   unit_price_histories: { kind: 'STRICT', immutable: true },
   unit_status_histories: { kind: 'STRICT', immutable: true },
+  // S6-01: feed imports — connections (encrypted credentials), runs, per-item errors and mapping profiles are the
+  // agency's own; the worker reads and writes them as the agency (`withTenant`), the scheduler via `withSystem`.
+  feed_mapping_profiles: { kind: 'STRICT', base: { name: 'Isolation mapping', connector: 'isolation' } },
+  feed_connections: {
+    kind: 'STRICT',
+    base: { name: 'Isolation feed', connector: 'isolation', url: 'https://feeds.example.com/isolation.xml' },
+  },
+  feed_runs: { kind: 'STRICT', base: { trigger: 'MANUAL' } },
+  feed_item_errors: { kind: 'STRICT', base: { position: 0, code: 'ISOLATION' } },
 };
 
 /**

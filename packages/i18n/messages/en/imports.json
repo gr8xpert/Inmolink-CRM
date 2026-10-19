@@ -1,0 +1,76 @@
+{
+  "title": "Feed imports",
+  "intro": "Your property feeds and the history of every import run: how many items were read, imported and refused, and why.",
+  "empty": "No feeds are connected yet.",
+  "connection": "Feed",
+  "connector": "Format",
+  "schedule": "Schedule",
+  "scheduleManual": "Manual only",
+  "scheduleEvery": "Every {hours, plural, one {hour} other {# hours}}",
+  "scheduleEveryMinutes": "Every {minutes} minutes",
+  "lastRun": "Last run",
+  "never": "Never",
+  "disabled": "Off",
+  "runNow": "Run now",
+  "history": "Run history",
+  "back": "All feeds",
+  "next": "Older runs",
+  "noRuns": "This feed has not run yet.",
+  "started": "Started",
+  "finished": "Finished",
+  "trigger": "Trigger",
+  "triggers": {
+    "SCHEDULE": "Scheduled",
+    "MANUAL": "Manual"
+  },
+  "state": "Status",
+  "states": {
+    "QUEUED": "Waiting",
+    "RUNNING": "Running",
+    "SUCCEEDED": "Done",
+    "FAILED": "Failed"
+  },
+  "counts": {
+    "total": "Read",
+    "valid": "Valid",
+    "failed": "Refused",
+    "created": "New",
+    "updated": "Updated",
+    "unchanged": "Unchanged"
+  },
+  "showErrors": "Show refused items",
+  "itemErrors": "Refused items of the run started {date}",
+  "itemErrorsCapped": "Only the first {kept} of {failed} refused items are kept.",
+  "noItemErrors": "No item was refused.",
+  "moreErrors": "More refused items",
+  "position": "Position",
+  "itemRef": "Reference",
+  "code": "Problem",
+  "field": "Field",
+  "runErrors": {
+    "FEED_DESTINATION_BLOCKED": "The feed address (or a redirect) points to a private or internal network.",
+    "FEED_FETCH_FAILED": "The feed could not be downloaded.",
+    "FEED_HTTP_STATUS": "The feed server refused the request.",
+    "FEED_TIMEOUT": "The feed took too long to download.",
+    "FEED_TOO_LARGE": "The feed is larger than allowed.",
+    "FEED_CONTENT_TYPE": "The address did not return a feed in the expected format.",
+    "FEED_DTD_NOT_ALLOWED": "The feed declares a DTD or entities, which are refused for security.",
+    "FEED_MALFORMED": "The feed is not well-formed XML.",
+    "FEED_CONNECTOR_UNKNOWN": "This feed format is no longer available.",
+    "FEED_CONNECTION_DISABLED": "The feed was switched off.",
+    "FEED_LEASE_EXPIRED": "The import stopped unexpectedly; it will run again at the next scheduled time.",
+    "FEED_NEVER_STARTED": "The import did not start in time.",
+    "INTERNAL": "Something went wrong on our side."
+  },
+  "notices": {
+    "queued": "The run was queued; it starts in a moment."
+  },
+  "errors": {
+    "generic": "We could not load your feeds. Please try again.",
+    "FORBIDDEN": "You are not allowed to do this.",
+    "FEED_RUN_ACTIVE": "A run of this feed is already waiting or running.",
+    "FEED_CONNECTION_DISABLED": "This feed is switched off.",
+    "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
+    "VALIDATION_FAILED": "The request was not valid."
+  }
+}

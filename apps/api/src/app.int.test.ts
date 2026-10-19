@@ -130,6 +130,7 @@ describe('api against the test stack', () => {
           'listings',
           'network',
           'developments',
+          'imports',
           'team',
           'apiKeys',
           'profile',

@@ -1,8 +1,10 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
+import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
@@ -45,6 +47,8 @@ try {
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
   media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
+  // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
+  imports.configureImports({ keyring: keyringFromEnv(config) });
   // Network search (S5-05): the search-only key; the master key only on a developer's machine or in tests (security
   // review: never in a shared environment, whatever its NODE_ENV).
   const localKey =

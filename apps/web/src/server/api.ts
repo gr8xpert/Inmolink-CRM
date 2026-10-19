@@ -26,6 +26,11 @@ import {
   DevelopmentPage,
   DirectorySearchResult,
   ErrorBody,
+  FeedConnectionDto,
+  FeedConnectionPage,
+  FeedItemErrorPage,
+  FeedRunDto,
+  FeedRunPage,
   type InvitableRole,
   InviteDto,
   type InviteMemberInput,
@@ -1183,4 +1188,71 @@ export async function fetchNetworkPage(
   ]);
   if (result === 'revoked') return 'revoked';
   return { result, taxonomy: taxonomy !== 'revoked' && taxonomy.ok ? taxonomy.data : null };
+}
+
+// ── Feed imports (S6-01) ─────────────────────────────────────────────────────────────────────────────────────
+
+const page = (cursor: string | undefined, limit: number) =>
+  new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) });
+
+/** The agency's feed connections (admins and agents; the API refuses others). */
+export function fetchFeedConnections(session: SessionRef, cursor?: string): Promise<ApiResult<FeedConnectionPage>> {
+  return apiRequest(session, `/v1/imports/connections?${page(cursor, 50)}`, FeedConnectionPage);
+}
+
+/**
+ * A connection's page: the connection, one page of its run history and, when `runId` is given, one page of that
+ * run's refused items — one minted token, in parallel.
+ */
+export async function fetchFeedConnectionPage(
+  session: SessionRef,
+  id: string,
+  q: { cursor?: string; runId?: string; errorsCursor?: string },
+): Promise<
+  | 'revoked'
+  | {
+      connection: Exclude<ApiResult<FeedConnectionDto>, 'revoked'>;
+      runs: Exclude<ApiResult<FeedRunPage>, 'revoked'>;
+      run: FeedRunDto | null;
+      errors: FeedItemErrorPage | null;
+    }
+> {
+  let token: string;
+  try {
+    token = await mintFor(session, `/v1/imports/connections/${id}`);
+  } catch (err) {
+    if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
+    if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
+    if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') toImpersonationEnded();
+    logger.error({ err }, 'access token mint failed');
+    const failed = { ok: false as const, status: 0, error: null };
+    return { connection: failed, runs: failed, run: null, errors: null };
+  }
+  const base = `/v1/imports/connections/${encodeURIComponent(id)}`;
+  const [connection, runs, run, errors] = await Promise.all([
+    apiRequest({ token }, base, FeedConnectionDto),
+    apiRequest({ token }, `${base}/runs?${page(q.cursor, 25)}`, FeedRunPage),
+    q.runId ? apiRequest({ token }, `/v1/imports/runs/${encodeURIComponent(q.runId)}`, FeedRunDto) : null,
+    q.runId
+      ? apiRequest(
+          { token },
+          `/v1/imports/runs/${encodeURIComponent(q.runId)}/errors?${page(q.errorsCursor, 100)}`,
+          FeedItemErrorPage,
+        )
+      : null,
+  ]);
+  if (connection === 'revoked' || runs === 'revoked' || run === 'revoked' || errors === 'revoked') return 'revoked';
+  return {
+    connection,
+    runs,
+    run: run?.ok ? run.data : null,
+    errors: errors?.ok ? errors.data : null,
+  };
+}
+
+/** "Run now": 202 with the queued run, or 409 `FEED_RUN_ACTIVE` while one is queued or running. */
+export function requestFeedRun(session: SessionRef, connectionId: string): Promise<ApiResult<FeedRunDto>> {
+  return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(connectionId)}/runs`, FeedRunDto, {
+    method: 'POST',
+  });
 }
