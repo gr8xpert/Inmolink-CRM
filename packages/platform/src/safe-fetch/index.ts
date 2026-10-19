@@ -158,6 +158,11 @@ export function allowLoopbackOriginsForTests(origins: readonly string[]): () => 
   };
 }
 
+/** True only for an origin a test allowed with `allowLoopbackOriginsForTests` (local http fixture servers). */
+export function isTestOrigin(url: string | URL): boolean {
+  return testOrigins.has(new URL(String(url)).origin);
+}
+
 // ── URL and destination checks ─────────────────────────────────────────────────────────────────────────────────
 
 const bare = (hostname: string) => hostname.replace(/^\[|\]$/g, '');

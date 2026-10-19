@@ -12,7 +12,7 @@ const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
 
 /**
  * Feed imports (S6-01): the agency's feed connections with their schedule and last run, a "run now" per feed, and
- * a link to each feed's run history. Connecting a feed arrives with the connectors (S6-03+). Admins and agents;
+ * a link to each feed's run history and to connect a Kyero feed (S6-03; the form is on /imports/new). Admins and agents;
  * the API refuses everyone else.
  */
 export default async function ImportsPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
@@ -31,6 +31,11 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('title')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
+      <div>
+        <Link href="/imports/new" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('form.connect')}
+        </Link>
+      </div>
       <ImportNotice done={params.done} error={params.error} />
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">

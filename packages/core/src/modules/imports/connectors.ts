@@ -84,7 +84,7 @@ export function connectorKeys(): string[] {
   return [...registry.keys()].sort();
 }
 
-/** Request headers for the stored credentials (Basic auth or one custom header). */
+/** Request headers for the stored credentials (Basic auth or one custom header; a `query` credential goes in the URL). */
 export function credentialHeaders(credentials: FeedCredentials | null): Record<string, string> {
   if (!credentials) return {};
   if (credentials.type === 'basic') {
@@ -92,7 +92,16 @@ export function credentialHeaders(credentials: FeedCredentials | null): Record<s
       authorization: `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`,
     };
   }
+  if (credentials.type === 'query') return {};
   return { [credentials.name.toLowerCase()]: credentials.value };
+}
+
+/** The feed URL with a `query` credential added as a parameter (replacing one of the same name). */
+export function credentialUrl(url: string, credentials: FeedCredentials | null): string {
+  if (credentials?.type !== 'query') return url;
+  const u = new URL(url);
+  u.searchParams.set(credentials.name, credentials.value);
+  return u.href;
 }
 
 /** Thrown when the feed answers with a non-2xx status (the run fails with `FEED_HTTP_STATUS`). */
@@ -111,7 +120,7 @@ export async function httpSource(
   ctx: ConnectorContext,
   options: { contentTypes: readonly string[] } & Pick<SafeFetchOptions, 'timeoutMs' | 'maxBytes' | 'resolver'>,
 ): Promise<FeedSource> {
-  const res = await safeFetch(ctx.url, {
+  const res = await safeFetch(credentialUrl(ctx.url, ctx.credentials), {
     headers: credentialHeaders(ctx.credentials),
     timeoutMs: options.timeoutMs ?? FEED_FETCH.TIMEOUT_MS,
     maxBytes: options.maxBytes ?? FEED_FETCH.MAX_BYTES,

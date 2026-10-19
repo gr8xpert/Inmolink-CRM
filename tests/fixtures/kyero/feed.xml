@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <kyero>
+    <feed_version>3</feed_version>
+  </kyero>
+  <property>
+    <id>K-1001</id>
+    <date>2026-09-30 11:42:10</date>
+    <ref>FIX-VILLA-1</ref>
+    <price>1250000</price>
+    <currency>EUR</currency>
+    <price_freq>sale</price_freq>
+    <part_ownership>0</part_ownership>
+    <leasehold>0</leasehold>
+    <new_build>0</new_build>
+    <type>Villa</type>
+    <town>Marbella</town>
+    <province>Málaga</province>
+    <country>Spain</country>
+    <location>
+      <latitude>36.5071</latitude>
+      <longitude>-4.9573</longitude>
+    </location>
+    <location_detail>Nueva Andalucía</location_detail>
+    <beds>5</beds>
+    <baths>4</baths>
+    <pool>1</pool>
+    <surface_area>
+      <built>420</built>
+      <plot>1500</plot>
+    </surface_area>
+    <energy_rating>
+      <consumption>C</consumption>
+      <emissions>B</emissions>
+    </energy_rating>
+    <url>
+      <en>https://agency.example.test/en/villa-nueva-andalucia</en>
+      <es>https://agency.example.test/es/villa-nueva-andalucia</es>
+    </url>
+    <desc>
+      <en><![CDATA[<p>Magnificent villa with <strong>panoramic sea views</strong> in the heart of the golf valley.</p><ul><li>Private pool</li><li>Double garage</li></ul><p>Fully air-conditioned.&nbsp;Viewings by appointment.</p>]]></en>
+      <es><![CDATA[<p>Magn&iacute;fica villa con <strong>vistas panor&aacute;micas al mar</strong> en el coraz&oacute;n del valle del golf.</p><p>Piscina privada y garaje doble.</p>]]></es>
+      <de>Prächtige Villa mit Meerblick im Golftal.&#10;Privatpool und Doppelgarage.</de>
+    </desc>
+    <features>
+      <feature>Air conditioning</feature>
+      <feature>Sea views</feature>
+      <feature>Garden</feature>
+      <feature>Garage</feature>
+    </features>
+    <images>
+      <image id="1"><url>https://img.example.test/k1001/1.jpg</url></image>
+      <image id="2"><url>https://img.example.test/k1001/2.jpg</url></image>
+      <image id="3"><url>https://img.example.test/k1001/3.jpg</url></image>
+      <image id="4"><url>https://img.example.test/k1001/4.jpg</url></image>
+    </images>
+  </property>
+  <property>
+    <id>K-1002</id>
+    <date>2026-10-02 08:00:00</date>
+    <ref>FIX-APT-2</ref>
+    <price>1800.50</price>
+    <currency>EUR</currency>
+    <price_freq>month</price_freq>
+    <type>Apartment</type>
+    <town>Estepona</town>
+    <province>Málaga</province>
+    <location>
+      <latitude>36.4277</latitude>
+      <longitude>-5.1459</longitude>
+    </location>
+    <beds>2</beds>
+    <baths>2</baths>
+    <pool>0</pool>
+    <surface_area>
+      <built>96</built>
+    </surface_area>
+    <energy_rating>
+      <consumption>in_progress</consumption>
+      <emissions>exempt</emissions>
+    </energy_rating>
+    <title>
+      <en>Bright flat by the beach</en>
+    </title>
+    <desc>
+      <en>Bright two-bedroom flat close to the beach, long-term let.</en>
+      <es>Luminoso piso de dos dormitorios cerca de la playa, alquiler de larga duración.</es>
+      <fr>Appartement lumineux de deux chambres près de la plage.</fr>
+      <nl>Lichte tweekamerflat dicht bij het strand.</nl>
+    </desc>
+    <features>
+      <feature>Air conditioning</feature>
+      <feature>Garden</feature>
+    </features>
+    <images>
+      <image id="1"><url>https://img.example.test/k1002/1.jpg</url></image>
+      <image id="2"><url>https://img.example.test/k1002/2.jpg</url></image>
+    </images>
+  </property>
+  <property>
+    <id>K-1003</id>
+    <date>2026-10-02 09:30:00</date>
+    <price>2100</price>
+    <currency>EUR</currency>
+    <price_freq>week</price_freq>
+    <type>Penthouse</type>
+    <town>Marbella</town>
+    <province>Málaga</province>
+    <location>
+      <latitude>0</latitude>
+      <longitude>0</longitude>
+    </location>
+    <beds>3</beds>
+    <baths>3</baths>
+    <surface_area>
+      <built>210</built>
+      <plot>0</plot>
+    </surface_area>
+    <desc>
+      <en>Holiday penthouse with a roof terrace, rented by the week.</en>
+    </desc>
+    <features>
+      <feature>Sea views</feature>
+    </features>
+    <images>
+      <image id="1"><url>https://img.example.test/k1003/1.jpg</url></image>
+    </images>
+  </property>
+  <property>
+    <id>K-1004</id>
+    <price>0</price>
+    <price_freq>sale</price_freq>
+    <type>Townhouse</type>
+    <town>Fuengirola</town>
+    <province>Málaga</province>
+    <beds>3</beds>
+    <baths>2</baths>
+    <images/>
+  </property>
+  <property>
+    <id>K-1005</id>
+    <price>845000</price>
+    <currency>EUR</currency>
+    <price_freq>sale</price_freq>
+    <new_build>1</new_build>
+    <type>Villa</type>
+    <town>Mijas</town>
+    <province>Málaga</province>
+    <location_detail>Calahonda Alta</location_detail>
+    <beds>4</beds>
+    <baths>3</baths>
+    <surface_area>
+      <built>310</built>
+      <plot>8000</plot>
+    </surface_area>
+    <desc>
+      <en>&lt;p&gt;Restored country house.&lt;/p&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;p onclick="x()"&gt;Call us on +34 600 123 456 or write to sales@agency.example.test&lt;/p&gt;</en>
+    </desc>
+    <features>
+      <feature>Padel court</feature>
+      <feature>Garden</feature>
+    </features>
+    <images>
+      <image id="1"><url>https://img.example.test/k1005/1.jpg</url></image>
+      <image id="2"><url>ftp://img.example.test/k1005/2.jpg</url></image>
+    </images>
+  </property>
+  <property>
+    <id>K-1006</id>
+    <price>300000</price>
+    <price_freq>sale</price_freq>
+    <town>Marbella</town>
+    <province>Málaga</province>
+    <beds>2</beds>
+  </property>
+  <property>
+    <id>K-1007</id>
+    <price>1.250.000,00</price>
+    <price_freq>sale</price_freq>
+    <type>Villa</type>
+    <town>Marbella</town>
+    <province>Málaga</province>
+  </property>
+  <property>
+    <price>100000</price>
+    <type>Villa</type>
+    <town>Marbella</town>
+  </property>
+  <property>
+    <id>K-1009</id>
+    <price>610000</price>
+    <price_freq>sale</price_freq>
+    <type>Cortijo</type>
+    <town>Mijas</town>
+    <province>Málaga</province>
+    <beds>3</beds>
+    <baths>2</baths>
+    <desc>
+      <es>Cortijo andaluz con terreno.</es>
+    </desc>
+  </property>
+</root>

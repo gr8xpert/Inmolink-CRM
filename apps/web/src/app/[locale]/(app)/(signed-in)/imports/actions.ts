@@ -1,11 +1,22 @@
 'use server';
 
-import { FeedConnectionParams } from '@inmolink/contracts';
+import {
+  CreateFeedConnectionBody,
+  FeedConnectionParams,
+  type FeedCredentials,
+  UpdateFeedConnectionBody,
+} from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import { requestFeedRun, sessionRef } from '@/server/api';
+import {
+  createFeedConnection,
+  fetchFeedConnection,
+  requestFeedRun,
+  sessionRef,
+  updateFeedConnection,
+} from '@/server/api';
 
 /**
  * Feed imports form actions (transport only, S6-01): validate with the contracts, call the API, and come back to
@@ -18,7 +29,48 @@ const KNOWN_ERRORS = [
   'FEED_CONNECTION_DISABLED',
   'FEED_CONNECTION_NOT_FOUND',
   'VALIDATION_FAILED',
+  'FEED_URL_NOT_ALLOWED',
+  'VERSION_CONFLICT',
+  'FEED_CONNECTOR_UNKNOWN',
 ] as const;
+
+const text = (form: FormData, name: string) => {
+  const v = form.get(name);
+  return typeof v === 'string' ? v.trim() : '';
+};
+
+const SCHEDULES = new Set(['60', '360', '1440']);
+const scheduleOf = (form: FormData) => {
+  const v = text(form, 'scheduleMinutes');
+  return SCHEDULES.has(v) ? Number(v) : null;
+};
+
+/** The credentials a form sends: `keep` (edit only) is undefined, `none` removes them. */
+function credentialsOf(form: FormData): FeedCredentials | null | undefined {
+  const value = form.get('credValue');
+  const secret = typeof value === 'string' ? value : '';
+  switch (text(form, 'credType')) {
+    case 'query':
+      return { type: 'query', name: text(form, 'credName'), value: secret };
+    case 'header':
+      return { type: 'header', name: text(form, 'credName'), value: secret };
+    case 'basic':
+      return { type: 'basic', username: text(form, 'credUser'), password: secret };
+    case 'keep':
+      return undefined;
+    case 'none':
+      return null;
+    default:
+      // A missing or unknown choice must not wipe stored credentials: the contract refuses this shape.
+      return { type: 'invalid' } as unknown as FeedCredentials;
+  }
+}
+
+/** Kyero connection settings: the country the listings are in when the feed does not say (v3 has none). */
+const kyeroSettings = (form: FormData) => {
+  const country = text(form, 'defaultCountry');
+  return country ? { defaultCountry: country } : {};
+};
 
 export async function runNowAction(form: FormData): Promise<void> {
   const s = await auth();
@@ -35,4 +87,58 @@ export async function runNowAction(form: FormData): Promise<void> {
   if (res === 'revoked') redirect('/session/expired');
   if (res.ok) return back({ done: 'queued' });
   return back({ error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
+}
+
+/** Connect a Kyero feed (admins): back to the list on success, to the form with the error code otherwise. */
+export async function createConnectionAction(form: FormData): Promise<void> {
+  const s = await auth();
+  if (!s?.user?.id) redirect('/session/expired');
+  const locale = await getLocale();
+  const to = (href: string, query: Record<string, string>): never =>
+    redirect(`${getPathname({ href, locale })}?${new URLSearchParams(query)}`);
+  const parsed = CreateFeedConnectionBody.safeParse({
+    name: text(form, 'name'),
+    connector: 'kyero',
+    url: text(form, 'url'),
+    credentials: credentialsOf(form),
+    settings: kyeroSettings(form),
+    scheduleMinutes: scheduleOf(form),
+    enabled: form.get('enabled') === 'on',
+  });
+  if (!parsed.success) return to('/imports/new', { error: 'VALIDATION_FAILED' });
+  const res = await createFeedConnection(sessionRef(s.user), parsed.data);
+  if (res === 'revoked') redirect('/session/expired');
+  if (res.ok) return to('/imports', { done: 'created' });
+  return to('/imports/new', { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
+}
+
+/** Change a feed (admins). Stored settings are kept; only the Kyero ones are replaced. */
+export async function updateConnectionAction(form: FormData): Promise<void> {
+  const s = await auth();
+  if (!s?.user?.id) redirect('/session/expired');
+  const locale = await getLocale();
+  const to = (href: string, query: Record<string, string>): never =>
+    redirect(`${getPathname({ href, locale })}?${new URLSearchParams(query)}`);
+  const params = FeedConnectionParams.safeParse({ id: form.get('connectionId') });
+  if (!params.success) return to('/imports', { error: 'VALIDATION_FAILED' });
+  const id = params.data.id;
+  const session = sessionRef(s.user);
+  const current = await fetchFeedConnection(session, id);
+  if (current === 'revoked') redirect('/session/expired');
+  if (!current.ok) return to('/imports', { error: KNOWN_ERRORS.find((c) => c === current.error?.code) ?? 'generic' });
+  const { defaultCountry: _replaced, ...otherSettings } = current.data.settings;
+  const parsed = UpdateFeedConnectionBody.safeParse({
+    version: Number(text(form, 'version')),
+    name: text(form, 'name'),
+    url: text(form, 'url'),
+    credentials: credentialsOf(form),
+    settings: { ...otherSettings, ...kyeroSettings(form) },
+    scheduleMinutes: scheduleOf(form),
+    enabled: form.get('enabled') === 'on',
+  });
+  if (!parsed.success) return to(`/imports/${id}/edit`, { error: 'VALIDATION_FAILED' });
+  const res = await updateFeedConnection(session, id, parsed.data);
+  if (res === 'revoked') redirect('/session/expired');
+  if (res.ok) return to(`/imports/${id}`, { done: 'saved' });
+  return to(`/imports/${id}/edit`, { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
 }

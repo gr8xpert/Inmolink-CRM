@@ -66,7 +66,9 @@
     "INTERNAL": "Something went wrong on our side."
   },
   "notices": {
-    "queued": "The run was queued; it starts in a moment."
+    "queued": "The run was queued; it starts in a moment.",
+    "created": "The feed was connected; its first import starts shortly.",
+    "saved": "The feed was saved."
   },
   "errors": {
     "generic": "We could not load your feeds. Please try again.",
@@ -74,6 +76,45 @@
     "FEED_RUN_ACTIVE": "A run of this feed is already waiting or running.",
     "FEED_CONNECTION_DISABLED": "This feed is switched off.",
     "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
-    "VALIDATION_FAILED": "The request was not valid."
+    "VALIDATION_FAILED": "The request was not valid.",
+    "FEED_URL_NOT_ALLOWED": "This address is not allowed (private or internal networks are refused).",
+    "VERSION_CONFLICT": "Someone else changed this feed. Reload and try again.",
+    "FEED_CONNECTOR_UNKNOWN": "This feed format is not available."
+  },
+  "form": {
+    "connect": "Connect a Kyero feed",
+    "edit": "Edit feed",
+    "createTitle": "Connect a Kyero feed",
+    "editTitle": "Edit {name}",
+    "intro": "Paste the address of your Kyero (v3) XML feed. Listings are imported on the schedule you choose; values we cannot match to our locations, types or features hold the listing as a draft until our team maps them.",
+    "name": "Name",
+    "url": "Feed address (URL)",
+    "urlHint": "An http or https address. Feeds on private or internal networks are refused.",
+    "credentials": "How is the feed protected?",
+    "credTypes": {
+      "none": "Not protected",
+      "query": "An access key in the address",
+      "header": "An access key sent as a header",
+      "basic": "A username and password",
+      "keep": "Keep the saved access details",
+      "keepNone": "No access details saved"
+    },
+    "credentialsHint": "Access details are stored encrypted and never shown again. Fill the fields that fit your choice.",
+    "credName": "Parameter or header name",
+    "credUser": "Username",
+    "credValue": "Key or password",
+    "country": "Country of the listings",
+    "countryHint": "Kyero feeds do not state a country. Leave empty for Spain.",
+    "schedule": "Import",
+    "schedules": {
+      "manual": "Manually only",
+      "60": "Every hour",
+      "360": "Every 6 hours",
+      "1440": "Every day"
+    },
+    "enabled": "Feed is on",
+    "create": "Connect feed",
+    "save": "Save changes",
+    "cancel": "Cancel"
   }
 }

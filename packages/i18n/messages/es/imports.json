@@ -66,7 +66,9 @@
     "INTERNAL": "Algo falló por nuestra parte."
   },
   "notices": {
-    "queued": "La ejecución está en cola; empezará en un momento."
+    "queued": "La ejecución está en cola; empezará en un momento.",
+    "created": "El feed se ha conectado; la primera importación empieza en breve.",
+    "saved": "El feed se ha guardado."
   },
   "errors": {
     "generic": "No pudimos cargar tus feeds. Inténtalo de nuevo.",
@@ -74,6 +76,45 @@
     "FEED_RUN_ACTIVE": "Ya hay una ejecución de este feed en espera o en curso.",
     "FEED_CONNECTION_DISABLED": "Este feed está desactivado.",
     "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
-    "VALIDATION_FAILED": "La petición no era válida."
+    "VALIDATION_FAILED": "La petición no era válida.",
+    "FEED_URL_NOT_ALLOWED": "Esta dirección no está permitida (se rechazan las redes privadas o internas).",
+    "VERSION_CONFLICT": "Otra persona ha cambiado este feed. Recarga e inténtalo de nuevo.",
+    "FEED_CONNECTOR_UNKNOWN": "Este formato de feed no está disponible."
+  },
+  "form": {
+    "connect": "Conectar un feed de Kyero",
+    "edit": "Editar feed",
+    "createTitle": "Conectar un feed de Kyero",
+    "editTitle": "Editar {name}",
+    "intro": "Pega la dirección de tu feed XML de Kyero (v3). Los anuncios se importan con la frecuencia que elijas; los valores que no podamos asociar a nuestras ubicaciones, tipos o características dejan el anuncio como borrador hasta que nuestro equipo los asocie.",
+    "name": "Nombre",
+    "url": "Dirección del feed (URL)",
+    "urlHint": "Una dirección http o https. Se rechazan los feeds en redes privadas o internas.",
+    "credentials": "¿Cómo está protegido el feed?",
+    "credTypes": {
+      "none": "Sin protección",
+      "query": "Una clave de acceso en la dirección",
+      "header": "Una clave de acceso enviada como cabecera",
+      "basic": "Usuario y contraseña",
+      "keep": "Mantener los datos de acceso guardados",
+      "keepNone": "No hay datos de acceso guardados"
+    },
+    "credentialsHint": "Los datos de acceso se guardan cifrados y no se vuelven a mostrar. Rellena los campos que correspondan a tu elección.",
+    "credName": "Nombre del parámetro o de la cabecera",
+    "credUser": "Usuario",
+    "credValue": "Clave o contraseña",
+    "country": "País de los anuncios",
+    "countryHint": "Los feeds de Kyero no indican el país. Déjalo vacío para España.",
+    "schedule": "Importación",
+    "schedules": {
+      "manual": "Solo manualmente",
+      "60": "Cada hora",
+      "360": "Cada 6 horas",
+      "1440": "Cada día"
+    },
+    "enabled": "Feed activado",
+    "create": "Conectar feed",
+    "save": "Guardar cambios",
+    "cancel": "Cancelar"
   }
 }

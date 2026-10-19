@@ -11,6 +11,9 @@ const NOTICE_ERRORS = [
   'FEED_CONNECTION_DISABLED',
   'FEED_CONNECTION_NOT_FOUND',
   'VALIDATION_FAILED',
+  'FEED_URL_NOT_ALLOWED',
+  'VERSION_CONFLICT',
+  'FEED_CONNECTOR_UNKNOWN',
 ] as const;
 
 export function scheduleLabel(t: ImportsT, minutes: number | null): string {
@@ -36,6 +39,13 @@ export async function ImportNotice({ done, error }: { done?: string; error?: str
     return (
       <p role="status" className="rounded-md border bg-muted p-3 text-sm">
         {t('notices.queued')}
+      </p>
+    );
+  }
+  if (done === 'created' || done === 'saved') {
+    return (
+      <p role="status" className="rounded-md border bg-muted p-3 text-sm">
+        {t(`notices.${done}`)}
       </p>
     );
   }

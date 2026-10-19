@@ -4,6 +4,7 @@ export {
   type ConnectorContext,
   connectorKeys,
   credentialHeaders,
+  credentialUrl,
   type FeedConnector,
   FeedHttpStatusError,
   type FeedItemProblem,
@@ -19,6 +20,8 @@ export {
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
 export { importsJobs } from './jobs';
+export { kyeroConnector } from './kyero/connector';
+export { KYERO_V3_FIELDS, renderCoverageReport as renderKyeroCoverageReport } from './kyero/coverage';
 export {
   countOnlySink,
   FeedNoOwnerError,

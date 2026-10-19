@@ -15,6 +15,7 @@ import {
   type CreateApiKeyInput,
   type CreateBookmarkBody,
   type CreateDevelopmentBody,
+  type CreateFeedConnectionBody,
   type CreateListingBody,
   type CreatePriceListBody,
   type CreateUnitsBody,
@@ -86,6 +87,7 @@ import {
   type UpdateBookmarkBody,
   type UpdateDevelopmentBody,
   type UpdateDevelopmentDocumentBody,
+  type UpdateFeedConnectionBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
@@ -1198,6 +1200,31 @@ const page = (cursor: string | undefined, limit: number) =>
 /** The agency's feed connections (admins and agents; the API refuses others). */
 export function fetchFeedConnections(session: SessionRef, cursor?: string): Promise<ApiResult<FeedConnectionPage>> {
   return apiRequest(session, `/v1/imports/connections?${page(cursor, 50)}`, FeedConnectionPage);
+}
+
+/** One feed connection (the edit form). */
+export function fetchFeedConnection(session: SessionRef, id: string): Promise<ApiResult<FeedConnectionDto>> {
+  return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(id)}`, FeedConnectionDto);
+}
+
+/** Connect a feed (admins; credentials are write-only). */
+export function createFeedConnection(
+  session: SessionRef,
+  body: CreateFeedConnectionBody,
+): Promise<ApiResult<FeedConnectionDto>> {
+  return apiRequest(session, '/v1/imports/connections', FeedConnectionDto, { method: 'POST', body });
+}
+
+/** Change a feed connection (admins; optimistic concurrency by `version`). */
+export function updateFeedConnection(
+  session: SessionRef,
+  id: string,
+  body: UpdateFeedConnectionBody,
+): Promise<ApiResult<FeedConnectionDto>> {
+  return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(id)}`, FeedConnectionDto, {
+    method: 'PATCH',
+    body,
+  });
 }
 
 /**

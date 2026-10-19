@@ -162,6 +162,33 @@ describe('feed connections', () => {
     expect(await refusal(as(agent, (ctx) => imports.deleteFeedConnection(ctx, c.id)))).toBe('FORBIDDEN');
   });
 
+  it('[S6-03] credentials are refused on a plain-http feed; moving a feed to http drops them', async () => {
+    const creds = { type: 'basic' as const, username: 'agency', password: 'pw-123456' };
+    expect(await refusal(connection({ url: 'http://feeds.example.com/kyero.xml', credentials: creds }))).toBe(
+      'FEED_URL_NOT_ALLOWED',
+    );
+    const c = await connection({ url: 'https://feeds.example.com/kyero.xml', credentials: creds });
+    // sending credentials along with a move to http is refused; a move alone drops them (another origin)
+    expect(
+      await refusal(
+        as(owner, (ctx) =>
+          imports.updateFeedConnection(ctx, c.id, {
+            version: c.version,
+            url: 'http://feeds.example.com/kyero.xml',
+            credentials: creds,
+          }),
+        ),
+      ),
+    ).toBe('FEED_URL_NOT_ALLOWED');
+    const moved = await as(owner, (ctx) =>
+      imports.updateFeedConnection(ctx, c.id, { version: c.version, url: 'http://feeds.example.com/kyero.xml' }),
+    );
+    expect(moved.hasCredentials).toBe(false);
+    // without credentials a plain-http feed is fine (many agency feeds are http)
+    const open = await connection({ url: 'http://feeds.example.com/open.xml' });
+    expect(open.hasCredentials).toBe(false);
+  });
+
   it('[S6-01] feed URLs naming private, loopback or metadata hosts are refused when saved', async () => {
     for (const url of [
       'http://169.254.169.254/latest/meta-data/',

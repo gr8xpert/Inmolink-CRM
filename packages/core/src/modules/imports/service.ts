@@ -23,7 +23,7 @@ import {
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import { checkUrl, isSafeFetchError } from '@inmolink/platform/safe-fetch';
+import { checkUrl, isSafeFetchError, isTestOrigin } from '@inmolink/platform/safe-fetch';
 import type { Ctx } from '../../context';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as compliance from '../compliance';
@@ -116,11 +116,22 @@ async function assertMappingProfile(ctx: Ctx, id: string | null | undefined): Pr
 const nextRun = (enabled: boolean, scheduleMinutes: number | null) =>
   enabled && scheduleMinutes !== null ? clock.now() : null;
 
+/**
+ * Credentials (header, basic or query key) are only ever sent over https: a plain-http feed may not keep any
+ * (local fixture servers allowed by a test excepted).
+ */
+function assertSecretsOverTls(url: string, hasCredentials: boolean): void {
+  if (hasCredentials && new URL(url).protocol !== 'https:' && !isTestOrigin(url)) {
+    throw new AppError('FEED_URL_NOT_ALLOWED', { reason: 'CREDENTIALS_NEED_HTTPS' });
+  }
+}
+
 /** `POST /v1/imports/connections` (admins). The first scheduled run starts on the scheduler's next tick. */
 export async function createFeedConnection(ctx: Ctx, input: CreateFeedConnectionBody): Promise<FeedConnectionDto> {
   assertCan(ctx, 'imports.manage');
   if (!getConnector(input.connector)) throw new AppError('FEED_CONNECTOR_UNKNOWN');
   const url = checkedUrl(input.url);
+  assertSecretsOverTls(url, Boolean(input.credentials));
   await assertMappingProfile(ctx, input.mappingProfileId);
   const id = newId();
   const agencyId = ctx.tenant.agencyId;
@@ -194,6 +205,7 @@ export async function updateFeedConnection(
   // with the change (an admin cannot send credentials another admin entered to a host of their choosing).
   const originMoved = url !== undefined && new URL(url).origin !== new URL(current.url).origin;
   const credentials = input.credentials !== undefined ? input.credentials : originMoved ? null : undefined;
+  assertSecretsOverTls(url ?? current.url, credentials !== undefined ? Boolean(credentials) : current.hasCredentials);
   const patch: Partial<repo.ConnectionInsert> = {
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(url !== undefined ? { url } : {}),

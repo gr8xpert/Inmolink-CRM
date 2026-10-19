@@ -73,6 +73,11 @@ export default async function FeedConnectionPage({
               </Button>
             </form>
           ) : null}
+          {connection.connector === 'kyero' ? (
+            <Link href={`/imports/${connection.id}/edit`} className="text-sm underline-offset-4 hover:underline">
+              {t('form.edit')}
+            </Link>
+          ) : null}
           <Link href="/imports" className="text-sm underline-offset-4 hover:underline">
             {t('back')}
           </Link>

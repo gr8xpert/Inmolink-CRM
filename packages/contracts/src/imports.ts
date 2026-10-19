@@ -48,7 +48,9 @@ const RESERVED_CREDENTIAL_HEADERS = new Set([
 
 /**
  * Feed credentials, stored encrypted and never returned. `basic` sends HTTP Basic auth; `header` sends one
- * custom header (API keys). A connector may read other fields from its settings.
+ * custom header (API keys); `query` adds one query parameter to the feed URL when it is fetched (feeds whose API
+ * key lives in the URL: the key stays encrypted instead of sitting in the visible URL). A connector may read
+ * other fields from its settings.
  */
 export const FeedCredentials = z.discriminatedUnion('type', [
   z
@@ -61,6 +63,13 @@ export const FeedCredentials = z.discriminatedUnion('type', [
         .string()
         .regex(/^[A-Za-z0-9-]{1,64}$/)
         .refine((n) => !RESERVED_CREDENTIAL_HEADERS.has(n.toLowerCase()), 'this header cannot carry credentials'),
+      value: z.string().min(1).max(2_000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('query'),
+      name: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/),
       value: z.string().min(1).max(2_000),
     })
     .strict(),
