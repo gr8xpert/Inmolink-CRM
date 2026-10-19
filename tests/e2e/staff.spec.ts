@@ -47,7 +47,7 @@ test('[S1-09] non-staff get 404 on staff pages; staff act as a member with a rea
   await page.getByTestId('tenants').getByRole('link', { name: 'Open' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(company);
   await page.getByText('Act as Marta').click();
-  await page.getByLabel(/^Reason/).fill('E2E: checking what the agent sees');
+  await page.getByLabel(/^Reason \(support ticket, what/).fill('E2E: checking what the agent sees');
   await page.getByRole('button', { name: 'Start acting as this user' }).click();
 
   // Every page shows the banner while the session is open; the dashboard is the agent's.

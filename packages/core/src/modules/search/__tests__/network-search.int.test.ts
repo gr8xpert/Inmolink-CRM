@@ -418,7 +418,8 @@ describe('commission', () => {
       }, reads),
     ).toBe(1);
     expect(found.map((c) => c.targetId).sort()).toEqual([...ids].sort());
-    // The plan: primary-key probes for the two locales, then one row per target still missing (no sort of every card).
+    // The plan reads by index, never a Seq Scan of every card: the primary key on a large table; on a small one
+    // (CI) the planner may pick a bitmap scan of the agency index instead — both are index reads.
     const plan = await as(v, async (ctx) =>
       (
         await ctx.tx.execute(sql`explain select 1 from listing_read_models m
@@ -427,7 +428,8 @@ describe('commission', () => {
         .map((r) => Object.values(r)[0])
         .join(' '),
     );
-    expect(plan).toContain('listing_read_models_pk');
+    expect(plan).not.toMatch(/Seq Scan on listing_read_models/);
+    expect(plan).toMatch(/Index (Only )?Scan (using|on) listing_read_models_/);
   });
 });
 
