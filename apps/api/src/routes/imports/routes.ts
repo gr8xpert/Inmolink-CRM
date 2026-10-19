@@ -23,6 +23,9 @@ import {
   MappingProfileDto,
   MappingProfilePage,
   MappingProfileParams,
+  SHEET_UPLOAD_MAX_BYTES,
+  StartSheetImportBody,
+  StartSheetImportDto,
   UpdateFeedConnectionBody,
   UpdateMappingProfileBody,
 } from '@inmolink/contracts';
@@ -329,7 +332,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags,
         operationId: 'imports.createMappingProfile',
-        summary: 'Save a generic XML mapping profile (admins)',
+        summary: 'Save a mapping profile for a feed or an uploaded file (admins)',
         body: CreateMappingProfileBody,
         response: { 201: MappingProfileDto },
       },
@@ -379,7 +382,29 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
     },
   );
 
+  app.post(
+    '/v1/imports/sheets/import',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.startSheetImport',
+        summary:
+          'Import an uploaded CSV or Excel file with a mapping: saves the profile, connects the file and queues the run (admins)',
+        body: StartSheetImportBody,
+        response: { 201: StartSheetImportDto },
+      },
+      bodyLimit: 64 * 1024,
+      onRequest: [app.requireSession],
+      config: { rateLimit: RUN_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(201).send(await app.withCtx(req, (ctx) => imports.startSheetImport(ctx, req.body)));
+    },
+  );
+
   await app.register(sampleUploadRoute);
+  await app.register(sheetUploadRoute);
 }
 
 /**
@@ -412,6 +437,59 @@ async function sampleUploadRoute(upload: FastifyZod): Promise<void> {
       reply.header('cache-control', 'no-store');
       const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       return imports.sampleFromUpload(upload.ctxRunner(req), bytes, { recordElement: req.query.recordElement });
+    },
+  );
+}
+
+/**
+ * The CSV / Excel upload (S6-05), in its own plugin like the XML sample: the body is the raw file, up to 25 MB. The
+ * declared type only routes the body here; the service decides by the first bytes. One at a time per user, four per
+ * process (the body is buffered), a few per minute.
+ */
+const SHEET_LIMITS: readonly RateLimitRule[] = [
+  { name: 'imports.sheet.user', scope: 'user', limit: 10, windowSeconds: 60 },
+  { name: 'imports.sheet.tenant', scope: 'tenant', limit: 30, windowSeconds: 60 },
+];
+const sheetSlots = createUploadSlots(1, 4);
+async function takeSheetSlot(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!req.auth) throw new AppError('NOT_AUTHENTICATED');
+  const release = sheetSlots.take(req.auth.userId);
+  if (!release) throw new AppError('RATE_LIMITED');
+  reply.raw.once('close', release);
+  reply.raw.once('finish', release);
+}
+
+async function sheetUploadRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    [
+      'application/octet-stream',
+      'text/csv',
+      'text/plain',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ],
+    { parseAs: 'buffer', bodyLimit: SHEET_UPLOAD_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/imports/sheets',
+    {
+      schema: {
+        tags: ['imports'],
+        operationId: 'imports.uploadSheet',
+        summary: 'Upload a CSV or Excel file (raw body, max 25 MB): header and first rows for the mapper (admins)',
+        response: { 200: MapperSampleDto },
+      },
+      bodyLimit: SHEET_UPLOAD_MAX_BYTES,
+      onRequest: [upload.requireSession, takeSheetSlot],
+      config: { rateLimit: SHEET_LIMITS },
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      reply.header('cache-control', 'no-store');
+      const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      return imports.uploadSheet(upload.ctxRunner(req), bytes);
     },
   );
 }

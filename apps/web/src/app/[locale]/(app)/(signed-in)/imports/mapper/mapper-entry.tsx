@@ -8,6 +8,11 @@ const MapperPanel = dynamic(() => import('./mapper-panel'), {
   loading: () => <div className="h-48 animate-pulse rounded-md bg-muted" />,
 });
 
-export function MapperEntry(props: { messages: Record<string, unknown>; locales: string[]; defaultLocale: string }) {
+export function MapperEntry(props: {
+  messages: Record<string, unknown>;
+  locales: string[];
+  defaultLocale: string;
+  connectionId?: string | undefined;
+}) {
   return <MapperPanel {...props} />;
 }

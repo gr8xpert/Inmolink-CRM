@@ -6,10 +6,10 @@
  * run writes run as the agency too (`withTenant`); the scheduler and the prune are cross-agency (`withSystem`).
  */
 
-import { XML_MAPPED_CONNECTOR } from '@inmolink/contracts';
+import { MAPPING_CONNECTORS } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { feedConnections, feedItemErrors, feedMappingProfiles, feedRuns } from '@inmolink/db/schema/imports';
-import { and, asc, eq, gt, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ConnectionRow = typeof feedConnections.$inferSelect;
@@ -498,7 +498,7 @@ export async function getProfile(tx: Tx, id: string): Promise<ProfileView | null
   const [row] = await tx
     .select(profileColumns)
     .from(feedMappingProfiles)
-    .where(and(eq(feedMappingProfiles.id, id), eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR)));
+    .where(and(eq(feedMappingProfiles.id, id), inArray(feedMappingProfiles.connector, [...MAPPING_CONNECTORS])));
   return row ?? null;
 }
 
@@ -506,7 +506,7 @@ export async function getProfileForUpdate(tx: Tx, id: string): Promise<ProfileVi
   const [row] = await tx
     .select(profileColumns)
     .from(feedMappingProfiles)
-    .where(and(eq(feedMappingProfiles.id, id), eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR)))
+    .where(and(eq(feedMappingProfiles.id, id), inArray(feedMappingProfiles.connector, [...MAPPING_CONNECTORS])))
     .for('update');
   return row ?? null;
 }
@@ -524,7 +524,7 @@ export async function updateProfileWithVersion(
       and(
         eq(feedMappingProfiles.id, id),
         eq(feedMappingProfiles.version, version),
-        eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR),
+        inArray(feedMappingProfiles.connector, [...MAPPING_CONNECTORS]),
       ),
     )
     .returning(profileColumns);
@@ -534,7 +534,7 @@ export async function updateProfileWithVersion(
 export async function listProfiles(
   tx: Tx,
   agencyId: string,
-  q: { limit: number; cursor?: KeysetCursor },
+  q: { limit: number; cursor?: KeysetCursor; connector: string },
 ): Promise<{ items: ProfileSummary[]; hasMore: boolean }> {
   const rows = await tx
     .select(summaryColumns)
@@ -542,7 +542,7 @@ export async function listProfiles(
     .where(
       and(
         eq(feedMappingProfiles.agencyId, agencyId),
-        eq(feedMappingProfiles.connector, XML_MAPPED_CONNECTOR),
+        eq(feedMappingProfiles.connector, q.connector),
         keysetAfter(feedMappingProfiles.createdAt, feedMappingProfiles.id, q.cursor, 'desc'),
       ),
     )

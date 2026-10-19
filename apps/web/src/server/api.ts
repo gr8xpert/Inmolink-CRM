@@ -85,6 +85,8 @@ import {
   SignedUrlDto,
   StaffAccessPage,
   type StartListingBulkBody,
+  type StartSheetImportBody,
+  StartSheetImportDto,
   TaxonomyDto,
   UnitDto,
   UnitList,
@@ -1343,4 +1345,23 @@ export function createMappingProfile(
 /** The agency's mapping profiles (the connection form's profile picker). */
 export function fetchMappingProfiles(session: SessionRef): Promise<ApiResult<MappingProfilePage>> {
   return apiRequest(session, `/v1/imports/mapping-profiles?${page(undefined, 100)}`, MappingProfilePage);
+}
+
+// ── CSV / Excel files (S6-05) ────────────────────────────────────────────────────────────────────────────────
+
+/** An uploaded CSV or Excel file as a raw body; the API decides by its first bytes, stores it and reads the header. */
+export function uploadSheetFile(session: SessionRef, bytes: Uint8Array): Promise<ApiResult<MapperSampleDto>> {
+  return apiRequest(session, '/v1/imports/sheets', MapperSampleDto, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/octet-stream' },
+    timeoutMs: 120_000,
+  });
+}
+
+/** Start importing the uploaded file with this mapping (a connection for the file and a queued run). */
+export function startSheetImport(
+  session: SessionRef,
+  body: StartSheetImportBody,
+): Promise<ApiResult<StartSheetImportDto>> {
+  return apiRequest(session, '/v1/imports/sheets/import', StartSheetImportDto, { method: 'POST', body });
 }

@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { CurrencyCode, PageQuery, pageOf } from './common';
 import { MEDIA_PER_LISTING_MAX } from './media';
 import { CeeRating, ContentLocaleCode, LocationPrecision, PricePeriod, TransactionType } from './properties';
-import { MAPPER_SAMPLE, XML_MAPPED_CONNECTOR } from './values';
+import { MAPPER_SAMPLE, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from './values';
 
-export { XML_MAPPED_CONNECTOR };
+export { SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR };
 
 /** Connector keys are code-registry names (`kyero`, `generic-xml`, …; S6-03+). */
 export const FeedConnectorKey = z.string().regex(/^[a-z][a-z0-9-]{1,31}$/, 'a connector key such as kyero');
@@ -466,6 +466,8 @@ export const MapperSampleDto = z.object({
   /** A first guess per field (`ref` → `@code`) from the names in the sample: the mapper starts from it. */
   suggested: z.record(z.string(), z.string()),
   records: z.array(XmlRecord),
+  /** Set when the sample is a CSV or Excel file (S6-05): the file is stored and the import reads it by this id. */
+  sheet: z.object({ fileId: z.uuid(), kind: z.enum(['csv', 'xlsx']) }).optional(),
 });
 export type MapperSampleDto = z.infer<typeof MapperSampleDto>;
 
@@ -540,7 +542,12 @@ export const MappingProfilePage = pageOf(MappingProfileSummaryDto);
 export type MappingProfilePage = z.infer<typeof MappingProfilePage>;
 
 export const CreateMappingProfileBody = z
-  .object({ name: z.string().trim().min(1).max(120), mapping: XmlMapping })
+  .object({
+    name: z.string().trim().min(1).max(120),
+    mapping: XmlMapping,
+    /** The connector the profile is for: a feed (default) or an uploaded CSV / Excel file (S6-05). */
+    connector: z.enum([XML_MAPPED_CONNECTOR, SHEET_MAPPED_CONNECTOR]).optional(),
+  })
   .strict();
 export type CreateMappingProfileBody = z.infer<typeof CreateMappingProfileBody>;
 export const UpdateMappingProfileBody = z
@@ -552,5 +559,27 @@ export const UpdateMappingProfileBody = z
   .strict();
 export type UpdateMappingProfileBody = z.infer<typeof UpdateMappingProfileBody>;
 export const MappingProfileParams = z.object({ id: z.uuid() }).strict();
-export const ListMappingProfilesQuery = PageQuery.extend({}).strict();
+export const ListMappingProfilesQuery = PageQuery.extend({
+  connector: z.enum([XML_MAPPED_CONNECTOR, SHEET_MAPPED_CONNECTOR]).optional(),
+}).strict();
 export type ListMappingProfilesQuery = z.infer<typeof ListMappingProfilesQuery>;
+
+// ── CSV / Excel files (S6-05) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `POST /v1/imports/sheets/import`: start importing an uploaded file with this mapping. Without `connectionId` a new
+ * connection (and its mapping profile) is created for the file; with one, that connection gets the new file and the
+ * new mapping — the listings its earlier files created are updated, not duplicated.
+ */
+export const StartSheetImportBody = z
+  .object({
+    fileId: z.uuid(),
+    name: z.string().trim().min(1).max(120),
+    mapping: XmlMapping,
+    connectionId: z.uuid().optional(),
+  })
+  .strict();
+export type StartSheetImportBody = z.infer<typeof StartSheetImportBody>;
+
+export const StartSheetImportDto = z.object({ connectionId: z.uuid(), run: FeedRunDto });
+export type StartSheetImportDto = z.infer<typeof StartSheetImportDto>;

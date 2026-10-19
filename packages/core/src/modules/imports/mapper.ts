@@ -179,7 +179,7 @@ export async function dryRunMapping(ctx: Ctx, input: MapperDryRunBody): Promise<
   const existing = connection
     ? await properties.existingImportRefs(
         ctx.tx,
-        { agencyId: ctx.tenant.agencyId, source: sourceOf(XML_MAPPED_CONNECTOR), connectionId: connection.id },
+        { agencyId: ctx.tenant.agencyId, source: sourceOf(connection.connector), connectionId: connection.id },
         good.map((g) => g.listing.ref),
       )
     : new Set<string>();
@@ -241,7 +241,7 @@ export async function createMappingProfile(ctx: Ctx, input: CreateMappingProfile
     id,
     agencyId: ctx.tenant.agencyId,
     name: input.name,
-    connector: XML_MAPPED_CONNECTOR,
+    connector: input.connector ?? XML_MAPPED_CONNECTOR,
     mapping: validMapping(input.mapping),
   });
   await compliance.audit(ctx, 'imports.mappingProfile.created', { type: 'feedMappingProfile', id }, {});
@@ -257,7 +257,11 @@ export async function getMappingProfile(ctx: Ctx, id: string): Promise<MappingPr
 
 export async function listMappingProfiles(ctx: Ctx, q: ListMappingProfilesQuery): Promise<MappingProfilePage> {
   assertCan(ctx, 'imports.read');
-  const page = await repo.listProfiles(ctx.tx, ctx.tenant.agencyId, { limit: q.limit, cursor: decodeCursor(q.cursor) });
+  const page = await repo.listProfiles(ctx.tx, ctx.tenant.agencyId, {
+    limit: q.limit,
+    cursor: decodeCursor(q.cursor),
+    connector: q.connector ?? XML_MAPPED_CONNECTOR,
+  });
   const last = page.items.at(-1);
   return {
     items: page.items.map(toSummary),

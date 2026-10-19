@@ -131,13 +131,13 @@
     "openMapper": "Abrir el mapeador"
   },
   "mapper": {
-    "open": "Mapear un feed XML",
-    "title": "Mapear un feed XML",
+    "open": "Mapear un feed o una hoja de cálculo",
+    "title": "Mapear un feed o una hoja de cálculo",
     "back": "Todos los feeds",
-    "intro": "Conecta cualquier exportación XML sin código: lee una muestra, elige dónde está cada campo del anuncio, revisa el resultado y guarda el mapeo. No se importa nada hasta que conectes un feed con el perfil guardado.",
+    "intro": "Conecta cualquier exportación XML, o importa un archivo CSV o Excel, sin código: lee una muestra, elige dónde está cada campo del anuncio, revisa el resultado y guarda el mapeo. Los feeds se importan cuando los conectas con el perfil guardado; un archivo se importa al pulsar el botón del final.",
     "step1": "1. Leer una muestra",
-    "sampleHint": "Sube un archivo XML o indica la dirección del feed. Solo se leen los primeros {mb} MB.",
-    "upload": "Archivo XML",
+    "sampleHint": "Sube un archivo XML, CSV o Excel (.xlsx), o indica la dirección de un feed XML. De un feed solo se leen los primeros {mb} MB.",
+    "upload": "Archivo XML, CSV o Excel",
     "readFile": "Leer el archivo",
     "fromUrl": "O la dirección del feed",
     "readUrl": "Leer la dirección",
@@ -226,12 +226,12 @@
       "FORBIDDEN": "Solo los administradores de la agencia pueden mapear feeds.",
       "VALIDATION_FAILED": "La solicitud no era válida.",
       "FEED_URL_NOT_ALLOWED": "Esta dirección no está permitida (se rechazan las redes privadas o internas).",
-      "FEED_SAMPLE_INVALID": "Esta muestra no se puede leer como feed XML.",
+      "FEED_SAMPLE_INVALID": "Este archivo no se puede leer como feed ni como hoja de cálculo.",
       "FEED_MAPPING_INVALID": "El mapeo aún no es válido. Revisa las rutas y los campos obligatorios.",
       "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
       "RATE_LIMITED": "Demasiadas muestras a la vez. Espera un momento e inténtalo de nuevo.",
       "PAYLOAD_TOO_LARGE": "El archivo supera el límite de la muestra.",
-      "UNSUPPORTED_MEDIA_TYPE": "Envía el archivo como XML.",
+      "UNSUPPORTED_MEDIA_TYPE": "Envía el archivo como XML, CSV o Excel.",
       "reason": {
         "NOT_XML": "El archivo no empieza como un documento XML.",
         "EMPTY": "El archivo está vacío.",
@@ -241,8 +241,27 @@
         "CONTENT_TYPE": "La dirección no devolvió XML.",
         "HTTP_404": "No se encontró la dirección.",
         "HTTP_401": "El feed pidió iniciar sesión.",
-        "HTTP_403": "El feed rechazó el acceso."
-      }
-    }
-  }
+        "HTTP_403": "El feed rechazó el acceso.",
+        "NOT_SHEET": "No es un archivo CSV ni Excel.",
+        "NOT_TEXT": "El archivo es binario, no un CSV de texto. Guárdalo como CSV o Excel (.xlsx).",
+        "UNSUPPORTED_XLS": "Los archivos .xls antiguos y los libros protegidos con contraseña no se pueden leer. Guárdalo como .xlsx o CSV.",
+        "ENCRYPTED": "Los archivos protegidos con contraseña no se pueden leer.",
+        "BAD_ZIP": "El archivo Excel está dañado o no es un .xlsx.",
+        "ZIP_BOMB": "El archivo Excel es demasiado grande una vez descomprimido.",
+        "NO_SHEET": "El libro no tiene ninguna hoja visible.",
+        "TOO_MANY_ROWS": "El archivo tiene demasiadas filas.",
+        "TOO_MANY_COLUMNS": "El archivo tiene demasiadas columnas.",
+        "CELL_TOO_LARGE": "Una celda contiene demasiado texto.",
+        "TOO_LARGE": "El archivo supera el límite."
+      },
+      "FEED_RUN_ACTIVE": "Ya hay una importación de este archivo en curso. Espera a que termine.",
+      "VERSION_CONFLICT": "Otra persona ha cambiado esta conexión. Recarga e inténtalo de nuevo."
+    },
+    "sheetHint": "Un archivo CSV o Excel se lee desde su primera fila, que debe contener los nombres de las columnas; solo se lee la primera hoja, hasta {mb} MB, {rows} filas y {columns} columnas. Las fórmulas se leen como los valores que guardó Excel. El texto de una hoja nunca se ejecuta como fórmula.",
+    "step2Sheet": "2. Las columnas",
+    "detectedSheet": "El archivo tiene {columns} columnas con valores; las primeras {count} filas están en la muestra.",
+    "importSheet": "Importar el archivo",
+    "importSheetHint": "La importación se ejecuta en segundo plano. En la página siguiente verás cada fila que no se pudo importar, con el motivo."
+  },
+  "uploadNew": "Subir un archivo nuevo"
 }

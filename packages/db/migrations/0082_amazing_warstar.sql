@@ -1,0 +1,2 @@
+ALTER TABLE "feed_connections" DROP CONSTRAINT "feed_connections_url_ck";--> statement-breakpoint
+ALTER TABLE "feed_connections" ADD CONSTRAINT "feed_connections_url_ck" CHECK (("feed_connections"."url" ~ '^https?://' or ("feed_connections"."connector" = 'sheet-mapped' and "feed_connections"."url" ~ '^upload://[0-9a-f-]{36}$')) and char_length("feed_connections"."url") <= 2048);

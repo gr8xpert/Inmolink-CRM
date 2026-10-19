@@ -1,4 +1,4 @@
-import { FEED_RUN_ERROR_CODES, type FeedRunDto } from '@inmolink/contracts';
+import { FEED_RUN_ERROR_CODES, type FeedRunDto, SHEET_MAPPED_CONNECTOR } from '@inmolink/contracts';
 import { Button, EmptyState } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
@@ -72,6 +72,14 @@ export default async function FeedConnectionPage({
                 {t('runNow')}
               </Button>
             </form>
+          ) : null}
+          {connection.connector === SHEET_MAPPED_CONNECTOR ? (
+            <Link
+              href={`/imports/mapper?connection=${connection.id}`}
+              className="text-sm underline-offset-4 hover:underline"
+            >
+              {t('uploadNew')}
+            </Link>
           ) : null}
           {connection.connector === 'kyero' || connection.connector === 'xml-mapped' ? (
             <Link href={`/imports/${connection.id}/edit`} className="text-sm underline-offset-4 hover:underline">

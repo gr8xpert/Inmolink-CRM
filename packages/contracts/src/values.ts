@@ -129,3 +129,15 @@ export const XML_MAPPED_ENUM_FIELDS = {
 
 /** The sample the visual mapper reads: at most this many bytes (an upload over it is refused, a URL is cut off). */
 export const MAPPER_SAMPLE = { maxBytes: 2 * 1024 * 1024, maxRecords: 25, maxPaths: 300, maxCandidates: 12 } as const;
+
+/** S6-05: connector key of the CSV / Excel connector (a file the agency uploaded, mapped by a profile). */
+export const SHEET_MAPPED_CONNECTOR = 'sheet-mapped';
+/** Connectors whose connection needs a mapping profile (`XmlMapping`). */
+export const MAPPING_CONNECTORS = [XML_MAPPED_CONNECTOR, SHEET_MAPPED_CONNECTOR] as const;
+/** An uploaded CSV / XLSX file is refused over this size (the run reads it from storage, not the request). */
+export const SHEET_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+/** The `upload://<file id>` address of a stored sheet: what a sheet connection keeps in `url`. */
+export const SHEET_URL_PREFIX = 'upload://';
+/** CSV / Excel limits (S6-05): rows with a value (header included) and columns; `platform/sheet` enforces them. */
+export const SHEET_MAX_ROWS = 50_000;
+export const SHEET_MAX_COLUMNS = 200;

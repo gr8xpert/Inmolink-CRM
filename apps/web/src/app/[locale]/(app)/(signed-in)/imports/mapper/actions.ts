@@ -9,6 +9,8 @@ import {
   type MapperSampleDto,
   MapperSampleUrlBody,
   type MappingProfileDto,
+  StartSheetImportBody,
+  type StartSheetImportDto,
 } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
@@ -18,6 +20,7 @@ import {
   previewMapperMapping,
   sampleFromUrl,
   sessionRef,
+  startSheetImport,
 } from '@/server/api';
 
 /**
@@ -33,6 +36,8 @@ const KNOWN_ERRORS = new Set([
   'FEED_SAMPLE_INVALID',
   'FEED_MAPPING_INVALID',
   'FEED_CONNECTION_NOT_FOUND',
+  'FEED_RUN_ACTIVE',
+  'VERSION_CONFLICT',
   'RATE_LIMITED',
 ]);
 
@@ -84,4 +89,11 @@ export async function saveProfileAction(input: unknown): Promise<MapperResult<Ma
   const body = CreateMappingProfileBody.safeParse(input);
   if (!body.success) return { ok: false, error: 'FEED_MAPPING_INVALID' };
   return relay(createMappingProfile(await session(), body.data) as Api<MappingProfileDto>);
+}
+
+/** CSV / Excel (S6-05): import the uploaded file with this mapping; answers the connection to open. */
+export async function startSheetImportAction(input: unknown): Promise<MapperResult<StartSheetImportDto>> {
+  const body = StartSheetImportBody.safeParse(input);
+  if (!body.success) return { ok: false, error: 'FEED_MAPPING_INVALID' };
+  return relay(startSheetImport(await session(), body.data) as Api<StartSheetImportDto>);
 }

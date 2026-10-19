@@ -64,6 +64,7 @@ export const AUDIT_TYPES = [
   'imports.connection.changed',
   'imports.mappingProfile.created',
   'imports.mappingProfile.changed',
+  'imports.sheet.started',
   'imports.connection.deleted',
   'imports.run.requested',
   'staff.impersonation.started',

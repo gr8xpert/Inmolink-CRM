@@ -129,6 +129,14 @@
       "types": "./dist/turnstile/index.d.ts",
       "default": "./dist/turnstile/index.js"
     },
+    "./sheet/testing": {
+      "@inmolink/source": "./src/sheet/testing.ts"
+    },
+    "./sheet": {
+      "@inmolink/source": "./src/sheet/index.ts",
+      "types": "./dist/sheet/index.d.ts",
+      "default": "./dist/sheet/index.js"
+    },
     "./xml": {
       "@inmolink/source": "./src/xml/index.ts",
       "types": "./dist/xml/index.d.ts",

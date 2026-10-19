@@ -4,6 +4,7 @@ import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
 import { isSafeFetchError } from '@inmolink/platform/safe-fetch';
+import { isSheetError } from '@inmolink/platform/sheet';
 import { isXmlStreamError } from '@inmolink/platform/xml';
 import { decryptCredentials, RUNS } from './config';
 import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
@@ -11,6 +12,7 @@ import { importsEvents } from './events';
 import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
+import { SheetFileMissingError } from './sheet/connector';
 
 /**
  * Executes one feed run in the worker (`imports.runFeed`, S6-01). Every database step is a short transaction as
@@ -64,6 +66,24 @@ export function classifyRunError(err: unknown): Classified {
     return { code: 'FEED_HTTP_STATUS', retryable: err.status >= 500 || err.status === 429 || err.status === 408 };
   }
   if (err instanceof FeedMappingError) return { code: 'FEED_MAPPING_INVALID', retryable: false };
+  if (err instanceof SheetFileMissingError) return { code: 'FEED_FETCH_FAILED', retryable: false };
+  if (isSheetError(err)) {
+    // CSV / Excel files (S6-05): nothing about the file changes between attempts.
+    switch (err.code) {
+      case 'TOO_MANY_ROWS':
+      case 'TOO_MANY_COLUMNS':
+      case 'CELL_TOO_LARGE':
+      case 'ZIP_BOMB':
+        return { code: 'FEED_TOO_LARGE', retryable: false };
+      case 'NOT_SHEET':
+      case 'NOT_TEXT':
+      case 'UNSUPPORTED_XLS':
+      case 'ENCRYPTED':
+        return { code: 'FEED_CONTENT_TYPE', retryable: false };
+      default:
+        return { code: 'FEED_MALFORMED', retryable: false };
+    }
+  }
   if (isXmlStreamError(err)) {
     return err.code === 'DOCTYPE_NOT_ALLOWED'
       ? { code: 'FEED_DTD_NOT_ALLOWED', retryable: false }

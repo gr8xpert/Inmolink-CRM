@@ -18,6 +18,7 @@ export default defineConfig({
     'outbox/index': 'src/outbox/index.ts',
     'queue/index': 'src/queue/index.ts',
     'rate-limit/index': 'src/rate-limit/index.ts',
+    'sheet/index': 'src/sheet/index.ts',
     'safe-fetch/index': 'src/safe-fetch/index.ts',
     'search/index': 'src/search/index.ts',
     'server/index': 'src/server/index.ts',

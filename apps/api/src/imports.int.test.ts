@@ -12,6 +12,7 @@ import {
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
+import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 
@@ -44,6 +45,7 @@ let unregister: () => void;
 beforeAll(async () => {
   await setupTestDb('http');
   imports.configureImports({ keyring: createKeyring({ keys: { k1: generateKey() }, activeKeyId: 'k1' }) });
+  configureStorage(createMemoryStore());
   // The real connectors arrive with S6-03; the framework only needs one registered key.
   unregister = imports.registerConnector({
     key: 'api-test',
@@ -228,5 +230,89 @@ describe('feed import routes', () => {
     });
     expect(blocked.statusCode).toBe(422);
     expect(blocked.json()).toMatchObject({ error: { code: 'FEED_URL_NOT_ALLOWED' } });
+  });
+
+  it('[S6-05] the CSV / Excel routes: a file is read by its bytes and stored, an import is started with a mapping, binaries and JSON are refused', async () => {
+    const owner = await createFounder();
+    const headers = await bearer(owner.userId, owner.agencyId);
+    const csv = 'Ref;Type;Price;Town\nA1;Villa;250000;Nowhere\nA2;Flat;180000;Nowhere\n';
+    for (const type of ['text/csv', 'application/octet-stream']) {
+      const sample = await app.inject({
+        method: 'POST',
+        url: '/v1/imports/sheets',
+        headers: { ...headers, 'content-type': type },
+        payload: csv,
+      });
+      expect(sample.statusCode, type).toBe(200);
+      expect(sample.json(), type).toMatchObject({
+        recordElement: 'row',
+        recordCount: 2,
+        sheet: { kind: 'csv' },
+        suggested: { ref: 'Ref', propertyType: 'Type', price: 'Price' },
+      });
+    }
+    const sample = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets',
+      headers: { ...headers, 'content-type': 'application/octet-stream' },
+      payload: csv,
+    });
+    const { sheet } = sample.json() as { sheet: { fileId: string } };
+
+    const png = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets',
+      headers: { ...headers, 'content-type': 'application/octet-stream' },
+      payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]),
+    });
+    expect(png.statusCode).toBe(422);
+    expect(png.json()).toMatchObject({ error: { code: 'FEED_SAMPLE_INVALID', details: { reason: 'NOT_TEXT' } } });
+    const json = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets',
+      headers: { ...headers, 'content-type': 'application/json' },
+      payload: { a: 1 },
+    });
+    expect(json.statusCode).toBeGreaterThanOrEqual(400);
+
+    const mapping = {
+      schemaVersion: 1,
+      recordElement: 'row',
+      fields: {
+        ref: { path: 'Ref' },
+        propertyType: { path: 'Type' },
+        price: { path: 'Price' },
+        city: { path: 'Town' },
+      },
+    };
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets/import',
+      headers,
+      payload: { fileId: sheet.fileId, name: 'Spring sheet', mapping },
+    });
+    expect(started.statusCode).toBe(201);
+    const result = started.json() as { connectionId: string; run: { state: string; trigger: string } };
+    expect(result.run).toMatchObject({ state: 'QUEUED', trigger: 'MANUAL' });
+    const connection = await app.inject({
+      method: 'GET',
+      url: `/v1/imports/connections/${result.connectionId}`,
+      headers,
+    });
+    expect(connection.json()).toMatchObject({
+      connector: 'sheet-mapped',
+      url: `upload://${sheet.fileId}`,
+      scheduleMinutes: null,
+      enabled: true,
+    });
+    const profiles = await app.inject({
+      method: 'GET',
+      url: '/v1/imports/mapping-profiles?connector=sheet-mapped',
+      headers,
+    });
+    expect(profiles.json()).toMatchObject({ items: [{ name: 'Spring sheet', connector: 'sheet-mapped' }] });
+    // the XML profile list stays free of file profiles
+    const xmlProfiles = await app.inject({ method: 'GET', url: '/v1/imports/mapping-profiles', headers });
+    expect((xmlProfiles.json() as { items: unknown[] }).items).toEqual([]);
   });
 });

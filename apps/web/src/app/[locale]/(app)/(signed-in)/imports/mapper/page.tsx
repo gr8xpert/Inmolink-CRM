@@ -4,9 +4,16 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { MapperEntry } from './mapper-entry';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** The visual XML mapper (S6-04). Admins only; the API refuses everyone else. */
-export default async function MapperPage() {
+export default async function MapperPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const locale = await getLocale();
+  const connection = (await searchParams).connection;
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const t = await getTranslations('imports.mapper');
@@ -21,7 +28,12 @@ export default async function MapperPage() {
         </Link>
       </div>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
-      <MapperEntry messages={messages.imports.mapper} locales={locales} defaultLocale={DEFAULT_CONTENT_LOCALE} />
+      <MapperEntry
+        messages={messages.imports.mapper}
+        locales={locales}
+        defaultLocale={DEFAULT_CONTENT_LOCALE}
+        connectionId={connection && UUID.test(connection) ? connection : undefined}
+      />
     </div>
   );
 }

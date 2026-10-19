@@ -9,6 +9,9 @@ import type {
 } from '@inmolink/contracts';
 import {
   MAPPER_SAMPLE,
+  SHEET_MAX_COLUMNS,
+  SHEET_MAX_ROWS,
+  SHEET_UPLOAD_MAX_BYTES,
   XML_MAPPED_ENUM_FIELDS,
   XML_MAPPED_FIELDS,
   type XmlMappedField,
@@ -17,7 +20,14 @@ import { Button, Input, Label } from '@inmolink/ui';
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { makeT } from '../../listings/values';
-import { dryRunAction, type MapperResult, previewAction, sampleUrlAction, saveProfileAction } from './actions';
+import {
+  dryRunAction,
+  type MapperResult,
+  previewAction,
+  sampleUrlAction,
+  saveProfileAction,
+  startSheetImportAction,
+} from './actions';
 import {
   CONSTANT,
   type FieldState,
@@ -38,17 +48,23 @@ interface Props {
   messages: Record<string, unknown>;
   locales: string[];
   defaultLocale: string;
+  /** A CSV / Excel connection to give the next file to (from "upload a new file"): its listings are updated, not duplicated. */
+  connectionId?: string | undefined;
 }
 
 const SELECT = 'h-9 w-full rounded-md border bg-background px-2 text-sm';
 const REQUIRED: readonly XmlMappedField[] = ['ref', 'propertyType'];
 
+/** The upload decides by name only where to send the file; the API decides what it is by its first bytes. */
+const isSheetName = (name: string) => /\.(csv|xlsx|xls|txt)$/i.test(name);
+
 async function uploadSample(file: File, recordElement?: string): Promise<MapperResult<MapperSampleDto>> {
   const qs = new URLSearchParams(recordElement ? { recordElement } : {});
+  const sheet = isSheetName(file.name);
   try {
-    const res = await fetch(`/api/imports/mapper/sample?${qs}`, {
+    const res = await fetch(sheet ? '/api/imports/sheet' : `/api/imports/mapper/sample?${qs}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/xml' },
+      headers: { 'content-type': sheet ? 'application/octet-stream' : 'application/xml' },
       body: file,
     });
     return (await res.json()) as MapperResult<MapperSampleDto>;
@@ -57,7 +73,7 @@ async function uploadSample(file: File, recordElement?: string): Promise<MapperR
   }
 }
 
-export default function MapperPanel({ messages, locales, defaultLocale }: Props) {
+export default function MapperPanel({ messages, locales, defaultLocale, connectionId }: Props) {
   const t = makeT(messages);
   const router = useRouter();
   const ids = useId();
@@ -129,7 +145,7 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
   const dryRun = () =>
     start(async () => {
       if (!sample || !mapping) return;
-      const res = await dryRunAction({ mapping, records: sample.records });
+      const res = await dryRunAction({ mapping, records: sample.records, ...(connectionId ? { connectionId } : {}) });
       if (res.ok) {
         setReport(res.data);
         setError(null);
@@ -154,6 +170,19 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
       router.push(`/imports/new?${qs}`);
     });
 
+  const importSheet = () =>
+    start(async () => {
+      if (!mapping || !name.trim() || !sample?.sheet) return;
+      const res = await startSheetImportAction({
+        fileId: sample.sheet.fileId,
+        name: name.trim(),
+        mapping,
+        ...(connectionId ? { connectionId } : {}),
+      });
+      if (!res.ok) return setError(errorText(res));
+      router.push(`/imports/${res.data.connectionId}`);
+    });
+
   const paths = sample?.paths ?? [];
   const byPath = new Map<string, MapperPathDto>(paths.map((p) => [p.path, p]));
   const sampleLine = (path: string) => {
@@ -170,6 +199,13 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
         <p className="text-sm text-muted-foreground">
           {t('sampleHint', { mb: String(MAPPER_SAMPLE.maxBytes / 1024 / 1024) })}
         </p>
+        <p className="text-sm text-muted-foreground">
+          {t('sheetHint', {
+            mb: String(SHEET_UPLOAD_MAX_BYTES / 1024 / 1024),
+            rows: String(SHEET_MAX_ROWS),
+            columns: String(SHEET_MAX_COLUMNS),
+          })}
+        </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor={`${ids}-file`}>{t('upload')}</Label>
@@ -177,7 +213,7 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
               id={`${ids}-file`}
               ref={fileInput}
               type="file"
-              accept=".xml,text/xml,application/xml"
+              accept=".xml,.csv,.xlsx,text/xml,application/xml,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               className="text-sm"
             />
@@ -221,13 +257,15 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
         <>
           <section className="flex flex-col gap-3" aria-labelledby={`${ids}-record`}>
             <h2 id={`${ids}-record`} className="text-lg font-medium">
-              {t('step2')}
+              {sample.sheet ? t('step2Sheet') : t('step2')}
             </h2>
             <p className="text-sm text-muted-foreground" data-testid="sample-summary">
-              {t('detected', { element: sample.recordElement, count: String(sample.recordCount) })}
+              {sample.sheet
+                ? t('detectedSheet', { count: String(sample.recordCount), columns: String(sample.paths.length) })
+                : t('detected', { element: sample.recordElement, count: String(sample.recordCount) })}
               {sample.truncated ? ` ${t('truncated')}` : ''}
             </p>
-            <div className="flex max-w-sm flex-col gap-2">
+            <div className="flex max-w-sm flex-col gap-2" hidden={Boolean(sample.sheet)}>
               <Label htmlFor={`${ids}-record-element`}>{t('recordElement')}</Label>
               <select
                 id={`${ids}-record-element`}
@@ -561,11 +599,17 @@ export default function MapperPanel({ messages, locales, defaultLocale }: Props)
             <Label htmlFor={`${ids}-name`}>{t('profileName')}</Label>
             <Input id={`${ids}-name`} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
             <div>
-              <Button type="button" disabled={!mapping || !name.trim() || busy} onClick={save}>
-                {t('save')}
-              </Button>
+              {sample.sheet ? (
+                <Button type="button" disabled={!mapping || !name.trim() || busy} onClick={importSheet}>
+                  {t('importSheet')}
+                </Button>
+              ) : (
+                <Button type="button" disabled={!mapping || !name.trim() || busy} onClick={save}>
+                  {t('save')}
+                </Button>
+              )}
             </div>
-            <p className="text-xs text-muted-foreground">{t('saveHint')}</p>
+            <p className="text-xs text-muted-foreground">{sample.sheet ? t('importSheetHint') : t('saveHint')}</p>
           </section>
         </>
       ) : null}

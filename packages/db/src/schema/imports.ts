@@ -109,7 +109,11 @@ export const feedConnections = pgTable(
     }),
     check('feed_connections_name_ck', sql`char_length(${t.name}) between 1 and 120`),
     check('feed_connections_connector_ck', sql`${t.connector} ~ '^[a-z][a-z0-9-]{1,31}$'`),
-    check('feed_connections_url_ck', sql`${t.url} ~ '^https?://' and char_length(${t.url}) <= 2048`),
+    // https feeds; an uploaded sheet is kept by file id (S6-05)
+    check(
+      'feed_connections_url_ck',
+      sql`(${t.url} ~ '^https?://' or (${t.connector} = 'sheet-mapped' and ${t.url} ~ '^upload://[0-9a-f-]{36}$')) and char_length(${t.url}) <= 2048`,
+    ),
     check(
       'feed_connections_schedule_ck',
       sql`${t.scheduleMinutes} is null or ${t.scheduleMinutes} between 15 and 10080`,

@@ -57,6 +57,8 @@ export {
   requestFeedRun,
   updateFeedConnection,
 } from './service';
+export { sheetKey, sheetMappedConnector } from './sheet/connector';
+export { startSheetImport, uploadSheet } from './sheet/service';
 export { registerImportsSubscriptions } from './subscriptions';
 export { xmlMappedConnector } from './xml-mapped/connector';
 // Never export repo or schema from index.

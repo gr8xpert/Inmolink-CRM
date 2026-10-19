@@ -32,8 +32,8 @@ test('[S6-04] map a non-Kyero feed to a profile in the mapper and import it with
 
   // 1. A sample: the uploaded file is read, the repeating record element found.
   await page.goto('/en/imports/mapper');
-  await expect(page.getByRole('heading', { level: 1, name: 'Map an XML feed' })).toBeVisible();
-  await page.getByLabel('XML file').setInputFiles(FIXTURE);
+  await expect(page.getByRole('heading', { level: 1, name: 'Map a feed or a spreadsheet' })).toBeVisible();
+  await page.getByLabel('XML, CSV or Excel file').setInputFiles(FIXTURE);
   await page.getByRole('button', { name: 'Read the file' }).click();
   await expect(page.getByTestId('sample-summary')).toContainText('The feed repeats the element object; 4 of them');
 
@@ -103,4 +103,53 @@ test('[S6-04] map a non-Kyero feed to a profile in the mapper and import it with
   // 7. The refused item is listed with its problem.
   await page.getByRole('link', { name: 'Show refused items' }).click();
   await expect(page.getByRole('row', { name: /CD-1003/ })).toContainText('INVALID_PRICE');
+});
+
+test('[S6-05] import a CSV file through the mapper: upload, map columns, import, per-row errors', async ({ page }) => {
+  test.setTimeout(240_000);
+  const admin = await seedImportAdmin();
+  await login(page, admin.email);
+
+  await page.goto('/en/imports/mapper');
+  const csv = [
+    'Ref;Type;Price;Country',
+    'CSV-1;E2E Villa;250000;E2E Listland',
+    'CSV-2;E2E Villa;abc;E2E Listland',
+    'CSV-3;E2E Villa;=1+1;E2E Listland',
+  ].join('\r\n');
+  await page
+    .getByLabel('XML, CSV or Excel file')
+    .setInputFiles({ name: 'listings.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByRole('button', { name: 'Read the file' }).click();
+  await expect(page.getByTestId('sample-summary')).toContainText(
+    'The file has 4 columns with values; the first 3 rows',
+  );
+
+  // The columns are the paths; the guesses start from their names.
+  await expect(field(page, 'Reference')).toHaveValue('Ref');
+  await expect(field(page, 'Property type')).toHaveValue('Type');
+  await expect(field(page, 'Price')).toHaveValue('Price');
+  await field(page, 'Country').selectOption('Country');
+  const preview = page.getByTestId('mapper-preview');
+  await expect(preview.getByRole('row', { name: /CSV-1/ })).toContainText('250,000.00');
+  await expect(preview.getByRole('row', { name: /CSV-2/ })).toContainText('INVALID_PRICE');
+
+  await page.getByRole('button', { name: 'Run a dry run' }).click();
+  await expect(page.getByTestId('dry-run-report')).toContainText('3 listings read: 1 would be created');
+
+  // Import: the file gets a connection and a run in the worker.
+  await page.getByLabel('Name of the mapping profile').fill(`CSV listings ${Date.now().toString(36)}`);
+  await page.getByRole('button', { name: 'Import the file' }).click();
+  await expect(page).toHaveURL(/\/imports\/[0-9a-f-]{36}$/);
+  const runs = page.getByTestId('feed-runs');
+  await expect(async () => {
+    await page.reload();
+    await expect(runs.getByRole('row').nth(1)).toContainText('Done');
+  }).toPass({ timeout: 90_000, intervals: [2_000] });
+  // read 3, valid 1, refused 2 (a text price, and a price that starts with "=": data, not a formula), new 1
+  const cells = await runs.getByRole('row').nth(1).getByRole('cell').allInnerTexts();
+  expect(cells.slice(4, 12)).toEqual(['3', '1', '2', '1', '0', '0', '0', '0']);
+  await page.getByRole('link', { name: 'Show refused items' }).click();
+  await expect(page.getByRole('row', { name: /CSV-2/ })).toContainText('INVALID_PRICE');
+  await expect(page.getByRole('row', { name: /CSV-3/ })).toContainText('INVALID_PRICE');
 });

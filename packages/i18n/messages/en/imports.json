@@ -131,13 +131,13 @@
     "openMapper": "Open the mapper"
   },
   "mapper": {
-    "open": "Map an XML feed",
-    "title": "Map an XML feed",
+    "open": "Map a feed or a spreadsheet",
+    "title": "Map a feed or a spreadsheet",
     "back": "All feeds",
-    "intro": "Connect any XML export without code: read a sample, pick where each listing field lives in it, check the result and save the mapping. Nothing is imported until you connect a feed with the saved profile.",
+    "intro": "Connect any XML export, or import a CSV or Excel file, without code: read a sample, pick where each listing field lives in it, check the result and save the mapping. Feeds are imported once you connect them with the saved profile; a file is imported when you press the button at the end.",
     "step1": "1. Read a sample",
-    "sampleHint": "Upload an XML file or give the address of the feed. Only the first {mb} MB are read.",
-    "upload": "XML file",
+    "sampleHint": "Upload an XML, CSV or Excel (.xlsx) file, or give the address of an XML feed. For a feed only the first {mb} MB are read.",
+    "upload": "XML, CSV or Excel file",
     "readFile": "Read the file",
     "fromUrl": "Or the address of the feed",
     "readUrl": "Read the address",
@@ -226,12 +226,12 @@
       "FORBIDDEN": "Only agency admins can map feeds.",
       "VALIDATION_FAILED": "The request was not valid.",
       "FEED_URL_NOT_ALLOWED": "This address is not allowed (private or internal networks are refused).",
-      "FEED_SAMPLE_INVALID": "This sample cannot be read as an XML feed.",
+      "FEED_SAMPLE_INVALID": "This file cannot be read as a feed or a spreadsheet.",
       "FEED_MAPPING_INVALID": "The mapping is not valid yet. Check the paths and the required fields.",
       "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
       "RATE_LIMITED": "Too many samples at once. Wait a moment and try again.",
       "PAYLOAD_TOO_LARGE": "The file is larger than the sample limit.",
-      "UNSUPPORTED_MEDIA_TYPE": "Send the file as XML.",
+      "UNSUPPORTED_MEDIA_TYPE": "Send the file as XML, CSV or Excel.",
       "reason": {
         "NOT_XML": "The file does not start like an XML document.",
         "EMPTY": "The file is empty.",
@@ -241,8 +241,27 @@
         "CONTENT_TYPE": "The address did not return XML.",
         "HTTP_404": "The address was not found.",
         "HTTP_401": "The feed asked for a login.",
-        "HTTP_403": "The feed refused access."
-      }
-    }
-  }
+        "HTTP_403": "The feed refused access.",
+        "NOT_SHEET": "This is not a CSV or Excel file.",
+        "NOT_TEXT": "The file is binary, not a text CSV. Save it as CSV or Excel (.xlsx).",
+        "UNSUPPORTED_XLS": "Old .xls files and password-protected workbooks cannot be read. Save it as .xlsx or CSV.",
+        "ENCRYPTED": "Password-protected files cannot be read.",
+        "BAD_ZIP": "The Excel file is damaged or not an .xlsx file.",
+        "ZIP_BOMB": "The Excel file is too large once unpacked.",
+        "NO_SHEET": "The workbook has no visible sheet.",
+        "TOO_MANY_ROWS": "The file has too many rows.",
+        "TOO_MANY_COLUMNS": "The file has too many columns.",
+        "CELL_TOO_LARGE": "A cell holds too much text.",
+        "TOO_LARGE": "The file is larger than the limit."
+      },
+      "FEED_RUN_ACTIVE": "An import of this file is already running. Wait until it ends.",
+      "VERSION_CONFLICT": "This connection was changed by someone else. Reload and try again."
+    },
+    "sheetHint": "A CSV or Excel file is read from its first row, which must hold the column names; only the first sheet is read, up to {mb} MB, {rows} rows and {columns} columns. Formulas are read as the values Excel saved. Spreadsheet text is never run as a formula.",
+    "step2Sheet": "2. The columns",
+    "detectedSheet": "The file has {columns} columns with values; the first {count} rows are in the sample.",
+    "importSheet": "Import the file",
+    "importSheetHint": "The import runs in the background. You will see each row that could not be imported, with the reason, on the next page."
+  },
+  "uploadNew": "Upload a new file"
 }
