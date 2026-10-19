@@ -25,6 +25,8 @@ export function summary(results: readonly GroupResult[]): string {
 /** One `vitest run --project … --reporter=dot` for a group, output inherited. */
 export const vitestGroup: RunGroup = (projects) => {
   const args = ['exec', 'vitest', 'run', ...projects.flatMap((p) => ['--project', p]), '--reporter=dot'];
+  // on CI also annotate failures: job logs need a GitHub login, annotations do not
+  if (process.env.GITHUB_ACTIONS === 'true') args.push('--reporter=github-actions');
   // `shell` so Windows resolves pnpm's `.cmd` shim; the arguments are fixed project names.
   const res = spawnSync('pnpm', args, { stdio: 'inherit', shell: process.platform === 'win32' });
   return { code: res.status, ...(res.error ? { error: res.error.message } : {}) };
