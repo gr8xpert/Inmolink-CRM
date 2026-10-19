@@ -476,8 +476,9 @@ export const tenantTables: Record<string, TenantTable> = {
     userReadOnly: true,
     publicReadSql: 'public',
     // Index-only: who a PRIVATE_NETWORK development is shared with, and a listing's share scope (security review);
-    // unreadable by app_user and app_public alike (S6-F1).
-    hiddenColumns: ['share_scope', 'allowed_agency_ids'],
+    // unreadable by app_user and app_public alike (S6-F1). S6-F2: the owner's preferred list (on its PREFERRED
+    // listings) and the freshness flag are index-only too.
+    hiddenColumns: ['share_scope', 'allowed_agency_ids', 'network_hidden', 'preferred_agency_ids'],
     networkReadSql: `(kind = 'LISTING' and exists (select 1 from public.properties p where p.id = listing_read_models.target_id))
       or (kind = 'UNIT' and exists (select 1 from public.units u where u.id = listing_read_models.target_id))`,
     base: {

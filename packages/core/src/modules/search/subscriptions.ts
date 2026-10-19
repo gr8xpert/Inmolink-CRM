@@ -28,7 +28,9 @@ const { developmentsEvents } = developments;
  * changed; a unit created, edited, repriced or deleted; a price list approved (all its development's units); a
  * development's text, place or access changed or the
  * development deleted (all its units); the agency's content locales changed (all its documents); the agency's status
- * changed (S6-F1: all its targets, queued in `read_model_queue` — whether they are public follows it). The rebuild reads
+ * changed (S6-F1: all its targets, queued in `read_model_queue` — whether they are public follows it); the agency's
+ * preferred list changed (S6-F2: its PREFERRED listings, whose documents name the agencies it prefers). The rebuild
+ * reads
  * current state, so a duplicate or late event costs one rebuild and changes nothing. The tenant is `meta.agencyId`
  * (RLS-checked when the event was written), the fair-share group. Called once by the worker.
  *
@@ -89,6 +91,23 @@ export function registerSearchSubscriptions(): void {
         await queueAgencyReadModels(payload.agencyId);
       },
       { name: 'search.readModel.agencyStatus' },
+    ),
+    // S6-F2: the owner's PREFERRED listings' documents name the agencies it prefers (network search filters on them).
+    subscribe(
+      agencies.agenciesEvents.preferredAdded,
+      async (_payload, meta) => {
+        // The tenant that wrote the event (RLS-checked): the owner whose list changed.
+        await queueAgencyReadModels(meta.agencyId, { preferredOnly: true });
+      },
+      { name: 'search.readModel.preferredAdded' },
+    ),
+    subscribe(
+      agencies.agenciesEvents.preferredRemoved,
+      async (_payload, meta) => {
+        // The tenant that wrote the event (RLS-checked): the owner whose list changed.
+        await queueAgencyReadModels(meta.agencyId, { preferredOnly: true });
+      },
+      { name: 'search.readModel.preferredRemoved' },
     ),
   ];
 }

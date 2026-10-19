@@ -65,6 +65,11 @@ export interface ReadModelOwner {
    * unlisted owner's PUBLIC listings and OPEN-development units leave the public read models and the PUBLIC index.
    */
   publishes: boolean;
+  /**
+   * The agencies it prefers, sorted (S6-F2): its PREFERRED listings' index documents name them, so network search
+   * filters on the viewer being one instead of passing every owner that prefers the viewer.
+   */
+  preferred: string[];
 }
 
 /**
@@ -73,7 +78,7 @@ export interface ReadModelOwner {
  */
 export async function readModelOwnersOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, ReadModelOwner>> {
   const rows = await repo.readModelOwners(tx, [...new Set(agencyIds)]);
-  return new Map(rows.map((r) => [r.agencyId, { locales: r.locales, publishes: r.verified }]));
+  return new Map(rows.map((r) => [r.agencyId, { locales: r.locales, publishes: r.verified, preferred: r.preferred }]));
 }
 
 /**

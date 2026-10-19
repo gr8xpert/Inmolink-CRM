@@ -34,6 +34,10 @@ export interface BuiltDoc {
   shareScope: 'ALL' | 'PREFERRED' | null;
   /** A PRIVATE_NETWORK unit's allowed agencies, sorted (network search filter, S5-05); null otherwise. Never inside the documents. */
   allowedAgencyIds: string[] | null;
+  /** A PUBLIC listing hidden from the network for freshness (S6-F2); false for units. Never inside the documents. */
+  networkHidden: boolean;
+  /** A PREFERRED listing: the agencies its owner prefers, sorted (S6-F2); else null. Never inside the documents. */
+  preferredAgencyIds: string[] | null;
   version: number;
   card: ListingCardDoc | UnitCardDoc;
   detail: ListingDetailDoc | UnitDetailDoc;
@@ -89,10 +93,14 @@ function coverOf(items: readonly ReadModelMedia[]): ReadModelImage | null {
   return images.find((m) => m.cover) ?? images[0] ?? null;
 }
 
-/** The owner agency as documents need it: its content locales, and whether it may publish (S6-F1: VERIFIED). */
+/**
+ * The owner agency as documents need it: its content locales, whether it may publish (S6-F1: VERIFIED) and the
+ * agencies it prefers (S6-F2: its PREFERRED listings' network filter).
+ */
 export interface DocOwner {
   locales: readonly string[];
   publishes: boolean;
+  preferred: readonly string[];
 }
 
 export function buildListingDocs(
@@ -155,6 +163,8 @@ export function buildListingDocs(
       status: l.status,
       shareScope: l.shareScope,
       allowedAgencyIds: null,
+      networkHidden: l.networkHidden,
+      preferredAgencyIds: l.shareScope === 'PREFERRED' ? [...owner.preferred].sort() : null,
       version: l.version,
       card,
       detail,
@@ -212,6 +222,8 @@ export function buildUnitDocs(
       status: u.status,
       shareScope: null,
       allowedAgencyIds: d.open ? null : [...d.allowedAgencyIds].sort(),
+      networkHidden: false,
+      preferredAgencyIds: null,
       version: u.version,
       card,
       detail,

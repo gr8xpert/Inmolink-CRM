@@ -63,6 +63,17 @@ export const listingReadModels = pgTable(
      */
     allowedAgencyIds: uuid('allowed_agency_ids').array(),
     /**
+     * A PUBLIC listing hidden from the network for going unconfirmed (S3-08 freshness; S6-F2): network search leaves
+     * it out in the engine, so its pages are full and its totals right. A SHARED one has no read model then. Always
+     * false for units. Index-only: never inside the documents.
+     */
+    networkHidden: boolean('network_hidden').notNull().default(false),
+    /**
+     * A listing shared to PREFERRED: the agencies its owner prefers (≤ `MAX_PREFERRED_AGENCIES`), sorted — network
+     * search filters on the viewer being among them (S6-F2); null otherwise. Index-only: never inside the documents.
+     */
+    preferredAgencyIds: uuid('preferred_agency_ids').array(),
+    /**
      * Monotonic source version: the listing's `version`, or a unit's `version` + its development's `version`
      * (both only grow). An upsert never lowers it (PATTERNS §14).
      */

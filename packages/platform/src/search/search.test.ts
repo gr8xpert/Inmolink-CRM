@@ -52,6 +52,12 @@ describe('platform/search filters', () => {
     expect(() => compileFilter(def, { op: 'in', field: 'tags', values: [] })).toThrow(/empty/);
     expect(() => compileFilter({ ...def, geo: false }, { op: 'geoRadius', lat: 1, lng: 1, meters: 1 })).toThrow(/geo/);
   });
+
+  it('[S6-F2] gt compares strings (keyset walks) on comparable fields only, quoted', () => {
+    expect(compileFilter(def, { op: 'gt', field: 'price', value: 'a"b' })).toBe('price > "a\\"b"');
+    expect(compileFilter(def, { op: 'gt', field: 'price', value: 5 })).toBe('price > 5');
+    expect(() => compileFilter(def, { op: 'gt', field: 'status', value: 'x' })).toThrow(/not comparable/);
+  });
 });
 
 describe('platform/search settings', () => {

@@ -86,5 +86,12 @@ describe('fallback filter → SQL', () => {
       }),
     ).toThrow(SearchError);
     expect(() => fallbackSearchSql({ ...base, sort: { field: 'ref', dir: 'asc' } })).toThrow(SearchError);
+    // S6-F2: no page of the fallback is an SQL OFFSET (an engine cursor restarts at the first page instead).
+    expect(first).not.toMatch(/\boffset\b/i);
+    expect(nulls).not.toMatch(/\boffset\b/i);
+  });
+
+  it('[S6-F2] gt (keyset walks of the engine) is refused by the fallback', () => {
+    expect(() => fallbackCondition({ op: 'gt', field: 'publishedAt', value: 1 })).toThrow(SearchError);
   });
 });

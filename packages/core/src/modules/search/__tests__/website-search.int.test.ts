@@ -335,10 +335,11 @@ describe('website search', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
-  it('[S5-04] an engine cursor continues in the fallback when the engine goes away mid-pagination', async () => {
+  it('[S6-F2] an engine cursor continuing in the fallback restarts at its first keyset page, flagged as changed results', async () => {
     search.resetSearchBreaker();
     const page1 = await search.searchPublicListings(ours(), site({ sort: 'price_asc', limit: 2 }), { engine: real() });
     expect(page1.backend).toBe('engine');
+    expect(page1.resultsChanged).toBeUndefined();
     const page2 = await search.searchPublicListings(
       ours(),
       site({ sort: 'price_asc', limit: 2, cursor: page1.nextCursor ?? '' }),
@@ -346,12 +347,14 @@ describe('website search', () => {
         engine: stopped(),
       },
     );
-    expect(page2).toMatchObject({ backend: 'fallback', ids: [L.mid, L.dear] });
+    // No SQL OFFSET: the fallback's own first page again, and the site is told the results changed.
+    expect(page2).toMatchObject({ backend: 'fallback', ids: page1.ids, resultsChanged: true });
     const page3 = await search.searchPublicListings(
       ours(),
       site({ sort: 'price_asc', limit: 2, cursor: page2.nextCursor ?? '' }),
     );
-    expect(page3).toMatchObject({ backend: 'fallback', ids: [L.onRequest], nextCursor: null });
+    expect(page3).toMatchObject({ backend: 'fallback', ids: [L.mid, L.dear] });
+    expect(page3.resultsChanged).toBeUndefined();
   });
 
   it('[S5-04] the map box finds the same listings in both backends', async () => {
@@ -386,11 +389,12 @@ describe('website search', () => {
       search.searchPublicListings(ours(), { ...site(), ownerAgencyIds: [b.agencyId] } as PublicListingSearch),
     ).rejects.toThrow();
     await expect(search.searchPublicListings(ours(), site({ statuses: ['WITHDRAWN' as 'ACTIVE'] }))).rejects.toThrow();
-    // An engine cursor deeper than the fallback pages: the end of the results, not a 10,000-row offset scan.
+    // A deep engine cursor: the fallback's first page, flagged (S6-F2) — never a 5,000-row offset scan.
     const deep = await search.searchPublicListings(ours(), site({ cursor: forge({ s: 'newest', o: 5_000 }) }), {
       engine: stopped(),
     });
-    expect(deep).toMatchObject({ backend: 'fallback', ids: [], nextCursor: null });
+    const first = await search.searchPublicListings(ours(), site(), { engine: stopped() });
+    expect(deep).toMatchObject({ backend: 'fallback', ids: first.ids, resultsChanged: true });
   });
 
   it('[S5-04] a reference typed in the search box is found by the fallback; other text finds nothing', async () => {
@@ -528,7 +532,7 @@ describe('owner agency status', () => {
     const targets = await rows<{ n: number }>(
       sql`select count(distinct target_id)::int as n from listing_read_models where agency_id = ${a.agencyId}`,
     );
-    expect(await search.queueAgencyReadModelChanges(a.agencyId, 60_000, 2)).toBe(targets[0]?.n);
+    expect(await search.queueAgencyReadModelChanges(a.agencyId, 60_000, { pageSize: 2 })).toBe(targets[0]?.n);
     const queued = await rows<{ n: number }>(
       sql`select count(*)::int as n from read_model_queue where owner_agency_id = ${a.agencyId}`,
     );

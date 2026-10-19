@@ -8,7 +8,6 @@ export { agenciesEvents } from './events';
 export { agenciesJobs } from './jobs';
 export {
   getNetworkStanding,
-  NETWORK_PREFERRING_CAP,
   type NetworkStanding,
   networkAgencyNames,
   setGiveToGetExemption,

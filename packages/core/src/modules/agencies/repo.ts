@@ -4,6 +4,7 @@ import {
   agencySettings,
   agencyVerificationDocuments,
   agencyVerificationRequests,
+  preferredAgencies,
 } from '@inmolink/db/schema/agencies';
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
@@ -416,6 +417,9 @@ export async function readModelOwners(tx: Tx, ids: readonly string[]) {
       agencyId: agencySettings.agencyId,
       locales: agencySettings.enabledLocales,
       verified: sql<boolean>`${agencies.status} = 'VERIFIED'`,
+      // S6-F2: the agencies it prefers (≤ MAX_PREFERRED_AGENCIES, PK range), on its PREFERRED listings' documents.
+      preferred: sql<string[]>`array(select p.preferred_agency_id::text from ${preferredAgencies} p
+        where p.agency_id = ${agencySettings.agencyId} order by 1)`,
     })
     .from(agencySettings)
     .innerJoin(agencies, eq(agencies.id, agencySettings.agencyId))

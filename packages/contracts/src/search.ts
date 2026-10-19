@@ -223,6 +223,12 @@ export const PublicListingSearchResult = z.object({
   nextCursor: Cursor.nullable(),
   /** Who answered: the search engine, or the Postgres fallback (simpler ranking, no facets). */
   backend: z.enum(['engine', 'fallback']),
+  /**
+   * True when the results changed under the visitor's pagination (S6-F2): an engine cursor reached the fallback, which
+   * pages in its own order, so this is the fallback's first page again — a site shows it as fresh results, not as
+   * the next page. Absent otherwise.
+   */
+  resultsChanged: z.literal(true).optional(),
 });
 export type PublicListingSearchResult = z.infer<typeof PublicListingSearchResult>;
 

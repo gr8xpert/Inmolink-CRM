@@ -81,6 +81,7 @@ function doc(i: number): search.ListingIndexDoc {
   for (let k = Math.floor(r() * 9); k > 0; k--) features.add(feature(Math.floor(r() * FEATURES)));
   const priceCents = Math.round(Math.exp(11.5 + r() * 2.5)) * 100;
   const onRequest = r() < 0.03;
+  const shareScope = r() < 0.8 ? 'ALL' : 'PREFERRED';
   return {
     id: uuid(9, i),
     kind: r() < 0.9 ? 'LISTING' : 'UNIT',
@@ -88,8 +89,14 @@ function doc(i: number): search.ListingIndexDoc {
     developmentId: null,
     status: r() < 0.85 ? 'ACTIVE' : r() < 0.5 ? 'UNDER_OFFER' : 'SOLD',
     visibility: v < 0.6 ? 'PUBLIC' : v < 0.95 ? 'SHARED' : 'RESTRICTED',
-    shareScope: r() < 0.8 ? 'ALL' : 'PREFERRED',
+    shareScope,
     allowedAgencyIds: [],
+    networkHidden: false,
+    // S6-F2: a PREFERRED listing names the agencies its owner prefers
+    preferredAgencyIds:
+      shareScope === 'PREFERRED'
+        ? [...new Set(Array.from({ length: 5 }, () => agency(Math.floor(r() * AGENCIES))))].sort()
+        : [],
     transactionType: r() < 0.8 ? 'SALE' : 'RENT_LONG_TERM',
     propertyTypeId: type(Math.floor(r() * TYPES)),
     locationIds: [COUNTRY, region(Math.floor(c / CITIES_PER_REGION)), city(c), area(a)],
@@ -181,7 +188,7 @@ function query(i: number): SearchQuery {
         sort: [{ field: 'publishedAt', dir: 'desc' }],
         limit: 24,
       };
-    case 2: // network search: shared to everyone or by preferring owners, in a region, with a feature
+    case 2: // network search: shared to everyone or by an owner preferring the viewer, in a region, with a feature
       return {
         filter: {
           op: 'and',
@@ -191,13 +198,10 @@ function query(i: number): SearchQuery {
               op: 'or',
               filters: [
                 { op: 'eq', field: 'shareScope', value: 'ALL' },
-                {
-                  op: 'in',
-                  field: 'ownerAgencyId',
-                  values: Array.from({ length: 20 }, () => agency(Math.floor(r() * AGENCIES))),
-                },
+                { op: 'eq', field: 'preferredAgencyIds', value: agency(Math.floor(r() * AGENCIES)) },
               ],
             },
+            { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
             { op: 'eq', field: 'transactionType', value: 'SALE' },
             { op: 'eq', field: 'locationIds', value: region(Math.floor(r() * REGIONS)) },
             { op: 'eq', field: 'featureIds', value: feature(Math.floor(r() * FEATURES)) },

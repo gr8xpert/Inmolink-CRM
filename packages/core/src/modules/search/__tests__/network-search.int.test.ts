@@ -2,7 +2,7 @@ import {
   CreateDevelopmentBody,
   CreateListingBody,
   CreateUnitsBody,
-  type NetworkSearchBody,
+  NetworkSearchBody,
   type NetworkSearchResult,
   SetDevelopmentAccessBody,
   SetGiveToGetExemptionBody,
@@ -23,6 +23,7 @@ import * as developments from '../../developments';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as search from '../index';
+import { networkFilter } from '../network';
 
 /**
  * Network search (S5-05) on the real test database and Meilisearch: who sees which listings and units, the
@@ -270,6 +271,83 @@ describe('who sees what', () => {
     await expect(search.searchNetwork(client, {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const pending = await createFounder();
     await expect(net(pending)).rejects.toMatchObject({ code: 'VERIFICATION_REQUIRED' });
+  });
+});
+
+describe('index-side access (S6-F2)', () => {
+  /** Rebuilds these listings' read models and pushes their documents (what the queue and the sync do). */
+  const refresh = async (...listingIds: string[]) => {
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', listingIds));
+    await search.syncIndex();
+  };
+
+  it('[S6-F2] a freshness-hidden listing is not counted in a network search total', async () => {
+    const before = ok(await net(v));
+    expect(before.items.map((i) => i.id)).toContain(L.aPublic);
+    expect(before.total).toBe(before.items.length);
+    // a's PUBLIC listing goes unconfirmed past 120 days: hidden from the network (S3-08), still on a's own channels.
+    await rows(sql`update properties set network_hidden_at = now() where id = ${L.aPublic}`);
+    try {
+      await refresh(L.aPublic as string);
+      const [rm] = await rows<{ public: boolean; network_hidden: boolean }>(
+        sql`select public, network_hidden from listing_read_models where target_id = ${L.aPublic} limit 1`,
+      );
+      expect(rm).toEqual({ public: true, network_hidden: true });
+      expect(await real().fetch(UID, [L.aPublic as string], ['networkHidden'])).toEqual([{ networkHidden: true }]);
+
+      const after = ok(await net(v));
+      expect(after.items.map((i) => i.id)).not.toContain(L.aPublic);
+      // The engine leaves it out: the total counts only what the caller can page to, and the page is full.
+      expect(after.total).toBe(before.total - 1);
+      expect(after.total).toBe(after.items.length);
+      // A page of one is still a full page: the next cursor reaches everything the total counts.
+      const one = ok(await net(v, { limit: 1 }));
+      expect(one.items).toHaveLength(1);
+      // The flag is index-only: a member cannot read it (column grant), like the share scope.
+      await expect(
+        as(v, (ctx) => ctx.tx.execute(sql`select network_hidden from listing_read_models where target_id = ${L.aAll}`)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+    } finally {
+      await rows(sql`update properties set network_hidden_at = null where id = ${L.aPublic}`);
+      await refresh(L.aPublic as string);
+    }
+    expect(idsOf(await net(v))).toContain(L.aPublic);
+  });
+
+  it('[S6-F2] a network search by an agency preferred by 2,001 owners still shows their PREFERRED listings', async () => {
+    const tag = `Filler S6-F2 ${RUN}`;
+    // 2,000 more verified owners prefer v (b is the 2,001st) — past the old 2,000-owner filter cap.
+    await rows(sql`
+      with filler as (
+        insert into agencies (agency_id, kind, status, name)
+        select gen_random_uuid(), 'AGENCY', 'VERIFIED', ${tag} || ' ' || g from generate_series(1, 2000) g
+        returning agency_id)
+      insert into preferred_agencies (agency_id, preferred_agency_id)
+      select agency_id, ${v.agencyId}::uuid from filler`);
+    try {
+      const [{ n } = { n: 0 }] = await rows<{ n: number }>(
+        sql`select count(*)::int as n from preferred_agencies where preferred_agency_id = ${v.agencyId}`,
+      );
+      expect(n).toBe(2_001);
+      const result = ok(await net(v));
+      expect(result.items.map((i) => i.id)).toContain(L.bPreferred);
+      expect(ok(await net(v, { preferredOnly: true })).items.map((i) => i.id)).toEqual([L.bPreferred]);
+      // b's document names the agencies b prefers; the filter names only the caller (no owner list per query).
+      expect(await real().fetch(UID, [L.bPreferred as string], ['preferredAgencyIds'])).toEqual([
+        { preferredAgencyIds: [v.agencyId] },
+      ]);
+      const filter = networkFilter({ self: v.agencyId, preferred: [] }, NetworkSearchBody.parse({}));
+      expect(JSON.stringify(filter)).not.toContain('"ownerAgencyId","values"');
+      // b changing its list re-queues only its PREFERRED listings (their documents carry the list).
+      expect(await search.queueAgencyReadModelChanges(b.agencyId, 60_000, { preferredOnly: true })).toBe(1);
+      expect(await search.queueAgencyReadModelChanges(a.agencyId, 60_000, { preferredOnly: true })).toBe(1);
+    } finally {
+      await rows(sql`delete from read_model_queue where owner_agency_id in (${a.agencyId}, ${b.agencyId})`);
+      await rows(sql`
+        with gone as (delete from preferred_agencies p using agencies g
+          where g.agency_id = p.agency_id and g.name like ${`${tag} %`} returning p.agency_id)
+        delete from agencies where name like ${`${tag} %`}`);
+    }
   });
 });
 

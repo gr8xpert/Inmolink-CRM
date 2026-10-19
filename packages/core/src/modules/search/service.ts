@@ -39,7 +39,7 @@ export interface RebuildResult {
 }
 
 /** An agency without settings: no locales, so no documents. */
-const NO_OWNER: DocOwner = { locales: [], publishes: false };
+const NO_OWNER: DocOwner = { locales: [], publishes: false, preferred: [] };
 
 /** Every content locale these owners use (a batch spans agencies). */
 const localesIn = (owners: Map<string, agencies.ReadModelOwner>) => [
@@ -257,21 +257,24 @@ export const AGENCY_QUEUE_PAGE = 5_000;
 
 /**
  * Queues a rebuild of all of an agency's read-model targets (S6-F1: its status changed, which decides whether they are
- * public), outside any caller transaction: `AGENCY_QUEUE_PAGE` per transaction, so a large agency never makes one
- * long statement. Answers how many were queued.
+ * public) — or, `preferredOnly`, of its listings shared to PREFERRED (S6-F2: its preferred list changed, which their
+ * documents name) — outside any caller transaction: `AGENCY_QUEUE_PAGE` per transaction, so a large agency never
+ * makes one long statement. Answers how many were queued.
  */
 export async function queueAgencyReadModelChanges(
   agencyId: string,
   delayMs: number,
-  pageSize: number = AGENCY_QUEUE_PAGE,
+  options: { pageSize?: number; preferredOnly?: boolean } = {},
 ): Promise<number> {
+  const pageSize = options.pageSize ?? AGENCY_QUEUE_PAGE;
+  const preferredOnly = options.preferredOnly === true;
   let queued = 0;
-  for (const kind of ['LISTING', 'UNIT'] as const) {
+  for (const kind of preferredOnly ? (['LISTING'] as const) : (['LISTING', 'UNIT'] as const)) {
     let after: string | null = null;
     for (;;) {
       const from: string | null = after;
       const page: { queued: number; last: string | null } = await withSystem('search.queueAgencyReadModels', (tx) =>
-        repo.queueAgencyReadModels(tx, { agencyId, kind, after: from, limit: pageSize }, delayMs),
+        repo.queueAgencyReadModels(tx, { agencyId, kind, after: from, limit: pageSize, preferredOnly }, delayMs),
       );
       queued += page.queued;
       if (page.last === null) break;

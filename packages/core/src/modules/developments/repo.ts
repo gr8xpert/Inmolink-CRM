@@ -224,10 +224,13 @@ export async function unitPrices(
     .orderBy(asc(units.ref));
 }
 
-/** Units of the development by id, row-locked (one statement). */
-export async function unitsForUpdate(tx: Tx, developmentId: string, ids: readonly string[]): Promise<UnitRow[]> {
+/**
+ * Units of the development by id, row-locked (one statement): the DTO's columns only — what an edit compares and
+ * audits (`toUnitDto`, status, price, commission), not the agency or creation time (S6-F2).
+ */
+export async function unitsForUpdate(tx: Tx, developmentId: string, ids: readonly string[]): Promise<UnitListRow[]> {
   return tx
-    .select()
+    .select(unitListColumns)
     .from(units)
     .where(and(eq(units.developmentId, developmentId), inArray(units.id, [...ids])))
     .orderBy(asc(units.ref))

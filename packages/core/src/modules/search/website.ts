@@ -244,9 +244,8 @@ function fallbackQuery(q: Parsed, filter: Filter, cursor: CursorState | undefine
     ref: q.text,
     sort: SORTS[q.sort],
     limit: q.limit,
+    // An engine cursor (the engine went away mid-pagination) has no position here: the first keyset page (S6-F2).
     after: cursor && 'p' in cursor ? { phase: cursor.p, value: cursor.v, id: cursor.i } : undefined,
-    // An engine cursor (the engine went away mid-pagination) continues by its offset, capped by `fallback`.
-    offset: cursor && 'o' in cursor ? cursor.o : undefined,
     countCap: FALLBACK_COUNT_CAP,
   };
 }
@@ -278,11 +277,10 @@ async function fallback(
   reason: 'breaker_open' | 'engine_error' | 'cursor',
 ): Promise<PublicListingSearchResult> {
   queries.add(1, { backend: 'fallback', reason });
-  // An engine cursor deeper than the fallback pages (no further than its total cap): the end of the results here,
-  // rather than an offset scan of up to 10,000 rows per request while the fallback carries all traffic.
-  if (cursor && 'o' in cursor && cursor.o >= FALLBACK_COUNT_CAP) {
-    return { ids: [], total: 0, facets: {}, nextCursor: null, backend: 'fallback' };
-  }
+  // An engine cursor (the engine went away mid-pagination) restarts at the fallback's first keyset page, flagged:
+  // the engine's offsets mean nothing in the fallback's order, and an SQL OFFSET would scan up to 10,000 rows per
+  // request while the fallback carries all traffic (S6-F2).
+  const restarted = cursor !== undefined && 'o' in cursor;
   const page = await withPublicRead((tx) => repo.fallbackSearch(tx, fallbackQuery(q, filter, cursor)));
   return {
     ids: page.ids,
@@ -290,5 +288,6 @@ async function fallback(
     facets: {},
     nextCursor: page.next ? encode({ s: q.sort, p: page.next.phase, v: page.next.value, i: page.next.id }) : null,
     backend: 'fallback',
+    ...(restarted ? { resultsChanged: true as const } : {}),
   };
 }

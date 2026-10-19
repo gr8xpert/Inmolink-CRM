@@ -547,6 +547,13 @@
       "when": 1792393432917,
       "tag": "0077_agencies_guard_v5",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792400762120,
+      "tag": "0078_read_model_network_fields",
+      "breakpoints": true
     }
   ]
 }

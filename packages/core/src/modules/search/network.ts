@@ -5,13 +5,15 @@
  * - **Give-to-get:** only an agency with `minShared` ACTIVE listings on the network searches it — or a new one within
  *   its grace period, or one staff exempted (buyer-only). Anyone else gets the upsell state (LOCKED), not results.
  * - **Who sees what:** the engine filter mirrors the network policy — SHARED and PUBLIC listings shared with ALL, or
- *   PREFERRED by an owner that prefers the caller; units of OPEN developments or of the PRIVATE_NETWORK ones shared
- *   with the caller (their documents name the allowed agencies); never the caller's own, never PRIVATE (those have no index document). The engine only finds
+ *   PREFERRED by an owner that prefers the caller (S6-F2: their documents name the agencies the owner prefers, so the
+ *   filter names only the caller, however many owners prefer it), and not hidden for freshness (`networkHidden`);
+ *   units of OPEN developments or of the PRIVATE_NETWORK ones shared with the caller (their documents name the
+ *   allowed agencies); never the caller's own, never PRIVATE (those have no index document). The engine only finds
  *   ids: every result is then read under the caller's RLS (terms and card), so a document the index still holds but
  *   the caller may no longer read (just made PREFERRED, unshared, hidden for freshness, an owner suspended or unlisted)
  *   is left out of the page. So the total is approximate (S6-F1): the engine's estimate of matching documents, which
- *   counts those too — a page can be short, and the total can exceed what paging reaches. S6-F2's `networkHidden`
- *   narrows the engine filter.
+ *   counts those too — a page can be short, and the total can exceed what paging reaches. Freshness-hidden listings are
+ *   left out by the engine itself (S6-F2), so they never shorten a page or count.
  * - **Commission:** the total, the split and the caller's own earnings, from the listing's or unit's own values.
  *
  * Three steps, the engine outside any transaction (CLAUDE.md rule 6): the caller's standing and partners (two
@@ -149,10 +151,9 @@ const UNIT_SPLIT_BP = 10_000;
 
 type Parsed = ReturnType<typeof NetworkSearchBody.parse>;
 
-/** Who the caller is on the network: its own agency, the owners preferring it, its preferred list. */
+/** Who the caller is on the network: its own agency and its preferred list. */
 interface Scope {
   self: string;
-  preferring: string[];
   preferred: string[];
 }
 
@@ -171,9 +172,6 @@ const SORTS = {
 
 /** The documents the caller may see (the network policy as an engine filter) and its query's attributes. */
 export function networkFilter(scope: Scope, q: Parsed): Filter {
-  const ownersPreferringMe: Filter[] = scope.preferring.length
-    ? [{ op: 'in', field: 'ownerAgencyId', values: scope.preferring }]
-    : [];
   const visible: Filter = {
     op: 'or',
     filters: [
@@ -182,7 +180,14 @@ export function networkFilter(scope: Scope, q: Parsed): Filter {
         filters: [
           { op: 'eq', field: 'kind', value: 'LISTING' },
           { op: 'in', field: 'visibility', values: ['PUBLIC', 'SHARED'] },
-          { op: 'or', filters: [{ op: 'eq', field: 'shareScope', value: 'ALL' }, ...ownersPreferringMe] },
+          // PREFERRED: the owner prefers the caller (its document names the agencies it prefers).
+          {
+            op: 'or',
+            filters: [
+              { op: 'eq', field: 'shareScope', value: 'ALL' },
+              { op: 'eq', field: 'preferredAgencyIds', value: scope.self },
+            ],
+          },
         ],
       },
       {
@@ -204,6 +209,8 @@ export function networkFilter(scope: Scope, q: Parsed): Filter {
   const filters: Filter[] = [
     visible,
     { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: scope.self } },
+    // Not `networkHidden = false`: a document indexed before the field existed has none and is not hidden.
+    { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
     { op: 'in', field: 'status', values: q.statuses },
   ];
   if (q.preferredOnly) filters.push({ op: 'in', field: 'ownerAgencyId', values: scope.preferred });
@@ -253,7 +260,7 @@ export async function searchNetwork(
       graceDays,
     });
     if (gate.state === 'LOCKED') return { gate, scope: null };
-    const scope: Scope = { self: ctx.tenant.agencyId, preferring: agency.preferring, preferred: agency.preferred };
+    const scope: Scope = { self: ctx.tenant.agencyId, preferred: agency.preferred };
     return { gate, scope, locale: contentLocaleOf(ctx.locale), requestId: ctx.requestId };
   });
   if (standing.scope === null) return { status: 'LOCKED', gate: standing.gate };

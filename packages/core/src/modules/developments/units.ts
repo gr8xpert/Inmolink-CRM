@@ -44,9 +44,9 @@ const UNIT_AUDIT_IDS = 20;
 async function auditUnitCommission(
   ctx: Ctx,
   developmentId: string,
-  changes: readonly { before: repo.UnitRow; after: repo.UnitRow }[],
+  changes: readonly { before: repo.UnitListRow; after: repo.UnitRow }[],
 ): Promise<void> {
-  const label = (u: repo.UnitRow) => commissionLabel(commissionOf(u, u.currency));
+  const label = (u: repo.UnitListRow) => commissionLabel(commissionOf(u, u.currency));
   const changed = changes.filter((c) => label(c.before) !== label(c.after));
   const first = changed[0];
   if (!first) return;
@@ -110,7 +110,7 @@ function unitPatch(input: UnitPatchInput): Partial<repo.UnitInsert> {
 /** History rows and events for units edited by hand from `before` to `after` (same order, same ids). */
 async function recordUnitChanges(
   ctx: Ctx,
-  pairs: readonly { before: repo.UnitRow; after: repo.UnitRow }[],
+  pairs: readonly { before: repo.UnitListRow; after: repo.UnitRow }[],
 ): Promise<void> {
   const userId = actorId(ctx);
   const prices: Parameters<typeof repo.insertPriceHistories>[1] = [];

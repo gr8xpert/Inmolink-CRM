@@ -9,8 +9,14 @@ const def: IndexDefinition = {
   uid,
   primaryKey: 'id',
   searchable: ['ref', 'title_es', 'title_en'],
-  filterable: [{ field: 'status' }, { field: 'tags' }, { field: 'owner' }, { field: 'price', comparison: true }],
-  sortable: ['price'],
+  filterable: [
+    { field: 'id', comparison: true },
+    { field: 'status' },
+    { field: 'tags' },
+    { field: 'owner' },
+    { field: 'price', comparison: true },
+  ],
+  sortable: ['price', 'id'],
   localized: [
     { fields: ['title_es'], locale: 'es' },
     { fields: ['title_en'], locale: 'en' },
@@ -133,11 +139,19 @@ describe('platform/search (Meilisearch)', () => {
     const fetched = await engine.fetch(uid, ['a', 'zzz'], ['id', 'price']);
     expect(fetched).toEqual([{ id: 'a', price: 500 }]);
     expect(await engine.stats(uid)).toMatchObject({ documents: 3 });
-    // [S5-03] the repair walk pages through every document's id.
-    const first = await engine.browse(uid, { offset: 0, limit: 2, fields: ['id'] });
-    const rest = await engine.browse(uid, { offset: 2, limit: 2, fields: ['id'] });
+    // [S5-03] the repair walk pages through every document's id — [S6-F2] by id, after the last one seen.
+    const first = await engine.browse(def, { after: null, limit: 2, fields: ['id'] });
+    expect(first.results.map((d) => d.id)).toEqual(['a', 'b']);
     expect(first.total).toBe(3);
-    expect([...first.results, ...rest.results].map((d) => d.id).sort()).toEqual(['a', 'b', 'c']);
+    const rest = await engine.browse(def, { after: 'b', limit: 2, fields: ['id'] });
+    expect(rest.results.map((d) => d.id)).toEqual(['c']);
+    await expect(
+      engine.browse({ ...def, sortable: ['price'] }, { after: null, limit: 2, fields: ['id'] }),
+    ).rejects.toThrow(SearchError);
+    const plainKey = def.filterable.map((f) => (f.field === 'id' ? { field: 'id' } : f));
+    await expect(
+      engine.browse({ ...def, filterable: plainKey }, { after: null, limit: 2, fields: ['id'] }),
+    ).rejects.toThrow(/not comparable/);
 
     await engine.waitForTask(await engine.delete(uid, ['a', 'missing']));
     expect(await engine.stats(uid)).toMatchObject({ documents: 2 });

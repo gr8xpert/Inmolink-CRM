@@ -19,7 +19,7 @@
  */
 import { withSystem } from '@inmolink/db';
 import { type SearchEngine, SearchError, searchEngine } from '@inmolink/platform/search';
-import { LISTINGS_INDEX_UID, type ListingIndexDoc } from './index-doc';
+import { LISTINGS_INDEX_UID, type ListingIndexDoc, listingsIndex } from './index-doc';
 import * as repo from './repo';
 import { indexDocsFor } from './service';
 
@@ -224,8 +224,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Repair walk (after drift): every read-model target whose index document is missing or other, and every index
- * document without read models, is queued for the sync. Idempotent; a page per transaction and engine call. Writes
- * during the walk can shift the index's pages (a document skipped): the next check finds it.
+ * document without read models, is queued for the sync. Idempotent; a page per transaction and engine call. Both
+ * sides page by id (S6-F2: the index too, `id > last`, not by offset), so documents deleted during the walk skip
+ * nothing; one added behind the walk's position is the next check's.
  */
 export async function repairIndex(
   options: { engine?: SearchEngine; page?: number; onPage?: (progress: RepairResult) => void | Promise<void> } = {},
@@ -256,8 +257,9 @@ export async function repairIndex(
   }
 
   // Index → read models: documents of targets that have none any more.
-  for (let offset = 0; ; offset += page) {
-    const { results } = await engine.browse(uid, { offset, limit: page, fields: ['id'] });
+  const def = listingsIndex(uid);
+  for (let after: string | null = null; ; ) {
+    const { results } = await engine.browse(def, { after, limit: page, fields: ['id'] });
     if (results.length === 0) break;
     const ids = results.map((d) => String(d.id)).filter((id) => UUID.test(id));
     const orphans = await withSystem('search.repairIndex', async (tx) => {
@@ -270,6 +272,9 @@ export async function repairIndex(
     result.orphans += orphans.length;
     await options.onPage?.({ ...result });
     if (results.length < page) break;
+    const last = results[results.length - 1]?.id;
+    if (last === undefined || last === null) throw new SearchError('repair walk: a document without an id');
+    after = String(last);
   }
   return result;
 }

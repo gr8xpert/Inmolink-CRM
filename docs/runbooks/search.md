@@ -41,3 +41,23 @@ before the deploy stay out of the partners' network search until rebuilt. After 
 The api needs `MEILI_SEARCH_KEY` (search-only key) for network search; without it the route answers 503 and the api
 logs `no MEILI_SEARCH_KEY` at boot. Give-to-get is configured by `NETWORK_GIVE_TO_GET_MIN_SHARED` (default 5) and
 `NETWORK_GIVE_TO_GET_GRACE_DAYS` (default 30).
+
+## Index-side network access (S6-F2)
+
+Migration 0078 adds `listing_read_models.network_hidden` (a PUBLIC listing hidden from the network for freshness) and
+`preferred_agency_ids` (on a PREFERRED listing: the agencies its owner prefers); the index gains the filterable
+fields `networkHidden`, `preferredAgencyIds` and `id` (comparable, and `id` sortable: the repair walk pages by id).
+Network search now filters PREFERRED listings by `preferredAgencyIds = caller` instead of passing the owners that
+prefer the caller. After the first deploy with 0078:
+
+1. Let the worker boot apply the index settings and wait until Meilisearch has finished the settings task (three new
+   filterable attributes re-index the whole index; until then network search answers `503 SERVICE_UNAVAILABLE` —
+   its filter names fields the index does not have yet — and website search falls back to Postgres as usual).
+2. Run `pnpm ops:rebuild-read-models` once (one run also covers S6-F1): it writes the two columns where they are set
+   and queues those targets' index pushes. Until then PREFERRED listings are missing from partners' network search
+   and freshness-hidden PUBLIC listings still count in totals (and drop out of the page, as before).
+3. Check: a partner of an agency that shares a listing to PREFERRED finds it on `/network`; the drift check
+   (`search.checkIndexDrift`) reports no drift once the queue has drained.
+
+A change to an agency's preferred list re-queues only its PREFERRED listings (`agencies.preferred.added` /
+`.removed`).

@@ -486,7 +486,7 @@ do $$
 declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids']);
+   where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids', 'network_hidden', 'preferred_agency_ids']);
   execute format('grant select (%s) on table public."listing_read_models" to app_user', cols);
 end $$;
 grant select, insert, update, delete on table public."listing_read_models" to app_system;
@@ -494,7 +494,7 @@ do $$
 declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids']);
+   where attrelid = 'public."listing_read_models"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['share_scope', 'allowed_agency_ids', 'network_hidden', 'preferred_agency_ids']);
   execute format('grant select (%s) on table public."listing_read_models" to app_public', cols);
 end $$;
 

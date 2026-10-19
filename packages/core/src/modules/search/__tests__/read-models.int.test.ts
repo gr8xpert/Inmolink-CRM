@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   CreateDevelopmentBody,
   CreateListingBody,
@@ -314,6 +315,8 @@ describe('listing read models', () => {
           status: 'ACTIVE',
           shareScope: 'ALL',
           allowedAgencyIds: null,
+          networkHidden: false,
+          preferredAgencyIds: null,
           version: latest - 2,
           card: older,
           detail: current?.detail as never,
@@ -651,6 +654,8 @@ describe('listings search index (S5-02)', () => {
       status: 'ACTIVE',
       visibility: 'SHARED',
       shareScope: 'PREFERRED',
+      networkHidden: false,
+      preferredAgencyIds: [],
       transactionType: 'SALE',
       propertyTypeId: ids.type,
       featureIds: [ids.feature],
@@ -678,6 +683,9 @@ describe('listings search index (S5-02)', () => {
       'shareScope',
       // filter-only (S5-05): the agencies a PRIVATE_NETWORK unit is shared with; never displayed (`displayed: ['id']`)
       'allowedAgencyIds',
+      // filter-only (S6-F2): freshness-hidden from the network, and a PREFERRED listing's owner's preferred agencies
+      'networkHidden',
+      'preferredAgencyIds',
       'transactionType',
       'propertyTypeId',
       'locationIds',
@@ -1012,6 +1020,43 @@ describe('search indexer (S5-03)', () => {
     expect(await engine.fetch(uid, [orphan], ['id'])).toEqual([]);
     await expectConverged([gone, stale, fine]);
     expect(await search.checkIndexDrift()).toMatchObject({ drift: false, mismatched: [] });
+  });
+
+  it('[S6-F2] a repair walk with documents deleted during it finds every orphan', async () => {
+    const live = [await listing(), await listing(), await listing()];
+    await run(await deliver(a));
+    await search.syncIndex();
+    const engine = real();
+    // Six orphans with random ids, spread between the live documents in id order.
+    const orphans: string[] = Array.from({ length: 6 }, () => randomUUID());
+    await engine.waitForTask(
+      await engine.upsert(
+        uid,
+        orphans.map((id) => ({ id, kind: 'LISTING', ownerAgencyId: a.agencyId, sourceHash: 'orphan' })),
+      ),
+    );
+    // While the walk runs, every orphan it has seen is deleted from the index (what the sync does with the rows the
+    // walk queues): an offset walk would then skip the documents that slid into the deleted ones' places.
+    const deleted: string[] = [];
+    const walking: SearchEngine = {
+      ...engine,
+      browse: async (def, page) => {
+        const answer = await engine.browse(def, page);
+        const seen = answer.results.map((d) => String(d.id)).filter((id) => orphans.includes(id));
+        await engine.waitForTask(await engine.delete(uid, seen));
+        deleted.push(...seen);
+        return answer;
+      },
+    };
+    const repaired = await search.repairIndex({ engine: walking, page: 2 });
+    expect(repaired.orphans).toBe(orphans.length);
+    expect(deleted.sort()).toEqual([...orphans].sort());
+    for (const id of orphans) expect(await queueRow(id)).toMatchObject({ target_id: id });
+    for (const id of live) expect(await engine.fetch(uid, [id], ['id'])).toEqual([{ id }]);
+
+    targets.push(...orphans); // the scoped sync takes their queue rows
+    await search.syncIndex();
+    for (const id of orphans) expect(await queueRow(id)).toBeUndefined();
   });
 
   it('[S5-03] a sync whose lease ran out writes nothing more and never touches rows another sync took over', async () => {

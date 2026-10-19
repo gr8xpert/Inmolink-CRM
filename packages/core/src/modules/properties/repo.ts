@@ -1207,8 +1207,19 @@ const readModelColumns = {
   locationId: properties.locationId,
   developmentId: properties.developmentId,
   version: properties.version,
+  networkHiddenAt: properties.networkHiddenAt,
 };
 export type ReadModelRow = { [K in keyof typeof readModelColumns]: ListingRow[K] };
+
+/**
+ * The read-model rule as a condition on `properties` (`read-models.ts` explains it); the statuses are bound, never
+ * spliced into the SQL text (S6-F2).
+ */
+export function hasReadModelWhere(statuses: readonly ListingRow['status'][]): SQL {
+  return sql`${properties.deletedAt} is null and ${properties.visibility} <> 'PRIVATE'
+    and ${inArray(properties.status, [...statuses])}
+    and not (${properties.visibility} = 'SHARED' and ${properties.networkHiddenAt} is not null)`;
+}
 
 /** These listings' read-model columns where `where` holds (`withSystem`: any agency); primary key probes. */
 export async function readModelRows(tx: Tx, ids: readonly string[], where: SQL): Promise<ReadModelRow[]> {

@@ -89,7 +89,6 @@ describe('network commission', () => {
 describe('network filter', () => {
   const scope = {
     self: 'self',
-    preferring: ['p1'],
     preferred: ['mine1'],
   };
   const q = (over: NetworkSearchBody = {}) => NetworkSearchBody.parse(over);
@@ -112,7 +111,8 @@ describe('network filter', () => {
                   op: 'or',
                   filters: [
                     { op: 'eq', field: 'shareScope', value: 'ALL' },
-                    { op: 'in', field: 'ownerAgencyId', values: ['p1'] },
+                    // S6-F2: the owner's preferred list is on its document — the caller alone is named
+                    { op: 'eq', field: 'preferredAgencyIds', value: 'self' },
                   ],
                 },
               ],
@@ -133,12 +133,13 @@ describe('network filter', () => {
           ],
         },
         { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: 'self' } },
+        // S6-F2: freshness-hidden listings are left out by the engine (a document without the field is not hidden)
+        { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
         { op: 'in', field: 'status', values: ['ACTIVE', 'AVAILABLE'] },
       ],
     });
-    // Nobody prefers the caller: shared-with-ALL only.
-    const none = networkFilter({ ...scope, preferring: [] }, q());
-    expect(JSON.stringify(none)).not.toContain('"ownerAgencyId","values"');
+    // No owner list in the filter, whoever prefers the caller.
+    expect(JSON.stringify(f)).not.toContain('"ownerAgencyId","values"');
   });
 
   it('[S5-05] preferred agencies only, new-builds only', () => {

@@ -5,7 +5,7 @@
  * split, owner, tags or feed references.
  */
 import type { Tx } from '@inmolink/db';
-import { type SQL, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import * as repo from './repo';
 
 /** Statuses a public path may show (DRAFT and WITHDRAWN never have a read model). */
@@ -16,10 +16,7 @@ export const READ_MODEL_LISTING_STATUSES = ['ACTIVE', 'UNDER_OFFER', 'SOLD', 'RE
  * the network for going unconfirmed (S3-08; a PUBLIC one stays on its owner's channels). The one rule: loads, the
  * full rebuild's walk and its count all use it. Hiding and confirming emit `properties.listing.updated`.
  */
-const HAS_READ_MODEL: SQL = sql.raw(
-  `deleted_at is null and visibility <> 'PRIVATE' and status in (${READ_MODEL_LISTING_STATUSES.map((s) => `'${s}'`).join(', ')})
-   and not (visibility = 'SHARED' and network_hidden_at is not null)`,
-);
+const HAS_READ_MODEL: SQL = repo.hasReadModelWhere(READ_MODEL_LISTING_STATUSES);
 
 export interface ReadModelListing {
   id: string;
@@ -50,6 +47,8 @@ export interface ReadModelListing {
   locationId: string;
   developmentId: string | null;
   version: number;
+  /** A PUBLIC listing hidden from the network for going unconfirmed (S3-08): network search leaves it out (S6-F2). */
+  networkHidden: boolean;
   translations: {
     locale: string;
     title: string;
@@ -87,8 +86,9 @@ export async function listingsForReadModels(tx: Tx, ids: readonly string[]): Pro
     list.push(f.featureId);
     featuresOf.set(f.propertyId, list);
   }
-  return rows.map((r) => ({
+  return rows.map(({ networkHiddenAt, ...r }) => ({
     ...r,
+    networkHidden: networkHiddenAt !== null,
     builtM2: num(r.builtM2),
     plotM2: num(r.plotM2),
     terraceM2: num(r.terraceM2),

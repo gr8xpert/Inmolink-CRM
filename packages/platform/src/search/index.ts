@@ -23,6 +23,8 @@ export type Filter =
   | { op: 'in'; field: string; values: FieldValue[] }
   /** Numeric bounds, inclusive. The field must be filterable with `comparison: true`. */
   | { op: 'range'; field: string; gte?: number; lte?: number }
+  /** Strictly after a value: numbers, or strings in lexicographic order (keyset walks). Needs `comparison: true`. */
+  | { op: 'gt'; field: string; value: string | number }
   /** Within `meters` of a point (the document's `geo`). */
   | { op: 'geoRadius'; lat: number; lng: number; meters: number }
   /** Inside a box (map view). */
@@ -107,12 +109,14 @@ export interface SearchEngine {
   /** These documents' `fields` (drift checks). Missing ids are absent from the answer. */
   fetch(uid: string, ids: readonly string[], fields: readonly string[]): Promise<Record<string, unknown>[]>;
   /**
-   * A page of the index's documents in the engine's order (repair walks; not for request paths). Writes between
-   * pages can shift it: a walk may miss a document added or see one twice.
+   * A page of the index's documents by primary key, the next `limit` after `after` (null: from the first) — repair
+   * walks, not request paths. Keyset, not offset (S6-F2): a document deleted during a walk shifts nothing, so none is
+   * skipped; one added behind the walk's position is not seen. The definition must declare its primary key
+   * filterable with `comparison` and sortable; `total` is how many remain from `after` on.
    */
   browse(
-    uid: string,
-    page: { offset: number; limit: number; fields: readonly string[] },
+    def: IndexDefinition,
+    page: { after: string | null; limit: number; fields: readonly string[] },
   ): Promise<{ results: Record<string, unknown>[]; total: number }>;
   /** Document count and whether writes are pending, or null when the index does not exist. */
   stats(uid: string): Promise<{ documents: number; indexing: boolean } | null>;
@@ -287,6 +291,8 @@ export function compileFilter(def: IndexDefinition, filter: Filter): string {
       case 'in':
         if (f.values.length === 0) throw new SearchError(`empty in: ${f.field}`);
         return `${field(f.field)} IN [${f.values.map(quote).join(', ')}]`;
+      case 'gt':
+        return `${field(f.field, true)} > ${quote(f.value)}`;
       case 'range': {
         const name = field(f.field, true);
         const parts: string[] = [];
@@ -529,12 +535,22 @@ export function createMeiliEngine(config: MeiliConfig): SearchEngine {
       return answer?.results ?? [];
     },
 
-    async browse(uid, page) {
-      assertUid(uid);
+    async browse(def, page) {
+      assertUid(def.uid);
+      const key = def.primaryKey;
+      if (!def.sortable.includes(key)) throw new SearchError(`primary key is not sortable: ${key}`);
+      if (!def.filterable.some((f) => f.field === key && f.comparison)) {
+        throw new SearchError(`primary key is not comparable: ${key}`);
+      }
       const answer = await call<{ results: Record<string, unknown>[]; total: number }>(
         'POST',
-        `/indexes/${uid}/documents/fetch`,
-        { offset: page.offset, limit: page.limit, fields: page.fields },
+        `/indexes/${def.uid}/documents/fetch`,
+        {
+          limit: page.limit,
+          fields: page.fields,
+          sort: [`${key}:asc`],
+          ...(page.after === null ? {} : { filter: compileFilter(def, { op: 'gt', field: key, value: page.after }) }),
+        },
       );
       return { results: answer?.results ?? [], total: answer?.total ?? 0 };
     },

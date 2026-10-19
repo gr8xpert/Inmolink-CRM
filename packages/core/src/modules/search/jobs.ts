@@ -215,11 +215,15 @@ export async function queueReadModel(kind: 'LISTING' | 'UNIT', id: string, agenc
 
 /**
  * Queues a rebuild of every read-model target of an agency whose status changed (S6-F1: a suspended or unlisted owner's
- * documents stop being public; a verified one's become public) and asks for its rebuild run. Called by the search
+ * documents stop being public; a verified one's become public) — or, `preferredOnly`, of its PREFERRED listings when
+ * its preferred list changed (S6-F2) — and asks for its rebuild run. Called by the search
  * subscriptions. Network I/O (the queue): never inside a transaction.
  */
-export async function queueAgencyReadModels(agencyId: string): Promise<number> {
-  const queued = await queueAgencyReadModelChanges(agencyId, READ_MODEL_DEBOUNCE_MS);
+export async function queueAgencyReadModels(
+  agencyId: string,
+  options: { preferredOnly?: boolean } = {},
+): Promise<number> {
+  const queued = await queueAgencyReadModelChanges(agencyId, READ_MODEL_DEBOUNCE_MS, options);
   if (queued > 0) await requestReadModelBuild(agencyId);
   return queued;
 }

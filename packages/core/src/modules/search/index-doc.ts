@@ -33,6 +33,10 @@ export interface ListingIndexDoc {
   shareScope: 'ALL' | 'PREFERRED';
   /** RESTRICTED units: the agencies their development is shared with (network search, S5-05); else empty. */
   allowedAgencyIds: string[];
+  /** A PUBLIC listing hidden from the network for going unconfirmed (S6-F2): network search leaves it out. */
+  networkHidden: boolean;
+  /** A PREFERRED listing: the agencies its owner prefers (network search, S6-F2); else empty. */
+  preferredAgencyIds: string[];
   transactionType: string;
   propertyTypeId: string;
   /** Country, region, city and area ids: a filter on any level matches everything below it. */
@@ -69,6 +73,8 @@ export interface IndexSourceRow {
   status: string;
   shareScope: string | null;
   allowedAgencyIds: string[] | null;
+  networkHidden: boolean;
+  preferredAgencyIds: string[] | null;
   version: number;
   etag: string;
   card: unknown;
@@ -94,6 +100,8 @@ export function listingsIndex(
       ...locales.map((l) => field('description', l)),
     ],
     filterable: [
+      // The primary key, compared: the repair walk pages the index by id (S6-F2), never on request paths.
+      { field: 'id', comparison: true },
       { field: 'kind' },
       { field: 'ownerAgencyId' },
       { field: 'developmentId' },
@@ -101,6 +109,8 @@ export function listingsIndex(
       { field: 'visibility' },
       { field: 'shareScope' },
       { field: 'allowedAgencyIds' },
+      { field: 'networkHidden' },
+      { field: 'preferredAgencyIds' },
       { field: 'transactionType' },
       { field: 'propertyTypeId' },
       { field: 'locationIds' },
@@ -113,7 +123,7 @@ export function listingsIndex(
       { field: 'plotM2', comparison: true },
       { field: 'publishedAt', comparison: true },
     ],
-    sortable: ['priceCents', 'beds', 'areaM2', 'publishedAt'],
+    sortable: ['priceCents', 'beds', 'areaM2', 'publishedAt', 'id'],
     localized: locales.map((l) => ({
       fields: [field('title', l), field('place', l), field('description', l)],
       locale: l,
@@ -151,6 +161,8 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     // A listing row from before share scopes reached read models (null) stays PREFERRED: never wider than it was.
     shareScope: isListing ? (first.shareScope === 'ALL' ? 'ALL' : 'PREFERRED') : 'ALL',
     allowedAgencyIds: first.public ? [] : [...(first.allowedAgencyIds ?? [])].sort(),
+    networkHidden: first.networkHidden,
+    preferredAgencyIds: [...(first.preferredAgencyIds ?? [])].sort(),
     transactionType: card.kind === 'LISTING' ? card.transactionType : 'SALE',
     propertyTypeId: card.propertyType.id,
     locationIds: placeIds(card.place),
@@ -168,7 +180,8 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     sourceHash: createHash('sha256')
       .update(
         JSON.stringify(
-          // The allowed agencies only where there are any: other documents keep their hash (no repair walk).
+          // The allowed agencies, the freshness flag and the preferred list only where set: other documents keep
+          // their hash (no repair walk).
           sorted.map((r) => [
             r.locale,
             r.etag,
@@ -177,6 +190,8 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
             r.shareScope,
             r.featureIds,
             ...(r.allowedAgencyIds ? [r.allowedAgencyIds] : []),
+            ...(r.networkHidden ? ['networkHidden'] : []),
+            ...(r.preferredAgencyIds ? [{ preferred: r.preferredAgencyIds }] : []),
           ]),
         ),
       )

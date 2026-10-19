@@ -54,6 +54,8 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
         status: d.status,
         shareScope: d.shareScope,
         allowedAgencyIds: d.allowedAgencyIds,
+        networkHidden: d.networkHidden,
+        preferredAgencyIds: d.preferredAgencyIds,
         version: d.version,
         card: d.card,
         detail: d.detail,
@@ -70,20 +72,25 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
         status: excluded('status'),
         shareScope: excluded('share_scope'),
         allowedAgencyIds: excluded('allowed_agency_ids'),
+        networkHidden: excluded('network_hidden'),
+        preferredAgencyIds: excluded('preferred_agency_ids'),
         version: excluded('version'),
         card: excluded('card'),
         detail: excluded('detail'),
         etag: excluded('etag'),
         updatedAt: sql`now()`,
       },
-      // Share scope, the allowed agencies and `public` are not in the documents (no etag change; S6-F1: the owner's
-      // status changes `public` without a new version): a change of any must still reach the row.
+      // Share scope, the allowed agencies, `public`, the freshness flag and the owner's preferred list are not in the
+      // documents (no etag change; S6-F1: the owner's status changes `public` without a new version; S6-F2: hiding
+      // and the owner's list neither): a change of any must still reach the row.
       setWhere: sql`excluded.version > ${listingReadModels.version}
         or (excluded.version = ${listingReadModels.version}
             and (excluded.etag <> ${listingReadModels.etag}
                  or excluded.public <> ${listingReadModels.public}
+                 or excluded.network_hidden <> ${listingReadModels.networkHidden}
                  or excluded.share_scope is distinct from ${listingReadModels.shareScope}
-                 or excluded.allowed_agency_ids is distinct from ${listingReadModels.allowedAgencyIds}))`,
+                 or excluded.allowed_agency_ids is distinct from ${listingReadModels.allowedAgencyIds}
+                 or excluded.preferred_agency_ids is distinct from ${listingReadModels.preferredAgencyIds}))`,
     })
     .returning({ targetId: listingReadModels.targetId });
   return rows.map((r) => r.targetId);
@@ -198,6 +205,8 @@ export async function readIndexRows(tx: Tx, ids: readonly string[]) {
       status: listingReadModels.status,
       shareScope: listingReadModels.shareScope,
       allowedAgencyIds: listingReadModels.allowedAgencyIds,
+      networkHidden: listingReadModels.networkHidden,
+      preferredAgencyIds: listingReadModels.preferredAgencyIds,
       version: listingReadModels.version,
       etag: listingReadModels.etag,
       card: listingReadModels.card,
@@ -243,19 +252,21 @@ export async function queueReadModels(tx: Tx, changes: readonly ReadModelChange[
 /**
  * Queues a rebuild of one page of an agency's targets of `kind` that have read models (S6-F1: its status decides
  * `public`), due `delayMs` from now, like `queueReadModels`: the next `limit` target ids after `after`, in
- * `listing_read_models_agency_idx` order (an index range, one statement). Answers how many, and the page's last id
- * (null: the last page).
+ * `listing_read_models_agency_idx` order (an index range, one statement). `preferredOnly`: its listings shared to
+ * PREFERRED only (S6-F2: their documents carry its preferred list). Answers how many, and the page's last id (null:
+ * the last page).
  */
 export async function queueAgencyReadModels(
   tx: Tx,
-  page: { agencyId: string; kind: Kind; after: string | null; limit: number },
+  page: { agencyId: string; kind: Kind; after: string | null; limit: number; preferredOnly?: boolean },
   delayMs: number,
 ): Promise<{ queued: number; last: string | null }> {
   const after = page.after === null ? sql`` : sql`and target_id > ${page.after}`;
+  const preferred = page.preferredOnly ? sql`and share_scope = 'PREFERRED'` : sql``;
   const res = await tx.execute<{ target_id: string }>(sql`
     with page as (
       select distinct target_id from ${listingReadModels}
-       where agency_id = ${page.agencyId} and kind = ${page.kind} ${after}
+       where agency_id = ${page.agencyId} and kind = ${page.kind} ${after} ${preferred}
        order by target_id limit ${page.limit})
     insert into ${readModelQueue} (target_id, kind, owner_agency_id, due_at)
     select target_id, ${page.kind}, ${page.agencyId}::uuid, now() + make_interval(secs => ${delayMs / 1000})
@@ -724,6 +735,9 @@ export function fallbackCondition(filter: Filter): SQL {
       if (filter.lte !== undefined) parts.push(sql`${sql.raw(f.column)} <= ${finite(filter.lte)}`);
       return sql`(${sql.join(parts, sql` and `)})`;
     }
+    case 'gt':
+      // Keyset walks of the engine only (S6-F2); no search filter uses it.
+      throw new SearchError(`gt is not supported by the fallback: ${filter.field}`);
     case 'geoBox': {
       const [n, s, w, e] = [filter.north, filter.south, filter.west, filter.east].map(finite) as [
         number,
@@ -764,8 +778,6 @@ export interface FallbackQuery {
   limit: number;
   /** Keyset: the page after this row. */
   after?: FallbackPosition;
-  /** An engine cursor's offset (the engine went away mid-pagination); bounded by the caller. */
-  offset?: number;
   /** `total` is exact up to this many rows. */
   countCap: number;
 }
@@ -802,8 +814,7 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
     [fallbackCondition(q.filter), ...(q.ref === undefined ? [] : [sql`lower(ref) = lower(${q.ref})`])],
     sql` and `,
   );
-  const offset = q.offset ?? 0;
-  const take = offset + q.limit + 1;
+  const take = q.limit + 1;
   const branches: SQL[] = [];
   if (!q.after || q.after.phase === 0) {
     const keyset = q.after ? sql`and (${col}, target_id) ${cmp} (${q.after.value}, ${q.after.id}::uuid)` : sql``;
@@ -837,12 +848,12 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
         (select target_id, k, (k is null)::int as phase from m
           where (select n from c) <= ${q.countCap} ${after}
           order by phase, k ${dir}, target_id ${dir}
-         offset ${offset} limit ${q.limit + 1})
+         limit ${q.limit + 1})
         union all
         (select * from (${sql.join(branches, sql` union all `)}) u
           where (select n from c) > ${q.countCap}
           order by phase, k ${dir}, target_id ${dir}
-         offset ${offset} limit ${q.limit + 1})) p on true
+         limit ${q.limit + 1})) p on true
      order by p.phase, p.k ${dir}, p.target_id ${dir}`;
 }
 
