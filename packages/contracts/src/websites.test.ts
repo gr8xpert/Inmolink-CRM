@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CreateSiteBody, SiteContact, SiteInventoryFilters, UpdateSiteBody } from './websites';
+import {
+  CreateSiteBody,
+  SiteContact,
+  SiteInventoryFilters,
+  UpdateSiteBody,
+  WebsiteCard,
+  WebsiteListingCard,
+} from './websites';
 
 const base = { name: 'Costa Homes', mode: 'WP_PLUGIN', locales: ['en', 'es'] };
 const LOC = '01900000-0000-7000-8000-000000000001';
@@ -41,5 +48,38 @@ describe('website site contracts (S7-01)', () => {
     expect(
       UpdateSiteBody.safeParse({ version: 1, inventoryPolicy: 'OWN_PLUS_NETWORK', inventoryFilters: null }).success,
     ).toBe(true);
+  });
+});
+
+describe('website documents (S7-02)', () => {
+  const TAXON = { id: LOC, name: 'Villa', slug: 'villa' };
+  const card = {
+    kind: 'LISTING',
+    id: LOC,
+    ref: 'CH-AB12CD34',
+    status: 'ACTIVE',
+    transactionType: 'SALE',
+    price: { amountCents: 100, currency: 'EUR', period: null, onRequest: false },
+    propertyType: TAXON,
+    place: { country: TAXON, region: null, city: null, area: null },
+    bedrooms: 3,
+    bathrooms: 2,
+    builtM2: 120,
+    plotM2: null,
+    geo: null,
+    cover: null,
+    imageCount: 0,
+    developmentId: null,
+    title: 'Villa',
+    slug: 'villa',
+    textLocale: null,
+  };
+
+  it('[S7-02] strict shapes: no owner or commission field can be served', () => {
+    expect(WebsiteListingCard.safeParse(card).success).toBe(true);
+    for (const extra of [{ commissionBp: 300 }, { ownerAgencyId: LOC }, { ownerAgencyName: 'Owner' }]) {
+      expect(WebsiteListingCard.safeParse({ ...card, ...extra }).success).toBe(false);
+    }
+    expect(WebsiteCard.safeParse({ ...card, agency: { name: 'Owner' } }).success).toBe(false);
   });
 });

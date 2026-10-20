@@ -132,12 +132,38 @@ export interface WriteOptions {
 async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
   const deleted = await repo.deleteOthers(tx, ids, docs);
   const written = await repo.upsertDocs(tx, docs);
-  const changed = [...deleted, ...written];
+  // Public targets get their public code (S7-02) once; a target that got one now is pushed again with it.
+  const coded = await ensurePublicCodes(
+    tx,
+    docs.filter((d) => d.public).map((d) => d.targetId),
+  );
+  const changed = [...new Set([...deleted, ...written, ...coded])];
   if (changed.length > 0) {
     await repo.queueIndexSync(tx, changed);
     if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed);
   }
   return { written: written.length, deleted: deleted.length };
+}
+
+/** Collisions of fresh random codes are drawn again this many times (40 bits: practically never needed). */
+const PUBLIC_CODE_ATTEMPTS = 5;
+
+/** Gives public targets without a public code one (S7-02); answers those that got one now. */
+async function ensurePublicCodes(tx: Tx, ids: readonly string[]): Promise<string[]> {
+  const created: string[] = [];
+  let pending = [...new Set(ids)];
+  for (let attempt = 0; pending.length > 0; attempt++) {
+    if (attempt === PUBLIC_CODE_ATTEMPTS) throw new Error('search: no free public code after retries');
+    const result = await repo.insertPublicCodes(tx, pending);
+    created.push(...result.created);
+    pending = result.collided;
+  }
+  return created;
+}
+
+/** Public codes of these targets (S7-02): websites show another agency's document as `<prefix>-<code>`. */
+export function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  return repo.publicCodes(tx, ids);
 }
 
 /**

@@ -28,7 +28,14 @@ export {
   type TenantRegistry,
   type TenantTable,
 } from './tenancy/registry';
-export { applyRls, expectedPolicies, generateRlsSql, helperSql, tablesSql } from './tenancy/rls';
+export {
+  applyRls,
+  expectedPolicies,
+  generateRlsSql,
+  helperSql,
+  publicHiddenColumnsOf,
+  tablesSql,
+} from './tenancy/rls';
 export {
   type StaffScope,
   type SystemOptions,

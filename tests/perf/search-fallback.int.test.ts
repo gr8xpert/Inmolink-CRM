@@ -273,6 +273,7 @@ it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or
   for (let shape = 0; shape < SHAPES; shape++) {
     const { site, q } = query(5_005 + shape); // 5,005 = 11 × 455: query(5_005 + n) is shape n
     const statement = search.publicFallbackSql(site, q);
+    if (!statement) throw new Error(`shape ${shape}: no statement`);
     // 5 runs: one EXPLAIN on a shared Docker Desktop VM varies 2× from run to run (median logged, fastest asserted).
     const runs: { plan: string; ms: number }[] = [];
     for (let k = 0; k < 5; k++) {

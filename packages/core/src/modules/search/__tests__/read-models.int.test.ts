@@ -704,6 +704,8 @@ describe('listings search index (S5-02)', () => {
       'plotM2',
       'geo',
       'ref',
+      // filter-only (S7-02): the target's opaque public code, matched by websites as `<prefix>-<code>`
+      'publicCode',
       'publishedAt',
       'version',
       'sourceHash',

@@ -22,6 +22,7 @@ import type {
   SitePage,
   SiteParams,
   UpdateSiteInput,
+  WebsitePresenter,
 } from '@inmolink/contracts';
 import { withPublicRead } from '@inmolink/db';
 import { CONTENT_LOCALES, FALLBACK_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
@@ -37,6 +38,7 @@ import * as compliance from '../compliance';
 import { websitesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
+import { networkRefPrefix } from './serializer';
 
 /** At most this many sites per agency. */
 export const MAX_SITES = 20;
@@ -46,7 +48,8 @@ export const SITE_CACHE = { TTL_SECONDS: 45, LOCAL_TTL_SECONDS: 15 } as const;
 
 /** Cache key of one site's scope. No tags (one Redis key per site; changes `cache.delete` it). */
 export function siteCacheKey(siteId: string): CacheKey {
-  return cacheKey({ v: 1, module: 'websites', entity: 'site', scope: 'global', id: siteId });
+  // v2 (S7-02): the entry holds the presenting agency too.
+  return cacheKey({ v: 2, module: 'websites', entity: 'site', scope: 'global', id: siteId });
 }
 
 function toSiteDto(row: repo.SiteRow): SiteDto {
@@ -222,6 +225,29 @@ export interface SiteScope {
   locales: string[];
   defaultLocale: string;
   contact: SiteContact | null;
+  /** The presenting agency as the site shows it (`sitePresenter`). */
+  presenter: WebsitePresenter;
+}
+
+/**
+ * The presenting agency (S7-02, PLAN §3 #6): the site's contact overrides first, then the agency's directory name,
+ * published profile contacts and brand colours (`agencies.publicAgencies`; null while the agency is not listed),
+ * then the site's name.
+ */
+export function sitePresenter(
+  site: { name: string; contact: SiteContact | null },
+  agency: agencies.PublicAgency | null,
+): WebsitePresenter {
+  const c = site.contact;
+  return {
+    name: c?.name ?? agency?.name ?? site.name,
+    email: c?.email ?? agency?.contactEmail ?? null,
+    phone: c?.phone ?? agency?.contactPhone ?? null,
+    whatsapp: c?.whatsapp ?? null,
+    website: agency?.websiteUrl ?? null,
+    primaryColor: agency?.primaryColor ?? null,
+    accentColor: agency?.accentColor ?? null,
+  };
 }
 
 /**
@@ -230,13 +256,20 @@ export interface SiteScope {
  * (`SITE_CACHE`); unknown ids are never cached. `SITE_NOT_FOUND` when there is no such site.
  */
 export async function siteScope(siteId: string): Promise<SiteScope> {
-  const row = await cache.get(
+  const entry = await cache.get(
     siteCacheKey(siteId),
     { ttlSeconds: SITE_CACHE.TTL_SECONDS, localTtlSeconds: SITE_CACHE.LOCAL_TTL_SECONDS, local: true },
-    // `undefined` is never cached: misses always go to the database.
-    async () => (await withPublicRead((tx) => repo.findSite(tx, siteId))) ?? undefined,
+    // `undefined` is never cached: misses always go to the database. Two statements on a miss.
+    async () =>
+      (await withPublicRead(async (tx) => {
+        const site = await repo.findSite(tx, siteId);
+        if (!site) return undefined;
+        const agency = (await agencies.publicAgencies(tx, [site.agencyId])).get(site.agencyId) ?? null;
+        return { site, agency };
+      })) ?? undefined,
   );
-  if (!row) throw new AppError('SITE_NOT_FOUND');
+  if (!entry) throw new AppError('SITE_NOT_FOUND');
+  const row = entry.site;
   return {
     siteId: row.id,
     agencyId: row.agencyId,
@@ -248,6 +281,7 @@ export async function siteScope(siteId: string): Promise<SiteScope> {
     locales: row.locales,
     defaultLocale: row.defaultLocale,
     contact: (row.contact as SiteContact | null) ?? null,
+    presenter: sitePresenter({ name: row.name, contact: (row.contact as SiteContact | null) ?? null }, entry.agency),
   };
 }
 
@@ -259,6 +293,8 @@ export async function siteScope(siteId: string): Promise<SiteScope> {
 export interface SiteSearchScope {
   ownerAgencyIds: string[];
   networkOf?: string;
+  /** The prefix network documents carry (`networkRefPrefix`): website search matches it, not the owner's reference. */
+  networkRefPrefix?: string;
   restrict?: {
     locationIds?: string[];
     propertyTypeIds?: string[];
@@ -275,14 +311,19 @@ export function siteSearchScope(site: SiteScope, requestId: string): SiteSearchS
     case 'OWN_ONLY':
       return { ownerAgencyIds: [site.agencyId], requestId };
     case 'OWN_PLUS_NETWORK':
-      return { ownerAgencyIds: [site.agencyId], networkOf: site.agencyId, requestId };
+      return {
+        ownerAgencyIds: [site.agencyId],
+        networkOf: site.agencyId,
+        networkRefPrefix: networkRefPrefix(site),
+        requestId,
+      };
     case 'CUSTOM': {
       const f = site.inventoryFilters;
       // A CUSTOM site always has filters (check constraint); without them it shows only its own listings.
       if (!f) return { ownerAgencyIds: [site.agencyId], requestId };
       return {
         ownerAgencyIds: f.includeOwn ? [site.agencyId] : [],
-        ...(f.includeNetwork ? { networkOf: site.agencyId } : {}),
+        ...(f.includeNetwork ? { networkOf: site.agencyId, networkRefPrefix: networkRefPrefix(site) } : {}),
         restrict: {
           locationIds: f.locationIds,
           propertyTypeIds: f.propertyTypeIds,

@@ -130,11 +130,11 @@ export async function updateSite(
 }
 
 /** What the website API needs of a site (cached as JSON: no dates). */
-export type SiteScopeRow = Omit<SiteRow, 'name' | 'domains' | 'createdAt' | 'updatedAt'>;
+export type SiteScopeRow = Omit<SiteRow, 'domains' | 'createdAt' | 'updatedAt'>;
 
 /** feed-api (`app_public`): a site by id, PK probe. */
 export async function findSite(tx: Tx, id: string): Promise<SiteScopeRow | null> {
-  const { name: _n, domains: _d, createdAt: _c, updatedAt: _u, ...columns } = siteColumns;
+  const { domains: _d, createdAt: _c, updatedAt: _u, ...columns } = siteColumns;
   const [row] = await tx.select(columns).from(websiteSites).where(eq(websiteSites.id, id)).limit(1);
   return row ?? null;
 }

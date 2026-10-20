@@ -39,3 +39,27 @@ export function attributeFilters(q: AttributeQuery): Filter[] {
   if (q.geoBox) filters.push({ op: 'geoBox', ...q.geoBox });
   return filters;
 }
+
+/**
+ * The network's sharing rule for one agency (S5-05, S6-F2; shared by network and website search, S7-02): a listing
+ * shared with every agency, or PREFERRED by an owner that prefers `agencyId` (its document names the agencies it
+ * prefers). Units carry `shareScope` ALL.
+ */
+export function sharesWith(agencyId: string): Filter {
+  return {
+    op: 'or',
+    filters: [
+      { op: 'eq', field: 'shareScope', value: 'ALL' },
+      { op: 'eq', field: 'preferredAgencyIds', value: agencyId },
+    ],
+  };
+}
+
+/** Other agencies' documents that are not hidden from the network for freshness (S6-F2). */
+export function othersInNetwork(agencyId: string): Filter[] {
+  return [
+    { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: agencyId } },
+    // Not `networkHidden = false`: a document indexed before the field existed has none and is not hidden.
+    { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
+  ];
+}

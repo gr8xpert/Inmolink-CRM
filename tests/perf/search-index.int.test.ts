@@ -109,6 +109,7 @@ function doc(i: number): search.ListingIndexDoc {
     plotM2: r() < 0.4 ? 200 + Math.floor(r() * 3000) : null,
     geo: { lat: 36 + r() * 7, lng: -9 + r() * 12 },
     ref: `R${i}`,
+    publicCode: null,
     publishedAt: 1_700_000_000 + Math.floor(r() * 60_000_000),
     version: 1,
     sourceHash: `h${i}`,

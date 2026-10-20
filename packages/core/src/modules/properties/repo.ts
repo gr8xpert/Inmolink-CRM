@@ -1118,6 +1118,35 @@ export async function overridesFor(
     );
 }
 
+/**
+ * The agency's overrides of targets of any kind in one locale (S7-02, website API): one statement on
+ * `listing_overrides_target_locale_uq` (agency, kinds, ids, locale). Runs as `app_public` too (public predicate).
+ */
+export async function overridesOfTargets(
+  tx: Tx,
+  agencyId: string,
+  targetIds: readonly string[],
+  locale: string,
+): Promise<Pick<OverrideRow, 'targetKind' | 'targetId' | 'title' | 'description'>[]> {
+  if (targetIds.length === 0) return [];
+  return tx
+    .select({
+      targetKind: listingOverrides.targetKind,
+      targetId: listingOverrides.targetId,
+      title: listingOverrides.title,
+      description: listingOverrides.description,
+    })
+    .from(listingOverrides)
+    .where(
+      and(
+        eq(listingOverrides.agencyId, agencyId),
+        inArray(listingOverrides.targetKind, ['LISTING', 'DEVELOPMENT', 'UNIT']),
+        inArray(listingOverrides.targetId, [...new Set(targetIds)]),
+        eq(listingOverrides.locale, locale),
+      ),
+    );
+}
+
 /** Inserts or replaces the agency's override of a target in a locale. */
 export async function upsertOverride(
   tx: Tx,

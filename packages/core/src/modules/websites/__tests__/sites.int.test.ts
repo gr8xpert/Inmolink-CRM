@@ -1,10 +1,11 @@
 import {
   CreateListingBody,
   type CreateSiteInput,
+  type ListingDetailDoc,
   type PublicListingSearch,
   UpdateListingBody,
 } from '@inmolink/contracts';
-import { closeDb, withSystem } from '@inmolink/db';
+import { closeDb, withPublicRead, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
@@ -384,5 +385,201 @@ describe('website sites (S7-01)', () => {
       ctx.tx.execute(sql`update api_keys set site_id = ${other.id} where id = ${first.key.id}`),
     );
     await expect(move).rejects.toThrow(/site/);
+  });
+});
+
+describe('website serializer (S7-02)', () => {
+  /** The founders' content locale (their read models' locale). */
+  const LOCALE = 'es';
+  const refOf = async (id: string) =>
+    (await system((tx) => tx.execute<{ ref: string }>(sql`select ref from properties where id = ${id}`))).rows[0]
+      ?.ref as string;
+  /** The read model's detail document in `LOCALE`, as the website API reads it (app_public). */
+  const detailOf = async (id: string) => {
+    const row = (
+      await withPublicRead((tx) =>
+        tx.execute<{ agency_id: string; detail: ListingDetailDoc }>(
+          sql`select agency_id, detail from listing_read_models where target_id = ${id} and locale = ${LOCALE}`,
+        ),
+      )
+    ).rows[0];
+    if (!row) throw new Error(`no public read model for ${id}`);
+    const codes = await withPublicRead((tx) => search.publicCodes(tx, [id]));
+    return { ownerAgencyId: row.agency_id, publicCode: codes.get(id) ?? null, doc: row.detail };
+  };
+  const codeOf = async (id: string) => (await withPublicRead((tx) => search.publicCodes(tx, [id]))).get(id) as string;
+  /** A site's view of documents, with its agency's overrides read as the website API reads them (app_public). */
+  const viewOf = async (siteId: string, ids: string[]): Promise<websites.SiteView> => {
+    const site = await websites.siteScope(siteId);
+    const owners = await withPublicRead(async (tx) => {
+      const rows = await tx.execute<{ agency_id: string }>(
+        sql`select distinct agency_id from listing_read_models where target_id in (${sql.join(
+          ids.map((i) => sql`${i}`),
+          sql`, `,
+        )})`,
+      );
+      return agencies.ownerIdentities(
+        tx,
+        rows.rows.map((r) => r.agency_id),
+      );
+    });
+    const overrides = await withPublicRead((tx) => properties.siteOverrides(tx, site.agencyId, ids, LOCALE));
+    return {
+      site,
+      presenter: site.presenter,
+      mediaBaseUrl: 'https://cdn.example',
+      overrides,
+      owners,
+    };
+  };
+
+  it('[S7-02] override text is used for the overriding site only', async () => {
+    const siteA = await as(a, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'A network', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    const siteD = await as(d, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'D network', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    const siteB = await as(b, (ctx) => websites.createSite(ctx, OWN_SITE));
+    const bAll = L.bAll as string;
+    await as(a, (ctx) =>
+      properties.saveListingOverride(ctx, 'LISTING', bAll, LOCALE, {
+        title: 'Our <em>favourite</em> villa',
+        description: 'Described by agency A.',
+      }),
+    );
+    // An override of a listing no public page shows (SHARED only) is not readable by public paths.
+    await as(a, (ctx) =>
+      properties.saveListingOverride(ctx, 'LISTING', L.bShared as string, LOCALE, { title: 'Hidden override' }),
+    );
+    const doc = await detailOf(bAll);
+    const owner = { title: doc.doc.title, description: doc.doc.description };
+
+    const forA = websites.serializeDetail(await viewOf(siteA.id, [bAll, L.bShared as string]), doc);
+    expect(forA).toMatchObject({ title: 'Our favourite villa', description: 'Described by agency A.' });
+    const readable = await withPublicRead((tx) =>
+      properties.siteOverrides(tx, a.agencyId, [bAll, L.bShared as string], LOCALE),
+    );
+    expect([...readable.targets.keys()]).toEqual([bAll]);
+    // Another network site, and the owner's own site, keep the owner's text.
+    // (The owner's title here is its own reference, which a network site never shows: its code stands in.)
+    const forD = websites.serializeDetail(await viewOf(siteD.id, [bAll]), doc);
+    expect(forD.title).not.toContain('favourite');
+    expect(forD.description).toBe(owner.description);
+    const forB = websites.serializeDetail(await viewOf(siteB.id, [bAll]), doc);
+    expect({ title: forB.title, description: forB.description }).toEqual(owner);
+    // Even handed agency A's overrides, the owner's own site never applies them (overrides are for presented listings).
+    const misuse = { ...(await viewOf(siteB.id, [bAll])), overrides: (await viewOf(siteA.id, [bAll])).overrides };
+    expect(websites.serializeDetail(misuse, doc).title).toBe(owner.title);
+  });
+
+  it("[S7-02] public reads of overrides never return another agency's override (app_public: the agency filter scopes them)", async () => {
+    const bAll = L.bAll as string;
+    await as(d, (ctx) => properties.saveListingOverride(ctx, 'LISTING', bAll, LOCALE, { title: "D's own title" }));
+    await as(a, (ctx) => properties.saveListingOverride(ctx, 'LISTING', bAll, LOCALE, { title: "A's own title" }));
+    // app_public may read both agencies' rows (public website copy): only the repository's agency filter keeps
+    // them apart, so each agency's read returns its own row and nothing else.
+    const rows = await withPublicRead((tx) =>
+      tx.execute<{ agency_id: string }>(sql`select agency_id from listing_overrides where target_id = ${bAll}`),
+    );
+    expect(new Set(rows.rows.map((r) => r.agency_id))).toEqual(new Set([a.agencyId, d.agencyId]));
+    for (const [m, title] of [
+      [a, "A's own title"],
+      [d, "D's own title"],
+    ] as const) {
+      const got = await withPublicRead((tx) => properties.siteOverrides(tx, m.agencyId, [bAll], LOCALE));
+      expect([...got.targets.values()].map((t) => t.title)).toEqual([title]);
+      expect(got.developments.size).toBe(0);
+    }
+    for (const m of [b, c]) {
+      const got = await withPublicRead((tx) => properties.siteOverrides(tx, m.agencyId, [bAll], LOCALE));
+      expect(got.targets.size).toBe(0);
+    }
+  });
+
+  it("[S7-02] network listings carry the site's reference prefix and the presenting agency, never the owner", async () => {
+    const profile = (m: Founder, contactEmail: string, contactPhone: string, websiteUrl: string) =>
+      as(m, async (ctx) => {
+        const current = await agencies.getAgencyProfile(ctx);
+        await agencies.updateAgencyProfile(ctx, {
+          version: current.version,
+          primaryColor: '#123456',
+          accentColor: null,
+          contactEmail,
+          contactPhone,
+          websiteUrl,
+          translations: [],
+        });
+      });
+    await profile(a, 'office@agency-a.example', '+34 600 111 222', 'https://agency-a.example');
+    await profile(b, 'owner@agency-b.example', '+34 600 999 888', 'https://agency-b.example');
+    const site = await as(a, (ctx) =>
+      websites.createSite(ctx, {
+        ...OWN_SITE,
+        name: 'Presented',
+        inventoryPolicy: 'OWN_PLUS_NETWORK',
+        // Test founders share one company name: the site's contact name tells A from B here.
+        contact: { name: 'A Homes', phone: '+34 600 333 444' },
+      }),
+    );
+    // Without a contact name a site shows its agency's directory name.
+    const plain = await as(a, (ctx) => websites.createSite(ctx, { ...OWN_SITE, name: 'Plain' }));
+    const aName = await system((tx) => agencies.getAgencyName(tx, a.agencyId));
+    expect((await websites.siteScope(plain.id)).presenter).toMatchObject({ name: aName, phone: '+34 600 111 222' });
+    const bAll = L.bAll as string;
+    const view = await viewOf(site.id, [bAll]);
+    expect(view.presenter).toEqual({
+      name: 'A Homes',
+      email: 'office@agency-a.example',
+      // The site's contact override wins over the agency profile's.
+      phone: '+34 600 333 444',
+      whatsapp: null,
+      website: 'https://agency-a.example',
+      primaryColor: '#123456',
+      accentColor: null,
+    });
+    const served = websites.serializeDetail(view, await detailOf(bAll));
+    // The site's prefix and the listing's opaque public code — never the owner's own reference.
+    const code = await codeOf(bAll);
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    expect(served.ref).toBe(`CH-${code}`);
+    const json = JSON.stringify(served);
+    const bName = (await system((tx) => agencies.getAgencyName(tx, b.agencyId))) as string;
+    const bRef = await refOf(bAll);
+    for (const leak of [bName, 'owner@agency-b.example', '600 999 888', 'agency-b.example', b.agencyId, bRef]) {
+      expect(json.includes(leak), leak).toBe(false);
+    }
+  });
+
+  it("[S7-02] a network listing is found by the site's prefixed reference only — never by the owner's own", async () => {
+    const site = await as(a, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'Refs', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    const bOnly = await as(b, (ctx) => websites.createSite(ctx, { ...OWN_SITE, referencePrefix: null }));
+    const [bRef, aRef] = [await refOf(L.bAll as string), await refOf(L.aVilla as string)];
+    const [bCode, aCode] = [await codeOf(L.bAll as string), await codeOf(L.aVilla as string)];
+    // A code is the target's for good: a rebuild keeps it.
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [L.bAll as string]));
+    expect(await codeOf(L.bAll as string)).toBe(bCode);
+    const find = async (siteId: string, text: string, engine: SearchEngine) => {
+      const scope = websites.siteSearchScope(await websites.siteScope(siteId), newId());
+      const page = await search.searchPublicListings(scope, { locale: 'en', text }, { engine });
+      expect(page.backend).toBe(engine === down ? 'fallback' : 'engine');
+      return page.ids;
+    };
+    for (const engine of [real(), down]) {
+      const label = engine === down ? 'fallback' : 'engine';
+      search.resetSearchBreaker();
+      // The owner's reference finds nothing on site A, bare or prefixed; A's form `CH-<code>` finds it, in any case.
+      expect(await find(site.id, bRef, engine), label).toEqual([]);
+      expect(await find(site.id, `CH-${bRef}`, engine), label).toEqual([]);
+      expect(await find(site.id, `CH-${bCode}`, engine), label).toEqual([L.bAll]);
+      expect(await find(site.id, `ch-${bCode.toLowerCase()}`, engine), label).toEqual([L.bAll]);
+      // The site's own listings by their own reference; codes are for network listings only.
+      expect(await find(site.id, aRef, engine), label).toEqual([L.aVilla]);
+      expect(await find(site.id, `CH-${aCode}`, engine), label).toEqual([]);
+      // The owner's own site finds its listing by its reference.
+      expect(await find(bOnly.id, bRef, engine), label).toEqual([L.bAll]);
+    }
   });
 });

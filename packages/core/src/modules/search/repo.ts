@@ -3,8 +3,16 @@
  * Queries only `@inmolink/db/schema/search` — other modules' tables fail `pnpm check:boundaries`.
  * Read models are written by the search worker only (`withSystem`).
  */
+
+import { randomBytes } from 'node:crypto';
 import type { Tx } from '@inmolink/db';
-import { listingReadModels, listingSearchDocs, readModelQueue, searchIndexQueue } from '@inmolink/db/schema/search';
+import {
+  listingPublicCodes,
+  listingReadModels,
+  listingSearchDocs,
+  readModelQueue,
+  searchIndexQueue,
+} from '@inmolink/db/schema/search';
 import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
@@ -94,6 +102,52 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
     })
     .returning({ targetId: listingReadModels.targetId });
   return rows.map((r) => r.targetId);
+}
+
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+/** A random public code: 8 Crockford base32 characters (40 bits). */
+export const newPublicCode = () => Array.from(randomBytes(8), (b) => CROCKFORD[b & 31]).join('');
+
+/**
+ * Gives these targets a public code if they have none (S7-02): one statement — inserts a random code per target,
+ * keeps existing ones, and answers the targets that got one now and those whose new code collided (rare: drawn
+ * again by the caller).
+ */
+export async function insertPublicCodes(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ created: string[]; collided: string[] }> {
+  if (ids.length === 0) return { created: [], collided: [] };
+  const unique = [...new Set(ids)];
+  const codes = unique.map(() => newPublicCode());
+  const res = await tx.execute(sql`
+    with ins as (
+      insert into ${listingPublicCodes} (target_id, code)
+      select t.id, t.code from unnest(${uuidArray(unique)}, ${sql`array[${sql.join(
+        codes.map((c) => sql`${c}`),
+        sql`, `,
+      )}]::text[]`}) as t(id, code)
+      on conflict do nothing
+      returning target_id)
+    select t.id as target_id, exists (select 1 from ins where ins.target_id = t.id) as created
+      from unnest(${uuidArray(unique)}) as t(id)
+     where exists (select 1 from ins where ins.target_id = t.id)
+        or not exists (select 1 from ${listingPublicCodes} c where c.target_id = t.id)`);
+  const rows = res.rows as { target_id: string; created: boolean }[];
+  return {
+    created: rows.filter((r) => r.created).map((r) => r.target_id),
+    collided: rows.filter((r) => !r.created).map((r) => r.target_id),
+  };
+}
+
+/** These targets' public codes (website serializer, S7-03 hydration). One statement by primary key. */
+export async function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({ targetId: listingPublicCodes.targetId, code: listingPublicCodes.code })
+    .from(listingPublicCodes)
+    .where(inArray(listingPublicCodes.targetId, [...new Set(ids)]));
+  return new Map(rows.map((r) => [r.targetId, r.code]));
 }
 
 /** Deletes the documents of `ids` not in `keep` (gone targets, removed locales); answers their targets. PK probes. */
@@ -213,8 +267,10 @@ export async function readIndexRows(tx: Tx, ids: readonly string[]) {
       description: sql<string | null>`${listingReadModels.detail}->>'description'`,
       features: sql<{ id: string }[] | null>`${listingReadModels.detail}->'features'`,
       createdAt: listingReadModels.createdAt,
+      publicCode: listingPublicCodes.code,
     })
     .from(listingReadModels)
+    .leftJoin(listingPublicCodes, eq(listingPublicCodes.targetId, listingReadModels.targetId))
     .where(inArray(listingReadModels.targetId, [...ids]));
 }
 
@@ -591,6 +647,7 @@ const SEARCH_DOC_COLUMNS = [
   'lat',
   'lng',
   'ref',
+  'public_code',
   'share_scope',
   'preferred_agency_ids',
   'network_hidden',
@@ -628,6 +685,7 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
         lat: d.geo?.lat ?? null,
         lng: d.geo?.lng ?? null,
         ref: d.ref,
+        publicCode: d.publicCode,
         shareScope: d.shareScope,
         preferredAgencyIds: d.preferredAgencyIds,
         networkHidden: d.networkHidden,
@@ -644,7 +702,8 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
       },
       // A row from before the network columns (S7-01) is rewritten by the next rebuild, changed or not.
       setWhere: sql`excluded.source_hash <> ${listingSearchDocs.sourceHash}
-        or excluded.version <> ${listingSearchDocs.version} or ${listingSearchDocs.shareScope} is null`,
+        or excluded.version <> ${listingSearchDocs.version} or ${listingSearchDocs.shareScope} is null
+        or excluded.public_code is distinct from ${listingSearchDocs.publicCode}`,
     });
 }
 
@@ -654,7 +713,8 @@ export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<
   await tx.execute(sql`delete from ${listingSearchDocs} where target_id = any(${uuidArray(ids)})`);
 }
 
-type ColumnType = 'text' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
+/** `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). */
+type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
 type FieldSpec = { column: string; type: ColumnType } | { constant: string };
 
 /**
@@ -682,6 +742,11 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   preferredAgencyIds: { column: 'preferred_agency_ids', type: 'uuid[]' },
   networkHidden: { column: 'network_hidden', type: 'bool' },
   publishedAt: { column: 'published_at', type: 'bigint' },
+  // A reference typed in the search box (S7-02: the site's white-label rule decides which reference matches which
+  // document, `website.refFilter`).
+  ref: { column: 'ref', type: 'ci' },
+  // A network listing's site reference (`<prefix>-<code>`, S7-02): codes are upper case, compared as stored.
+  publicCode: { column: 'public_code', type: 'text' },
 };
 
 /** Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction). */
@@ -733,6 +798,7 @@ export function fallbackCondition(filter: Filter): SQL {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} @> ${typedArray([filter.value], f.type)}`;
+      if (f.type === 'ci') return sql`lower(${sql.raw(f.column)}) = lower(${String(filter.value)})`;
       return sql`${sql.raw(f.column)} = ${paramOf(f.type, filter.value)}`;
     }
     case 'in': {
@@ -740,6 +806,12 @@ export function fallbackCondition(filter: Filter): SQL {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.values.includes(f.constant) ? sql`true` : sql`false`;
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} && ${typedArray(filter.values, f.type)}`;
+      if (f.type === 'ci') {
+        return sql`lower(${sql.raw(f.column)}) in (${sql.join(
+          filter.values.map((v) => sql`lower(${String(v)})`),
+          sql`, `,
+        )})`;
+      }
       return sql`${sql.raw(f.column)} = any(${typedArray(filter.values, f.type)})`;
     }
     case 'range': {
@@ -787,9 +859,8 @@ export interface FallbackPosition {
 }
 
 export interface FallbackQuery {
+  /** The site's filter, with a typed reference as a `ref` / `publicCode` condition (the fallback's only text match). */
   filter: Filter;
-  /** A reference (the fallback's only text match), case-insensitive. */
-  ref?: string;
   sort: { field: string; dir: 'asc' | 'desc' };
   limit: number;
   /** Keyset: the page after this row. */
@@ -826,10 +897,7 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
   const col = sql.raw(sort.column);
   const dir = sql.raw(q.sort.dir);
   const cmp = sql.raw(q.sort.dir === 'asc' ? '>' : '<');
-  const where = sql.join(
-    [fallbackCondition(q.filter), ...(q.ref === undefined ? [] : [sql`lower(ref) = lower(${q.ref})`])],
-    sql` and `,
-  );
+  const where = fallbackCondition(q.filter);
   const take = q.limit + 1;
   const branches: SQL[] = [];
   if (!q.after || q.after.phase === 0) {

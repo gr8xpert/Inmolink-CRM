@@ -24,6 +24,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
@@ -193,6 +194,11 @@ export const listingSearchDocs = pgTable(
     lng: doublePrecision('lng'),
     ref: text('ref').notNull(),
     /**
+     * The target's opaque public code (S7-02, `listing_public_codes`): a site shows network documents as
+     * `<prefix>-<code>` and a visitor finds them by it. Null until the target's first rebuild with S7-02.
+     */
+    publicCode: text('public_code'),
+    /**
      * Network sharing, as in the index document (S7-01: sites showing network listings). Null on rows written before
      * the columns existed: such a row is no one's network listing until a rebuild rewrites it.
      */
@@ -228,7 +234,31 @@ export const listingSearchDocs = pgTable(
     index('listing_search_docs_development_idx').on(t.developmentId).where(sql`${t.developmentId} is not null`),
     // a reference typed in the search box
     index('listing_search_docs_ref_idx').on(sql`lower(${t.ref})`),
+    // a network listing's site reference typed in the search box (S7-02; built CONCURRENTLY, concurrent-indexes.ts)
+    index('listing_search_docs_public_code_idx').on(t.publicCode).where(sql`${t.publicCode} is not null`),
     // map view (a box: a lat range, lng checked in the index)
     index('listing_search_docs_geo_idx').on(t.lat, t.lng).where(sql`${t.lat} is not null`),
+  ],
+);
+
+/**
+ * Public codes (S7-02, PLAN §3 #6 white-label): one opaque, random code per listing or unit, made when its read
+ * models are first written and never changed or reused. Websites show another agency's listing as
+ * `<site prefix>-<code>` — never the owner's own reference, which the owner shows on its own site and portals — and
+ * the website API finds a listing by it. No foreign key: targets live in other modules; a purged target's code stays
+ * (never reused). Global and public: a code is shown on public pages.
+ */
+export const listingPublicCodes = pgTable(
+  'listing_public_codes',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    /** 8 Crockford base32 characters, upper case. */
+    code: text('code').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // `/v2/listings/{ref}` and a typed reference: a code → its target
+    uniqueIndex('listing_public_codes_code_uq').on(t.code),
+    check('listing_public_codes_code_ck', sql`${t.code} ~ '^[0-9A-HJKMNP-TV-Z]{8}$'`),
   ],
 );

@@ -32,7 +32,7 @@ import {
 import { metrics } from '@opentelemetry/api';
 import type { SQL } from 'drizzle-orm';
 import { z } from 'zod';
-import { attributeFilters } from './filters';
+import { attributeFilters, othersInNetwork, sharesWith } from './filters';
 import { listingsIndex } from './index-doc';
 import { listingsIndexUid } from './indexer';
 import * as repo from './repo';
@@ -185,6 +185,12 @@ export interface PublicSearchSite {
    * everyone, or by an owner that prefers it, and not hidden from the network for freshness (S6-F2).
    */
   networkOf?: string;
+  /**
+   * The prefix network documents carry on this site (S7-02, `websites.networkRefPrefix`): a visitor finds a network
+   * document by `<prefix>-<public code>` only, never by the owner's own reference. Without it no network document is found
+   * by reference.
+   */
+  networkRefPrefix?: string;
   restrict?: SiteRestriction;
   /** Correlates the engine-failure logs with the request. */
   requestId: string;
@@ -195,6 +201,10 @@ const PublicSearchSite = z
   .object({
     ownerAgencyIds: z.array(z.uuid()).max(500).nullable(),
     networkOf: z.uuid().optional(),
+    networkRefPrefix: z
+      .string()
+      .regex(/^[A-Z0-9]{1,6}$/)
+      .optional(),
     restrict: z
       .object({
         locationIds: z.array(z.uuid()).max(MAX_RESTRICT_IDS).optional(),
@@ -245,24 +255,55 @@ function decode(cursor: string | undefined, sort: PublicSearchSort): CursorState
   throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
 }
 
-/** Other agencies' documents shared with `agencyId` (the network search's rule for PUBLIC documents). */
+/** Other agencies' documents shared with `agencyId`: the network search's rule (`filters.ts`), for PUBLIC documents. */
 function sharedWith(agencyId: string): Filter {
-  return {
-    op: 'and',
-    filters: [
-      { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: agencyId } },
-      {
-        op: 'or',
-        filters: [
-          { op: 'eq', field: 'shareScope', value: 'ALL' },
-          { op: 'eq', field: 'preferredAgencyIds', value: agencyId },
-        ],
-      },
-      // Not `networkHidden = false`: a document indexed before the field existed has none and is not hidden.
-      { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
-    ],
-  };
+  return { op: 'and', filters: [...othersInNetwork(agencyId), sharesWith(agencyId)] };
 }
+
+/** A site whose results mix its own documents with other agencies' (white-labelled references, S7-02). */
+const whiteLabelled = (site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf'>) =>
+  site.ownerAgencyIds !== null && site.networkOf !== undefined;
+
+/**
+ * A reference typed in the search box as a filter (S7-02, PLAN §9.1 white-label): the site's own documents match
+ * their reference (`ref`); a network document matches only the site's form `<prefix>-<public code>` (`publicCode`),
+ * so a visitor never finds it by the owner's own reference. Null: no document can match (a network-only site, text without the
+ * site's prefix). A site without network documents matches references as they are.
+ */
+export function refFilter(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'networkRefPrefix'>,
+  text: string,
+): Filter | null {
+  if (!whiteLabelled(site)) return { op: 'eq', field: 'ref', value: text };
+  const own = site.ownerAgencyIds ?? [];
+  const marker = site.networkRefPrefix ? `${site.networkRefPrefix}-` : null;
+  // The public code after the site's prefix (codes are upper case; never the owner's own reference).
+  const networkCode =
+    marker && text.length > marker.length && text.toUpperCase().startsWith(marker)
+      ? text.slice(marker.length).toUpperCase()
+      : null;
+  const ownAgencies: Filter = { op: 'in', field: 'ownerAgencyId', values: [...own] };
+  const branches: Filter[] = [];
+  if (own.length > 0) {
+    branches.push({ op: 'and', filters: [ownAgencies, { op: 'eq', field: 'ref', value: text }] });
+  }
+  if (networkCode !== null) {
+    branches.push({
+      op: 'and',
+      filters: [
+        ...(own.length > 0 ? [{ op: 'not', filter: ownAgencies } as const] : []),
+        { op: 'eq', field: 'publicCode', value: networkCode },
+      ],
+    });
+  }
+  if (branches.length === 0) return null;
+  return branches.length === 1 ? (branches[0] as Filter) : { op: 'or', filters: branches };
+}
+
+/** Text that may be a reference: one word (references have no spaces). */
+const REF_LIKE = /^\S{1,64}$/;
+/** Most hits a reference lookup returns. */
+const REF_LOOKUP_LIMIT = 10;
 
 const nonEmpty = (ids: readonly string[] | undefined) => (ids && ids.length > 0 ? [...ids] : undefined);
 
@@ -313,11 +354,11 @@ export async function searchPublicListings(
   const cursor = decode(q.cursor, q.sort);
   const filter = publicSearchFilter(scope, q);
   // A fallback page continues in the fallback (its keyset order), even when the engine is back.
-  if (cursor && 'p' in cursor) return fallback(q, filter, cursor, 'cursor');
+  if (cursor && 'p' in cursor) return fallback(scope, q, filter, cursor, 'cursor');
   const permit = breaker.acquire();
-  if (!permit) return fallback(q, filter, cursor, 'breaker_open');
+  if (!permit) return fallback(scope, q, filter, cursor, 'breaker_open');
   const started = performance.now();
-  const engineCall = engineSearch(options.engine ?? searchEngine(), q, filter, cursor?.o ?? 0).then(
+  const engineCall = engineSearch(options.engine ?? searchEngine(), scope, q, filter, cursor?.o ?? 0).then(
     (result) => {
       permit.success(performance.now() - started);
       return result;
@@ -348,7 +389,7 @@ export async function searchPublicListings(
       return early;
     }
   } catch {
-    return fallback(q, filter, cursor, 'engine_error');
+    return fallback(scope, q, filter, cursor, 'engine_error');
   } finally {
     clearTimeout(timer);
   }
@@ -360,11 +401,11 @@ export async function searchPublicListings(
       queries.add(1, { backend: 'engine' });
       return late;
     } catch {
-      return fallback(q, filter, cursor, 'engine_error');
+      return fallback(scope, q, filter, cursor, 'engine_error');
     }
   }
   hedging += 1;
-  const backup = fallbackPage(q, filter, cursor).finally(() => {
+  const backup = fallbackPage(scope, q, filter, cursor).finally(() => {
     hedging -= 1;
   });
   try {
@@ -382,30 +423,55 @@ let hedging = 0;
 
 async function engineSearch(
   engine: SearchEngine,
+  site: PublicSearchSite,
   q: Parsed,
   filter: Filter,
   offset: number,
 ): Promise<PublicListingSearchResult> {
   const def = listingsIndex(listingsIndexUid());
+  // A site showing network documents never matches free text against references (the owner's own would find a
+  // network document, S7-02): a one-word text is also looked up as a reference, by filter, beside the text query.
+  const labelled = whiteLabelled(site);
   // Only the fields the index holds: a request must never be able to make the engine reject the query.
-  const searchOn = ['ref', `title_${q.locale}`, `place_${q.locale}`, `description_${q.locale}`].filter((f) =>
-    def.searchable.includes(f),
-  );
+  const searchOn = [
+    ...(labelled ? [] : ['ref']),
+    `title_${q.locale}`,
+    `place_${q.locale}`,
+    `description_${q.locale}`,
+  ].filter((f) => def.searchable.includes(f));
   const limit = Math.min(q.limit, SEARCH_RESULT_CAP - offset);
-  const answer = await deadline(
-    engine.search(def, {
-      text: q.text,
-      searchOn,
-      locale: q.locale,
-      filter,
-      facets: q.facets,
-      sort: [SORTS[q.sort]],
-      limit,
-      offset,
-      timeoutMs: settings.engineTimeoutMs,
-    }),
-    settings.engineTimeoutMs,
-  );
+  const query = (text: string | undefined, f: Filter, facets: string[], max: number) =>
+    deadline(
+      engine.search(def, {
+        text,
+        searchOn,
+        locale: q.locale,
+        filter: f,
+        facets,
+        sort: [SORTS[q.sort]],
+        limit: max,
+        offset,
+        timeoutMs: settings.engineTimeoutMs,
+      }),
+      settings.engineTimeoutMs,
+    );
+  const byRef =
+    labelled && offset === 0 && q.text !== undefined && REF_LIKE.test(q.text) ? refFilter(site, q.text) : null;
+  const [answer, refAnswer] = await Promise.all([
+    query(q.text, filter, q.facets, limit),
+    // No facets, a few hits: a reference names one listing (rarely a few, e.g. a unit reference in two developments).
+    byRef ? query(undefined, { op: 'and', filters: [filter, byRef] }, [], Math.min(limit, REF_LOOKUP_LIMIT)) : null,
+  ]);
+  // A reference that matches is the answer (one page: a reference names one listing, rarely a few).
+  if (refAnswer && refAnswer.ids.length > 0) {
+    return {
+      ids: refAnswer.ids,
+      total: Math.min(refAnswer.total, SEARCH_RESULT_CAP),
+      facets: refAnswer.facets,
+      nextCursor: null,
+      backend: 'engine',
+    };
+  }
   const total = Math.min(answer.total, SEARCH_RESULT_CAP);
   const next = offset + answer.ids.length;
   return {
@@ -417,10 +483,20 @@ async function engineSearch(
   };
 }
 
-function fallbackQuery(q: Parsed, filter: Filter, cursor: CursorState | undefined): repo.FallbackQuery {
+/**
+ * The fallback's query: the site's filter and — with a text — the reference it may name (`refFilter`; the fallback
+ * matches no other text). Null: the text can match no document here.
+ */
+function fallbackQuery(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'networkRefPrefix'>,
+  q: Parsed,
+  filter: Filter,
+  cursor: CursorState | undefined,
+): repo.FallbackQuery | null {
+  const byRef = q.text === undefined ? undefined : refFilter(site, q.text);
+  if (byRef === null) return null;
   return {
-    filter,
-    ref: q.text,
+    filter: byRef ? { op: 'and', filters: [filter, byRef] } : filter,
     sort: SORTS[q.sort],
     limit: q.limit,
     // An engine cursor (the engine went away mid-pagination) has no position here: the first keyset page (S6-F2).
@@ -431,11 +507,12 @@ function fallbackQuery(q: Parsed, filter: Filter, cursor: CursorState | undefine
 
 /** The fallback's statement for a site's search: perf tests EXPLAIN it on scale data (not for request paths). */
 export function publicFallbackSql(
-  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict'>,
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
   input: PublicListingSearch,
-): SQL {
+): SQL | null {
   const q = PublicListingSearch.parse(input);
-  return repo.fallbackSearchSql(fallbackQuery(q, publicSearchFilter(site, q), decode(q.cursor, q.sort)));
+  const query = fallbackQuery(site, q, publicSearchFilter(site, q), decode(q.cursor, q.sort));
+  return query ? repo.fallbackSearchSql(query) : null;
 }
 
 /** The engine's answer, or a timeout error after `ms` (`SEARCH_ENGINE_TIMEOUT_MS`, whatever the adapter does). */
@@ -450,17 +527,19 @@ function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
 }
 
 async function fallback(
+  site: PublicSearchSite,
   q: Parsed,
   filter: Filter,
   cursor: CursorState | undefined,
   reason: 'breaker_open' | 'engine_error' | 'cursor',
 ): Promise<PublicListingSearchResult> {
   queries.add(1, { backend: 'fallback', reason });
-  return fallbackPage(q, filter, cursor);
+  return fallbackPage(site, q, filter, cursor);
 }
 
 /** One fallback page (one statement). */
 async function fallbackPage(
+  site: PublicSearchSite,
   q: Parsed,
   filter: Filter,
   cursor: CursorState | undefined,
@@ -469,7 +548,8 @@ async function fallbackPage(
   // the engine's offsets mean nothing in the fallback's order, and an SQL OFFSET would scan up to 10,000 rows per
   // request while the fallback carries all traffic (S6-F2).
   const restarted = cursor !== undefined && 'o' in cursor;
-  const page = await withPublicRead((tx) => repo.fallbackSearch(tx, fallbackQuery(q, filter, cursor)));
+  const query = fallbackQuery(site, q, filter, cursor);
+  const page = query ? await withPublicRead((tx) => repo.fallbackSearch(tx, query)) : { ids: [], total: 0, next: null };
   return {
     ids: page.ids,
     total: page.total,

@@ -1,5 +1,11 @@
 import type { Tx } from '@inmolink/db';
-import { agencies, agencyDirectory, preferredAgencies, preferredAgencyNotes } from '@inmolink/db/schema/agencies';
+import {
+  agencies,
+  agencyDirectory,
+  agencyProfiles,
+  preferredAgencies,
+  preferredAgencyNotes,
+} from '@inmolink/db/schema/agencies';
 import { and, asc, count, eq, ilike, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
@@ -208,4 +214,72 @@ export async function directoryNames(tx: Tx, ids: readonly string[]): Promise<{ 
     .select({ id: agencyDirectory.agencyId, name: agencyDirectory.name })
     .from(agencyDirectory)
     .where(inArray(agencyDirectory.agencyId, [...ids]));
+}
+
+export interface PublicAgencyRow {
+  agencyId: string;
+  name: string;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+}
+
+/**
+ * Listed agencies' public presentation (S7-02): directory name + published profile, one statement by primary key.
+ * Runs as `app_public` too (`agency_directory` / `agency_profiles` public predicates: listed agencies only).
+ */
+export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<PublicAgencyRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx
+    .select({
+      agencyId: agencyDirectory.agencyId,
+      name: agencyDirectory.name,
+      contactEmail: agencyProfiles.contactEmail,
+      contactPhone: agencyProfiles.contactPhone,
+      websiteUrl: agencyProfiles.websiteUrl,
+      primaryColor: agencyProfiles.primaryColor,
+      accentColor: agencyProfiles.accentColor,
+    })
+    .from(agencyDirectory)
+    .leftJoin(agencyProfiles, eq(agencyProfiles.agencyId, agencyDirectory.agencyId))
+    .where(and(inArray(agencyDirectory.agencyId, [...ids]), eq(agencyDirectory.listed, true)));
+  return rows.map((r) => ({
+    agencyId: r.agencyId,
+    name: r.name,
+    contactEmail: r.contactEmail ?? null,
+    contactPhone: r.contactPhone ?? null,
+    websiteUrl: r.websiteUrl ?? null,
+    primaryColor: r.primaryColor ?? null,
+    accentColor: r.accentColor ?? null,
+  }));
+}
+
+/**
+ * Owners' identity for the white-label sanitizer (S7-02): directory name and published contacts of any agency,
+ * listed or not (`agency_directory` / `agency_profiles` public predicates are `true`). One statement.
+ */
+export async function ownerIdentityRows(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<
+  { agencyId: string; name: string | null; email: string | null; phone: string | null; website: string | null }[]
+> {
+  if (ids.length === 0) return [];
+  const rows = await tx.execute(sql`
+    select t.id as "agencyId", d.name, p.contact_email as email, p.contact_phone as phone, p.website_url as website
+      from unnest(${sql`array[${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::uuid[]`}) as t(id)
+      left join ${agencyDirectory} d on d.agency_id = t.id
+      left join ${agencyProfiles} p on p.agency_id = t.id`);
+  return rows.rows as {
+    agencyId: string;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    website: string | null;
+  }[];
 }

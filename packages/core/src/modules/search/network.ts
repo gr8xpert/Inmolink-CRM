@@ -36,7 +36,7 @@ import type { Ctx, CtxRunner } from '../../context';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as properties from '../properties';
-import { attributeFilters } from './filters';
+import { attributeFilters, othersInNetwork, sharesWith } from './filters';
 import { listingsIndex } from './index-doc';
 import { listingsIndexUid } from './indexer';
 import { assertCan } from './policy';
@@ -180,14 +180,8 @@ export function networkFilter(scope: Scope, q: Parsed): Filter {
         filters: [
           { op: 'eq', field: 'kind', value: 'LISTING' },
           { op: 'in', field: 'visibility', values: ['PUBLIC', 'SHARED'] },
-          // PREFERRED: the owner prefers the caller (its document names the agencies it prefers).
-          {
-            op: 'or',
-            filters: [
-              { op: 'eq', field: 'shareScope', value: 'ALL' },
-              { op: 'eq', field: 'preferredAgencyIds', value: scope.self },
-            ],
-          },
+          // PREFERRED: the owner prefers the caller (the network's sharing rule, shared with website search).
+          sharesWith(scope.self),
         ],
       },
       {
@@ -208,9 +202,7 @@ export function networkFilter(scope: Scope, q: Parsed): Filter {
   };
   const filters: Filter[] = [
     visible,
-    { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: scope.self } },
-    // Not `networkHidden = false`: a document indexed before the field existed has none and is not hidden.
-    { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
+    ...othersInNetwork(scope.self),
     { op: 'in', field: 'status', values: q.statuses },
   ];
   if (q.preferredOnly) filters.push({ op: 'in', field: 'ownerAgencyId', values: scope.preferred });

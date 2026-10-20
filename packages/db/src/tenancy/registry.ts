@@ -175,6 +175,11 @@ export type TenantTable = TenantBase &
          * hidden side, and the owning module tests the readable side.
          */
         networkReadSql?: string;
+        /**
+         * Columns `app_public` alone may not read (S7-02): `app_user` keeps them on its own rows. The public grant is a
+         * column list of every other column.
+         */
+        publicHiddenColumns?: readonly string[];
       }
   );
 
@@ -264,8 +269,18 @@ export const tenantTables: Record<string, TenantTable> = {
     auth: { insert: 'agency_id = app_agency()' },
     base: { enabled_locales: '{es}' },
   },
-  // Logo, colours, contact (S1-06). Created by the agency's first profile save (app_user).
-  agency_profiles: { kind: 'STRICT', singleRow: true },
+  // Logo, colours, contact (S1-06). Created by the agency's first profile save (app_user). S7-02: public pages
+  // (`app_public`) read the branding and contact details an agency shows to clients (`agencies.publicAgencies`,
+  // `agencies.ownerIdentities`).
+  agency_profiles: {
+    kind: 'PUBLIC_READ',
+    singleRow: true,
+    // Every row, for the sanitizer (an owner's published contacts are removed whether or not it is listed now);
+    // the presenter reads listed agencies only. Contacts and colours only: logo and bookkeeping columns stay hidden.
+    publicReadSql: 'true',
+    publicHiddenColumns: ['logo_storage_key', 'logo_content_type', 'logo_size_bytes', 'logo_updated_at', 'version'],
+    samples: { visible: [{}], hidden: [] },
+  },
   agency_translations: { kind: 'STRICT' },
   // Membership + role (S1-01, S1-02). app_auth reads only the user it is signing in, and writes only
   // the membership of the user it is signing up or who accepts an invite. Tenant sessions change only
@@ -345,9 +360,15 @@ export const tenantTables: Record<string, TenantTable> = {
   // transaction — staff decisions (app_staff) and app_system. Tenants never write it, and staff write only
   // what `agencies` says (guard trigger, migration 0022); app_user's grant is proven by a no-op update.
   // The `listed = false` side is tested in the agencies module (one row per agency: the suite seeds one).
+  // S7-02: public pages (`app_public`) read the rows too — the presenting agency's name on its websites (listed
+  // agencies, `agencies.publicAgencies`) and the owner names the white-label sanitizer removes (`ownerIdentities`). The network side is tested in the
+  // agencies module (the suite seeds network members for NETWORK_READ tables only).
   agency_directory: {
-    kind: 'NETWORK_READ',
+    kind: 'PUBLIC_READ',
     singleRow: true,
+    // Every row (S7-02 security review): the white-label sanitizer removes an owner's name whether or not it is
+    // listed now; a directory row holds only name, kind and listed.
+    publicReadSql: 'true',
     networkReadSql: 'listed',
     staff: { select: 'true', insert: 'true', update: 'true' },
     samples: { visible: [{ listed: true }], hidden: [] },
@@ -527,9 +548,17 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
-  // S3-10: an agency's own text for listings it presents — used only in its own channels.
+  // S3-10: an agency's own text for listings it presents — used only in its own channels. S7-02: its websites read
+  // them as `app_public` (feed-api, `properties.siteOverrides`, always filtered by the site's agency): only overrides
+  // of targets public paths may show (a public read model of the listing or unit, or of a unit of the development).
+  // The readable side is tested in the websites module (the suite seeds no read model).
   listing_overrides: {
-    kind: 'STRICT',
+    kind: 'PUBLIC_READ',
+    publicReadSql: `(target_kind = 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r
+        where r.development_id = listing_overrides.target_id and r.public))
+      or (target_kind <> 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r
+        where r.target_id = listing_overrides.target_id and r.public))`,
+    samples: { visible: [], hidden: [{}] },
     base: {
       target_kind: 'LISTING',
       target_id: '00000000-0000-4000-8000-000000000010',
@@ -733,6 +762,14 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'search filter fields of PUBLIC listings and units of every agency (website search fallback)',
     publicRead: true,
     noUserRead: true,
+  },
+  // Public codes (S7-02): an opaque code per listing or unit once public, shown and matched by websites as
+  // `<prefix>-<code>` for other agencies' listings. Written by the search worker (withSystem); public paths read them.
+  listing_public_codes: {
+    reason: 'opaque public codes of PUBLIC listings and units of every agency (white-labelled website references)',
+    publicRead: true,
+    noUserRead: true,
+    base: { code: 'AB12CD34' },
   },
   // Search index sync queue (S5-03): written with read models by the search worker via withSystem().
   search_index_queue: {

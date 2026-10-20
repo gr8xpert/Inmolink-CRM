@@ -12,6 +12,7 @@ import type {
   PutListingOverrideBody,
   TranslationOrigin,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -160,4 +161,35 @@ export async function listingTexts(
     owner.map((t) => ({ id: t.propertyId, title: t.title, description: t.description })),
   );
   return new Map(texts.map(({ id, ...text }) => [id, text]));
+}
+
+/** An agency's override texts for its websites, by target (S7-02): listings, units and developments. */
+export interface SiteOverrides {
+  /** Overrides of listings and units, by target id. */
+  targets: Map<string, ListingText>;
+  /** Overrides of developments (their units' text), by development id. */
+  developments: Map<string, ListingText>;
+}
+
+/**
+ * The website API's overrides (S7-02, PLAN §3 #54): the site's agency's overrides of these targets (listing and unit
+ * ids, and the developments of the units) in one locale — one statement. `tx` is the caller's public read
+ * (`withPublicRead`, feed-api: no tenant session); `agencyId` comes from the authenticated key's site, never from
+ * the visitor, so another agency's overrides never reach a site.
+ */
+export async function siteOverrides(
+  tx: Tx,
+  agencyId: string,
+  targetIds: readonly string[],
+  locale: string,
+): Promise<SiteOverrides> {
+  const rows = await repo.overridesOfTargets(tx, agencyId, targetIds, locale);
+  const out: SiteOverrides = { targets: new Map(), developments: new Map() };
+  for (const r of rows) {
+    (r.targetKind === 'DEVELOPMENT' ? out.developments : out.targets).set(r.targetId, {
+      title: r.title,
+      description: r.description,
+    });
+  }
+  return out;
 }

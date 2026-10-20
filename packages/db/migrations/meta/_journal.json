@@ -624,6 +624,13 @@
       "when": 1792510036091,
       "tag": "0088_s7_01_api_keys_site_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792524556942,
+      "tag": "0089_s7_02_public_codes",
+      "breakpoints": true
     }
   ]
 }

@@ -47,7 +47,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_read_models', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_codes', 'listing_read_models', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -81,16 +81,19 @@ create policy staff_update on public."agencies" for update to app_staff
   using (app_is_staff() and (true)) with check (app_is_staff() and (true));
 grant select, update on table public."agencies" to app_staff;
 
--- agency_directory: NETWORK_READ
+-- agency_directory: PUBLIC_READ
 alter table public."agency_directory" enable row level security;
 alter table public."agency_directory" force row level security;
 create policy own_rows on public."agency_directory" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."agency_directory" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (listed));
+create policy public_read on public."agency_directory" for select to app_public
+  using (true);
 revoke all on table public."agency_directory" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."agency_directory" to app_user;
 grant select, insert, update, delete on table public."agency_directory" to app_system;
+grant select on table public."agency_directory" to app_public;
 create policy staff_select on public."agency_directory" for select to app_staff
   using (app_is_staff() and (true));
 create policy staff_insert on public."agency_directory" for insert to app_staff
@@ -132,14 +135,23 @@ create policy staff_select on public."agency_members" for select to app_staff
   using (app_is_staff() and (true));
 grant select on table public."agency_members" to app_staff;
 
--- agency_profiles: STRICT
+-- agency_profiles: PUBLIC_READ
 alter table public."agency_profiles" enable row level security;
 alter table public."agency_profiles" force row level security;
 create policy own_rows on public."agency_profiles" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy public_read on public."agency_profiles" for select to app_public
+  using (true);
 revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."agency_profiles" to app_user;
 grant select, insert, update, delete on table public."agency_profiles" to app_system;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."agency_profiles"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['logo_storage_key', 'logo_content_type', 'logo_size_bytes', 'logo_updated_at', 'version']);
+  execute format('grant select (%s) on table public."agency_profiles" to app_public', cols);
+end $$;
 
 -- agency_settings: STRICT
 alter table public."agency_settings" enable row level security;
@@ -490,14 +502,25 @@ revoke all on table public."listing_documents" from public, app_user, app_system
 grant select, insert, update, delete on table public."listing_documents" to app_user;
 grant select, insert, update, delete on table public."listing_documents" to app_system;
 
--- listing_overrides: STRICT
+-- listing_overrides: PUBLIC_READ
 alter table public."listing_overrides" enable row level security;
 alter table public."listing_overrides" force row level security;
 create policy own_rows on public."listing_overrides" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy public_read on public."listing_overrides" for select to app_public
+  using ((target_kind = 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r where r.development_id = listing_overrides.target_id and r.public)) or (target_kind <> 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r where r.target_id = listing_overrides.target_id and r.public)));
 revoke all on table public."listing_overrides" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."listing_overrides" to app_user;
 grant select, insert, update, delete on table public."listing_overrides" to app_system;
+grant select on table public."listing_overrides" to app_public;
+
+-- listing_public_codes: GLOBAL
+alter table public."listing_public_codes" enable row level security;
+alter table public."listing_public_codes" force row level security;
+create policy global_read on public."listing_public_codes" for select to app_public using (true);
+revoke all on table public."listing_public_codes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+grant select on table public."listing_public_codes" to app_public;
+grant select, insert, update, delete on table public."listing_public_codes" to app_system;
 
 -- listing_read_models: PUBLIC_READ
 alter table public."listing_read_models" enable row level security;

@@ -20,6 +20,7 @@ export {
   searchAgencyDirectory,
   updatePreferredAgency,
 } from './preferred';
+export { type OwnerIdentity, ownerIdentities, type PublicAgency, publicAgencies } from './public';
 export {
   createSignupAgency,
   getAgencyName,

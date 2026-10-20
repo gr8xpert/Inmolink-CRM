@@ -1,5 +1,6 @@
 import {
   getPgClient,
+  publicHiddenColumnsOf,
   SAMPLE_READER,
   SAMPLE_USER,
   setAuthScope,
@@ -393,9 +394,10 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       expect(await withPublicRead((tx) => count(tx, table, a))).toBe(visible.length);
     });
 
-    if (def.hiddenColumns?.length) {
-      it(`[S6-F1] ${table}: app_public cannot read the hidden columns (${def.hiddenColumns.join(', ')}), even on public rows`, async () => {
-        for (const column of def.hiddenColumns ?? []) {
+    const publicHidden = publicHiddenColumnsOf(def);
+    if (publicHidden.length > 0) {
+      it(`[S6-F1] ${table}: app_public cannot read the hidden columns (${publicHidden.join(', ')}), even on public rows`, async () => {
+        for (const column of publicHidden) {
           const id = sql.identifier(column);
           const t = sql.identifier(table);
           for (const read of [

@@ -4,6 +4,8 @@
  */
 import { z } from 'zod';
 import { pageOf } from './common';
+import { ListingMediaKind, ListingRoomType, VideoProvider } from './media';
+import { ListingCardDoc, ListingDetailDoc, READ_MODEL_IMAGE_SIZES, UnitCardDoc, UnitDetailDoc } from './search';
 
 export const WebsiteMode = z.enum(['WP_PLUGIN', 'WIDGET', 'HOSTED']);
 export type WebsiteMode = z.infer<typeof WebsiteMode>;
@@ -182,3 +184,62 @@ export type SitePage = z.infer<typeof SitePage>;
 
 export const SiteParams = z.object({ siteId: z.uuid() });
 export type SiteParams = z.infer<typeof SiteParams>;
+
+// ── Website API documents (S7-02) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Website listing documents (S7-02, PLAN §3 #6, §9.1, ADR 0012 #3): a read-model document as one site serves it —
+ * white-labelled to the site's agency. Network listings carry the site's reference prefix and the presenting
+ * agency's contacts; the owner's identity, contacts and commission are in no field (strict shapes), and owner text
+ * on network listings has passed the white-label sanitizer. Texts are plain text, never HTML: render them escaped.
+ */
+
+/** The presenting agency (the site's): name, brand colours and the contacts buyers reach. */
+export const WebsitePresenter = z.strictObject({
+  name: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  whatsapp: z.string().nullable(),
+  website: z.string().nullable(),
+  primaryColor: z.string().nullable(),
+  accentColor: z.string().nullable(),
+});
+export type WebsitePresenter = z.infer<typeof WebsitePresenter>;
+
+/** An image with CDN URLs per size preset (the read model's variant keys behind the media CDN). */
+export const WebsiteImage = z.strictObject({
+  kind: ListingMediaKind,
+  cover: z.boolean(),
+  alt: z.string().nullable(),
+  room: ListingRoomType.nullable(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  urls: z.strictObject(Object.fromEntries(READ_MODEL_IMAGE_SIZES.map((s) => [s, z.string()]))).partial(),
+});
+export type WebsiteImage = z.infer<typeof WebsiteImage>;
+
+/** Videos: own listings only (a network listing's video may show its owner, S7-02). */
+export const WebsiteVideo = z.strictObject({ kind: z.literal('VIDEO'), provider: VideoProvider, id: z.string() });
+export const WebsiteMedia = z.union([WebsiteImage, WebsiteVideo]);
+export type WebsiteMedia = z.infer<typeof WebsiteMedia>;
+
+export const WebsiteListingCard = ListingCardDoc.omit({ cover: true }).extend({ cover: WebsiteImage.nullable() });
+export type WebsiteListingCard = z.infer<typeof WebsiteListingCard>;
+
+export const WebsiteListingDetail = ListingDetailDoc.omit({ cover: true, media: true }).extend({
+  cover: WebsiteImage.nullable(),
+  media: z.array(WebsiteMedia),
+  agency: WebsitePresenter,
+});
+export type WebsiteListingDetail = z.infer<typeof WebsiteListingDetail>;
+
+export const WebsiteUnitCard = UnitCardDoc;
+export type WebsiteUnitCard = z.infer<typeof WebsiteUnitCard>;
+
+export const WebsiteUnitDetail = UnitDetailDoc.extend({ agency: WebsitePresenter });
+export type WebsiteUnitDetail = z.infer<typeof WebsiteUnitDetail>;
+
+export const WebsiteCard = z.discriminatedUnion('kind', [WebsiteListingCard, WebsiteUnitCard]);
+export type WebsiteCard = z.infer<typeof WebsiteCard>;
+export const WebsiteDetail = z.discriminatedUnion('kind', [WebsiteListingDetail, WebsiteUnitDetail]);
+export type WebsiteDetail = z.infer<typeof WebsiteDetail>;

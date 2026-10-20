@@ -317,9 +317,12 @@ export function hiddenColumnsOf(def: TenantTable): readonly string[] {
   return [...(def.hiddenColumns ?? []), ...(def.userSelect?.hiddenColumns ?? [])];
 }
 
-/** Columns `app_public` may not read on a PUBLIC_READ table (S6-F1): the table's own `hiddenColumns`. */
+/**
+ * Columns `app_public` may not read on a PUBLIC_READ table: the table's own `hiddenColumns` (S6-F1) and its
+ * `publicHiddenColumns` (S7-02).
+ */
 export function publicHiddenColumnsOf(def: TenantTable): readonly string[] {
-  return def.kind === 'PUBLIC_READ' ? (def.hiddenColumns ?? []) : [];
+  return def.kind === 'PUBLIC_READ' ? [...(def.hiddenColumns ?? []), ...(def.publicHiddenColumns ?? [])] : [];
 }
 
 /**

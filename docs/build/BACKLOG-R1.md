@@ -880,6 +880,13 @@ Ref §9.1 · Mod websites, search · Dep S7-01
 - A CUSTOM site with a 3 % minimum shows network listings at ≥ 3 % only, engine and fallback alike (test)
 - No public read path returns the commission field (isolation + serializer test)
 
+### S7-F5 · White-labelled free-text search on network sites (S7-02 review) 🔒
+Ref §3 #6 §9.1 · Mod search, websites · Dep S7-02
+**Build:** on a site that shows network listings, free text still matches the owner's raw title, place and description in the engine, so a visitor who types an owner's name, phone, e-mail or website finds that owner's network listings (results are white-labelled, but the match itself tells the visitor who owns them). Index the localized text of every document through the deterministic white-label sanitizer with its owner's identity (`agencies.ownerIdentities`; the owner is the same for every site, so it is sanitized once, at index build): move the sanitizer out of `websites` to a module-neutral place both `search` and `websites` import; include a sanitizer version in `sourceHash` so a change re-pushes every document; reindex on deploy. Own-site search then no longer matches the agency's own contact details in its listings' text (accepted). The S12-03 model pass stays serving-time only.
+**Done when:**
+- On an OWN_PLUS_NETWORK site, searching an owner's name, phone, e-mail or website host returns none of its network listings (engine test; the fallback matches references only)
+- Titles and descriptions without owner details rank as before (existing search tests green)
+
 ---
 
 ## S8 — Legacy shim & WordPress plugin v2

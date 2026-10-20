@@ -2,6 +2,7 @@ import { SearchError } from '@inmolink/platform/search';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { fallbackCondition, fallbackSearchSql } from '../repo';
+import { refFilter } from '../website';
 
 /** The fallback's filter compiler (S5-04): the engine's semantics in SQL, values always parameters. */
 
@@ -45,6 +46,56 @@ describe('fallback filter → SQL', () => {
     expect(() => fallbackCondition({ op: 'eq', field: 'beds', value: 'x' })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'in', field: 'status', values: [] })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'and', filters: [] })).toThrow(SearchError);
+  });
+
+  it('[S7-02] references compare case-insensitively (the lower(ref) index), values as parameters', () => {
+    const eq = render(fallbackCondition({ op: 'eq', field: 'ref', value: 'AB12' }));
+    expect(eq.sql).toBe('lower(ref) = lower($1)');
+    expect(eq.params).toEqual(['AB12']);
+    expect(render(fallbackCondition({ op: 'in', field: 'ref', values: ['A', 'B'] })).sql).toBe(
+      'lower(ref) in (lower($1), lower($2))',
+    );
+  });
+
+  it('[S7-02] white-label references: own documents by their reference, network ones by `<prefix>-<public code>` only', () => {
+    const own = '01900000-0000-7000-8000-0000000000aa';
+    const site = { ownerAgencyIds: [own], networkOf: own, networkRefPrefix: 'CH' };
+    expect(refFilter(site, 'AB12')).toEqual({
+      op: 'and',
+      filters: [
+        { op: 'in', field: 'ownerAgencyId', values: [own] },
+        { op: 'eq', field: 'ref', value: 'AB12' },
+      ],
+    });
+    expect(refFilter(site, 'ch-AB12')).toEqual({
+      op: 'or',
+      filters: [
+        {
+          op: 'and',
+          filters: [
+            { op: 'in', field: 'ownerAgencyId', values: [own] },
+            { op: 'eq', field: 'ref', value: 'ch-AB12' },
+          ],
+        },
+        {
+          op: 'and',
+          filters: [
+            { op: 'not', filter: { op: 'in', field: 'ownerAgencyId', values: [own] } },
+            { op: 'eq', field: 'publicCode', value: 'AB12' },
+          ],
+        },
+      ],
+    });
+    // A network-only site: only the prefixed form can match; other text matches no reference at all.
+    const networkOnly = { ownerAgencyIds: [], networkOf: own, networkRefPrefix: 'CH' };
+    expect(refFilter(networkOnly, 'AB12')).toBeNull();
+    expect(refFilter(networkOnly, 'CH-AB12')).toEqual({
+      op: 'and',
+      filters: [{ op: 'eq', field: 'publicCode', value: 'AB12' }],
+    });
+    expect(refFilter({ ...networkOnly, networkRefPrefix: undefined }, 'CH-AB12')).toBeNull();
+    // A site without network documents matches references as they are.
+    expect(refFilter({ ownerAgencyIds: [own] }, 'AB12')).toEqual({ op: 'eq', field: 'ref', value: 'AB12' });
   });
 
   it('[S7-01] network fields: share scope, preferred agencies (contains) and the freshness flag', () => {

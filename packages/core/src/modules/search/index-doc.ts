@@ -52,6 +52,11 @@ export interface ListingIndexDoc {
   plotM2: number | null;
   geo: { lat: number; lng: number } | null;
   ref: string;
+  /**
+   * The target's public code (S7-02, `listing_public_codes`): websites show and match another agency's document as
+   * `<prefix>-<code>`, never by its owner's `ref`. Null until the target has one.
+   */
+  publicCode: string | null;
   /** First time the target had a read model, epoch seconds ("newest" sort). */
   publishedAt: number;
   /** The read models' source version (drift checks). */
@@ -81,6 +86,8 @@ export interface IndexSourceRow {
   description: string | null;
   featureIds: string[];
   createdAt: Date;
+  /** The target's public code (S7-02), when it has one. */
+  publicCode: string | null;
 }
 
 const field = (name: 'title' | 'place' | 'description', locale: string) => `${name}_${locale}` as const;
@@ -122,6 +129,10 @@ export function listingsIndex(
       { field: 'areaM2', comparison: true },
       { field: 'plotM2', comparison: true },
       { field: 'publishedAt', comparison: true },
+      // Website search on sites showing network listings (S7-02): references match by filter, never as free text,
+      // so a network document is found by the site's prefixed reference only — not by the owner's own.
+      { field: 'ref' },
+      { field: 'publicCode' },
     ],
     sortable: ['priceCents', 'beds', 'areaM2', 'publishedAt', 'id'],
     localized: locales.map((l) => ({
@@ -175,6 +186,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     plotM2: card.plotM2,
     geo: card.geo ? { lat: card.geo.lat, lng: card.geo.lng } : null,
     ref: card.ref,
+    publicCode: first.publicCode,
     publishedAt: Math.floor(Math.min(...sorted.map((r) => r.createdAt.getTime())) / 1000),
     version: Math.max(...sorted.map((r) => r.version)),
     sourceHash: createHash('sha256')
@@ -192,6 +204,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
             ...(r.allowedAgencyIds ? [r.allowedAgencyIds] : []),
             ...(r.networkHidden ? ['networkHidden'] : []),
             ...(r.preferredAgencyIds ? [{ preferred: r.preferredAgencyIds }] : []),
+            ...(r.publicCode ? [{ code: r.publicCode }] : []),
           ]),
         ),
       )
