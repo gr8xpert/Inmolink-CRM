@@ -64,12 +64,16 @@
     "FEED_NEVER_STARTED": "The import did not start in time.",
     "FEED_NO_OWNER": "No active member of your agency can own the imported listings. Ask an admin to check the team.",
     "INTERNAL": "Something went wrong on our side.",
-    "FEED_MAPPING_INVALID": "The mapping profile of this feed is missing or no longer valid. Open the mapper and save it again."
+    "FEED_MAPPING_INVALID": "The mapping profile of this feed is missing or no longer valid. Open the mapper and save it again.",
+    "FEED_PAUSED_VOLUME_SPIKE": "Paused: the feed suddenly had far more listings than usual. Nothing past that point was imported.",
+    "FEED_PAUSED_MASS_WITHDRAWAL": "Paused: a large share of the feed's listings vanished at once. Nothing was withdrawn.",
+    "FEED_CONNECTION_PAUSED": "The feed is paused; resume it to import again."
   },
   "notices": {
     "queued": "The run was queued; it starts in a moment.",
     "created": "The feed was connected; its first import starts shortly.",
-    "saved": "The feed was saved."
+    "saved": "The feed was saved.",
+    "resumed": "The feed was resumed; its next import starts shortly."
   },
   "errors": {
     "generic": "We could not load your feeds. Please try again.",
@@ -83,7 +87,8 @@
     "FEED_CONNECTOR_UNKNOWN": "This feed format is not available.",
     "FEED_MAPPING_REQUIRED": "Choose a mapping profile for a generic XML feed.",
     "FEED_MAPPING_INVALID": "This mapping profile is not valid for this feed format.",
-    "FEED_MAPPING_PROFILE_NOT_FOUND": "This mapping profile no longer exists."
+    "FEED_MAPPING_PROFILE_NOT_FOUND": "This mapping profile no longer exists.",
+    "FEED_CONNECTION_PAUSED": "This feed is paused. Resume it first."
   },
   "form": {
     "connect": "Connect a feed",
@@ -263,5 +268,18 @@
     "importSheet": "Import the file",
     "importSheetHint": "The import runs in the background. You will see each row that could not be imported, with the reason, on the next page."
   },
-  "uploadNew": "Upload a new file"
+  "uploadNew": "Upload a new file",
+  "paused": {
+    "badge": "Paused",
+    "title": "Import paused on {date}",
+    "VOLUME_SPIKE": "The last import read {items} listings; this feed usually has about {typical}.",
+    "MASS_WITHDRAWAL": "{missing} of your {live} listings from this feed were missing from the last import.",
+    "explain": {
+      "VOLUME_SPIKE": "We stopped before importing the extra listings, in case the feed sends someone else's portfolio or duplicates.",
+      "MASS_WITHDRAWAL": "We withdrew nothing: a feed losing this many listings at once is usually a broken export, not sales."
+    },
+    "acceptChange": "The change is real (import it as it is)",
+    "resume": "Resume imports",
+    "adminOnly": "Only agency admins can resume a feed. Without \"the change is real\", the next import is checked again."
+  }
 }

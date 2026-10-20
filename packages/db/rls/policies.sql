@@ -390,6 +390,12 @@ create policy own_rows on public."feed_connections" to app_user
 revoke all on table public."feed_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."feed_connections" to app_user;
 grant select, insert, update, delete on table public."feed_connections" to app_system;
+create policy staff_select on public."feed_connections" for select to app_staff
+  using (app_is_staff() and (true));
+create policy staff_update on public."feed_connections" for update to app_staff
+  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+grant select ("id", "agency_id", "name", "connector", "enabled", "schedule_minutes", "next_run_at", "last_run_at", "last_run_state", "paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "content_changed_at", "version", "created_at", "updated_at") on table public."feed_connections" to app_staff;
+grant update ("paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "next_run_at", "version", "updated_at") on table public."feed_connections" to app_staff;
 
 -- feed_image_queue: STRICT
 alter table public."feed_image_queue" enable row level security;
@@ -435,6 +441,9 @@ create policy own_rows on public."feed_runs" to app_user
 revoke all on table public."feed_runs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."feed_runs" to app_user;
 grant select, insert, update, delete on table public."feed_runs" to app_system;
+create policy staff_select on public."feed_runs" for select to app_staff
+  using (app_is_staff() and (true));
+grant select on table public."feed_runs" to app_staff;
 
 -- job_checkpoints: GLOBAL
 alter table public."job_checkpoints" enable row level security;

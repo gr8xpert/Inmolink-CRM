@@ -88,6 +88,56 @@ describe('queue fair share', () => {
   });
 });
 
+describe('queue global concurrency (S6-08)', () => {
+  const POOL_G = 'test-fair-global';
+  const OTHER_G = 'test.fairUncapped';
+  let running = 0;
+  let maxRunning = 0;
+  let cappedDone = 0;
+  let otherDone = 0;
+  const limited = defineJob({
+    name: 'test.fairGlobal',
+    pool: POOL_G,
+    payload: z.object({ group: z.string() }),
+    group: (p) => p.group,
+    concurrencyPerGroup: 1,
+    globalConcurrency: () => 3,
+    async run() {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((r) => setTimeout(r, 60));
+      running--;
+      cappedDone++;
+    },
+  });
+  const other = defineJob({
+    name: OTHER_G,
+    pool: POOL_G,
+    payload: z.object({ i: z.number() }),
+    async run() {
+      otherDone++;
+    },
+  });
+  const local: PoolHandle[] = [];
+
+  beforeAll(() => setupQueueTest(`test-${run}-g`));
+  afterAll(async () => {
+    await Promise.all(local.map((h) => h.close()));
+    await teardownQueueTest([POOL_G]);
+  });
+
+  it('[S6-08] globalConcurrency caps one job definition across worker processes; other jobs of the pool keep running', async () => {
+    // two "processes" of 10 slots each: 20 slots, 3 for the capped job
+    for (let i = 0; i < 2; i++) {
+      local.push(registerPool(POOL_G, [limited, other], { concurrency: 10, groupRetryMs: 20, groupRetryMaxMs: 100 }));
+    }
+    await Promise.all(Array.from({ length: 15 }, (_, i) => limited.enqueue({ group: `tenant-${i}` })));
+    await Promise.all(Array.from({ length: 20 }, (_, i) => other.enqueue({ i })));
+    await waitFor(() => cappedDone === 15 && otherDone === 20, 30_000);
+    expect(maxRunning).toBe(3);
+  });
+});
+
 describe('queue fair share bookkeeping', () => {
   const POOL_B = 'test-fair-book';
   const done = new Set<string>();

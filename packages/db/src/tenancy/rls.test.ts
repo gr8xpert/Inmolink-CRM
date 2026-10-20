@@ -85,6 +85,26 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S6-08] staff column allowlists: app_staff reads and writes only the listed columns', () => {
+    const sqlOut = generateRlsSql({
+      ...reg,
+      tenant: {
+        ...reg.tenant,
+        feeds: {
+          kind: 'STRICT',
+          staff: { select: 'true', update: 'true', selectColumns: ['id', 'name'], updateColumns: ['name'] },
+        },
+      },
+    });
+    expect(sqlOut).toContain(`grant select ("id", "name") on table public."feeds" to app_staff;`);
+    expect(sqlOut).toContain(`grant update ("name") on table public."feeds" to app_staff;`);
+    expect(sqlOut).not.toMatch(/grant select, update on table public\."feeds" to app_staff/);
+    const bad = (staff: object) => () =>
+      generateRlsSql({ ...reg, tenant: { ...reg.tenant, feeds: { kind: 'STRICT', staff } as never } });
+    expect(bad({ select: 'true', selectColumns: ['x; drop'] })).toThrow(/not a column name/);
+    expect(bad({ updateColumns: ['name'] })).toThrow(/needs staff.update/);
+  });
+
   it('[S0-05] global tables are read-only for app_user and written only by app_system', () => {
     expect(out).toContain(`grant select, insert, update, delete on table public."locations" to app_system;`);
     expect(out).not.toMatch(/grant [^;]*insert[^;]*"locations" to app_user/);

@@ -23,6 +23,7 @@ import {
   MappingProfileDto,
   MappingProfilePage,
   MappingProfileParams,
+  ResumeFeedConnectionBody,
   SHEET_UPLOAD_MAX_BYTES,
   StartSheetImportBody,
   StartSheetImportDto,
@@ -190,6 +191,25 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return reply.code(202).send(await app.withCtx(req, (ctx) => imports.requestFeedRun(ctx, req.params.id)));
+    },
+  );
+
+  app.post(
+    '/v1/imports/connections/:id/resume',
+    {
+      schema: {
+        tags,
+        operationId: 'imports.resumeFeedConnection',
+        summary: 'Resume a feed the anomaly guard paused (admins); acceptChange lets the next run skip the guard once',
+        params: FeedConnectionParams,
+        body: ResumeFeedConnectionBody,
+        response: { 200: FeedConnectionDto },
+      },
+      ...write,
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => imports.resumeFeedConnection(ctx, req.params.id, req.body));
     },
   );
 

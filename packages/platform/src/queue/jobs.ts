@@ -29,6 +29,13 @@ export interface JobSpec<S extends z.ZodType> {
   group?: (payload: z.output<S>) => string;
   /** Max jobs of one group running at once in this pool (needs `group`). */
   concurrencyPerGroup?: number;
+  /**
+   * Max jobs of this definition running at once across every worker process of the pool (S6-08): a lease set like
+   * the group cap, so other jobs of the same pool keep their slots (BullMQ's queue-wide `setGlobalConcurrency`
+   * would cap them too). A function is read per attempt (configuration set at boot). A job over the cap goes back
+   * to delayed, keeping its priority.
+   */
+  globalConcurrency?: number | (() => number);
   /** Total runs including the first. Default 5. */
   attempts?: number;
   backoff?: { type: 'exponential' | 'fixed'; delay: number };
@@ -96,6 +103,12 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
   if (!POOL.test(spec.pool)) throw new TypeError(`defineJob: invalid pool ${JSON.stringify(spec.pool)}`);
   if (spec.concurrencyPerGroup !== undefined && !spec.group) {
     throw new TypeError(`defineJob ${spec.name}: concurrencyPerGroup needs group`);
+  }
+  if (
+    typeof spec.globalConcurrency === 'number' &&
+    (!Number.isInteger(spec.globalConcurrency) || spec.globalConcurrency < 1)
+  ) {
+    throw new RangeError(`defineJob ${spec.name}: globalConcurrency must be a positive integer`);
   }
   const attempts = spec.attempts ?? 5;
   const timeoutMs = spec.timeoutMs ?? 10 * 60_000;

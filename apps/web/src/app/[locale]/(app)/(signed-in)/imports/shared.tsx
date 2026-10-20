@@ -1,5 +1,7 @@
-import type { FeedRunState } from '@inmolink/contracts';
-import { getTranslations } from 'next-intl/server';
+import type { FeedPauseDto, FeedRunState } from '@inmolink/contracts';
+import { Button } from '@inmolink/ui';
+import { getFormatter, getTranslations } from 'next-intl/server';
+import { resumeFeedAction } from './actions';
 
 /** Shared bits of the feed imports pages (S6-01). Server components only. */
 
@@ -9,6 +11,7 @@ const NOTICE_ERRORS = [
   'FORBIDDEN',
   'FEED_RUN_ACTIVE',
   'FEED_CONNECTION_DISABLED',
+  'FEED_CONNECTION_PAUSED',
   'FEED_CONNECTION_NOT_FOUND',
   'VALIDATION_FAILED',
   'FEED_URL_NOT_ALLOWED',
@@ -35,6 +38,48 @@ export function StateBadge({ state, label }: { state: FeedRunState; label: strin
   return <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATE_STYLES[state]}`}>{label}</span>;
 }
 
+/**
+ * The agency notice of a feed the anomaly guard paused (S6-08): what it saw, that nothing was withdrawn or written
+ * past the spike, and the resume form (admins; the API refuses others) with "accept the change".
+ */
+export async function PauseNotice({ connectionId, pause }: { connectionId: string; pause: FeedPauseDto }) {
+  const t = await getTranslations('imports');
+  const format = await getFormatter();
+  const d = pause.details;
+  const what =
+    pause.reason === 'VOLUME_SPIKE'
+      ? t('paused.VOLUME_SPIKE', { items: format.number(d.items ?? 0), typical: format.number(d.typical ?? 0) })
+      : t('paused.MASS_WITHDRAWAL', {
+          missing: format.number(d.missing ?? 0),
+          live: format.number(d.live ?? 0),
+        });
+  return (
+    <section
+      role="alert"
+      aria-labelledby="feed-paused"
+      className="flex flex-col gap-2 rounded-md border border-amber-400 bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-50"
+      data-testid="feed-paused"
+    >
+      <h2 id="feed-paused" className="font-semibold">
+        {t('paused.title', { date: format.dateTime(new Date(pause.at), { dateStyle: 'medium', timeStyle: 'short' }) })}
+      </h2>
+      <p>{what}</p>
+      <p>{t(`paused.explain.${pause.reason}`)}</p>
+      <form action={resumeFeedAction} className="flex flex-wrap items-center gap-3">
+        <input type="hidden" name="connectionId" value={connectionId} />
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="acceptChange" />
+          {t('paused.acceptChange')}
+        </label>
+        <Button type="submit" size="sm">
+          {t('paused.resume')}
+        </Button>
+      </form>
+      <p className="text-xs">{t('paused.adminOnly')}</p>
+    </section>
+  );
+}
+
 /** The notice or error a "run now" form came back with (`?done=` / `?error=`). */
 export async function ImportNotice({ done, error }: { done?: string; error?: string }) {
   const t = await getTranslations('imports');
@@ -45,7 +90,7 @@ export async function ImportNotice({ done, error }: { done?: string; error?: str
       </p>
     );
   }
-  if (done === 'created' || done === 'saved') {
+  if (done === 'created' || done === 'saved' || done === 'resumed') {
     return (
       <p role="status" className="rounded-md border bg-muted p-3 text-sm">
         {t(`notices.${done}`)}

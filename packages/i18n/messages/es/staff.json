@@ -7,19 +7,29 @@
     "verification": "Cola de verificación",
     "audit": "Registro de auditoría",
     "sessions": "Sesiones activas",
-    "taxonomy": "Taxonomía"
+    "taxonomy": "Taxonomía",
+    "imports": "Estado de importaciones"
   },
   "taxonomy": {
     "title": "Taxonomía",
     "intro": "Ubicaciones, tipos de propiedad y características comunes a todas las agencias. Los cambios llegan a la API del sitio web en menos de un minuto.",
     "readOnly": "Solo puedes consultar: la taxonomía la editan operaciones de datos y los superadministradores.",
-    "tabs": { "locations": "Ubicaciones", "propertyTypes": "Tipos de propiedad", "features": "Características" },
+    "tabs": {
+      "locations": "Ubicaciones",
+      "propertyTypes": "Tipos de propiedad",
+      "features": "Características"
+    },
     "selectPrompt": "Selecciona un elemento para editar sus traducciones, alias y zona.",
     "loading": "Cargando…",
     "saved": "Guardado.",
     "save": "Guardar",
     "tree": "Árbol",
-    "levels": { "COUNTRY": "País", "REGION": "Región", "CITY": "Ciudad", "AREA": "Zona" },
+    "levels": {
+      "COUNTRY": "País",
+      "REGION": "Región",
+      "CITY": "Ciudad",
+      "AREA": "Zona"
+    },
     "addRoot": "Añadir un país",
     "addChild": "Añadir {level}",
     "createTitle": "Nuevo elemento: {level}",
@@ -204,5 +214,57 @@
     "VERIFICATION_NOT_OPEN": "Esta solicitud ya se decidió.",
     "VALIDATION_FAILED": "Escribe un motivo de al menos 3 caracteres.",
     "generic": "Algo ha fallado. Vuelve a intentarlo."
+  },
+  "imports": {
+    "title": "Estado de importaciones",
+    "intro": "Importaciones de feeds de todas las agencias: ejecuciones y fallos del último día, cuánto esperan en la cola, los feeds que el control de anomalías puso en pausa y los valores pendientes de asignar.",
+    "window": "Últimas {hours} horas",
+    "runs": {
+      "finished": "Ejecuciones terminadas",
+      "succeeded": "Correctas",
+      "failed": "Fallidas",
+      "paused": "Pausadas por el control"
+    },
+    "lag": {
+      "queued": "En cola ahora",
+      "running": "En curso ahora",
+      "oldest": "Mayor espera actual",
+      "p95": "Espera en cola (p95)",
+      "max": "Espera en cola (máx.)"
+    },
+    "seconds": "{n} s",
+    "minutes": "{n} min",
+    "hours": "{n} h",
+    "pausedTitle": "Feeds en pausa",
+    "noPaused": "Ningún feed está en pausa.",
+    "feed": "Feed",
+    "reason": "Motivo",
+    "since": "En pausa desde",
+    "agency": "Agencia",
+    "open": "Abrir agencia",
+    "reasons": {
+      "VOLUME_SPIKE": "Pico de volumen: {items} inmuebles leídos, normalmente unos {typical}",
+      "MASS_WITHDRAWAL": "Retirada masiva: faltan de golpe {missing} de {live} inmuebles"
+    },
+    "acceptChange": "Aceptar el cambio",
+    "resume": "Reanudar",
+    "resumed": "El feed se ha reanudado.",
+    "failuresTitle": "Fallos por motivo",
+    "noFailures": "Ninguna ejecución falló en este periodo.",
+    "finishedAt": "Terminada",
+    "code": "Motivo",
+    "connector": "Formato",
+    "unmatchedTitle": "Valores de feeds pendientes de asignar",
+    "unmatched": {
+      "location": "Ubicaciones",
+      "propertyType": "Tipos de inmueble",
+      "feature": "Características"
+    },
+    "mapValues": "Asígnalos en el editor de taxonomía",
+    "errors": {
+      "FORBIDDEN": "Solo data ops y los superadministradores pueden reanudar un feed.",
+      "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
+      "VALIDATION_FAILED": "La solicitud no es válida."
+    }
   }
 }

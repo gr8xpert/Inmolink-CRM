@@ -1,0 +1,45 @@
+# promtool test rules imports.test.yml — run by tests/ops/alerts.int.test.ts (S6-08).
+rule_files:
+  - imports.yml
+evaluation_interval: 15s
+
+tests:
+  # One connection paused at 5m: the alert fires at once for its reason and clears once the 15 min window passes.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_import_paused_total{reason="MASS_WITHDRAWAL", instance="worker-1"}'
+        values: "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ImportFeedPaused
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ImportFeedPaused
+        exp_alerts:
+          - exp_labels: { severity: warning, reason: MASS_WITHDRAWAL }
+            exp_annotations:
+              summary: "A feed import was paused by the anomaly guard (MASS_WITHDRAWAL)"
+              runbook: docs/runbooks/queues.md#a-feed-was-paused-importfeedpaused-s6-08
+      - eval_time: 25m
+        alertname: ImportFeedPaused
+        exp_alerts: []
+
+  # The oldest queued run: 14 min (no alert), then over 15 min for longer than 5 minutes (firing).
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_import_oldest_queued_seconds{instance="worker-1"}'
+        values: "840 840 840 840 840 960 1020 1080 1140 1200 1260 1320 1380"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ImportQueueWaitHigh
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ImportQueueWaitHigh
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: ImportQueueWaitHigh
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "A feed run has waited 22m 0s in the import queue"
+              runbook: docs/runbooks/queues.md#feed-imports-wait-in-the-queue-importqueuewaithigh-s6-08

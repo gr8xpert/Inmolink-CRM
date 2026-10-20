@@ -68,6 +68,15 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
+    for (const c of [...(def.staff?.selectColumns ?? []), ...(def.staff?.updateColumns ?? [])]) {
+      if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
+    }
+    if (def.staff?.selectColumns && (def.staff.select === undefined || def.staff.selectColumns.length === 0)) {
+      throw new Error(`${name}: staff.selectColumns needs staff.select and at least one column`);
+    }
+    if (def.staff?.updateColumns && (def.staff.update === undefined || def.staff.updateColumns.length === 0)) {
+      throw new Error(`${name}: staff.updateColumns needs staff.update and at least one column`);
+    }
     if (def.immutable && (def.auth?.update !== undefined || def.staff?.update !== undefined)) {
       throw new Error(`${name}: an immutable table cannot open UPDATE to app_auth or app_staff`);
     }
@@ -337,6 +346,20 @@ end $$;`,
     .join('\n');
 }
 
+/** `app_staff`'s grant: table-wide, or column lists where `selectColumns` / `updateColumns` narrow it (S6-08). */
+function staffGrantSql(t: string, staff: StaffAccess): string[] {
+  const out: string[] = [];
+  const tableWide: Privilege[] = [];
+  for (const priv of authPrivileges(staff)) {
+    const cols = priv === 'SELECT' ? staff.selectColumns : priv === 'UPDATE' ? staff.updateColumns : undefined;
+    if (cols)
+      out.push(`grant ${priv.toLowerCase()} (${cols.map((c) => `"${c}"`).join(', ')}) on table ${t} to app_staff;`);
+    else tableWide.push(priv);
+  }
+  if (tableWide.length) out.unshift(`grant ${grantList(tableWide)} on table ${t} to app_staff;`);
+  return out;
+}
+
 /** `app_user`'s grant: its hidden columns are `hiddenColumns` and `userSelect.hiddenColumns`. */
 function userGrantSql(t: string, def: TenantTable): string {
   return grantSql(t, 'app_user', expectedPrivileges(def).app_user, hiddenColumnsOf(def));
@@ -440,7 +463,7 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
       out.push(`create policy staff_update on ${t} for update to app_staff
   using (${gated(update)}) with check (${gated(update)});`);
     }
-    out.push(`grant ${authPrivileges(def.staff).join(', ').toLowerCase()} on table ${t} to app_staff;`);
+    out.push(...staffGrantSql(t, def.staff));
   }
   return out;
 }

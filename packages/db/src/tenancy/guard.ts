@@ -266,6 +266,30 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     }
   }
 
+  // S6-08: staff column allowlists — app_staff reads and writes exactly the listed columns.
+  for (const [name, def] of Object.entries(registry.tenant)) {
+    if (!seen.has(name) || !def.staff) continue;
+    const lists: ['SELECT' | 'UPDATE', readonly string[] | undefined][] = [
+      ['SELECT', def.staff.selectColumns],
+      ['UPDATE', def.staff.updateColumns],
+    ];
+    for (const [priv, allowed] of lists) {
+      if (!allowed) continue;
+      const cols = await client.query<{ column: string; granted: boolean }>(
+        `select a.attname as column, has_column_privilege('app_staff', c.oid, a.attnum, $2) as granted
+           from pg_attribute a join pg_class c on c.oid = a.attrelid
+          where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
+        [`public."${name}"`, priv],
+      );
+      for (const c of cols.rows) {
+        if (!allowed.includes(c.column) && c.granted) problems.push(`${name}: app_staff has ${priv} on ${c.column}`);
+        if (allowed.includes(c.column) && !c.granted) {
+          problems.push(`${name}: app_staff lacks ${priv} on ${c.column} (run pnpm db:rls)`);
+        }
+      }
+    }
+  }
+
   const recorded = (await client.query<{ stamp: string | null }>(CATALOG_STAMP_SQL)).rows[0]?.stamp ?? null;
   if (recorded !== (await rlsCatalogStamp(client))) {
     problems.push(

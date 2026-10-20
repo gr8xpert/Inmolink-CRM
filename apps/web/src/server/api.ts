@@ -1289,6 +1289,18 @@ export async function fetchFeedConnectionPage(
 }
 
 /** "Run now": 202 with the queued run, or 409 `FEED_RUN_ACTIVE` while one is queued or running. */
+/** Lift the anomaly guard's pause (admins, S6-08); `acceptChange` lets the next run skip the guard once. */
+export function resumeFeedConnection(
+  session: SessionRef,
+  connectionId: string,
+  acceptChange: boolean,
+): Promise<ApiResult<FeedConnectionDto>> {
+  return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(connectionId)}/resume`, FeedConnectionDto, {
+    method: 'POST',
+    body: { acceptChange },
+  });
+}
+
 export function requestFeedRun(session: SessionRef, connectionId: string): Promise<ApiResult<FeedRunDto>> {
   return apiRequest(session, `/v1/imports/connections/${encodeURIComponent(connectionId)}/runs`, FeedRunDto, {
     method: 'POST',

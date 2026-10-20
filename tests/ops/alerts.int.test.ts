@@ -34,3 +34,13 @@ describe('Search alerts', () => {
     expect(await promtool('test', 'rules', '/rules/search.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });
+
+describe('Import alerts', () => {
+  it('[S6-08] import alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/imports.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S6-08] a paused feed alerts at once; a feed run waiting over 15 min in the queue alerts after 5 min', async () => {
+    expect(await promtool('test', 'rules', '/rules/imports.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});

@@ -47,6 +47,20 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "property_privates" USING btree ("agency_id","import_connection_id","external_ref") WHERE "property_privates"."import_connection_id" is not null`,
     declaredBy: '0080_feed_loader',
   },
+  {
+    // staff import health (S6-08): the last 24 h of runs, index-only; feed_runs grows to millions of rows
+    name: 'feed_runs_finished_at_idx',
+    table: 'feed_runs',
+    definition: `ON "feed_runs" USING btree ("finished_at","state","error_code","created_at","started_at") WHERE "feed_runs"."finished_at" is not null`,
+    declaredBy: '0085_s6_08_health_indexes',
+  },
+  {
+    // staff import health (S6-08): the latest failed runs
+    name: 'feed_runs_failed_finished_idx',
+    table: 'feed_runs',
+    definition: `ON "feed_runs" USING btree ("finished_at") WHERE "feed_runs"."state" = 'FAILED'`,
+    declaredBy: '0085_s6_08_health_indexes',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

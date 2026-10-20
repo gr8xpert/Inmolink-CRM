@@ -45,6 +45,27 @@ Filter with `--type`, `--agency <uuid>` or `--since/--until` to replay one slice
 2. Replay the outbox for the gap: `pnpm ops:replay-outbox --since <last good time> --until <now>`. Consumers are idempotent, so overlap is harmless.
 3. Directly enqueued jobs in that window are not in the outbox. Their owning modules re-create them from their own state on the next scheduled run (nightly or drift jobs). Check the module runbook if one exists.
 
+## Feed imports wait in the queue (ImportQueueWaitHigh, S6-08)
+
+Feed runs run one per agency at a time and at most `IMPORT_MAX_CONCURRENT_RUNS` (default 24) across every `imports`
+worker. The staff console's **Import health** page shows queued/running runs, the oldest wait and the failures.
+
+1. Many runs queued, few running: workers are down or busy — check the `imports` pool containers and their logs.
+2. Running at the cap for long: raise `IMPORT_MAX_CONCURRENT_RUNS` (watch the database write load) or add `imports`
+   workers; the fair share keeps one agency's many feeds from blocking the others either way.
+3. One huge feed per agency is normal (S6-02: a 100 MB feed takes about a minute); hours of waiting are not.
+
+## A feed was paused (ImportFeedPaused, S6-08)
+
+The anomaly guard paused a connection: a run read more than `IMPORT_ANOMALY_SPIKE_FACTOR` (5) × the feed's typical
+item count, or more than `IMPORT_ANOMALY_DROP_RATIO` (30 %) of its listings vanished at once. Nothing past the spike
+was written and nothing was withdrawn. The agency sees the notice on its feed page.
+
+1. Open **Import health** in the staff console: the paused feed, its reason and counts.
+2. Ask the agency whether the change is real (portfolio sold, feeds merged). Agency admins resume it themselves; data
+   ops and super admins can resume it from the dashboard. "Accept the change" lets the next run skip the guard once;
+   without it the next run is checked again.
+
 ## Never
 
 - Never `FLUSHALL` redis-queue. It holds jobs, fair-share state and dead letters.

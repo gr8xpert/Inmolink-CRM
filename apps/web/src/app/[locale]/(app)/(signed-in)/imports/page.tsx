@@ -71,6 +71,11 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
                       {c.name}
                     </Link>
                     {c.enabled ? null : <span className="ml-2 text-xs text-muted-foreground">({t('disabled')})</span>}
+                    {c.pause ? (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-950 dark:bg-amber-950 dark:text-amber-50">
+                        {t('paused.badge')}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="p-2 font-mono text-xs">{c.connector}</td>
                   <td className="p-2 whitespace-nowrap">{scheduleLabel(t, c.scheduleMinutes)}</td>
@@ -85,7 +90,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
                     )}
                   </td>
                   <td className="p-2 text-right">
-                    {c.enabled ? (
+                    {c.enabled && !c.pause ? (
                       <form action={runNowAction}>
                         <input type="hidden" name="connectionId" value={c.id} />
                         <Button type="submit" size="sm" variant="outline">

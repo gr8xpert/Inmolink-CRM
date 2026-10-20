@@ -177,6 +177,8 @@ export const ErrorCodes = {
   /** A run of this connection is already queued or running (one at a time per connection). */
   FEED_RUN_ACTIVE: 409,
   FEED_CONNECTION_DISABLED: 409,
+  /** The anomaly guard paused this connection (S6-08): resume it (accepting the change or not) before it runs. */
+  FEED_CONNECTION_PAUSED: 409,
   // generic XML mapper (S6-04)
   /** The sample is not XML we can read (not XML by its first bytes, malformed, a DTD, no records). */
   FEED_SAMPLE_INVALID: 422,

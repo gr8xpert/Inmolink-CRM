@@ -1,0 +1,26 @@
+# Feed import alerts (S6-08, PLAN §5.3 #7 and #14). Loaded by Prometheus on the monitoring host (Ansible role
+# `monitoring`). Unit tests: imports.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: worker processes of the `imports` pool (OpenTelemetry → Prometheus exporter), from
+# packages/core/src/modules/imports/guard.ts:
+#   inmolink_import_paused_total            connections the anomaly guard paused, by `reason`
+#   inmolink_import_oldest_queued_seconds   seconds the oldest queued feed run has waited (scheduler tick, every minute)
+groups:
+  - name: imports
+    rules:
+      # A connection was paused: a spike (> 5× its typical volume) or a mass withdrawal (> 30 % of its listings gone).
+      - alert: ImportFeedPaused
+        expr: sum by (reason) (increase(inmolink_import_paused_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "A feed import was paused by the anomaly guard ({{ $labels.reason }})"
+          runbook: docs/runbooks/queues.md#a-feed-was-paused-importfeedpaused-s6-08
+      # The fair-share budget (S6-08 load test): no feed run should wait 15 minutes in the queue.
+      - alert: ImportQueueWaitHigh
+        expr: max(inmolink_import_oldest_queued_seconds) > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A feed run has waited {{ $value | humanizeDuration }} in the import queue"
+          runbook: docs/runbooks/queues.md#feed-imports-wait-in-the-queue-importqueuewaithigh-s6-08

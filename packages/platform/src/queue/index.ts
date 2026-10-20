@@ -19,6 +19,7 @@ export {
 } from './jobs';
 export {
   deadLetterQueue,
+  groupRetryDelay,
   type PoolHandle,
   type PoolOptions,
   RetryableError,

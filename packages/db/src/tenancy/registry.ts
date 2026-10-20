@@ -135,6 +135,13 @@ export interface StaffAccess {
   select?: string;
   insert?: string;
   update?: string;
+  /**
+   * S6-08: `app_staff` reads only these columns (a column grant, ADR 0016's shape as an allowlist), so a row that
+   * carries secrets (stored credentials, keys in URLs) never reaches a staff query path, whatever the query.
+   */
+  selectColumns?: readonly string[];
+  /** S6-08: `app_staff` writes only these columns (needs `update`). */
+  updateColumns?: readonly string[];
 }
 
 export type TenantTable = TenantBase &
@@ -579,11 +586,49 @@ export const tenantTables: Record<string, TenantTable> = {
   // S6-01: feed imports — connections (encrypted credentials), runs, per-item errors and mapping profiles are the
   // agency's own; the worker reads and writes them as the agency (`withTenant`), the scheduler via `withSystem`.
   feed_mapping_profiles: { kind: 'STRICT', base: { name: 'Isolation mapping', connector: 'isolation' } },
+  // S6-08: staff read every agency's connections and runs (import health dashboard) and resume a connection the
+  // anomaly guard paused (the service writes only the pause columns; the change is audited).
   feed_connections: {
     kind: 'STRICT',
+    // Column grants (S6-08 security review): never the URL (keys in query strings), credentials or settings; writes
+    // only to the pause and the schedule slot a resume sets.
+    staff: {
+      select: 'true',
+      update: 'true',
+      selectColumns: [
+        'id',
+        'agency_id',
+        'name',
+        'connector',
+        'enabled',
+        'schedule_minutes',
+        'next_run_at',
+        'last_run_at',
+        'last_run_state',
+        'paused_at',
+        'pause_reason',
+        'pause_details',
+        'paused_run_id',
+        'accept_anomaly_once',
+        'content_changed_at',
+        'version',
+        'created_at',
+        'updated_at',
+      ],
+      updateColumns: [
+        'paused_at',
+        'pause_reason',
+        'pause_details',
+        'paused_run_id',
+        'accept_anomaly_once',
+        'next_run_at',
+        'version',
+        'updated_at',
+      ],
+    },
     base: { name: 'Isolation feed', connector: 'isolation', url: 'https://feeds.example.com/isolation.xml' },
   },
-  feed_runs: { kind: 'STRICT', base: { trigger: 'MANUAL' } },
+  feed_runs: { kind: 'STRICT', staff: { select: 'true' }, base: { trigger: 'MANUAL' } },
   feed_item_errors: { kind: 'STRICT', base: { position: 0, code: 'ISOLATION' } },
   // S6-02: the feed references a run saw (the agency's own feed runs; written in the batch transaction).
   property_import_seen: { kind: 'STRICT', base: { external_ref: 'isolation' } },

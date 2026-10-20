@@ -540,8 +540,8 @@ describe('bulk loader', () => {
     const many = await statements(large, 400, 'QL');
     expect(many).toEqual(few);
     // 16 for the batch (no image queue here: 15) and the run's own: its requested/finished events and the end-of-run
-    // miss count and seen cleanup
-    expect(few.created).toBeLessThanOrEqual(20);
+    // miss count and seen cleanup; S6-08 adds the anomaly guard's drop count and the freshness-via-feed lookup
+    expect(few.created).toBeLessThanOrEqual(22);
 
     const { run } = await runFeed(large, feed(400, 'QL'));
     expect(run.counts).toMatchObject({ total: 401, valid: 400, failed: 1, updated: 400 });

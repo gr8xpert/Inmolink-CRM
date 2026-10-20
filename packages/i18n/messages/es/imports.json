@@ -64,12 +64,16 @@
     "FEED_NEVER_STARTED": "La importación no empezó a tiempo.",
     "FEED_NO_OWNER": "Ningún miembro activo de tu agencia puede ser titular de los inmuebles importados. Pide a un administrador que revise el equipo.",
     "INTERNAL": "Algo falló por nuestra parte.",
-    "FEED_MAPPING_INVALID": "El perfil de mapeo de este feed falta o ya no es válido. Abre el mapeador y guárdalo de nuevo."
+    "FEED_MAPPING_INVALID": "El perfil de mapeo de este feed falta o ya no es válido. Abre el mapeador y guárdalo de nuevo.",
+    "FEED_PAUSED_VOLUME_SPIKE": "En pausa: el feed traía de repente muchos más inmuebles de lo habitual. No se importó nada a partir de ese punto.",
+    "FEED_PAUSED_MASS_WITHDRAWAL": "En pausa: una gran parte de los inmuebles del feed desapareció de golpe. No se retiró ninguno.",
+    "FEED_CONNECTION_PAUSED": "El feed está en pausa; reanúdalo para volver a importar."
   },
   "notices": {
     "queued": "La ejecución está en cola; empezará en un momento.",
     "created": "El feed se ha conectado; la primera importación empieza en breve.",
-    "saved": "El feed se ha guardado."
+    "saved": "El feed se ha guardado.",
+    "resumed": "El feed se ha reanudado; su próxima importación empieza en breve."
   },
   "errors": {
     "generic": "No pudimos cargar tus feeds. Inténtalo de nuevo.",
@@ -83,7 +87,8 @@
     "FEED_CONNECTOR_UNKNOWN": "Este formato de feed no está disponible.",
     "FEED_MAPPING_REQUIRED": "Elige un perfil de mapeo para un feed XML genérico.",
     "FEED_MAPPING_INVALID": "Este perfil de mapeo no es válido para este formato de feed.",
-    "FEED_MAPPING_PROFILE_NOT_FOUND": "Este perfil de mapeo ya no existe."
+    "FEED_MAPPING_PROFILE_NOT_FOUND": "Este perfil de mapeo ya no existe.",
+    "FEED_CONNECTION_PAUSED": "Este feed está en pausa. Reanúdalo primero."
   },
   "form": {
     "connect": "Conectar un feed",
@@ -263,5 +268,18 @@
     "importSheet": "Importar el archivo",
     "importSheetHint": "La importación se ejecuta en segundo plano. En la página siguiente verás cada fila que no se pudo importar, con el motivo."
   },
-  "uploadNew": "Subir un archivo nuevo"
+  "uploadNew": "Subir un archivo nuevo",
+  "paused": {
+    "badge": "En pausa",
+    "title": "Importación en pausa desde el {date}",
+    "VOLUME_SPIKE": "La última importación leyó {items} inmuebles; este feed suele tener unos {typical}.",
+    "MASS_WITHDRAWAL": "En la última importación faltaban {missing} de tus {live} inmuebles de este feed.",
+    "explain": {
+      "VOLUME_SPIKE": "Nos detuvimos antes de importar los inmuebles de más, por si el feed envía la cartera de otra agencia o duplicados.",
+      "MASS_WITHDRAWAL": "No retiramos nada: un feed que pierde tantos inmuebles de golpe suele ser una exportación rota, no ventas."
+    },
+    "acceptChange": "El cambio es real (importarlo tal cual)",
+    "resume": "Reanudar importaciones",
+    "adminOnly": "Solo los administradores de la agencia pueden reanudar un feed. Sin «el cambio es real», la próxima importación se vuelve a comprobar."
+  }
 }

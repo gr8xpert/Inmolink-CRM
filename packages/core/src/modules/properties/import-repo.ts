@@ -387,14 +387,21 @@ export async function countMisses(
   tx: Tx,
   scope: Pick<ImportScope, 'agencyId' | 'runId' | 'connectionId'>,
   n: number,
+  /** The run's missing references when `dropStats` computed them in this transaction (S6-08): no second EXCEPT. */
+  missingRefs?: readonly string[],
 ): Promise<string[]> {
-  const missing = await tx.execute(sql`
-    select external_ref as ref from property_privates
-     where agency_id = ${scope.agencyId} and import_connection_id = ${scope.connectionId}
-       and import_withdrawn_at is null
-    except
-    select external_ref from property_import_seen where run_id = ${scope.runId}`);
-  const refs = (missing.rows as { ref: string }[]).map((r) => r.ref);
+  const refs = missingRefs
+    ? [...missingRefs]
+    : (
+        (
+          await tx.execute(sql`
+            select external_ref as ref from property_privates
+             where agency_id = ${scope.agencyId} and import_connection_id = ${scope.connectionId}
+               and import_withdrawn_at is null
+            except
+            select external_ref from property_import_seen where run_id = ${scope.runId}`)
+        ).rows as { ref: string }[]
+      ).map((r) => r.ref);
   if (refs.length === 0) return [];
   const out: string[] = [];
   // ≤ RUN_END_CHUNK rows per statement: a feed that dropped thousands of listings stays under the statement timeout.
@@ -468,4 +475,84 @@ export async function lockLive(tx: Tx, agencyId: string, ids: readonly string[])
      order by id
        for update`);
   return (res.rows as { id: string }[]).map((r) => r.id);
+}
+
+/**
+ * The anomaly guard's view of a finishing run (S6-08), and the run-end EXCEPT done once: the connection's listings
+ * not withdrawn that this run did not see (`refs`, handed to `countMisses`), how many of the listings that were in the
+ * previous run that is (`missing`), out of how many (`live`: not withdrawn, not missed last time, created before this
+ * run started — a feed that swaps its references must not count its new listings as the base). One statement; the
+ * CTEs are materialized, so nothing is planned on the seen table's statistics.
+ */
+export async function dropStats(
+  tx: Tx,
+  scope: Pick<ImportScope, 'agencyId' | 'runId' | 'connectionId'>,
+  runStartedAt: Date,
+): Promise<{ live: number; missing: number; refs: string[] }> {
+  const since = runStartedAt.toISOString();
+  const res = await tx.execute<{ live: number; missing: number; refs: string[] }>(sql`
+    with conn as materialized (
+      select external_ref, import_missed_runs, created_at from property_privates
+       where agency_id = ${scope.agencyId} and import_connection_id = ${scope.connectionId}
+         and import_withdrawn_at is null),
+    gone as materialized (
+      select external_ref from conn
+      except
+      select external_ref from property_import_seen where run_id = ${scope.runId})
+    select (select count(*)::int from conn where import_missed_runs = 0 and created_at < ${since}::timestamptz) as live,
+           (select count(*)::int from conn c join gone g on g.external_ref = c.external_ref
+             where c.import_missed_runs = 0 and c.created_at < ${since}::timestamptz) as missing,
+           coalesce((select array_agg(external_ref) from gone), '{}') as refs`);
+  const row = res.rows[0];
+  return { live: Number(row?.live ?? 0), missing: Number(row?.missing ?? 0), refs: row?.refs ?? [] };
+}
+
+/**
+ * Freshness via feed (S6-08): the connection's listings present in its last run (`import_missed_runs = 0` after
+ * `countMisses`, not withdrawn, not deleted) and last confirmed before `before`, by id. One statement.
+ */
+export async function freshCandidates(
+  tx: Tx,
+  scope: Pick<ImportScope, 'agencyId' | 'connectionId'>,
+  before: Date,
+): Promise<string[]> {
+  const due = await tx.execute<{ id: string }>(sql`
+    select pp.property_id as id
+      from property_privates pp
+      join properties p on p.id = pp.property_id
+     where pp.agency_id = ${scope.agencyId} and pp.import_connection_id = ${scope.connectionId}
+       and pp.import_withdrawn_at is null and pp.import_missed_runs = 0
+       and p.deleted_at is null and p.last_confirmed_at < ${before.toISOString()}::timestamptz
+     order by pp.property_id`);
+  return due.rows.map((r) => r.id);
+}
+
+/**
+ * Confirms these listings now (≤ `RUN_END_CHUNK` ids), as the confirm button does (S3-08): prompt and network hide
+ * cleared. The version moves only where the prompt or the hide is cleared (what readers see changed). Rows confirmed
+ * meanwhile (after `before`) are skipped. Answers how many were confirmed and the ids whose prompt or hide was cleared.
+ */
+export async function confirmFresh(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  before: Date,
+): Promise<{ confirmed: number; cleared: string[] }> {
+  if (ids.length === 0) return { confirmed: 0, cleared: [] };
+  if (ids.length > RUN_END_CHUNK) throw new RangeError(`confirmFresh: at most ${RUN_END_CHUNK} ids per call`);
+  const res = await tx.execute<{ id: string; cleared: boolean }>(sql`
+    update properties p
+       set last_confirmed_at = now(),
+           confirm_prompted_at = null,
+           network_hidden_at = null,
+           version = case when p.confirm_prompted_at is not null or p.network_hidden_at is not null
+                          then p.version + 1 else p.version end,
+           updated_at = case when p.confirm_prompted_at is not null or p.network_hidden_at is not null
+                             then now() else p.updated_at end
+     where p.id = any(${arrayParam(ids)}::uuid[])
+       and p.agency_id = ${agencyId}
+       and p.deleted_at is null
+       and p.last_confirmed_at < ${before.toISOString()}::timestamptz
+    returning p.id, (old.confirm_prompted_at is not null or old.network_hidden_at is not null) as cleared`);
+  return { confirmed: res.rows.length, cleared: res.rows.filter((r) => r.cleared).map((r) => r.id) };
 }

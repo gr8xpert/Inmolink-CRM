@@ -85,6 +85,33 @@ export const FeedSettings = z
   .refine((v) => JSON.stringify(v).length <= 4_096, 'settings too large');
 export type FeedSettings = z.infer<typeof FeedSettings>;
 
+/** Why the anomaly guard paused a connection (S6-08). */
+export const FeedPauseReason = z.enum(['VOLUME_SPIKE', 'MASS_WITHDRAWAL']);
+export type FeedPauseReason = z.infer<typeof FeedPauseReason>;
+
+/**
+ * What the guard saw. VOLUME_SPIKE: `items` read when the run stopped vs the feed's `typical` item count (median of
+ * its last successful runs) and the factor. MASS_WITHDRAWAL: `missing` of the feed's `live` listings vanished at once
+ * vs the ratio. Counts only — never feed content.
+ */
+export const FeedPauseDetails = z.object({
+  items: z.number().int().optional(),
+  typical: z.number().int().optional(),
+  factor: z.number().optional(),
+  missing: z.number().int().optional(),
+  live: z.number().int().optional(),
+  ratio: z.number().optional(),
+});
+export type FeedPauseDetails = z.infer<typeof FeedPauseDetails>;
+
+export const FeedPauseDto = z.object({
+  at: z.iso.datetime(),
+  reason: FeedPauseReason,
+  details: FeedPauseDetails,
+  runId: z.uuid().nullable(),
+});
+export type FeedPauseDto = z.infer<typeof FeedPauseDto>;
+
 export const FeedConnectionDto = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -98,6 +125,10 @@ export const FeedConnectionDto = z.object({
   nextRunAt: z.iso.datetime().nullable(),
   lastRunAt: z.iso.datetime().nullable(),
   lastRunState: FeedRunState.nullable(),
+  /** Paused by the anomaly guard (S6-08): not scheduled, "run now" refused, until resumed. */
+  pause: FeedPauseDto.nullable(),
+  /** Resumed with "accept the change": the next run skips the anomaly guard once. */
+  acceptAnomalyOnce: z.boolean(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -136,6 +167,13 @@ export const UpdateFeedConnectionBody = z
   })
   .strict();
 export type UpdateFeedConnectionBody = z.infer<typeof UpdateFeedConnectionBody>;
+
+/**
+ * `POST /v1/imports/connections/:id/resume` (S6-08). `acceptChange`: the drop or spike is real (the agency sold off a
+ * portfolio, merged feeds): the next run proceeds without the guard. Otherwise the next run is checked again.
+ */
+export const ResumeFeedConnectionBody = z.object({ acceptChange: z.boolean() }).strict();
+export type ResumeFeedConnectionBody = z.infer<typeof ResumeFeedConnectionBody>;
 
 export const FeedConnectionParams = z.object({ id: z.uuid() }).strict();
 export const FeedRunParams = z.object({ runId: z.uuid() }).strict();
@@ -208,6 +246,10 @@ export const FEED_RUN_ERROR_CODES = [
   'FEED_LEASE_EXPIRED',
   'FEED_NEVER_STARTED',
   'FEED_NO_OWNER',
+  /** S6-08 anomaly guard: the run stopped (spike) or withdrew nothing (drop); the connection is paused. */
+  'FEED_PAUSED_VOLUME_SPIKE',
+  'FEED_PAUSED_MASS_WITHDRAWAL',
+  'FEED_CONNECTION_PAUSED',
   'INTERNAL',
 ] as const;
 export type FeedRunErrorCode = (typeof FEED_RUN_ERROR_CODES)[number];
@@ -583,3 +625,66 @@ export type StartSheetImportBody = z.infer<typeof StartSheetImportBody>;
 
 export const StartSheetImportDto = z.object({ connectionId: z.uuid(), run: FeedRunDto });
 export type StartSheetImportDto = z.infer<typeof StartSheetImportDto>;
+
+// ── Staff import health (S6-08) ──────────────────────────────────────────────────────────────────────────────
+
+/** The staff dashboard's window: runs finished in the last 24 hours. */
+export const IMPORT_HEALTH_WINDOW_HOURS = 24;
+/** Rows of each list on the dashboard. */
+export const IMPORT_HEALTH_LIST_LIMIT = 50;
+
+export const ImportHealthDto = z.object({
+  windowHours: z.number().int(),
+  runs: z.object({
+    finished: z.number().int(),
+    succeeded: z.number().int(),
+    failed: z.number().int(),
+    /** Runs the anomaly guard stopped (among `failed`). */
+    paused: z.number().int(),
+  }),
+  /** Failed runs of the window by error code, most frequent first. */
+  failures: z.array(z.object({ code: z.string(), count: z.number().int() })),
+  lag: z.object({
+    queued: z.number().int(),
+    running: z.number().int(),
+    /** Seconds the oldest queued run has waited (0 when none). */
+    oldestQueuedSeconds: z.number().int(),
+    /** Queue wait (start − queued) of runs that finished in the window. */
+    p95WaitSeconds: z.number().int(),
+    maxWaitSeconds: z.number().int(),
+  }),
+  paused: z.array(
+    z.object({
+      connectionId: z.uuid(),
+      agencyId: z.uuid(),
+      name: z.string(),
+      connector: z.string(),
+      pause: FeedPauseDto,
+    }),
+  ),
+  recentFailures: z.array(
+    z.object({
+      runId: z.uuid(),
+      connectionId: z.uuid(),
+      agencyId: z.uuid(),
+      connector: z.string(),
+      errorCode: z.string(),
+      finishedAt: z.iso.datetime(),
+    }),
+  ),
+  /** Open feed values waiting for a staff mapping (S2-05 queue), by kind. */
+  unmatched: z.object({ location: z.number().int(), propertyType: z.number().int(), feature: z.number().int() }),
+});
+export type ImportHealthDto = z.infer<typeof ImportHealthDto>;
+
+/** Staff roles that may resume a paused feed (S6-08): it lets a feed write or withdraw an agency's listings again. */
+export const IMPORT_RESUME_STAFF_ROLES = ['SUPER_ADMIN', 'STAFF_DATA_OPS'] as const;
+
+/** What a staff resume answers: staff never read a connection's URL, credentials or settings (column grants). */
+export const StaffResumeFeedConnectionDto = z.object({
+  id: z.uuid(),
+  pause: FeedPauseDto.nullable(),
+  acceptAnomalyOnce: z.boolean(),
+  nextRunAt: z.iso.datetime().nullable(),
+});
+export type StaffResumeFeedConnectionDto = z.infer<typeof StaffResumeFeedConnectionDto>;

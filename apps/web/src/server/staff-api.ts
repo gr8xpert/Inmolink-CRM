@@ -1,11 +1,13 @@
 import {
   type AgencyStatus,
   ImpersonationDto,
+  ImportHealthDto,
   LiveImpersonationList,
   MemberPage,
   StaffAuditPage,
   type StaffAuditQuery,
   StaffMeDto,
+  StaffResumeFeedConnectionDto,
   type StartImpersonationInput,
   TenantDetailDto,
   TenantPage,
@@ -91,4 +93,23 @@ export function endImpersonation(session: SessionRef, id: string): Promise<ApiRe
 /** Every staff member's live session (super admins; others get 403). */
 export function fetchLiveImpersonations(session: SessionRef): Promise<ApiResult<LiveImpersonationList>> {
   return apiRequest(session, '/v1/staff/impersonations', LiveImpersonationList);
+}
+
+/** Import health (S6-08): runs, failures, lag, paused feeds and unmatched values of every agency. */
+export function fetchImportHealth(session: SessionRef): Promise<ApiResult<ImportHealthDto>> {
+  return apiRequest(session, '/v1/staff/imports/health', ImportHealthDto);
+}
+
+/** Data ops and super admins resume a feed the anomaly guard paused (the API audits it; others get 403). */
+export function staffResumeFeedConnection(
+  session: SessionRef,
+  connectionId: string,
+  acceptChange: boolean,
+): Promise<ApiResult<StaffResumeFeedConnectionDto>> {
+  return apiRequest(
+    session,
+    `/v1/staff/imports/connections/${encodeURIComponent(connectionId)}/resume`,
+    StaffResumeFeedConnectionDto,
+    { method: 'POST', body: { acceptChange } },
+  );
 }

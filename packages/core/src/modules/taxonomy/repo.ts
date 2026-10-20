@@ -841,6 +841,13 @@ export async function setUnmatchedIgnored(tx: Tx, id: string): Promise<void> {
     .where(eq(taxonomyUnmatched.id, id));
 }
 
+/** OPEN queue rows per kind (S6-08 import health), off `taxonomy_unmatched_queue_idx`. */
+export async function countOpenUnmatched(tx: Tx): Promise<Record<string, number>> {
+  const res = await tx.execute<{ kind: string; n: number }>(sql`
+    select kind, count(*)::int as n from taxonomy_unmatched where status = 'OPEN' group by kind`);
+  return Object.fromEntries(res.rows.map((r) => [r.kind, Number(r.n)]));
+}
+
 /**
  * A page of the queue, most-seen first, keyset on (count desc, id). Returns `limit + 1` rows to detect a next page.
  * Stable while imports count (S3-F1): counts only grow, so a value counted again moves above the cursor and is

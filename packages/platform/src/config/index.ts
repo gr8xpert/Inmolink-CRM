@@ -165,9 +165,20 @@ export const websiteSearchEnv = {
 /**
  * Feed imports (S6-02): successful runs in a row a listing may be missing from its feed before the run withdraws it
  * (a connection's `withdrawAfterMissedRuns` setting overrides it).
+ *
+ * S6-08: `IMPORT_MAX_CONCURRENT_RUNS` — feed runs running at once across every worker of the `imports` pool (the
+ * other jobs of the pool keep their slots). Anomaly guard: a run with more than `IMPORT_ANOMALY_SPIKE_FACTOR` × the
+ * feed's typical item count, or one where more than `IMPORT_ANOMALY_DROP_RATIO` of the feed's listings vanish at once,
+ * pauses the connection instead of writing on / withdrawing. `IMPORT_FEED_FRESHNESS_DAYS`: a successful run confirms
+ * its listings as still on the market (S3-08) only while some item of the feed was added, removed or changed within
+ * that many days.
  */
 export const importsEnv = {
   IMPORT_WITHDRAW_AFTER_MISSED_RUNS: z.coerce.number().int().min(1).max(100).default(3),
+  IMPORT_MAX_CONCURRENT_RUNS: z.coerce.number().int().min(1).max(1_000).default(24),
+  IMPORT_ANOMALY_SPIKE_FACTOR: z.coerce.number().min(1.5).max(100).default(5),
+  IMPORT_ANOMALY_DROP_RATIO: z.coerce.number().gt(0).max(1).default(0.3),
+  IMPORT_FEED_FRESHNESS_DAYS: z.coerce.number().int().min(1).max(3_650).default(120),
 };
 
 /**

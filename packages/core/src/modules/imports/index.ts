@@ -1,5 +1,13 @@
 /** imports — public API (PATTERNS §1). The only import path for other modules and apps. */
-export { configureImports, defaultWithdrawAfterMissedRuns, FEED_FETCH, type ImportsConfig, RUNS } from './config';
+export {
+  ANOMALY,
+  configureImports,
+  defaultWithdrawAfterMissedRuns,
+  FEED_FETCH,
+  type ImportsConfig,
+  maxConcurrentRuns,
+  RUNS,
+} from './config';
 export {
   type ConnectorContext,
   connectorKeys,
@@ -20,6 +28,8 @@ export {
 } from './connectors';
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
+export { FeedAnomalyError, massWithdrawal, typicalVolume, volumeSpike } from './guard';
+export { getImportHealth, staffResumeFeedConnection } from './health';
 // Never export repo or schema from index.
 export { infocasaConnector } from './infocasa/connector';
 export { INFOCASA_FIELDS, renderInfocasaCoverageReport } from './infocasa/coverage';
@@ -51,7 +61,15 @@ export {
 export { milenioConnector } from './milenio/connector';
 export { MILENIO_FIELDS, renderMilenioCoverageReport } from './milenio/coverage';
 export type { ItemError, PendingBatch, PipelineTotals, ValidItem } from './pipeline';
-export { CLIENT_MODE_ALLOWED, can, IMPORTS_ACTIONS, IMPORTS_IMPERSONATION, type ImportsAction } from './policy';
+export {
+  CLIENT_MODE_ALLOWED,
+  can,
+  canStaff,
+  IMPORTS_ACTIONS,
+  IMPORTS_IMPERSONATION,
+  type ImportsAction,
+  type StaffImportsAction,
+} from './policy';
 export { resalesConnector } from './resales/connector';
 export { classifyRunError, executeRun, LeaseLostError, type RunOutcome } from './runner';
 export {
@@ -63,6 +81,7 @@ export {
   listFeedItemErrors,
   listFeedRuns,
   requestFeedRun,
+  resumeFeedConnection,
   updateFeedConnection,
 } from './service';
 export { sheetKey, sheetMappedConnector } from './sheet/connector';

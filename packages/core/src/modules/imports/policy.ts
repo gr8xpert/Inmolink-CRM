@@ -1,5 +1,6 @@
+import { IMPORT_RESUME_STAFF_ROLES } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx } from '../../context';
+import type { Ctx, StaffCtx } from '../../context';
 import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /** Who may do what with feed imports (PATTERNS §6). Deny by default; services call `assertCan`. */
@@ -47,4 +48,26 @@ export function can(ctx: Ctx, action: ImportsAction, resource?: { agencyId: stri
 
 export function assertCan(...args: Parameters<typeof can>): void {
   if (!can(...args)) throw new AppError('FORBIDDEN');
+}
+
+/**
+ * Staff actions on imports (S6-08): every staff role reads the import health dashboard; resuming a connection the
+ * anomaly guard paused (it lets a feed write or withdraw an agency's listings again) is data ops and super admin work.
+ */
+export type StaffImportsAction = 'staff.imports.read' | 'staff.imports.resume';
+
+const IMPORT_RESUMERS: ReadonlySet<string> = new Set(IMPORT_RESUME_STAFF_ROLES);
+
+export function canStaff(ctx: StaffCtx, action: StaffImportsAction): boolean {
+  if (ctx.actor.kind !== 'staff') return false;
+  switch (action) {
+    case 'staff.imports.read':
+      return true;
+    case 'staff.imports.resume':
+      return IMPORT_RESUMERS.has(ctx.actor.role);
+  }
+}
+
+export function assertStaffCan(...args: Parameters<typeof canStaff>): void {
+  if (!canStaff(...args)) throw new AppError('FORBIDDEN');
 }

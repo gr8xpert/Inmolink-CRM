@@ -32,13 +32,17 @@ export {
   sweepFreshnessBatch,
 } from './freshness';
 export {
+  confirmListingsFromFeed,
   discardImportSeen,
   existingImportRefs,
+  FEED_CONFIRM_BATCH,
   type ImportBatchResult,
   type ImportHold,
   type ImportListing,
   type ImportRun,
+  importDropStats,
   importListingBatch,
+  listingsToConfirmFromFeed,
   lockListingsForFeedImages,
   pruneImportSeen,
   withdrawMissingImports,

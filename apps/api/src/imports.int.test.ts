@@ -1,7 +1,7 @@
 import { closeDb, pingDb } from '@inmolink/core';
 import * as imports from '@inmolink/core/modules/imports';
 import { createFounder } from '@inmolink/core/test';
-import { setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import {
   createAccessTokenSigner,
@@ -24,8 +24,8 @@ const allowAll = {
 
 const pair = generateAccessKeyPair();
 const signer = createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' });
-const bearer = async (sub: string, agency: string) => ({
-  authorization: `Bearer ${(await signer.sign({ sub, aud: 'api', sv: 1, agency })).token}`,
+const bearer = async (sub: string, agency?: string) => ({
+  authorization: `Bearer ${(await signer.sign({ sub, aud: 'api', sv: 1, ...(agency ? { agency } : {}) })).token}`,
 });
 
 const build = () =>
@@ -102,6 +102,61 @@ describe('feed import routes', () => {
       headers: await bearer(stranger.userId, stranger.agencyId),
     });
     expect(theirs.statusCode).toBe(404);
+  });
+
+  it('[S6-08] a paused feed refuses "run now", shows its pause, appears on the staff health dashboard and resumes', async () => {
+    const owner = await createFounder();
+    const headers = await bearer(owner.userId, owner.agencyId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/connections',
+      headers,
+      payload: { name: 'Guarded feed', connector: 'api-test', url: 'https://feeds.example.com/guarded.xml' },
+    });
+    const { id } = created.json() as { id: string };
+    // what the worker's anomaly guard writes (S6-08 runner)
+    await adminQuery(
+      `update feed_connections set paused_at = now(), pause_reason = 'MASS_WITHDRAWAL',
+         pause_details = '{"missing": 40, "live": 100, "ratio": 0.3}' where id = $1`,
+      [id],
+    );
+    const run = await app.inject({ method: 'POST', url: `/v1/imports/connections/${id}/runs`, headers });
+    expect(run.statusCode).toBe(409);
+    expect(run.json()).toMatchObject({ error: { code: 'FEED_CONNECTION_PAUSED' } });
+    const shown = await app.inject({ method: 'GET', url: `/v1/imports/connections/${id}`, headers });
+    expect(shown.json()).toMatchObject({ pause: { reason: 'MASS_WITHDRAWAL', details: { missing: 40, live: 100 } } });
+
+    // staff only: a member gets 403, staff see the paused feed
+    const notStaff = await app.inject({ method: 'GET', url: '/v1/staff/imports/health', headers });
+    expect(notStaff.statusCode).toBe(403);
+    const ops = await createStaffUser('STAFF_DATA_OPS');
+    const staffHeaders = await bearer(ops.userId);
+    const health = await app.inject({ method: 'GET', url: '/v1/staff/imports/health', headers: staffHeaders });
+    expect(health.statusCode).toBe(200);
+    expect(health.headers['cache-control']).toBe('no-store');
+    const body = health.json() as { paused: { connectionId: string }[] };
+    expect(body.paused.some((p) => p.connectionId === id)).toBe(true);
+
+    // the agency admin resumes, accepting the change
+    const resumed = await app.inject({
+      method: 'POST',
+      url: `/v1/imports/connections/${id}/resume`,
+      headers,
+      payload: { acceptChange: true },
+    });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json()).toMatchObject({ pause: null, acceptAnomalyOnce: true });
+    const again = await app.inject({ method: 'POST', url: `/v1/imports/connections/${id}/runs`, headers });
+    expect(again.statusCode).toBe(202);
+
+    // staff resume answers for an unknown connection with 404
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/v1/staff/imports/connections/01900000-0000-7000-8000-00000000dead/resume',
+      headers: staffHeaders,
+      payload: { acceptChange: false },
+    });
+    expect(missing.statusCode).toBe(404);
   });
 
   it('[S6-01] a feed URL naming a private, loopback or metadata address is refused', async () => {

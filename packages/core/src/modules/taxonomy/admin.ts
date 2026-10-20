@@ -287,6 +287,15 @@ export async function listStaffUnmatched(ctx: StaffCtx, query: UnmatchedListQuer
   };
 }
 
+/** Open queued values per kind, for the staff import health dashboard (S6-08). Every staff role may read. */
+export async function countStaffUnmatched(
+  ctx: StaffCtx,
+): Promise<{ location: number; propertyType: number; feature: number }> {
+  assertStaffCan(ctx, 'staff.taxonomy.read');
+  const n = await repo.countOpenUnmatched(ctx.tx);
+  return { location: n.location ?? 0, propertyType: n.propertyType ?? 0, feature: n.feature ?? 0 };
+}
+
 async function oneUnmatched(ctx: StaffCtx, id: string): Promise<UnmatchedDto> {
   const row = await repo.getUnmatched(ctx.tx, id);
   if (!row) throw new AppError('TAXONOMY_NOT_FOUND');

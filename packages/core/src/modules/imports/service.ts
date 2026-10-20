@@ -12,12 +12,16 @@ import {
   type FeedConnectionDto,
   type FeedConnectionPage,
   type FeedItemErrorPage,
+  FeedPauseDetails,
+  type FeedPauseDto,
+  type FeedPauseReason,
   type FeedRunDto,
   type FeedRunPage,
   type FeedSettings,
   type ListFeedConnectionsQuery,
   type ListFeedItemErrorsQuery,
   type ListFeedRunsQuery,
+  type ResumeFeedConnectionBody,
   type UpdateFeedConnectionBody,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
@@ -53,6 +57,23 @@ function visibleUrl(ctx: Ctx, url: string): string {
   }
 }
 
+/** The connection's pause (S6-08), or null. Details are counts the worker wrote; anything else is dropped. */
+export function toPauseDto(row: {
+  pausedAt: Date | null;
+  pauseReason: string | null;
+  pauseDetails: unknown;
+  pausedRunId: string | null;
+}): FeedPauseDto | null {
+  if (!row.pausedAt || !row.pauseReason) return null;
+  const details = FeedPauseDetails.safeParse(row.pauseDetails ?? {});
+  return {
+    at: row.pausedAt.toISOString(),
+    reason: row.pauseReason as FeedPauseReason,
+    details: details.success ? details.data : {},
+    runId: row.pausedRunId,
+  };
+}
+
 function toConnectionDto(ctx: Ctx, row: repo.ConnectionView): FeedConnectionDto {
   return {
     id: row.id,
@@ -67,6 +88,8 @@ function toConnectionDto(ctx: Ctx, row: repo.ConnectionView): FeedConnectionDto 
     nextRunAt: iso(row.nextRunAt),
     lastRunAt: iso(row.lastRunAt),
     lastRunState: row.lastRunState,
+    pause: toPauseDto(row),
+    acceptAnomalyOnce: row.acceptAnomalyOnce,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -262,6 +285,7 @@ export async function requestFeedRun(ctx: Ctx, connectionId: string): Promise<Fe
   if (!connection) throw new AppError('FEED_CONNECTION_NOT_FOUND');
   assertCan(ctx, 'imports.run', connection);
   if (!connection.enabled) throw new AppError('FEED_CONNECTION_DISABLED');
+  if (connection.pausedAt) throw new AppError('FEED_CONNECTION_PAUSED');
   const run = await repo.insertRun(ctx.tx, {
     id: newId(),
     agencyId: connection.agencyId,
@@ -274,6 +298,33 @@ export async function requestFeedRun(ctx: Ctx, connectionId: string): Promise<Fe
   await compliance.audit(ctx, 'imports.run.requested', { type: 'feedConnection', id: connectionId }, { runId: run.id });
   await emit(ctx.tx, importsEvents.runRequested({ runId: run.id, connectionId, agencyId: connection.agencyId }));
   return toRunDto(run);
+}
+
+/**
+ * `POST /v1/imports/connections/:id/resume` (admins, S6-08): lifts the anomaly guard's pause. `acceptChange`: the
+ * spike or drop is real, the next run skips the guard once (and may then withdraw the missing listings after the
+ * usual missed runs); otherwise the next run is checked again and pauses again if nothing changed. A scheduled
+ * connection runs on the scheduler's next tick. Resuming a connection that is not paused changes nothing.
+ */
+export async function resumeFeedConnection(
+  ctx: Ctx,
+  id: string,
+  input: ResumeFeedConnectionBody,
+): Promise<FeedConnectionDto> {
+  assertCan(ctx, 'imports.manage');
+  const current = await repo.getConnectionForUpdate(ctx.tx, id);
+  if (!current) throw new AppError('FEED_CONNECTION_NOT_FOUND');
+  assertCan(ctx, 'imports.manage', current);
+  if (!current.pausedAt) return toConnectionDto(ctx, current);
+  const resumed = await repo.resumeConnection(ctx.tx, id, input.acceptChange);
+  if (!resumed) throw new AppError('FEED_CONNECTION_NOT_FOUND');
+  await compliance.audit(
+    ctx,
+    'imports.connection.resumed',
+    { type: 'feedConnection', id },
+    { reason: current.pauseReason, acceptChange: input.acceptChange },
+  );
+  return toConnectionDto(ctx, resumed);
 }
 
 export async function listFeedRuns(ctx: Ctx, connectionId: string, q: ListFeedRunsQuery): Promise<FeedRunPage> {

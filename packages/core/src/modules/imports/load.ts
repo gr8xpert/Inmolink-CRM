@@ -16,7 +16,7 @@
  */
 import { createHash } from 'node:crypto';
 import { type Commission, FeedListing, FeedLoaderSettings, type LocationLevel } from '@inmolink/contracts';
-import { type Tx, withSystem } from '@inmolink/db';
+import { type Tx, withSystem, withTenant } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { withMemberCtx } from '../../member';
 import * as agencies from '../agencies';
@@ -43,6 +43,8 @@ export interface SinkRun {
   connectionId: string;
   connector: string;
   settings: Record<string, unknown>;
+  /** When the run was first claimed (S6-08: listings created since are not the anomaly guard's base). */
+  startedAt: Date;
 }
 
 export interface SinkCounts {
@@ -61,8 +63,18 @@ export interface RunLoader<Prepared = unknown> {
    * `errors`: items the write could not store (counted as failed).
    */
   write(tx: Tx, prepared: Prepared, seenRefs: readonly string[]): Promise<SinkCounts & { errors: ItemError[] }>;
+  /**
+   * Inside the transaction that ends a successful run, before the run is ended (S6-08 anomaly guard): the connection's
+   * live listings and how many of them this run did not see. `finish` in the same transaction reuses the result.
+   */
+  dropStats(tx: Tx): Promise<{ live: number; missing: number }>;
   /** Inside the transaction that ends a successful run (after its fence). Answers the listings withdrawn. */
   finish(tx: Tx, totals: { valid: number }): Promise<number>;
+  /**
+   * After a successful run committed (S6-08 freshness via feed): its listings last confirmed before `before` are
+   * confirmed, in short transactions of their own. Answers how many.
+   */
+  confirmFresh(before: Date): Promise<number>;
   /** Inside the transaction that ends a failed run. */
   abandon(tx: Tx): Promise<void>;
 }
@@ -89,6 +101,12 @@ export const countOnlySink: FeedSink = {
       },
       async write() {
         return { created: 0, updated: 0, unchanged: 0, held: 0, errors: [] };
+      },
+      async dropStats() {
+        return { live: 0, missing: 0 };
+      },
+      async confirmFresh() {
+        return 0;
       },
       async finish() {
         return 0;
@@ -351,6 +369,8 @@ export const listingSink: FeedSink = {
     };
     const withdrawAfter = settings.withdrawAfterMissedRuns ?? defaultWithdrawAfterMissedRuns();
     const resolver = new RunResolver();
+    /** The run's missing references, from `dropStats` (same transaction as `finish`). */
+    let missingRefs: string[] | undefined;
 
     const loader: RunLoader<Prepared> = {
       async prepare(valid) {
@@ -428,12 +448,32 @@ export const listingSink: FeedSink = {
         };
       },
 
+      async dropStats(tx) {
+        const stats = await properties.importDropStats(tx, importRun, run.startedAt);
+        missingRefs = stats.refs;
+        return { live: stats.live, missing: stats.missing };
+      },
+
+      async confirmFresh(before) {
+        const ids = await withTenant({ agencyId: run.agencyId }, (tx) =>
+          properties.listingsToConfirmFromFeed(tx, importRun, before),
+        );
+        let confirmed = 0;
+        for (let i = 0; i < ids.length; i += properties.FEED_CONFIRM_BATCH) {
+          const batch = ids.slice(i, i + properties.FEED_CONFIRM_BATCH);
+          confirmed += await withTenant({ agencyId: run.agencyId }, (tx) =>
+            properties.confirmListingsFromFeed(tx, importRun, batch, before),
+          );
+        }
+        return confirmed;
+      },
+
       async finish(tx, totals) {
         if (totals.valid === 0) {
           await properties.discardImportSeen(tx, run.runId);
           return 0;
         }
-        return properties.withdrawMissingImports(tx, importRun, withdrawAfter);
+        return properties.withdrawMissingImports(tx, importRun, withdrawAfter, missingRefs);
       },
 
       async abandon(tx) {

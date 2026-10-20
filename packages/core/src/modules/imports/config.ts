@@ -15,6 +15,11 @@ export interface ImportsConfig {
    * environment when not given.
    */
   withdrawAfterMissedRuns?: number;
+  /** S6-08 overrides of the `importsEnv` values (tests); read from the environment when not given. */
+  maxConcurrentRuns?: number;
+  anomalySpikeFactor?: number;
+  anomalyDropRatio?: number;
+  feedFreshnessDays?: number;
 }
 
 let current: ImportsConfig | undefined;
@@ -26,6 +31,25 @@ export function configureImports(config: ImportsConfig): void {
 /** The default number of missed runs before a withdrawal (config; a connection setting overrides it). */
 export function defaultWithdrawAfterMissedRuns(): number {
   return current?.withdrawAfterMissedRuns ?? loadConfig(importsEnv).IMPORT_WITHDRAW_AFTER_MISSED_RUNS;
+}
+
+/** Feed runs running at once across the `imports` pool (S6-08; `IMPORT_MAX_CONCURRENT_RUNS`). */
+export function maxConcurrentRuns(): number {
+  return current?.maxConcurrentRuns ?? loadConfig(importsEnv).IMPORT_MAX_CONCURRENT_RUNS;
+}
+
+/** The anomaly guard's thresholds (S6-08, PLAN §5.3 #7). */
+export function anomalyThresholds(): { spikeFactor: number; dropRatio: number } {
+  const env = () => loadConfig(importsEnv);
+  return {
+    spikeFactor: current?.anomalySpikeFactor ?? env().IMPORT_ANOMALY_SPIKE_FACTOR,
+    dropRatio: current?.anomalyDropRatio ?? env().IMPORT_ANOMALY_DROP_RATIO,
+  };
+}
+
+/** Days a feed may stay unchanged and still confirm its listings' freshness (S6-08; `IMPORT_FEED_FRESHNESS_DAYS`). */
+export function feedFreshnessDays(): number {
+  return current?.feedFreshnessDays ?? loadConfig(importsEnv).IMPORT_FEED_FRESHNESS_DAYS;
 }
 
 function keyring(): Keyring {
@@ -70,6 +94,26 @@ export const RUNS = {
   /** Taxonomy resolutions (exact or fuzzy) a run remembers, so later batches skip the resolver for known values. */
   MAX_CACHED_RESOLUTIONS: 50_000,
 } as const;
+
+/**
+ * The anomaly guard's fixed parts (S6-08). The thresholds themselves are configuration (`anomalyThresholds`).
+ */
+export const ANOMALY = {
+  /** Successful runs whose item count makes the "typical volume" (their median). */
+  BASELINE_RUNS: 5,
+  /** Fewer successful runs than this: no baseline yet, the spike check is off. */
+  MIN_BASELINE_RUNS: 3,
+  /** A typical volume below this never trips the spike check (a 4-listing feed growing to 25 is normal life). */
+  MIN_BASELINE_ITEMS: 20,
+  /** A feed with fewer live listings than this never trips the drop check. */
+  MIN_LIVE_FOR_DROP: 10,
+} as const;
+
+/**
+ * Freshness via feed (S6-08, user-approved 2026-10-19): a listing's confirmation is written again only when the last
+ * one is older than this, so an hourly feed does not rewrite every listing every hour.
+ */
+export const FEED_CONFIRM_REFRESH_DAYS = 7;
 
 /** Fetch limits for feeds (PATTERNS §16), unless a connector asks for less. */
 export const FEED_FETCH = {

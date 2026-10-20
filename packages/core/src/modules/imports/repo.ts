@@ -9,7 +9,7 @@
 import { MAPPING_CONNECTORS } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { feedConnections, feedItemErrors, feedMappingProfiles, feedRuns } from '@inmolink/db/schema/imports';
-import { and, asc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ConnectionRow = typeof feedConnections.$inferSelect;
@@ -31,6 +31,11 @@ const connectionColumns = {
   nextRunAt: feedConnections.nextRunAt,
   lastRunAt: feedConnections.lastRunAt,
   lastRunState: feedConnections.lastRunState,
+  pausedAt: feedConnections.pausedAt,
+  pauseReason: feedConnections.pauseReason,
+  pauseDetails: feedConnections.pauseDetails,
+  pausedRunId: feedConnections.pausedRunId,
+  acceptAnomalyOnce: feedConnections.acceptAnomalyOnce,
   version: feedConnections.version,
   createdAt: feedConnections.createdAt,
   updatedAt: feedConnections.updatedAt,
@@ -212,7 +217,7 @@ export async function claimRun(
   runId: string,
   token: string,
   leaseMs: number,
-): Promise<{ connectionId: string; attempt: number } | null> {
+): Promise<{ connectionId: string; attempt: number; startedAt: Date } | null> {
   const [row] = await tx
     .update(feedRuns)
     .set({
@@ -242,10 +247,10 @@ export async function claimRun(
         ) as SQL,
       ),
     )
-    .returning({ connectionId: feedRuns.connectionId, attempt: feedRuns.attempt });
+    .returning({ connectionId: feedRuns.connectionId, attempt: feedRuns.attempt, startedAt: feedRuns.startedAt });
   if (!row) return null;
   if (row.attempt > 1) await tx.delete(feedItemErrors).where(eq(feedItemErrors.runId, runId));
-  return row;
+  return { ...row, startedAt: row.startedAt as Date };
 }
 
 /** The connection a claimed run fetches, credentials (ciphertext) and mapping included. */
@@ -259,6 +264,8 @@ export async function connectionForRun(tx: Tx, connectionId: string) {
       credentialsEnc: feedConnections.credentialsEnc,
       settings: feedConnections.settings,
       enabled: feedConnections.enabled,
+      pausedAt: feedConnections.pausedAt,
+      acceptAnomalyOnce: feedConnections.acceptAnomalyOnce,
       mapping: feedMappingProfiles.mapping,
     })
     .from(feedConnections)
@@ -337,7 +344,13 @@ export async function finishRun(
   runId: string,
   token: string,
   outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: string | null },
-): Promise<{ connectionId: string; agencyId: string; itemsValid: number } | null> {
+): Promise<{
+  connectionId: string;
+  agencyId: string;
+  itemsValid: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+} | null> {
   const [row] = await tx
     .update(feedRuns)
     .set({
@@ -349,13 +362,100 @@ export async function finishRun(
       updatedAt: sql`now()`,
     })
     .where(and(eq(feedRuns.id, runId), eq(feedRuns.state, 'RUNNING'), eq(feedRuns.leaseToken, token)))
-    .returning({ connectionId: feedRuns.connectionId, agencyId: feedRuns.agencyId, itemsValid: feedRuns.itemsValid });
+    .returning({
+      connectionId: feedRuns.connectionId,
+      agencyId: feedRuns.agencyId,
+      itemsValid: feedRuns.itemsValid,
+      itemsCreated: feedRuns.itemsCreated,
+      itemsUpdated: feedRuns.itemsUpdated,
+    });
   if (!row) return null;
   await tx
     .update(feedConnections)
     .set({ lastRunAt: sql`now()`, lastRunState: outcome.state })
     .where(eq(feedConnections.id, row.connectionId));
   return row;
+}
+
+/**
+ * Item counts of the connection's last `n` successful runs, newest first (the anomaly guard's baseline, S6-08).
+ * `feed_runs_connection_created_idx` (its leading column; the order by is the index's expression, so it reads
+ * backwards); a connection keeps ≤ 90 days of runs.
+ */
+export async function recentSucceededTotals(tx: Tx, connectionId: string, n: number): Promise<number[]> {
+  const rows = await tx
+    .select({ total: feedRuns.itemsTotal })
+    .from(feedRuns)
+    .where(and(eq(feedRuns.connectionId, connectionId), eq(feedRuns.state, 'SUCCEEDED')))
+    .orderBy(desc(sql`date_trunc('milliseconds', ${feedRuns.createdAt}, 'UTC')`), desc(feedRuns.id))
+    .limit(n);
+  return rows.map((r) => r.total);
+}
+
+/**
+ * The anomaly guard paused the connection (S6-08); "accept the change" from an earlier resume is used up, and the
+ * connection leaves the scheduler's due index (`next_run_at` null; a resume plans it again).
+ */
+export async function pauseConnection(
+  tx: Tx,
+  connectionId: string,
+  pause: { reason: string; details: Record<string, unknown>; runId: string },
+): Promise<void> {
+  await tx
+    .update(feedConnections)
+    .set({
+      pausedAt: sql`now()`,
+      pauseReason: pause.reason,
+      pauseDetails: pause.details,
+      pausedRunId: pause.runId,
+      acceptAnomalyOnce: false,
+      nextRunAt: null,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(feedConnections.id, connectionId));
+}
+
+/**
+ * After a successful run (S6-08): "accept the change" is used up, and a run that added, changed or removed an item
+ * moves `content_changed_at`. Answers the connection's last content change (null: none known).
+ */
+export async function recordRunSuccess(tx: Tx, connectionId: string, changed: boolean): Promise<Date | null> {
+  const [row] = await tx
+    .update(feedConnections)
+    .set({
+      acceptAnomalyOnce: false,
+      ...(changed ? { contentChangedAt: sql`now()` } : {}),
+    })
+    .where(eq(feedConnections.id, connectionId))
+    .returning({ contentChangedAt: feedConnections.contentChangedAt });
+  return row?.contentChangedAt ?? null;
+}
+
+/**
+ * Resumes a paused connection (agency admin or staff, S6-08): the pause is cleared, `acceptChange` lets the next run
+ * skip the guard once, and a scheduled connection is due at once. Null when it does not exist.
+ */
+export async function resumeConnection(
+  tx: Tx,
+  connectionId: string,
+  acceptChange: boolean,
+): Promise<ConnectionView | null> {
+  const [row] = await tx
+    .update(feedConnections)
+    .set({
+      pausedAt: null,
+      pauseReason: null,
+      pauseDetails: null,
+      pausedRunId: null,
+      acceptAnomalyOnce: acceptChange,
+      nextRunAt: sql`case when ${feedConnections.enabled} and ${feedConnections.scheduleMinutes} is not null
+        then now() else ${feedConnections.nextRunAt} end`,
+      version: sql`${feedConnections.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(feedConnections.id, connectionId))
+    .returning(connectionColumns);
+  return row ?? null;
 }
 
 /** Records the listings the end of a run withdrew (the caller ended the run in this transaction). */
@@ -437,12 +537,12 @@ export async function queueDueRuns(
       select id from (
         select id, next_run_at, row_number() over (partition by agency_id order by next_run_at) as n
         from feed_connections
-        where enabled and next_run_at is not null and next_run_at <= now()
+        where enabled and next_run_at is not null and next_run_at <= now() and paused_at is null
       ) ranked
       where n <= ${perAgency}
       order by next_run_at
       limit ${limit}))
-    and enabled and next_run_at <= now()
+    and enabled and next_run_at <= now() and paused_at is null
     for update skip locked`);
   if (due.rows.length === 0) return [];
   const ids = due.rows.map((r) => r.id);
@@ -558,4 +658,143 @@ export async function profileConnector(tx: Tx, id: string): Promise<string | nul
     .from(feedMappingProfiles)
     .where(eq(feedMappingProfiles.id, id));
   return row?.connector ?? null;
+}
+
+// ── Import health (staff, every agency: `app_staff` reads all rows; scheduler metrics via withSystem) ──────────
+
+/**
+ * Queued and running runs now, and how long the oldest run waiting for its first start has waited
+ * (`feed_runs_active_idx`). A run handed back for a retry keeps its `created_at` and waits out its backoff: not lag.
+ */
+export async function queueSnapshot(tx: Tx): Promise<{ queued: number; running: number; oldestQueuedSeconds: number }> {
+  const r = await tx.execute<{ queued: number; running: number; oldest: number | null }>(sql`
+    select count(*) filter (where state = 'QUEUED')::int as queued,
+           count(*) filter (where state = 'RUNNING')::int as running,
+           extract(epoch from (now() - min(created_at) filter (where state = 'QUEUED' and started_at is null)))::int
+             as oldest
+      from feed_runs where state in ('QUEUED', 'RUNNING')`);
+  const row = r.rows[0];
+  return {
+    queued: Number(row?.queued ?? 0),
+    running: Number(row?.running ?? 0),
+    oldestQueuedSeconds: Number(row?.oldest ?? 0),
+  };
+}
+
+/** Runs finished since `since` by state and error code (`feed_runs_finished_at_idx`). */
+export async function finishedByOutcome(
+  tx: Tx,
+  since: Date,
+): Promise<{ state: string; errorCode: string | null; count: number }[]> {
+  const r = await tx.execute<{ state: string; error_code: string | null; n: number }>(sql`
+    select state, error_code, count(*)::int as n from feed_runs
+     where finished_at >= ${since.toISOString()}::timestamptz
+     group by state, error_code`);
+  return r.rows.map((x) => ({ state: x.state, errorCode: x.error_code, count: Number(x.n) }));
+}
+
+/** Queue wait (start − queued) of the runs finished since `since`: p95 and max, in seconds. */
+export async function finishedWaits(tx: Tx, since: Date): Promise<{ p95: number; max: number }> {
+  const r = await tx.execute<{ p95: number | null; max: number | null }>(sql`
+    select percentile_cont(0.95) within group (order by extract(epoch from (started_at - created_at))) as p95,
+           max(extract(epoch from (started_at - created_at))) as max
+      from feed_runs
+     where finished_at >= ${since.toISOString()}::timestamptz and started_at is not null`);
+  const row = r.rows[0];
+  return { p95: Math.round(Number(row?.p95 ?? 0)), max: Math.round(Number(row?.max ?? 0)) };
+}
+
+/**
+ * Staff resume (S6-08): `app_staff` may read and write only the pause and schedule columns of a connection (column
+ * grants), never its URL, credentials or settings. Locks the row; null when it does not exist.
+ */
+export async function lockConnectionForStaff(tx: Tx, connectionId: string) {
+  const [row] = await tx
+    .select({
+      id: feedConnections.id,
+      agencyId: feedConnections.agencyId,
+      pausedAt: feedConnections.pausedAt,
+      pauseReason: feedConnections.pauseReason,
+      pauseDetails: feedConnections.pauseDetails,
+      pausedRunId: feedConnections.pausedRunId,
+      acceptAnomalyOnce: feedConnections.acceptAnomalyOnce,
+      nextRunAt: feedConnections.nextRunAt,
+      version: feedConnections.version,
+    })
+    .from(feedConnections)
+    .where(eq(feedConnections.id, connectionId))
+    .for('update');
+  return row ?? null;
+}
+
+/** `resumeConnection` for staff: same change, answering only the columns staff may read. */
+export async function resumeConnectionForStaff(tx: Tx, connectionId: string, acceptChange: boolean) {
+  const [row] = await tx
+    .update(feedConnections)
+    .set({
+      pausedAt: null,
+      pauseReason: null,
+      pauseDetails: null,
+      pausedRunId: null,
+      acceptAnomalyOnce: acceptChange,
+      nextRunAt: sql`case when ${feedConnections.enabled} and ${feedConnections.scheduleMinutes} is not null
+        then now() else ${feedConnections.nextRunAt} end`,
+      version: sql`${feedConnections.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(feedConnections.id, connectionId))
+    .returning({
+      id: feedConnections.id,
+      pausedAt: feedConnections.pausedAt,
+      pauseReason: feedConnections.pauseReason,
+      pauseDetails: feedConnections.pauseDetails,
+      pausedRunId: feedConnections.pausedRunId,
+      acceptAnomalyOnce: feedConnections.acceptAnomalyOnce,
+      nextRunAt: feedConnections.nextRunAt,
+    });
+  return row ?? null;
+}
+
+/** Paused connections of every agency, latest first (`feed_connections_paused_idx`). */
+export async function pausedConnections(tx: Tx, limit: number) {
+  return tx
+    .select({
+      id: feedConnections.id,
+      agencyId: feedConnections.agencyId,
+      name: feedConnections.name,
+      connector: feedConnections.connector,
+      pausedAt: feedConnections.pausedAt,
+      pauseReason: feedConnections.pauseReason,
+      pauseDetails: feedConnections.pauseDetails,
+      pausedRunId: feedConnections.pausedRunId,
+    })
+    .from(feedConnections)
+    .where(sql`${feedConnections.pausedAt} is not null`)
+    .orderBy(desc(feedConnections.pausedAt))
+    .limit(limit);
+}
+
+/** The latest failed runs since `since` (`feed_runs_finished_at_idx`, newest first), with their connector. */
+export async function recentFailures(tx: Tx, since: Date, limit: number) {
+  const r = await tx.execute<{
+    id: string;
+    connection_id: string;
+    agency_id: string;
+    connector: string;
+    error_code: string | null;
+    finished_at: Date | string;
+  }>(sql`
+    select r.id, r.connection_id, r.agency_id, c.connector, r.error_code, r.finished_at
+      from feed_runs r join feed_connections c on c.id = r.connection_id
+     where r.finished_at >= ${since.toISOString()}::timestamptz and r.state = 'FAILED'
+     order by r.finished_at desc
+     limit ${limit}`);
+  return r.rows.map((x) => ({
+    runId: x.id,
+    connectionId: x.connection_id,
+    agencyId: x.agency_id,
+    connector: x.connector,
+    errorCode: x.error_code ?? 'INTERNAL',
+    finishedAt: new Date(x.finished_at),
+  }));
 }

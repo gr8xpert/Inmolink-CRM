@@ -1,14 +1,28 @@
-import { FEED_ERRORS_KEPT, type FeedRunErrorCode } from '@inmolink/contracts';
+import {
+  FEED_ERRORS_KEPT,
+  type FeedPauseDetails,
+  type FeedPauseReason,
+  type FeedRunErrorCode,
+} from '@inmolink/contracts';
 import { withTenant } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
-import { emit } from '@inmolink/platform/outbox';
+import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
 import { isSafeFetchError } from '@inmolink/platform/safe-fetch';
 import { isSheetError } from '@inmolink/platform/sheet';
 import { isXmlStreamError } from '@inmolink/platform/xml';
-import { decryptCredentials, RUNS } from './config';
+import {
+  ANOMALY,
+  anomalyThresholds,
+  decryptCredentials,
+  FEED_CONFIRM_REFRESH_DAYS,
+  feedFreshnessDays,
+  RUNS,
+} from './config';
 import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
 import { importsEvents } from './events';
+import { FeedAnomalyError, massWithdrawal, recordPause, typicalVolume, volumeSpike } from './guard';
 import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
@@ -103,28 +117,85 @@ export interface RunJobContext {
   lastAttempt: boolean;
 }
 
+const DAY_MS = 24 * 3_600_000;
+
+interface Pause {
+  reason: FeedPauseReason;
+  details: FeedPauseDetails;
+}
+
+const PAUSE_CODES: Record<FeedPauseReason, FeedRunErrorCode> = {
+  VOLUME_SPIKE: 'FEED_PAUSED_VOLUME_SPIKE',
+  MASS_WITHDRAWAL: 'FEED_PAUSED_MASS_WITHDRAWAL',
+};
+
 /**
  * Ends the run (if this worker still holds it) and announces the outcome, in one transaction: the loader's end of
  * run — withdrawals after a success, cleanup after a failure — commits with it or not at all.
+ *
+ * S6-08: a success is checked by the anomaly guard first (unless the connection was resumed with "accept the
+ * change"): when too many of the feed's listings vanished at once the run ends FAILED (`FEED_PAUSED_MASS_WITHDRAWAL`),
+ * withdraws nothing, counts no miss, and the connection is paused. A spike (`pause` given) pauses it the same way. A
+ * real success records whether the feed changed and, while it changed within `IMPORT_FEED_FRESHNESS_DAYS`, confirms
+ * its listings' freshness (S3-08) — after the commit, in short transactions of its own (best effort: the next run
+ * confirms what a failure here left).
  */
 async function finish(
   agencyId: string,
   runId: string,
   token: string,
-  state: 'SUCCEEDED' | 'FAILED',
-  errorCode: FeedRunErrorCode | null,
+  outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: FeedRunErrorCode | null; pause?: Pause; valid?: number },
   loader: RunLoader | null,
-): Promise<boolean> {
-  return withTenant({ agencyId }, async (tx) => {
+  guard: { skip: boolean },
+  log: Logger,
+): Promise<{ state: 'SUCCEEDED' | 'FAILED'; errorCode: FeedRunErrorCode | null } | null> {
+  const result = await withTenant({ agencyId }, async (tx) => {
+    let { state, errorCode, pause } = outcome;
+    let missing = 0;
+    let confirmBefore: Date | undefined;
+    // A run with nothing valid withdraws nothing anyway (S6-02: a broken feed is not an empty portfolio).
+    if (loader && state === 'SUCCEEDED' && (outcome.valid ?? 0) > 0) {
+      const stats = await loader.dropStats(tx);
+      missing = stats.missing;
+      const drop = guard.skip ? null : massWithdrawal(stats.live, stats.missing, anomalyThresholds().dropRatio);
+      if (drop) {
+        pause = { reason: 'MASS_WITHDRAWAL', details: drop };
+        state = 'FAILED';
+        errorCode = PAUSE_CODES.MASS_WITHDRAWAL;
+      }
+    }
     const done = await repo.finishRun(tx, runId, token, { state, errorCode });
-    if (!done) return false;
+    if (!done) return null;
     if (loader && state === 'SUCCEEDED') {
+      const changed = done.itemsCreated + done.itemsUpdated > 0 || missing > 0;
+      const changedAt = await repo.recordRunSuccess(tx, done.connectionId, changed);
+      const now = clock.now().getTime();
+      const alive = changedAt !== null && now - changedAt.getTime() <= feedFreshnessDays() * DAY_MS;
+      if (alive) confirmBefore = new Date(now - FEED_CONFIRM_REFRESH_DAYS * DAY_MS);
       const withdrawn = await loader.finish(tx, { valid: done.itemsValid });
       if (withdrawn > 0) await repo.setWithdrawn(tx, runId, withdrawn);
     } else if (loader) await loader.abandon(tx);
-    await emit(tx, importsEvents.runFinished({ runId, connectionId: done.connectionId, agencyId, state, errorCode }));
-    return true;
+    const events: OutboxMessage[] = [
+      importsEvents.runFinished({ runId, connectionId: done.connectionId, agencyId, state, errorCode }),
+    ];
+    if (pause) {
+      await repo.pauseConnection(tx, done.connectionId, { reason: pause.reason, details: pause.details, runId });
+      events.push(
+        importsEvents.connectionPaused({ runId, connectionId: done.connectionId, agencyId, reason: pause.reason }),
+      );
+    }
+    await emit(tx, events);
+    return { state, errorCode, pause, confirmBefore };
   });
+  if (result?.pause) recordPause(result.pause.reason); // after the commit: counts only real pauses
+  if (result?.confirmBefore && loader) {
+    try {
+      await loader.confirmFresh(result.confirmBefore);
+    } catch (err) {
+      log.warn({ err, runId }, 'freshness confirmation from the feed failed; the next run retries it');
+    }
+  }
+  return result ? { state: result.state, errorCode: result.errorCode } : null;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -159,15 +230,28 @@ export async function executeRun(
     claimed = await claim();
     if (!claimed) return { kind: 'skipped' }; // the holder renewed: it is alive and owns the run
   }
-  const connection = await withTenant({ agencyId }, (tx) => repo.connectionForRun(tx, claimed.connectionId));
+  const [connection, baseline] = await withTenant({ agencyId }, async (tx) => {
+    const c = await repo.connectionForRun(tx, claimed.connectionId);
+    // S6-08: the feed's typical volume (none once "accept the change" was chosen on resume)
+    const totals = c && !c.acceptAnomalyOnce ? await repo.recentSucceededTotals(tx, c.id, ANOMALY.BASELINE_RUNS) : [];
+    return [c, typicalVolume(totals)] as const;
+  });
   if (!connection) return { kind: 'skipped' }; // deleted with its runs meanwhile
   let loader: RunLoader | null = null;
-  const end = async (state: 'SUCCEEDED' | 'FAILED', code: FeedRunErrorCode | null): Promise<RunOutcome> =>
-    (await finish(agencyId, runId, token, state, code, loader))
-      ? { kind: 'finished', state, errorCode: code }
-      : { kind: 'lost' };
+  const guard = { skip: connection.acceptAnomalyOnce };
+  const end = async (
+    state: 'SUCCEEDED' | 'FAILED',
+    code: FeedRunErrorCode | null,
+    extra: { pause?: Pause; valid?: number } = {},
+  ): Promise<RunOutcome> => {
+    const outcome = { state, errorCode: code, ...extra };
+    const ended = await finish(agencyId, runId, token, outcome, loader, guard, job.log);
+    return ended ? { kind: 'finished', ...ended } : { kind: 'lost' };
+  };
 
   if (!connection.enabled) return end('FAILED', 'FEED_CONNECTION_DISABLED');
+  // Paused by the anomaly guard (S6-08): neither scheduled nor runnable until resumed; a run queued before stops here.
+  if (connection.pausedAt) return end('FAILED', 'FEED_CONNECTION_PAUSED');
   const connector = getConnector(connection.connector);
   if (!connector) return end('FAILED', 'FEED_CONNECTOR_UNKNOWN');
 
@@ -190,6 +274,7 @@ export async function executeRun(
       connectionId: connection.id,
       connector: connection.connector,
       settings: (connection.settings ?? {}) as Record<string, unknown>,
+      startedAt: claimed.startedAt,
     });
     loader = runLoader;
     const ctx: ConnectorContext = {
@@ -203,7 +288,13 @@ export async function executeRun(
         : null,
       signal: abort.signal,
     };
+    const { spikeFactor } = anomalyThresholds();
+    let read = 0;
     const commit = async (batch: PendingBatch) => {
+      // S6-08 volume spike: stop before writing the batch that crosses factor × the typical item count.
+      const spike = guard.skip ? null : volumeSpike(read + batch.total, baseline, spikeFactor);
+      if (spike) throw new FeedAnomalyError('VOLUME_SPIKE', spike);
+      read += batch.total;
       // Outside the fenced transaction: item checks and taxonomy resolution (their own short transactions).
       const { prepared, errors: prepErrors } = await runLoader.prepare(batch.valid);
       await withTenant({ agencyId }, async (tx) => {
@@ -233,7 +324,7 @@ export async function executeRun(
     };
     const totals = await runFeedPipeline({ connector, ctx, batchSize: RUNS.BATCH_SIZE, commit });
     job.log.info({ runId, connector: connection.connector, ...totals }, 'feed run done');
-    return await end('SUCCEEDED', null);
+    return await end('SUCCEEDED', null, { valid: totals.valid });
   } catch (raw) {
     const err = abort.signal.aborted && abort.signal.reason instanceof LeaseLostError ? abort.signal.reason : raw;
     if (err instanceof LeaseLostError) {
@@ -241,6 +332,10 @@ export async function executeRun(
       return { kind: 'lost' };
     }
     if (err instanceof FeedNoOwnerError) return end('FAILED', 'FEED_NO_OWNER');
+    if (err instanceof FeedAnomalyError) {
+      job.log.warn({ runId, reason: err.reason, ...err.details }, 'feed run paused by the anomaly guard');
+      return end('FAILED', PAUSE_CODES[err.reason], { pause: { reason: err.reason, details: err.details } });
+    }
     const { code, retryable } = classifyRunError(err);
     job.log.warn({ runId, code, retryable, err: code === 'INTERNAL' ? err : undefined }, 'feed run failed');
     if (retryable && !job.lastAttempt) {

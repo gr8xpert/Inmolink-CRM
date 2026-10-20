@@ -563,8 +563,12 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   });
 
   const staff = def.staff;
+  // S6-08: a staff column allowlist narrows UPDATE: the staff checks write one column staff may write.
+  const staffColumn = staff?.updateColumns?.[0] ?? 'agency_id';
   const updateA = (tx: Tx) =>
-    tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`);
+    tx.execute(
+      sql`update ${sql.identifier(table)} set ${sql.identifier(staffColumn)} = ${sql.identifier(staffColumn)} where agency_id = ${a}`,
+    );
   const deleteA = (tx: Tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`);
   const insertA = (tx: Tx) => tx.execute(insertSql(table, build({ agency_id: a })));
   if (staff) {
@@ -592,6 +596,30 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       await expectSqlState(() => asStaff(deleteA), DENIED);
       expect(await adminCount(a)).toBe(visible.length + hidden.length);
     });
+
+    if (staff.selectColumns || staff.updateColumns) {
+      // S6-08: column allowlists — any other column is neither readable nor writable by staff.
+      it(`[S6-08] ${table}: staff read and write only their column allowlists`, async () => {
+        const cols = (await columnsOf(admin, table)).map((c) => c.name);
+        for (const c of cols.filter((x) => staff.selectColumns && !staff.selectColumns.includes(x))) {
+          await expectSqlState(
+            () => asStaff((tx) => tx.execute(sql`select ${sql.identifier(c)} from ${sql.identifier(table)} limit 1`)),
+            DENIED,
+          );
+        }
+        for (const c of cols.filter((x) => staff.updateColumns && !staff.updateColumns.includes(x))) {
+          await expectSqlState(
+            () =>
+              asStaff((tx) =>
+                tx.execute(
+                  sql`update ${sql.identifier(table)} set ${sql.identifier(c)} = ${sql.identifier(c)} where false`,
+                ),
+              ),
+            DENIED,
+          );
+        }
+      });
+    }
   } else {
     it(`[S1-03] ${table}: app_staff cannot read, update, insert or delete it, even as staff`, async () => {
       for (const run of [asStaff, asNotStaff]) {

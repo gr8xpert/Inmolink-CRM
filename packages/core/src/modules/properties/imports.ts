@@ -299,11 +299,13 @@ export async function withdrawMissingImports(
   tx: Tx,
   run: Pick<ImportRun, 'agencyId' | 'runId' | 'connectionId'>,
   afterMissedRuns: number,
+  /** From `importDropStats` in this transaction (S6-08): the run-end EXCEPT is not run twice. */
+  missingRefs?: readonly string[],
 ): Promise<number> {
   if (!Number.isInteger(afterMissedRuns) || afterMissedRuns < 1) {
     throw new TypeError('withdrawMissingImports: afterMissedRuns must be a positive integer');
   }
-  const due = await repo.countMisses(tx, run, afterMissedRuns);
+  const due = await repo.countMisses(tx, run, afterMissedRuns, missingRefs);
   const withdrawn = await repo.withdraw(tx, run.agencyId, due);
   await repo.insertHistories(
     tx,
@@ -324,6 +326,50 @@ export async function withdrawMissingImports(
   );
   await repo.deleteSeen(tx, run.runId);
   return withdrawn.length;
+}
+
+/**
+ * The anomaly guard's counts for a finishing run (S6-08): live listings of the connection (in the previous run,
+ * created before `runStartedAt`), how many of them this run missed, and every missing reference (pass them to
+ * `withdrawMissingImports` in the same transaction).
+ */
+export function importDropStats(
+  tx: Tx,
+  run: Pick<ImportRun, 'agencyId' | 'runId' | 'connectionId'>,
+  runStartedAt: Date,
+): Promise<{ live: number; missing: number; refs: string[] }> {
+  return repo.dropStats(tx, run, runStartedAt);
+}
+
+/**
+ * Freshness via feed (S6-08, user-approved 2026-10-19), step 1: the connection's listings present in its last run and
+ * last confirmed before `before`. Call after the run's end committed, then confirm them in batches.
+ */
+export function listingsToConfirmFromFeed(
+  tx: Tx,
+  run: Pick<ImportRun, 'agencyId' | 'connectionId'>,
+  before: Date,
+): Promise<string[]> {
+  return repo.freshCandidates(tx, run, before);
+}
+
+/** Ids per `confirmListingsFromFeed` call (one short transaction each). */
+export const FEED_CONFIRM_BATCH = 1_000;
+
+/**
+ * Freshness via feed, step 2: these listings (≤ `FEED_CONFIRM_BATCH`) count as confirmed still on the market (S3-08),
+ * as the confirm button does. Listings whose confirmation prompt or network hide is cleared emit
+ * `properties.listings.imported` (search and quality rebuild them). Idempotent. Answers how many were confirmed.
+ */
+export async function confirmListingsFromFeed(
+  tx: Tx,
+  run: Pick<ImportRun, 'agencyId' | 'runId'>,
+  ids: readonly string[],
+  before: Date,
+): Promise<number> {
+  const { confirmed, cleared } = await repo.confirmFresh(tx, run.agencyId, ids, before);
+  await emitImported(tx, run, cleared);
+  return confirmed;
 }
 
 /** A run that ends without withdrawals (failed, or a feed with nothing valid): its seen references go. */

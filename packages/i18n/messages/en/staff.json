@@ -7,19 +7,29 @@
     "verification": "Verification queue",
     "audit": "Audit log",
     "sessions": "Live sessions",
-    "taxonomy": "Taxonomy"
+    "taxonomy": "Taxonomy",
+    "imports": "Import health"
   },
   "taxonomy": {
     "title": "Taxonomy",
     "intro": "Locations, property types and features shared by every agency. Changes reach the website API within a minute.",
     "readOnly": "You can look but not change: taxonomy is edited by data operations and super admins.",
-    "tabs": { "locations": "Locations", "propertyTypes": "Property types", "features": "Features" },
+    "tabs": {
+      "locations": "Locations",
+      "propertyTypes": "Property types",
+      "features": "Features"
+    },
     "selectPrompt": "Select an item to edit its translations, aliases and area.",
     "loading": "Loading…",
     "saved": "Saved.",
     "save": "Save",
     "tree": "Tree",
-    "levels": { "COUNTRY": "Country", "REGION": "Region", "CITY": "City", "AREA": "Area" },
+    "levels": {
+      "COUNTRY": "Country",
+      "REGION": "Region",
+      "CITY": "City",
+      "AREA": "Area"
+    },
     "addRoot": "Add a country",
     "addChild": "Add {level}",
     "createTitle": "New {level}",
@@ -204,5 +214,57 @@
     "VERIFICATION_NOT_OPEN": "This request was already decided.",
     "VALIDATION_FAILED": "Write a reason of at least 3 characters.",
     "generic": "Something went wrong. Please try again."
+  },
+  "imports": {
+    "title": "Import health",
+    "intro": "Feed imports of every agency: runs and failures of the last day, how long runs wait in the queue, the feeds the anomaly guard paused and the feed values waiting for a mapping.",
+    "window": "Last {hours} hours",
+    "runs": {
+      "finished": "Runs finished",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "paused": "Paused by the guard"
+    },
+    "lag": {
+      "queued": "Queued now",
+      "running": "Running now",
+      "oldest": "Oldest waiting",
+      "p95": "Queue wait (p95)",
+      "max": "Queue wait (max)"
+    },
+    "seconds": "{n} s",
+    "minutes": "{n} min",
+    "hours": "{n} h",
+    "pausedTitle": "Paused feeds",
+    "noPaused": "No feed is paused.",
+    "feed": "Feed",
+    "reason": "Why",
+    "since": "Paused at",
+    "agency": "Agency",
+    "open": "Open agency",
+    "reasons": {
+      "VOLUME_SPIKE": "Volume spike: {items} listings read, usually about {typical}",
+      "MASS_WITHDRAWAL": "Mass withdrawal: {missing} of {live} listings missing at once"
+    },
+    "acceptChange": "Accept the change",
+    "resume": "Resume",
+    "resumed": "The feed was resumed.",
+    "failuresTitle": "Failures by reason",
+    "noFailures": "No run failed in this window.",
+    "finishedAt": "Finished",
+    "code": "Reason",
+    "connector": "Format",
+    "unmatchedTitle": "Feed values waiting for a mapping",
+    "unmatched": {
+      "location": "Locations",
+      "propertyType": "Property types",
+      "feature": "Features"
+    },
+    "mapValues": "Map them in the taxonomy editor",
+    "errors": {
+      "FORBIDDEN": "Only data ops and super admins can resume a feed.",
+      "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
+      "VALIDATION_FAILED": "The request was not valid."
+    }
   }
 }

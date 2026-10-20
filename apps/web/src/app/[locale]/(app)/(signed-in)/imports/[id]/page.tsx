@@ -6,7 +6,7 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchFeedConnectionPage, sessionRef } from '@/server/api';
 import { runNowAction } from '../actions';
-import { ImportNotice, StateBadge, scheduleLabel } from '../shared';
+import { ImportNotice, PauseNotice, StateBadge, scheduleLabel } from '../shared';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
@@ -61,10 +61,11 @@ export default async function FeedConnectionPage({
           <p className="text-sm text-muted-foreground">
             <span className="font-mono">{connection.connector}</span> · {scheduleLabel(t, connection.scheduleMinutes)}
             {connection.enabled ? null : ` · ${t('disabled')}`}
+            {connection.pause ? ` · ${t('paused.badge')}` : null}
           </p>
         </div>
         <div className="flex items-center gap-4">
-          {connection.enabled ? (
+          {connection.enabled && !connection.pause ? (
             <form action={runNowAction}>
               <input type="hidden" name="connectionId" value={connection.id} />
               <input type="hidden" name="from" value="detail" />
@@ -92,6 +93,7 @@ export default async function FeedConnectionPage({
         </div>
       </div>
       <ImportNotice done={q.done} error={q.error} />
+      {connection.pause ? <PauseNotice connectionId={connection.id} pause={connection.pause} /> : null}
 
       <h2 className="text-lg font-semibold">{t('history')}</h2>
       {!res.runs.ok ? (

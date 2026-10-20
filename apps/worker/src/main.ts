@@ -54,6 +54,11 @@ try {
       ...(config.IMPORT_WITHDRAW_AFTER_MISSED_RUNS
         ? { withdrawAfterMissedRuns: config.IMPORT_WITHDRAW_AFTER_MISSED_RUNS }
         : {}),
+      // S6-08: global cap, anomaly guard and freshness-via-feed settings (validated by `importsEnv`).
+      ...(config.IMPORT_MAX_CONCURRENT_RUNS ? { maxConcurrentRuns: config.IMPORT_MAX_CONCURRENT_RUNS } : {}),
+      ...(config.IMPORT_ANOMALY_SPIKE_FACTOR ? { anomalySpikeFactor: config.IMPORT_ANOMALY_SPIKE_FACTOR } : {}),
+      ...(config.IMPORT_ANOMALY_DROP_RATIO ? { anomalyDropRatio: config.IMPORT_ANOMALY_DROP_RATIO } : {}),
+      ...(config.IMPORT_FEED_FRESHNESS_DAYS ? { feedFreshnessDays: config.IMPORT_FEED_FRESHNESS_DAYS } : {}),
     });
   }
   configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));

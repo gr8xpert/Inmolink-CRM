@@ -48,6 +48,17 @@ async function withRetry<T>(delays: readonly number[], fn: () => Promise<T>): Pr
   return fn();
 }
 
+/** Group and pool-wide cap slots are leased this long and renewed every `SLOT_RENEW_MS` while the job runs. */
+export const SLOT_LEASE_MS = 2 * 60_000;
+const SLOT_RENEW_MS = 30_000;
+
+/** A job definition's pool-wide cap (`globalConcurrency`), read per attempt; undefined when it has none. */
+function capOf(cap: number | (() => number) | undefined): number | undefined {
+  if (cap === undefined) return undefined;
+  const n = typeof cap === 'function' ? cap() : cap;
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
 /** Dead letters are kept this long, for inspection and manual re-enqueue. */
 export const DEAD_LETTER_RETENTION_MS = 30 * 24 * 3_600_000;
 
@@ -107,6 +118,9 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   /** Fair-share cleanup for a job whose payload may be invalid (best effort; leftovers expire within a day). */
   async function releaseFairness(job: Job<StoredJob>, def: JobDef | undefined): Promise<void> {
     capWaits.delete(job.id as string);
+    if (def && capOf(def.spec.globalConcurrency) !== undefined) {
+      await fairnessFor().releaseCap(pool, def.name, job.id as string);
+    }
     if (!def?.spec.group) return;
     let group: string;
     try {
@@ -134,16 +148,52 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     const member = job.data.f ?? (job.id as string);
     const fair = group === undefined ? undefined : fairnessFor();
 
+    // S6-08 review: short slot leases renewed while the job runs, so a crashed process frees its group and cap slots
+    // within minutes, not after the job's whole timeout.
+    const leaseMs = SLOT_LEASE_MS;
+    const overCap = async (): Promise<never> => {
+      const attempt = (capWaits.get(job.id as string) ?? 0) + 1;
+      capWaits.set(job.id as string, attempt);
+      await job.moveToDelayed(Date.now() + groupRetryDelay(attempt, groupRetryMs, groupRetryMaxMs), token);
+      throw new DelayedError();
+    };
     if (fair && group !== undefined && spec.concurrencyPerGroup) {
-      const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, def.timeoutMs + 60_000);
+      const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, leaseMs);
+      if (!ok) await overCap();
+    }
+    // S6-08: the definition's pool-wide cap, taken after the group's slot (and that one handed back when full).
+    const globalCap = capOf(spec.globalConcurrency);
+    if (globalCap !== undefined) {
+      const ok = await fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs);
       if (!ok) {
-        const attempt = (capWaits.get(job.id as string) ?? 0) + 1;
-        capWaits.set(job.id as string, attempt);
-        await job.moveToDelayed(Date.now() + groupRetryDelay(attempt, groupRetryMs, groupRetryMaxMs), token);
-        throw new DelayedError();
+        if (fair && group !== undefined && spec.concurrencyPerGroup) await fair.release(pool, group, job.id as string);
+        await overCap();
       }
     }
     capWaits.delete(job.id as string);
+    const holdsGroup = Boolean(fair && group !== undefined && spec.concurrencyPerGroup);
+    const renew =
+      holdsGroup || globalCap !== undefined
+        ? setInterval(() => {
+            const renewals: Promise<unknown>[] = [];
+            if (holdsGroup) {
+              renewals.push(
+                fairnessFor().acquire(
+                  pool,
+                  group as string,
+                  job.id as string,
+                  spec.concurrencyPerGroup as number,
+                  leaseMs,
+                ),
+              );
+            }
+            if (globalCap !== undefined) {
+              renewals.push(fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs));
+            }
+            Promise.all(renewals).catch((err: unknown) => jobLog.warn({ err }, 'slot lease renewal failed'));
+          }, SLOT_RENEW_MS)
+        : undefined;
+    renew?.unref();
 
     const controller = new AbortController();
     controllers.add(controller);
@@ -179,8 +229,10 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       throw err;
     } finally {
       clearTimeout(timer);
+      if (renew) clearInterval(renew);
       controllers.delete(controller);
       if (fair && group !== undefined && spec.concurrencyPerGroup) await fair.release(pool, group, job.id as string);
+      if (globalCap !== undefined) await fairnessFor().releaseCap(pool, spec.name, job.id as string);
     }
   }
 

@@ -86,6 +86,24 @@ export const feedConnections = pgTable(
     nextRunAt: timestamp('next_run_at', { withTimezone: true }),
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     lastRunState: feedRunStateEnum('last_run_state'),
+    /**
+     * S6-08 anomaly guard: set when a run saw far more items than usual or lost a large share of the feed's listings
+     * at once. A paused connection is not scheduled and cannot be run until an agency admin or staff resume it.
+     */
+    pausedAt: timestamp('paused_at', { withTimezone: true }),
+    /** `VOLUME_SPIKE` or `MASS_WITHDRAWAL`. */
+    pauseReason: text('pause_reason'),
+    /** What the guard saw (counts and the threshold), for the agency notice and the staff dashboard. */
+    pauseDetails: jsonb('pause_details'),
+    /** The run that tripped the guard. */
+    pausedRunId: uuid('paused_run_id'),
+    /** Resumed with "accept the change": the next run skips the guard once. */
+    acceptAnomalyOnce: boolean('accept_anomaly_once').notNull().default(false),
+    /**
+     * S6-08 freshness via feed: when a successful run last added, changed or removed an item. A run confirms its
+     * listings' freshness (S3-08) only while this is within `IMPORT_FEED_FRESHNESS_DAYS`.
+     */
+    contentChangedAt: timestamp('content_changed_at', { withTimezone: true }),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -107,7 +125,14 @@ export const feedConnections = pgTable(
       columns: [t.mappingProfileId, t.agencyId],
       foreignColumns: [feedMappingProfiles.id, feedMappingProfiles.agencyId],
     }),
+    // staff import health (S6-08): paused connections of every agency, latest first
+    index('feed_connections_paused_idx').on(t.pausedAt).where(sql`${t.pausedAt} is not null`),
     check('feed_connections_name_ck', sql`char_length(${t.name}) between 1 and 120`),
+    check(
+      'feed_connections_pause_ck',
+      sql`(${t.pausedAt} is null) = (${t.pauseReason} is null)
+        and (${t.pauseReason} is null or ${t.pauseReason} in ('VOLUME_SPIKE', 'MASS_WITHDRAWAL'))`,
+    ),
     check('feed_connections_connector_ck', sql`${t.connector} ~ '^[a-z][a-z0-9-]{1,31}$'`),
     // https feeds; an uploaded sheet is kept by file id (S6-05)
     check(
@@ -177,6 +202,13 @@ export const feedRuns = pgTable(
     index('feed_runs_agency_created_idx').on(t.agencyId, t.createdAt),
     // retention prune (`imports.pruneRuns`): finished runs older than the cut-off, oldest first
     index('feed_runs_finished_created_idx').on(t.createdAt).where(sql`${t.state} in ('SUCCEEDED', 'FAILED')`),
+    // staff import health (S6-08): runs finished in the last 24 h by state, error and queue wait — index-only
+    // (built CONCURRENTLY, concurrent-indexes.ts)
+    index('feed_runs_finished_at_idx')
+      .on(t.finishedAt, t.state, t.errorCode, t.createdAt, t.startedAt)
+      .where(sql`${t.finishedAt} is not null`),
+    // staff import health (S6-08): the latest failed runs (built CONCURRENTLY, concurrent-indexes.ts)
+    index('feed_runs_failed_finished_idx').on(t.finishedAt).where(sql`${t.state} = 'FAILED'`),
     // scheduler: active runs whose lease lapsed or that never started
     index('feed_runs_active_idx')
       .on(t.state, t.leaseUntil, t.createdAt)

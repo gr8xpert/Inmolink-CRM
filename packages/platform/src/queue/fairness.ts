@@ -53,6 +53,9 @@ return depths`;
 const groupKey = (prefix: string, pool: string, group: string, kind: 'backlog' | 'active') =>
   `${prefix}:fair:${pool}:${encodeURIComponent(group)}:${kind}`;
 
+/** A job definition's pool-wide cap (S6-08): its own key space, so no group value can collide with it. */
+const capKey = (prefix: string, pool: string, name: string) => `${prefix}:cap:${pool}:${encodeURIComponent(name)}`;
+
 export interface BacklogEntry {
   group: string;
   member: string;
@@ -130,5 +133,34 @@ export class Fairness {
 
   async release(pool: string, group: string, member: string): Promise<void> {
     await this.redis.zrem(groupKey(this.prefix, pool, group, 'active'), member);
+  }
+
+  /**
+   * Takes one of `cap` slots of job definition `name` across every process of the pool (S6-08, `globalConcurrency`).
+   * Same lease semantics as `acquire`: a crashed holder's slot frees itself when its lease lapses.
+   */
+  async acquireCap(
+    pool: string,
+    name: string,
+    member: string,
+    cap: number,
+    leaseMs: number,
+    now = Date.now(),
+  ): Promise<boolean> {
+    const ok = (await this.redis.eval(
+      ACQUIRE,
+      1,
+      capKey(this.prefix, pool, name),
+      now,
+      now + leaseMs,
+      member,
+      cap,
+      leaseMs * 2,
+    )) as number;
+    return ok === 1;
+  }
+
+  async releaseCap(pool: string, name: string, member: string): Promise<void> {
+    await this.redis.zrem(capKey(this.prefix, pool, name), member);
   }
 }

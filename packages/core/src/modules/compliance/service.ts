@@ -67,12 +67,14 @@ export const AUDIT_TYPES = [
   'imports.sheet.started',
   'imports.connection.deleted',
   'imports.run.requested',
+  'imports.connection.resumed',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',
   'staff.tenant.read',
   'staff.members.read',
   'staff.taxonomy.changed',
+  'staff.imports.resumed',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
