@@ -162,7 +162,8 @@ type Parsed = ReturnType<typeof PublicListingSearch.parse>;
 
 /**
  * A CUSTOM inventory policy's narrowing (S7-01): anywhere under any of the locations, any of the types, an inclusive
- * price band (listings on request fall outside a band), and new-build units on or off. Empty lists: no narrowing.
+ * price band (listings on request fall outside a band), new-build units on or off, and a minimum commission on
+ * network listings. Empty lists: no narrowing.
  */
 export interface SiteRestriction {
   locationIds?: readonly string[];
@@ -171,6 +172,12 @@ export interface SiteRestriction {
   priceMaxCents?: number;
   /** false: listings only, no new-build units. */
   newBuilds?: boolean;
+  /**
+   * Network listings only (S7-F4): at least this total commission in basis points of the price. Own listings are never
+   * filtered by it; a network listing with no commission or an unknown share (a fixed amount of an on-request price)
+   * falls outside.
+   */
+  minCommissionBp?: number;
 }
 
 /** Who searches: the site's inventory from its policy (S7-01, `websites.siteSearchScope`) — never from the visitor. */
@@ -212,6 +219,7 @@ const PublicSearchSite = z
         priceMinCents: z.number().int().min(0).optional(),
         priceMaxCents: z.number().int().min(0).optional(),
         newBuilds: z.boolean().optional(),
+        minCommissionBp: z.number().int().min(1).max(10_000).optional(),
       })
       .optional(),
     requestId: z.string().max(200),
@@ -321,7 +329,16 @@ export function publicSearchFilter(
     if (site.ownerAgencyIds.length > 0) {
       whose.push({ op: 'in', field: 'ownerAgencyId', values: [...site.ownerAgencyIds] });
     }
-    if (site.networkOf) whose.push(sharedWith(site.networkOf));
+    if (site.networkOf) {
+      const network = sharedWith(site.networkOf);
+      const min = site.restrict?.minCommissionBp;
+      // The minimum commission narrows the network branch alone (S7-F4); a null commission matches no range.
+      whose.push(
+        min === undefined
+          ? network
+          : { op: 'and', filters: [network, { op: 'range', field: 'commissionBp', gte: min }] },
+      );
+    }
     filters.push(whose.length === 1 ? (whose[0] as Filter) : { op: 'or', filters: whose });
   }
   const r = site.restrict;

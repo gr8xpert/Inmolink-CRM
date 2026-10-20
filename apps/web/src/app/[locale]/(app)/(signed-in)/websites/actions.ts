@@ -33,6 +33,16 @@ function cents(form: FormData, name: string): number | undefined {
   if (v === '') return undefined;
   return WHOLE_EUROS.test(v) ? Number(v.replace(/[.,\s]/g, '')) * 100 : Number.NaN;
 }
+/**
+ * A percentage as typed (`3`, `3.5`, `3,25`; at most two decimals) → basis points; empty → undefined; anything else →
+ * NaN, refused by the contract.
+ */
+const PERCENT = /^\d{1,3}(?:[.,]\d{1,2})?$/;
+function basisPoints(form: FormData, name: string): number | undefined {
+  const v = text(form, name);
+  if (v === '') return undefined;
+  return PERCENT.test(v) ? Math.round(Number(v.replace(',', '.')) * 100) : Number.NaN;
+}
 const orNull = (v: string) => (v === '' ? null : v);
 
 /** The site fields a form sends (both forms send all of them). */
@@ -58,6 +68,7 @@ function siteFields(form: FormData) {
             priceMinCents: cents(form, 'priceMin'),
             priceMaxCents: cents(form, 'priceMax'),
             newBuilds: form.get('newBuilds') === 'on',
+            minCommissionBp: basisPoints(form, 'minCommission'),
           }
         : null,
     referencePrefix: orNull(text(form, 'referencePrefix').toUpperCase()),

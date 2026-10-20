@@ -262,3 +262,14 @@ export const listingPublicCodes = pgTable(
     check('listing_public_codes_code_ck', sql`${t.code} ~ '^[0-9A-HJKMNP-TV-Z]{8}$'`),
   ],
 );
+
+/**
+ * Total commission of a PUBLIC target in basis points of its price (S7-F4: a CUSTOM site's minimum commission on
+ * network listings). Worker-written (`withSystem`); no role but `app_system` reads it. The website fallback reaches
+ * it only through `public.search_commission_at_least(target_id, bp)` (SECURITY DEFINER, answers a boolean for one
+ * target), so no public path can select the value. A target without a known commission has no row.
+ */
+export const listingSearchCommissions = pgTable('listing_search_commissions', {
+  targetId: uuid('target_id').primaryKey(),
+  commissionBp: integer('commission_bp').notNull(),
+});

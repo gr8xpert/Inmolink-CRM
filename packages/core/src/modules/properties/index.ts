@@ -62,6 +62,8 @@ export {
 export { CLIENT_MODE_ALLOWED, can, PROPERTIES_ACTIONS, PROPERTIES_IMPERSONATION } from './policy';
 export {
   countListingsForReadModels,
+  type ListingCommissionTerms,
+  listingCommissionTerms,
   listingIdsForReadModels,
   listingsForReadModels,
   READ_MODEL_LISTING_STATUSES,

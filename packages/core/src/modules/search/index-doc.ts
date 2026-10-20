@@ -57,6 +57,12 @@ export interface ListingIndexDoc {
    * `<prefix>-<code>`, never by its owner's `ref`. Null until the target has one.
    */
   publicCode: string | null;
+  /**
+   * The total commission in basis points of the price (S7-F4: a CUSTOM site's minimum commission on network
+   * listings); null: none or unknown. Read from its own source at build time, never from the read models; a filter
+   * field only (`displayed` is the id).
+   */
+  commissionBp: number | null;
   /** First time the target had a read model, epoch seconds ("newest" sort). */
   publishedAt: number;
   /** The read models' source version (drift checks). */
@@ -88,6 +94,32 @@ export interface IndexSourceRow {
   createdAt: Date;
   /** The target's public code (S7-02), when it has one. */
   publicCode: string | null;
+  /** The target's total commission in basis points of its price (S7-F4), from its own source; null: none or unknown. */
+  commissionBp: number | null;
+}
+
+/** One target's commission and price as the index needs them (`commissionShareBp`). */
+export interface IndexCommissionTerms {
+  priceCents: number | null;
+  priceOnRequest: boolean;
+  /** The price's currency. */
+  currency: string;
+  commissionBp: number | null;
+  commissionFixedCents: number | null;
+  /** The fixed amount's currency. */
+  commissionCurrency: string;
+}
+
+/**
+ * The total commission as basis points of the price (S7-F4): a percentage as it is; a fixed amount as its share of
+ * the price (rounded down), when the price is known and in the same currency — an on-request price, no price or
+ * another currency is unknown (null: a site's minimum excludes it). Capped at 10000.
+ */
+export function commissionShareBp(t: IndexCommissionTerms): number | null {
+  if (t.commissionBp !== null) return Math.min(t.commissionBp, 10_000);
+  if (t.commissionFixedCents === null || t.priceOnRequest || t.priceCents === null || t.priceCents <= 0) return null;
+  if (t.commissionCurrency !== t.currency) return null;
+  return Math.min(Number((BigInt(t.commissionFixedCents) * 10_000n) / BigInt(t.priceCents)), 10_000);
 }
 
 const field = (name: 'title' | 'place' | 'description', locale: string) => `${name}_${locale}` as const;
@@ -133,6 +165,8 @@ export function listingsIndex(
       // so a network document is found by the site's prefixed reference only — not by the owner's own.
       { field: 'ref' },
       { field: 'publicCode' },
+      // A CUSTOM site's minimum commission on network listings (S7-F4): filter only, never displayed.
+      { field: 'commissionBp', comparison: true },
     ],
     sortable: ['priceCents', 'beds', 'areaM2', 'publishedAt', 'id'],
     localized: locales.map((l) => ({
@@ -187,6 +221,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
     geo: card.geo ? { lat: card.geo.lat, lng: card.geo.lng } : null,
     ref: card.ref,
     publicCode: first.publicCode,
+    commissionBp: first.commissionBp,
     publishedAt: Math.floor(Math.min(...sorted.map((r) => r.createdAt.getTime())) / 1000),
     version: Math.max(...sorted.map((r) => r.version)),
     sourceHash: createHash('sha256')
@@ -205,6 +240,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
             ...(r.networkHidden ? ['networkHidden'] : []),
             ...(r.preferredAgencyIds ? [{ preferred: r.preferredAgencyIds }] : []),
             ...(r.publicCode ? [{ code: r.publicCode }] : []),
+            ...(r.commissionBp !== null ? [{ commission: r.commissionBp }] : []),
           ]),
         ),
       )

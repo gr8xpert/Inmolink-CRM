@@ -41,6 +41,8 @@
     "priceMax": "Precio máximo (€)",
     "priceHint": "Con una franja de precio se excluyen los inmuebles con precio a consultar.",
     "newBuilds": "Incluir unidades de obra nueva",
+    "minCommission": "Comisión mínima de los inmuebles de la red (%)",
+    "minCommissionHint": "Se excluyen los inmuebles de la red cuya comisión total es inferior a este porcentaje del precio, o que no tienen comisión (o tienen una comisión fija y un precio a consultar). Tus propios inmuebles nunca se filtran. Requiere inmuebles de la red.",
     "prefix": "Prefijo de referencia",
     "prefixHint": "Hasta 6 letras mayúsculas o cifras, delante de las referencias de los inmuebles de la red. Déjalo vacío para no usarlo.",
     "locales": "Idiomas",
@@ -63,6 +65,7 @@
     "FORBIDDEN": "Solo los administradores de la agencia pueden cambiar los sitios web.",
     "SITE_NOT_FOUND": "Este sitio web ya no existe.",
     "SITE_LIMIT_REACHED": "Tu agencia ya tiene el máximo de sitios web permitidos.",
+    "VERIFICATION_REQUIRED": "Mostrar inmuebles de otras agencias requiere una agencia verificada.",
     "VALIDATION_FAILED": "Algunos campos no son válidos. Revísalos e inténtalo de nuevo.",
     "VERSION_CONFLICT": "Otra persona ha cambiado este sitio web mientras tanto. Recarga e inténtalo de nuevo.",
     "generic": "Algo ha fallado. Inténtalo de nuevo."

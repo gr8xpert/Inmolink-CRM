@@ -48,8 +48,8 @@ export const SITE_CACHE = { TTL_SECONDS: 45, LOCAL_TTL_SECONDS: 15 } as const;
 
 /** Cache key of one site's scope. No tags (one Redis key per site; changes `cache.delete` it). */
 export function siteCacheKey(siteId: string): CacheKey {
-  // v2 (S7-02): the entry holds the presenting agency too.
-  return cacheKey({ v: 2, module: 'websites', entity: 'site', scope: 'global', id: siteId });
+  // v2 (S7-02): the entry holds the presenting agency too. v3 (S7-F4): its filters hold the minimum commission.
+  return cacheKey({ v: 3, module: 'websites', entity: 'site', scope: 'global', id: siteId });
 }
 
 function toSiteDto(row: repo.SiteRow): SiteDto {
@@ -105,10 +105,27 @@ export async function getSite(ctx: Ctx, params: SiteParams): Promise<SiteDto> {
   return toSiteDto(row);
 }
 
+/**
+ * A site that shows other agencies' listings (OWN_PLUS_NETWORK, or CUSTOM with network listings) needs a VERIFIED
+ * agency, like the network itself (PLAN §3 #3). Without it a minimum commission on a CUSTOM site would let any agency
+ * probe the commission of every PUBLIC listing. `siteSearchScope` enforces the same at serving time (an agency that
+ * stops being verified loses the network at once). The give-to-get gate is not applied here: S7-03 drops `networkOf`
+ * for a LOCKED agency where the website API builds the scope.
+ */
+function assertNetworkAllowed(
+  ctx: Ctx,
+  policy: repo.InventoryPolicy,
+  filters: SiteInventoryFilters | null | undefined,
+): void {
+  const network = policy === 'OWN_PLUS_NETWORK' || (policy === 'CUSTOM' && filters?.includeNetwork === true);
+  if (network) agencies.assertVerified(ctx, 'website.network');
+}
+
 /** Adds a site (agency admins; at most `MAX_SITES`). */
 export async function createSite(ctx: Ctx, input: CreateSiteInput): Promise<SiteDto> {
   assertCan(ctx, 'websites.manage');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  assertNetworkAllowed(ctx, input.inventoryPolicy, input.inventoryFilters);
   assertContentLocales(input.locales);
   const { agencyId } = ctx.tenant;
   // Serialises concurrent creates of the agency, so the cap cannot be raced.
@@ -155,6 +172,12 @@ export async function updateSite(ctx: Ctx, params: SiteParams, input: UpdateSite
     throw new AppError('VERSION_CONFLICT', { current: current.version });
   }
   const locales = input.locales ?? current.locales;
+  const policy = input.inventoryPolicy ?? current.inventoryPolicy;
+  const filters = input.inventoryPolicy
+    ? (input.inventoryFilters ?? null)
+    : (current.inventoryFilters as SiteInventoryFilters | null);
+  // Only a change of the inventory is checked: a site that already shows the network can still be renamed.
+  if (input.inventoryPolicy) assertNetworkAllowed(ctx, policy, filters);
   const next: repo.SiteFields = {
     name: input.name ?? current.name,
     domains: input.domains ?? current.domains,
@@ -227,6 +250,8 @@ export interface SiteScope {
   contact: SiteContact | null;
   /** The presenting agency as the site shows it (`sitePresenter`). */
   presenter: WebsitePresenter;
+  /** The agency is VERIFIED now (listed in the directory): only then does the site show network listings. */
+  verified: boolean;
 }
 
 /**
@@ -282,6 +307,8 @@ export async function siteScope(siteId: string): Promise<SiteScope> {
     defaultLocale: row.defaultLocale,
     contact: (row.contact as SiteContact | null) ?? null,
     presenter: sitePresenter({ name: row.name, contact: (row.contact as SiteContact | null) ?? null }, entry.agency),
+    // `listed` in the directory is "VERIFIED now"; the presenting lookup returns listed agencies only.
+    verified: entry.agency !== null,
   };
 }
 
@@ -301,12 +328,16 @@ export interface SiteSearchScope {
     priceMinCents?: number;
     priceMaxCents?: number;
     newBuilds?: boolean;
+    /** Network listings only (S7-F4), basis points of the price. */
+    minCommissionBp?: number;
   };
   requestId: string;
 }
 
 /** A site's inventory policy as the website search's scope (`search.searchPublicListings`). */
 export function siteSearchScope(site: SiteScope, requestId: string): SiteSearchScope {
+  // Fail closed: an agency that is not VERIFIED shows its own listings only, whatever its policy says.
+  if (!site.verified) return { ownerAgencyIds: [site.agencyId], requestId };
   switch (site.inventoryPolicy) {
     case 'OWN_ONLY':
       return { ownerAgencyIds: [site.agencyId], requestId };
@@ -330,6 +361,7 @@ export function siteSearchScope(site: SiteScope, requestId: string): SiteSearchS
           priceMinCents: f.priceMinCents,
           priceMaxCents: f.priceMaxCents,
           newBuilds: f.newBuilds,
+          minCommissionBp: f.minCommissionBp,
         },
         requestId,
       };

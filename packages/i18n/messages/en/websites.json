@@ -41,6 +41,8 @@
     "priceMax": "Highest price (€)",
     "priceHint": "Listings priced on request are left out when a price band is set.",
     "newBuilds": "Include new-build units",
+    "minCommission": "Lowest commission on network listings (%)",
+    "minCommissionHint": "Network listings whose total commission is below this share of the price, or that have none (or a fixed commission on a price on request), are left out. Your own listings are never filtered by it. Needs network listings.",
     "prefix": "Reference prefix",
     "prefixHint": "Up to 6 capital letters or digits, shown before network listings' references. Leave empty for none.",
     "locales": "Languages",
@@ -63,6 +65,7 @@
     "FORBIDDEN": "Only agency admins can change websites.",
     "SITE_NOT_FOUND": "This website no longer exists.",
     "SITE_LIMIT_REACHED": "Your agency has as many websites as allowed.",
+    "VERIFICATION_REQUIRED": "Showing other agencies' listings needs a verified agency.",
     "VALIDATION_FAILED": "Some fields are not valid. Check them and try again.",
     "VERSION_CONFLICT": "Someone else changed this website meanwhile. Reload and try again.",
     "generic": "Something went wrong. Try again."

@@ -22,7 +22,13 @@ import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { type BuiltDoc, buildListingDocs, buildUnitDocs, type DocOwner } from './build';
-import { buildIndexDoc, type IndexSourceRow, type ListingIndexDoc, listingsIndex } from './index-doc';
+import {
+  buildIndexDoc,
+  commissionShareBp,
+  type IndexSourceRow,
+  type ListingIndexDoc,
+  listingsIndex,
+} from './index-doc';
 import * as repo from './repo';
 
 export type ReadModelKind = BuiltDoc['kind'];
@@ -137,7 +143,14 @@ async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: 
     tx,
     docs.filter((d) => d.public).map((d) => d.targetId),
   );
-  const changed = [...new Set([...deleted, ...written, ...coded])];
+  // Commission (S7-F4) is read from the listing or unit itself, so an edit of only the commission leaves the read
+  // model alone: its rows are compared here and a target whose commission changed is pushed like a changed document.
+  const wanted = await commissionOf(
+    tx,
+    docs.filter((d) => d.public),
+  );
+  const moved = await repo.syncCommissions(tx, ids, wanted);
+  const changed = [...new Set([...deleted, ...written, ...coded, ...moved])];
   if (changed.length > 0) {
     await repo.queueIndexSync(tx, changed);
     if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed);
@@ -464,6 +477,27 @@ export function readModelDocs(tx: Tx, ids: readonly string[], locale?: string) {
 }
 
 /**
+ * The total commission of these targets in basis points of their price (S7-F4), read from the listings and units
+ * themselves — read models never carry it. Two statements at most; a target without a commission or with an unknown
+ * share (a fixed amount of an on-request price) has none.
+ */
+async function commissionOf(
+  tx: Tx,
+  rows: readonly { targetId: string; kind: 'LISTING' | 'UNIT' }[],
+): Promise<Map<string, number>> {
+  const ids = (kind: 'LISTING' | 'UNIT') => [...new Set(rows.filter((r) => r.kind === kind).map((r) => r.targetId))];
+  // One after the other: the same transaction runs one statement at a time.
+  const listingTerms = await properties.listingCommissionTerms(tx, ids('LISTING'));
+  const unitTerms = await developments.unitCommissionTerms(tx, ids('UNIT'));
+  const out = new Map<string, number>();
+  for (const t of [...listingTerms, ...unitTerms]) {
+    const bp = commissionShareBp(t);
+    if (bp !== null) out.set(t.id, bp);
+  }
+  return out;
+}
+
+/**
  * Index documents of these targets, built from their read models (S5-02); `missing` have no read model any more
  * (their index documents must go). One statement per `READ_MODEL_BATCH` targets. Worker-facing: raw `tx` under `withSystem`.
  */
@@ -477,10 +511,15 @@ export async function indexDocsFor(
   for (let i = 0; i < unique.length; i += READ_MODEL_BATCH) {
     rows.push(...(await repo.readIndexRows(tx, unique.slice(i, i + READ_MODEL_BATCH))));
   }
+  const commission = await commissionOf(tx, rows);
   const byTarget = new Map<string, IndexSourceRow[]>();
   for (const { features, ...r } of rows) {
     const list = byTarget.get(r.targetId) ?? [];
-    list.push({ ...r, featureIds: (features ?? []).map((f) => f.id) });
+    list.push({
+      ...r,
+      featureIds: (features ?? []).map((f) => f.id),
+      commissionBp: commission.get(r.targetId) ?? null,
+    });
     byTarget.set(r.targetId, list);
   }
   const docs = [...byTarget.values()].flatMap((r) => buildIndexDoc(r) ?? []);

@@ -155,14 +155,29 @@ describe('RLS generator', () => {
     expect(out).not.toMatch(/app_preferring_agencies\(\) returns setof uuid[^;]*security definer/i);
   });
 
-  it('[S1-08] partition maintenance is the only SECURITY DEFINER helper, executable by app_system only', () => {
-    expect(out.match(/security definer/gi)).toHaveLength(1);
+  it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other one: [S7-F4])', () => {
+    expect(out.match(/security definer/gi)).toHaveLength(2);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
     expect(out).toContain('set search_path = pg_catalog, pg_temp');
     expect(out).toContain('grant execute on function app_partition_maintenance() to app_system;');
     expect(out).not.toMatch(/app_partition_maintenance\(\) to [^;]*app_(?:user|public|auth|staff)/);
+  });
+
+  it('[S7-F4] the commission lookup is SECURITY DEFINER with a fixed search path, executable by app_public only', () => {
+    expect(out).toContain(
+      'create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean',
+    );
+    expect(out).toMatch(/search_commission_at_least[^;]*security definer set search_path = pg_catalog, pg_temp/);
+    expect(out).toContain('grant execute on function search_commission_at_least(uuid, integer) to app_public;');
+    expect(out).not.toMatch(/search_commission_at_least\(uuid, integer\) to [^;]*app_(?:user|system|auth|staff)/);
+    // The table behind it: no application role but app_system has a grant; the definer's owner reads through a policy.
+    const table = tablesSql(registry).split('-- listing_search_commissions: GLOBAL')[1]?.split('\n\n')[0] ?? '';
+    expect(table).toContain(
+      'create policy definer_read on public."listing_search_commissions" for select to app_owner',
+    );
+    expect(table).not.toMatch(/grant select[^;]*to [^;]*app_(?:user|public)/);
   });
 
   it('[S1-F10] userSelect: app_user reads through a user predicate and a column list without the hidden columns', () => {

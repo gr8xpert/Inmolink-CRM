@@ -129,3 +129,38 @@ export function unitIdsForReadModels(
 ): Promise<string[]> {
   return repo.readModelUnitIdsPage(tx, page);
 }
+
+/**
+ * A unit's price and commission terms for the search index (S7-F4: a CUSTOM site's minimum commission on network
+ * listings): the unit's own commission, else its development's. Read at index build time, never stored in a read model.
+ */
+export interface UnitCommissionTerms {
+  id: string;
+  priceCents: number | null;
+  priceOnRequest: boolean;
+  currency: string;
+  commissionBp: number | null;
+  commissionFixedCents: number | null;
+  /** The currency of `commissionFixedCents` (the unit's, or its development's when the development's applies). */
+  commissionCurrency: string;
+}
+
+/** These units' commission terms: one statement. Worker-facing: raw `tx` under `withSystem`. */
+export async function unitCommissionTerms(tx: Tx, ids: readonly string[]): Promise<UnitCommissionTerms[]> {
+  const rows = await repo.commissionTermsOf(tx, ids);
+  return rows.map((r) => {
+    const own = r.unitCommissionBp !== null || r.unitCommissionFixedCents !== null;
+    return {
+      id: r.id,
+      priceCents: r.priceCents,
+      // Units have no on-request column: no price means price on request.
+      priceOnRequest: r.priceCents === null,
+      currency: r.currency,
+      commissionBp: own ? r.unitCommissionBp : r.developmentCommissionBp,
+      commissionFixedCents: own ? r.unitCommissionFixedCents : r.developmentCommissionFixedCents,
+      // A fixed amount is in the currency of the row it comes from; the share compares it with the unit's price
+      // currency (`commissionShareBp`: another currency is unknown, so a minimum excludes the unit).
+      commissionCurrency: own ? r.currency : r.developmentCurrency,
+    };
+  });
+}

@@ -87,6 +87,7 @@ function doc(i: number): search.ListingIndexDoc {
     kind: r() < 0.9 ? 'LISTING' : 'UNIT',
     ownerAgencyId: agency(Math.floor(r() * AGENCIES)),
     developmentId: null,
+    commissionBp: r() < 0.95 ? 100 + Math.floor(r() * 700) : null,
     status: r() < 0.85 ? 'ACTIVE' : r() < 0.5 ? 'UNDER_OFFER' : 'SOLD',
     visibility: v < 0.6 ? 'PUBLIC' : v < 0.95 ? 'SHARED' : 'RESTRICTED',
     shareScope,

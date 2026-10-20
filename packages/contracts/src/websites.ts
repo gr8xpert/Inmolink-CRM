@@ -30,7 +30,8 @@ const MAX_PRICE_CENTS = 100_000_000_000;
 
 /**
  * A CUSTOM policy's filters: whose listings (own, network or both), anywhere under any of `locationIds` (empty:
- * anywhere), any of `propertyTypeIds` (empty: any), an inclusive price band, and new-build units on or off.
+ * anywhere), any of `propertyTypeIds` (empty: any), an inclusive price band, new-build units on or off, and a
+ * minimum commission on network listings (never on the site's own).
  */
 export const SiteInventoryFilters = z
   .object({
@@ -41,6 +42,8 @@ export const SiteInventoryFilters = z
     priceMinCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
     priceMaxCents: z.number().int().min(0).max(MAX_PRICE_CENTS).optional(),
     newBuilds: z.boolean().default(true),
+    /** Network listings only (S7-F4): at least this total commission, in basis points of the price (1 = 0.01 %). */
+    minCommissionBp: z.number().int().min(1).max(10_000).optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -49,6 +52,13 @@ export const SiteInventoryFilters = z
     }
     if (v.priceMinCents !== undefined && v.priceMaxCents !== undefined && v.priceMinCents > v.priceMaxCents) {
       ctx.addIssue({ code: 'custom', path: ['priceMaxCents'], message: 'price band is empty' });
+    }
+    if (v.minCommissionBp !== undefined && !v.includeNetwork) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['minCommissionBp'],
+        message: 'a minimum commission needs network listings',
+      });
     }
   });
 export type SiteInventoryFilters = z.infer<typeof SiteInventoryFilters>;

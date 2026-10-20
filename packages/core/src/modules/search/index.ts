@@ -4,7 +4,9 @@ export { searchErrors } from './errors';
 export { searchEvents } from './events';
 export {
   buildIndexDoc,
+  commissionShareBp,
   INDEXED_DESCRIPTION_CHARS,
+  type IndexCommissionTerms,
   type IndexSourceRow,
   type IndexVisibility,
   LISTINGS_INDEX_UID,

@@ -111,3 +111,24 @@ export function listingIdsForReadModels(
 ): Promise<string[]> {
   return repo.readModelIdsPage(tx, HAS_READ_MODEL, page);
 }
+
+/**
+ * A listing's price and commission terms for the search index (S7-F4: a CUSTOM site's minimum commission on network
+ * listings). Read from the listing itself at index build time, never stored in a read model. A fixed commission is in
+ * the listing's currency.
+ */
+export interface ListingCommissionTerms {
+  id: string;
+  priceCents: number | null;
+  priceOnRequest: boolean;
+  currency: string;
+  commissionBp: number | null;
+  commissionFixedCents: number | null;
+  commissionCurrency: string;
+}
+
+/** These listings' commission terms: one statement. Worker-facing: raw `tx` under `withSystem`. */
+export async function listingCommissionTerms(tx: Tx, ids: readonly string[]): Promise<ListingCommissionTerms[]> {
+  const rows = await repo.commissionTermsOf(tx, ids);
+  return rows.map((r) => ({ ...r, commissionCurrency: r.currency }));
+}

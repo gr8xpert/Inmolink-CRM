@@ -28,7 +28,18 @@ describe('website site contracts (S7-01)', () => {
     expect(SiteInventoryFilters.safeParse({ includeOwn: false, includeNetwork: false }).success).toBe(false);
     expect(SiteInventoryFilters.safeParse({ priceMinCents: 10, priceMaxCents: 5 }).success).toBe(false);
     expect(SiteInventoryFilters.safeParse({ locationIds: [LOC, LOC] }).success).toBe(false);
+  });
+
+  it('[S7-F4] a minimum commission is a share of the price on network listings', () => {
+    const ok = SiteInventoryFilters.parse({ includeNetwork: true, minCommissionBp: 300 });
+    expect(ok.minCommissionBp).toBe(300);
+    // Own listings are never filtered by it: without network listings it means nothing.
     expect(SiteInventoryFilters.safeParse({ minCommissionBp: 300 }).success).toBe(false);
+    for (const bp of [0, 10_001, 2.5, -1]) {
+      expect(SiteInventoryFilters.safeParse({ includeNetwork: true, minCommissionBp: bp }).success, String(bp)).toBe(
+        false,
+      );
+    }
   });
 
   it('[S7-01] prefix, domains, locales and contact are checked', () => {

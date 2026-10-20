@@ -26,7 +26,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 
 const log = createLogger({ service: 'perf', level: 'info' });
 const ROWS = Number(process.env.FALLBACK_PERF_ROWS ?? 500_000);
-const SEED_VERSION = 2;
+const SEED_VERSION = 4;
 const BATCH = 250_000;
 const QUERIES = 300;
 /** Whole fallback request (pool, transaction, statement) at the client: leaves feed-api's 150 ms room to hydrate. */
@@ -111,6 +111,13 @@ const insertBatch = (from: number, to: number) => `
     from generate_series(${from}, ${to}) g,
          lateral (select array(select abs(hashint8(g * 31 + i)) from generate_series(1, 17) i) as h) x`;
 
+/** S7-F4: commissions of the same rows (1 in 20 without one, else 1–8 %), in the table the fallback asks through a function. */
+const insertCommissions = (from: number, to: number) => `
+  insert into listing_search_commissions (target_id, commission_bp)
+  select ${idSql(DOC_SPACE, 'g')}, (100 + abs(hashint8(g * 13)) % 700)::int
+    from generate_series(${from}, ${to}) g
+   where abs(hashint8(g * 17)) % 20 <> 9`;
+
 beforeAll(async () => {
   await setupTestDb('worker');
   const first = id(DOC_SPACE, 1);
@@ -127,10 +134,17 @@ beforeAll(async () => {
       `delete from listing_search_docs where target_id::text like '0195f0a5-%'
          and (target_id > '${last}' or target_id < '${first}')`,
     );
-    for (let from = n + 1; from <= ROWS; from += BATCH)
+    await runSql(
+      `delete from listing_search_commissions where target_id::text like '0195f0a5-%'
+         and (target_id > '${last}' or target_id < '${first}')`,
+    );
+    for (let from = n + 1; from <= ROWS; from += BATCH) {
       await runSql(insertBatch(from, Math.min(ROWS, from + BATCH - 1)));
+      await runSql(insertCommissions(from, Math.min(ROWS, from + BATCH - 1)));
+    }
     // Outside a transaction, as the superuser: drops a trim's dead rows and sets the visibility map.
     await adminQuery('vacuum analyze listing_search_docs');
+    await adminQuery('vacuum analyze listing_search_commissions');
     log.info({ rows: ROWS, seconds: Math.round((Date.now() - started) / 1000) }, 'search fallback rows loaded');
   } else {
     await runSql('analyze listing_search_docs');
@@ -150,7 +164,7 @@ afterAll(async () => {
 });
 
 type Shape = { site: search.PublicSearchSite; q: PublicListingSearch };
-const SHAPES = 13;
+const SHAPES = 14;
 const network = (q: PublicListingSearch): Shape => ({ site: { ownerAgencyIds: null, requestId: 'perf' }, q });
 const owned = (owners: string[], q: PublicListingSearch): Shape => ({
   site: { ownerAgencyIds: owners, requestId: 'perf' },
@@ -229,6 +243,16 @@ function query(i: number): Shape {
         },
         q: { locale: 'en', sort: 'price_asc' },
       };
+    case 13: // S7-F4 CUSTOM, own + network: a city, a minimum commission of 3 % on the network's listings; newest first
+      return {
+        site: {
+          ownerAgencyIds: site,
+          networkOf: site[0] as string,
+          restrict: { locationIds: [city(c)], minCommissionBp: 300 },
+          requestId: 'perf',
+        },
+        q: { locale: 'en' },
+      };
     default: // a rare combination network-wide (none in the seed): an index answers, not a whole-table scan
       return network({ locale: 'en', transactionType: 'RENT_SHORT_TERM', statuses: ['RESERVED'] });
   }
@@ -271,7 +295,7 @@ it('[S5-04] with Meilisearch stopped, website search answers within budget at sc
 
 it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or a capped scan, never a table scan, within 20 ms', async () => {
   for (let shape = 0; shape < SHAPES; shape++) {
-    const { site, q } = query(5_005 + shape); // 5,005 = 11 × 455: query(5_005 + n) is shape n
+    const { site, q } = query(5_012 + shape); // 5,012 = 14 × 358: query(5_012 + n) is shape n
     const statement = search.publicFallbackSql(site, q);
     if (!statement) throw new Error(`shape ${shape}: no statement`);
     // 5 runs: one EXPLAIN on a shared Docker Desktop VM varies 2× from run to run (median logged, fastest asserted).

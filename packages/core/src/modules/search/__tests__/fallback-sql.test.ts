@@ -1,8 +1,10 @@
+import { PUBLIC_SEARCH_FACETS, PUBLIC_SEARCH_SORTS, PublicListingSearch } from '@inmolink/contracts';
 import { SearchError } from '@inmolink/platform/search';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
+import { listingsIndex } from '../index-doc';
 import { fallbackCondition, fallbackSearchSql } from '../repo';
-import { refFilter } from '../website';
+import { publicSearchFilter, refFilter } from '../website';
 
 /** The fallback's filter compiler (S5-04): the engine's semantics in SQL, values always parameters. */
 
@@ -107,6 +109,42 @@ describe('fallback filter → SQL', () => {
     expect(
       render(fallbackCondition({ op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } })).sql,
     ).toContain('network_hidden =');
+  });
+
+  it('[S7-F4] a minimum commission narrows the network branch only; the fallback compares the hidden column and skips unknown ones', () => {
+    const own = '01900000-0000-7000-8000-0000000000aa';
+    const q = PublicListingSearch.parse({ locale: 'en' });
+    const site = { ownerAgencyIds: [own], networkOf: own, restrict: { minCommissionBp: 300 } };
+    const filter = publicSearchFilter(site, q);
+    const text = JSON.stringify(filter);
+    expect(text).toContain('{"op":"range","field":"commissionBp","gte":300}');
+    // Inside the network branch (with the sharing rule), beside the own-agency branch.
+    const whose = (filter as { filters: { op: string; filters?: unknown[] }[] }).filters[2];
+    expect(whose?.op).toBe('or');
+    const [ownBranch, networkBranch] = (whose as { filters: unknown[] }).filters as [
+      { op: string },
+      { op: string; filters: unknown[] },
+    ];
+    expect(JSON.stringify(ownBranch)).not.toContain('commissionBp');
+    expect(JSON.stringify(networkBranch)).toContain('commissionBp');
+    const rendered = render(fallbackCondition({ op: 'range', field: 'commissionBp', gte: 300 }));
+    expect(rendered.sql).toBe('public.search_commission_at_least(target_id, $1::int)');
+    expect(rendered.sql).not.toContain('commission_bp');
+    // Only a minimum can be asked: the value is not comparable any other way.
+    expect(() => fallbackCondition({ op: 'range', field: 'commissionBp', lte: 900 })).toThrow(SearchError);
+    expect(() => fallbackCondition({ op: 'eq', field: 'commissionBp', value: 300 })).toThrow(SearchError);
+    // No minimum: no commission condition anywhere.
+    expect(JSON.stringify(publicSearchFilter({ ownerAgencyIds: [own], networkOf: own }, q))).not.toContain(
+      'commission',
+    );
+  });
+
+  it('[S7-F4] the commission is never a facet or a sort of the public search', () => {
+    expect(PUBLIC_SEARCH_FACETS.join()).not.toMatch(/commission/i);
+    expect(PUBLIC_SEARCH_SORTS.join()).not.toMatch(/commission/i);
+    expect(Object.keys(PublicListingSearch.shape).join()).not.toMatch(/commission/i);
+    expect(listingsIndex().sortable.join()).not.toMatch(/commission/i);
+    expect(listingsIndex().displayed).toEqual(['id']);
   });
 
   it('[S5-04] geo: a box (wrapping across the antimeridian) and a radius in meters', () => {

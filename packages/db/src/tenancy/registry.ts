@@ -216,6 +216,11 @@ export interface GlobalTable {
    * that would tell a tenant more than its own network view does.
    */
   noUserRead?: true;
+  /**
+   * `app_owner` (the owner of SECURITY DEFINER functions) may read every row: the table is read through such a function
+   * only (S7-F4), no application role has a grant. Forced RLS binds the owner too, hence the explicit policy.
+   */
+  definerRead?: true;
   /** `app_media` (the media worker, S3-F4) reads and writes every row; it reaches nothing else. */
   mediaWrite?: true;
   /** Values for NOT NULL columns the isolation suite cannot invent (check-constrained levels, …). */
@@ -770,6 +775,15 @@ export const globalTables: Record<string, GlobalTable> = {
     publicRead: true,
     noUserRead: true,
     base: { code: 'AB12CD34' },
+  },
+  // Commission of PUBLIC targets (S7-F4): worker-written; no role reads it (the website fallback asks a boolean through
+  // `search_commission_at_least`, SECURITY DEFINER), so no public path can select a commission.
+  listing_search_commissions: {
+    reason:
+      'total commission of PUBLIC listings and units of every agency (website minimum-commission filter, worker-only)',
+    noUserRead: true,
+    definerRead: true,
+    base: { commission_bp: 300 },
   },
   // Search index sync queue (S5-03): written with read models by the search worker via withSystem().
   search_index_queue: {

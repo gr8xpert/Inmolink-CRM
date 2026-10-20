@@ -9,6 +9,7 @@ import type { Tx } from '@inmolink/db';
 import {
   listingPublicCodes,
   listingReadModels,
+  listingSearchCommissions,
   listingSearchDocs,
   readModelQueue,
   searchIndexQueue,
@@ -715,7 +716,7 @@ export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<
 
 /** `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). */
 type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
-type FieldSpec = { column: string; type: ColumnType } | { constant: string };
+type FieldSpec = { column: string; type: ColumnType } | { constant: string } | { commissionAtLeast: true };
 
 /**
  * Filterable fields of the listings index → fallback columns. `visibility` is a constant (every row is PUBLIC).
@@ -747,6 +748,9 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   ref: { column: 'ref', type: 'ci' },
   // A network listing's site reference (`<prefix>-<code>`, S7-02): codes are upper case, compared as stored.
   publicCode: { column: 'public_code', type: 'text' },
+  // A CUSTOM site's minimum commission on network listings (S7-F4): a boolean per target from a SECURITY DEFINER
+  // function; the value itself is in a table no public role can read.
+  commissionBp: { commissionAtLeast: true },
 };
 
 /** Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction). */
@@ -797,6 +801,7 @@ export function fallbackCondition(filter: Filter): SQL {
     case 'eq': {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
+      if ('commissionAtLeast' in f) throw new SearchError(`field supports only a minimum: ${filter.field}`);
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} @> ${typedArray([filter.value], f.type)}`;
       if (f.type === 'ci') return sql`lower(${sql.raw(f.column)}) = lower(${String(filter.value)})`;
       return sql`${sql.raw(f.column)} = ${paramOf(f.type, filter.value)}`;
@@ -805,6 +810,7 @@ export function fallbackCondition(filter: Filter): SQL {
       if (filter.values.length === 0) throw new SearchError('empty in');
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.values.includes(f.constant) ? sql`true` : sql`false`;
+      if ('commissionAtLeast' in f) throw new SearchError(`field supports only a minimum: ${filter.field}`);
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} && ${typedArray(filter.values, f.type)}`;
       if (f.type === 'ci') {
         return sql`lower(${sql.raw(f.column)}) in (${sql.join(
@@ -816,6 +822,11 @@ export function fallbackCondition(filter: Filter): SQL {
     }
     case 'range': {
       const f = fieldOf(filter.field);
+      if ('commissionAtLeast' in f) {
+        // Only a minimum, asked per target through the definer function (a missing commission answers false).
+        if (filter.gte === undefined || filter.lte !== undefined) throw new SearchError('commission: a minimum only');
+        return sql`public.search_commission_at_least(target_id, ${Math.trunc(finite(filter.gte))}::int)`;
+      }
       if ('constant' in f || !NUMERIC.includes(f.type))
         throw new SearchError(`field is not comparable: ${filter.field}`);
       const parts: SQL[] = [sql`${sql.raw(f.column)} is not null`];
@@ -971,4 +982,43 @@ export async function networkCards(
          where m.target_id = t.id order by m.locale limit 1) o
      where not exists (select 1 from pick p where p.target_id = t.id)`);
   return result.rows as { targetId: string; kind: Kind; card: unknown }[];
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Commission of PUBLIC targets (S7-F4)
+
+/**
+ * Brings the commission rows of these targets (one rebuild's) in line with `wanted` (the PUBLIC ones that have a
+ * known commission): two statements; a row is written only when its value changed. Answers the targets that changed.
+ */
+export async function syncCommissions(
+  tx: Tx,
+  scope: readonly string[],
+  wanted: ReadonlyMap<string, number>,
+): Promise<string[]> {
+  const ids = [...wanted.keys()];
+  const upserted =
+    ids.length === 0
+      ? []
+      : (
+          await tx.execute(sql`
+            insert into ${listingSearchCommissions} as c (target_id, commission_bp)
+            select * from unnest(${uuidArray(ids)}, ${sql`array[${sql.join(
+              ids.map((id) => sql`${wanted.get(id)}`),
+              sql`, `,
+            )}]::int[]`})
+            on conflict (target_id) do update set commission_bp = excluded.commission_bp
+              where c.commission_bp <> excluded.commission_bp
+            returning c.target_id as id`)
+        ).rows;
+  const removed =
+    scope.length === 0
+      ? []
+      : (
+          await tx.execute(sql`
+            delete from ${listingSearchCommissions}
+             where target_id = any(${uuidArray(scope)}) and target_id <> all(${uuidArray(ids)})
+            returning target_id as id`)
+        ).rows;
+  return [...upserted, ...removed].map((r) => (r as { id: string }).id);
 }

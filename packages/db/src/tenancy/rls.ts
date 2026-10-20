@@ -26,6 +26,7 @@ export const HELPER_FUNCTIONS = [
   'app_agency_verified',
   'app_preferring_agencies',
   'app_partition_maintenance',
+  'search_commission_at_least',
 ] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
@@ -185,8 +186,12 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     const readers = [...globalReaders(def)].sort();
     const read: PolicySpec[] = readers.length ? [{ name: 'global_read', cmd: 'SELECT', roles: readers }] : [];
     const media: PolicySpec[] = def.mediaWrite ? [{ name: 'media_rows', cmd: 'ALL', roles: ['app_media'] }] : [];
-    if (!def.staffWrite) return [...read, ...media];
+    const definer: PolicySpec[] = def.definerRead
+      ? [{ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] }]
+      : [];
+    if (!def.staffWrite) return [...definer, ...read, ...media];
     return [
+      ...definer,
       ...read,
       ...media,
       { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] },
@@ -303,7 +308,14 @@ begin
     end if;
   end loop;
 end $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance() from public;`,
+    // S7-F4: does this PUBLIC target pay at least `bp` basis points of its price? The website fallback's minimum
+    // commission asks a boolean per target; the value sits in `listing_search_commissions`, which no application role
+    // can read. SECURITY DEFINER with a fixed search_path; a target without a known commission answers false.
+    `create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
+  security definer set search_path = pg_catalog, pg_temp
+  as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), search_commission_at_least(uuid, integer) from public;`,
+    `grant execute on function search_commission_at_least(uuid, integer) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_is_staff() to app_staff;`,
@@ -516,7 +528,11 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
         `grant select, insert, update, delete on table ${t} to app_media;`,
       ]
     : [];
+  const definerRead = def.definerRead
+    ? [`create policy definer_read on ${t} for select to app_owner using (true);`]
+    : [];
   return [
+    ...definerRead,
     ...(readers ? [`create policy global_read on ${t} for select to ${readers} using (true);`] : []),
     `revoke all on table ${t} from ${APP_ROLES};`,
     ...(readers ? [`grant select on table ${t} to ${readers};`] : []),

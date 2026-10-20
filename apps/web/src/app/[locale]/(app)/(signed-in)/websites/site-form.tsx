@@ -12,6 +12,8 @@ import { createSiteAction, updateSiteAction } from './actions';
  */
 const SELECT = 'rounded-md border bg-background px-2 py-1 text-sm';
 const euros = (cents: number | undefined) => (cents === undefined ? '' : String(Math.round(cents / 100)));
+/** Basis points as a percentage without trailing zeros (`300` → `3`, `350` → `3.5`). */
+const percent = (bp: number | undefined) => (bp === undefined ? '' : String(bp / 100));
 const CONTACT_FIELDS = [
   { key: 'name', label: 'form.contactName', type: 'text' },
   { key: 'email', label: 'form.contactEmail', type: 'email' },
@@ -169,6 +171,20 @@ export async function SiteForm({
         <p id="site-price-hint" className="text-xs text-muted-foreground">
           {t('form.priceHint')}
         </p>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="site-min-commission">{t('form.minCommission')}</Label>
+          <Input
+            id="site-min-commission"
+            name="minCommission"
+            inputMode="decimal"
+            defaultValue={percent(f?.minCommissionBp)}
+            aria-describedby="site-min-commission-hint"
+            className="max-w-32"
+          />
+          <p id="site-min-commission-hint" className="text-xs text-muted-foreground">
+            {t('form.minCommissionHint')}
+          </p>
+        </div>
       </fieldset>
       <div className="flex flex-col gap-2">
         <Label htmlFor="site-prefix">{t('form.prefix')}</Label>

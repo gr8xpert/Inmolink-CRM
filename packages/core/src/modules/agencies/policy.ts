@@ -124,7 +124,9 @@ export type VerifiedAction =
   | 'directory.search'
   | 'development.share'
   /** Network search (S5-05): only verified agencies take part in the network. */
-  | 'network.search';
+  | 'network.search'
+  /** A website showing other agencies' listings (S7-F4 review): its minimum commission would otherwise be a probe. */
+  | 'website.network';
 
 export function assertVerified(ctx: Ctx, action: VerifiedAction): void {
   if (!ctx.tenant.verified) throw new AppError('VERIFICATION_REQUIRED', { action });

@@ -219,6 +219,7 @@ afterAll(async () => {
     await system(async (tx) => {
       await tx.execute(sql`delete from search_index_queue where target_id in (${all})`);
       await tx.execute(sql`delete from listing_search_docs where target_id in (${all})`);
+      await tx.execute(sql`delete from listing_search_commissions where target_id in (${all})`);
     });
   }
   await closeCache();
@@ -581,5 +582,188 @@ describe('website serializer (S7-02)', () => {
       // The owner's own site finds its listing by its reference.
       expect(await find(bOnly.id, bRef, engine), label).toEqual([L.bAll]);
     }
+  });
+});
+
+describe('minimum commission on network listings (S7-F4)', () => {
+  const setCommission = async (m: Founder, id: string, commission: UpdateListingBody['commission']) => {
+    await as(m, async (ctx) =>
+      properties.updateListing(
+        ctx,
+        id,
+        UpdateListingBody.parse({ commission, version: (await properties.getListing(ctx, id)).version }),
+      ),
+    );
+    // What the worker does for the change event: rebuild (the read model stays as it is) and push the index.
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [id]));
+    await search.syncIndex();
+    search.resetSearchBreaker();
+  };
+  const pct = (basisPoints: number) => ({ type: 'PCT' as const, basisPoints, includesVat: false });
+
+  it('[S7-F4] a CUSTOM site with a 3 % minimum shows network listings at 3 % or more only — engine and fallback alike; own listings are never filtered', async () => {
+    // Network: bAll 2.5 % · bFlat 3 % · dPreferred a fixed 18,000 EUR of 900,000 EUR = 2 %. Own: aVilla 1 %.
+    await setCommission(b, L.bAll as string, pct(250));
+    await setCommission(b, L.bFlat as string, pct(300));
+    await setCommission(d, L.dPreferred as string, {
+      type: 'FIXED',
+      amount: { amountCents: 1_800_000, currency: 'EUR' },
+      includesVat: false,
+    });
+    await setCommission(a, L.aVilla as string, pct(100));
+    const site = await as(a, (ctx) =>
+      websites.createSite(ctx, {
+        ...OWN_SITE,
+        name: 'Well paid',
+        inventoryPolicy: 'CUSTOM',
+        inventoryFilters: {
+          includeOwn: true,
+          includeNetwork: true,
+          locationIds: [],
+          propertyTypeIds: [],
+          newBuilds: true,
+          minCommissionBp: 300,
+        },
+      }),
+    );
+    const want = sorted(L.aVilla as string, L.aFlat as string, L.bFlat as string);
+    expect(await results(site.id)).toEqual(want);
+    expect(await results(site.id, down)).toEqual(want);
+
+    // A commission-only edit leaves the read model alone, and still reaches the index and the fallback rows.
+    await setCommission(b, L.bAll as string, pct(400));
+    const more = sorted(...want, L.bAll as string);
+    expect(await results(site.id)).toEqual(more);
+    expect(await results(site.id, down)).toEqual(more);
+    // A fixed commission is its share of the price: 27,000 EUR of 900,000 EUR = 3 %.
+    await setCommission(d, L.dPreferred as string, {
+      type: 'FIXED',
+      amount: { amountCents: 2_700_000, currency: 'EUR' },
+      includesVat: false,
+    });
+    const most = sorted(...more, L.dPreferred as string);
+    expect(await results(site.id)).toEqual(most);
+    expect(await results(site.id, down)).toEqual(most);
+  });
+
+  it('[S7-F4] no public read path returns the commission: not in read models, documents or search answers', async () => {
+    // The read models have no commission column and no commission in their documents.
+    const columns = await system(
+      async (tx) =>
+        (
+          await tx.execute<{ column_name: string }>(
+            sql`select column_name from information_schema.columns
+                 where table_schema = 'public' and table_name = 'listing_read_models'`,
+          )
+        ).rows,
+    );
+    expect(columns.filter((c) => /commission/i.test(c.column_name))).toEqual([]);
+    const docs = await system((tx) => search.readModelDocs(tx, [L.bFlat as string]));
+    expect(docs.length).toBeGreaterThan(0);
+    expect(JSON.stringify(docs.map((x) => [x.card, x.detail]))).not.toMatch(/commission/i);
+    // Neither a member session nor the public role can read commission anywhere: the fallback rows are public-role
+    // only (filter, never selected) and the listing tables are not public at all.
+    const denied = async (run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (err) {
+        const cause = (err as { cause?: unknown }).cause;
+        return /permission denied|insufficient_privilege|row-level security/i.test(`${String(err)} ${String(cause)}`);
+      }
+      return false;
+    };
+    for (const table of ['listing_search_commissions', 'properties', 'units']) {
+      expect(
+        await denied(() => withPublicRead((tx) => tx.execute(sql.raw(`select commission_bp from ${table}`)))),
+        table,
+      ).toBe(true);
+    }
+    // A member session reads neither the commission table nor the fallback rows; the fallback rows have no commission.
+    expect(
+      await denied(() => as(a, (ctx) => ctx.tx.execute(sql`select commission_bp from listing_search_commissions`))),
+    ).toBe(true);
+    expect(await denied(() => as(a, (ctx) => ctx.tx.execute(sql`select 1 from listing_search_docs`)))).toBe(true);
+    expect(
+      await denied(() => withPublicRead((tx) => tx.execute(sql`select commission_bp from listing_search_docs`))),
+    ).toBe(false);
+    // The public role can ask a yes/no per target through the definer function, nothing more.
+    const asked = await withPublicRead((tx) =>
+      tx.execute<{ yes: boolean }>(sql`select public.search_commission_at_least(${L.bFlat as string}::uuid, 1) as yes`),
+    );
+    expect(typeof asked.rows[0]?.yes).toBe('boolean');
+    // The index shows ids only; the filter field is not displayed.
+    expect(search.listingsIndex().displayed).toEqual(['id']);
+    // A search answer is ids, a total, facets and a cursor — nothing else.
+    const site = await as(a, (ctx) => websites.createSite(ctx, { ...OWN_SITE, inventoryPolicy: 'OWN_PLUS_NETWORK' }));
+    const scope = websites.siteSearchScope(await websites.siteScope(site.id), newId());
+    for (const engine of [real(), down]) {
+      const page = await search.searchPublicListings(scope, { locale: 'en', locationIds: [ids.country] }, { engine });
+      expect(Object.keys(page).sort()).toEqual(['backend', 'facets', 'ids', 'nextCursor', 'total']);
+      expect(JSON.stringify(page)).not.toMatch(/commission/i);
+    }
+  });
+});
+
+describe('website network needs a verified agency (S7-F4 review)', () => {
+  it('[S7-F4] an unverified agency cannot set a site up to show the network, and its scope shows its own listings only', async () => {
+    const e = await createFounder();
+    const network = { ...OWN_SITE, inventoryPolicy: 'OWN_PLUS_NETWORK' as const };
+    const custom = {
+      ...OWN_SITE,
+      inventoryPolicy: 'CUSTOM' as const,
+      inventoryFilters: {
+        includeOwn: true,
+        includeNetwork: true,
+        locationIds: [],
+        propertyTypeIds: [],
+        newBuilds: true,
+        minCommissionBp: 300,
+      },
+    };
+    expect(await refusal(as(e, (ctx) => websites.createSite(ctx, network)))).toBe('VERIFICATION_REQUIRED');
+    expect(await refusal(as(e, (ctx) => websites.createSite(ctx, custom)))).toBe('VERIFICATION_REQUIRED');
+    const own = await as(e, (ctx) => websites.createSite(ctx, OWN_SITE));
+    expect(
+      await refusal(
+        as(e, (ctx) =>
+          websites.updateSite(
+            ctx,
+            { siteId: own.id },
+            { version: own.version, inventoryPolicy: 'OWN_PLUS_NETWORK', inventoryFilters: null },
+          ),
+        ),
+      ),
+    ).toBe('VERIFICATION_REQUIRED');
+    // Verified later: the same site may show the network; then it stops being verified and falls back to its own.
+    await setAgencyStatus(e.agencyId, 'VERIFIED');
+    const shown = await as(e, (ctx) => websites.createSite(ctx, network));
+    expect(websites.siteSearchScope(await websites.siteScope(shown.id), newId())).toMatchObject({
+      networkOf: e.agencyId,
+    });
+    await setAgencyStatus(e.agencyId, 'SUSPENDED');
+    await cacheConnection().del(`${CACHE_PREFIX}:${websites.siteCacheKey(shown.id)}`);
+    restoreClock();
+    const scope = websites.siteSearchScope({ ...(await websites.siteScope(shown.id)), verified: false }, newId());
+    expect(scope).toEqual({ ownerAgencyIds: [e.agencyId], requestId: expect.any(String) });
+  });
+});
+
+describe('commission share (S7-F4)', () => {
+  const base = {
+    priceCents: 90_000_000,
+    priceOnRequest: false,
+    currency: 'EUR',
+    commissionBp: null,
+    commissionFixedCents: null,
+    commissionCurrency: 'EUR',
+  };
+  it('[S7-F4] a percentage as it is; a fixed amount as its share of the price (rounded down); unknown when it cannot be told', () => {
+    expect(search.commissionShareBp({ ...base, commissionBp: 350 })).toBe(350);
+    expect(search.commissionShareBp({ ...base, commissionFixedCents: 2_700_000 })).toBe(300);
+    expect(search.commissionShareBp({ ...base, commissionFixedCents: 2_699_999 })).toBe(299);
+    expect(search.commissionShareBp({ ...base, commissionFixedCents: 1, priceCents: null })).toBeNull();
+    expect(search.commissionShareBp({ ...base, commissionFixedCents: 5, priceOnRequest: true })).toBeNull();
+    expect(search.commissionShareBp({ ...base, commissionFixedCents: 5, commissionCurrency: 'GBP' })).toBeNull();
+    expect(search.commissionShareBp(base)).toBeNull();
   });
 });

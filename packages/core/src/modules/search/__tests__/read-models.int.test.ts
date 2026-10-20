@@ -531,8 +531,8 @@ describe('listing read models', () => {
     const single = await countQueries(() => build('LISTING', one));
     const batch = await countQueries(() => system((tx) => search.rebuildListingReadModels(tx, many)));
     // About ten, plus the index push queued with the documents (S5-03) and the fallback rows' refresh (S5-04:
-    // read, upsert, delete).
-    expect(single).toBeLessThanOrEqual(14);
+    // read, upsert, delete) and the commission rows (S7-F4: one delete here; read and upsert for public targets).
+    expect(single).toBeLessThanOrEqual(15);
     expect(batch).toBe(single);
   });
 });
@@ -706,6 +706,8 @@ describe('listings search index (S5-02)', () => {
       'ref',
       // filter-only (S7-02): the target's opaque public code, matched by websites as `<prefix>-<code>`
       'publicCode',
+      // filter-only (S7-F4): the total commission in basis points, read from the listing itself (never a read model)
+      'commissionBp',
       'publishedAt',
       'version',
       'sourceHash',
@@ -714,6 +716,8 @@ describe('listings search index (S5-02)', () => {
       (k) => !allowed.has(k) && !/^(title|place|description)_[a-z]{2}$/.test(k),
     );
     expect(extra).toEqual([]);
+    // The agency's default commission (5 %, PLAN §3 #7) reaches the index document, not the read models.
+    expect(doc?.commissionBp).toBe(500);
 
     // A share-scope change alone (same document content) still reaches the read model and the index document.
     await update(a, id, { shareScope: 'ALL' });

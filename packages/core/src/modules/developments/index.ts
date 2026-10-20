@@ -18,6 +18,8 @@ export {
   countUnitsForReadModels,
   isRemovedTarget,
   type ReadModelUnit,
+  type UnitCommissionTerms,
+  unitCommissionTerms,
   unitIdsForDevelopment,
   unitIdsForReadModels,
   unitsForReadModels,

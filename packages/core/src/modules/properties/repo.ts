@@ -1398,3 +1398,19 @@ export async function countNetworkShared(tx: Tx, agencyId: string, cap: number):
        limit ${cap}) s`);
   return (result.rows[0] as { n: number }).n;
 }
+
+/** Commission terms of these listings for the search index (S7-F4): worker-facing, no RLS (`withSystem`). */
+export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: properties.id,
+      priceCents: properties.priceCents,
+      priceOnRequest: properties.priceOnRequest,
+      currency: properties.currency,
+      commissionBp: properties.commissionBp,
+      commissionFixedCents: properties.commissionFixedCents,
+    })
+    .from(properties)
+    .where(inArray(properties.id, [...ids]));
+}

@@ -769,3 +769,22 @@ export async function networkUnitTerms(tx: Tx, selfId: string, ids: readonly str
     .innerJoin(developments, eq(developments.id, units.developmentId))
     .where(and(inArray(units.id, [...ids]), sql`${units.agencyId} <> ${selfId}`));
 }
+
+/** Commission terms of these units (own, else their development's) for the search index (S7-F4): no RLS (`withSystem`). */
+export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: units.id,
+      priceCents: units.priceCents,
+      currency: units.currency,
+      unitCommissionBp: units.commissionBp,
+      unitCommissionFixedCents: units.commissionFixedCents,
+      developmentCommissionBp: developments.commissionBp,
+      developmentCommissionFixedCents: developments.commissionFixedCents,
+      developmentCurrency: developments.currency,
+    })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(inArray(units.id, [...ids]));
+}
