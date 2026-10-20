@@ -75,7 +75,8 @@ describe('website site routes', () => {
     const patch = {
       version: 1,
       inventoryPolicy: 'CUSTOM',
-      inventoryFilters: { includeOwn: true, includeNetwork: true, priceMaxCents: 50_000_000 },
+      // Own listings only: network inventory needs a verified agency (S7-F4), tested in core.
+      inventoryFilters: { includeOwn: true, includeNetwork: false, priceMaxCents: 50_000_000 },
     };
     const changed = await app.inject({ method: 'PATCH', url: `/v1/sites/${site.id}`, headers, payload: patch });
     expect(changed.statusCode).toBe(200);
