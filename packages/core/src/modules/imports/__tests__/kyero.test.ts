@@ -170,6 +170,33 @@ describe('Kyero v3 connector', () => {
     expect(htmlToPlainText('x'.repeat(30_000), 20_000)).toHaveLength(20_000);
     expect(htmlToPlainText('bell\u0000 \u0007ring')).toBe('bell ring');
     expect(htmlToPlainText('<img src=x onerror=alert(1)')).toBe('');
+    expect(htmlToPlainText('a<script>x</SCRIPT >b<!-- c -->d<iframe src=x>e')).toBe('abd');
+    expect(htmlToPlainText('<ul><li>one<li class="x">two</ul>')).toBe('- one\n- two');
+  });
+
+  it('[S6-F5] a hostile 2 MB description is cleaned in linear time', () => {
+    const twoMb = 2 * 1024 * 1024;
+    const hostile = [
+      '<script '.repeat(twoMb / 8),
+      '<!--'.repeat(twoMb / 4),
+      '<li '.repeat(twoMb / 4),
+      '<'.repeat(twoMb),
+      '<<<<a>'.repeat(twoMb / 6),
+      `${'<!---->'.repeat(twoMb / 14)}<script>`,
+      '&lt;'.repeat(twoMb / 4),
+    ];
+    // Alone each takes 0–18 ms (the old regexes: minutes); best of 3 so a busy machine's pause does not count.
+    for (const input of hostile) {
+      let ms = Number.POSITIVE_INFINITY;
+      let out = '';
+      for (let i = 0; i < 3; i++) {
+        const started = performance.now();
+        out = htmlToPlainText(input);
+        ms = Math.min(ms, performance.now() - started);
+      }
+      expect(ms, `${input.slice(0, 12)}… took ${Math.round(ms)} ms`).toBeLessThan(100);
+      expect(out).not.toMatch(/<\/?[a-z]/i);
+    }
   });
 
   it('[S6-03] items the feed gets wrong are refused one by one with the problem and the reference', async () => {

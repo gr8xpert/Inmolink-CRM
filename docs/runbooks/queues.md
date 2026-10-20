@@ -47,12 +47,15 @@ Filter with `--type`, `--agency <uuid>` or `--since/--until` to replay one slice
 
 ## Feed imports wait in the queue (ImportQueueWaitHigh, S6-08)
 
-Feed runs run one per agency at a time and at most `IMPORT_MAX_CONCURRENT_RUNS` (default 24) across every `imports`
-worker. The staff console's **Import health** page shows queued/running runs, the oldest wait and the failures.
+Feed runs run one per agency at a time, at most `IMPORT_RUNS_PER_PROCESS` (default 2) in one worker process — so a
+process stays under 512 MB RSS — and at most `IMPORT_MAX_CONCURRENT_RUNS` (default 24) across every `imports` worker.
+Runs at once are therefore min(24, 2 × `imports` processes): keep about 12 processes running the `imports` pool for
+the full 24. The staff console's **Import health** page shows queued/running runs, the oldest wait and the failures.
 
 1. Many runs queued, few running: workers are down or busy — check the `imports` pool containers and their logs.
-2. Running at the cap for long: raise `IMPORT_MAX_CONCURRENT_RUNS` (watch the database write load) or add `imports`
-   workers; the fair share keeps one agency's many feeds from blocking the others either way.
+2. Running at the cap for long: add `imports` worker processes (each adds `IMPORT_RUNS_PER_PROCESS` runs), raise
+   `IMPORT_MAX_CONCURRENT_RUNS` (watch the database write load) once processes × runs per process exceeds it; do not
+   raise `IMPORT_RUNS_PER_PROCESS` without checking the container's memory (a 100 MB run adds about 150 MB); the fair share keeps one agency's many feeds from blocking the others either way.
 3. One huge feed per agency is normal (S6-02: a 100 MB feed takes about a minute); hours of waiting are not.
 
 ## A feed was paused (ImportFeedPaused, S6-08)

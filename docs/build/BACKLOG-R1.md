@@ -758,6 +758,16 @@ Ref §3 #17 · Mod imports · Dep S6-06 · [H13] · findings `docs/build/reviews
 **Done when:**
 - A recorded real SearchProperties response (own and shared listings) imports exactly the own listings (test)
 - A 1,227-listing account with a 40-per-page cap imports all pages (test)
+
+### S6-F5 · Sprint review must-fixes (S6 review) 🔒 ⚡
+Ref §5.3 (7) · Mod imports, platform · Dep S6-08
+**Build:**
+- `platform/queue` gets a per-process cap per job definition (`perProcessConcurrency`). `imports.runFeed` takes it from `IMPORT_RUNS_PER_PROCESS` (default 2), so one worker process never holds more than two feed runs. Each 100 MB run adds about 110–150 MB, and the `imports` pool's 10 slots could otherwise take ten. The fair-share simulation models the cap.
+- `htmlToPlainText` runs in linear time: the input is cut before the regexes run, and comments and `script`/`style`/`iframe`/`object`/`embed` bodies are removed by an index scan. Text after an unclosed opener is dropped. The old lazy backreference regexes rescanned to the end for every unclosed `<script` or `<!--`, so a 2 MB description blocked the event loop for minutes.
+**Done when:**
+- Two 100 MB feed runs in one worker process stay under 512 MB RSS (perf test)
+- A third run in a process already running two goes back to delayed (test)
+- A 2 MB description of repeated `<script ` is cleaned in < 100 ms (test)
 - A busy-server "P1 or P2 not valid" answer is retried, not failed (test)
 - One live run from a whitelisted server matches the agency's Resales count (H13)
 
@@ -818,6 +828,50 @@ Ref §9.5 · Mod websites, public · Dep S7-03
 Ref §4.2 §15 · Mod tests · Dep S7-06 · ⚡
 **Build:** k6 scenario mix (search 60%, detail 30%, taxonomy/changes 10%) against staging scale seed.
 **Done when:** 1,000 rps origin sustained 15 min with p95 < 150 ms and error rate < 0.1% *(staging)*
+
+### S7-F1 · Import safety and data lifecycle (S6 review) 🔒
+Ref §3 #17 §5 · Mod imports, platform, api · Dep S6-F5
+**Build:**
+- Uploaded sheets (`imports/sheets/<agency>/<file>`) are deleted: when the connection is deleted, when a new upload replaces the file, and by a lifecycle rule or sweep on the prefix (e.g. 30 days after the last run). Tenant erasure covers the prefix.
+- A feed that comes back empty or entirely invalid while its connection has live listings pauses (new reason `EMPTY_FEED`, alert and agency notice), instead of ending `SUCCEEDED` silently.
+- The staff resume takes a `StaffReason` and audits it, as the S6-F1 give-to-get exemption does.
+- `platform/sheet`: a stored (method 0) zip entry whose `compressedSize` differs from its `size`, or exceeds the entry cap, is refused.
+- `listFeedRuns`, `getFeedRun` and `listFeedItemErrors` pass the loaded row to `assertCan(ctx, 'imports.read', row)`.
+- `allowLoopbackOriginsForTests` also refuses when `NODE_ENV === 'production'`. CI checks that no production start command loads `loopback-feeds`.
+- The sheet upload route checks `imports.manage` in `onRequest`, before Fastify buffers the 25 MB body (the service check stays).
+**Done when:**
+- Deleting a sheet connection deletes its file, and a replaced upload's old file is gone (test)
+- An empty feed for a connection with live listings pauses it with `EMPTY_FEED` (test)
+- A staff resume without a reason is refused (test)
+
+### S7-F2 · Import correctness and structure (S6 review)
+Ref §7 M5 PATTERNS §13 · Mod imports, web, tests · Dep S6-F5
+**Build:**
+- Duplicate refs across batches of one run are caught (a per-run seen set bounded like `RunResolver`, or a `property_import_seen` conflict check before staging), so a listing is not updated twice and `updated` is not inflated.
+- The mapper's title and description guesses move from `apps/web/.../imports/mapper/mapping-state.ts` into `imports/xml-mapped/suggest.ts` and return in `sample.suggested`.
+- Per-format default locale (`kyero` 'en', `assemble` 'es') and currency ('EUR') move into one table in `imports/config.ts`, keyed by connector.
+- A scaled integration test runs the fair share through real BullMQ and Redis (jobs of a few ms) and checks wait order and maximum against `fair-share-sim.ts`, so the model cannot drift from the queue.
+- PATTERNS §13 and `.claude/rules` database notes record that the loader uses `INSERT … jsonb_to_recordset` instead of COPY, because RLS blocks COPY for `app_user` (ADR if needed).
+**Done when:**
+- A feed with the same ref in two batches updates the listing once (test)
+- The real-queue fair-share test's max wait stays within the simulation's bound (test)
+
+### S7-F3 · Import throughput at scale (S6 review) ⚡
+Ref §5.3 (7) §16 · Mod imports, media, properties, search, db · Dep S6-F5 · part [H4]
+**Build:**
+- `media.importFeedImages` gets a `globalConcurrency` and a per-process cap, and hashes and uploads each image as it streams instead of holding the chunks and a `Buffer.concat` copy (worst case today about 1.2 GB per process).
+- `imports.pruneRuns` loops until no expired runs are left, within a time budget (or `feed_runs` is partitioned by month with pg_partman). Today it removes at most 50k runs a day, against an estimated 120k–960k created.
+- `imports.scheduleFeeds` keeps queueing batches until no connection is due (today at most 200 a minute, 12k an hour).
+- `property_import_seen` becomes UNLOGGED like the staging table, drops the unused `property_import_seen_agency_created_idx`, and gets autovacuum settings for about 2M inserts and deletes an hour.
+- Taxonomy resolution in the loader: one statement per level for all (parent, text) pairs (`unnest`), plus a per-run negative cache so unmatched values are resolved and queued once per run, not once per batch.
+- `overdueAgencies` (feed image sweep) uses a skip scan over `(agency_id, created_at)` instead of `distinct` over the `updated_at` index.
+- The staff health window aggregates read an hourly rollup, or the scheduler tick's metrics. EXPLAIN on a 300k-run seed.
+- S6-F3 degraded path (engine slow, breaker closed: 151–254 ms): lower `SEARCH_SLOW_MS` to about 50, scale `SEARCH_BREAKER_MIN_CALLS` with traffic, and recheck on the staging box (H4).
+- `pnpm perf:bundle` for `/imports/mapper` and `/staff/imports` after a fresh build.
+**Done when:**
+- 5 feed-image jobs of 20 MB images in one process stay under 512 MB RSS (perf test)
+- A prune with 200k expired runs removes them all in one job (test)
+- 1,000 due connections are all queued within one scheduler job (test)
 
 ---
 

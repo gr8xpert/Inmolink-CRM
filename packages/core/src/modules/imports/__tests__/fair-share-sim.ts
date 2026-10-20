@@ -13,6 +13,9 @@ import { groupRetryDelay } from '@inmolink/platform/queue';
  *   `perGroupCap` runs, or that finds `globalCap` runs of its kind running, goes back to delayed for
  *   `groupRetryDelay(attempt, retryBaseMs, retryMaxMs)` (with jitter), keeps its priority and goes behind the jobs of
  *   that priority already waiting (BullMQ gives a promoted job a new sequence number).
+ * - **Per process** (S6 review, `IMPORT_RUNS_PER_PROCESS`): each job reaches a process picked at random, weighted
+ *   by its free slots; a process already running `perProcessCap` runs sends it back to delayed the same way — it
+ *   still has free BullMQ slots, so it keeps taking jobs while another process could run them.
  */
 
 export interface SimFeed {
@@ -27,6 +30,8 @@ export interface SimOptions {
   processes: number;
   concurrency: number;
   globalCap: number;
+  /** Feed runs one process runs at once (`perProcessConcurrency`). */
+  perProcessCap: number;
   perGroupCap: number;
   scheduleBatch: number;
   perAgencyPerTick: number;
@@ -84,6 +89,7 @@ interface Job {
   enqueuedS: number;
   retryAtS: number;
   attempts: number;
+  process?: number;
   startedS?: number;
   endS?: number;
 }
@@ -96,7 +102,7 @@ const p95 = (xs: number[]) => {
 
 export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
   const random = rng(o.seed);
-  const slots = o.processes * o.concurrency;
+  const runningOn = new Array<number>(o.processes).fill(0);
   const pending = feeds.map((f, i) => ({ i, due: f.dueAtS ?? 0 })).sort((a, b) => a.due - b.due || a.i - b.i); // queueDueRuns: next_run_at order
   const scheduled = new Set<number>();
   const backlog = new Map<string, number>();
@@ -119,6 +125,7 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
     const still: Job[] = [];
     for (const j of running) {
       if ((j.endS as number) <= t) {
+        runningOn[j.process as number] = (runningOn[j.process as number] as number) - 1;
         activeByAgency.set(j.agency, (activeByAgency.get(j.agency) ?? 1) - 1);
         backlog.set(j.agency, (backlog.get(j.agency) ?? 1) - 1);
         const prev = lastEnd.get(j.agency) ?? Number.NEGATIVE_INFINITY;
@@ -179,8 +186,10 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
     }
 
     // 4. free worker slots take the best waiting job; over a cap it goes back to delayed
-    let free = slots - running.length;
-    while (free > 0 && ready.length > 0) {
+    for (;;) {
+      const free = runningOn.map((n) => o.concurrency - n);
+      const totalFree = free.reduce((a, b) => a + b, 0);
+      if (totalFree <= 0 || ready.length === 0) break;
       let best = 0;
       for (let k = 1; k < ready.length; k++) {
         const a = ready[k] as Job;
@@ -189,8 +198,13 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
       }
       const job = ready[best] as Job;
       ready.splice(best, 1);
+      // the process whose free slot fetched it: weighted by free slots
+      let pick = random() * totalFree;
+      let proc = 0;
+      while (pick >= (free[proc] as number)) pick -= free[proc++] as number;
       const agencyBusy = (activeByAgency.get(job.agency) ?? 0) >= o.perGroupCap;
-      if (agencyBusy || running.length >= o.globalCap) {
+      const processFull = (runningOn[proc] as number) >= o.perProcessCap;
+      if (agencyBusy || processFull || running.length >= o.globalCap) {
         job.attempts++;
         job.retryAtS = t + groupRetryDelay(job.attempts, o.retryBaseMs, o.retryMaxMs, random()) / 1000;
         delayed.push(job);
@@ -198,9 +212,10 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
       }
       job.startedS = t;
       job.endS = t + (feeds[job.feed] as SimFeed).durationS;
+      job.process = proc;
+      runningOn[proc] = (runningOn[proc] as number) + 1;
       activeByAgency.set(job.agency, (activeByAgency.get(job.agency) ?? 0) + 1);
       running.push(job);
-      free--;
     }
     peak = Math.max(peak, running.length);
   }

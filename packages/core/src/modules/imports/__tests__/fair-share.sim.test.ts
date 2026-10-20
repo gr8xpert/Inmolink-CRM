@@ -12,11 +12,16 @@ import { rng, type SimFeed, type SimOptions, simulate } from './fair-share-sim';
 
 const FIFTEEN_MIN_S = 15 * 60;
 
-/** Production defaults: scheduler constants, the env default cap, `registerPool` defaults (250 ms … 5 s). */
+/**
+ * Production defaults: scheduler constants, the env default caps, `registerPool` defaults (250 ms … 5 s). Processes:
+ * the `imports` pool needs processes × `IMPORT_RUNS_PER_PROCESS` ≥ `IMPORT_MAX_CONCURRENT_RUNS` (S6 review: at 2 runs
+ * per process for RSS, 12 processes; with 4 the stress mix waits 44 min, with 8 about 14).
+ */
 const options: SimOptions = {
-  processes: 4,
+  processes: 12,
   concurrency: 10,
   globalCap: importsEnv.IMPORT_MAX_CONCURRENT_RUNS.parse(undefined),
+  perProcessCap: importsEnv.IMPORT_RUNS_PER_PROCESS.parse(undefined),
   perGroupCap: 1,
   scheduleBatch: RUNS.SCHEDULE_BATCH,
   perAgencyPerTick: RUNS.SCHEDULE_PER_AGENCY,

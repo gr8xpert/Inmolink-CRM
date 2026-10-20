@@ -5,7 +5,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as properties from '../properties';
-import { maxConcurrentRuns, RUNS } from './config';
+import { maxConcurrentRuns, RUNS, runsPerProcess } from './config';
 import { importsEvents } from './events';
 import { recordOldestQueued } from './guard';
 import { listingSink } from './load';
@@ -27,8 +27,8 @@ const SEEN_PRUNE_BATCH = 5_000;
  * imports worker jobs (PATTERNS §12). Idempotent, per-tenant fair share.
  *
  * `imports.runFeed` (one per `imports.run.requested` event, job ID = the run's id, pool `imports`, one run per
- * agency at a time, at most `IMPORT_MAX_CONCURRENT_RUNS` across every worker — S6-08 — so the pool's other jobs keep
- * their slots and the database a bounded write load; fair share between agencies: an agency's job is queued at its
+ * agency at a time, at most `IMPORT_RUNS_PER_PROCESS` in one process — S6 review: RSS — and at most
+ * `IMPORT_MAX_CONCURRENT_RUNS` across every worker — S6-08 — so the pool's other jobs keep their slots and the database a bounded write load; fair share between agencies: an agency's job is queued at its
  * backlog depth, so one agency's many feeds interleave with everyone else's first feed, `platform/queue`): claims the run row (fencing token + lease) and executes it (`runner.ts`) through the listing loader (`load.ts`, S6-02). A second delivery
  * finds the run claimed or ended and does nothing. Retryable failures re-queue the run for the next attempt; the
  * last attempt records it FAILED.
@@ -53,6 +53,7 @@ export const importsJobs = {
     group: (p) => p.agencyId,
     concurrencyPerGroup: 1,
     globalConcurrency: maxConcurrentRuns,
+    perProcessConcurrency: runsPerProcess,
     attempts: RUN_ATTEMPTS,
     backoff: { type: 'exponential', delay: 60_000 },
     timeoutMs: RUN_TIMEOUT_MS,

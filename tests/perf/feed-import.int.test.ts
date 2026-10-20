@@ -36,6 +36,8 @@ const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('perf.
 const rows = <T>(q: ReturnType<typeof sql>) => system(async (tx) => (await tx.execute(q)).rows as T[]);
 
 let owner: Founder;
+/** S6 review: two more agencies whose first imports run at once in one process. */
+const pair: Founder[] = [];
 let server: Server;
 let origin: string;
 let feedPath: string;
@@ -107,17 +109,42 @@ async function rowVersions(): Promise<string> {
   return r?.v ?? '';
 }
 
+const memberCtx = <T>(founder: Founder, fn: Parameters<typeof withMemberCtx<T>>[1]) =>
+  withMemberCtx({ userId: founder.userId, agencyId: founder.agencyId, requestId: newId(), locale: 'en' }, fn);
+
+async function createConnection(founder: Founder) {
+  return memberCtx(founder, (ctx) =>
+    imports.createFeedConnection(
+      ctx,
+      CreateFeedConnectionBody.parse({
+        name: 'Perf feed',
+        connector: 'perf-xml',
+        url: `${origin}/feed.xml`,
+        scheduleMinutes: null,
+      }),
+    ),
+  );
+}
+
 async function importOnce(connectionId: string) {
-  const run = await withMemberCtx(
-    { userId: owner.userId, agencyId: owner.agencyId, requestId: newId(), locale: 'en' },
-    (ctx) => imports.requestFeedRun(ctx, connectionId),
+  const [result] = await importTogether([{ founder: owner, connectionId }]);
+  return result as NonNullable<typeof result>;
+}
+
+/** Runs of these connections at once, in one child process (as one `imports` worker process runs them). */
+async function importTogether(connections: { founder: Founder; connectionId: string }[]) {
+  const runs = await Promise.all(
+    connections.map(async ({ founder, connectionId }) => ({
+      founder,
+      run: await memberCtx(founder, (ctx) => imports.requestFeedRun(ctx, connectionId)),
+    })),
   );
   const { stdout } = await run$(
     process.execPath,
     [
       '--disable-warning=ExperimentalWarning',
       join(import.meta.dirname, 'feed-import.child.ts'),
-      JSON.stringify({ runId: run.id, agencyId: owner.agencyId, origin }),
+      JSON.stringify({ runs: runs.map(({ founder, run }) => ({ runId: run.id, agencyId: founder.agencyId })), origin }),
     ],
     {
       encoding: 'utf8',
@@ -135,13 +162,15 @@ async function importOnce(connectionId: string) {
     peak: number;
     maxRss: number;
     ms: number;
-    outcome: { kind: string; state?: string };
+    outcomes: { kind: string; state?: string }[];
   };
-  const dto = await withMemberCtx(
-    { userId: owner.userId, agencyId: owner.agencyId, requestId: newId(), locale: 'en' },
-    (ctx) => imports.getFeedRun(ctx, run.id),
+  return Promise.all(
+    runs.map(async ({ founder, run }, i) => ({
+      ...result,
+      outcome: result.outcomes[i],
+      run: await memberCtx(founder, (ctx) => imports.getFeedRun(ctx, run.id)),
+    })),
   );
-  return { ...result, run: dto };
 }
 
 const mb = (b: number) => `${(b / 1048576).toFixed(0)} MB`;
@@ -234,25 +263,15 @@ afterAll(async () => {
   server?.close();
   if (feedPath) unlinkSync(feedPath);
   // Their queued feed images: no media worker runs here, and the next perf run must not inherit 20k rows.
-  if (owner) await system((tx) => tx.execute(sql`delete from feed_image_queue where agency_id = ${owner.agencyId}`));
+  for (const founder of [owner, ...pair].filter(Boolean)) {
+    await system((tx) => tx.execute(sql`delete from feed_image_queue where agency_id = ${founder.agencyId}`));
+  }
   await closeDb();
 });
 
 it('[S6-02] a 100 MB feed imports in < 10 min with RSS < 512 MB; re-importing it unchanged changes 0 rows and emits 0 events', async () => {
   const size = statSync(feedPath).size;
-  const connection = await withMemberCtx(
-    { userId: owner.userId, agencyId: owner.agencyId, requestId: newId(), locale: 'en' },
-    (ctx) =>
-      imports.createFeedConnection(
-        ctx,
-        CreateFeedConnectionBody.parse({
-          name: 'Perf feed',
-          connector: 'perf-xml',
-          url: `${origin}/feed.xml`,
-          scheduleMinutes: null,
-        }),
-      ),
-  );
+  const connection = await createConnection(owner);
 
   const first = await importOnce(connection.id);
   console.info(
@@ -284,4 +303,25 @@ it('[S6-02] a 100 MB feed imports in < 10 min with RSS < 512 MB; re-importing it
      where agency_id = ${owner.agencyId} and type like 'properties.%' and created_at >= ${since.toISOString()}::timestamptz`);
   expect(events?.n).toBe('0');
   expect(second.ms).toBeLessThan(BUDGET_MS);
+}, 1_800_000);
+
+it('[S6-F5] two 100 MB feed runs at once in one worker process stay under 512 MB RSS', async () => {
+  // `IMPORT_RUNS_PER_PROCESS` defaults to 2: the most feed runs one `imports` process holds. First imports (every
+  // listing created) are the heavy case.
+  pair.push(await createFounder(), await createFounder());
+  const connections = await Promise.all(
+    pair.map(async (founder) => ({ founder, connectionId: (await createConnection(founder)).id })),
+  );
+  const results = await importTogether(connections);
+  const [first] = results as [NonNullable<(typeof results)[number]>];
+  console.info(
+    `[S6-F5] two runs at once: ${(first.ms / 1000).toFixed(1)} s; child RSS idle ${mb(first.base)}, ` +
+      `peak ${mb(first.peak)}, maxRSS ${mb(first.maxRss)}`,
+  );
+  for (const r of results) {
+    expect(r.outcome).toMatchObject({ kind: 'finished', state: 'SUCCEEDED' });
+    expect(r.run.counts).toMatchObject({ total: listings, valid: listings, failed: 0, created: listings });
+  }
+  expect(first.ms).toBeLessThan(BUDGET_MS);
+  expect(Math.max(first.peak, first.maxRss)).toBeLessThan(RSS_BUDGET);
 }, 1_800_000);

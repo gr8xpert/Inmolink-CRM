@@ -138,6 +138,54 @@ describe('queue global concurrency (S6-08)', () => {
   });
 });
 
+describe('queue per-process concurrency (S6 review)', () => {
+  const POOL_P = 'test-fair-process';
+  let running = 0;
+  let maxRunning = 0;
+  let heavyDone = 0;
+  let lightDone = 0;
+  const heavy = defineJob({
+    name: 'test.fairHeavy',
+    pool: POOL_P,
+    payload: z.object({ group: z.string() }),
+    group: (p) => p.group,
+    concurrencyPerGroup: 1,
+    globalConcurrency: 24,
+    perProcessConcurrency: () => 2,
+    async run() {
+      running++;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((r) => setTimeout(r, 60));
+      running--;
+      heavyDone++;
+    },
+  });
+  const light = defineJob({
+    name: 'test.fairLight',
+    pool: POOL_P,
+    payload: z.object({ i: z.number() }),
+    async run() {
+      lightDone++;
+    },
+  });
+  let handle: PoolHandle;
+
+  beforeAll(() => setupQueueTest(`test-${run}-p`));
+  afterAll(async () => {
+    await handle?.close();
+    await teardownQueueTest([POOL_P]);
+  });
+
+  it('[S6-F5] a third run in a process already running two goes back to delayed; the pool’s other jobs keep running', async () => {
+    // one process of 10 slots: 2 for the heavy job (its per-process cap), the global cap of 24 never binds
+    handle = registerPool(POOL_P, [heavy, light], { concurrency: 10, groupRetryMs: 20, groupRetryMaxMs: 100 });
+    await Promise.all(Array.from({ length: 12 }, (_, i) => heavy.enqueue({ group: `tenant-${i}` })));
+    await Promise.all(Array.from({ length: 20 }, (_, i) => light.enqueue({ i })));
+    await waitFor(() => heavyDone === 12 && lightDone === 20, 30_000);
+    expect(maxRunning).toBe(2);
+  });
+});
+
 describe('queue fair share bookkeeping', () => {
   const POOL_B = 'test-fair-book';
   const done = new Set<string>();

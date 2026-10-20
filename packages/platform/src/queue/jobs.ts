@@ -36,6 +36,12 @@ export interface JobSpec<S extends z.ZodType> {
    * to delayed, keeping its priority.
    */
   globalConcurrency?: number | (() => number);
+  /**
+   * Max jobs of this definition running at once in one worker process (S6 review): bounds the memory a heavy job
+   * kind can take in a process whose pool runs `concurrency` jobs of every kind. Counted in memory, no Redis. A job
+   * over the cap goes back to delayed like one over `globalConcurrency`; another process can take it meanwhile.
+   */
+  perProcessConcurrency?: number | (() => number);
   /** Total runs including the first. Default 5. */
   attempts?: number;
   backoff?: { type: 'exponential' | 'fixed'; delay: number };
@@ -109,6 +115,12 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     (!Number.isInteger(spec.globalConcurrency) || spec.globalConcurrency < 1)
   ) {
     throw new RangeError(`defineJob ${spec.name}: globalConcurrency must be a positive integer`);
+  }
+  if (
+    typeof spec.perProcessConcurrency === 'number' &&
+    (!Number.isInteger(spec.perProcessConcurrency) || spec.perProcessConcurrency < 1)
+  ) {
+    throw new RangeError(`defineJob ${spec.name}: perProcessConcurrency must be a positive integer`);
   }
   const attempts = spec.attempts ?? 5;
   const timeoutMs = spec.timeoutMs ?? 10 * 60_000;

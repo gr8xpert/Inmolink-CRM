@@ -2,8 +2,9 @@
  * One feed run of `feed-import.int.test.ts` in a process of its own (S6-02): what the `imports` worker runs —
  * `imports.executeRun` with the listing loader — so its peak RSS is the worker's, not the test's (which generated the
  * 100 MB feed and serves it). Plain `node` on the built packages, like `media-burst.child.ts` (S4-F2). The stack env
- * comes from the parent; argv[2] is `{ runId, agencyId }`. Prints one JSON line:
- * `{ base, peak, maxRss, ms, outcome }`.
+ * comes from the parent; argv[2] is `{ runId, agencyId, origin }`, or `{ runs: [{ runId, agencyId }, …], origin }` for
+ * runs at once in this one process (S6 review: `IMPORT_RUNS_PER_PROCESS`). Prints one JSON line:
+ * `{ base, peak, maxRss, ms, outcome, outcomes }`.
  */
 
 import type { FeedListingInput } from '@inmolink/contracts';
@@ -14,11 +15,14 @@ import { createLogger } from '@inmolink/platform/logger';
 import { allowLoopbackOriginsForTests } from '@inmolink/platform/safe-fetch';
 import { childOf, childText, type XmlElement } from '@inmolink/platform/xml';
 
-const { runId, agencyId, origin } = JSON.parse(process.argv[2] ?? '{}') as {
-  runId: string;
-  agencyId: string;
+const args = JSON.parse(process.argv[2] ?? '{}') as {
+  runId?: string;
+  agencyId?: string;
+  runs?: { runId: string; agencyId: string }[];
   origin: string;
 };
+const { origin } = args;
+const runs = args.runs ?? [{ runId: args.runId as string, agencyId: args.agencyId as string }];
 const log = createLogger({ service: 'perf', level: 'warn' });
 const num = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v));
 
@@ -80,15 +84,16 @@ const sampler = setInterval(() => {
 }, 50);
 const started = performance.now();
 try {
-  const outcome = await imports.executeRun(
-    { runId, agencyId },
-    { log, signal: new AbortController().signal, lastAttempt: true },
-    imports.listingSink,
+  const outcomes = await Promise.all(
+    runs.map((run) =>
+      imports.executeRun(run, { log, signal: new AbortController().signal, lastAttempt: true }, imports.listingSink),
+    ),
   );
   const ms = performance.now() - started;
   clearInterval(sampler);
   peak = Math.max(peak, process.memoryUsage().rss);
-  console.log(JSON.stringify({ base, peak, maxRss: process.resourceUsage().maxRSS * 1024, ms, outcome }));
+  const maxRss = process.resourceUsage().maxRSS * 1024;
+  console.log(JSON.stringify({ base, peak, maxRss, ms, outcome: outcomes[0], outcomes }));
 } finally {
   clearInterval(sampler);
   undoLoopback();

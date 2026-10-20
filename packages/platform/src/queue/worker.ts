@@ -52,7 +52,7 @@ async function withRetry<T>(delays: readonly number[], fn: () => Promise<T>): Pr
 export const SLOT_LEASE_MS = 2 * 60_000;
 const SLOT_RENEW_MS = 30_000;
 
-/** A job definition's pool-wide cap (`globalConcurrency`), read per attempt; undefined when it has none. */
+/** A job definition's pool-wide or per-process cap, read per attempt; undefined when it has none. */
 function capOf(cap: number | (() => number) | undefined): number | undefined {
   if (cap === undefined) return undefined;
   const n = typeof cap === 'function' ? cap() : cap;
@@ -94,6 +94,8 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   const controllers = new Set<AbortController>();
   /** Over-cap retries so far per job id (this process); cleared when the job runs, dead-letters or releases. */
   const capWaits = new Map<string, number>();
+  /** Jobs of each definition running in this process now (`perProcessConcurrency`). */
+  const localRunning = new Map<string, number>();
 
   let deadLettered = 0;
   async function deadLetter(job: Job<StoredJob>, error: string): Promise<void> {
@@ -157,18 +159,39 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       await job.moveToDelayed(Date.now() + groupRetryDelay(attempt, groupRetryMs, groupRetryMaxMs), token);
       throw new DelayedError();
     };
-    if (fair && group !== undefined && spec.concurrencyPerGroup) {
-      const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, leaseMs);
-      if (!ok) await overCap();
+    // S6 review: the per-process cap first — checked and taken with no await in between, so two jobs of this
+    // process cannot both pass it; handed back if a group or pool-wide cap then sends the job back to delayed.
+    const perProcess = capOf(spec.perProcessConcurrency);
+    if (perProcess !== undefined) {
+      if ((localRunning.get(spec.name) ?? 0) >= perProcess) await overCap();
+      localRunning.set(spec.name, (localRunning.get(spec.name) ?? 0) + 1);
     }
-    // S6-08: the definition's pool-wide cap, taken after the group's slot (and that one handed back when full).
-    const globalCap = capOf(spec.globalConcurrency);
-    if (globalCap !== undefined) {
-      const ok = await fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs);
-      if (!ok) {
-        if (fair && group !== undefined && spec.concurrencyPerGroup) await fair.release(pool, group, job.id as string);
-        await overCap();
+    let localHeld = perProcess !== undefined;
+    const releaseLocal = () => {
+      if (!localHeld) return;
+      localHeld = false;
+      localRunning.set(spec.name, (localRunning.get(spec.name) ?? 1) - 1);
+    };
+    let globalCap: number | undefined;
+    try {
+      if (fair && group !== undefined && spec.concurrencyPerGroup) {
+        const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, leaseMs);
+        if (!ok) await overCap();
       }
+      // S6-08: the definition's pool-wide cap, taken after the group's slot (and that one handed back when full).
+      globalCap = capOf(spec.globalConcurrency);
+      if (globalCap !== undefined) {
+        const ok = await fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs);
+        if (!ok) {
+          if (fair && group !== undefined && spec.concurrencyPerGroup) {
+            await fair.release(pool, group, job.id as string);
+          }
+          await overCap();
+        }
+      }
+    } catch (err) {
+      releaseLocal();
+      throw err;
     }
     capWaits.delete(job.id as string);
     const holdsGroup = Boolean(fair && group !== undefined && spec.concurrencyPerGroup);
@@ -231,6 +254,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       clearTimeout(timer);
       if (renew) clearInterval(renew);
       controllers.delete(controller);
+      releaseLocal();
       if (fair && group !== undefined && spec.concurrencyPerGroup) await fair.release(pool, group, job.id as string);
       if (globalCap !== undefined) await fairnessFor().releaseCap(pool, spec.name, job.id as string);
     }

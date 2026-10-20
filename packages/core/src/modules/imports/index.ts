@@ -7,6 +7,7 @@ export {
   type ImportsConfig,
   maxConcurrentRuns,
   RUNS,
+  runsPerProcess,
 } from './config';
 export {
   type ConnectorContext,

@@ -17,6 +17,8 @@ export interface ImportsConfig {
   withdrawAfterMissedRuns?: number;
   /** S6-08 overrides of the `importsEnv` values (tests); read from the environment when not given. */
   maxConcurrentRuns?: number;
+  /** S6 review: `IMPORT_RUNS_PER_PROCESS`. */
+  runsPerProcess?: number;
   anomalySpikeFactor?: number;
   anomalyDropRatio?: number;
   feedFreshnessDays?: number;
@@ -36,6 +38,11 @@ export function defaultWithdrawAfterMissedRuns(): number {
 /** Feed runs running at once across the `imports` pool (S6-08; `IMPORT_MAX_CONCURRENT_RUNS`). */
 export function maxConcurrentRuns(): number {
   return current?.maxConcurrentRuns ?? loadConfig(importsEnv).IMPORT_MAX_CONCURRENT_RUNS;
+}
+
+/** Feed runs one worker process runs at once (S6 review; `IMPORT_RUNS_PER_PROCESS`): bounds the process's RSS. */
+export function runsPerProcess(): number {
+  return current?.runsPerProcess ?? loadConfig(importsEnv).IMPORT_RUNS_PER_PROCESS;
 }
 
 /** The anomaly guard's thresholds (S6-08, PLAN §5.3 #7). */
