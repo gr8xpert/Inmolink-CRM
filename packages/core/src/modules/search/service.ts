@@ -16,8 +16,10 @@ import {
   type SearchEngine,
   searchEngine,
 } from '@inmolink/platform/search';
+import { compileOwner, NO_OWNER as NO_IDENTITY, type OwnerIdentity, type OwnerMatcher } from '../../white-label';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
+import * as identity from '../identity';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
@@ -184,7 +186,8 @@ export function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string,
  * row otherwise. Three statements per `READ_MODEL_BATCH` targets; unchanged rows are not rewritten.
  */
 async function refreshSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> {
-  const { docs, missing } = await indexDocsFor(tx, ids);
+  // The fallback matches no text (references only): documents without text, no owner identities read (S7-F5).
+  const { docs, missing } = await indexDocsFor(tx, ids, { text: false });
   await repo.upsertSearchDocs(
     tx,
     docs.filter((d) => d.visibility === 'PUBLIC'),
@@ -327,6 +330,30 @@ export async function queueAgencyReadModelChanges(
       const from: string | null = after;
       const page: { queued: number; last: string | null } = await withSystem('search.queueAgencyReadModels', (tx) =>
         repo.queueAgencyReadModels(tx, { agencyId, kind, after: from, limit: pageSize, preferredOnly }, delayMs),
+      );
+      queued += page.queued;
+      if (page.last === null) break;
+      after = page.last;
+    }
+  }
+  return queued;
+}
+
+/**
+ * Queues the index push of all of an agency's targets (S7-F5: its name, contacts or website — removed from their
+ * indexed text — may have changed; read models do not change, so no rebuild would push them), `AGENCY_QUEUE_PAGE`
+ * per transaction, outside any caller transaction. Answers how many were queued.
+ */
+export async function queueAgencyIndexPushes(agencyId: string, options: { pageSize?: number } = {}): Promise<number> {
+  const limit = options.pageSize ?? AGENCY_QUEUE_PAGE;
+  let queued = 0;
+  // One kind at a time: the keyset follows the (agency, kind, target) index.
+  for (const kind of ['LISTING', 'UNIT'] as const) {
+    let after: string | null = null;
+    for (;;) {
+      const from: string | null = after;
+      const page: { queued: number; last: string | null } = await withSystem('search.queueAgencyIndexSync', (tx) =>
+        repo.queueAgencyIndexSync(tx, { agencyId, kind, after: from, limit }),
       );
       queued += page.queued;
       if (page.last === null) break;
@@ -499,11 +526,13 @@ async function commissionOf(
 
 /**
  * Index documents of these targets, built from their read models (S5-02); `missing` have no read model any more
- * (their index documents must go). One statement per `READ_MODEL_BATCH` targets. Worker-facing: raw `tx` under `withSystem`.
+ * (their index documents must go). One statement per `READ_MODEL_BATCH` targets, plus the owners' identities for the
+ * white-labelled text (S7-F5; `text: false`: documents without text). Worker-facing: raw `tx` under `withSystem`.
  */
 export async function indexDocsFor(
   tx: Tx,
   ids: readonly string[],
+  options: { text?: boolean } = {},
 ): Promise<{ docs: ListingIndexDoc[]; missing: string[] }> {
   const unique = [...new Set(ids)];
   const rows: Awaited<ReturnType<typeof repo.readIndexRows>> = [];
@@ -522,8 +551,46 @@ export async function indexDocsFor(
     });
     byTarget.set(r.targetId, list);
   }
-  const docs = [...byTarget.values()].flatMap((r) => buildIndexDoc(r) ?? []);
+  // Owners' identities, removed from the indexed text (S7-F5): two statements for the batch's owners, each owner's
+  // patterns compiled once. Without text (the fallback rows), none.
+  let matchers: Map<string, OwnerMatcher> | null = null;
+  if (options.text !== false) {
+    const owners = await ownerIdentitiesForIndex(tx, [...new Set(rows.map((r) => r.agencyId))]);
+    matchers = new Map([...owners].map(([id, o]) => [id, compileOwner(o)]));
+  }
+  const unknown = compileOwner(NO_IDENTITY);
+  const docs = [...byTarget.values()].flatMap(
+    (r) => buildIndexDoc(r, matchers ? (matchers.get(r[0]?.agencyId ?? '') ?? unknown) : null) ?? [],
+  );
   return { docs, missing: unique.filter((id) => !byTarget.has(id)) };
+}
+
+/**
+ * Owners' identities as the index removes them from their documents' text (S7-F5): the agency's own
+ * (`agencies.indexOwnerIdentities`) and its team's e-mails and full names (`identity.teamContacts`; a single-word
+ * member name — "Ana" — is too common a word to remove). Two statements. Worker-facing: raw `tx` under `withSystem`.
+ */
+export async function ownerIdentitiesForIndex(tx: Tx, ids: readonly string[]): Promise<Map<string, OwnerIdentity>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  // One after the other: the same transaction runs one statement at a time.
+  const own = await agencies.indexOwnerIdentities(tx, unique);
+  const team = await identity.teamContacts(tx, unique);
+  return new Map(
+    unique.map((id) => {
+      const o = own.get(id) ?? NO_IDENTITY;
+      const t = team.get(id);
+      const fullNames = (t?.names ?? []).filter((n) => n.trim().split(/\s+/).length >= 2);
+      return [
+        id,
+        {
+          ...o,
+          names: [...new Set([...o.names, ...fullNames])],
+          emails: [...new Set([...o.emails, ...(t?.emails ?? [])])],
+        },
+      ];
+    }),
+  );
 }
 
 /**

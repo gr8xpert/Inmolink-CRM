@@ -160,6 +160,11 @@ export const websiteSearchEnv = {
   SEARCH_BREAKER_OPEN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
   /** Fallback statements started beside a slow engine at once, per process (the losing one is not cancelled). */
   SEARCH_HEDGE_MAX_IN_FLIGHT: z.coerce.number().int().min(0).max(1_000).default(16),
+  /**
+   * Free text matches other agencies' (network) documents on websites (S7-F5). Set `false` from a deploy with S7-F5
+   * until the white-labelled reindex has finished (runbook `search.md`): free text then matches own documents only.
+   */
+  SEARCH_NETWORK_FREE_TEXT: z.enum(['true', 'false']).default('true'),
 };
 
 /**

@@ -60,6 +60,12 @@ export interface WebsiteSearchSettings {
    * waits for the engine (up to its timeout).
    */
   hedgeMaxInFlight: number;
+  /**
+   * Free text matches network documents (S7-F5). Off while the index still holds text from before white-labelled
+   * indexing (the deploy's reindex): free text then matches the site's own documents only; network documents are
+   * still found by filters and by their `<prefix>-<code>` reference.
+   */
+  networkFreeText: boolean;
 }
 
 export const WEBSITE_SEARCH_DEFAULTS: Readonly<WebsiteSearchSettings> = {
@@ -71,6 +77,7 @@ export const WEBSITE_SEARCH_DEFAULTS: Readonly<WebsiteSearchSettings> = {
   breakerWindowMs: 10_000,
   breakerOpenMs: 30_000,
   hedgeMaxInFlight: 16,
+  networkFreeText: true,
 };
 
 let settings: WebsiteSearchSettings = { ...WEBSITE_SEARCH_DEFAULTS };
@@ -457,6 +464,14 @@ async function engineSearch(
     `description_${q.locale}`,
   ].filter((f) => def.searchable.includes(f));
   const limit = Math.min(q.limit, SEARCH_RESULT_CAP - offset);
+  // Until the white-labelled reindex is done (S7-F5), free text matches the site's own documents only.
+  const ownOnlyText = labelled && q.text !== undefined && !settings.networkFreeText;
+  const own = site.ownerAgencyIds ?? [];
+  const textFilter: Filter | null = !ownOnlyText
+    ? filter
+    : own.length > 0
+      ? { op: 'and', filters: [filter, { op: 'in', field: 'ownerAgencyId', values: [...own] }] }
+      : null;
   const query = (text: string | undefined, f: Filter, facets: string[], max: number) =>
     deadline(
       engine.search(def, {
@@ -475,7 +490,9 @@ async function engineSearch(
   const byRef =
     labelled && offset === 0 && q.text !== undefined && REF_LIKE.test(q.text) ? refFilter(site, q.text) : null;
   const [answer, refAnswer] = await Promise.all([
-    query(q.text, filter, q.facets, limit),
+    textFilter
+      ? query(q.text, textFilter, q.facets, limit)
+      : { ids: [], total: 0, facets: {} as Awaited<ReturnType<SearchEngine['search']>>['facets'] },
     // No facets, a few hits: a reference names one listing (rarely a few, e.g. a unit reference in two developments).
     byRef ? query(undefined, { op: 'and', filters: [filter, byRef] }, [], Math.min(limit, REF_LOOKUP_LIMIT)) : null,
   ]);

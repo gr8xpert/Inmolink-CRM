@@ -290,6 +290,8 @@ export async function getAgencyProfile(ctx: Ctx): Promise<AgencyProfileDto> {
 }
 
 const PROFILE_FIELDS = ['primaryColor', 'accentColor', 'contactEmail', 'contactPhone', 'websiteUrl'] as const;
+/** Profile fields that identify the agency (S7-F5: removed from its listings' indexed text). */
+const IDENTITY_FIELDS = ['contactEmail', 'contactPhone', 'websiteUrl'] as const;
 
 /**
  * `PUT /v1/agency/profile`: admins only, not in Client Mode (staff impersonating an admin may: the event
@@ -325,7 +327,12 @@ export async function updateAgencyProfile(ctx: Ctx, input: UpdateAgencyProfileBo
       : await repo.updateProfile(ctx.tx, agencyId, version, patch, now);
   if (!row) throw new AppError('VERSION_CONFLICT');
   await repo.replaceTranslations(ctx.tx, agencyId, texts, now);
-  await emit(ctx.tx, agenciesEvents.profileUpdated({ agencyId, version: row.version, logoChanged: false, ...actor }));
+  // S7-F5: the search index removes the published contacts from the agency's listing text.
+  const identityChanged = IDENTITY_FIELDS.some((f) => (current?.[f] ?? null) !== patch[f]);
+  await emit(
+    ctx.tx,
+    agenciesEvents.profileUpdated({ agencyId, version: row.version, logoChanged: false, identityChanged, ...actor }),
+  );
   // S1-09: the profile is what staff may change while impersonating, so it is audited with both actors.
   await compliance.audit(ctx, 'agencies.profile.updated', { type: 'agency', id: agencyId }, { logoChanged: false });
   return toProfileDto(row, await repo.listTranslations(ctx.tx, agencyId));
@@ -348,7 +355,13 @@ async function setLogo(
   if (!row) throw new AppError('VERSION_CONFLICT');
   await emit(
     ctx.tx,
-    agenciesEvents.profileUpdated({ agencyId, version: row.version, logoChanged: true, ...actorOf(ctx) }),
+    agenciesEvents.profileUpdated({
+      agencyId,
+      version: row.version,
+      logoChanged: true,
+      identityChanged: false,
+      ...actorOf(ctx),
+    }),
   );
   await compliance.audit(ctx, 'agencies.profile.updated', { type: 'agency', id: agencyId }, { logoChanged: true });
   return {

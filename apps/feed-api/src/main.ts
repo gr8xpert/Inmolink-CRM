@@ -37,6 +37,7 @@ try {
     breakerWindowMs: config.SEARCH_BREAKER_WINDOW_MS,
     breakerOpenMs: config.SEARCH_BREAKER_OPEN_MS,
     hedgeMaxInFlight: config.SEARCH_HEDGE_MAX_IN_FLIGHT,
+    networkFreeText: config.SEARCH_NETWORK_FREE_TEXT === 'true',
   });
 
   const app = await buildApp({

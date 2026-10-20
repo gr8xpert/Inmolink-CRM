@@ -99,6 +99,7 @@ export async function getDetailsState(tx: Tx, id: string) {
       status: agencies.status,
       name: agencies.name,
       taxId: agencies.taxId,
+      addressLine: agencies.addressLine,
       registerNumber: agencies.registerNumber,
       onboardedAt: agencies.onboardedAt,
     })

@@ -63,6 +63,7 @@ export {
   revokeStaff,
   STAFF_ROLES,
   type StaffRole,
+  teamContacts,
 } from './staff';
 export { registerIdentitySubscriptions, unregisterIdentitySubscriptions } from './subscriptions';
 export {

@@ -14,7 +14,7 @@ import { newId } from '@inmolink/platform/ids';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { configureSearch, createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
@@ -765,5 +765,180 @@ describe('commission share (S7-F4)', () => {
     expect(search.commissionShareBp({ ...base, commissionFixedCents: 5, priceOnRequest: true })).toBeNull();
     expect(search.commissionShareBp({ ...base, commissionFixedCents: 5, commissionCurrency: 'GBP' })).toBeNull();
     expect(search.commissionShareBp(base)).toBeNull();
+  });
+});
+
+describe('white-labelled free text (S7-F5)', () => {
+  /** The founders' content locale (their read models' locale). */
+  const LOCALE = 'es';
+  const profile = (
+    m: Founder,
+    contactEmail: string,
+    contactPhone: string,
+    websiteUrl: string,
+    primaryColor = '#123456',
+  ) =>
+    as(m, async (ctx) => {
+      const current = await agencies.getAgencyProfile(ctx);
+      await agencies.updateAgencyProfile(ctx, {
+        version: current.version,
+        primaryColor,
+        accentColor: null,
+        contactEmail,
+        contactPhone,
+        websiteUrl,
+        translations: [],
+      });
+    });
+  /** A PUBLIC listing shared with ALL, with this text in the content locale, in the index. */
+  const textListing = async (m: Founder, key: string, title: string, description: string) => {
+    const id = await listing(m, { priceCents: 41_000_000 }, { visibility: 'PUBLIC', shareScope: 'ALL' });
+    L[key] = id;
+    await as(m, async (ctx) =>
+      properties.saveListingTranslation(ctx, id, LOCALE, {
+        title,
+        description,
+        version: (await properties.getListing(ctx, id)).version,
+      }),
+    );
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [id]));
+    search.configureSearchIndex({ uid: UID, scope: Object.values(L) });
+    await search.syncIndex();
+    return id;
+  };
+  const find = async (siteId: string, text: string, engine: SearchEngine = real()) => {
+    search.resetSearchBreaker();
+    const scope = websites.siteSearchScope(await websites.siteScope(siteId), newId());
+    const page = await search.searchPublicListings(
+      scope,
+      { locale: LOCALE, text, locationIds: [ids.country] },
+      { engine },
+    );
+    expect(page.backend).toBe(engine === down ? 'fallback' : 'engine');
+    return page.ids;
+  };
+  /**
+   * The worker's part for b's latest profile event: its search subscription runs. Answers whether it asked for an
+   * index push (the queue itself is mocked).
+   */
+  const deliverProfile = async (): Promise<boolean> => {
+    const sync = vi.spyOn(search.searchJobs.syncIndex, 'enqueue').mockResolvedValue({ id: 'test' });
+    search.registerSearchSubscriptions();
+    try {
+      const event = await system(async (tx) => {
+        const r = await tx.execute<{ id: string; version: number; payload: unknown; created_at: Date }>(
+          sql`select id, version, payload, created_at from outbox_events
+               where type = 'agencies.profile.updated' and agency_id = ${b.agencyId} order by id desc limit 1`,
+        );
+        return r.rows[0];
+      });
+      if (!event) throw new Error('no profile event');
+      const handlers = defaultSubscribers
+        .get('agencies.profile.updated', event.version)
+        .filter((h) => h.name === 'search.index.agencyProfile');
+      expect(handlers).toHaveLength(1);
+      for (const h of handlers) {
+        await h.handler(event.payload as never, {
+          eventId: event.id,
+          agencyId: b.agencyId,
+          type: 'agencies.profile.updated',
+          version: event.version,
+          createdAt: new Date(event.created_at),
+          attempt: 1,
+        });
+      }
+      return sync.mock.calls.length > 0;
+    } finally {
+      search.unregisterSearchSubscriptions();
+      sync.mockRestore();
+    }
+  };
+
+  it("[S7-F5] on an OWN_PLUS_NETWORK site an owner's name, phone, e-mail or website host finds none of its network listings; the owner's own site still finds them by their own text", async () => {
+    await profile(b, 'sales@zyxhomes-b.example', '+34 611 222 333', 'https://www.zyxhomes-b.example');
+    // The office address and the team's e-mails identify the owner too (the founder is b's only member).
+    await system((tx) =>
+      tx.execute(sql`update agencies set address_line = 'Paseo Quillmar 7' where agency_id = ${b.agencyId}`),
+    );
+    const bName = (await system((tx) => agencies.getAgencyName(tx, b.agencyId))) as string;
+    const id = await textListing(
+      b,
+      'bText',
+      `Quillfeather villa by ${bName}`,
+      `Quillfeather villa with sea views and 3 bedrooms. Call ${bName} (CostaHomes, Cósta-Hómes) on 611 222 333 ` +
+        `(or 611.222.333), write to sales@zyxhomes-b.example or ${b.email}, see www.zyxhomes-b.example/villa or ` +
+        'visit us at Paseo Quillmar 7.',
+    );
+    const network = await as(a, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'Free text', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    const own = await as(b, (ctx) => websites.createSite(ctx, { ...OWN_SITE, name: 'B own text' }));
+    const owner = [
+      bName,
+      'CostaHomes',
+      'Costa-Homes',
+      'Cósta Hómes',
+      "Costa Homes's",
+      '611 222 333',
+      '611222333',
+      '+34 611 222 333',
+      'sales@zyxhomes-b.example',
+      b.email,
+      'Quillmar',
+    ];
+    const hosts = ['zyxhomes-b.example', 'www.zyxhomes-b.example', 'zyxhomes'];
+    for (const engine of [real(), down]) {
+      const label = engine === down ? 'fallback' : 'engine';
+      for (const text of [...owner, ...hosts])
+        expect(await find(network.id, text, engine), `${label}: ${text}`).not.toContain(id);
+    }
+    // The listing's own words still match — on the network site (shown white-labelled) and on the owner's own site.
+    expect(await find(network.id, 'Quillfeather')).toContain(id);
+    expect(await find(own.id, 'Quillfeather')).toContain(id);
+    expect(await find(own.id, 'Quillfeather villa sea views')).toContain(id);
+    // The indexed text keeps the facts and loses the owner (the engine's stored document, fetched by id).
+    const [doc] = await real().fetch(UID, [id], [`title_${LOCALE}`, `description_${LOCALE}`]);
+    expect(doc?.[`title_${LOCALE}`]).toBe('Quillfeather villa by');
+    const description = String(doc?.[`description_${LOCALE}`]);
+    expect(description).toContain('Quillfeather villa with sea views and 3 bedrooms.');
+    for (const leak of ['Costa', 'Cósta', '611', 'zyxhomes', 'sales@', 'founder-', 'Quillmar']) {
+      expect(description, leak).not.toContain(leak);
+    }
+  });
+
+  it('[S7-F5] until the reindex is done (SEARCH_NETWORK_FREE_TEXT=false), free text matches own listings only; network listings stay findable by their code', async () => {
+    const network = await as(a, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'Switch', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    const own = await textListing(a, 'aText', 'Wrenfield townhouse', 'Wrenfield townhouse near the old town.');
+    const theirs = await textListing(b, 'bWren', 'Wrenfield finca', 'Wrenfield finca with olive trees.');
+    expect(sorted(...(await find(network.id, 'Wrenfield')))).toEqual(sorted(own, theirs));
+    search.configureWebsiteSearch({ engineTimeoutMs: 5_000, slowMs: 4_000, networkFreeText: false });
+    try {
+      expect(await find(network.id, 'Wrenfield')).toEqual([own]);
+      const code = (await withPublicRead((tx) => search.publicCodes(tx, [theirs]))).get(theirs) as string;
+      expect(await find(network.id, `CH-${code}`)).toEqual([theirs]);
+    } finally {
+      search.configureWebsiteSearch({ engineTimeoutMs: 5_000, slowMs: 4_000 });
+    }
+  });
+
+  it("[S7-F5] a change of the owner's contacts re-pushes its documents (the new website host stops matching); a colour-only edit pushes nothing", async () => {
+    // An upper-case host is no domain to the generic pass: only the owner's identity removes it.
+    const id = await textListing(b, 'bHost', 'Larkspur cottage', 'Larkspur cottage, details at ZYXNEWHOST.ES today.');
+    const network = await as(a, (ctx) =>
+      websites.createSite(ctx, { ...OWN_SITE, name: 'Identity', inventoryPolicy: 'OWN_PLUS_NETWORK' }),
+    );
+    expect(await find(network.id, 'zyxnewhost')).toContain(id);
+
+    await profile(b, 'sales@zyxhomes-b.example', '+34 611 222 333', 'https://zyxnewhost.es');
+    expect(await deliverProfile()).toBe(true);
+    await search.syncIndex();
+    expect(await find(network.id, 'zyxnewhost')).not.toContain(id);
+    expect(await find(network.id, 'Larkspur')).toContain(id);
+
+    // Colours are not identity: the event says so and nothing is queued.
+    await profile(b, 'sales@zyxhomes-b.example', '+34 611 222 333', 'https://zyxnewhost.es', '#654321');
+    expect(await deliverProfile()).toBe(false);
   });
 });

@@ -464,6 +464,30 @@ export async function queueIndexSync(tx: Tx, ids: readonly string[]): Promise<vo
       set generation = ${searchIndexQueue}.generation + 1, not_before = null`);
 }
 
+/**
+ * Queues the index push of one page of an agency's read-model targets (S7-F5: its identity, removed from their
+ * indexed text, changed), one kind at a time in target order after `after` (`listing_read_models_agency_idx`
+ * order). Answers the page's last target, or null after the last page.
+ */
+export async function queueAgencyIndexSync(
+  tx: Tx,
+  page: { agencyId: string; kind: Kind; after: string | null; limit: number },
+): Promise<{ queued: number; last: string | null }> {
+  const after = page.after === null ? sql`` : sql`and target_id > ${page.after}`;
+  const res = await tx.execute<{ target_id: string }>(sql`
+    with page as (
+      select distinct target_id from ${listingReadModels}
+       where agency_id = ${page.agencyId} and kind = ${page.kind} ${after}
+       order by target_id limit ${page.limit})
+    insert into ${searchIndexQueue} (target_id)
+    select target_id from page order by 1
+    on conflict (target_id) do update
+      set generation = ${searchIndexQueue}.generation + 1, not_before = null
+    returning target_id`);
+  const ids = res.rows.map((r) => r.target_id).sort();
+  return { queued: ids.length, last: ids.length < page.limit ? null : (ids.at(-1) ?? null) };
+}
+
 export interface IndexSyncClaim {
   /** Marks the claimed rows: finishing or releasing touches only rows this claim still holds. */
   token: string;

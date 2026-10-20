@@ -68,3 +68,21 @@ export async function revokeStaff(tx: Tx, input: { email: string }): Promise<boo
 export async function listAgencyAdmins(tx: Tx, agencyId: string) {
   return repo.listAdminRecipients(tx, agencyId);
 }
+
+/**
+ * Members' names and e-mails by agency (S7-F5: the search index removes them from their agency's listing text), one
+ * statement for all of them. Worker-facing: raw `tx` under `withSystem`.
+ */
+export async function teamContacts(
+  tx: Tx,
+  agencyIds: readonly string[],
+): Promise<Map<string, { names: string[]; emails: string[] }>> {
+  const out = new Map<string, { names: string[]; emails: string[] }>();
+  for (const r of await repo.teamContacts(tx, [...new Set(agencyIds)])) {
+    const team = out.get(r.agencyId) ?? { names: [], emails: [] };
+    team.names.push(r.name);
+    team.emails.push(r.email);
+    out.set(r.agencyId, team);
+  }
+  return out;
+}

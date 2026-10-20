@@ -36,6 +36,14 @@ import type {
   WebsiteUnitCard,
   WebsiteUnitDetail,
 } from '@inmolink/contracts';
+import {
+  deterministicSanitizer,
+  NO_OWNER,
+  type OwnerIdentity,
+  plainText,
+  type SanitizeContext,
+  type TextSanitizer,
+} from '../../white-label';
 
 /**
  * Prefix of network references on a site without its own (`website_sites.reference_prefix`): network documents
@@ -59,23 +67,8 @@ export interface SiteOverrideTexts {
   developments: ReadonlyMap<string, SiteText>;
 }
 
-/** Who owns a document, as the sanitizer removes it (`agencies.ownerIdentities`: listed or not). */
-export interface OwnerIdentity {
-  names: readonly string[];
-  emails: readonly string[];
-  phones: readonly string[];
-  /** Website host names (`www.` stripped). */
-  hosts: readonly string[];
-}
-
-/** What the sanitizer knows about the text's owner: its identity and the owner's own reference of the document. */
-export interface SanitizeContext extends OwnerIdentity {
-  /** The owner's own reference (`Ref. AB12CD34`): a network document shows the site's code instead. */
-  ownerRefs: readonly string[];
-}
-
-/** White-label text sanitizer (S12-03 replaces the default with its deterministic + model passes and cache). */
-export type TextSanitizer = (text: string, context: SanitizeContext) => string;
+export type { OwnerIdentity, SanitizeContext, TextSanitizer };
+export { deterministicSanitizer, plainText };
 
 /** How one site presents documents. */
 export interface SiteView {
@@ -107,117 +100,6 @@ export interface Owned<D> {
 }
 
 // ── Text ────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-const NAMED_ENTITIES: Readonly<Record<string, string>> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' ',
-  euro: '€',
-  copy: '©',
-  reg: '®',
-  deg: '°',
-  sup2: '²',
-  ntilde: 'ñ',
-  Ntilde: 'Ñ',
-};
-
-/** HTML character references decoded (named ones above, decimal and hex); unknown ones stay as they are. */
-function decodeEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]{1,6}|#[0-9]{1,7}|[a-z][a-z0-9]{1,31});/gi, (m, ref: string) => {
-    if (ref.startsWith('#')) {
-      const code =
-        ref[1] === 'x' || ref[1] === 'X' ? Number.parseInt(ref.slice(2), 16) : Number.parseInt(ref.slice(1), 10);
-      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : '';
-    }
-    return NAMED_ENTITIES[ref] ?? m;
-  });
-}
-
-/**
- * Plain text: character references decoded first (so an encoded tag is removed too), then HTML tags and stray
- * angle brackets removed and control characters dropped (newlines kept). The result is text, not HTML: consumers
- * escape it when they render it.
- */
-export function plainText(text: string): string {
-  return (
-    decodeEntities(text)
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/[<>]/g, '')
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: removing control characters is the point
-      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-      .replace(/[ \t]{2,}/g, ' ')
-      .trim()
-  );
-}
-
-const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
-const URL_SCHEME = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
-/** Bare domains with a lower-case top-level domain (sentence starts after a full stop are capitalised). */
-const DOMAIN =
-  /\b[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[a-z]{2,}(?:\.[a-z]{2})?\b(?:\/[^\s<>"']*)?/g;
-/** Phone numbers: 9–15 digits with separators, or a + / 00 international prefix. */
-const PHONE = /(?:\+|\b00)?\d[\d\s()./-]{6,22}\d\b/g;
-/** Grouped thousands (`1.250.000`, `1,250,000`): a price or area, not a phone number… */
-const GROUPED_NUMBER = /^\d{1,3}(?:([.,])\d{3})(?:\1\d{3})*$/;
-/** …except a Spanish number written in groups of three (`952.123.456`, `600 123 456`, `+34 600.123.456`). */
-const SPANISH_PHONE = /^(?:(?:\+|00)34[\s.]?)?[6789]\d{2}([.,\s])\d{3}\1\d{3}$/;
-
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-function stripPhones(text: string): string {
-  return text.replace(PHONE, (m) => {
-    const t = m.trim();
-    const digits = t.replace(/\D/g, '').length;
-    const international = t.startsWith('+') || t.startsWith('00');
-    if (GROUPED_NUMBER.test(t) && !SPANISH_PHONE.test(t)) return m;
-    return digits >= 9 || (international && digits >= 7) ? '' : m;
-  });
-}
-
-/** A phone number's digits in any spacing (the national number: its last 9 digits when it has more). */
-function phonePattern(phone: string): string | null {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length < 6) return null;
-  const national = digits.length > 9 ? digits.slice(-9) : digits;
-  return `(?:(?:\\+|00)\\d{1,3}[\\s().-]*)?${national.split('').join('[\\s()./-]*')}`;
-}
-
-const whole = (pattern: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`, 'giu');
-
-/**
- * The deterministic white-label pass (S12-03 builds on it): removes e-mail addresses, URLs and domains, phone
- * numbers, and the owner's names, contacts, website and own reference of the document. Facts (prices, areas,
- * years) stay.
- */
-export const deterministicSanitizer: TextSanitizer = (text, owner) => {
-  let out = text;
-  for (const email of owner.emails) if (email) out = out.replace(whole(escapeRegex(email)), '');
-  for (const host of owner.hosts)
-    if (host) out = out.replace(whole(`(?:https?://)?(?:www\\.)?${escapeRegex(host)}\\S*`), '');
-  for (const phone of owner.phones) {
-    const p = phonePattern(phone);
-    if (p) out = out.replace(whole(p), '');
-  }
-  out = out.replace(EMAIL, '').replace(URL_SCHEME, '').replace(DOMAIN, '');
-  out = stripPhones(out);
-  // Longest first: "Costa Homes S.L." before "Costa Homes".
-  for (const name of [...owner.names].sort((a, b) => b.length - a.length)) {
-    const n = name.trim();
-    if (n.length < 3) continue;
-    out = out.replace(whole(escapeRegex(n)), '');
-  }
-  for (const ref of owner.ownerRefs) {
-    if (ref.trim().length < 3) continue;
-    out = out.replace(whole(`(?:ref(?:erence|erencia)?\\.?\\s*:?\\s*)?${escapeRegex(ref.trim())}`), '');
-  }
-  return out
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/ +([.,;:!?])/g, '$1')
-    .trim();
-};
 
 /** A slug from a shown title (network documents: the owner's slug may carry the owner's text). */
 export function slugOf(title: string, fallback: string): string {
@@ -251,8 +133,6 @@ interface TextRules {
   /** The first non-null of override, site content, owner text — always plain and (network) sanitized. */
   pick(field: 'title' | 'description', texts: (SiteText | undefined)[], owner: string | null): string | null;
 }
-
-const NO_OWNER: OwnerIdentity = { names: [], emails: [], phones: [], hosts: [] };
 
 function rulesFor(view: SiteView, item: Owned<{ ref: string }>): TextRules {
   const network = item.ownerAgencyId !== view.site.agencyId;

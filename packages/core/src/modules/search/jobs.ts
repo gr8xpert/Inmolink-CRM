@@ -4,6 +4,7 @@ import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
 import {
   drainReadModelQueue,
   overdueReadModelAgencies,
+  queueAgencyIndexPushes,
   queueAgencyReadModelChanges,
   queueReadModelChanges,
   rebuildAllReadModels,
@@ -254,4 +255,15 @@ export async function requestReadModelBuild(
   key: 'now' | 'later' = 'now',
 ): Promise<void> {
   await searchJobs.buildReadModels.enqueue({ agencyId }, { throttleMs: Math.max(delayMs, 100), debounceKey: key });
+}
+
+/**
+ * Re-pushes every index document of an agency whose identity may have changed (S7-F5: its name, contacts or website
+ * are removed from its documents' indexed text) and asks for an index push. Called by the search subscriptions.
+ * Network I/O (the queue): never inside a transaction.
+ */
+export async function queueAgencyIndexSync(agencyId: string): Promise<number> {
+  const queued = await queueAgencyIndexPushes(agencyId);
+  if (queued > 0) await requestIndexSync();
+  return queued;
 }

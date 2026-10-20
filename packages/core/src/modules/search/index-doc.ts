@@ -5,11 +5,19 @@
  * locale-free ids and numbers for filters, facets and sorting. The index finds ids — results are hydrated from read
  * models — so it holds no client-facing field that would need white-labelling. Owner agency and share scope are
  * filter fields only (never displayed: `displayed` is the id).
+ *
+ * **White-labelled matching (S7-F5):** the indexed title and description are the owner's text as the white-label
+ * sanitizer leaves it — plain text without the owner's names, e-mail, phone, website or own reference, and without
+ * any e-mail, URL, domain or phone number — so a visitor of a site showing network listings cannot find an owner's
+ * listings by typing who the owner is. The owner is the same on every site, so the text is cleaned once, here, for
+ * every document (own sites included: an agency's own contact details in its texts no longer match either).
+ * Place names come from the taxonomy (never owner text) and are indexed as they are.
  */
 import { createHash } from 'node:crypto';
 import type { ListingCardDoc, ReadModelPlace, UnitCardDoc } from '@inmolink/contracts';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import type { IndexDefinition } from '@inmolink/platform/search';
+import { cutAtWord, type OwnerMatcher, plainText, SANITIZER_VERSION } from '../../white-label';
 
 export const LISTINGS_INDEX_UID = 'listings';
 
@@ -187,10 +195,27 @@ const placeText = (p: ReadModelPlace) =>
 const placeIds = (p: ReadModelPlace) => [p.country, p.region, p.city, p.area].flatMap((t) => (t ? [t.id] : []));
 
 /**
- * One target's read-model rows (all its locales) → its index document, or null when it has none. Locale-free fields
- * come from the first row in locale order (they are the same in every row).
+ * Owner text as the index matches it (S7-F5): plain, white-label sanitized, at most `max` characters. The sanitizer
+ * reads at most twice `max` characters (a hard cap, so its cost stays bounded on any description), cut at a word
+ * boundary — never inside an e-mail or a name, which it then could not recognise — and the clean text is cut at a
+ * word boundary again.
  */
-export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc | null {
+export function indexedText(text: string, owner: OwnerMatcher, ownerRef: string, max: number): string {
+  return cutAtWord(owner.clean(plainText(cutAtWord(text, max * 2)), [ownerRef]), max);
+}
+
+/** Longest title text indexed per locale (titles are short; the cap only bounds the sanitizer). */
+const INDEXED_TITLE_CHARS = 500;
+
+/**
+ * One target's read-model rows (all its locales) → its index document, or null when it has none. Locale-free fields
+ * come from the first row in locale order (they are the same in every row). `owner` is the owner agency's identity
+ * (`search.ownerIdentitiesForIndex`, compiled once per owner by `compileOwner`), removed from the indexed text
+ * (S7-F5); it and the sanitizer version are part of `sourceHash`, so an identity or rules change re-pushes the
+ * document. Null: a document without text (the Postgres fallback rows, which match no text: their hash leaves the
+ * identity out, so an identity change rewrites none).
+ */
+export function buildIndexDoc(rows: readonly IndexSourceRow[], owner: OwnerMatcher | null): ListingIndexDoc | null {
   const sorted = [...rows].sort((a, b) => (a.locale < b.locale ? -1 : a.locale > b.locale ? 1 : 0));
   const first = sorted[0];
   if (!first) return null;
@@ -244,14 +269,18 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[]): ListingIndexDoc 
           ]),
         ),
       )
+      // The indexed text is the read models' text cleaned of the owner's identity (S7-F5).
+      .update(owner === null ? '' : JSON.stringify({ whiteLabel: SANITIZER_VERSION, owner: owner.identity }))
       .digest('base64url')
       .slice(0, 22),
   };
+  if (owner === null) return doc;
   for (const r of sorted) {
     const c = r.card as ListingCardDoc | UnitCardDoc;
-    doc[field('title', r.locale)] = c.title;
+    doc[field('title', r.locale)] = indexedText(c.title, owner, c.ref, INDEXED_TITLE_CHARS);
     doc[field('place', r.locale)] = placeText(c.place);
-    if (r.description) doc[field('description', r.locale)] = r.description.slice(0, INDEXED_DESCRIPTION_CHARS);
+    if (r.description)
+      doc[field('description', r.locale)] = indexedText(r.description, owner, c.ref, INDEXED_DESCRIPTION_CHARS);
   }
   return doc;
 }

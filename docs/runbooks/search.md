@@ -69,3 +69,29 @@ prefer the caller. After the first deploy with 0078:
 
 A change to an agency's preferred list re-queues only its PREFERRED listings (`agencies.preferred.added` /
 `.removed`).
+
+## White-labelled index text (S7-F5)
+
+The listings index matches free text on each document's title and description as the white-label sanitizer leaves
+them: plain text without the owner's names (legal, directory, e-mail sender, its team's full names; in any case,
+accents and spacing), office address, tax id, contact and team e-mails, phone, website (and its main label) or own
+reference, and without any e-mail, URL, domain, phone number or Spanish tax id. Every document's `sourceHash`
+includes the sanitizer version (`SANITIZER_VERSION` in `packages/core/src/white-label.ts`) and its owner's identity.
+No migration and no index settings change.
+
+**The full reindex is a required deploy step.** Until a document is pushed again, free text on a network site can
+still match its owner's details. After the first deploy with S7-F5:
+
+1. Deploy feed-api with `SEARCH_NETWORK_FREE_TEXT=false`: free text on sites showing network listings then matches
+   the site's own listings only (network listings stay findable by filters and by `<prefix>-<code>`).
+2. Once the worker is up, enqueue `search.repairIndex` (the nightly drift check would start it too: every
+   `sourceHash` changed). It queues every document. Wait until `search_index_queue` has drained.
+   `pnpm ops:rebuild-read-models` does **not** re-push unchanged documents. The Postgres fallback rows don't change
+   (they hold no text).
+3. Check: on a site showing network listings, searching an owner agency's name, phone or website host returns none
+   of its listings. Then set `SEARCH_NETWORK_FREE_TEXT=true` (the default) and restart feed-api.
+
+An agency's documents are re-pushed when its identity changes: `agencies.profile.updated` and
+`agencies.details.updated` with `identityChanged` (contacts; name, tax id or address), `agencies.settings.changed`
+with `whiteLabel` (sender name), and `agencies.verification.decided` APPROVED. Team changes are caught by the drift
+check. If you change the sanitizer rules, raise `SANITIZER_VERSION` and repeat the reindex steps.

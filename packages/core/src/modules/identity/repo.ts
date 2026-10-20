@@ -735,3 +735,19 @@ export async function findUserNames(tx: Tx, ids: readonly string[]): Promise<{ i
     .from(users)
     .where(inArray(users.id, [...ids]));
 }
+
+/**
+ * The team directory names and e-mails of these agencies' members, deactivated ones included (S7-F5: removed from
+ * their agencies' indexed listing text). One statement on `agency_members_agency_created_idx`; raw `tx` under
+ * `withSystem`.
+ */
+export async function teamContacts(
+  tx: Tx,
+  agencyIds: readonly string[],
+): Promise<{ agencyId: string; name: string; email: string }[]> {
+  if (agencyIds.length === 0) return [];
+  return tx
+    .select({ agencyId: agencyMembers.agencyId, name: agencyMembers.name, email: agencyMembers.email })
+    .from(agencyMembers)
+    .where(inArray(agencyMembers.agencyId, [...agencyIds]));
+}

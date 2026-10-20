@@ -292,6 +292,7 @@ describe('website search timing (S6-F3)', () => {
       SEARCH_BREAKER_WINDOW_MS: 10_000,
       SEARCH_BREAKER_OPEN_MS: 30_000,
       SEARCH_HEDGE_MAX_IN_FLIGHT: 16,
+      SEARCH_NETWORK_FREE_TEXT: 'true',
     });
     expect(loadConfig(websiteSearchEnv, { SEARCH_ENGINE_TIMEOUT_MS: '150', SEARCH_SLOW_MS: '120' })).toMatchObject({
       SEARCH_ENGINE_TIMEOUT_MS: 150,

@@ -273,7 +273,7 @@ describe('S1-01 onboarding', () => {
     expect(events.rows).toEqual([
       {
         agency_id: founded.agencyId,
-        payload: { agencyId: founded.agencyId, version: after.version, firstOnboarding: true },
+        payload: { agencyId: founded.agencyId, version: after.version, firstOnboarding: true, identityChanged: true },
       },
     ]);
   });

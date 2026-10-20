@@ -11,7 +11,13 @@ export const agenciesEvents = {
   detailsUpdated: defineEvent(
     'agencies.details.updated',
     1,
-    z.object({ agencyId: z.uuid(), version: z.number().int(), firstOnboarding: z.boolean() }),
+    z.object({
+      agencyId: z.uuid(),
+      version: z.number().int(),
+      firstOnboarding: z.boolean(),
+      /** S7-F5: name, tax id or address changed (the search index removes them from listing text); absent: unknown. */
+      identityChanged: z.boolean().optional(),
+    }),
   ),
   /** The agency submitted its details and documents for staff verification (S1-03). */
   verificationSubmitted: defineEvent(
@@ -53,6 +59,8 @@ export const agenciesEvents = {
       agencyId: z.uuid(),
       version: z.number().int(),
       logoChanged: z.boolean(),
+      /** S7-F5: contact e-mail, phone or website changed (removed from listing text by the index); absent: unknown. */
+      identityChanged: z.boolean().optional(),
       actorUserId: z.uuid(),
       impersonatedBy: z.uuid().nullable(),
     }),

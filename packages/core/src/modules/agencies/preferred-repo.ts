@@ -3,6 +3,7 @@ import {
   agencies,
   agencyDirectory,
   agencyProfiles,
+  agencySettings,
   preferredAgencies,
   preferredAgencyNotes,
 } from '@inmolink/db/schema/agencies';
@@ -282,4 +283,39 @@ export async function ownerIdentityRows(
     phone: string | null;
     website: string | null;
   }[];
+}
+
+/** One agency's identity as the search index removes it from its documents' text (S7-F5). */
+export interface IndexIdentityRow {
+  agencyId: string;
+  name: string | null;
+  directoryName: string | null;
+  taxId: string | null;
+  addressLine: string | null;
+  senderName: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+}
+
+/**
+ * Agencies' identities for the search index (S7-F5): legal name, directory name, tax id, office address, white-label
+ * e-mail sender name and published contacts — of any agency, verified or not. One statement; worker-only (raw `tx`
+ * under `withSystem`: `agencies` and `agency_settings` are not public).
+ */
+export async function indexIdentityRows(tx: Tx, ids: readonly string[]): Promise<IndexIdentityRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx.execute(sql`
+    select t.id as "agencyId", a.name, d.name as "directoryName", a.tax_id as "taxId",
+           a.address_line as "addressLine", s.white_label_email_sender_name as "senderName",
+           p.contact_email as email, p.contact_phone as phone, p.website_url as website
+      from unnest(${sql`array[${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::uuid[]`}) as t(id)
+      left join ${agencies} a on a.agency_id = t.id
+      left join ${agencyDirectory} d on d.agency_id = t.id
+      left join ${agencySettings} s on s.agency_id = t.id
+      left join ${agencyProfiles} p on p.agency_id = t.id`);
+  return rows.rows as unknown as IndexIdentityRow[];
 }

@@ -29,6 +29,7 @@ export {
 } from './indexer';
 export {
   INDEX_SYNC_THROTTLE_MS,
+  queueAgencyIndexSync,
   queueAgencyReadModels,
   queueReadModel,
   queueReadModels,

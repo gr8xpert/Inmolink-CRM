@@ -3,7 +3,14 @@ import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
-import { queueAgencyReadModels, queueReadModel, queueReadModels, READ_MODEL_DEBOUNCE_MS, searchJobs } from './jobs';
+import {
+  queueAgencyIndexSync,
+  queueAgencyReadModels,
+  queueReadModel,
+  queueReadModels,
+  READ_MODEL_DEBOUNCE_MS,
+  searchJobs,
+} from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -93,6 +100,40 @@ export function registerSearchSubscriptions(): void {
         await queueAgencyReadModels(payload.agencyId);
       },
       { name: 'search.readModel.agencyStatus' },
+    ),
+    // S7-F5: the owner's identity (names, contacts, website, tax id, address) is removed from its documents' indexed
+    // text — a change re-pushes them (read models do not change). Events that say the identity did not change
+    // (`identityChanged: false`, e.g. colours or the logo) push nothing; older events without the flag do.
+    subscribe(
+      agencies.agenciesEvents.profileUpdated,
+      async (payload, meta) => {
+        // The tenant that wrote the event (RLS-checked): the agency whose profile changed.
+        if (payload.identityChanged ?? !payload.logoChanged) await queueAgencyIndexSync(meta.agencyId);
+      },
+      { name: 'search.index.agencyProfile' },
+    ),
+    subscribe(
+      agencies.agenciesEvents.detailsUpdated,
+      async (payload, meta) => {
+        if (payload.identityChanged !== false) await queueAgencyIndexSync(meta.agencyId);
+      },
+      { name: 'search.index.agencyDetails' },
+    ),
+    subscribe(
+      agencies.agenciesEvents.settingsChanged,
+      async (payload, meta) => {
+        // The white-label e-mail sender name is one of the agency's names.
+        if (payload.changed.includes('whiteLabel')) await queueAgencyIndexSync(meta.agencyId);
+      },
+      { name: 'search.index.agencySenderName' },
+    ),
+    subscribe(
+      agencies.agenciesEvents.verificationDecided,
+      async (payload) => {
+        // Staff decide (the event is the platform's): the agency is the payload's. Its directory name appears now.
+        if (payload.decision === 'APPROVED') await queueAgencyIndexSync(payload.agencyId);
+      },
+      { name: 'search.index.agencyVerified' },
     ),
     // S6-F2: the owner's PREFERRED listings' documents name the agencies it prefers (network search filters on them).
     subscribe(

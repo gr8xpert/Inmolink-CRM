@@ -159,6 +159,8 @@ export async function updateAgencyDetails(ctx: Ctx, input: UpdateAgencyDetailsBo
       agencyId: row.id,
       version: row.version,
       firstOnboarding: before.onboardedAt === null,
+      // S7-F5: the search index removes the name, tax id and address from the agency's listing text.
+      identityChanged: (['name', 'taxId', 'addressLine'] as const).some((f) => input[f] !== before[f]),
     }),
   );
   return toAgencyDto(row);
