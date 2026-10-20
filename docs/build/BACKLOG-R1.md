@@ -743,6 +743,24 @@ Ref §16 §5.4 · Mod search, developments, db, tests · Dep S5-F4 · before S6-
 - A full rebuild writes each target's fallback row once (statement count test)
 - Purging a development with 20,000 units runs in transactions of ≤ 5,000 units (test)
 
+### S6-F4 · Resales Online connector, corrected against the proven SPW adapter ⚡
+Ref §3 #17 · Mod imports · Dep S6-06 · [H13] · findings `docs/build/reviews/S6-resales-vs-spw.md`
+**Build:**
+- Rework `imports/resales/` to the request and response shapes proven in the SPW project (`E:\Repos\SPW-AI\spwppspi\src\moduleseeddaptersesales.adapter.ts`).
+- The filter alias (1 Sale, 2 Short Term Rent, 3 Long Term Rent, 4 Featured) becomes a connection setting; the transaction type comes from the alias or `QueryInfo.SearchType`.
+- Drop the `AgencyId` gate. Enforce own listings through the real own-property field (`OwnProperty` `"1"`; confirm on a live response).
+- Use `P_PageNo` / `P_PageSize`, with the page size from `QueryInfo.PropertiesPerPage`.
+- Error handling: `data.root || data`; fail only on `transaction.status === 'error'` and surface `errordescription`. Retry "P1 or P2 not valid" 3× with backoff before treating it as a credentials error. Keep Resales' error body.
+- Parsing: prices with separators, ranges, rentals (`RentalPrice1`/`RentalPeriod`) and POA; type from `NameType`, or `Subtype1` for developments; decimal and range beds and baths; `GardenPlot ?? Plot`, `Built ?? BuiltArea`; location levels `Area` / `Location` / `SubLocation`.
+- Translations: numeric `P_Lang` per language, dropping text identical to the English.
+- `PropertyDetails` (5 concurrent) for coordinates, fees, IBI and development price lists.
+- Replace the fixtures with real responses recorded on a whitelisted server; the key is IP-bound, so there is no local live run.
+**Done when:**
+- A recorded real SearchProperties response (own and shared listings) imports exactly the own listings (test)
+- A 1,227-listing account with a 40-per-page cap imports all pages (test)
+- A busy-server "P1 or P2 not valid" answer is retried, not failed (test)
+- One live run from a whitelisted server matches the agency's Resales count (H13)
+
 ---
 
 ## S7 — Website API v2

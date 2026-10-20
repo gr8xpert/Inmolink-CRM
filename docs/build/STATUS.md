@@ -29,6 +29,12 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - **S2-06 · BLOCKED-HUMAN H1** — importer, `legacy_id_maps` and report are built and tested on a fixture extract. Left once the legacy dump exists: write the dump → `LegacyTaxonomyExtract` extractor, run `pnpm legacy:taxonomy --input … --dry-run --report …`, review `unmapped`, map them in `/staff/taxonomy`, re-run; then mark DONE.
 
 ## Handover
+- **Resales Online needs rework before go-live (2026-10-20):** compared with the SPW project's working adapter, S6-06 as built would most likely import nothing, because it gates on an `AgencyId` field that SPW never sees.
+  - The filter id is a portal alias (1 Sale / 2 Short Term Rent / 3 Long Term Rent / 4 Featured), not "own properties".
+  - Several param and field names differ.
+  - Full table: `docs/build/reviews/S6-resales-vs-spw.md`. New backlog task **S6-F4**; the user marked Resales as the important import.
+  - The Resales key is IP-bound, so live checks run only from a whitelisted server.
+  - The H14 samples for the other four formats move to the next phase (user).
 - **S6 unattended run — finished (2026-10-20):** every S6 task is committed and pushed, and CI is green on each one. Commits: S6-03 `13e1bfa` · S6-04 `5a6bd77` · S6-05 `35fefe2` · S6-06 `1ba0ea8` · S6-07 `fa1a36c` · S6-08 `2e7842a` (earlier: S6-01 `1c15772`, S6-F1 `56f565b`, S6-F2 `cecb4cf`, S6-F3 `16f3a61`, S6-02 `0953ba7`, CI fixes `e9a6f8d`/`dd2516b`).
   - **Built:**
     - Kyero v3 connector.
