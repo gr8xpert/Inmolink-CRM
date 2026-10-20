@@ -746,7 +746,7 @@ Ref §16 §5.4 · Mod search, developments, db, tests · Dep S5-F4 · before S6-
 ### S6-F4 · Resales Online connector, corrected against the proven SPW adapter ⚡
 Ref §3 #17 · Mod imports · Dep S6-06 · [H13] · findings `docs/build/reviews/S6-resales-vs-spw.md`
 **Build:**
-- Rework `imports/resales/` to the request and response shapes proven in the SPW project (`E:\Repos\SPW-AI\spwppspi\src\moduleseeddaptersesales.adapter.ts`).
+- Rework `imports/resales/` to the request and response shapes proven in the SPW project (`E:/Repos/SPW-AI/spw/apps/api/src/modules/feed/adapters/resales.adapter.ts`).
 - The filter alias (1 Sale, 2 Short Term Rent, 3 Long Term Rent, 4 Featured) becomes a connection setting; the transaction type comes from the alias or `QueryInfo.SearchType`.
 - Drop the `AgencyId` gate. Enforce own listings through the real own-property field (`OwnProperty` `"1"`; confirm on a live response).
 - Use `P_PageNo` / `P_PageSize`, with the page size from `QueryInfo.PropertiesPerPage`.
