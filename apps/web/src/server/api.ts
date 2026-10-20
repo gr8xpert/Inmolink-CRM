@@ -19,6 +19,7 @@ import {
   type CreateListingBody,
   type CreateMappingProfileBody,
   type CreatePriceListBody,
+  type CreateSiteInput,
   type CreateUnitsBody,
   type DecideVerificationBody,
   DevelopmentDocumentDto,
@@ -83,6 +84,8 @@ import {
   type SetDevelopmentAccessBody,
   type SetListingFeaturesBody,
   SignedUrlDto,
+  SiteDto,
+  SitePage,
   StaffAccessPage,
   type StartListingBulkBody,
   type StartSheetImportBody,
@@ -102,6 +105,7 @@ import {
   type UpdateListingBody,
   type UpdateListingMediaBody,
   type UpdatePreferredAgencyBody,
+  type UpdateSiteInput,
   type UpdateUnitBody,
   type UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_TYPES,
@@ -1376,4 +1380,26 @@ export function startSheetImport(
   body: StartSheetImportBody,
 ): Promise<ApiResult<StartSheetImportDto>> {
   return apiRequest(session, '/v1/imports/sheets/import', StartSheetImportDto, { method: 'POST', body });
+}
+
+// ── Website sites (S7-01) ─────────────────────────────────────────────────────────────────────────
+
+/** The agency's websites (members; admins change them). */
+export function fetchSites(session: SessionRef, cursor?: string): Promise<ApiResult<SitePage>> {
+  return apiRequest(session, `/v1/sites?${page(cursor, 50)}`, SitePage);
+}
+
+/** One website (the edit form). */
+export function fetchSite(session: SessionRef, id: string): Promise<ApiResult<SiteDto>> {
+  return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}`, SiteDto);
+}
+
+/** Add a website (admins). */
+export function createSite(session: SessionRef, body: CreateSiteInput): Promise<ApiResult<SiteDto>> {
+  return apiRequest(session, '/v1/sites', SiteDto, { method: 'POST', body });
+}
+
+/** Change a website (admins; optimistic concurrency by `version`). */
+export function updateSite(session: SessionRef, id: string, body: UpdateSiteInput): Promise<ApiResult<SiteDto>> {
+  return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}`, SiteDto, { method: 'PATCH', body });
 }

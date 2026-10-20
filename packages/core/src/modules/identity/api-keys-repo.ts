@@ -22,6 +22,7 @@ const listColumns = {
   scopes: apiKeys.scopes,
   allowedOrigins: apiKeys.allowedOrigins,
   rateTier: apiKeys.rateTier,
+  siteId: apiKeys.siteId,
   lastUsedAt: apiKeys.lastUsedAt,
   createdAt: apiKeys.createdAt,
   rotatedAt: apiKeys.rotatedAt,
@@ -36,6 +37,7 @@ export interface ApiKeyRow {
   scopes: string[];
   allowedOrigins: string[];
   rateTier: ApiKeyRateTier;
+  siteId: string | null;
   lastUsedAt: Date | null;
   createdAt: Date;
   rotatedAt: Date | null;
@@ -54,6 +56,7 @@ export async function insertApiKey(
     scopes: string[];
     allowedOrigins: string[];
     rateTier: ApiKeyRateTier;
+    siteId: string;
     agencyActive: boolean;
     createdBy: string;
     createdAt: Date;
@@ -153,6 +156,8 @@ export interface ApiKeyAuthRow {
   scopes: string[];
   allowedOrigins: string[];
   rateTier: ApiKeyRateTier;
+  /** Null only for keys created before sites existed (S7-01). */
+  siteId: string | null;
 }
 
 /**
@@ -169,6 +174,7 @@ export async function findUsableApiKeyByPrefix(tx: Tx, prefix: string): Promise<
       scopes: apiKeys.scopes,
       allowedOrigins: apiKeys.allowedOrigins,
       rateTier: apiKeys.rateTier,
+      siteId: apiKeys.siteId,
     })
     .from(apiKeys)
     .where(and(eq(apiKeys.prefix, prefix), isNull(apiKeys.revokedAt), eq(apiKeys.agencyActive, true)))

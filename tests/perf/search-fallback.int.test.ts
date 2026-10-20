@@ -26,7 +26,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 
 const log = createLogger({ service: 'perf', level: 'info' });
 const ROWS = Number(process.env.FALLBACK_PERF_ROWS ?? 500_000);
-const SEED_VERSION = 1;
+const SEED_VERSION = 2;
 const BATCH = 250_000;
 const QUERIES = 300;
 /** Whole fallback request (pool, transaction, statement) at the client: leaves feed-api's 150 ms room to hydrate. */
@@ -84,7 +84,7 @@ const runSql = (q: string) =>
 const insertBatch = (from: number, to: number) => `
   insert into listing_search_docs (target_id, kind, owner_agency_id, status, transaction_type, property_type_id,
     location_ids, feature_ids, price_cents, price_on_request, beds, baths, area_m2, plot_m2, lat, lng, ref,
-    published_at, version, source_hash)
+    share_scope, preferred_agency_ids, network_hidden, published_at, version, source_hash)
   select ${idSql(DOC_SPACE, 'g')},
          (case when h[1] % 10 = 0 then 'UNIT' else 'LISTING' end)::read_model_kind,
          ${idSql(4, `h[2] % ${AGENCIES}`)},
@@ -100,7 +100,14 @@ const insertBatch = (from: number, to: number) => `
          (h[11] % 7)::int, (1 + h[12] % 4)::int, 40 + h[13] % 460,
          case when h[14] % 10 < 4 then 200 + h[14] % 3000 end,
          36 + (h[15] % 70000) / 10000.0, -9 + (h[16] % 120000) / 10000.0,
-         'P' || g, 1700000000 + h[17] % 60000000, 1, 'h' || g
+         'P' || g,
+         -- S7-01 network fields: 1 in 10 PREFERRED (by up to 3 agencies), 1 in 50 hidden for freshness
+         case when h[1] % 10 = 3 then 'PREFERRED' else 'ALL' end,
+         case when h[1] % 10 = 3 then array(select ${idSql(4, `abs(hashint8(g * 53 + k)) % ${AGENCIES}`)}
+                                              from generate_series(1, 1 + h[2] % 3) k)
+              else '{}'::uuid[] end,
+         h[3] % 50 = 7,
+         1700000000 + h[17] % 60000000, 1, 'h' || g
     from generate_series(${from}, ${to}) g,
          lateral (select array(select abs(hashint8(g * 31 + i)) from generate_series(1, 17) i) as h) x`;
 
@@ -115,7 +122,11 @@ beforeAll(async () => {
   const { n, all } = (counted.rows[0] as { n: number; all: number } | undefined) ?? { n: 0, all: 0 };
   if (n !== ROWS || all !== ROWS) {
     const started = Date.now();
-    await runSql(`delete from listing_search_docs where target_id::text like '0195f0a5-%' and target_id > '${last}'`);
+    // Rows past the set, and rows of another seed version (another id space).
+    await runSql(
+      `delete from listing_search_docs where target_id::text like '0195f0a5-%'
+         and (target_id > '${last}' or target_id < '${first}')`,
+    );
     for (let from = n + 1; from <= ROWS; from += BATCH)
       await runSql(insertBatch(from, Math.min(ROWS, from + BATCH - 1)));
     // Outside a transaction, as the superuser: drops a trim's dead rows and sets the visibility map.
@@ -139,7 +150,7 @@ afterAll(async () => {
 });
 
 type Shape = { site: search.PublicSearchSite; q: PublicListingSearch };
-const SHAPES = 11;
+const SHAPES = 13;
 const network = (q: PublicListingSearch): Shape => ({ site: { ownerAgencyIds: null, requestId: 'perf' }, q });
 const owned = (owners: string[], q: PublicListingSearch): Shape => ({
   site: { ownerAgencyIds: owners, requestId: 'perf' },
@@ -198,6 +209,26 @@ function query(i: number): Shape {
       return network({ locale: 'en', sort: 'area_desc' });
     case 9: // the whole network, rentals only, newest first
       return network({ locale: 'en', transactionType: 'RENT_LONG_TERM' });
+    case 11: // S7-01 OWN_PLUS_NETWORK: an agency's own listings and those shared with it, newest first
+      return {
+        site: { ownerAgencyIds: site, networkOf: site[0] as string, requestId: 'perf' },
+        q: { locale: 'en' },
+      };
+    case 12: // S7-01 CUSTOM, network only: a city, two types, a price ceiling, no new-builds; cheapest first
+      return {
+        site: {
+          ownerAgencyIds: [],
+          networkOf: site[0] as string,
+          restrict: {
+            locationIds: [city(c)],
+            propertyTypeIds: [type(Math.floor(r() * TYPES)), type(Math.floor(r() * TYPES))],
+            priceMaxCents: minPrice * 3,
+            newBuilds: false,
+          },
+          requestId: 'perf',
+        },
+        q: { locale: 'en', sort: 'price_asc' },
+      };
     default: // a rare combination network-wide (none in the seed): an index answers, not a whole-table scan
       return network({ locale: 'en', transactionType: 'RENT_SHORT_TERM', statuses: ['RESERVED'] });
   }

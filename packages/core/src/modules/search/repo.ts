@@ -591,6 +591,9 @@ const SEARCH_DOC_COLUMNS = [
   'lat',
   'lng',
   'ref',
+  'share_scope',
+  'preferred_agency_ids',
+  'network_hidden',
   'published_at',
   'version',
   'source_hash',
@@ -625,6 +628,9 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
         lat: d.geo?.lat ?? null,
         lng: d.geo?.lng ?? null,
         ref: d.ref,
+        shareScope: d.shareScope,
+        preferredAgencyIds: d.preferredAgencyIds,
+        networkHidden: d.networkHidden,
         publishedAt: d.publishedAt,
         version: d.version,
         sourceHash: d.sourceHash,
@@ -636,8 +642,9 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
         ...Object.fromEntries(SEARCH_DOC_COLUMNS.map((c) => [camel(c), sql.raw(`excluded.${c}`)])),
         updatedAt: sql`now()`,
       },
+      // A row from before the network columns (S7-01) is rewritten by the next rebuild, changed or not.
       setWhere: sql`excluded.source_hash <> ${listingSearchDocs.sourceHash}
-        or excluded.version <> ${listingSearchDocs.version}`,
+        or excluded.version <> ${listingSearchDocs.version} or ${listingSearchDocs.shareScope} is null`,
     });
 }
 
@@ -651,8 +658,9 @@ type ColumnType = 'text' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uui
 type FieldSpec = { column: string; type: ColumnType } | { constant: string };
 
 /**
- * Filterable fields of the listings index → fallback columns. `visibility` is a constant (every row is PUBLIC);
- * `shareScope` is network-only and not stored: a filter on it fails, like a field the index does not declare.
+ * Filterable fields of the listings index → fallback columns. `visibility` is a constant (every row is PUBLIC).
+ * The network fields (S7-01: sites that show network listings) are null on rows written before they existed, so
+ * such a row matches no network filter until a rebuild rewrites it.
  */
 const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   kind: { column: 'kind::text', type: 'text' },
@@ -670,6 +678,9 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   baths: { column: 'baths', type: 'int' },
   areaM2: { column: 'area_m2', type: 'numeric' },
   plotM2: { column: 'plot_m2', type: 'numeric' },
+  shareScope: { column: 'share_scope', type: 'text' },
+  preferredAgencyIds: { column: 'preferred_agency_ids', type: 'uuid[]' },
+  networkHidden: { column: 'network_hidden', type: 'bool' },
   publishedAt: { column: 'published_at', type: 'bigint' },
 };
 

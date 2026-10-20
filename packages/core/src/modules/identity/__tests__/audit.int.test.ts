@@ -209,7 +209,12 @@ describe('identity audit log', () => {
       ['identity.apiKey.rotated', founder.userId, 'apiKey'],
       ['identity.apiKey.revoked', founder.userId, 'apiKey'],
     ]);
-    expect(rows[0]?.metadata).toEqual({ kind: 'SECRET', prefix: created.key.prefix, scopes: ['listings:read'] });
+    expect(rows[0]?.metadata).toEqual({
+      kind: 'SECRET',
+      prefix: created.key.prefix,
+      scopes: ['listings:read'],
+      siteId: created.key.siteId, // S7-01: the site the key serves
+    });
     expect(rows[1]?.metadata).toEqual({ prefix: rotated.key.prefix, retiredPrefix: created.key.prefix });
     expect(rows[2]?.metadata).toEqual({ prefix: rotated.key.prefix });
     const text = JSON.stringify(rows);

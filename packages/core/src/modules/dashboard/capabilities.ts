@@ -8,6 +8,7 @@ import * as identity from '../identity';
 import * as imports from '../imports';
 import * as properties from '../properties';
 import * as search from '../search';
+import * as websites from '../websites';
 
 /**
  * Which dashboard areas each module's policy opens to the caller (S1-10). A section is listed when the
@@ -22,6 +23,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   // Feed imports (S6-01): the agency's members who follow them (not partners, not Client Mode).
   ['imports', (ctx) => imports.can(ctx, 'imports.read')],
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
+  // Website sites (S7-01): the agency's members (admins change them; not partners, not Client Mode).
+  ['websites', (ctx) => websites.can(ctx, 'websites.read')],
   ['apiKeys', (ctx) => identity.can(ctx, 'identity.apiKeys.read')],
   ['profile', (ctx) => agencies.can(ctx, 'agencies.profile.update')],
   ['settings', (ctx) => agencies.can(ctx, 'agencies.settings.read')],

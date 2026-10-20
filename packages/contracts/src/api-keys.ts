@@ -74,6 +74,8 @@ export const CreateApiKeyBody = z
       .max(MAX_API_KEY_ORIGINS)
       .refine((o) => new Set(o).size === o.length, { message: 'duplicate origin' })
       .default([]),
+    /** The website the key serves (S7-01); omitted: the agency's first site (created as OWN_ONLY when it has none). */
+    siteId: z.uuid().optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
@@ -99,6 +101,8 @@ export const ApiKeyDto = z.object({
   scopes: z.array(ApiKeyScope),
   allowedOrigins: z.array(z.string()),
   rateTier: ApiKeyRateTier,
+  /** The website the key serves; null for keys created before sites existed (refused by the website API v2). */
+  siteId: z.uuid().nullable(),
   status: z.enum(['ACTIVE', 'REVOKED']),
   /** Updated in batches: up to about two minutes behind. */
   lastUsedAt: z.iso.datetime().nullable(),

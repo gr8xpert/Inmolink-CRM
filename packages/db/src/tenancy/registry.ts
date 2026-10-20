@@ -332,6 +332,14 @@ export const tenantTables: Record<string, TenantTable> = {
       hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }, { agency_active: false }],
     },
   },
+  // Agency websites (S7-01): the website API (feed-api, `app_public`) reads a key's site before it has a tenant
+  // session. Public website configuration only (prefix, locales, public contact overrides, inventory policy).
+  website_sites: {
+    kind: 'PUBLIC_READ',
+    publicReadSql: 'true',
+    base: { mode: 'WIDGET', locales: '{en}', default_locale: 'en' },
+    samples: { visible: [{}], hidden: [] },
+  },
   // Directory of verified agencies (S1-07): name and kind only. Verified agencies read the listed rows
   // (find a partner, show partner names). A trigger on `agencies` keeps it in step in the status change's
   // transaction — staff decisions (app_staff) and app_system. Tenants never write it, and staff write only

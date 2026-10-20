@@ -192,6 +192,13 @@ export const listingSearchDocs = pgTable(
     lat: doublePrecision('lat'),
     lng: doublePrecision('lng'),
     ref: text('ref').notNull(),
+    /**
+     * Network sharing, as in the index document (S7-01: sites showing network listings). Null on rows written before
+     * the columns existed: such a row is no one's network listing until a rebuild rewrites it.
+     */
+    shareScope: text('share_scope'),
+    preferredAgencyIds: uuid('preferred_agency_ids').array(),
+    networkHidden: boolean('network_hidden'),
     /** Epoch seconds, as in the index document ("newest" sort and its keyset cursor). */
     publishedAt: bigint('published_at', { mode: 'number' }).notNull(),
     version: integer('version').notNull(),

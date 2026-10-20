@@ -873,6 +873,13 @@ Ref §5.3 (7) §16 · Mod imports, media, properties, search, db · Dep S6-F5 ·
 - A prune with 200k expired runs removes them all in one job (test)
 - 1,000 due connections are all queued within one scheduler job (test)
 
+### S7-F4 · Minimum commission in CUSTOM site policies (S7-01)
+Ref §9.1 · Mod websites, search · Dep S7-01
+**Build:** the CUSTOM inventory policy's "minimum commission" filter (PLAN §9.1), left out of S7-01 because no index field carries commission. The listing's (or unit's) total commission in basis points as an index-only field: in the listings index documents and `listing_search_docs`, never in `card`/`detail` JSON nor readable by `app_public`/`app_user` (hidden column, like `share_scope`); `minCommissionBp` in `SiteInventoryFilters` (network listings only — own listings are never filtered by it) and the site form. Fixed-amount commissions compare as a share of the price (on-request prices: unknown → excluded when a minimum is set).
+**Done when:**
+- A CUSTOM site with a 3 % minimum shows network listings at ≥ 3 % only, engine and fallback alike (test)
+- No public read path returns the commission field (isolation + serializer test)
+
 ---
 
 ## S8 — Legacy shim & WordPress plugin v2

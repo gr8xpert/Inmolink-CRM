@@ -21,6 +21,7 @@ import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
+import * as websites from '../websites';
 import * as keysRepo from './api-keys-repo';
 import { API_KEYS, type ApiKeyEnv, identityConfig } from './config';
 import { identityEvents } from './events';
@@ -78,6 +79,7 @@ function toApiKeyDto(row: keysRepo.ApiKeyRow): ApiKeyDto {
     scopes: row.scopes as ApiKeyScope[],
     allowedOrigins: row.allowedOrigins,
     rateTier: row.rateTier,
+    siteId: row.siteId,
     status: row.revokedAt ? 'REVOKED' : 'ACTIVE',
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -124,7 +126,8 @@ async function assertAgencyVerifiedLocked(ctx: Ctx, mode: 'share' | 'update'): P
 
 /**
  * Creates a key (admins of a verified agency; at most `API_KEYS.MAX_ACTIVE` active keys). Returns the
- * whole key this once. Agency keys are `STANDARD`; staff set `HIGH` (plans may sell it, S13).
+ * whole key this once. Agency keys are `STANDARD`; staff set `HIGH` (plans may sell it, S13). The key is
+ * bound to a website site (S7-01): `input.siteId`, else the agency's first site (created when it has none).
  */
 export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<IssuedApiKeyDto> {
   assertCan(ctx, 'identity.apiKeys.manage');
@@ -135,6 +138,7 @@ export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<
   if ((await keysRepo.countActiveApiKeys(ctx.tx, agencyId)) >= API_KEYS.MAX_ACTIVE) {
     throw new AppError('API_KEY_LIMIT_REACHED', { limit: API_KEYS.MAX_ACTIVE });
   }
+  const siteId = await websites.siteForNewKey(ctx, { siteId: input.siteId, keyKind: input.kind });
   const { key, prefix, keyHash } = generateApiKey(input.kind);
   const row = await keysRepo.insertApiKey(ctx.tx, {
     id: newId(),
@@ -147,6 +151,7 @@ export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<
     // Secret keys are for servers; the contract already refuses origins for them.
     allowedOrigins: input.kind === 'PUBLISHABLE' ? input.allowedOrigins : [],
     rateTier: 'STANDARD',
+    siteId,
     // Checked under the lock above (the guard trigger derives it from `agencies` as well).
     agencyActive: true,
     createdBy: actor.actorUserId,
@@ -157,7 +162,7 @@ export async function createApiKey(ctx: Ctx, input: CreateApiKeyInput): Promise<
     ctx,
     'identity.apiKey.created',
     { type: 'apiKey', id: row.id },
-    { kind: row.kind, prefix, scopes: row.scopes },
+    { kind: row.kind, prefix, scopes: row.scopes, siteId },
   );
   return { key: toApiKeyDto(row), secret: key };
 }
@@ -219,6 +224,8 @@ export interface ApiKeyPrincipal {
   kind: keysRepo.ApiKeyKind;
   scopes: ApiKeyScope[];
   rateTier: ApiKeyRateTier;
+  /** The website the key serves (`websites.siteScope`); null for keys created before sites existed (S7-01). */
+  siteId: string | null;
 }
 
 export interface ApiKeyRequest {
@@ -263,6 +270,8 @@ export async function authenticateApiKey(req: ApiKeyRequest): Promise<ApiKeyPrin
     kind: row.kind,
     scopes: row.scopes as ApiKeyScope[],
     rateTier: row.rateTier,
+    // A lookup cached before S7-01 has no site: it reads as none until the entry expires.
+    siteId: row.siteId ?? null,
   };
 }
 

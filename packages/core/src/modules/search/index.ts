@@ -81,6 +81,7 @@ export {
   publicSearchFilter,
   resetSearchBreaker,
   SEARCH_RESULT_CAP,
+  type SiteRestriction,
   searchBreakerState,
   searchPublicListings,
   WEBSITE_SEARCH_DEFAULTS,

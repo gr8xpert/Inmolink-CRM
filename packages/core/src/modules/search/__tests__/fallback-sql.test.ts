@@ -36,15 +36,26 @@ describe('fallback filter → SQL', () => {
     );
   });
 
-  it('[S5-04] visibility is constant PUBLIC; shareScope and unknown fields are refused, as are bad values', () => {
+  it('[S5-04] visibility is constant PUBLIC; unknown fields are refused, as are bad values', () => {
     expect(render(fallbackCondition({ op: 'eq', field: 'visibility', value: 'PUBLIC' })).sql).toBe('true');
     expect(render(fallbackCondition({ op: 'in', field: 'visibility', values: ['SHARED'] })).sql).toBe('false');
-    expect(() => fallbackCondition({ op: 'eq', field: 'shareScope', value: 'ALL' })).toThrow(SearchError);
+    expect(() => fallbackCondition({ op: 'eq', field: 'allowedAgencyIds', value: 'x' })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'eq', field: 'id; drop table x', value: 1 })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'range', field: 'status', gte: 1 })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'eq', field: 'beds', value: 'x' })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'in', field: 'status', values: [] })).toThrow(SearchError);
     expect(() => fallbackCondition({ op: 'and', filters: [] })).toThrow(SearchError);
+  });
+
+  it('[S7-01] network fields: share scope, preferred agencies (contains) and the freshness flag', () => {
+    const id = '01900000-0000-7000-8000-000000000001';
+    expect(render(fallbackCondition({ op: 'eq', field: 'shareScope', value: 'ALL' })).sql).toContain('share_scope =');
+    expect(render(fallbackCondition({ op: 'eq', field: 'preferredAgencyIds', value: id })).sql).toContain(
+      'preferred_agency_ids @>',
+    );
+    expect(
+      render(fallbackCondition({ op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } })).sql,
+    ).toContain('network_hidden =');
   });
 
   it('[S5-04] geo: a box (wrapping across the antimeridian) and a radius in meters', () => {

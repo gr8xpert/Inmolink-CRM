@@ -45,6 +45,11 @@ export const ErrorCodes = {
   API_KEY_SCOPE_DENIED: 403,
   /** The agency has as many active keys as allowed: revoke one first. */
   API_KEY_LIMIT_REACHED: 409,
+  // websites (S7-01)
+  /** No such site in the agency (or one of another agency). */
+  SITE_NOT_FOUND: 404,
+  /** The agency has as many sites as allowed. */
+  SITE_LIMIT_REACHED: 409,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -14,6 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
+import { websiteSites } from './websites';
 
 /**
  * Login identity (PLAN §3 #30 #31, S0-09). Global tables with `access: 'auth'`: looked up by email
@@ -304,6 +306,11 @@ export const apiKeys = pgTable(
     /** Publishable keys only: normalised origins (`https://host[:port]`) allowed to use the key. */
     allowedOrigins: text('allowed_origins').array().notNull().default(sql`'{}'::text[]`),
     rateTier: apiKeyRateTierEnum('rate_tier').notNull().default('STANDARD'),
+    /**
+     * The website the key serves (S7-01): its inventory policy, prefix, locales and contacts. Set at creation and
+     * never changed (guard trigger); null only for keys created before sites existed — the website API v2 refuses them.
+     */
+    siteId: uuid('site_id'),
     agencyActive: boolean('agency_active').notNull().default(true),
     /** The admin who created the key (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
@@ -319,5 +326,14 @@ export const apiKeys = pgTable(
     uniqueIndex('api_keys_prefix_uq').on(t.prefix),
     // FK + dashboard list: where agency_id = ? order by created_at, id (keyset); active-key count
     index('api_keys_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
+    // FK: a key's site belongs to the key's agency
+    index('api_keys_site_idx').on(t.siteId),
+    foreignKey({
+      name: 'api_keys_site_fk',
+      columns: [t.agencyId, t.siteId],
+      foreignColumns: [websiteSites.agencyId, websiteSites.id],
+      // Not cascade: a cascade runs as the owner and would delete keys past the guard (keys are revoked, never
+      // deleted). An agency's deletion removes both in one statement, which NO ACTION allows.
+    }).onDelete('no action'),
   ],
 );

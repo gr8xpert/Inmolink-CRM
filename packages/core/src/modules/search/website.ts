@@ -160,18 +160,55 @@ export function configureWebsiteSearch(options: Partial<WebsiteSearchSettings>):
 
 type Parsed = ReturnType<typeof PublicListingSearch.parse>;
 
-/** Who searches: the site's inventory from its policy (S7-01) — never from the visitor — and the request. */
+/**
+ * A CUSTOM inventory policy's narrowing (S7-01): anywhere under any of the locations, any of the types, an inclusive
+ * price band (listings on request fall outside a band), and new-build units on or off. Empty lists: no narrowing.
+ */
+export interface SiteRestriction {
+  locationIds?: readonly string[];
+  propertyTypeIds?: readonly string[];
+  priceMinCents?: number;
+  priceMaxCents?: number;
+  /** false: listings only, no new-build units. */
+  newBuilds?: boolean;
+}
+
+/** Who searches: the site's inventory from its policy (S7-01, `websites.siteSearchScope`) — never from the visitor. */
 export interface PublicSearchSite {
-  /** Listings of these owner agencies; null: every agency's PUBLIC listings (a network-wide site). */
+  /**
+   * Listings of these owner agencies; null: every agency's PUBLIC listings (a network-wide site). May be empty only
+   * with `networkOf` (a site showing network listings alone).
+   */
   ownerAgencyIds: readonly string[] | null;
+  /**
+   * Also the PUBLIC listings and units other agencies share with this agency (OWN_PLUS_NETWORK): shared with
+   * everyone, or by an owner that prefers it, and not hidden from the network for freshness (S6-F2).
+   */
+  networkOf?: string;
+  restrict?: SiteRestriction;
   /** Correlates the engine-failure logs with the request. */
   requestId: string;
 }
 
-const PublicSearchSite = z.object({
-  ownerAgencyIds: z.array(z.uuid()).min(1).max(500).nullable(),
-  requestId: z.string().max(200),
-});
+const MAX_RESTRICT_IDS = 50;
+const PublicSearchSite = z
+  .object({
+    ownerAgencyIds: z.array(z.uuid()).max(500).nullable(),
+    networkOf: z.uuid().optional(),
+    restrict: z
+      .object({
+        locationIds: z.array(z.uuid()).max(MAX_RESTRICT_IDS).optional(),
+        propertyTypeIds: z.array(z.uuid()).max(MAX_RESTRICT_IDS).optional(),
+        priceMinCents: z.number().int().min(0).optional(),
+        priceMaxCents: z.number().int().min(0).optional(),
+        newBuilds: z.boolean().optional(),
+      })
+      .optional(),
+    requestId: z.string().max(200),
+  })
+  .refine((s) => (s.ownerAgencyIds === null ? !s.networkOf : s.ownerAgencyIds.length > 0 || !!s.networkOf), {
+    message: 'a site shows a network-wide inventory, or its owners and/or its network',
+  });
 
 /** Engine cursor: an offset · fallback cursor: the last row's position (keyset). Both carry the sort. */
 type CursorState = { s: PublicSearchSort; o: number } | { s: PublicSearchSort; p: 0 | 1; v: number | null; i: string };
@@ -208,13 +245,56 @@ function decode(cursor: string | undefined, sort: PublicSearchSort): CursorState
   throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
 }
 
+/** Other agencies' documents shared with `agencyId` (the network search's rule for PUBLIC documents). */
+function sharedWith(agencyId: string): Filter {
+  return {
+    op: 'and',
+    filters: [
+      { op: 'not', filter: { op: 'eq', field: 'ownerAgencyId', value: agencyId } },
+      {
+        op: 'or',
+        filters: [
+          { op: 'eq', field: 'shareScope', value: 'ALL' },
+          { op: 'eq', field: 'preferredAgencyIds', value: agencyId },
+        ],
+      },
+      // Not `networkHidden = false`: a document indexed before the field existed has none and is not hidden.
+      { op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } },
+    ],
+  };
+}
+
+const nonEmpty = (ids: readonly string[] | undefined) => (ids && ids.length > 0 ? [...ids] : undefined);
+
 /** A site's search as one engine-neutral filter: PUBLIC documents of the site's inventory only. */
-export function publicSearchFilter(site: Pick<PublicSearchSite, 'ownerAgencyIds'>, q: Parsed): Filter {
+export function publicSearchFilter(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict'>,
+  q: Parsed,
+): Filter {
   const filters: Filter[] = [
     { op: 'eq', field: 'visibility', value: 'PUBLIC' },
     { op: 'in', field: 'status', values: q.statuses },
   ];
-  if (site.ownerAgencyIds) filters.push({ op: 'in', field: 'ownerAgencyId', values: [...site.ownerAgencyIds] });
+  if (site.ownerAgencyIds) {
+    const whose: Filter[] = [];
+    if (site.ownerAgencyIds.length > 0) {
+      whose.push({ op: 'in', field: 'ownerAgencyId', values: [...site.ownerAgencyIds] });
+    }
+    if (site.networkOf) whose.push(sharedWith(site.networkOf));
+    filters.push(whose.length === 1 ? (whose[0] as Filter) : { op: 'or', filters: whose });
+  }
+  const r = site.restrict;
+  if (r) {
+    filters.push(
+      ...attributeFilters({
+        locationIds: nonEmpty(r.locationIds),
+        propertyTypeIds: nonEmpty(r.propertyTypeIds),
+        priceMinCents: r.priceMinCents,
+        priceMaxCents: r.priceMaxCents,
+        kind: r.newBuilds === false ? 'LISTING' : undefined,
+      }),
+    );
+  }
   filters.push(...attributeFilters(q));
   return { op: 'and', filters };
 }
@@ -350,7 +430,10 @@ function fallbackQuery(q: Parsed, filter: Filter, cursor: CursorState | undefine
 }
 
 /** The fallback's statement for a site's search: perf tests EXPLAIN it on scale data (not for request paths). */
-export function publicFallbackSql(site: Pick<PublicSearchSite, 'ownerAgencyIds'>, input: PublicListingSearch): SQL {
+export function publicFallbackSql(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict'>,
+  input: PublicListingSearch,
+): SQL {
   const q = PublicListingSearch.parse(input);
   return repo.fallbackSearchSql(fallbackQuery(q, publicSearchFilter(site, q), decode(q.cursor, q.sort)));
 }

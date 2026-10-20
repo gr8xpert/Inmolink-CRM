@@ -1,0 +1,70 @@
+{
+  "title": "Websites",
+  "intro": "Each website shows the listings its inventory policy selects, with its own reference prefix, languages and contact details. Website API keys are bound to one website. Changes reach the website within a minute.",
+  "add": "Add a website",
+  "empty": "No websites yet. Creating an API key also creates one.",
+  "next": "Next page",
+  "edit": "Edit",
+  "columns": {
+    "name": "Website",
+    "mode": "Runs as",
+    "policy": "Shows",
+    "prefix": "Prefix",
+    "locales": "Languages"
+  },
+  "modes": {
+    "WP_PLUGIN": "WordPress plugin",
+    "WIDGET": "Search widget",
+    "HOSTED": "Hosted pages"
+  },
+  "policies": {
+    "OWN_ONLY": "Our listings only",
+    "OWN_PLUS_NETWORK": "Our listings and the network's",
+    "CUSTOM": "A custom selection"
+  },
+  "form": {
+    "createTitle": "Add a website",
+    "editTitle": "Edit {name}",
+    "name": "Name",
+    "mode": "Runs as",
+    "domains": "Domains",
+    "domainsHint": "One per line, without https:// (www.example.com).",
+    "policy": "Inventory policy",
+    "policyHint": "Network listings are other agencies' public listings shared with you; they appear under your branding.",
+    "custom": "Custom selection",
+    "includeOwn": "Our listings",
+    "includeNetwork": "Network listings",
+    "locations": "Only in these locations",
+    "types": "Only these property types",
+    "anyHint": "Select none for any. Hold Ctrl (Cmd on a Mac) to select several.",
+    "priceMin": "Lowest price (€)",
+    "priceMax": "Highest price (€)",
+    "priceHint": "Listings priced on request are left out when a price band is set.",
+    "newBuilds": "Include new-build units",
+    "prefix": "Reference prefix",
+    "prefixHint": "Up to 6 capital letters or digits, shown before network listings' references. Leave empty for none.",
+    "locales": "Languages",
+    "localesHint": "Language codes separated by commas, the default first (en, es).",
+    "contact": "Contact details shown on this website",
+    "contactHint": "Leave empty to show the agency's own.",
+    "contactName": "Name",
+    "contactEmail": "Email",
+    "contactPhone": "Phone",
+    "contactWhatsapp": "WhatsApp",
+    "save": "Save",
+    "create": "Add website",
+    "back": "Back to websites"
+  },
+  "notices": {
+    "created": "Website added.",
+    "saved": "Website saved. Its listings follow within a minute."
+  },
+  "errors": {
+    "FORBIDDEN": "Only agency admins can change websites.",
+    "SITE_NOT_FOUND": "This website no longer exists.",
+    "SITE_LIMIT_REACHED": "Your agency has as many websites as allowed.",
+    "VALIDATION_FAILED": "Some fields are not valid. Check them and try again.",
+    "VERSION_CONFLICT": "Someone else changed this website meanwhile. Reload and try again.",
+    "generic": "Something went wrong. Try again."
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "title": "Sitios web",
+  "intro": "Cada sitio web muestra los inmuebles que selecciona su política de inventario, con su propio prefijo de referencia, idiomas y datos de contacto. Las claves de la API web van ligadas a un sitio. Los cambios llegan al sitio en menos de un minuto.",
+  "add": "Añadir un sitio web",
+  "empty": "Aún no hay sitios web. Al crear una clave de la API también se crea uno.",
+  "next": "Página siguiente",
+  "edit": "Editar",
+  "columns": {
+    "name": "Sitio web",
+    "mode": "Funciona como",
+    "policy": "Muestra",
+    "prefix": "Prefijo",
+    "locales": "Idiomas"
+  },
+  "modes": {
+    "WP_PLUGIN": "Plugin de WordPress",
+    "WIDGET": "Widget de búsqueda",
+    "HOSTED": "Páginas alojadas"
+  },
+  "policies": {
+    "OWN_ONLY": "Solo nuestros inmuebles",
+    "OWN_PLUS_NETWORK": "Nuestros inmuebles y los de la red",
+    "CUSTOM": "Una selección personalizada"
+  },
+  "form": {
+    "createTitle": "Añadir un sitio web",
+    "editTitle": "Editar {name}",
+    "name": "Nombre",
+    "mode": "Funciona como",
+    "domains": "Dominios",
+    "domainsHint": "Uno por línea, sin https:// (www.ejemplo.com).",
+    "policy": "Política de inventario",
+    "policyHint": "Los inmuebles de la red son inmuebles públicos de otras agencias compartidos contigo; aparecen con tu marca.",
+    "custom": "Selección personalizada",
+    "includeOwn": "Nuestros inmuebles",
+    "includeNetwork": "Inmuebles de la red",
+    "locations": "Solo en estas ubicaciones",
+    "types": "Solo estos tipos de inmueble",
+    "anyHint": "No selecciones ninguno para todos. Mantén Ctrl (Cmd en Mac) para seleccionar varios.",
+    "priceMin": "Precio mínimo (€)",
+    "priceMax": "Precio máximo (€)",
+    "priceHint": "Con una franja de precio se excluyen los inmuebles con precio a consultar.",
+    "newBuilds": "Incluir unidades de obra nueva",
+    "prefix": "Prefijo de referencia",
+    "prefixHint": "Hasta 6 letras mayúsculas o cifras, delante de las referencias de los inmuebles de la red. Déjalo vacío para no usarlo.",
+    "locales": "Idiomas",
+    "localesHint": "Códigos de idioma separados por comas, el predeterminado primero (en, es).",
+    "contact": "Datos de contacto que muestra este sitio",
+    "contactHint": "Déjalos vacíos para mostrar los de la agencia.",
+    "contactName": "Nombre",
+    "contactEmail": "Correo electrónico",
+    "contactPhone": "Teléfono",
+    "contactWhatsapp": "WhatsApp",
+    "save": "Guardar",
+    "create": "Añadir sitio web",
+    "back": "Volver a sitios web"
+  },
+  "notices": {
+    "created": "Sitio web añadido.",
+    "saved": "Sitio web guardado. Sus inmuebles se actualizan en menos de un minuto."
+  },
+  "errors": {
+    "FORBIDDEN": "Solo los administradores de la agencia pueden cambiar los sitios web.",
+    "SITE_NOT_FOUND": "Este sitio web ya no existe.",
+    "SITE_LIMIT_REACHED": "Tu agencia ya tiene el máximo de sitios web permitidos.",
+    "VALIDATION_FAILED": "Algunos campos no son válidos. Revísalos e inténtalo de nuevo.",
+    "VERSION_CONFLICT": "Otra persona ha cambiado este sitio web mientras tanto. Recarga e inténtalo de nuevo.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo."
+  }
+}

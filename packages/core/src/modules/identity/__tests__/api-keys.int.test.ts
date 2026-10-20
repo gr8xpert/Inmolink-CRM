@@ -419,12 +419,16 @@ describe('API keys', () => {
     ]) {
       expect(await denied(statement)).toBe('42501');
     }
-    const insert = (over: { createdBy?: string; tier?: string }) =>
-      sql`insert into api_keys (id, agency_id, name, kind, prefix, key_hash, scopes, rate_tier, created_by)
+    const insert = (over: { createdBy?: string; tier?: string; siteId?: string | null }) =>
+      sql`insert into api_keys (id, agency_id, name, kind, prefix, key_hash, scopes, rate_tier, created_by, site_id)
           values (${newId()}, ${f.agencyId}, 'x', 'SECRET', ${`sk${newId().slice(-10)}`}, 'h', '{listings:read}',
-                  ${over.tier ?? 'STANDARD'}, ${over.createdBy ?? f.userId})`;
+                  ${over.tier ?? 'STANDARD'}, ${over.createdBy ?? f.userId},
+                  ${over.siteId === undefined ? key.siteId : over.siteId})`;
     expect(await denied(insert({ createdBy: newId() }))).toBe('42501');
     expect(await denied(insert({ tier: 'HIGH' }))).toBe('42501');
+    // S7-01: a key is bound to a site, and stays on it.
+    expect(await denied(insert({ siteId: null }))).toBe('42501');
+    expect(await denied(sql`update api_keys set site_id = null where id = ${key.id}`)).toBe('42501');
     expect(await denied(insert({}))).toBe('ok');
     expect(await denied(sql`delete from api_keys where id = ${key.id}`)).toBe('42501');
     await as(f, (ctx) => identity.revokeApiKey(ctx, { keyId: key.id }));

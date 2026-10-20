@@ -12,6 +12,7 @@ import type staff from '../messages/en/staff.json';
 import type staffAccess from '../messages/en/staff-access.json';
 import type team from '../messages/en/team.json';
 import type verification from '../messages/en/verification.json';
+import type websites from '../messages/en/websites.json';
 
 /**
  * Shape of the UI messages, one namespace per file in `messages/en/` (EN is the source of truth).
@@ -33,6 +34,7 @@ export interface Messages {
   staff: typeof staff;
   team: typeof team;
   verification: typeof verification;
+  websites: typeof websites;
 }
 
 export type Namespace = keyof Messages;
