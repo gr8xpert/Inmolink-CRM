@@ -564,7 +564,8 @@ describe('website lead intake (S7-05)', () => {
       ),
     );
     // Three per recipient per site per day, however the jobs interleave.
-    const sent = mail.sent.filter((m) => spellings.includes(m.to as string));
+    const lower = spellings.map((s) => s.toLowerCase());
+    const sent = mail.sent.filter((m) => lower.includes(String(m.to).toLowerCase()));
     expect(sent).toHaveLength(3);
     const rows = await system((tx) =>
       tx.execute<{ sent: string; skipped: string }>(
