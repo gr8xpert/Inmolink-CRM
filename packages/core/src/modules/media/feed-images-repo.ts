@@ -136,12 +136,31 @@ export async function summaries(tx: Tx, propertyIds: readonly string[]): Promise
   return out;
 }
 
-/** Agencies with waiting rows nobody claimed for `olderThanMs` (a lost job): the sweep asks for their run again. */
+/**
+ * Agencies with waiting rows nobody claimed for `olderThanMs` (a lost job): the sweep asks for their run again.
+ *
+ * S7-F3: a skip scan over `feed_image_queue_agency_created_idx` (one index probe per agency with waiting rows, not a
+ * `distinct` over every waiting row), then per agency its next row to claim — the oldest unclaimed one, as `claim`
+ * takes them — is overdue when untouched that long. A claim touches only the rows it claims, so rows still waiting
+ * behind a long-running job keep their queue time and can flag the agency too: harmless, as `requestFeedImages` is
+ * throttled per agency (enqueues within `THROTTLE_MS` are deduplicated) and the job runs one per agency, so the extra
+ * run finds the rows claimed or takes them next. A lost job's rows (lease lapsed) are flagged the same way.
+ */
 export async function overdueAgencies(tx: Tx, olderThanMs: number, limit: number): Promise<string[]> {
   const res = await tx.execute(sql`
-    select distinct agency_id as "agencyId" from feed_image_queue
-     where updated_at < now() - ${`${olderThanMs} milliseconds`}::interval
-       and (claimed_until is null or claimed_until < now())
+    with recursive agencies as (
+      (select agency_id from feed_image_queue order by agency_id limit 1)
+      union all
+      select (select q.agency_id from feed_image_queue q where q.agency_id > a.agency_id order by q.agency_id limit 1)
+        from agencies a where a.agency_id is not null
+    )
+    select a.agency_id as "agencyId"
+      from agencies a
+      cross join lateral (
+        select q.updated_at from feed_image_queue q
+         where q.agency_id = a.agency_id and (q.claimed_until is null or q.claimed_until < now())
+         order by q.created_at limit 1) next
+     where a.agency_id is not null and next.updated_at < now() - ${`${olderThanMs} milliseconds`}::interval
      limit ${limit}`);
   return (res.rows as { agencyId: string }[]).map((r) => r.agencyId);
 }

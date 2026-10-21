@@ -104,11 +104,21 @@ export interface ObjectUpload {
 
 /** Multipart part size: equal parts (R2 requires it), above S3's 5 MiB minimum. */
 export const UPLOAD_PART_BYTES = 8 * 1024 * 1024;
+/** S3's smallest multipart part (every part but the last). */
+export const MIN_UPLOAD_PART_BYTES = 5 * 1024 * 1024;
+
+export interface UploadOptions extends PutOptions {
+  /**
+   * This upload's part size (default the store's, `UPLOAD_PART_BYTES`), at least `MIN_UPLOAD_PART_BYTES`: smaller parts
+   * hold less in memory while many uploads stream at once (S7-F3 feed images).
+   */
+  partBytes?: number;
+}
 
 export interface ObjectStore {
   put(bucket: BucketName, key: string, body: Uint8Array, options: PutOptions): Promise<void>;
   /** A streamed write (`ObjectUpload`); call `complete()` or `abort()`. */
-  upload(bucket: BucketName, key: string, options: PutOptions): ObjectUpload;
+  upload(bucket: BucketName, key: string, options: UploadOptions): ObjectUpload;
   /**
    * The object as a stream (S7-07: served as it is read, never buffered whole), or null when it does not exist. Fails
    * (`StorageError` 413) on an object larger than `maxBytes`, before or while streaming.
@@ -116,6 +126,12 @@ export interface ObjectStore {
   getStream(bucket: BucketName, key: string, options: GetOptions): Promise<Readable | null>;
   /** The whole object, or null when it does not exist (worker use: one image to process, S3-04). */
   get(bucket: BucketName, key: string, options: GetOptions): Promise<Uint8Array | null>;
+  /**
+   * Copies an object to another key of the same bucket inside the store (S7-F3: a streamed feed image lands under a
+   * staging key, then moves to its content-addressed key once hashed) — no bytes through this process. Keeps the
+   * source's metadata (content type). Fails (`StorageError` 404) when the source does not exist.
+   */
+  copy(bucket: BucketName, fromKey: string, toKey: string): Promise<void>;
   /** Idempotent: deleting a missing object succeeds. */
   delete(bucket: BucketName, key: string): Promise<void>;
   /** Size of the object, or null when it does not exist. */
@@ -273,6 +289,24 @@ export function parseListPage(xml: string): ListPage {
   return { objects, next: truncated ? xmlText(xml, 'NextContinuationToken') : null };
 }
 
+const encodeKey = (key: string) => key.split('/').map(encodeURIComponent).join('/');
+
+/**
+ * A request body of known length sent without a copy (S7-F3): a byte-array body is copied by every `Request` built
+ * around it, which kept about twice the in-flight bytes in memory while many uploads ran; a one-chunk stream with an
+ * explicit `content-length` is sent as is (no chunked encoding).
+ */
+function lengthBody(bytes: Uint8Array): { body: ReadableStream<Uint8Array> } {
+  return {
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
+  };
+}
+
 export function createS3Store(config: S3StoreConfig): ObjectStore {
   const endpoint = config.endpoint.replace(/\/+$/, '');
   const aws = new AwsClient({
@@ -294,7 +328,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     const name = bucketName(bucket);
     // A store built for some buckets only (`storageConfigForBuckets`) reaches nothing else.
     if (!name) throw new StorageError(`storage: bucket ${bucket} is not configured`);
-    return new URL(`${endpoint}/${encodeURIComponent(name)}/${key.split('/').map(encodeURIComponent).join('/')}`);
+    return new URL(`${endpoint}/${encodeURIComponent(name)}/${encodeKey(key)}`);
   };
 
   const send = async (url: URL, init: RequestInit & { method: string }): Promise<Response> => {
@@ -311,10 +345,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     async put(bucket, key, body, options) {
       const res = await send(urlOf(bucket, key), {
         method: 'PUT',
-        body: body as Uint8Array<ArrayBuffer>,
+        ...lengthBody(body),
         headers: {
           'content-type': options.contentType,
           ...(options.cacheControl ? { 'cache-control': assertCacheControl(options.cacheControl) } : {}),
+          'content-length': String(body.byteLength),
           // Signed payload hash: the store rejects a body altered in transit.
           'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
         },
@@ -333,7 +368,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
         return url;
       };
-      const part = Buffer.allocUnsafe(partBytes);
+      const partSize = options.partBytes ?? partBytes;
+      if (options.partBytes !== undefined && (!Number.isInteger(partSize) || partSize < MIN_UPLOAD_PART_BYTES)) {
+        throw new RangeError(`storage upload: partBytes must be an integer >= ${MIN_UPLOAD_PART_BYTES}`);
+      }
+      const part = Buffer.allocUnsafe(partSize);
       let fill = 0;
       let size = 0;
       let uploadId: string | null = null;
@@ -349,8 +388,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         }
         const res = await send(at({ partNumber: String(etags.length + 1), uploadId }), {
           method: 'PUT',
-          body: bytes as Uint8Array<ArrayBuffer>,
-          headers: { 'x-amz-content-sha256': createHash('sha256').update(bytes).digest('hex') },
+          ...lengthBody(bytes),
+          headers: {
+            'content-length': String(bytes.byteLength),
+            'x-amz-content-sha256': createHash('sha256').update(bytes).digest('hex'),
+          },
         });
         await res.body?.cancel();
         const etag = res.headers.get('etag');
@@ -365,12 +407,12 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
           assertOpen();
           let from = 0;
           while (from < chunk.byteLength) {
-            const n = Math.min(partBytes - fill, chunk.byteLength - from);
+            const n = Math.min(partSize - fill, chunk.byteLength - from);
             part.set(chunk.subarray(from, from + n), fill);
             fill += n;
             from += n;
             size += n;
-            if (fill === partBytes) {
+            if (fill === partSize) {
               await sendPart(part);
               fill = 0;
             }
@@ -383,8 +425,12 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
             const body = part.subarray(0, fill);
             const res = await send(target, {
               method: 'PUT',
-              body: body as Uint8Array<ArrayBuffer>,
-              headers: { ...meta, 'x-amz-content-sha256': createHash('sha256').update(body).digest('hex') },
+              ...lengthBody(body),
+              headers: {
+                ...meta,
+                'content-length': String(body.byteLength),
+                'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
+              },
             });
             await res.body?.cancel();
             if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
@@ -466,6 +512,19 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         throw new StorageError('storage GET: incomplete body');
       }
       return concat(chunks, total);
+    },
+    async copy(bucket, fromKey, toKey) {
+      if (fromKey === toKey) throw new StorageError('storage COPY: source and target are the same key');
+      assertObjectKey(fromKey);
+      const target = urlOf(bucket, toKey);
+      const res = await send(target, {
+        method: 'PUT',
+        // `<bucket>/<key>`, each part URL-encoded (S3 CopyObject); same bucket as the target
+        headers: { 'x-amz-copy-source': `${encodeURIComponent(bucketName(bucket))}/${encodeKey(fromKey)}` },
+      });
+      const xml = await res.text();
+      // S3 may answer 200 with an error document.
+      if (!res.ok || xml.includes('<Error>')) throw new StorageError(`storage COPY failed (${res.status})`, res.status);
     },
     async delete(bucket, key) {
       const res = await send(urlOf(bucket, key), { method: 'DELETE' });
@@ -615,6 +674,12 @@ export function createMemoryStore(): MemoryStore {
       if (!o) return null;
       if (o.body.byteLength > max) throw new StorageError('storage GET: object too large', 413);
       return o.body.slice();
+    },
+    async copy(bucket, fromKey, toKey) {
+      if (fromKey === toKey) throw new StorageError('storage COPY: source and target are the same key');
+      const o = objects.get(id(bucket, fromKey));
+      if (!o) throw new StorageError('storage COPY failed (404)', 404);
+      objects.set(id(bucket, toKey), { ...o, lastModified: new Date() });
     },
     async delete(bucket, key) {
       objects.delete(id(bucket, key));

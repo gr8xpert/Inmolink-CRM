@@ -200,10 +200,9 @@ export const feedImageQueue = pgTable(
       columns: [t.propertyId, t.agencyId],
       foreignColumns: [properties.id, properties.agencyId],
     }).onDelete('cascade'),
-    // FK + the agency's waiting listings, oldest first (the worker's claim)
+    // FK + the agency's waiting listings, oldest first (the worker's claim); the sweep (`media.sweepFeedImages`)
+    // skip-scans it for the agencies with waiting rows (S7-F3: no `updated_at` index, so claims stay HOT updates)
     index('feed_image_queue_agency_created_idx').on(t.agencyId, t.createdAt),
-    // the sweep (`media.sweepFeedImages`): rows untouched for a while, every agency
-    index('feed_image_queue_updated_idx').on(t.updatedAt),
     check('feed_image_queue_urls_ck', sql`cardinality(${t.urls}) between 1 and 100`),
   ],
 );

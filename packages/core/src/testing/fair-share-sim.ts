@@ -5,8 +5,9 @@ import { groupRetryDelay } from '@inmolink/platform/queue';
  * hop, BullMQ priorities and the worker's per-agency and global caps — the same rules, with synthetic run durations
  * instead of real imports.
  *
- * - **Scheduler** (`imports.scheduleFeeds`, every `tickS`): queues at most `scheduleBatch` due connections per tick,
- *   at most `perAgencyPerTick` of one agency, oldest `next_run_at` first (`repo.queueDueRuns`).
+ * - **Scheduler** (`imports.scheduleFeeds`, every `tickS`): queues at most `scheduleBatch` due connections per batch,
+ *   at most `perAgencyPerTick` of one agency, oldest `next_run_at` first (`repo.queueDueRuns`); S7-F3: up to
+ *   `maxBatchesPerTick` batches per tick, until none is due.
  * - **Enqueue** (`platform/queue` fairness): a job's priority is its agency's backlog depth (queued + running, this one
  *   included); BullMQ takes the lowest priority first, FIFO within one.
  * - **Workers**: `processes × concurrency` slots take the best waiting job. A job whose agency already runs
@@ -37,7 +38,10 @@ export interface SimOptions {
   perProcessCap: number;
   perGroupCap: number;
   scheduleBatch: number;
+  /** Of one agency per batch. */
   perAgencyPerTick: number;
+  /** S7-F3: batches per tick (the scheduler repeats them until none is due); 1 when omitted (the S6-08 scheduler). */
+  maxBatchesPerTick?: number;
   tickS: number;
   retryBaseMs: number;
   retryMaxMs: number;
@@ -156,29 +160,31 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
     // 2. scheduler tick
     if (t >= nextTick) {
       nextTick += o.tickS;
-      const perAgency = new Map<string, number>();
-      let taken = 0;
-      for (const p of pending) {
-        if (taken >= o.scheduleBatch) break;
-        if (scheduled.has(p.i) || p.due > t) continue;
-        const f = feeds[p.i] as SimFeed;
-        const n = perAgency.get(f.agency) ?? 0;
-        if (n >= o.perAgencyPerTick) continue;
-        perAgency.set(f.agency, n + 1);
-        scheduled.add(p.i);
-        taken++;
-        const depth = (backlog.get(f.agency) ?? 0) + 1;
-        backlog.set(f.agency, depth);
-        ready.push({
-          feed: p.i,
-          agency: f.agency,
-          priority: depth,
-          seq: seq++,
-          enqueuedS: t,
-          retryAtS: t,
-          visibleS: t + latency,
-          attempts: 0,
-        });
+      for (let batch = 0, taken = o.scheduleBatch; batch < (o.maxBatchesPerTick ?? 1) && taken > 0; batch++) {
+        const perAgency = new Map<string, number>();
+        taken = 0;
+        for (const p of pending) {
+          if (taken >= o.scheduleBatch) break;
+          if (scheduled.has(p.i) || p.due > t) continue;
+          const f = feeds[p.i] as SimFeed;
+          const n = perAgency.get(f.agency) ?? 0;
+          if (n >= o.perAgencyPerTick) continue;
+          perAgency.set(f.agency, n + 1);
+          scheduled.add(p.i);
+          taken++;
+          const depth = (backlog.get(f.agency) ?? 0) + 1;
+          backlog.set(f.agency, depth);
+          ready.push({
+            feed: p.i,
+            agency: f.agency,
+            priority: depth,
+            seq: seq++,
+            enqueuedS: t,
+            retryAtS: t,
+            visibleS: t + latency,
+            attempts: 0,
+          });
+        }
       }
     }
 

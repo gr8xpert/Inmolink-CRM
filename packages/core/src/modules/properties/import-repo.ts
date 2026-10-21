@@ -177,15 +177,25 @@ export async function seenEarlier(tx: Tx, runId: string, refs: readonly string[]
   return (res.rows as { ref: string }[]).map((r) => r.ref);
 }
 
-/** Records every feed reference of the batch as seen by the run (staged, rejected and failed items alike). */
-export async function recordSeen(tx: Tx, scope: ImportScope, extraRefs: readonly string[]): Promise<void> {
-  await tx.execute(sql`
+/**
+ * Records every feed reference of the batch as seen by the run (staged, rejected and failed items alike). Answers how
+ * many rows it added (S7-F3: the run counts them on its logged row).
+ */
+export async function recordSeen(tx: Tx, scope: ImportScope, extraRefs: readonly string[]): Promise<number> {
+  const res = await tx.execute(sql`
     insert into property_import_seen (agency_id, run_id, external_ref)
     select ${scope.agencyId}::uuid, ${scope.runId}::uuid, ref from property_import_staging
      where batch_id = ${scope.batchId}
     union
     select ${scope.agencyId}::uuid, ${scope.runId}::uuid, r from unnest(${arrayParam(extraRefs)}::text[]) r
     on conflict do nothing`);
+  return res.rowCount ?? 0;
+}
+
+/** Seen references the run has now (S7-F3: checked against its logged count before the missing-listing anti-join). */
+export async function countSeen(tx: Tx, runId: string): Promise<number> {
+  const res = await tx.execute(sql`select count(*)::int as n from property_import_seen where run_id = ${runId}`);
+  return Number((res.rows[0] as { n: number } | undefined)?.n ?? 0);
 }
 
 /**

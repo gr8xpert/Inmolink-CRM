@@ -93,10 +93,24 @@ export const RUNS = {
   BATCH_SIZE: 500,
   /** Finished runs older than this are pruned with their errors (daily). */
   RETENTION_DAYS: 90,
-  /** Due connections the scheduler starts per tick (the next tick takes the rest). */
+  /** Due connections the scheduler starts per transaction (S7-F3: a tick runs batches until none is due). */
   SCHEDULE_BATCH: 200,
-  /** …and of one agency at most this many per tick (fair share between agencies). */
+  /** …and of one agency at most this many per batch (fair share: every agency's first ones go first). */
   SCHEDULE_PER_AGENCY: 10,
+  /** A tick's bound: at most this many batches (100 × 200 = 20k runs) and this long; the next tick takes the rest. */
+  SCHEDULE_MAX_BATCHES: 100,
+  SCHEDULE_BUDGET_MS: 40_000,
+  /**
+   * `imports.pruneRuns` (S7-F3): finished runs deleted per transaction, and how long one job keeps deleting (it stops
+   * earlier once nothing expired is left; the next daily run continues what the budget left).
+   */
+  PRUNE_BATCH: 2_000,
+  /**
+   * …and at most about this many of their item errors (cascaded with them): a batch takes runs oldest first while
+   * their `errors_logged` add up to this (always at least one run; one run keeps ≤ `FEED_ERRORS_KEPT`, 1,000).
+   */
+  PRUNE_ERRORS_PER_BATCH: 10_000,
+  PRUNE_BUDGET_MS: 10 * 60_000,
   /** Taxonomy resolutions (exact or fuzzy) a run remembers, so later batches skip the resolver for known values. */
   MAX_CACHED_RESOLUTIONS: 50_000,
 } as const;

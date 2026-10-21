@@ -6,7 +6,15 @@ import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { type BucketName, storage } from '@inmolink/platform/storage';
 import { z } from 'zod';
 import { mediaEvents } from './events';
-import { FEED_IMAGES, importFeedImages, overdueFeedImageAgencies } from './feed-images';
+import {
+  FEED_IMAGES,
+  FEED_STAGING_PREFIX,
+  FEED_STAGING_SWEEP_AGE_MS,
+  feedImageJobsMax,
+  feedImageJobsPerProcess,
+  importFeedImages,
+  overdueFeedImageAgencies,
+} from './feed-images';
 import { ImageInputError, isHeavyInput, normalizeOriginal, renderVariants, withImageSlot } from './processing';
 import * as repo from './repo';
 import { mapLimit, ORIGINALS_BUCKET, originalKey } from './service';
@@ -294,6 +302,17 @@ export const mediaJobs = {
         if (!listed.next) break;
         after = listed.next;
       }
+      // S7-F3: staging objects of streamed feed images a job left behind (it died between upload and move).
+      const stagingCutoff = now.getTime() - FEED_STAGING_SWEEP_AGE_MS;
+      after = undefined;
+      for (let page = 0; page < SWEEP_MAX_PAGES && !signal.aborted; page++) {
+        const listed = await storage().list(ORIGINALS_BUCKET, FEED_STAGING_PREFIX, { limit: SWEEP_PAGE, after });
+        const old = listed.objects.filter((o) => o.lastModified.getTime() <= stagingCutoff).map((o) => o.key);
+        await mapLimit(old, STORAGE_CONCURRENCY, (key) => storage().delete(ORIGINALS_BUCKET, key));
+        swept += old.length;
+        if (!listed.next) break;
+        after = listed.next;
+      }
       if (retried > 0)
         log.warn({ retried }, 'files of orphaned media objects could not all be deleted; next run retries');
       log.info({ deleted, kept, reset, swept }, 'media orphans pruned');
@@ -324,7 +343,8 @@ export const mediaJobs = {
    * S6-02, pool `imports` (it needs `app_user`, storage and the network — the media-only container has neither the
    * role nor the outbound need): fetches an agency's queued feed images, hash-first (`feed-images.ts`). Throttled per
    * agency; its own fair-share group, so it never waits behind the agency's feed run. Asks for another run when its
-   * budget ran out with listings still waiting.
+   * budget ran out with listings still waiting. S7-F3: at most `IMPORT_IMAGE_JOBS_PER_PROCESS` in one process (RSS)
+   * and `IMPORT_IMAGE_JOBS_MAX_CONCURRENT` across the pool, so feed runs and the pool's other jobs keep their slots.
    */
   importFeedImages: defineJob({
     name: 'media.importFeedImages',
@@ -332,6 +352,8 @@ export const mediaJobs = {
     payload: z.object({ agencyId: z.uuid() }),
     group: (p) => `feed-images:${p.agencyId}`,
     concurrencyPerGroup: 1,
+    globalConcurrency: feedImageJobsMax,
+    perProcessConcurrency: feedImageJobsPerProcess,
     attempts: 3,
     backoff: { type: 'exponential', delay: 30_000 },
     timeoutMs: FEED_IMAGES.RUN_BUDGET_MS + FEED_IMAGES.LEASE_MS,

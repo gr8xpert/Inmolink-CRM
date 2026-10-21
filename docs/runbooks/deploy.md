@@ -69,6 +69,10 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
      R2 API tokens scope to whole buckets, not prefixes, so originals and masters live in their own bucket
      (S3-F9): create `inmolink-media-work` (no public access, no custom domain) next to the others. The local
      stack enforces the same bucket-level scope (`infra/storage/media-worker-policy.json`).
+     S7-F3: feed images past 5 MiB stream to `feed-staging/` in `inmolink-media-work` (workers' token, Object Read &
+     Write) and move by CopyObject. On that bucket add the lifecycle rule **Abort incomplete multipart uploads after
+     1 day, prefix `feed-staging/`** (R2 → bucket → Settings → Object lifecycle rules): a job that dies mid-upload
+     leaves parts no listing shows; completed leftovers are swept by `media.pruneOrphans`.
    - `S3_FEEDS_ACCESS_KEY_ID` / `S3_FEEDS_SECRET_ACCESS_KEY` (H3, S7-07): feed-api's R2 API token, **Object Read
      only**, *Apply to specific buckets only* → `inmolink-feeds` (per-site XML feeds, `site-feeds/<site>/<run>/`).
      Create the bucket `inmolink-feeds` (no public access, no custom domain) first and add it to the workers'

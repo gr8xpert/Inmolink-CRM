@@ -1,0 +1,1 @@
+ALTER TABLE "feed_runs" ADD COLUMN "items_seen" integer DEFAULT 0 NOT NULL;

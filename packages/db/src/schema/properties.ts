@@ -341,14 +341,16 @@ export const propertyPrivates = pgTable(
 /**
  * The feed references a run saw (S6-02): every item of the feed — imported, unchanged or failed with a reference —
  * so the end of a successful run finds the connection's listings missing from it. Written per batch in the batch
- * transaction; deleted when the run ends (`imports.pruneRuns` removes what a crashed run left).
+ * transaction; deleted when the run ends (`imports.pruneRuns` removes what a crashed run left). S7-F3: UNLOGGED like the
+ * staging table (set in 0098) and vacuumed often (about 2M inserts and deletes an hour at 5,000 agencies). A crash or
+ * a failover empties it: the run's logged count (`feed_runs.items_seen`) catches that before the anti-join, and the
+ * run starts over.
  */
 export const propertyImportSeen = pgTable(
   'property_import_seen',
   {
-    agencyId: uuid('agency_id')
-      .notNull()
-      .references(() => agencies.id),
+    /** No foreign key (S7-F3): rows live for one run, like the staging table's; RLS scopes them. */
+    agencyId: uuid('agency_id').notNull(),
     /** The feed run (no foreign key: imports owns runs). */
     runId: uuid('run_id').notNull(),
     externalRef: text('external_ref').notNull(),
@@ -357,8 +359,7 @@ export const propertyImportSeen = pgTable(
   (t) => [
     // the missing-listing anti-join of a run, and its delete
     primaryKey({ columns: [t.runId, t.externalRef] }),
-    // FK + the prune of rows a crashed run left, oldest first
-    index('property_import_seen_agency_created_idx').on(t.agencyId, t.createdAt),
+    // the prune of rows a crashed run left, oldest first
     index('property_import_seen_created_idx').on(t.createdAt),
     check('property_import_seen_ref_ck', sql`char_length(${t.externalRef}) between 1 and 200`),
   ],

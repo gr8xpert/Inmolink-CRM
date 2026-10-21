@@ -1,0 +1,1 @@
+DROP INDEX "feed_image_queue_updated_idx";

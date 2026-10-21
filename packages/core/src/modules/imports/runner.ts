@@ -342,6 +342,7 @@ export async function executeRun(
           valid: batch.total - failed,
           failed,
           ...counts,
+          seen: counts.seen ?? 0,
           logged: keep.length,
           bytesRead: batch.bytesRead,
         });

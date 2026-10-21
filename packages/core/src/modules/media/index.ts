@@ -11,7 +11,14 @@ export {
 } from './documents';
 export { mediaErrors } from './errors';
 export { mediaEvents } from './events';
-export { FEED_IMAGES, type FeedImagesResult, importFeedImages, queueFeedImages } from './feed-images';
+export {
+  configureFeedImages,
+  FEED_IMAGES,
+  FEED_STAGING_PREFIX,
+  type FeedImagesResult,
+  importFeedImages,
+  queueFeedImages,
+} from './feed-images';
 export { MEDIA_DELETE_GRACE_DAYS, mediaJobs, requestFeedImages, requestVariants } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, MEDIA_ACTIONS, MEDIA_IMPERSONATION } from './policy';
 export { hammingDistance } from './processing';

@@ -88,6 +88,11 @@ try {
       ...(config.IMPORT_FEED_FRESHNESS_DAYS ? { feedFreshnessDays: config.IMPORT_FEED_FRESHNESS_DAYS } : {}),
     });
   }
+  // S7-F3: feed-image jobs at once across the pool and in this process (validated by `importsEnv`).
+  media.configureFeedImages({
+    ...(config.IMPORT_IMAGE_JOBS_MAX_CONCURRENT ? { maxConcurrentJobs: config.IMPORT_IMAGE_JOBS_MAX_CONCURRENT } : {}),
+    ...(config.IMPORT_IMAGE_JOBS_PER_PROCESS ? { jobsPerProcess: config.IMPORT_IMAGE_JOBS_PER_PROCESS } : {}),
+  });
   configureStorage(storageConfigFromEnv(config as Parameters<typeof storageConfigFromEnv>[0]));
   if (config.MEDIA_URL_KEY) media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
   if (config.MEILI_URL && config.MEILI_MASTER_KEY) {

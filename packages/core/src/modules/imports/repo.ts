@@ -327,6 +327,7 @@ export async function claimRun(
       itemsUnchanged: 0,
       itemsHeld: 0,
       itemsWithdrawn: 0,
+      itemsSeen: 0,
       errorsLogged: 0,
       bytesRead: 0,
       updatedAt: sql`now()`,
@@ -384,6 +385,8 @@ export async function addBatchCounts(
     updated: number;
     unchanged: number;
     held: number;
+    /** S7-F3: seen references the batch recorded. */
+    seen: number;
     logged: number;
     bytesRead: number;
   },
@@ -398,6 +401,7 @@ export async function addBatchCounts(
       itemsUpdated: sql`${feedRuns.itemsUpdated} + ${d.updated}`,
       itemsUnchanged: sql`${feedRuns.itemsUnchanged} + ${d.unchanged}`,
       itemsHeld: sql`${feedRuns.itemsHeld} + ${d.held}`,
+      itemsSeen: sql`${feedRuns.itemsSeen} + ${d.seen}`,
       errorsLogged: sql`${feedRuns.errorsLogged} + ${d.logged}`,
       bytesRead: d.bytesRead,
       leaseUntil: leaseUntil(leaseMs),
@@ -406,6 +410,12 @@ export async function addBatchCounts(
     .where(and(eq(feedRuns.id, runId), eq(feedRuns.state, 'RUNNING'), eq(feedRuns.leaseToken, token)))
     .returning({ id: feedRuns.id });
   return rows.length > 0;
+}
+
+/** S7-F3: seen references the run's current attempt recorded (its logged count). */
+export async function runSeenCount(tx: Tx, runId: string): Promise<number> {
+  const [row] = await tx.select({ seen: feedRuns.itemsSeen }).from(feedRuns).where(eq(feedRuns.id, runId));
+  return row?.seen ?? 0;
 }
 
 /** Errors logged so far, while `token` holds the run (null: lease lost). Locks the row for the batch. */
@@ -618,14 +628,15 @@ export async function failStaleRuns(
 /**
  * Starts the due connections' scheduled runs: claims up to `limit` enabled connections (≤ `perAgency` each) whose `next_run_at` passed
  * (`SKIP LOCKED`: concurrent ticks split the work), queues one run each unless one is already active (the mutex
- * makes that a no-op), and moves `next_run_at` one interval on. Returns the runs queued.
+ * makes that a no-op), and moves `next_run_at` one interval on. Returns the runs queued and how many connections it
+ * claimed (S7-F3: the scheduler runs another batch while a batch claims `limit`).
  */
 export async function queueDueRuns(
   tx: Tx,
   limit: number,
   perAgency: number,
   newIds: () => string,
-): Promise<{ id: string; agencyId: string; connectionId: string }[]> {
+): Promise<{ claimed: number; runs: { id: string; agencyId: string; connectionId: string }[] }> {
   // Fair share: at most `perAgency` connections of one agency per tick (the next tick takes the rest), then
   // lock the chosen rows (`SKIP LOCKED`: concurrent ticks split the work; a window query cannot lock).
   const due = await tx.execute<{ id: string; agency_id: string }>(sql`
@@ -641,12 +652,12 @@ export async function queueDueRuns(
       limit ${limit}))
     and enabled and next_run_at <= now() and paused_at is null
     for update skip locked`);
-  if (due.rows.length === 0) return [];
+  if (due.rows.length === 0) return { claimed: 0, runs: [] };
   const ids = due.rows.map((r) => r.id);
   await tx.execute(sql`
     update feed_connections
-    set next_run_at = now() + make_interval(mins => schedule_minutes)
-    where id = any(${uuidArray(ids)}) and schedule_minutes is not null`);
+    set next_run_at = case when schedule_minutes is null then null else now() + make_interval(mins => schedule_minutes) end
+    where id = any(${uuidArray(ids)})`);
   const runIds = due.rows.map(() => newIds());
   const r = await tx.execute<{ id: string; agency_id: string; connection_id: string }>(sql`
     insert into feed_runs (id, agency_id, connection_id, trigger)
@@ -654,18 +665,39 @@ export async function queueDueRuns(
       array_fill('SCHEDULE'::feed_run_trigger, array[${ids.length}::int]))
     on conflict (connection_id) where state in ('QUEUED', 'RUNNING') do nothing
     returning id, agency_id, connection_id`);
-  return r.rows.map((x) => ({ id: x.id, agencyId: x.agency_id, connectionId: x.connection_id }));
+  return {
+    claimed: due.rows.length,
+    runs: r.rows.map((x) => ({ id: x.id, agencyId: x.agency_id, connectionId: x.connection_id })),
+  };
 }
 
-/** Deletes up to `limit` finished runs created before `before` (their errors cascade). */
-export async function pruneRuns(tx: Tx, before: Date, limit: number): Promise<number> {
-  const r = await tx.execute(sql`
-    delete from feed_runs where id in (
-      select id from feed_runs
-      where state in ('SUCCEEDED', 'FAILED') and created_at < ${before}
-      order by created_at
-      limit ${limit})`);
-  return r.rowCount ?? 0;
+/**
+ * Deletes finished runs created before `before`, oldest first: at most `limit` runs, and only as many as keep their
+ * item errors (which cascade) within `maxErrors` — always at least one (S7-F3: 2,000 runs × 1,000 errors would be 2M
+ * rows in one transaction). Answers the runs and errors deleted.
+ */
+export async function pruneRuns(
+  tx: Tx,
+  before: Date,
+  limit: number,
+  maxErrors: number,
+): Promise<{ runs: number; errors: number }> {
+  const r = await tx.execute<{ runs: number; errors: number }>(sql`
+    with doomed as (
+      select id from (
+        select id, row_number() over w as n, sum(errors_logged) over w as errors
+          from (select id, created_at, errors_logged from feed_runs
+                 where state in ('SUCCEEDED', 'FAILED') and created_at < ${before}
+                 order by created_at limit ${limit}) oldest
+        window w as (order by created_at, id)
+      ) ranked
+      where n = 1 or errors <= ${maxErrors}
+    ), gone as (
+      delete from feed_runs r using doomed d where r.id = d.id returning r.errors_logged
+    )
+    select count(*)::int as runs, coalesce(sum(errors_logged), 0)::int as errors from gone`);
+  const row = r.rows[0];
+  return { runs: Number(row?.runs ?? 0), errors: Number(row?.errors ?? 0) };
 }
 
 // ── Mapping profiles (request paths, S6-04) ────────────────────────────────────────────────────────────────────

@@ -1,8 +1,16 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
-import { createS3Store, type ObjectStore, storageConfigFromEnv } from '@inmolink/platform/storage';
+import {
+  createS3Store,
+  MIN_UPLOAD_PART_BYTES,
+  type ObjectStore,
+  storageConfigFromEnv,
+} from '@inmolink/platform/storage';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 let store: ObjectStore;
@@ -46,6 +54,67 @@ describe('storage (MinIO as R2)', () => {
     await up.abort();
     expect(await store.head('exports', key)).toBeNull();
     expect(await store.getStream('exports', key, { maxBytes: 10 })).toBeNull();
+  });
+
+  it('[S7-F3] upload parts and puts go out with their length (no chunked encoding) and a smaller part size when asked', async () => {
+    const seen: { method: string; length: string | undefined; chunked: boolean; bytes: number }[] = [];
+    const server = createServer((req, res) => {
+      let bytes = 0;
+      req.on('data', (c: Buffer) => {
+        bytes += c.length;
+      });
+      req.on('end', () => {
+        seen.push({
+          method: req.method ?? '',
+          length: req.headers['content-length'],
+          chunked: req.headers['transfer-encoding'] === 'chunked',
+          bytes,
+        });
+        if (req.method === 'POST' && req.url?.includes('uploads='))
+          res.end('<InitiateMultipartUploadResult><UploadId>u1</UploadId></InitiateMultipartUploadResult>');
+        else if (req.method === 'PUT') res.writeHead(200, { etag: '"e"' }).end();
+        else res.end('<CompleteMultipartUploadResult></CompleteMultipartUploadResult>');
+      });
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    try {
+      const local = createS3Store({
+        endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        region: 'auto',
+        accessKeyId: 'a',
+        secretAccessKey: 's',
+        buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
+      });
+      expect(() => local.upload('work', 'k', { contentType: 'image/jpeg', partBytes: 1024 })).toThrow(RangeError);
+      const up = local.upload('work', 'feed-staging/k', {
+        contentType: 'image/jpeg',
+        partBytes: MIN_UPLOAD_PART_BYTES,
+      });
+      await up.write(randomBytes(MIN_UPLOAD_PART_BYTES * 2 + 10));
+      await up.complete();
+      const parts = seen.filter((s) => s.method === 'PUT');
+      expect(parts.map((p) => p.bytes)).toEqual([MIN_UPLOAD_PART_BYTES, MIN_UPLOAD_PART_BYTES, 10]);
+      expect(parts.every((p) => !p.chunked && p.length === String(p.bytes))).toBe(true);
+      // a plain PUT the same way
+      await local.put('work', 'originals/k', randomBytes(1_000), { contentType: 'image/jpeg' });
+      expect(seen.at(-1)).toEqual({ method: 'PUT', length: '1000', chunked: false, bytes: 1_000 });
+    } finally {
+      server.close();
+    }
+  });
+
+  it('[S7-F3] copies an object inside the store, keeping its content type; a missing source fails', async () => {
+    const from = `test/${newId()}`;
+    const to = `test/${newId()}`;
+    const body = randomBytes(2_000);
+    await store.put('work', from, body, { contentType: 'image/jpeg' });
+    await store.copy('work', from, to);
+    expect(Buffer.from((await store.get('work', to, { maxBytes: 4_000 })) ?? [])).toEqual(body);
+    const signed = await store.signedGetUrl('work', to, { expiresInSeconds: 60 });
+    expect((await fetch(signed)).headers.get('content-type')).toBe('image/jpeg');
+    await expect(store.copy('work', `test/${newId()}`, `test/${newId()}`)).rejects.toThrow(/COPY failed/);
+    await Promise.all([store.delete('work', from), store.delete('work', to)]);
   });
 
   it('[S1-03] puts, reads through a signed URL, and deletes an object in the private bucket', async () => {

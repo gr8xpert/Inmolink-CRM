@@ -881,6 +881,8 @@ Ref §5.3 (7) §16 · Mod imports, media, properties, search, db · Dep S6-F5 ·
 - A prune with 200k expired runs removes them all in one job (test)
 - 1,000 due connections are all queued within one scheduler job (test)
 
+**Split (2026-10-22):** the taxonomy resolution, staff health rollup, degraded search path [H4] and `perf:bundle` items moved to **S7-F10**; S7-F3 kept the three acceptance checks, `property_import_seen` and the `overdueAgencies` scan.
+
 ### S7-F4 · Minimum commission in CUSTOM site policies (S7-01)
 Ref §9.1 · Mod websites, search · Dep S7-01
 **Build:** the CUSTOM inventory policy's "minimum commission" filter (PLAN §9.1), left out of S7-01 because no index field carries commission. The listing's (or unit's) total commission in basis points as an index-only field: in the listings index documents and `listing_search_docs`, never in `card`/`detail` JSON nor readable by `app_public`/`app_user` (hidden column, like `share_scope`); `minCommissionBp` in `SiteInventoryFilters` (network listings only — own listings are never filtered by it) and the site form. Fixed-amount commissions compare as a share of the price (on-request prices: unknown → excluded when a minimum is set).
@@ -940,6 +942,18 @@ Ref §4.2 §15 · Mod search · Dep S5-04, S7-08 · ⚡
 **Done when:**
 - Every fallback shape is index-driven (no Seq Scan) with p95 < 150 ms at 2M rows (staging, with S5-04)
 - The degraded-engine load run holds the S7-08 thresholds
+
+### S7-F10 · Import query shapes, staff health rollup and search tuning (split from S7-F3)
+Ref §5.3 (7) §15 · Mod imports, taxonomy, search, web · Dep S7-F3 · part [H4] · ⚡
+**Build:**
+- Taxonomy resolution in the loader: one statement per level for all (parent, text) pairs (`unnest`), plus a per-run negative cache so unmatched values are resolved and queued once per run, not once per batch (`imports/load.ts` `RunResolver`, `taxonomy.resolveAndQueue`).
+- The staff import health window aggregates (`imports/health.ts`) read an hourly rollup, or the scheduler tick's metrics. EXPLAIN on a 300k-run seed.
+- S6-F3 degraded path (engine slow, breaker closed: 151–254 ms): lower `SEARCH_SLOW_MS` to about 50, scale `SEARCH_BREAKER_MIN_CALLS` with traffic, and recheck on the staging box (H4).
+- `pnpm perf:bundle` for `/imports/mapper` and `/staff/imports` after a fresh build.
+**Done when:**
+- A 20k-listing run resolves each level of its locations in one statement per batch, and an unmatched value is queued once per run (query-count test)
+- The staff health endpoint stays ≤ 10 queries and p95 < 300 ms on a 300k-run seed (EXPLAIN in STATUS, no Seq Scan)
+- The degraded-engine path answers p95 < 150 ms on staging [H4]; both dashboard routes within their first-load budget
 
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]

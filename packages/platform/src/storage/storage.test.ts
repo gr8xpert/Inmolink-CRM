@@ -37,6 +37,36 @@ describe('storage', () => {
     expect(calls).toEqual(['http://localhost:9000/e/site-feeds/a/b']);
   });
 
+  it('[S7-F3] copy sends one signed PUT naming the encoded source; an error document fails it', async () => {
+    const seen: { url: string; source: string | null }[] = [];
+    let answer = '<CopyObjectResult></CopyObjectResult>';
+    const store = createS3Store({
+      ...storageConfigForBuckets(
+        { S3_ENDPOINT: 'http://localhost:9000', S3_REGION: 'auto', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 's' },
+        { work: 'w' },
+      ),
+      fetch: async (req) => {
+        const r = req as Request;
+        seen.push({ url: r.url, source: r.headers.get('x-amz-copy-source') });
+        return new Response(answer, { status: 200 });
+      },
+    });
+    await store.copy('work', "feed-staging/a(1)'x", 'originals/abc');
+    // `<bucket>/<key>` from the bucket's name and the encoded key — not the target URL's path
+    expect(seen).toEqual([{ url: 'http://localhost:9000/w/originals/abc', source: "w/feed-staging/a(1)'x" }]);
+    await expect(store.copy('work', 'originals/abc', 'originals/abc')).rejects.toThrow(/same key/);
+    await expect(store.copy('work', '../escape', 'originals/abc')).rejects.toThrow(/invalid object key/);
+    expect(seen).toHaveLength(1);
+    answer = '<Error><Code>NoSuchKey</Code></Error>';
+    await expect(store.copy('work', 'feed-staging/x', 'originals/abc')).rejects.toThrow(/COPY failed/);
+    const memory = createMemoryStore();
+    await expect(memory.copy('work', 'a', 'b')).rejects.toThrow(StorageError);
+    await expect(memory.copy('work', 'a', 'a')).rejects.toThrow(/same key/);
+    await memory.put('work', 'a', new Uint8Array([1, 2]), { contentType: 'image/png' });
+    await memory.copy('work', 'a', 'b');
+    expect(memory.objects.get('work/b')).toMatchObject({ contentType: 'image/png', body: new Uint8Array([1, 2]) });
+  });
+
   it('[S1-03] detects uploads by magic bytes, not by name or header', () => {
     const bytes = (s: number[]) => new Uint8Array(s);
     expect(detectFileType(new TextEncoder().encode('%PDF-1.7\n'))?.contentType).toBe('application/pdf');

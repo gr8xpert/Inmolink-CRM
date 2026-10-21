@@ -25,6 +25,7 @@ const options: SimOptions = {
   perGroupCap: 1,
   scheduleBatch: RUNS.SCHEDULE_BATCH,
   perAgencyPerTick: RUNS.SCHEDULE_PER_AGENCY,
+  maxBatchesPerTick: RUNS.SCHEDULE_MAX_BATCHES,
   tickS: 60,
   retryBaseMs: 250,
   retryMaxMs: 5_000,

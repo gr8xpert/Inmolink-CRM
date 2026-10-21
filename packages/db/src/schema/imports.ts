@@ -182,6 +182,12 @@ export const feedRuns = pgTable(
     itemsHeld: integer('items_held').notNull().default(0),
     /** Listings withdrawn at the end of the run: missing from the feed for N runs (S6-02). */
     itemsWithdrawn: integer('items_withdrawn').notNull().default(0),
+    /**
+     * S7-F3: feed references this attempt recorded in `property_import_seen` (UNLOGGED: a crash or a failover empties
+     * it). Counted in each batch transaction; the end of the run compares it with the table before trusting the
+     * anti-join (a mismatch restarts the run instead of counting listings as missing).
+     */
+    itemsSeen: integer('items_seen').notNull().default(0),
     /** `feed_item_errors` rows kept for this run (capped; `items_failed` counts all). */
     errorsLogged: integer('errors_logged').notNull().default(0),
     bytesRead: bigint('bytes_read', { mode: 'number' }).notNull().default(0),

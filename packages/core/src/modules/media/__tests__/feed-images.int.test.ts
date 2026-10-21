@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
 import { CreateListingBody } from '@inmolink/contracts';
 import { closeDb, withSystem, withTenant } from '@inmolink/db';
 import { loadStackEnv, setupTestDb } from '@inmolink/db/testing';
@@ -17,6 +18,7 @@ import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
+import { overdueFeedImageAgencies } from '../feed-images';
 import * as media from '../index';
 
 /** Feed images (S6-02): queued by the import, fetched later by the worker — hash-first, in feed order. */
@@ -42,6 +44,14 @@ function jpeg(label: string): Buffer {
   return bytes;
 }
 const files: Record<string, Buffer> = { a: jpeg('a'), b: jpeg('b'), c: jpeg('c'), same: jpeg('a') };
+/** S7-F3: past one upload part (5 MiB), served without a length in 64 KiB pieces; `big2` is the same bytes. */
+const big = Buffer.alloc(9 * 1024 * 1024 + 321, 7);
+big.set([0xff, 0xd8, 0xff, 0xe0]);
+big.write(`${RUN}:big`, 8);
+/** S7-F3 review: gzip-encoded, so its `content-length` (the compressed size, ~10 KB) understates the 9 MiB it decodes to. */
+const lying = Buffer.from(big);
+lying.write(`${RUN}:lie`, 8);
+const lyingGz = gzipSync(lying);
 const url = (path: string) => `${origin}/${RUN}/${path}`;
 
 const as = <T>(fn: (ctx: Ctx) => Promise<T>) =>
@@ -91,7 +101,15 @@ beforeAll(async () => {
     const name = path.replace(/\.jpg$/, '');
     const body = files[name];
     if (name === 'html') res.writeHead(200, { 'content-type': 'image/jpeg' }).end('<html>not an image</html>');
-    else if (!body) res.writeHead(404).end();
+    else if (name === 'lying')
+      res
+        .writeHead(200, { 'content-type': 'image/jpeg', 'content-encoding': 'gzip', 'content-length': lyingGz.length })
+        .end(lyingGz);
+    else if (name === 'big' || name === 'big2') {
+      res.writeHead(200, { 'content-type': 'image/jpeg' });
+      for (let at = 0; at < big.length; at += 65_536) res.write(big.subarray(at, at + 65_536));
+      res.end();
+    } else if (!body) res.writeHead(404).end();
     else res.writeHead(200, { 'content-type': 'image/jpeg' }).end(body);
   });
   server.listen(0, '127.0.0.1');
@@ -157,6 +175,71 @@ describe('feed images', () => {
     expect(result).toMatchObject({ reused: 1, downloaded: 1, attached: 1 });
     expect(hits.get('a.jpg')).toBe(before);
     expect((await mediaOf(listing)).map((m) => m.sha256)).toEqual([sha(files.a as Buffer), sha(files.c as Buffer)]);
+  });
+
+  it('[S7-F3] an image past one upload part streams through a staging key to its content-addressed key', async () => {
+    const listing = await newListing();
+    await queue([{ listingId: listing, urls: [url('big.jpg'), url('big2.jpg')] }]);
+    const result = await run();
+    expect(result).toMatchObject({ downloaded: 2, failed: 0, attached: 1 });
+    expect((await mediaOf(listing)).map((m) => m.sha256)).toEqual([sha(big)]);
+    const stored = await storage().get('work', media.originalKey(sha(big)), { maxBytes: big.length });
+    expect(stored && sha(stored)).toBe(sha(big));
+    // both staging objects (the stored one moved, the duplicate dropped) are gone
+    expect((await storage().list('work', media.FEED_STAGING_PREFIX, { limit: 10 })).objects).toEqual([]);
+    const [change] = await rows<{ objects: { sha256: string; upload: unknown }[] }>(sql`
+      select payload -> 'objects' as objects from outbox_events
+       where agency_id = ${a.agencyId} and type = 'media.object.referencesChanged' and payload ->> 'listingId' = ${listing}`);
+    expect(change?.objects).toEqual([
+      { sha256: sha(big), upload: { sizeBytes: big.length, contentType: 'image/jpeg' } },
+    ]);
+    await storage().delete('work', media.originalKey(sha(big)));
+  });
+
+  it('[S7-F3] an image whose content-length understates it still streams with its real content type', async () => {
+    const listing = await newListing();
+    await queue([{ listingId: listing, urls: [url('lying.jpg')] }]);
+    expect(await run()).toMatchObject({ downloaded: 1, failed: 0, attached: 1 });
+    const key = media.originalKey(sha(lying));
+    const stored = await storage().get('work', key, { maxBytes: lying.length });
+    expect(stored && sha(stored)).toBe(sha(lying));
+    // the copy keeps the staged object's type: the upload started only once the magic bytes were known
+    const signed = await storage().signedGetUrl('work', key, { expiresInSeconds: 60 });
+    expect((await fetch(signed)).headers.get('content-type')).toBe('image/jpeg');
+    expect((await storage().list('work', media.FEED_STAGING_PREFIX, { limit: 10 })).objects).toEqual([]);
+    await storage().delete('work', key);
+  });
+
+  it('[S7-F3] the overdue sweep finds agencies whose next row to claim is old (skip scan per agency)', async () => {
+    const older = await newListing();
+    const newer = await newListing();
+    await queue([{ listingId: older, urls: [url('a.jpg')] }]);
+    await queue([{ listingId: newer, urls: [url('b.jpg')] }]);
+    const overdue = async () => (await overdueFeedImageAgencies(1_000)).includes(a.agencyId);
+    const age = (listing: string, set: ReturnType<typeof sql>) =>
+      system((tx) => tx.execute(sql`update feed_image_queue set ${set} where property_id = ${listing}`));
+    expect(await overdue()).toBe(false);
+    // both untouched for 20 minutes and unclaimed (their job was lost): overdue
+    await age(older, sql`updated_at = now() - interval '20 minutes'`);
+    await age(newer, sql`updated_at = now() - interval '20 minutes'`);
+    expect(await overdue()).toBe(true);
+    // a live job holds the oldest and the next one was just queued again: not overdue
+    await age(older, sql`claimed_until = now() + interval '5 minutes'`);
+    await age(newer, sql`updated_at = now()`);
+    expect(await overdue()).toBe(false);
+    // the job died: its lease lapsed, the row it held is old again
+    await age(older, sql`claimed_until = now() - interval '1 minute'`);
+    expect(await overdue()).toBe(true);
+    await system((tx) => tx.execute(sql`delete from feed_image_queue where property_id in (${older}, ${newer})`));
+  });
+
+  it('[S7-F3] feed-image jobs are capped per process and across the pool from config', () => {
+    const spec = media.mediaJobs.importFeedImages.spec;
+    const cap = (c: typeof spec.perProcessConcurrency) => (typeof c === 'function' ? c() : c);
+    expect([cap(spec.perProcessConcurrency), cap(spec.globalConcurrency)]).toEqual([4, 32]);
+    media.configureFeedImages({ jobsPerProcess: 2, maxConcurrentJobs: 8 });
+    expect([cap(spec.perProcessConcurrency), cap(spec.globalConcurrency)]).toEqual([2, 8]);
+    media.configureFeedImages({});
   });
 
   it('[S6-02] a deleted listing gets nothing and its queue row goes', async () => {

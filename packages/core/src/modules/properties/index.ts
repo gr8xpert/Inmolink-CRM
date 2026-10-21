@@ -33,6 +33,7 @@ export {
 } from './freshness';
 export {
   confirmListingsFromFeed,
+  countImportSeen,
   discardImportSeen,
   existingImportRefs,
   FEED_CONFIRM_BATCH,

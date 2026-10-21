@@ -26,6 +26,7 @@ import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { defaultWithdrawAfterMissedRuns, RUNS } from './config';
 import type { ItemError, ValidItem } from './pipeline';
+import * as repo from './repo';
 
 /**
  * One item's size as JSON (characters): a batch of 500 stays well inside the worker's memory budget (long
@@ -52,6 +53,8 @@ export interface SinkCounts {
   updated: number;
   unchanged: number;
   held: number;
+  /** S7-F3: seen references the write recorded (kept on the run's logged row; a sink that keeps none omits it). */
+  seen?: number;
 }
 
 /** One run's loader: holds run-level state (owner, defaults, the taxonomy cache). */
@@ -89,6 +92,20 @@ export interface FeedSink {
   reset?(tx: Tx, runId: string): Promise<void>;
   /** Reads only (owner, defaults): nothing it does needs the run's fence. */
   start(run: SinkRun): Promise<RunLoader>;
+}
+
+/**
+ * S7-F3: the run's seen references are not all there (the UNLOGGED table lost rows in a crash or a failover). Retryable:
+ * the next attempt reads the feed again from a clean slate.
+ */
+export class SeenRefsLostError extends Error {
+  override readonly name = 'SeenRefsLostError';
+  constructor(
+    readonly expected: number,
+    readonly actual: number,
+  ) {
+    super(`feed run seen references lost (expected ${expected}, found ${actual}); the run starts over`);
+  }
 }
 
 /** A run that cannot start loading: no member to own its listings (the run fails with `FEED_NO_OWNER`). */
@@ -456,6 +473,7 @@ export const listingSink: FeedSink = {
         });
         await media.queueFeedImages(tx, run.agencyId, queued);
         return {
+          seen: result.seen,
           created: result.created,
           updated: result.updated,
           unchanged: result.unchanged,
@@ -471,6 +489,14 @@ export const listingSink: FeedSink = {
       },
 
       async dropStats(tx) {
+        // S7-F3: the seen table is UNLOGGED — a crash or a failover since the batches committed empties it, and the
+        // anti-join would then count every listing as missing. The run's logged count must match before it is used;
+        // otherwise the run fails retryably, is claimed again and starts over (the claim resets both).
+        const [expected, actual] = await Promise.all([
+          repo.runSeenCount(tx, run.runId),
+          properties.countImportSeen(tx, run.runId),
+        ]);
+        if (expected !== actual) throw new SeenRefsLostError(expected, actual);
         const stats = await properties.importDropStats(tx, importRun, run.startedAt);
         missingRefs = stats.refs;
         return { live: stats.live, missing: stats.missing };

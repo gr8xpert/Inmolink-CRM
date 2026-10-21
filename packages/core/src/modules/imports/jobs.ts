@@ -17,12 +17,28 @@ import { deleteReleasedSheet, sweepSheets } from './sheet/lifecycle';
 const RUN_ATTEMPTS = 3;
 /** A run's whole budget (fetch included); the feed fetch itself stops at 20 minutes. */
 const RUN_TIMEOUT_MS = 60 * 60_000;
-/** Finished runs deleted per statement, and statements per prune run. */
-const PRUNE_BATCH = 1_000;
-const PRUNE_MAX_BATCHES = 50;
 /** Seen references older than this belong to a run that died (S6-02); deleted `SEEN_PRUNE_BATCH` per statement. */
 const SEEN_RETENTION_MS = 24 * 3_600_000;
 const SEEN_PRUNE_BATCH = 5_000;
+
+/**
+ * Runs `step` (one transaction each) until it does less than `batch`, the job is cancelled, `maxSteps` ran or
+ * `budgetMs` passed (S7-F3). Answers the total and whether work may be left.
+ */
+async function drain(
+  step: () => Promise<number>,
+  opts: { batch: number; budgetMs: number; maxSteps?: number; signal: AbortSignal },
+): Promise<{ total: number; more: boolean }> {
+  const stopAt = Date.now() + opts.budgetMs;
+  let total = 0;
+  for (let i = 0; i < (opts.maxSteps ?? Number.POSITIVE_INFINITY); i++) {
+    if (opts.signal.aborted || Date.now() >= stopAt) return { total, more: true };
+    const n = await step();
+    total += n;
+    if (n < opts.batch) return { total, more: false };
+  }
+  return { total, more: true };
+}
 
 /**
  * imports worker jobs (PATTERNS §12). Idempotent, per-tenant fair share.
@@ -36,14 +52,17 @@ const SEEN_PRUNE_BATCH = 5_000;
  *
  * `imports.scheduleFeeds` (every minute, pool `imports`, all agencies via `withSystem`): fails the runs whose
  * worker is gone (lease lapsed > `RUNS.LEASE_GRACE_MS`, or queued > `RUNS.QUEUED_STALE_MS`), then queues a run
- * for every enabled connection whose `next_run_at` passed (≤ `RUNS.SCHEDULE_BATCH` per tick) and moves its
+ * for every enabled connection whose `next_run_at` passed (`RUNS.SCHEDULE_BATCH` per transaction, at most
+ * `RUNS.SCHEDULE_PER_AGENCY` of one agency each, batch after batch until none is due — S7-F3 — bounded per tick by
+ * `RUNS.SCHEDULE_MAX_BATCHES` and `RUNS.SCHEDULE_BUDGET_MS`) and moves its
  * `next_run_at` one interval on. A connection whose previous run is still active skips that slot (the
  * per-connection mutex). Schedules live in Postgres, not in one BullMQ scheduler per connection: nothing to keep in
  * sync when a connection changes or is deleted.
  *
  * `imports.pruneRuns` (daily, pool `maintenance`, all agencies via `withSystem`): deletes finished runs older than
- * `RUNS.RETENTION_DAYS` with their item errors, `PRUNE_BATCH` per statement; then the seen feed references a run that
- * died before its end left (S6-02, older than a day).
+ * `RUNS.RETENTION_DAYS` with their item errors, ≤ `RUNS.PRUNE_BATCH` runs and ≈ `RUNS.PRUNE_ERRORS_PER_BATCH` errors per
+ * transaction until none is left (S7-F3, within
+ * `RUNS.PRUNE_BUDGET_MS`); then the seen feed references a run that died before its end left (S6-02, older than a day).
  *
  * `imports.deleteSheet` (one per `imports.sheet.released` event, pool `maintenance`, S7-F1): deletes the uploaded file
  * a deleted connection or a replacing upload let go, unless another connection of the agency still uses it.
@@ -79,7 +98,7 @@ export const importsJobs = {
     payload: z.object({}).strict(),
     every: 60_000,
     attempts: 3,
-    async run(_p, { log }) {
+    async run(_p, { log, signal }) {
       const failed = await withSystem('imports.scheduleFeeds: fail stale runs', async (tx) => {
         const rows = await repo.failStaleRuns(tx, RUNS.LEASE_GRACE_MS, RUNS.QUEUED_STALE_MS);
         await emit(
@@ -97,17 +116,33 @@ export const importsJobs = {
         return rows.length;
       });
       if (failed > 0) log.warn({ failed }, 'stale feed runs marked FAILED');
-      const queued = await withSystem('imports.scheduleFeeds: queue due runs', async (tx) => {
-        const runs = await repo.queueDueRuns(tx, RUNS.SCHEDULE_BATCH, RUNS.SCHEDULE_PER_AGENCY, newId);
-        await emit(
-          tx,
-          runs.map((r) =>
-            importsEvents.runRequested({ runId: r.id, connectionId: r.connectionId, agencyId: r.agencyId }),
-          ),
-        );
-        return runs.length;
-      });
+      // S7-F3: batch after batch (each its own transaction, <= `SCHEDULE_PER_AGENCY` per agency) until none is due.
+      // A batch counts the connections it claimed (each leaves the due set: its slot moves on, or a connection without
+      // a schedule loses it), so one whose previous run is still active never keeps the loop going or ends it early.
+      let queued = 0;
+      const scheduled = await drain(
+        () =>
+          withSystem('imports.scheduleFeeds: queue due runs', async (tx) => {
+            const due = await repo.queueDueRuns(tx, RUNS.SCHEDULE_BATCH, RUNS.SCHEDULE_PER_AGENCY, newId);
+            await emit(
+              tx,
+              due.runs.map((r) =>
+                importsEvents.runRequested({ runId: r.id, connectionId: r.connectionId, agencyId: r.agencyId }),
+              ),
+            );
+            queued += due.runs.length;
+            return due.claimed;
+          }),
+        {
+          // a batch below `SCHEDULE_BATCH` may only mean the per-agency cap: stop on an empty one
+          batch: 1,
+          budgetMs: RUNS.SCHEDULE_BUDGET_MS,
+          maxSteps: RUNS.SCHEDULE_MAX_BATCHES,
+          signal,
+        },
+      );
       if (queued > 0) log.info({ queued }, 'scheduled feed runs queued');
+      if (scheduled.more) log.warn({ queued }, 'feed scheduler tick bound reached; the next tick queues the rest');
       // S6-08: queue lag as a metric (alert ImportQueueWaitHigh), one index-only aggregate per tick.
       const snapshot = await withSystem('imports.scheduleFeeds: queue lag', (tx) => repo.queueSnapshot(tx));
       recordOldestQueued(snapshot.oldestQueuedSeconds);
@@ -121,26 +156,36 @@ export const importsJobs = {
     payload: z.object({}).strict(),
     every: 24 * 3_600_000,
     attempts: 3,
+    timeoutMs: RUNS.PRUNE_BUDGET_MS + 5 * 60_000,
     async run(_p, { log, signal }) {
       const before = new Date(clock.now().getTime() - RUNS.RETENTION_DAYS * 24 * 3_600_000);
-      let deleted = 0;
-      for (let i = 0; i < PRUNE_MAX_BATCHES && !signal.aborted; i++) {
-        const n = await withSystem('imports.pruneRuns', (tx) => repo.pruneRuns(tx, before, PRUNE_BATCH));
-        deleted += n;
-        if (n < PRUNE_BATCH) break;
-      }
+      // S7-F3: until nothing expired is left (one transaction per batch), within the job's budget.
+      // A batch is short when its runs carry many errors, so the loop stops on an empty one.
+      let errors = 0;
+      let maxErrorsInBatch = 0;
+      const runs = await drain(
+        () =>
+          withSystem('imports.pruneRuns', async (tx) => {
+            const d = await repo.pruneRuns(tx, before, RUNS.PRUNE_BATCH, RUNS.PRUNE_ERRORS_PER_BATCH);
+            errors += d.errors;
+            maxErrorsInBatch = Math.max(maxErrorsInBatch, d.errors);
+            return d.runs;
+          }),
+        { batch: 1, budgetMs: RUNS.PRUNE_BUDGET_MS, signal },
+      );
       // S6-02: the seen feed references a run that died before its end left behind (a run lasts ≤ RUN_TIMEOUT_MS).
       const seenBefore = new Date(clock.now().getTime() - SEEN_RETENTION_MS);
-      let seen = 0;
-      for (let i = 0; i < PRUNE_MAX_BATCHES && !signal.aborted; i++) {
-        const n = await withSystem('imports.pruneRuns: stale seen references', (tx) =>
-          properties.pruneImportSeen(tx, seenBefore, SEEN_PRUNE_BATCH),
-        );
-        seen += n;
-        if (n < SEEN_PRUNE_BATCH) break;
-      }
-      if (deleted > 0 || seen > 0) log.info({ deleted, seen }, 'old feed runs pruned');
-      return { deleted, seen };
+      const seen = await drain(
+        () =>
+          withSystem('imports.pruneRuns: stale seen references', (tx) =>
+            properties.pruneImportSeen(tx, seenBefore, SEEN_PRUNE_BATCH),
+          ),
+        { batch: SEEN_PRUNE_BATCH, budgetMs: RUNS.PRUNE_BUDGET_MS / 5, signal },
+      );
+      const result = { deleted: runs.total, errors, maxErrorsInBatch, seen: seen.total, more: runs.more || seen.more };
+      if (result.deleted > 0 || result.seen > 0) log.info(result, 'old feed runs pruned');
+      if (result.more) log.warn(result, 'feed run prune budget spent; the next run continues');
+      return result;
     },
   }),
 

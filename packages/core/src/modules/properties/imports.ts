@@ -87,6 +87,8 @@ export interface ImportBatchResult {
   rejected: { ref: string; code: 'PROPERTY_TYPE_UNMATCHED' | 'LOCATION_UNMATCHED' | 'DUPLICATE_REF' }[];
   /** Listings created or updated whose image list is new or changed: their feed images are queued (media). */
   imagesChanged: { listingId: string; ref: string }[];
+  /** S7-F3: seen references this batch recorded (the run keeps the count on its logged row). */
+  seen: number;
 }
 
 const decimal = (v: number | null) => (v === null ? null : String(v));
@@ -182,7 +184,15 @@ export async function importListingBatch(
     source: run.source,
     externalSource: `${run.source}:${run.connectionId}`,
   };
-  const empty: ImportBatchResult = { created: 0, updated: 0, unchanged: 0, held: 0, rejected: [], imagesChanged: [] };
+  const empty: ImportBatchResult = {
+    created: 0,
+    updated: 0,
+    unchanged: 0,
+    held: 0,
+    rejected: [],
+    imagesChanged: [],
+    seen: 0,
+  };
   // S7-F2: duplicates across batches — one primary-key probe per batch, nothing held in memory between batches.
   const refsOfBatch = batch.map((i) => i.ref);
   const earlier = new Set(await repo.seenEarlier(tx, run.runId, refsOfBatch));
@@ -191,8 +201,8 @@ export async function importListingBatch(
     .map((i) => ({ ref: i.ref, code: 'DUPLICATE_REF' as const }));
   const items = earlier.size === 0 ? batch : batch.filter((i) => !earlier.has(i.ref));
   if (items.length === 0) {
-    if (seenRefs.length > 0) await repo.recordSeen(tx, scope, seenRefs);
-    return { ...empty, rejected: duplicates };
+    const seen = seenRefs.length > 0 ? await repo.recordSeen(tx, scope, seenRefs) : 0;
+    return { ...empty, rejected: duplicates, seen };
   }
 
   const locationIds = [...new Set(items.flatMap((i) => (i.locationId ? [i.locationId] : [])))];
@@ -230,7 +240,7 @@ export async function importListingBatch(
       ),
     ),
   );
-  await repo.recordSeen(tx, scope, seenRefs);
+  const seen = await repo.recordSeen(tx, scope, seenRefs);
   const rejectedRows = await repo.rejectUnplaceable(tx, scope);
   const commission =
     run.commission.type === 'PCT'
@@ -290,6 +300,7 @@ export async function importListingBatch(
   const updated = merged.length - created;
   const stored = items.length - rejected.size;
   return {
+    seen,
     created,
     updated,
     unchanged: stored - merged.length,
@@ -385,6 +396,11 @@ export async function confirmListingsFromFeed(
   const { confirmed, cleared } = await repo.confirmFresh(tx, run.agencyId, ids, before);
   await emitImported(tx, run, cleared);
   return confirmed;
+}
+
+/** Seen references the run has now (S7-F3: the loader checks them against the run's logged count). */
+export function countImportSeen(tx: Tx, runId: string): Promise<number> {
+  return repo.countSeen(tx, runId);
 }
 
 /** A run that ends without withdrawals (failed, or a feed with nothing valid): its seen references go. */

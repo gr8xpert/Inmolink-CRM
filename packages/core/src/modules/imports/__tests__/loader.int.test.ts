@@ -606,6 +606,57 @@ describe('bulk loader', () => {
     expect(dto.counts).toMatchObject({ total: 2, valid: 2, failed: 0, created: 2 });
   });
 
+  it('[S7-F3] seen references lost mid-run (UNLOGGED table emptied by a crash) restart the run instead of counting listings missing', async () => {
+    const c = await connection({ withdrawAfterMissedRuns: 1 });
+    const items = Array.from({ length: 600 }, (_, i) => listing(`SL-${i}`));
+    await runFeed(c, items); // the listings exist; one missed run would withdraw them
+
+    // the feed parks after its first committed batch (500 refs seen); meanwhile the table loses the run's rows
+    let reached!: () => void;
+    let open!: () => void;
+    const parked = new Promise<void>((r) => {
+      reached = r;
+    });
+    const opened = new Promise<void>((r) => {
+      open = r;
+    });
+    const restore = imports.registerConnector({
+      ...memoryConnector(c.key, () => items),
+      async *parse() {
+        for (const [i, raw] of items.entries()) {
+          if (i === 501) {
+            reached();
+            await opened;
+          }
+          yield { position: i, raw };
+        }
+      },
+    });
+    const run = await as((ctx) => imports.requestFeedRun(ctx, c.id));
+    const p = { runId: run.id, agencyId: owner.agencyId };
+    const first = imports.executeRun(p, { ...job(), lastAttempt: false });
+    await parked;
+    // what a crash or a failover does to an UNLOGGED table (scoped to this run: other suites share the table)
+    await system((tx) => tx.execute(sql`delete from property_import_seen where run_id = ${run.id}`));
+    open();
+    await expect(first).rejects.toMatchObject({ name: 'SeenRefsLostError', expected: 600, actual: 100 });
+    restore();
+    // handed back to the queue: nothing counted missing, nothing withdrawn, the connection not paused
+    const [state] = await rows<{ state: string; paused: boolean }>(sql`
+      select r.state, c.paused_at is not null as paused
+        from feed_runs r join feed_connections c on c.id = r.connection_id where r.id = ${run.id}`);
+    expect(state).toEqual({ state: 'QUEUED', paused: false });
+    expect(
+      [...(await listingsOf(c)).values()].filter((l) => l.import_missed_runs > 0 || l.status === 'WITHDRAWN'),
+    ).toEqual([]);
+    // the next attempt starts over from a clean slate and succeeds
+    feeds.set(c.key, items);
+    expect(await imports.executeRun(p, job())).toMatchObject({ kind: 'finished', state: 'SUCCEEDED' });
+    const dto = await as((ctx) => imports.getFeedRun(ctx, run.id));
+    expect(dto.counts).toMatchObject({ total: 600, valid: 600, withdrawn: 0 });
+    expect([...(await listingsOf(c)).values()].filter((l) => l.status === 'WITHDRAWN')).toHaveLength(0);
+  });
+
   it('[S7-F2] a stale attempt that resumes after another worker claimed the run loses no seen references and withdraws nothing', async () => {
     const c = await connection({ withdrawAfterMissedRuns: 1 });
     const items = Array.from({ length: 600 }, (_, i) => listing(`SW-${i}`));

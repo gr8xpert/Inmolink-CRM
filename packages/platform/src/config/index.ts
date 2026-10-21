@@ -223,6 +223,10 @@ export const cdnPurgeEnv = {
  * pauses the connection instead of writing on / withdrawing. `IMPORT_FEED_FRESHNESS_DAYS`: a successful run confirms
  * its listings as still on the market (S3-08) only while some item of the feed was added, removed or changed within
  * that many days.
+ *
+ * S7-F3: `IMPORT_IMAGE_JOBS_MAX_CONCURRENT` — feed-image jobs (`media.importFeedImages`, one per agency) running at once
+ * across the `imports` pool; `IMPORT_IMAGE_JOBS_PER_PROCESS` — at once in one worker process. A job streams at most
+ * three images at a time, each holding one 5 MiB part or head (≈ 18 MB per job), so the per-process cap bounds its RSS.
  */
 export const importsEnv = {
   IMPORT_WITHDRAW_AFTER_MISSED_RUNS: z.coerce.number().int().min(1).max(100).default(3),
@@ -231,6 +235,8 @@ export const importsEnv = {
   IMPORT_ANOMALY_SPIKE_FACTOR: z.coerce.number().min(1.5).max(100).default(5),
   IMPORT_ANOMALY_DROP_RATIO: z.coerce.number().gt(0).max(1).default(0.3),
   IMPORT_FEED_FRESHNESS_DAYS: z.coerce.number().int().min(1).max(3_650).default(120),
+  IMPORT_IMAGE_JOBS_MAX_CONCURRENT: z.coerce.number().int().min(1).max(1_000).default(32),
+  IMPORT_IMAGE_JOBS_PER_PROCESS: z.coerce.number().int().min(1).max(10).default(4),
 };
 
 /**
