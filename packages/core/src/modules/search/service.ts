@@ -437,6 +437,9 @@ function add(total: Omit<RebuildResult, 'pendingMedia'> & { pendingMedia?: strin
 
 /** Targets per rebuild transaction: ~10 statements and ≤ this many advisory locks each. */
 export const READ_MODEL_BATCH = 250;
+/** Most stale read-model rows the full rebuild's sweep deletes in one statement (and one transaction). */
+export const READ_MODEL_SWEEP_MAX = 5_000;
+
 /** Advisory locks a full rebuild may hold at once (batch × concurrency); the shared lock table has ~6,400 slots. */
 export const MAX_LOCKS_IN_FLIGHT = 2_000;
 
@@ -464,6 +467,8 @@ export interface FullRebuildOptions {
   batch?: number;
   /** Batches in flight at once (each its own transaction). */
   concurrency?: number;
+  /** Stale rows the sweep deletes per statement (default: ≤ `READ_MODEL_SWEEP_MAX`, within the lock budget). */
+  sweepBatch?: number;
   onProgress?: (p: FullRebuildProgress) => void;
   /** System reason for the audit trail. */
   reason?: string;
@@ -472,7 +477,8 @@ export interface FullRebuildOptions {
 /**
  * Rebuilds every read model (or one agency's): walks live listings and units in id order, a page per transaction,
  * and deletes the documents of targets that no longer have one — those between two live ids of a page that are
- * not live. Idempotent and restartable; unchanged documents are not rewritten.
+ * not live, in bounded chunks after the page commits. Idempotent and restartable; unchanged documents are not
+ * rewritten.
  */
 export async function rebuildAllReadModels(
   options: FullRebuildOptions = {},
@@ -482,6 +488,14 @@ export async function rebuildAllReadModels(
   // Each batch holds an advisory lock per target until it commits: keep the run's share of the lock table small.
   if (batch * concurrency > MAX_LOCKS_IN_FLIGHT) {
     throw new RangeError(`batch × concurrency must be ≤ ${MAX_LOCKS_IN_FLIGHT} (advisory locks held at once)`);
+  }
+  // The sweep's chunk: ≤ 5,000 rows per statement, and within the run's share of the lock table across its lanes.
+  const sweepBatch =
+    options.sweepBatch ?? Math.min(READ_MODEL_SWEEP_MAX, Math.floor(MAX_LOCKS_IN_FLIGHT / concurrency));
+  if (sweepBatch < 1 || sweepBatch > READ_MODEL_SWEEP_MAX || sweepBatch * concurrency > MAX_LOCKS_IN_FLIGHT) {
+    throw new RangeError(
+      `sweepBatch must be 1…${READ_MODEL_SWEEP_MAX} and sweepBatch × concurrency ≤ ${MAX_LOCKS_IN_FLIGHT}`,
+    );
   }
   const reason = options.reason ?? 'search.rebuildAllReadModels';
   // The database's clock: `updated_at` is written by it.
@@ -525,23 +539,14 @@ export async function rebuildAllReadModels(
     const walk = async () => {
       for (let page = await nextPage(); page; page = await nextPage()) {
         const { from, until, ids } = page;
-        const r = await withSystem(reason, async (tx) => {
+        const res = await withSystem(reason, async (tx) => {
           // The page's fallback rows are refreshed once below, not also for its changed targets (S6-F3).
-          const res = await rebuildReadModels(tx, kind, ids, { refreshSearchDocs: false });
-          const swept = await repo.deleteBetween(tx, {
-            kind,
-            after: from,
-            until,
-            live: ids,
-            since,
-            agencyId: options.agencyId,
-          });
-          await repo.queueIndexSync(tx, swept);
-          await logPublicChanges(tx, swept, []);
+          const built = await rebuildReadModels(tx, kind, ids, { refreshSearchDocs: false });
           // Every live target of the page, changed or not: the full rebuild also fills and repairs the fallback.
-          await refreshSearchDocs(tx, [...ids, ...swept], res.developmentRefs);
-          return { ...res, deleted: res.deleted + swept.length };
+          await refreshSearchDocs(tx, ids, built.developmentRefs);
+          return built;
         });
+        const r = { ...res, deleted: res.deleted + (await sweep(from, until, ids)) };
         progress.done += ids.length;
         progress.built += r.built;
         progress.written += r.written;
@@ -549,6 +554,39 @@ export async function rebuildAllReadModels(
         progress.elapsedMs = Date.now() - started;
         options.onProgress?.({ ...progress });
       }
+    };
+    /**
+     * Deletes the documents of targets gone between two live ones of a page, `sweepBatch` rows per transaction
+     * (keyset on the primary key): each candidate holds an advisory lock until commit, so one statement over a range
+     * of ~100k stale rows exhausted the shared lock table (53200). Answers how many targets went.
+     */
+    const sweep = async (from: string | null, until: string | null, live: readonly string[]) => {
+      let deleted = 0;
+      let at: repo.SweepPosition | null = null;
+      do {
+        const start: repo.SweepPosition | null = at;
+        const chunk = await withSystem(reason, async (tx) => {
+          const c = await repo.deleteBetween(tx, {
+            kind,
+            after: from,
+            until,
+            live,
+            since,
+            agencyId: options.agencyId,
+            from: start,
+            limit: sweepBatch,
+          });
+          if (c.deleted.length > 0) {
+            await repo.queueIndexSync(tx, c.deleted);
+            await logPublicChanges(tx, c.deleted, []);
+            await refreshSearchDocs(tx, c.deleted);
+          }
+          return c;
+        });
+        deleted += chunk.deleted.length;
+        at = chunk.next;
+      } while (at);
+      return deleted;
     };
     // Every lane settles before the run answers (or fails): none outlives the caller's connection pool.
     const lanes = await Promise.allSettled(Array.from({ length: concurrency }, lane));

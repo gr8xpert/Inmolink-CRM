@@ -11,7 +11,7 @@ import {
   WebsiteSitemapQuery,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withPublicRead, withSystem } from '@inmolink/db';
-import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { isAppError } from '@inmolink/platform/errors';
@@ -319,7 +319,8 @@ describe('website API v2 reads (S7-03)', () => {
   });
 });
 
-describe('website delta feed (S7-03)', () => {
+// Waits for the horizon (`settled`, up to a minute) may follow other files' long transactions.
+describe('website delta feed (S7-03)', { timeout: 120_000 }, () => {
   /** Pages a site's feed from `since` (or a cursor) until nothing more is ready. */
   async function drain(siteId: string, from: Date | string, limit: number) {
     const s = await site(a, siteId);
@@ -342,6 +343,41 @@ describe('website delta feed (S7-03)', () => {
       (await system((tx) => tx.execute<{ now: string }>(sql`select now()::text as now`))).rows[0]?.now as string,
     );
 
+  /**
+   * Waits until the feed's horizon has passed every transaction this test has committed (S7-03 flake fix). Pages are
+   * commit-safe below the snapshot's `xmin`, which is cluster-wide: a transaction another test file (or anything
+   * else on the server) has open holds every feed back, and the feed then rightly answers "nothing yet". No database
+   * or schema isolates that, so the test waits — bounded — for transactions older than a marker transaction it
+   * commits now, exactly as a client polls again. A timeout names the transactions that held the horizon.
+   */
+  async function settled(timeoutMs = 60_000): Promise<void> {
+    const mark = (await system((tx) => tx.execute<{ x: string }>(sql`select pg_current_xact_id()::text as x`))).rows[0]
+      ?.x as string;
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const { ok, xmin } = (
+        await withPublicRead((tx) =>
+          tx.execute<{ ok: boolean; xmin: string }>(
+            sql`select pg_snapshot_xmin(pg_current_snapshot()) > ${mark}::xid8 as ok,
+                       pg_snapshot_xmin(pg_current_snapshot())::text as xmin`,
+          ),
+        )
+      ).rows[0] as { ok: boolean; xmin: string };
+      if (ok) return;
+      if (Date.now() > deadline) {
+        const open = await adminQuery(
+          `select pid, backend_xid::text as xid, application_name as app, state, now() - xact_start as age
+             from pg_stat_activity where backend_xid is not null and backend_xid::text::bigint <= $1::bigint`,
+          [mark],
+        );
+        throw new Error(
+          `change-log horizon ${xmin} still below ${mark} after ${timeoutMs} ms: ${JSON.stringify(open)}`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
   /** The change log's rows for agency a since `since`, in commit-safe order. */
   const logged = async (since: Date) =>
     (
@@ -356,6 +392,8 @@ describe('website delta feed (S7-03)', () => {
 
   it('[S7-03] /v2/changes returns every change exactly once across pages', async () => {
     // Caught up first (`since` may start a few minutes early); every change after this cursor is checked exactly.
+    // Caught up to a settled horizon: the setup's own changes are below it, so none of them lands after `start`.
+    await settled();
     const { cursor: start } = await drain(S.aOwn as string, await dbNow(), 1_000);
     const since = await dbNow();
     const [villa, flat] = [L.aVilla as string, L.aFlat as string];
@@ -363,6 +401,7 @@ describe('website delta feed (S7-03)', () => {
     await update(a, flat, { visibility: 'SHARED' });
     const fresh = await listing(a, { priceCents: 25_000_000 }, { visibility: 'PUBLIC', shareScope: 'ALL' });
     L.aFresh = fresh;
+    await settled();
     const log = await logged(since);
     expect(log.length).toBeGreaterThanOrEqual(5);
     // Pages of two: every logged change once, in the log's order.
@@ -384,6 +423,8 @@ describe('website delta feed (S7-03)', () => {
 
   it('[S7-03] a change committed after a later one is still returned once, in order (out-of-order commits)', async () => {
     const s = await site(a, S.aOwn as string);
+    // From a settled horizon: `since` with nothing newer starts at the horizon, which must be past the earlier tests.
+    await settled();
     const start = await websiteApi.changes(s, WebsiteChangesQuery.parse({ since: (await dbNow()).toISOString() }));
     const row = (target: string) =>
       sql`insert into listing_public_changes (target_id, kind, owner_agency_id, ref, shared_all)
@@ -410,6 +451,8 @@ describe('website delta feed (S7-03)', () => {
     expect(during.items).toEqual([]);
     release();
     await t1;
+    // Committed: the next page holds both once the horizon passes them (another test file may hold it a moment).
+    await settled();
     const after = await websiteApi.changes(s, WebsiteChangesQuery.parse({ cursor: during.nextCursor }));
     expect(after.items.map((i) => i.ref)).toEqual([`REF-${first.slice(-4)}`, `REF-${second.slice(-4)}`]);
     expect(after.items.every((i) => i.change === 'REMOVE')).toBe(true);
@@ -443,6 +486,7 @@ describe('website delta feed (S7-03)', () => {
     await system((tx) => tx.execute(row(late)));
     release();
     await slow;
+    await settled();
     const page = await websiteApi.changes(s, WebsiteChangesQuery.parse({ since: since.toISOString(), limit: 1_000 }));
     const refs = page.items.map((i) => i.ref);
     expect(refs).toContain(`SNC-${late.slice(-4)}`);
@@ -453,6 +497,7 @@ describe('website delta feed (S7-03)', () => {
     const since = await dbNow();
     await update(b, L.bOther as string, { priceCents: 41_500_000 });
     await update(e, L.eOwn as string, { priceCents: 50_500_000 });
+    await settled();
     const s = await site(a, S.a as string);
     const page = await websiteApi.changes(s, WebsiteChangesQuery.parse({ since: since.toISOString(), limit: 1_000 }));
     const shown = page.items.map((i) => i.ref);

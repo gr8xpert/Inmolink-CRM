@@ -183,11 +183,21 @@ export async function deleteOthers(
   return (res.rows as { target_id: string }[]).map((r) => r.target_id);
 }
 
+/** A position in the full rebuild's sweep: after the read model `(targetId, locale)` (the primary key). */
+export interface SweepPosition {
+  targetId: string;
+  locale: string;
+}
+
 /**
  * The full rebuild walks live targets in id order; a document of `kind` between two consecutive live targets
  * (`after` exclusive, `until` inclusive, null: unbounded) whose target is not one of them has none any more —
- * unless an event rebuilt it since the run's page was read (`updated_at >= since`). The primary key range, or
- * `listing_read_models_agency_idx` for one agency.
+ * unless an event rebuilt it since the run's page was read (`updated_at >= since`). Deletes at most `limit` such
+ * rows, in primary-key order after `from` (keyset: the primary key range, or `listing_read_models_agency_idx` for
+ * one agency), whole targets per chunk (unless `limit` is below a target's locale count), and answers the targets
+ * deleted and where the next call starts (`next`, null once the range is done). Bounded because every candidate target takes an advisory lock held until commit: one statement over a
+ * range of ~100k stale rows ran out of the shared lock table (53200, S5-01). Call each chunk in its own
+ * transaction so its locks are released.
  */
 export async function deleteBetween(
   tx: Tx,
@@ -198,22 +208,49 @@ export async function deleteBetween(
     live: readonly string[];
     since: Date;
     agencyId?: string;
+    from?: SweepPosition | null;
+    limit: number;
   },
-): Promise<string[]> {
+): Promise<{ deleted: string[]; next: SweepPosition | null }> {
   const conditions: SQL[] = [
     sql`kind = ${range.kind}`,
     sql`updated_at < ${range.since}`,
-    ...(range.after === null ? [] : [sql`target_id > ${range.after}`]),
+    ...(range.from
+      ? [sql`(target_id, locale) > (${range.from.targetId}::uuid, ${range.from.locale}::text)`]
+      : range.after === null
+        ? []
+        : [sql`target_id > ${range.after}`]),
     ...(range.until === null ? [] : [sql`target_id <= ${range.until}`]),
     ...(range.live.length === 0 ? [] : [sql`not (target_id = any(${uuidArray(range.live)}))`]),
     ...(range.agencyId === undefined ? [] : [sql`agency_id = ${range.agencyId}`]),
-    // A target a builder holds is being rebuilt (it decides): skip it rather than wait — and never deadlock.
-    sql`pg_try_advisory_xact_lock(hashtextextended('read_model:' || target_id::text, 0))`,
   ];
-  const res = await tx.execute(
-    sql`delete from ${listingReadModels} where ${sql.join(conditions, sql` and `)} returning target_id`,
-  );
-  return (res.rows as { target_id: string }[]).map((r) => r.target_id);
+  const res = await tx.execute(sql`
+    with c0 as (
+      select target_id, locale from ${listingReadModels} where ${sql.join(conditions, sql` and `)}
+       order by target_id, locale limit ${range.limit}),
+    -- A full chunk ends before its last target, so a target's locales go in one chunk (counted and logged once).
+    cut as (select case when count(*) = ${range.limit} and count(distinct target_id) > 1
+                        then (select target_id from c0 order by target_id desc limit 1) end as t
+              from c0),
+    c as (select c0.target_id, c0.locale from c0, cut where cut.t is null or c0.target_id < cut.t),
+    d as (
+      delete from ${listingReadModels} r using c
+       where r.target_id = c.target_id and r.locale = c.locale
+         -- re-checked against a row an event rebuilt meanwhile (it is kept)
+         and r.updated_at < ${range.since}
+         -- a target a builder holds is being rebuilt (it decides): skip it rather than wait — and never deadlock
+         and pg_try_advisory_xact_lock(hashtextextended('read_model:' || c.target_id::text, 0))
+      returning r.target_id),
+    l as (select target_id, locale from c order by target_id desc, locale desc limit 1)
+    select (select count(*) from c0)::int as n, (select target_id::text from l) as "lastTarget",
+           (select locale from l) as "lastLocale",
+           coalesce((select array_agg(distinct target_id::text) from d), '{}'::text[]) as deleted`);
+  const row = res.rows[0] as { n: number; lastTarget: string | null; lastLocale: string | null; deleted: string[] };
+  const full = Number(row.n) === range.limit && row.lastTarget !== null && row.lastLocale !== null;
+  return {
+    deleted: row.deleted,
+    next: full ? { targetId: row.lastTarget as string, locale: row.lastLocale as string } : null,
+  };
 }
 
 /** The database's clock (a full rebuild compares `updated_at` with it). */

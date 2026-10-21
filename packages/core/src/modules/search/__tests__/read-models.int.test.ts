@@ -525,6 +525,22 @@ describe('listing read models', () => {
     expect(again.LISTING.deleted).toBe(0);
   });
 
+  it('[S5-01] the full rebuild sweeps a long stale range in bounded chunks, each target once', async () => {
+    // Five gone targets × two locales after the agency's last live listing: 10 stale rows, swept 4 rows at a time
+    // (whole targets per chunk: 2 + 2 + 1 targets), not one statement holding a lock per row (53200 at ~100k).
+    const gone = Array.from({ length: 5 }, () => newId());
+    for (const target of gone) {
+      for (const locale of ['en', 'es']) {
+        await rows(sql`insert into listing_read_models (target_id, locale, kind, agency_id, public, status, version, card, detail, etag, updated_at)
+          values (${target}, ${locale}, 'LISTING', ${a.agencyId}, true, 'ACTIVE', 1, '{}', '{}', 'x', now() - interval '1 hour')`);
+      }
+    }
+    const result = await search.rebuildAllReadModels({ agencyId: a.agencyId, batch: 2, concurrency: 1, sweepBatch: 4 });
+    expect(result.LISTING.deleted).toBe(gone.length);
+    for (const target of gone) expect(await docs(target)).toEqual([]);
+    await expect(search.rebuildAllReadModels({ agencyId: a.agencyId, sweepBatch: 5_001 })).rejects.toThrow(RangeError);
+  });
+
   it('[S5-01] a batch rebuild costs a fixed number of statements, whatever its size (no N+1)', async () => {
     const one = await sharedListing(a);
     const many = [one];
