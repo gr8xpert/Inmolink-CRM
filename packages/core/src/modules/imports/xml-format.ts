@@ -25,7 +25,7 @@ export function xmlFormatConnector(options: {
     key: options.key,
     fetch: (ctx) => httpSource(ctx, { contentTypes: XML_CONTENT_TYPES }),
     parse: (source) => xmlRecords(source, { recordElement: options.recordElement }),
-    map: (raw, ctx) => options.map(raw, formatSettings(ctx.settings)),
+    map: (raw, ctx) => options.map(raw, formatSettings(ctx.settings, options.key)),
     validate: (item) => feedListingProblems(item),
   };
 }

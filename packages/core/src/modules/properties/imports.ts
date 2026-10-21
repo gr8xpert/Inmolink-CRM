@@ -80,8 +80,11 @@ export interface ImportBatchResult {
   unchanged: number;
   /** Stored listings of the batch held as DRAFT. */
   held: number;
-  /** New items that could not be stored (no type, or no location level matched): per-item errors of the run. */
-  rejected: { ref: string; code: 'PROPERTY_TYPE_UNMATCHED' | 'LOCATION_UNMATCHED' }[];
+  /**
+   * Items that were not stored, per-item errors of the run: new items with no type or no location level matched,
+   * and items whose reference an earlier batch of the run already had (`DUPLICATE_REF`, S7-F2: the first wins).
+   */
+  rejected: { ref: string; code: 'PROPERTY_TYPE_UNMATCHED' | 'LOCATION_UNMATCHED' | 'DUPLICATE_REF' }[];
   /** Listings created or updated whose image list is new or changed: their feed images are queued (media). */
   imagesChanged: { listingId: string; ref: string }[];
 }
@@ -161,12 +164,14 @@ async function emitImported(tx: Tx, run: Pick<ImportRun, 'agencyId' | 'runId'>, 
 
 /**
  * Imports one batch of a feed run (S6-02). `seenRefs`: references of the batch's failed items, counted as present in
- * the feed (a typo in a feed never withdraws a listing). References are unique within `items` (the loader checks).
+ * the feed (a typo in a feed never withdraws a listing). References are unique within `items` (the loader checks);
+ * one already seen by an earlier batch of the run is refused as `DUPLICATE_REF` (S7-F2): the feed's first item with a
+ * reference is the one imported, so a listing is never written twice by one run and `updated` is not inflated.
  */
 export async function importListingBatch(
   tx: Tx,
   run: ImportRun,
-  items: readonly ImportListing[],
+  batch: readonly ImportListing[],
   seenRefs: readonly string[] = [],
 ): Promise<ImportBatchResult> {
   const scope: repo.ImportScope = {
@@ -178,9 +183,16 @@ export async function importListingBatch(
     externalSource: `${run.source}:${run.connectionId}`,
   };
   const empty: ImportBatchResult = { created: 0, updated: 0, unchanged: 0, held: 0, rejected: [], imagesChanged: [] };
+  // S7-F2: duplicates across batches — one primary-key probe per batch, nothing held in memory between batches.
+  const refsOfBatch = batch.map((i) => i.ref);
+  const earlier = new Set(await repo.seenEarlier(tx, run.runId, refsOfBatch));
+  const duplicates = batch
+    .filter((i) => earlier.has(i.ref))
+    .map((i) => ({ ref: i.ref, code: 'DUPLICATE_REF' as const }));
+  const items = earlier.size === 0 ? batch : batch.filter((i) => !earlier.has(i.ref));
   if (items.length === 0) {
     if (seenRefs.length > 0) await repo.recordSeen(tx, scope, seenRefs);
-    return empty;
+    return { ...empty, rejected: duplicates };
   }
 
   const locationIds = [...new Set(items.flatMap((i) => (i.locationId ? [i.locationId] : [])))];
@@ -282,10 +294,13 @@ export async function importListingBatch(
     updated,
     unchanged: stored - merged.length,
     held: items.filter((i) => i.held.length > 0 && !rejected.has(i.ref)).length,
-    rejected: rejectedRows.map((r) => ({
-      ref: r.ref,
-      code: r.noType ? 'PROPERTY_TYPE_UNMATCHED' : 'LOCATION_UNMATCHED',
-    })),
+    rejected: [
+      ...duplicates,
+      ...rejectedRows.map((r) => ({
+        ref: r.ref,
+        code: r.noType ? ('PROPERTY_TYPE_UNMATCHED' as const) : ('LOCATION_UNMATCHED' as const),
+      })),
+    ],
     imagesChanged: merged.filter((m) => m.imagesChanged).map((m) => ({ listingId: m.id, ref: m.ref })),
   };
 }

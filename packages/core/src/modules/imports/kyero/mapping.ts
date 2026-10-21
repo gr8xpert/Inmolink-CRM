@@ -1,6 +1,7 @@
 import type { FeedListingInput } from '@inmolink/contracts';
 import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
 import { childOf, childText, type XmlElement } from '@inmolink/platform/xml';
+import { formatDefaults } from '../config';
 import type { FeedItemProblem, MapResult } from '../connectors';
 import { htmlToPlainText } from '../html';
 import { clip, decimal, integer, positive, priceToCents, rating, truthy } from '../values';
@@ -14,15 +15,14 @@ export interface KyeroSettings {
   defaultCountry: string;
   /** Locale of the generated title when the feed has no description at all. */
   defaultLocale: string;
+  /** Currency of a price without `<currency>`. */
+  defaultCurrency: string;
 }
 
+/** The connection's settings over Kyero's defaults (`FORMAT_DEFAULTS`, S7-F2). */
 export function kyeroSettings(settings: Record<string, unknown>): KyeroSettings {
-  const country = typeof settings.defaultCountry === 'string' ? settings.defaultCountry.trim() : '';
-  const locale = typeof settings.defaultLocale === 'string' ? settings.defaultLocale.trim() : '';
-  return {
-    defaultCountry: country.length > 0 && country.length <= 200 ? country : 'Spain',
-    defaultLocale: /^[a-z]{2}$/.test(locale) ? locale : 'en',
-  };
+  const d = formatDefaults('kyero', settings);
+  return { defaultCountry: d.country, defaultLocale: d.locale, defaultCurrency: d.currency };
 }
 
 const problem = (code: string, field: string, message?: string): FeedItemProblem => ({
@@ -68,7 +68,7 @@ export function mapKyeroProperty(raw: XmlElement, settings: KyeroSettings): MapR
   }
   const priceOnRequest = priceCents === null || priceCents === 0;
   if (priceCents === 0) priceCents = null;
-  const currency = (childText(raw, 'currency') ?? 'EUR').toUpperCase();
+  const currency = (childText(raw, 'currency') ?? settings.defaultCurrency).toUpperCase();
 
   // coordinates
   const loc = childOf(raw, 'location');

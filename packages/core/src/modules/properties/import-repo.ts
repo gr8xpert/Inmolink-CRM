@@ -165,6 +165,18 @@ export async function existingByRefs(
   return res.rows as unknown as ExistingImport[];
 }
 
+/**
+ * Which of these references an earlier batch of the run already saw (S7-F2): one statement per batch on the
+ * primary key `(run_id, external_ref)`, so the check stays bounded however large the feed is.
+ */
+export async function seenEarlier(tx: Tx, runId: string, refs: readonly string[]): Promise<string[]> {
+  if (refs.length === 0) return [];
+  const res = await tx.execute(sql`
+    select external_ref as ref from property_import_seen
+     where run_id = ${runId} and external_ref = any(${arrayParam(refs)}::text[])`);
+  return (res.rows as { ref: string }[]).map((r) => r.ref);
+}
+
 /** Records every feed reference of the batch as seen by the run (staged, rejected and failed items alike). */
 export async function recordSeen(tx: Tx, scope: ImportScope, extraRefs: readonly string[]): Promise<void> {
   await tx.execute(sql`

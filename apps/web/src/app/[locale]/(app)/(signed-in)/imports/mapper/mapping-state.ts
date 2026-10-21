@@ -39,22 +39,25 @@ export interface MapperState {
 
 const empty = (): FieldState => ({ source: '', constant: '', translate: '' });
 
-/** The state the mapper starts from: the server's guesses (`suggested`) for the paths it found. */
+/**
+ * The state the mapper starts from: the server's guesses (`suggested`, S7-F2: fields, lists, and the first
+ * translation's `title` and `description`) for the paths it found. No guessing here — only UI state.
+ */
 export function initialState(sample: MapperSampleDto, defaultLocale: string): MapperState {
   const fields = Object.fromEntries(XML_MAPPED_FIELDS.map((f) => [f, empty()])) as Record<XmlMappedField, FieldState>;
   for (const f of XML_MAPPED_FIELDS) {
     const path = sample.suggested[f];
     if (path) fields[f] = { ...empty(), source: path };
   }
-  const titles = sample.paths.find((p) => /(^|\/)(title|titulo|headline|name)$/i.test(p.path));
-  const texts = sample.paths.find((p) => /(^|\/)(description|desc|descripcion|text|body|beschreibung)$/i.test(p.path));
   return {
     recordElement: sample.recordElement,
     decimalSeparator: 'point',
     fields,
     features: { path: sample.suggested.features ?? '', separator: '' },
     images: { path: sample.suggested.images ?? '', separator: '' },
-    translations: [{ locale: defaultLocale, title: titles?.path ?? '', description: texts?.path ?? '' }],
+    translations: [
+      { locale: defaultLocale, title: sample.suggested.title ?? '', description: sample.suggested.description ?? '' },
+    ],
   };
 }
 

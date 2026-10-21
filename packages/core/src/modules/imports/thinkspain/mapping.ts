@@ -39,7 +39,7 @@ export function mapThinkSpainProperty(raw: XmlElement, settings: FormatSettings)
     problems.push(problem('INVALID_FIELD', 'listing_type', 'expected sale, rent or holiday_rent'));
   }
   const { priceCents, priceOnRequest } = priceFields(childText(raw, 'price'), priceToCents, problems, 'price');
-  const currency = currencyOf(childText(raw, 'currency'));
+  const currency = currencyOf(childText(raw, 'currency'), settings.defaultCurrency);
 
   const state = (childText(raw, 'status') ?? '').toLowerCase();
   let status: FeedListingInput['status'] = 'ACTIVE';

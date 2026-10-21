@@ -76,7 +76,7 @@ export const sheetMappedConnector: FeedConnector<XmlElement, FeedListingInput> =
     return { body: once(bytes), bytesRead: () => bytes.length, contentType: null };
   },
   parse: (source) => sheetRecords(source),
-  map: (raw, ctx) => mapXmlRecord(raw, mappingOf(ctx), xmlMappedSettings(ctx.settings)),
+  map: (raw, ctx) => mapXmlRecord(raw, mappingOf(ctx), xmlMappedSettings(ctx.settings, SHEET_MAPPED_CONNECTOR)),
   validate: (item) => feedListingProblems(item),
 };
 

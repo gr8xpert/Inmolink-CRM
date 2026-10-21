@@ -38,7 +38,9 @@ paths:
 - Use `withTenant(ctx)` for request work. `withSystem()` only in workers/scripts and always with a reason string (audited).
 - Keep transactions short. Never await network calls (search, email, AI, HTTP) inside a transaction.
 - Work queues and claims: `FOR UPDATE SKIP LOCKED`.
-- Bulk loads: `pg-copy-streams` into an UNLOGGED staging table → validate → `MERGE` into the target → truncate staging. Never row-by-row inserts for feeds or migrations.
+- Bulk loads: staging table → validate → `MERGE` into the target → delete the batch's staging rows. Never row-by-row inserts for feeds or migrations.
+  - Tenant loads (`app_user`, e.g. feeds): `INSERT … SELECT … FROM jsonb_to_recordset($1::jsonb)` (≤ 8 MB per statement) into an UNLOGGED tenant staging table keyed by batch id — **not COPY**: RLS refuses `COPY FROM` for a role without BYPASSRLS, and app roles have no TEMPORARY (ADR 0017).
+  - System scripts (`withSystemClient`, e.g. seeds): `pg-copy-streams` is fine.
 - Statement timeouts are set per role/connection (feed 2 s, dashboard 5 s, worker 60 s). Do not raise them to hide a slow query — fix the query.
 - Before marking a hot-path task done, run `EXPLAIN (ANALYZE, BUFFERS)` on the scale seed and include the plan summary in STATUS.
 

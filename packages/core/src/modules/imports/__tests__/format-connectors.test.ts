@@ -1,24 +1,34 @@
 import { createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { FeedListing, type FeedListingInput } from '@inmolink/contracts';
+import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { streamXmlRecords, type XmlElement } from '@inmolink/platform/xml';
 import { describe, expect, it } from 'vitest';
 import { formatSettings } from '../assemble';
-import { getConnector, type MapResult } from '../connectors';
+import { FORMAT_DEFAULTS, formatDefaults } from '../config';
+import { connectorKeys, getConnector, type MapResult } from '../connectors';
 import { INFOCASA_FIELDS, renderInfocasaCoverageReport } from '../infocasa/coverage';
 import { mapInfocasaPropiedad } from '../infocasa/mapping';
 import { INMOBA_FIELDS, renderInmobaCoverageReport } from '../inmoba/coverage';
 import { mapInmobaProperty } from '../inmoba/mapping';
+import { kyeroSettings, mapKyeroProperty } from '../kyero/mapping';
 import { MILENIO_FIELDS, renderMilenioCoverageReport } from '../milenio/coverage';
 import { mapMilenioInmueble } from '../milenio/mapping';
+import { resalesSettings } from '../resales/mapping';
 import { renderThinkSpainCoverageReport, THINKSPAIN_FIELDS } from '../thinkspain/coverage';
 import { mapThinkSpainProperty } from '../thinkspain/mapping';
 import { localizedPriceToCents } from '../values';
 import { coverageReport, type FieldRule } from '../xml-coverage';
+import { xmlMappedSettings } from '../xml-mapped/mapping';
 import '../infocasa/connector';
 import '../inmoba/connector';
+import '../kyero/connector';
 import '../milenio/connector';
+import '../resales/connector';
+import '../sheet/connector';
 import '../thinkspain/connector';
+import '../xml-mapped/connector';
 
 /**
  * The four format connectors of S6-07 (Milenio+, Infocasa, Inmoba, thinkSPAIN, [H14]): mapping of the fixture feeds
@@ -319,7 +329,7 @@ const SPECS: Spec[] = [
 ];
 
 describe.each(SPECS)('$name connector', (spec) => {
-  const settings = formatSettings({});
+  const settings = formatSettings({}, spec.key);
   const mapAll = async () => (await loadRecords(spec)).map((r) => spec.map(r, settings));
   const item = (r: MapResult<FeedListingInput> | undefined) => (r?.ok ? r.item : undefined);
 
@@ -403,20 +413,22 @@ describe.each(SPECS)('$name connector', (spec) => {
 
   it('[S6-07] connection settings change the default country', async () => {
     const raw = (await loadRecords(spec))[3] as XmlElement;
-    const own = spec.map(raw, formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' }));
+    const own = spec.map(raw, formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' }, spec.key));
     // The fixture sends its own country; the setting applies only to records without one, and to untagged text.
     const bare = { ...raw, children: raw.children.filter((c) => !['country', 'pais'].includes(c.name)) };
-    const r = spec.map(bare, formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' }));
+    const r = spec.map(bare, formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' }, spec.key));
     expect(own.ok && own.item.location?.country).not.toBe('Portugal');
     expect(r.ok && r.item.location?.country).toBe('Portugal');
     expect(r.ok && r.item.translations?.[0]?.locale).toBe('pt');
-    expect(formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' })).toEqual({
+    expect(formatSettings({ defaultCountry: 'Portugal', defaultLocale: 'pt' }, spec.key)).toEqual({
       defaultCountry: 'Portugal',
       defaultLocale: 'pt',
+      defaultCurrency: 'EUR',
     });
-    expect(formatSettings({ defaultCountry: '', defaultLocale: 'portuguese' })).toEqual({
+    expect(formatSettings({ defaultCountry: '', defaultLocale: 'portuguese' }, spec.key)).toEqual({
       defaultCountry: 'Spain',
       defaultLocale: 'es',
+      defaultCurrency: 'EUR',
     });
   });
 });
@@ -444,5 +456,57 @@ describe('shared decimal reader', () => {
     expect(localizedDecimal('420')).toBe(420);
     expect(localizedDecimal('12.5.0')).toBeNull();
     expect(localizedPositive('0')).toBeNull();
+  });
+});
+
+describe('per-format defaults (S7-F2)', () => {
+  it('[S7-F2] default locale and currency come from one table in config.ts, keyed by connector', () => {
+    // every real connector has its row
+    for (const key of connectorKeys()) expect(FORMAT_DEFAULTS[key], key).toBeDefined();
+    expect(FORMAT_DEFAULTS.kyero).toMatchObject({ locale: 'en', currency: 'EUR' });
+    expect(FORMAT_DEFAULTS.inmoba).toMatchObject({ locale: 'es', currency: 'EUR' });
+    expect(FORMAT_DEFAULTS['xml-mapped']?.locale).toBe(DEFAULT_CONTENT_LOCALE);
+    // each format's settings read their row; a connection setting overrides locale and country
+    expect(kyeroSettings({})).toEqual({ defaultCountry: 'Spain', defaultLocale: 'en', defaultCurrency: 'EUR' });
+    expect(formatSettings({}, 'inmoba')).toEqual({
+      defaultCountry: 'Spain',
+      defaultLocale: 'es',
+      defaultCurrency: 'EUR',
+    });
+    expect(resalesSettings({ defaultLocale: 'de' }, 'p1')).toMatchObject({
+      defaultLocale: 'de',
+      defaultCurrency: 'EUR',
+    });
+    expect(xmlMappedSettings({}, 'sheet-mapped')).toEqual({
+      defaultLocale: DEFAULT_CONTENT_LOCALE,
+      defaultCurrency: 'EUR',
+    });
+    expect(formatDefaults('unknown-format', { defaultLocale: 'XX', defaultCountry: 'Portugal' })).toEqual({
+      locale: DEFAULT_CONTENT_LOCALE,
+      currency: 'EUR',
+      country: 'Portugal',
+    });
+  });
+
+  it('[S7-F2] a mapper uses the table’s currency for a price without one', async () => {
+    const one = async (xml: string) => {
+      for await (const r of streamXmlRecords(Readable.from([Buffer.from(`<root>${xml}</root>`)]), {
+        recordElement: 'property',
+      })) {
+        return r as XmlElement;
+      }
+      throw new Error('no record');
+    };
+    const body = '<id>C-1</id><type>Villa</type><town>Marbella</town><price>250000</price>';
+    const bare = mapKyeroProperty(await one(`<property>${body}</property>`), {
+      ...kyeroSettings({}),
+      defaultCurrency: 'GBP',
+    });
+    expect(bare.ok && bare.item.currency).toBe('GBP');
+    const tagged = mapKyeroProperty(
+      await one(`<property>${body}<currency>usd</currency></property>`),
+      kyeroSettings({}),
+    );
+    expect(tagged.ok && tagged.item.currency).toBe('USD');
   });
 });

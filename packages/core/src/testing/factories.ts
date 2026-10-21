@@ -8,6 +8,11 @@ import * as identity from '../modules/identity';
 
 /** Query budget checks (PATTERNS §20); `withSystem` for app tests' fixtures (worker-built read models, S7-03). */
 export { countQueries, withSystem } from '@inmolink/db';
+/**
+ * The S6-08 fair-share model of the imports queue: the imports load test runs it at production scale, the S7-F2 perf
+ * test against the real queue.
+ */
+export { rng, type SimFeed, type SimOptions, type SimResult, type SimRun, simulate } from './fair-share-sim';
 
 /**
  * `ctx` as if staff member `staffUserId` impersonated its user (S1-09), without a session row: sets

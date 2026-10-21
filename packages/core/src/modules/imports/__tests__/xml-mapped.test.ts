@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getConnector } from '../connectors';
 import { mapXmlRecord, valuesAt, xmlMappedSettings } from '../xml-mapped/mapping';
 import { analyzeSample, assertXmlBytes } from '../xml-mapped/sample';
+import { suggestPaths } from '../xml-mapped/suggest';
 import '../xml-mapped/connector';
 import { FIXTURE_MAPPING, fixtureBytes } from './xml-mapped-fixture';
 
@@ -68,6 +69,41 @@ describe('generic XML sample', () => {
     const records = Array.from({ length: 80 }, (_, i) => `<item id="${i}"><n>${i}</n></item>`).join('');
     const sample = await analyzeSample(enc(`<feed>${records}</feed>`));
     expect(sample.recordCount).toBe(MAPPER_SAMPLE.maxRecords);
+  });
+});
+
+describe('mapper suggestions (S7-F2: guessed in core, not in the web app)', () => {
+  const path = (p: string, count: number, repeated = false) => ({ path: p, count, repeated, samples: [] });
+
+  it('[S7-F2] the sample suggests the first translation’s title and description paths', async () => {
+    const records = Array.from(
+      { length: 4 },
+      (_, i) =>
+        `<item id="${i}"><type>Villa</type><info><titulo>Casa ${i}</titulo>${i < 1 ? '<descripcion>Vistas</descripcion>' : ''}</info></item>`,
+    ).join('');
+    const sample = await analyzeSample(enc(`<feed>${records}</feed>`));
+    expect(sample.suggested).toMatchObject({
+      ref: '@id',
+      propertyType: 'type',
+      title: 'info/titulo',
+      // a description in only some records is still the best guess for a text
+      description: 'info/descripcion',
+    });
+  });
+
+  it('[S7-F2] text guesses take the shallowest non-repeated path and never a path a field claimed first', () => {
+    const suggested = suggestPaths([
+      path('name', 10),
+      path('details/title', 10),
+      path('title', 9),
+      path('texts/text', 10, true),
+      path('body', 3),
+    ]);
+    expect(suggested.title).toBe('name'); // shallowest, most records first; `title` at depth 1 has fewer records
+    expect(suggested.description).toBe('body'); // the repeated `texts/text` is a list, not a text
+    expect(suggestPaths([path('ref', 5), path('foo', 5)]).title).toBeUndefined();
+    // a path whose name only a text field knows goes to that field alone
+    expect(suggestPaths([path('text', 4)])).toEqual({ description: 'text' });
   });
 });
 

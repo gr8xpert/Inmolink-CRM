@@ -524,7 +524,7 @@ Each module lists scope and the specific things that put it ahead of the competi
 ### M5 · Imports — R1
 - Connector framework with streaming SAX parsing (feeds of 100 MB+ never load into memory)
 - Connectors: Kyero, generic XML (visual field mapper), CSV, Resales Online (own listings only), Milenio+, Infocasa, Inmoba, thinkSPAIN
-- Bulk path: parse → staging table via COPY → validate → MERGE; images queued with hash dedup
+- Bulk path: parse → staging table (`INSERT … jsonb_to_recordset`, not COPY: RLS refuses `COPY FROM` for app roles — ADR 0017) → validate → MERGE; images queued with hash dedup
 - Field locks, per-connection on/off, schedule, run history, per-item errors, anomaly guard, fair-share scheduler
 - **Ahead:** "connect your old CRM in 5 minutes" — the main switching barrier removed
 

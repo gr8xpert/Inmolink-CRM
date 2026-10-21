@@ -14,7 +14,7 @@ Plan v1 used Prisma for CRUD and Kysely for complex SQL: two query tools, two ty
 2. **One schema file per module.** A module's repo touches only its own file (dependency-cruiser rule, ADR 0010).
 3. **Transactions are explicit.** `withTenant(scope, fn)`, `withSystem(reason, fn)`, `withPublicRead(fn)` and `withAuth(fn)` open a transaction on the right role pool, set the GUCs, and hand `fn` a typed `tx`. Services receive `ctx.tx`.
 4. **Migrations are generated** (`pnpm db:generate`), reviewed, and applied by `pnpm db:migrate` as `app_owner`. Applied migrations are never edited. CI (`pnpm ci:migrations`) checks that the journal extends the previous release unchanged and that migrations apply both on an empty database and on top of the previous release.
-5. **Bulk paths use `pg-copy-streams`:** COPY into a temp staging table, then `MERGE` (PATTERNS §13). Seeds use skip-then-COPY because `app_system` has no TEMPORARY privilege (STATUS decision, S0-13).
+5. **Bulk paths use `pg-copy-streams`:** COPY into a temp staging table, then `MERGE` (PATTERNS §13). Seeds use skip-then-COPY because `app_system` has no TEMPORARY privilege (STATUS decision, S0-13). *Amended by [ADR 0017](0017-tenant-bulk-load-without-copy.md): loads running as `app_user` (feeds) stage with `INSERT … jsonb_to_recordset` into an UNLOGGED tenant table, because RLS refuses `COPY FROM`; COPY stays for system scripts.*
 6. **Hot paths** select only needed columns, never use `SELECT *`, and use cursor pagination (CLAUDE.md budgets).
 
 ## Consequences

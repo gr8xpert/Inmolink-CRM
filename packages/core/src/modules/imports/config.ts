@@ -1,4 +1,5 @@
-import type { FeedCredentials } from '@inmolink/contracts';
+import { type FeedCredentials, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from '@inmolink/contracts';
+import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { importsEnv, loadConfig } from '@inmolink/platform/config';
 import { aadFor, type Keyring } from '@inmolink/platform/crypto';
 
@@ -96,8 +97,6 @@ export const RUNS = {
   SCHEDULE_BATCH: 200,
   /** …and of one agency at most this many per tick (fair share between agencies). */
   SCHEDULE_PER_AGENCY: 10,
-  /** Refs remembered per run for duplicate detection (beyond, a repeated ref updates the listing it made). */
-  MAX_TRACKED_REFS: 250_000,
   /** Taxonomy resolutions (exact or fuzzy) a run remembers, so later batches skip the resolver for known values. */
   MAX_CACHED_RESOLUTIONS: 50_000,
 } as const;
@@ -151,3 +150,48 @@ export const FEED_FETCH = {
   /** The mapper's sample fetch (a request, not a run): short deadline (S6-04). */
   SAMPLE_TIMEOUT_MS: 15_000,
 } as const;
+
+/**
+ * What a feed format assumes when an item does not say (S7-F2, S6 review): the language of untagged text and of the
+ * generated title, the currency of a price without one, and the country of a feed without one. One table, keyed by
+ * connector; the connection settings `defaultLocale` and `defaultCountry` override locale and country.
+ */
+export interface FormatDefaults {
+  locale: string;
+  currency: string;
+  country: string;
+}
+
+const SPAIN = { currency: 'EUR', country: 'Spain' } as const;
+
+export const FORMAT_DEFAULTS: Readonly<Record<string, FormatDefaults>> = {
+  // International portal formats: untagged text is English.
+  kyero: { locale: 'en', ...SPAIN },
+  'resales-online': { locale: 'en', ...SPAIN },
+  // Spanish CRM exports: untagged text is Spanish.
+  'milenio-plus': { locale: 'es', ...SPAIN },
+  infocasa: { locale: 'es', ...SPAIN },
+  inmoba: { locale: 'es', ...SPAIN },
+  thinkspain: { locale: 'es', ...SPAIN },
+  // Mapped feeds and sheets: the platform's content locale.
+  [XML_MAPPED_CONNECTOR]: { locale: DEFAULT_CONTENT_LOCALE, ...SPAIN },
+  [SHEET_MAPPED_CONNECTOR]: { locale: DEFAULT_CONTENT_LOCALE, ...SPAIN },
+};
+
+/** Any other connector (tests' in-memory ones). */
+const OTHER_FORMAT: FormatDefaults = { locale: DEFAULT_CONTENT_LOCALE, ...SPAIN };
+
+/**
+ * A connection's defaults: its format's row of `FORMAT_DEFAULTS`, with a valid `defaultLocale` (two lower-case
+ * letters) and `defaultCountry` (1–200 characters) from its settings taking precedence.
+ */
+export function formatDefaults(connector: string, settings: Record<string, unknown> = {}): FormatDefaults {
+  const base = FORMAT_DEFAULTS[connector] ?? OTHER_FORMAT;
+  const locale = typeof settings.defaultLocale === 'string' ? settings.defaultLocale.trim() : '';
+  const country = typeof settings.defaultCountry === 'string' ? settings.defaultCountry.trim() : '';
+  return {
+    locale: /^[a-z]{2}$/.test(locale) ? locale : base.locale,
+    currency: base.currency,
+    country: country.length > 0 && country.length <= 200 ? country : base.country,
+  };
+}

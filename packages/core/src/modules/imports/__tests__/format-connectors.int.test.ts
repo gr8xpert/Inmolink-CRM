@@ -104,7 +104,7 @@ const fixtureFile = (dir: string) =>
 async function validItems(f: (typeof FORMATS)[number]): Promise<FeedListingInput[]> {
   const out: FeedListingInput[] = [];
   for await (const raw of streamXmlRecords(createReadStream(fixtureFile(f.dir)), { recordElement: f.record })) {
-    const r = f.map(raw as XmlElement, formatSettings({}));
+    const r = f.map(raw as XmlElement, formatSettings({}, f.connector.key));
     if (r.ok) out.push(r.item);
   }
   return out;

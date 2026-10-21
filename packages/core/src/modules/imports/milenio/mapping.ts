@@ -45,7 +45,7 @@ export function mapMilenioInmueble(raw: XmlElement, settings: FormatSettings): M
     problems,
     'precio',
   );
-  const currency = currencyOf(childText(raw, 'moneda'));
+  const currency = currencyOf(childText(raw, 'moneda'), settings.defaultCurrency);
 
   const state = (childText(raw, 'estado') ?? '').toLowerCase();
   let status: FeedListingInput['status'] = 'ACTIVE';

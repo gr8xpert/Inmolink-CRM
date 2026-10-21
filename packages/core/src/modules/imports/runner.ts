@@ -235,7 +235,14 @@ export async function executeRun(
 ): Promise<RunOutcome> {
   const { runId, agencyId } = p;
   const token = newId();
-  const claim = () => withTenant({ agencyId }, (tx) => repo.claimRun(tx, runId, token, RUNS.LEASE_MS));
+  // A re-claimed run's leftovers (the sink's seen references) go in the claiming transaction: fenced by the claim,
+  // like `claimRun` clearing the earlier attempt's item errors (S7-F2 review).
+  const claim = () =>
+    withTenant({ agencyId }, async (tx) => {
+      const c = await repo.claimRun(tx, runId, token, RUNS.LEASE_MS);
+      if (c && c.attempt > 1) await sink.reset?.(tx, runId);
+      return c;
+    });
   let claimed = await claim();
   if (!claimed) {
     // Held by a live lease: either a healthy worker (it keeps renewing) or one that just crashed and whose job

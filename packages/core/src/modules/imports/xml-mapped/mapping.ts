@@ -3,10 +3,11 @@ import {
   type FeedListingInput,
   type MappedValue,
   MEDIA_PER_LISTING_MAX,
+  XML_MAPPED_CONNECTOR,
   type XmlMapping,
 } from '@inmolink/contracts';
-import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import type { XmlElement } from '@inmolink/platform/xml';
+import { formatDefaults } from '../config';
 import type { FeedItemProblem, MapResult } from '../connectors';
 import { htmlToPlainText } from '../html';
 
@@ -19,11 +20,17 @@ import { htmlToPlainText } from '../html';
 export interface XmlMappedSettings {
   /** Locale of the generated title when the mapping has no translation (connection setting `defaultLocale`). */
   defaultLocale: string;
+  /** Currency of a price when the mapping reads none. */
+  defaultCurrency: string;
 }
 
-export function xmlMappedSettings(settings: Record<string, unknown>): XmlMappedSettings {
-  const locale = typeof settings.defaultLocale === 'string' ? settings.defaultLocale.trim() : '';
-  return { defaultLocale: /^[a-z]{2}$/.test(locale) ? locale : DEFAULT_CONTENT_LOCALE };
+/** The connection's settings over the format's defaults (`FORMAT_DEFAULTS`, S7-F2; sheets pass their own key). */
+export function xmlMappedSettings(
+  settings: Record<string, unknown>,
+  connector: string = XML_MAPPED_CONNECTOR,
+): XmlMappedSettings {
+  const d = formatDefaults(connector, settings);
+  return { defaultLocale: d.locale, defaultCurrency: d.currency };
 }
 
 type Node = Pick<XmlElement, 'name' | 'attributes' | 'text' | 'children'>;
@@ -262,7 +269,7 @@ export function mapXmlRecord(raw: Node, mapping: XmlMapping, settings: XmlMapped
       pricePeriod,
       priceCents,
       priceOnRequest,
-      ...(currencyText ? { currency: currencyText.toUpperCase() } : {}),
+      currency: currencyText ? currencyText.toUpperCase() : settings.defaultCurrency,
       ...values,
       coordinates,
       locationPrecision: 'APPROX',

@@ -81,6 +81,13 @@ export interface RunLoader<Prepared = unknown> {
 
 /** Where valid items go; `start` runs once per run, after the claim. */
 export interface FeedSink {
+  /**
+   * Inside the transaction that claims a run again (attempt > 1), fenced by that claim (S7-F2 review): drops what an
+   * earlier attempt left for the run. Never in `start`, which runs after the claim committed — a worker that lost
+   * its lease meanwhile would wipe what the new owner wrote.
+   */
+  reset?(tx: Tx, runId: string): Promise<void>;
+  /** Reads only (owner, defaults): nothing it does needs the run's fence. */
   start(run: SinkRun): Promise<RunLoader>;
 }
 
@@ -314,6 +321,13 @@ function toImport(listing: FeedListing, r: Resolved): properties.ImportListing {
   };
 }
 
+/** The field a refused item's error names. */
+const REJECTED_FIELD = {
+  PROPERTY_TYPE_UNMATCHED: 'propertyType',
+  LOCATION_UNMATCHED: 'location',
+  DUPLICATE_REF: 'ref',
+} as const;
+
 interface Prepared {
   items: properties.ImportListing[];
   positions: Map<string, number>;
@@ -346,6 +360,14 @@ async function ownerOf(agencyId: string, wanted: string | undefined): Promise<st
 
 /** The production sink: feed items become listings (S6-02). */
 export const listingSink: FeedSink = {
+  /**
+   * S7-F2: a run claimed again reads the feed from the start, so the references its earlier attempt saw go — else
+   * the cross-batch duplicate check would refuse every item that attempt had written. One primary-key range delete.
+   */
+  async reset(tx, runId) {
+    await properties.discardImportSeen(tx, runId);
+  },
+
   async start(run) {
     const settings = loaderSettings(run.settings);
     const ownerUserId = await ownerOf(run.agencyId, settings.ownerUserId);
@@ -442,7 +464,7 @@ export const listingSink: FeedSink = {
             position: prepared.positions.get(r.ref) ?? 0,
             itemRef: clip(r.ref, 200),
             code: r.code,
-            field: r.code === 'PROPERTY_TYPE_UNMATCHED' ? 'propertyType' : 'location',
+            field: REJECTED_FIELD[r.code],
             message: null,
           })),
         };

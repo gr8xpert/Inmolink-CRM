@@ -16,6 +16,9 @@ import { groupRetryDelay } from '@inmolink/platform/queue';
  * - **Per process** (S6 review, `IMPORT_RUNS_PER_PROCESS`): each job reaches a process picked at random, weighted
  *   by its free slots; a process already running `perProcessCap` runs sends it back to delayed the same way — it
  *   still has free BullMQ slots, so it keeps taking jobs while another process could run them.
+ * - **Pickup latency** (S7-F2, `latencyS`, default 0): a job queued or back from delayed reaches a worker slot only
+ *   this long after — Redis round trips and BullMQ's wake-up, which the real-queue test measures. Leaving it out made
+ *   the model about twice as optimistic as the queue at that test's time scale.
  */
 
 export interface SimFeed {
@@ -40,6 +43,8 @@ export interface SimOptions {
   retryMaxMs: number;
   /** Simulation step. */
   stepS: number;
+  /** Seconds between a job becoming ready (queued, or back from delayed) and a worker slot taking it. */
+  latencyS?: number;
   seed: number;
 }
 
@@ -88,6 +93,8 @@ interface Job {
   seq: number;
   enqueuedS: number;
   retryAtS: number;
+  /** When a worker slot can take it (ready + `latencyS`). */
+  visibleS: number;
   attempts: number;
   process?: number;
   startedS?: number;
@@ -102,6 +109,7 @@ const p95 = (xs: number[]) => {
 
 export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
   const random = rng(o.seed);
+  const latency = o.latencyS ?? 0;
   const runningOn = new Array<number>(o.processes).fill(0);
   const pending = feeds.map((f, i) => ({ i, due: f.dueAtS ?? 0 })).sort((a, b) => a.due - b.due || a.i - b.i); // queueDueRuns: next_run_at order
   const scheduled = new Set<number>();
@@ -168,6 +176,7 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
           seq: seq++,
           enqueuedS: t,
           retryAtS: t,
+          visibleS: t + latency,
           attempts: 0,
         });
       }
@@ -180,7 +189,10 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
         delayed = delayed.filter((j) => j.retryAtS > t);
         // BullMQ's promotion re-adds a delayed job to the prioritized set with a fresh counter: behind newer jobs of
         // its priority
-        for (const j of back) j.seq = seq++;
+        for (const j of back) {
+          j.seq = seq++;
+          j.visibleS = j.retryAtS + latency;
+        }
         ready.push(...back);
       }
     }
@@ -190,12 +202,14 @@ export function simulate(feeds: readonly SimFeed[], o: SimOptions): SimResult {
       const free = runningOn.map((n) => o.concurrency - n);
       const totalFree = free.reduce((a, b) => a + b, 0);
       if (totalFree <= 0 || ready.length === 0) break;
-      let best = 0;
-      for (let k = 1; k < ready.length; k++) {
+      let best = -1;
+      for (let k = 0; k < ready.length; k++) {
         const a = ready[k] as Job;
-        const b = ready[best] as Job;
-        if (a.priority < b.priority || (a.priority === b.priority && a.seq < b.seq)) best = k;
+        if (a.visibleS > t) continue;
+        const b = ready[best] as Job | undefined;
+        if (!b || a.priority < b.priority || (a.priority === b.priority && a.seq < b.seq)) best = k;
       }
+      if (best < 0) break;
       const job = ready[best] as Job;
       ready.splice(best, 1);
       // the process whose free slot fetched it: weighted by free slots

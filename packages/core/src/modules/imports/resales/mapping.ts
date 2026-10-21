@@ -1,5 +1,6 @@
 import type { FeedListingInput } from '@inmolink/contracts';
 import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
+import { formatDefaults } from '../config';
 import type { FeedItemProblem, MapResult } from '../connectors';
 import { htmlToPlainText } from '../html';
 import { priceToCents } from '../values';
@@ -15,12 +16,22 @@ export interface ResalesSettings {
   /** The agency's own Resales Online agency id: records of any other agency are dropped. Falls back to the API identifier. */
   agencyId: string;
   defaultLocale: string;
+  /** Currency of a price without `Currency`. */
+  defaultCurrency: string;
+  /** Country of a record without `Country`. */
+  defaultCountry: string;
 }
 
+/** The connection's settings over Resales Online's defaults (`FORMAT_DEFAULTS`, S7-F2). */
 export function resalesSettings(settings: Record<string, unknown>, identifier: string): ResalesSettings {
   const agency = typeof settings.agencyId === 'string' ? settings.agencyId.trim() : '';
-  const locale = typeof settings.defaultLocale === 'string' ? settings.defaultLocale.trim() : '';
-  return { agencyId: agency || identifier, defaultLocale: /^[a-z]{2}$/.test(locale) ? locale : 'en' };
+  const d = formatDefaults('resales-online', settings);
+  return {
+    agencyId: agency || identifier,
+    defaultLocale: d.locale,
+    defaultCurrency: d.currency,
+    defaultCountry: d.country,
+  };
 }
 
 const str = (v: unknown): string | undefined => {
@@ -94,7 +105,7 @@ export function mapResalesProperty(raw: ResalesRecord, settings: ResalesSettings
 
   const city = str(raw.Location);
   const location: NonNullable<FeedListingInput['location']> = {
-    country: str(raw.Country) ?? 'Spain',
+    country: str(raw.Country) ?? settings.defaultCountry,
     ...(str(raw.Province) ? { region: str(raw.Province) } : {}),
     ...(city ? { city } : {}),
     ...(str(raw.SubLocation) ? { area: str(raw.SubLocation) } : {}),
@@ -134,7 +145,7 @@ export function mapResalesProperty(raw: ResalesRecord, settings: ResalesSettings
       pricePeriod: null,
       priceCents,
       priceOnRequest,
-      currency: (str(raw.Currency) ?? 'EUR').toUpperCase(),
+      currency: (str(raw.Currency) ?? settings.defaultCurrency).toUpperCase(),
       builtM2: positive(raw.Built),
       plotM2: positive(raw.GardenPlot),
       bedrooms: count(raw.Bedrooms),

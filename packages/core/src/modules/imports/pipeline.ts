@@ -1,4 +1,3 @@
-import { RUNS } from './config';
 import type { ConnectorContext, FeedConnector, FeedItemProblem } from './connectors';
 
 /**
@@ -59,8 +58,12 @@ export async function runFeedPipeline<Raw, Item>(opts: {
   const { connector, ctx, batchSize } = opts;
   const source = await connector.fetch(ctx);
   const totals: PipelineTotals = { total: 0, valid: 0, failed: 0, bytesRead: 0 };
-  /** Refs seen in this feed: a second item with the same ref is an error, not an overwrite. */
-  const seen = new Set<string>();
+  /**
+   * Refs of the current batch: a second item with the same ref is an error, not an overwrite. Per batch only, so
+   * memory stays bounded by the batch size; a ref an earlier batch had is the sink's check (S7-F2: the loader probes
+   * the run's seen refs once per batch, `properties.importListingBatch`).
+   */
+  let seen = new Set<string>();
   let batch: PendingBatch<Item> = { total: 0, valid: [], errors: [], bytesRead: 0 };
 
   const flush = async () => {
@@ -72,6 +75,7 @@ export async function runFeedPipeline<Raw, Item>(opts: {
     totals.failed += batch.errors.length; // one error per failed item (its first problem)
     totals.bytesRead = batch.bytesRead;
     batch = { total: 0, valid: [], errors: [], bytesRead: 0 };
+    seen = new Set<string>();
   };
 
   try {
@@ -87,10 +91,13 @@ export async function runFeedPipeline<Raw, Item>(opts: {
       if (!mapped.ok) {
         const problems = mapped.problems.length ? mapped.problems : [{ code: 'INVALID_ITEM' }];
         batch.errors.push(toError(record.position, mapped.ref, problems[0] as FeedItemProblem));
+        // S7-F2: the feed's first item with a ref wins even when it fails (the runner records its ref as seen, so a
+        // later batch refuses the ref too).
+        if (mapped.ref?.trim()) seen.add(mapped.ref);
       } else if (seen.has(mapped.ref)) {
         batch.errors.push(toError(record.position, mapped.ref, { code: 'DUPLICATE_REF', field: 'ref' }));
       } else {
-        if (seen.size < RUNS.MAX_TRACKED_REFS) seen.add(mapped.ref); // bounded memory (worker RSS budget)
+        seen.add(mapped.ref);
         let problems: FeedItemProblem[];
         try {
           problems = connector.validate(mapped.item, ctx);

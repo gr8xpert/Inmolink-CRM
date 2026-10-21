@@ -519,7 +519,10 @@ export const MapperSampleDto = z.object({
   truncated: z.boolean(),
   bytes: z.number().int(),
   paths: z.array(MapperPathDto),
-  /** A first guess per field (`ref` → `@code`) from the names in the sample: the mapper starts from it. */
+  /**
+   * A first guess per field (`ref` → `@code`) from the names in the sample: the mapper starts from it. Keys are the
+   * mapping's fields, `features` and `images`, and `title` and `description` for its first translation (S7-F2).
+   */
   suggested: z.record(z.string(), z.string()),
   records: z.array(XmlRecord),
   /** Set when the sample is a CSV or Excel file (S6-05): the file is stored and the import reads it by this id. */

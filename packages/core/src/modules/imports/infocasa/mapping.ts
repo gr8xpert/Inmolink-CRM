@@ -51,7 +51,7 @@ export function mapInfocasaPropiedad(raw: XmlElement, settings: FormatSettings):
     problems,
     'precio',
   );
-  const currency = currencyOf(priceEl?.attributes.moneda);
+  const currency = currencyOf(priceEl?.attributes.moneda, settings.defaultCurrency);
 
   const state = (childText(raw, 'situacion') ?? '').toLowerCase();
   let status: FeedListingInput['status'] = 'ACTIVE';

@@ -1,7 +1,7 @@
 import { importsEnv } from '@inmolink/platform/config';
 import { describe, expect, it } from 'vitest';
+import { rng, type SimFeed, type SimOptions, simulate } from '../../../testing/fair-share-sim';
 import { RUNS } from '../config';
-import { rng, type SimFeed, type SimOptions, simulate } from './fair-share-sim';
 
 /**
  * S6-08 load test: 500 feeds due at the same moment, through a model of the real scheduling rules (scheduler tick

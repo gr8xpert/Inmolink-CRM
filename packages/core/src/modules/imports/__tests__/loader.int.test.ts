@@ -556,4 +556,116 @@ describe('bulk loader', () => {
     const errors = await as((ctx) => imports.listFeedItemErrors(ctx, run.id, { limit: 10 }));
     expect(errors.items).toMatchObject([{ itemRef: 'QL-bad', code: 'INVALID_ITEM', field: 'bedrooms' }]);
   });
+
+  it('[S7-F2] a feed with the same ref in two batches updates the listing once; the later item is a DUPLICATE_REF error', async () => {
+    const c = await connection();
+    // 520 items: batch 1 holds DP-0 … DP-499, batch 2 the rest and DP-7 again at position 520 (another price)
+    const feed = (firstPrice: number) => [
+      ...Array.from({ length: 520 }, (_, i) =>
+        listing(`DP-${i}`, i === 7 ? { priceCents: firstPrice } : { priceCents: 200_000_00 + i * 100 }),
+      ),
+      listing('DP-7', { priceCents: 999_999_00 }),
+    ];
+    const first = await runFeed(c, feed(310_000_00));
+    expect(first.outcome).toMatchObject({ state: 'SUCCEEDED' });
+    expect(first.run.counts).toMatchObject({ total: 521, valid: 520, failed: 1, created: 520, updated: 0 });
+    const errors = await as((ctx) => imports.listFeedItemErrors(ctx, first.run.id, { limit: 10 }));
+    expect(errors.items).toMatchObject([{ position: 520, itemRef: 'DP-7', code: 'DUPLICATE_REF', field: 'ref' }]);
+    const created = await listingsOf(c);
+    expect(created.size).toBe(520);
+    expect(created.get('DP-7')?.price_cents).toBe(String(310_000_00)); // the first item wins
+    const versionBefore = created.get('DP-7')?.version as number;
+
+    // only the first DP-7 changes: one listing updated, once — not twice, and not counted twice
+    const second = await runFeed(c, feed(320_000_00));
+    expect(second.run.counts).toMatchObject({
+      total: 521,
+      valid: 520,
+      failed: 1,
+      created: 0,
+      updated: 1,
+      unchanged: 519,
+    });
+    const after = (await listingsOf(c)).get('DP-7');
+    expect(after?.price_cents).toBe(String(320_000_00));
+    expect(after?.version).toBe(versionBefore + 1);
+  });
+
+  it('[S7-F2] a run claimed again starts with no seen references, so its earlier attempt’s items are not duplicates', async () => {
+    const c = await connection();
+    feeds.set(c.key, [listing('RA-1'), listing('RA-2')]);
+    const run = await as((ctx) => imports.requestFeedRun(ctx, c.id));
+    // what a released attempt leaves behind: its attempt count and the references it saw
+    await system(async (tx) => {
+      await tx.execute(sql`update feed_runs set attempt = 1 where id = ${run.id}`);
+      await tx.execute(sql`insert into property_import_seen (agency_id, run_id, external_ref)
+                           values (${owner.agencyId}, ${run.id}, 'RA-1'), (${owner.agencyId}, ${run.id}, 'RA-2')`);
+    });
+    await imports.executeRun({ runId: run.id, agencyId: owner.agencyId }, job());
+    const dto = await as((ctx) => imports.getFeedRun(ctx, run.id));
+    expect(dto.counts).toMatchObject({ total: 2, valid: 2, failed: 0, created: 2 });
+  });
+
+  it('[S7-F2] a stale attempt that resumes after another worker claimed the run loses no seen references and withdraws nothing', async () => {
+    const c = await connection({ withdrawAfterMissedRuns: 1 });
+    const items = Array.from({ length: 600 }, (_, i) => listing(`SW-${i}`));
+    await runFeed(c, items); // the listings exist; one missed run would withdraw them
+
+    // the new owner's feed parks after its first committed batch (500 refs seen)
+    const parked = { reached: () => {}, open: () => {} };
+    const reached = new Promise<void>((r) => {
+      parked.reached = r;
+    });
+    const opened = new Promise<void>((r) => {
+      parked.open = r;
+    });
+    undo.push(
+      imports.registerConnector({
+        ...memoryConnector(c.key, () => items),
+        async *parse() {
+          for (const [i, raw] of items.entries()) {
+            if (i === 501) {
+              parked.reached();
+              await opened;
+            }
+            yield { position: i, raw };
+          }
+        },
+      }),
+    );
+    // the stale worker claims, then stalls before its sink starts (a slow owner lookup)
+    let staleEntered!: () => void;
+    let staleGo!: () => void;
+    const staleInStart = new Promise<void>((r) => {
+      staleEntered = r;
+    });
+    const staleMayGo = new Promise<void>((r) => {
+      staleGo = r;
+    });
+    const staleSink: imports.FeedSink = {
+      ...imports.listingSink,
+      async start(r) {
+        staleEntered();
+        await staleMayGo;
+        return imports.listingSink.start(r);
+      },
+    };
+    const run = await as((ctx) => imports.requestFeedRun(ctx, c.id));
+    const p = { runId: run.id, agencyId: owner.agencyId };
+    const stale = imports.executeRun(p, job(), staleSink);
+    await staleInStart;
+    await system((tx) =>
+      tx.execute(sql`update feed_runs set lease_until = now() - interval '1 minute' where id = ${run.id}`),
+    );
+    const owned = imports.executeRun(p, job()); // attempt 2
+    await reached;
+    staleGo(); // the stale worker's sink starts now, then its first batch finds the fence moved
+    expect(await stale).toEqual({ kind: 'lost' });
+    parked.open();
+    expect(await owned).toMatchObject({ kind: 'finished', state: 'SUCCEEDED', errorCode: null });
+    const dto = await as((ctx) => imports.getFeedRun(ctx, run.id));
+    expect(dto.counts).toMatchObject({ total: 600, valid: 600, failed: 0, withdrawn: 0 });
+    const after = await listingsOf(c);
+    expect([...after.values()].filter((l) => l.status === 'WITHDRAWN')).toHaveLength(0);
+  });
 });

@@ -4,6 +4,9 @@ import type { MapperPathDto } from '@inmolink/contracts';
  * A first guess of the mapping from the names in the sample (S6-04): per field, the path whose last segment is a
  * well-known word for it (English, Spanish, German, French, Italian, Portuguese, Dutch). Only a hint — the mapper
  * shows it as a starting point the admin confirms, and values are never mapped by it without being shown.
+ *
+ * Keys are mapping fields, plus `features` and `images` (lists) and `title` and `description` (the text of the
+ * mapper's first translation, S7-F2: guessed here, not in the web app).
  */
 const WORDS: Record<string, readonly string[]> = {
   ref: ['id', 'ref', 'reference', 'referencia', 'referenz', 'code', 'codigo', 'objectid', 'propertyid', 'listingid'],
@@ -24,6 +27,8 @@ const WORDS: Record<string, readonly string[]> = {
   area: ['area', 'zone', 'zona', 'district', 'barrio', 'urbanizacion', 'location_detail', 'stadtteil'],
   energyRating: ['energyrating', 'energy', 'cee', 'epc', 'energieklasse'],
   features: ['feature', 'features', 'amenity', 'amenities', 'caracteristicas', 'extras', 'tag', 'tags', 'ausstattung'],
+  title: ['title', 'titulo', 'headline', 'name', 'titel', 'titre', 'titolo'],
+  description: ['description', 'desc', 'descripcion', 'text', 'body', 'beschreibung', 'descrizione', 'descricao'],
   images: [
     'image',
     'images',
@@ -47,18 +52,27 @@ const norm = (s: string) =>
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9_]/g, '');
 
-/** Field → path. Scalar fields take the shallowest matching path with a value in most records. */
+/** Lists: a repeated path. Texts: any path that does not repeat (a description may be missing from many records). */
+const LISTS = new Set(['features', 'images']);
+const TEXTS = new Set(['title', 'description']);
+
+/**
+ * Field → path. Scalar fields take the shallowest matching path with a value in most records; `title` and
+ * `description` the shallowest one that does not repeat, most records first.
+ */
 export function suggestPaths(paths: readonly MapperPathDto[]): Record<string, string> {
   const out: Record<string, string> = {};
   const total = Math.max(1, ...paths.map((p) => p.count));
   for (const [field, words] of Object.entries(WORDS)) {
-    const list = field === 'features' || field === 'images';
+    const list = LISTS.has(field);
+    const text = TEXTS.has(field);
     const hits = paths
       .filter((p) => {
         const last = norm(p.path.split('/').at(-1)?.replace(/^@/, '') ?? '');
         if (!words.includes(last)) return false;
         // Lists need a repeated path (or its attribute); scalars a path most records carry and that does not repeat.
-        return list ? p.repeated || p.path.includes('/') : !p.repeated && p.count >= total / 2;
+        if (list) return p.repeated || p.path.includes('/');
+        return !p.repeated && (text || p.count >= total / 2);
       })
       .sort((a, b) => a.path.split('/').length - b.path.split('/').length || b.count - a.count);
     const best = hits[0];
@@ -67,7 +81,7 @@ export function suggestPaths(paths: readonly MapperPathDto[]): Record<string, st
   // A path feeds one field only: the first claim (field order above) wins.
   const claimed = new Set<string>();
   for (const [field, path] of Object.entries(out)) {
-    if (field === 'features' || field === 'images') continue;
+    if (LISTS.has(field)) continue;
     if (claimed.has(path)) delete out[field];
     else claimed.add(path);
   }

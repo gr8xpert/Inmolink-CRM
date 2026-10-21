@@ -1,5 +1,6 @@
 import type { FeedListingInput } from '@inmolink/contracts';
 import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
+import { formatDefaults } from './config';
 import type { FeedItemProblem, MapResult } from './connectors';
 import { htmlToPlainText } from './html';
 import { clip, decimal } from './values';
@@ -21,15 +22,14 @@ export interface FormatSettings {
   defaultCountry: string;
   /** Locale of text the feed does not tag with a language. */
   defaultLocale: string;
+  /** Currency of a price the feed sends without one. */
+  defaultCurrency: string;
 }
 
-export function formatSettings(settings: Record<string, unknown>): FormatSettings {
-  const country = typeof settings.defaultCountry === 'string' ? settings.defaultCountry.trim() : '';
-  const locale = typeof settings.defaultLocale === 'string' ? settings.defaultLocale.trim() : '';
-  return {
-    defaultCountry: country.length > 0 && country.length <= 200 ? country : 'Spain',
-    defaultLocale: /^[a-z]{2}$/.test(locale) ? locale : 'es',
-  };
+/** The connection's settings over its format's defaults (`FORMAT_DEFAULTS` in config.ts, S7-F2). */
+export function formatSettings(settings: Record<string, unknown>, connector: string): FormatSettings {
+  const d = formatDefaults(connector, settings);
+  return { defaultCountry: d.country, defaultLocale: d.locale, defaultCurrency: d.currency };
 }
 
 /** Latitude and longitude texts to a point; 0,0, out of range or unreadable is no point. */
@@ -125,8 +125,8 @@ export function finishListing(
   return problems.length > 0 ? { ok: false, ref, problems } : { ok: true, ref, item };
 }
 
-/** An ISO 4217 code from a feed value (any case); EUR when absent or not a code. */
-export function currencyOf(value: string | undefined): string {
+/** An ISO 4217 code from a feed value (any case); the format's default when absent or not a code. */
+export function currencyOf(value: string | undefined, fallback: string): string {
   const c = value?.trim().toUpperCase() ?? '';
-  return /^[A-Z]{3}$/.test(c) ? c : 'EUR';
+  return /^[A-Z]{3}$/.test(c) ? c : fallback;
 }

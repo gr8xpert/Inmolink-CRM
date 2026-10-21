@@ -2,6 +2,7 @@ import type { FeedListingInput } from '@inmolink/contracts';
 import { childOf, childText, type XmlElement } from '@inmolink/platform/xml';
 import {
   buildTranslations,
+  currencyOf,
   type FormatSettings,
   finishListing,
   generatedTitle,
@@ -24,11 +25,15 @@ import { integer, positive, priceToCents, truthy, year } from '../values';
 
 const no = (text: string | undefined) => text === undefined || /^(no|none|ninguno|-)$/i.test(text.trim());
 
-function price(raw: XmlElement, main: string, fallback: string): { text: string | undefined; currency: string } {
+function price(
+  raw: XmlElement,
+  main: string,
+  fallback: string,
+  defaultCurrency: string,
+): { text: string | undefined; currency: string } {
   const el = childOf(raw, main);
   const text = childText(raw, main) ?? childText(raw, fallback);
-  const currency = (el?.attributes.currency ?? 'eur').trim().toUpperCase();
-  return { text, currency: /^[A-Z]{3}$/.test(currency) ? currency : 'EUR' };
+  return { text, currency: currencyOf(el?.attributes.currency, defaultCurrency) };
 }
 
 export function mapInmobaProperty(raw: XmlElement, settings: FormatSettings): MapResult<FeedListingInput> {
@@ -42,16 +47,16 @@ export function mapInmobaProperty(raw: XmlElement, settings: FormatSettings): Ma
   const rent = truthy(childText(raw, 'is_for_rent'));
   let transactionType: FeedListingInput['transactionType'] = 'SALE';
   let pricePeriod: FeedListingInput['pricePeriod'] = null;
-  let chosen = price(raw, 'selling_price', 'selling_price_eur');
+  let chosen = price(raw, 'selling_price', 'selling_price_eur', settings.defaultCurrency);
   if (!forSale) {
     if (rentLong || (rent && !rentShort)) {
       transactionType = 'RENT_LONG_TERM';
       pricePeriod = 'MONTH';
-      chosen = price(raw, 'rental_price_long', 'rental_price_eur_long');
+      chosen = price(raw, 'rental_price_long', 'rental_price_eur_long', settings.defaultCurrency);
     } else if (rentShort || rent) {
       transactionType = 'RENT_SHORT_TERM';
       pricePeriod = /night|noche/i.test(childText(raw, 'rental_price_comment') ?? '') ? 'NIGHT' : 'WEEK';
-      chosen = price(raw, 'rental_price', 'rental_price_eur');
+      chosen = price(raw, 'rental_price', 'rental_price_eur', settings.defaultCurrency);
     } else {
       problems.push(problem('INVALID_FIELD', 'is_for_sale', 'the property is neither for sale nor for rent'));
     }

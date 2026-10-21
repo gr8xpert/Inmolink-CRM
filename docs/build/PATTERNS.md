@@ -531,45 +531,54 @@ properties, `media.purgeDeletedListings`).
 
 ## §13 Bulk load (feeds, migration)
 
+Tenant loads run as `app_user` in `withTenant` (RLS on every staged row). **Not COPY:** PostgreSQL refuses `COPY FROM`
+into a table under RLS for a role without BYPASSRLS, and app roles have no TEMPORARY (ADR 0017). Stage into a
+permanent UNLOGGED tenant table keyed by batch id with `INSERT … jsonb_to_recordset`, MERGE, delete the batch's rows —
+all in the batch's transaction. (System scripts with `withSystemClient`, e.g. seeds, may still COPY.)
+
 ```ts
-// packages/core/src/modules/imports/load.ts
-import { pipeline } from 'node:stream/promises';
-import { from as copyFrom } from 'pg-copy-streams';
-import { getPgClient } from '@inmolink/db';
-
-export async function loadBatch(agencyId: string, rows: AsyncIterable<StagingRow>) {
-  const client = await getPgClient('app_user');
-  try {
-    await client.query('begin');
-    await client.query(`select set_config('app.agency_id', $1, true)`, [agencyId]);
-    await client.query(`create temp table stg (like import_staging including defaults) on commit drop`);
-    await pipeline(toCsvStream(rows), client.query(copyFrom(`copy stg (${STAGING_COLUMNS}) from stdin with (format csv)`)));
-
-    // PostgreSQL 17+: MERGE ... RETURNING lets us emit outbox events for exactly what changed
-    const { rows: changed } = await client.query(`
-      merge into properties p
-      using stg s on (p.agency_id = s.agency_id and p.source = s.source and p.external_ref = s.external_ref)
-      when matched and s.hash <> p.import_hash then update set
-        price_cents = case when 'price' = any(p.locked_fields) then p.price_cents else s.price_cents end,
-        bedrooms    = case when 'bedrooms' = any(p.locked_fields) then p.bedrooms else s.bedrooms end,
-        import_hash = s.hash, version = p.version + 1, updated_at = now()
-      when not matched then insert (id, agency_id, ref, source, external_ref, price_cents, bedrooms, import_hash, ...)
-        values (s.id, s.agency_id, s.ref, s.source, s.external_ref, s.price_cents, s.bedrooms, s.hash, ...)
-      returning merge_action() as action, p.id, p.version`);
-
-    await insertOutboxBulk(client, changed.map(toListingEvent));   // one INSERT ... SELECT unnest(...)
-    await client.query('commit');
-    return summarize(changed);
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally {
-    client.release();
+// packages/core/src/modules/properties/import-repo.ts (the owning module's repo; imports calls importListingBatch)
+export async function stage(tx: Tx, scope: ImportScope, rows: readonly StagingRow[]): Promise<void> {
+  let chunk: string[] = [];
+  let bytes = 0;
+  const flush = async () => {
+    if (chunk.length === 0) return;
+    await tx.execute(sql`
+      insert into property_import_staging (batch_id, agency_id, ${sql.raw(COLUMNS)})
+      select ${scope.batchId}::uuid, ${scope.agencyId}::uuid, ${sql.raw(COLUMNS)}
+        from jsonb_to_recordset(${`[${chunk.join(',')}]`}::jsonb) as ${sql.raw(RECORDSET)}`);
+    chunk = [];
+    bytes = 0;
+  };
+  for (const row of rows) {
+    const json = JSON.stringify(row);
+    if (bytes + json.length > STAGE_CHUNK_BYTES) await flush(); // one bind parameter, ≤ 8 MB per statement
+    chunk.push(json);
+    bytes += json.length;
   }
+  await flush();
 }
+
+// then, in the same transaction (PostgreSQL 17+: MERGE … RETURNING merge_action())
+const merged = await tx.execute(sql`
+  merge into properties p
+  using (select * from property_import_staging where batch_id = ${scope.batchId}) s on p.id = s.existing_id
+  when matched and s.hash is distinct from s.old_hash then update set
+    price_cents = case when 'price' = any(p.locked_fields) then p.price_cents else s.price_cents end,
+    version = p.version + 1, updated_at = now()
+  when not matched then insert (id, agency_id, ref, price_cents, …) values (s.new_id, s.agency_id, s.new_ref, …)
+  returning merge_action() as action, p.id`);
+await emit(tx, oneEventPer250(merged.rows)); // one INSERT for the batch
+await tx.execute(sql`delete from property_import_staging where batch_id = ${scope.batchId}`);
 ```
 
-Chunk feeds into batches of ~2,000 listings; images are queued separately (hash-first, §7 media).
+- Batches of 500 items (`RUNS.BATCH_SIZE`), one fenced transaction each; a fixed handful of statements per batch
+  whatever its size, no query per item.
+- Never plan on the staging or seen tables' statistics (they look empty): drive lookups by array parameters
+  (`= any($1::text[])`) or by the batch id on the primary key.
+- A reference an earlier batch of the run already had is refused (`DUPLICATE_REF`) by one primary-key probe of the
+  run's seen references per batch; nothing per run is held in memory.
+- Images are queued separately (hash-first, §7 media).
 
 ---
 
