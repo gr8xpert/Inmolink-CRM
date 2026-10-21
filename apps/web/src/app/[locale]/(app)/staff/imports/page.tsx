@@ -63,12 +63,19 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function pauseText(t: StaffT, format: Formatter, pause: FeedPauseDto): string {
   const d = pause.details;
-  return pause.reason === 'VOLUME_SPIKE'
-    ? t('imports.reasons.VOLUME_SPIKE', { items: format.number(d.items ?? 0), typical: format.number(d.typical ?? 0) })
-    : t('imports.reasons.MASS_WITHDRAWAL', {
-        missing: format.number(d.missing ?? 0),
-        live: format.number(d.live ?? 0),
-      });
+  if (pause.reason === 'VOLUME_SPIKE') {
+    return t('imports.reasons.VOLUME_SPIKE', {
+      items: format.number(d.items ?? 0),
+      typical: format.number(d.typical ?? 0),
+    });
+  }
+  if (pause.reason === 'EMPTY_FEED') {
+    return t('imports.reasons.EMPTY_FEED', { items: format.number(d.items ?? 0), live: format.number(d.live ?? 0) });
+  }
+  return t('imports.reasons.MASS_WITHDRAWAL', {
+    missing: format.number(d.missing ?? 0),
+    live: format.number(d.live ?? 0),
+  });
 }
 
 function Health({
@@ -151,6 +158,21 @@ function Health({
                       {canResume ? (
                         <form action={staffResumeFeedAction} className="flex flex-col items-end gap-1">
                           <input type="hidden" name="connectionId" value={p.connectionId} />
+                          <label className="flex flex-col items-end gap-1 text-xs">
+                            {t('imports.resumeReason')}
+                            <textarea
+                              name="reason"
+                              required
+                              minLength={10}
+                              maxLength={500}
+                              rows={2}
+                              aria-describedby={`resume-hint-${p.connectionId}`}
+                              className="w-56 rounded-md border bg-background p-1 text-xs"
+                            />
+                          </label>
+                          <span id={`resume-hint-${p.connectionId}`} className="text-xs text-muted-foreground">
+                            {t('imports.resumeReasonHint')}
+                          </span>
                           <label className="flex items-center gap-1 text-xs">
                             <input type="checkbox" name="acceptChange" />
                             {t('imports.acceptChange')}

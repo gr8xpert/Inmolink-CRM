@@ -237,4 +237,17 @@ describe('safeFetch', () => {
     expect(() => allowLoopbackOriginsForTests(['http://10.0.0.1:80'])).toThrow();
     expect(() => allowLoopbackOriginsForTests(['http://example.com'])).toThrow();
   });
+
+  it('[S7-F1] the test escape hatch refuses NODE_ENV=production even when VITEST is set', () => {
+    const before = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(process.env.VITEST).toBe('true');
+      expect(() => allowLoopbackOriginsForTests(['http://127.0.0.1:9'])).toThrow(/refused in production/);
+      // an origin allowed earlier stops counting the moment the process says production
+      expect(() => checkUrl(`${origin}/feed.xml`)).toThrow(SafeFetchError);
+    } finally {
+      process.env.NODE_ENV = before;
+    }
+  });
 });

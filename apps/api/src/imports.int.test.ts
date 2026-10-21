@@ -1,8 +1,10 @@
+import { SHEET_UPLOAD_MAX_BYTES } from '@inmolink/contracts';
 import { closeDb, pingDb } from '@inmolink/core';
 import * as imports from '@inmolink/core/modules/imports';
 import { createFounder } from '@inmolink/core/test';
 import { adminQuery, createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
+import { newId } from '@inmolink/platform/ids';
 import {
   createAccessTokenSigner,
   createAccessTokenVerifier,
@@ -154,9 +156,74 @@ describe('feed import routes', () => {
       method: 'POST',
       url: '/v1/staff/imports/connections/01900000-0000-7000-8000-00000000dead/resume',
       headers: staffHeaders,
-      payload: { acceptChange: false },
+      payload: { acceptChange: false, reason: 'Ticket 12: checking an unknown connection' },
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it('[S7-F1] a staff resume without a reason is refused (422); with one it resumes', async () => {
+    const owner = await createFounder();
+    const headers = await bearer(owner.userId, owner.agencyId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/connections',
+      headers,
+      payload: { name: 'Empty feed', connector: 'api-test', url: 'https://feeds.example.com/empty.xml' },
+    });
+    const { id } = created.json() as { id: string };
+    await adminQuery(
+      `update feed_connections set paused_at = now(), pause_reason = 'EMPTY_FEED',
+         pause_details = '{"items": 0, "live": 12}' where id = $1`,
+      [id],
+    );
+    const shown = await app.inject({ method: 'GET', url: `/v1/imports/connections/${id}`, headers });
+    expect(shown.json()).toMatchObject({ pause: { reason: 'EMPTY_FEED', details: { items: 0, live: 12 } } });
+
+    const staffHeaders = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const url = `/v1/staff/imports/connections/${id}/resume`;
+    for (const payload of [{ acceptChange: false }, { acceptChange: false, reason: 'short' }]) {
+      const refused = await app.inject({ method: 'POST', url, headers: staffHeaders, payload });
+      expect(refused.statusCode, JSON.stringify(payload)).toBe(422);
+    }
+    const resumed = await app.inject({
+      method: 'POST',
+      url,
+      headers: staffHeaders,
+      payload: { acceptChange: false, reason: 'Ticket 99: the agency fixed its CRM export' },
+    });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json()).toMatchObject({ id, pause: null });
+  });
+
+  it('[S7-F1] the sheet upload refuses a member who may not manage imports before reading the 25 MB body', async () => {
+    const owner = await createFounder();
+    const agentId = newId();
+    await adminQuery(
+      `insert into users (id, email, password_hash, name, locale, status)
+         values ($1, $2, 'x', 'Agent', 'en', 'ACTIVE')`,
+      [agentId, `api-sheet-agent-${agentId}@example.com`],
+    );
+    await adminQuery(
+      `insert into agency_members (agency_id, user_id, role, name, email) values ($1, $2, 'AGENT', 'Agent', $3)`,
+      [owner.agencyId, agentId, `api-sheet-agent-${agentId}@example.com`],
+    );
+    const agentHeaders = await bearer(agentId, owner.agencyId);
+    // over the body limit: an admin gets 413 (the body is read), a member 403 before any of it is
+    const tooBig = Buffer.alloc(SHEET_UPLOAD_MAX_BYTES + 1, 0x41);
+    const member = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets',
+      headers: { ...agentHeaders, 'content-type': 'text/csv' },
+      payload: tooBig,
+    });
+    expect(member.statusCode).toBe(403);
+    const admin = await app.inject({
+      method: 'POST',
+      url: '/v1/imports/sheets',
+      headers: { ...(await bearer(owner.userId, owner.agencyId)), 'content-type': 'text/csv' },
+      payload: tooBig,
+    });
+    expect(admin.statusCode).toBe(413);
   });
 
   it('[S6-01] a feed URL naming a private, loopback or metadata address is refused', async () => {

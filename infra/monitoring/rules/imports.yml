@@ -3,11 +3,13 @@
 # Metrics: worker processes of the `imports` pool (OpenTelemetry → Prometheus exporter), from
 # packages/core/src/modules/imports/guard.ts:
 #   inmolink_import_paused_total            connections the anomaly guard paused, by `reason`
+#                                           (VOLUME_SPIKE, MASS_WITHDRAWAL, EMPTY_FEED)
 #   inmolink_import_oldest_queued_seconds   seconds the oldest queued feed run has waited (scheduler tick, every minute)
 groups:
   - name: imports
     rules:
-      # A connection was paused: a spike (> 5× its typical volume) or a mass withdrawal (> 30 % of its listings gone).
+      # A connection was paused: a spike (> 5× its typical volume), a mass withdrawal (> 30 % of its listings gone) or
+      # an empty feed (S7-F1: nothing valid while the connection has live listings).
       - alert: ImportFeedPaused
         expr: sum by (reason) (increase(inmolink_import_paused_total[15m])) > 0
         labels:

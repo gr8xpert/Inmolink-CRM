@@ -40,7 +40,7 @@ describe('Import alerts', () => {
     expect(await promtool('check', 'rules', '/rules/imports.yml')).toMatch(/SUCCESS: \d+ rules found/);
   }, 200_000);
 
-  it('[S6-08] a paused feed alerts at once; a feed run waiting over 15 min in the queue alerts after 5 min', async () => {
+  it('[S6-08] [S7-F1] a paused feed (spike, drop or empty feed) alerts at once; a feed run waiting over 15 min in the queue alerts after 5 min', async () => {
     expect(await promtool('test', 'rules', '/rules/imports.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });

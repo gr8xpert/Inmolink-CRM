@@ -24,6 +24,23 @@ tests:
         alertname: ImportFeedPaused
         exp_alerts: []
 
+  # S7-F1: an empty feed (nothing valid while the connection has live listings) raises the same alert, by its reason.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_import_paused_total{reason="EMPTY_FEED", instance="worker-2"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ImportFeedPaused
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: ImportFeedPaused
+        exp_alerts:
+          - exp_labels: { severity: warning, reason: EMPTY_FEED }
+            exp_annotations:
+              summary: "A feed import was paused by the anomaly guard (EMPTY_FEED)"
+              runbook: docs/runbooks/queues.md#a-feed-was-paused-importfeedpaused-s6-08
+
   # The oldest queued run: 14 min (no alert), then over 15 min for longer than 5 minutes (firing).
   - interval: 1m
     input_series:

@@ -22,7 +22,7 @@ import {
 } from './config';
 import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
 import { importsEvents } from './events';
-import { FeedAnomalyError, massWithdrawal, recordPause, typicalVolume, volumeSpike } from './guard';
+import { emptyFeed, FeedAnomalyError, massWithdrawal, recordPause, typicalVolume, volumeSpike } from './guard';
 import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
@@ -127,6 +127,7 @@ interface Pause {
 const PAUSE_CODES: Record<FeedPauseReason, FeedRunErrorCode> = {
   VOLUME_SPIKE: 'FEED_PAUSED_VOLUME_SPIKE',
   MASS_WITHDRAWAL: 'FEED_PAUSED_MASS_WITHDRAWAL',
+  EMPTY_FEED: 'FEED_PAUSED_EMPTY_FEED',
 };
 
 /**
@@ -136,7 +137,10 @@ const PAUSE_CODES: Record<FeedPauseReason, FeedRunErrorCode> = {
  * S6-08: a success is checked by the anomaly guard first (unless the connection was resumed with "accept the
  * change"): when too many of the feed's listings vanished at once the run ends FAILED (`FEED_PAUSED_MASS_WITHDRAWAL`),
  * withdraws nothing, counts no miss, and the connection is paused. A spike (`pause` given) pauses it the same way. A
- * real success records whether the feed changed and, while it changed within `IMPORT_FEED_FRESHNESS_DAYS`, confirms
+ * S7-F1: a run that read no valid item (an empty feed, or every item failed) while the connection still has live
+ * listings ends FAILED (`FEED_PAUSED_EMPTY_FEED`) and pauses the connection the same way — it never withdraws them
+ * (S6-02), and it is not a silent success either. "Accept the change" lets one such run succeed (still withdrawing
+ * nothing). A real success records whether the feed changed and, while it changed within `IMPORT_FEED_FRESHNESS_DAYS`, confirms
  * its listings' freshness (S3-08) — after the commit, in short transactions of its own (best effort: the next run
  * confirms what a failure here left).
  */
@@ -144,7 +148,13 @@ async function finish(
   agencyId: string,
   runId: string,
   token: string,
-  outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: FeedRunErrorCode | null; pause?: Pause; valid?: number },
+  outcome: {
+    state: 'SUCCEEDED' | 'FAILED';
+    errorCode: FeedRunErrorCode | null;
+    pause?: Pause;
+    valid?: number;
+    total?: number;
+  },
   loader: RunLoader | null,
   guard: { skip: boolean },
   log: Logger,
@@ -153,15 +163,22 @@ async function finish(
     let { state, errorCode, pause } = outcome;
     let missing = 0;
     let confirmBefore: Date | undefined;
-    // A run with nothing valid withdraws nothing anyway (S6-02: a broken feed is not an empty portfolio).
-    if (loader && state === 'SUCCEEDED' && (outcome.valid ?? 0) > 0) {
+    if (loader && state === 'SUCCEEDED') {
+      const valid = outcome.valid ?? 0;
       const stats = await loader.dropStats(tx);
-      missing = stats.missing;
-      const drop = guard.skip ? null : massWithdrawal(stats.live, stats.missing, anomalyThresholds().dropRatio);
-      if (drop) {
-        pause = { reason: 'MASS_WITHDRAWAL', details: drop };
+      // A run with nothing valid withdraws nothing anyway (S6-02: a broken feed is not an empty portfolio); S7-F1:
+      // with live listings it pauses the connection instead of ending as a silent success.
+      if (valid > 0) missing = stats.missing;
+      const tripped = guard.skip
+        ? null
+        : valid === 0
+          ? emptyFeed(stats.live, outcome.total ?? 0)
+          : massWithdrawal(stats.live, stats.missing, anomalyThresholds().dropRatio);
+      if (tripped) {
+        const reason = valid === 0 ? 'EMPTY_FEED' : 'MASS_WITHDRAWAL';
+        pause = { reason, details: tripped };
         state = 'FAILED';
-        errorCode = PAUSE_CODES.MASS_WITHDRAWAL;
+        errorCode = PAUSE_CODES[reason];
       }
     }
     const done = await repo.finishRun(tx, runId, token, { state, errorCode });
@@ -242,7 +259,7 @@ export async function executeRun(
   const end = async (
     state: 'SUCCEEDED' | 'FAILED',
     code: FeedRunErrorCode | null,
-    extra: { pause?: Pause; valid?: number } = {},
+    extra: { pause?: Pause; valid?: number; total?: number } = {},
   ): Promise<RunOutcome> => {
     const outcome = { state, errorCode: code, ...extra };
     const ended = await finish(agencyId, runId, token, outcome, loader, guard, job.log);
@@ -290,6 +307,8 @@ export async function executeRun(
     };
     const { spikeFactor } = anomalyThresholds();
     let read = 0;
+    // Items the batches stored (the run's `items_valid`): the pipeline's valid ones minus those the loader refused.
+    let stored = 0;
     const commit = async (batch: PendingBatch) => {
       // S6-08 volume spike: stop before writing the batch that crosses factor × the typical item count.
       const spike = guard.skip ? null : volumeSpike(read + batch.total, baseline, spikeFactor);
@@ -320,11 +339,12 @@ export async function executeRun(
           bytesRead: batch.bytesRead,
         });
         if (!held) throw new LeaseLostError();
+        stored += batch.total - failed;
       });
     };
     const totals = await runFeedPipeline({ connector, ctx, batchSize: RUNS.BATCH_SIZE, commit });
     job.log.info({ runId, connector: connection.connector, ...totals }, 'feed run done');
-    return await end('SUCCEEDED', null, { valid: totals.valid });
+    return await end('SUCCEEDED', null, { valid: stored, total: totals.total });
   } catch (raw) {
     const err = abort.signal.aborted && abort.signal.reason instanceof LeaseLostError ? abort.signal.reason : raw;
     if (err instanceof LeaseLostError) {

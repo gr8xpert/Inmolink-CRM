@@ -686,6 +686,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // anomaly guard paused (the service writes only the pause columns; the change is audited).
   feed_connections: {
     kind: 'STRICT',
+    // S7-F1: staff's resume reason is theirs (like the give-to-get reason, S6-F1), not the agency's to read.
+    hiddenColumns: ['staff_resume_reason'],
     // Column grants (S6-08 security review): never the URL (keys in query strings), credentials or settings; writes
     // only to the pause and the schedule slot a resume sets.
     staff: {
@@ -706,6 +708,7 @@ export const tenantTables: Record<string, TenantTable> = {
         'pause_details',
         'paused_run_id',
         'accept_anomaly_once',
+        'staff_resume_reason',
         'content_changed_at',
         'version',
         'created_at',
@@ -717,6 +720,7 @@ export const tenantTables: Record<string, TenantTable> = {
         'pause_details',
         'paused_run_id',
         'accept_anomaly_once',
+        'staff_resume_reason',
         'next_run_at',
         'version',
         'updated_at',
@@ -725,6 +729,8 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { name: 'Isolation feed', connector: 'isolation', url: 'https://feeds.example.com/isolation.xml' },
   },
   feed_runs: { kind: 'STRICT', staff: { select: 'true' }, base: { trigger: 'MANUAL' } },
+  // S7-F1: tombstones of uploaded sheets deleted from storage (the agency's own; the sweep writes them via withSystem).
+  feed_sheet_releases: { kind: 'STRICT' },
   feed_item_errors: { kind: 'STRICT', base: { position: 0, code: 'ISOLATION' } },
   // S6-02: the feed references a run saw (the agency's own feed runs; written in the batch transaction).
   property_import_seen: { kind: 'STRICT', base: { external_ref: 'isolation' } },

@@ -17,5 +17,12 @@ export function registerImportsSubscriptions(): void {
       (payload, meta) => importsJobs.runFeed.enqueue({ runId: payload.runId, agencyId: meta.agencyId }),
       { name: 'imports.run.start' },
     ),
+    // S7-F1: a released upload is deleted from storage after the commit (the job re-checks it is unused).
+    subscribe(
+      importsEvents.sheetReleased,
+      (payload, meta) =>
+        importsJobs.deleteSheet.enqueue({ eventId: meta.eventId, agencyId: meta.agencyId, fileId: payload.fileId }),
+      { name: 'imports.sheet.delete' },
+    ),
   ];
 }

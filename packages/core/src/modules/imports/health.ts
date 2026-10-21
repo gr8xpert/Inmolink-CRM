@@ -12,7 +12,7 @@ import {
   IMPORT_HEALTH_LIST_LIMIT,
   IMPORT_HEALTH_WINDOW_HOURS,
   type ImportHealthDto,
-  type ResumeFeedConnectionBody,
+  StaffResumeFeedConnectionBody,
   type StaffResumeFeedConnectionDto,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
@@ -23,7 +23,11 @@ import { assertStaffCan } from './policy';
 import * as repo from './repo';
 import { toPauseDto } from './service';
 
-const PAUSE_CODES = new Set<string>(['FEED_PAUSED_VOLUME_SPIKE', 'FEED_PAUSED_MASS_WITHDRAWAL']);
+const PAUSE_CODES = new Set<string>([
+  'FEED_PAUSED_VOLUME_SPIKE',
+  'FEED_PAUSED_MASS_WITHDRAWAL',
+  'FEED_PAUSED_EMPTY_FEED',
+]);
 const KNOWN_CODES = new Set<string>(FEED_RUN_ERROR_CODES);
 
 export async function getImportHealth(ctx: StaffCtx): Promise<ImportHealthDto> {
@@ -77,16 +81,24 @@ export async function getImportHealth(ctx: StaffCtx): Promise<ImportHealthDto> {
 /**
  * `POST /v1/staff/imports/connections/:id/resume` (S6-08): staff lift a pause for an agency (data ops, super
  * admins), with the same "accept the change" choice the agency has. Audited on the agency's log.
+ *
+ * S7-F1: staff say why (`StaffReason`, validated again here — a direct caller gets no shortcut), as for the S6-F1
+ * give-to-get exemption: the reason is stored on the connection (`staff_resume_reason`, staff-only column, cleared by
+ * the next pause or an agency resume), the audit row records that one was given (`reasonProvided`), never the text
+ * (S1-08). A connection that is not paused changes nothing and writes no audit row.
  */
 export async function staffResumeFeedConnection(
   ctx: StaffCtx,
   id: string,
-  input: ResumeFeedConnectionBody,
+  input: StaffResumeFeedConnectionBody,
 ): Promise<StaffResumeFeedConnectionDto> {
   assertStaffCan(ctx, 'staff.imports.resume');
+  const body = StaffResumeFeedConnectionBody.safeParse(input);
+  if (!body.success) throw new AppError('VALIDATION_FAILED', { field: 'reason' });
+  const { acceptChange, reason } = body.data;
   const current = await repo.lockConnectionForStaff(ctx.tx, id);
   if (!current) throw new AppError('FEED_CONNECTION_NOT_FOUND');
-  const row = current.pausedAt ? await repo.resumeConnectionForStaff(ctx.tx, id, input.acceptChange) : current;
+  const row = current.pausedAt ? await repo.resumeConnectionForStaff(ctx.tx, id, acceptChange, reason) : current;
   if (!row) throw new AppError('FEED_CONNECTION_NOT_FOUND');
   if (current.pausedAt) {
     await compliance.auditStaff(
@@ -94,7 +106,7 @@ export async function staffResumeFeedConnection(
       current.agencyId,
       'staff.imports.resumed',
       { type: 'feedConnection', id },
-      { reason: current.pauseReason, acceptChange: input.acceptChange },
+      { reason: current.pauseReason, acceptChange, reasonProvided: true },
     );
   }
   return {

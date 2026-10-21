@@ -67,6 +67,7 @@
     "FEED_MAPPING_INVALID": "El perfil de mapeo de este feed falta o ya no es válido. Abre el mapeador y guárdalo de nuevo.",
     "FEED_PAUSED_VOLUME_SPIKE": "En pausa: el feed traía de repente muchos más inmuebles de lo habitual. No se importó nada a partir de ese punto.",
     "FEED_PAUSED_MASS_WITHDRAWAL": "En pausa: una gran parte de los inmuebles del feed desapareció de golpe. No se retiró ninguno.",
+    "FEED_PAUSED_EMPTY_FEED": "En pausa: el feed llegó vacío o no se pudo importar ninguno de sus inmuebles, y este feed aún tiene inmuebles publicados. No se retiró ninguno.",
     "FEED_CONNECTION_PAUSED": "El feed está en pausa; reanúdalo para volver a importar."
   },
   "notices": {
@@ -257,7 +258,8 @@
         "TOO_MANY_ROWS": "El archivo tiene demasiadas filas.",
         "TOO_MANY_COLUMNS": "El archivo tiene demasiadas columnas.",
         "CELL_TOO_LARGE": "Una celda contiene demasiado texto.",
-        "TOO_LARGE": "El archivo supera el límite."
+        "TOO_LARGE": "El archivo supera el límite.",
+        "FILE_GONE": "El archivo subido ya no está disponible. Vuelve a subirlo."
       },
       "FEED_RUN_ACTIVE": "Ya hay una importación de este archivo en curso. Espera a que termine.",
       "VERSION_CONFLICT": "Otra persona ha cambiado esta conexión. Recarga e inténtalo de nuevo."
@@ -274,9 +276,11 @@
     "title": "Importación en pausa desde el {date}",
     "VOLUME_SPIKE": "La última importación leyó {items} inmuebles; este feed suele tener unos {typical}.",
     "MASS_WITHDRAWAL": "En la última importación faltaban {missing} de tus {live} inmuebles de este feed.",
+    "EMPTY_FEED": "La última importación no encontró ningún inmueble importable ({items} leídos); tienes {live} inmuebles publicados de este feed.",
     "explain": {
       "VOLUME_SPIKE": "Nos detuvimos antes de importar los inmuebles de más, por si el feed envía la cartera de otra agencia o duplicados.",
-      "MASS_WITHDRAWAL": "No retiramos nada: un feed que pierde tantos inmuebles de golpe suele ser una exportación rota, no ventas."
+      "MASS_WITHDRAWAL": "No retiramos nada: un feed que pierde tantos inmuebles de golpe suele ser una exportación rota, no ventas.",
+      "EMPTY_FEED": "No retiramos nada: un feed vacío suele ser una exportación rota o una dirección equivocada, no una cartera vendida. Revisa el feed y reanuda."
     },
     "acceptChange": "El cambio es real (importarlo tal cual)",
     "resume": "Reanudar importaciones",

@@ -61,13 +61,16 @@ the full 24. The staff console's **Import health** page shows queued/running run
 ## A feed was paused (ImportFeedPaused, S6-08)
 
 The anomaly guard paused a connection: a run read more than `IMPORT_ANOMALY_SPIKE_FACTOR` (5) × the feed's typical
-item count, or more than `IMPORT_ANOMALY_DROP_RATIO` (30 %) of its listings vanished at once. Nothing past the spike
-was written and nothing was withdrawn. The agency sees the notice on its feed page.
+item count, or more than `IMPORT_ANOMALY_DROP_RATIO` (30 %) of its listings vanished at once, or (`EMPTY_FEED`,
+S7-F1) a run stored no valid item — the feed was empty or every item failed — while the connection still has live
+listings. Nothing past the spike was written and nothing was withdrawn. The agency sees the notice on its feed page.
 
 1. Open **Import health** in the staff console: the paused feed, its reason and counts.
 2. Ask the agency whether the change is real (portfolio sold, feeds merged). Agency admins resume it themselves; data
-   ops and super admins can resume it from the dashboard. "Accept the change" lets the next run skip the guard once;
-   without it the next run is checked again.
+   ops and super admins can resume it from the dashboard with a reason (the ticket, what was checked; S7-F1: stored
+   on the connection for staff, the audit row only records that one was given). "Accept the change" lets the next run
+   skip the guard once; without it the next run is checked again. An accepted empty run still withdraws nothing.
+3. `EMPTY_FEED`: check the feed URL answers with listings (a CRM export that broke, a moved file, an expired key).
 
 ## Never
 

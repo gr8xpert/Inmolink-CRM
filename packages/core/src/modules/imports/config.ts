@@ -122,6 +122,28 @@ export const ANOMALY = {
  */
 export const FEED_CONFIRM_REFRESH_DAYS = 7;
 
+/**
+ * Uploaded CSV / Excel files (S7-F1): `imports/sheets/<agency>/<file id>` in the private bucket. They may hold owner
+ * data, so they are not kept forever (S6 security review M1).
+ */
+export const SHEETS = {
+  /** Storage prefix of every agency's uploaded sheets. */
+  PREFIX: 'imports/sheets/',
+  /** A file whose connections have not run (nor changed) for this long is deleted by the daily sweep. */
+  RETENTION_DAYS: 30,
+  /**
+   * A file no connection points to is left alone this long: it sits between "uploaded" and "import started" (the
+   * mapper), and a deleted agency's files go with the next sweep after it.
+   */
+  UNUSED_GRACE_MS: 24 * 3_600_000,
+  /** Objects listed per page, and pages per sweep run (100k objects; the next day continues). */
+  LIST_PAGE: 500,
+  MAX_PAGES: 200,
+  /** Release tombstones (`feed_sheet_releases`) kept this long, then pruned `PRUNE_BATCH` per statement. */
+  RELEASE_RETENTION_DAYS: 7,
+  PRUNE_BATCH: 5_000,
+} as const;
+
 /** Fetch limits for feeds (PATTERNS §16), unless a connector asks for less. */
 export const FEED_FETCH = {
   TIMEOUT_MS: 20 * 60_000,

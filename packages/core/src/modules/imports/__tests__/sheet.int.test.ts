@@ -4,6 +4,7 @@ import { setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { readCheckpoint, writeCheckpoint } from '@inmolink/platform/queue';
 import { buildXlsx, buildZip, type TestCell } from '@inmolink/platform/sheet/testing';
 import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
@@ -334,5 +335,200 @@ describe('the import', () => {
       await upload(owner, bigWorkbook('Q'));
     });
     expect(queries).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('uploaded files do not outlive their use (S7-F1)', () => {
+  const key = (who: Founder, fileId: string | undefined) => `imports/sheets/${who.agencyId}/${fileId}`;
+  const stored = async (who: Founder, fileId: string | undefined) =>
+    (await store.head('private', key(who, fileId))) !== null;
+  const csv = (ref: string) => Buffer.from(`Ref,Type,Price,Country\n${ref},Villa ${RUN},100000,Listland ${RUN}\n`);
+  const mapping: XmlMappingInput = { ...MAPPING, translations: [] };
+  const start = (who: Founder, fileId: string | undefined, connectionId?: string) =>
+    as(who, (ctx) =>
+      imports.startSheetImport(
+        ctx,
+        StartSheetImportBody.parse({
+          fileId,
+          name: `Lifecycle ${RUN}`,
+          mapping,
+          ...(connectionId ? { connectionId } : {}),
+        }),
+      ),
+    );
+  /** What the `imports.sheet.released` subscription does: the job, with the event's payload. */
+  const released = async (connectionId: string) => {
+    const events = await rows<{ payload: { agencyId: string; fileId: string } }>(sql`
+      select payload from outbox_events where type = 'imports.sheet.released'
+         and payload->>'connectionId' = ${connectionId} order by created_at, id`);
+    const results: { deleted: boolean }[] = [];
+    for (const e of events) results.push(await imports.deleteReleasedSheet(e.payload));
+    return { fileIds: events.map((e) => e.payload.fileId), results };
+  };
+  const age = (who: Founder, fileId: string | undefined, days: number) => {
+    const object = store.objects.get(`private/${key(who, fileId)}`);
+    if (!object) throw new Error('no such object');
+    object.lastModified = new Date(Date.now() - days * 86_400_000);
+  };
+  const idle = (connectionId: string, days: number) =>
+    system((tx) =>
+      tx.execute(sql`update feed_connections set
+          last_run_at = now() - make_interval(days => ${days}),
+          created_at = now() - make_interval(days => ${days}),
+          updated_at = now() - make_interval(days => ${days})
+        where id = ${connectionId}`),
+    );
+
+  it("[S7-F1] deleting a sheet connection deletes its file, and a replaced upload's old file is gone", async () => {
+    const first = await upload(owner, csv('L-1'));
+    const a = await start(owner, first.sheet?.fileId);
+    await imports.executeRun({ runId: a.run.id, agencyId: owner.agencyId }, job());
+
+    // a new upload replaces the file: the old one is released and deleted after the commit, the new one stays
+    const second = await upload(owner, csv('L-2'));
+    const b = await start(owner, second.sheet?.fileId, a.connectionId);
+    await imports.executeRun({ runId: b.run.id, agencyId: owner.agencyId }, job());
+    expect(await released(a.connectionId)).toMatchObject({
+      fileIds: [first.sheet?.fileId],
+      results: [{ deleted: true }],
+    });
+    expect(await stored(owner, first.sheet?.fileId)).toBe(false);
+    expect(await stored(owner, second.sheet?.fileId)).toBe(true);
+
+    // the same file imported again on the same connection is not released
+    const again = await start(owner, second.sheet?.fileId, a.connectionId);
+    await imports.executeRun({ runId: again.run.id, agencyId: owner.agencyId }, job());
+    expect((await released(a.connectionId)).fileIds).toHaveLength(1);
+
+    // the connection is deleted: its file goes too
+    await as(owner, (ctx) => imports.deleteFeedConnection(ctx, a.connectionId));
+    expect((await released(a.connectionId)).fileIds).toEqual([first.sheet?.fileId, second.sheet?.fileId]);
+    expect(await stored(owner, second.sheet?.fileId)).toBe(false);
+
+    // a file another connection still uses is kept when one of them is deleted; members cannot delete connections
+    const shared = await upload(owner, csv('L-3'));
+    const c1 = await start(owner, shared.sheet?.fileId);
+    const c2 = await start(owner, shared.sheet?.fileId);
+    expect(await refusal(as(agent, (ctx) => imports.deleteFeedConnection(ctx, c1.connectionId)))).toBe('FORBIDDEN');
+    await as(owner, (ctx) => imports.deleteFeedConnection(ctx, c1.connectionId));
+    expect((await released(c1.connectionId)).results).toEqual([{ deleted: false }]);
+    expect(await stored(owner, shared.sheet?.fileId)).toBe(true);
+    await as(owner, (ctx) => imports.deleteFeedConnection(ctx, c2.connectionId));
+    expect((await released(c2.connectionId)).results).toEqual([{ deleted: true }]);
+    expect(await stored(owner, shared.sheet?.fileId)).toBe(false);
+    // idempotent: a redelivered release finds nothing to delete and does not fail
+    expect((await released(c2.connectionId)).results).toEqual([{ deleted: true }]);
+  }, 120_000);
+
+  it('[S7-F1] the daily sweep deletes files idle for 30 days and files no connection points to (also a deleted agency’s), never recent, young or queued ones', async () => {
+    // idle: its connection last ran (and changed) 31 days ago
+    const idleFile = await upload(owner, csv('W-1'));
+    const idleConn = await start(owner, idleFile.sheet?.fileId);
+    await imports.executeRun({ runId: idleConn.run.id, agencyId: owner.agencyId }, job());
+    await idle(idleConn.connectionId, 31);
+    age(owner, idleFile.sheet?.fileId, 31);
+    // recent: an old file whose connection ran 2 days ago
+    const recentFile = await upload(owner, csv('W-2'));
+    const recentConn = await start(owner, recentFile.sheet?.fileId);
+    await imports.executeRun({ runId: recentConn.run.id, agencyId: owner.agencyId }, job());
+    await idle(recentConn.connectionId, 2);
+    age(owner, recentFile.sheet?.fileId, 40);
+    // queued: idle for 31 days, but a run waits for it
+    const queuedFile = await upload(owner, csv('W-3'));
+    const queuedConn = await start(owner, queuedFile.sheet?.fileId);
+    await idle(queuedConn.connectionId, 31);
+    age(owner, queuedFile.sheet?.fileId, 31);
+    // orphaned: uploaded two days ago, never imported; young: uploaded just now, the mapper is still open
+    const orphan = await upload(owner, csv('W-4'));
+    age(owner, orphan.sheet?.fileId, 2);
+    const young = await upload(owner, csv('W-5'));
+    // an agency whose connections are gone (offboarded): its files are orphans
+    const other = await createFounder();
+    const othersFile = await upload(other, csv('W-6'));
+    const othersConn = await start(other, othersFile.sheet?.fileId);
+    await system((tx) => tx.execute(sql`delete from feed_connections where id = ${othersConn.connectionId}`));
+    age(other, othersFile.sheet?.fileId, 2);
+
+    await system((tx) => writeCheckpoint(tx, 'imports.sweepSheets', null));
+    const result = await imports.sweepSheets();
+    expect(result.end).toBe(true);
+    expect(await stored(owner, idleFile.sheet?.fileId)).toBe(false);
+    expect(await stored(owner, orphan.sheet?.fileId)).toBe(false);
+    expect(await stored(other, othersFile.sheet?.fileId)).toBe(false);
+    expect(await stored(owner, recentFile.sheet?.fileId)).toBe(true);
+    expect(await stored(owner, queuedFile.sheet?.fileId)).toBe(true);
+    expect(await stored(owner, young.sheet?.fileId)).toBe(true);
+    expect(result.deleted).toBeGreaterThanOrEqual(3);
+    expect(result.orphaned).toBeGreaterThanOrEqual(2);
+    // idempotent: a second sweep has nothing more to delete
+    expect((await imports.sweepSheets()).deleted).toBe(0);
+
+    // the idle connection's next run fails cleanly: the agency uploads the file again
+    const rerun = await as(owner, (ctx) => imports.requestFeedRun(ctx, idleConn.connectionId));
+    expect(await imports.executeRun({ runId: rerun.id, agencyId: owner.agencyId }, job())).toMatchObject({
+      kind: 'finished',
+      state: 'FAILED',
+      errorCode: 'FEED_FETCH_FAILED',
+    });
+    await system((tx) =>
+      tx.execute(sql`update feed_runs set state = 'FAILED', finished_at = now(), error_code = 'INTERNAL'
+        where connection_id = ${queuedConn.connectionId} and state = 'QUEUED'`),
+    );
+  }, 120_000);
+
+  it('[S7-F1] a sweep cut short resumes where it stopped on the next run, and wraps to the start at the end', async () => {
+    // three orphans of a fresh agency (its keys sort after every earlier agency's: UUIDv7)
+    const late = await createFounder();
+    const files = [];
+    for (const ref of ['P-1', 'P-2', 'P-3']) {
+      const f = await upload(late, csv(ref));
+      age(late, f.sheet?.fileId, 2);
+      files.push(f.sheet?.fileId);
+    }
+    const objects = [...store.objects.keys()].filter((k) => k.startsWith('private/imports/sheets/')).length;
+    await system((tx) => writeCheckpoint(tx, 'imports.sweepSheets', null));
+    // one page of 2 objects per run: without the saved position every run would see the first page again
+    const runs: Awaited<ReturnType<typeof imports.sweepSheets>>[] = [];
+    while (runs.length < objects + 2) {
+      const r = await imports.sweepSheets({ maxPages: 1, pageSize: 2 });
+      runs.push(r);
+      expect(r.scanned).toBeLessThanOrEqual(2);
+      if (r.end) break;
+    }
+    expect(runs.at(-1)?.end).toBe(true);
+    expect(runs.length).toBeGreaterThanOrEqual(Math.ceil(objects / 2));
+    for (const f of files) expect(await stored(late, f)).toBe(false);
+    expect(await system((tx) => readCheckpoint(tx, 'imports.sweepSheets'))).toBeUndefined();
+    // at the end it starts over: the next run reads the first page again
+    const again = await imports.sweepSheets({ maxPages: 1, pageSize: 2 });
+    expect(again.scanned).toBeGreaterThan(0);
+    await system((tx) => writeCheckpoint(tx, 'imports.sweepSheets', null));
+  }, 120_000);
+
+  it('[S7-F1] a released file cannot be imported again (the release and the start take the same lock)', async () => {
+    const f = await upload(owner, csv('G-1'));
+    const c = await start(owner, f.sheet?.fileId);
+    await imports.executeRun({ runId: c.run.id, agencyId: owner.agencyId }, job());
+    await as(owner, (ctx) => imports.deleteFeedConnection(ctx, c.connectionId));
+    expect((await released(c.connectionId)).results).toEqual([{ deleted: true }]);
+    // a stale browser tab still holding the file id (upper case too)
+    expect(await refusal(start(owner, f.sheet?.fileId?.toUpperCase()))).toBe('FEED_SAMPLE_INVALID:FILE_GONE');
+    // an orphan the sweep let go is refused the same way
+    const orphan = await upload(owner, csv('G-2'));
+    age(owner, orphan.sheet?.fileId, 2);
+    await system((tx) => writeCheckpoint(tx, 'imports.sweepSheets', null));
+    await imports.sweepSheets();
+    expect(await refusal(start(owner, orphan.sheet?.fileId))).toBe('FEED_SAMPLE_INVALID:FILE_GONE');
+  }, 120_000);
+
+  it('[S7-F1] offboarding deletes an agency’s whole sheet prefix, and only that agency’s', async () => {
+    const leaving = await createFounder();
+    const kept = await upload(owner, csv('O-0'));
+    const mine = [];
+    for (const ref of ['O-1', 'O-2', 'O-3']) mine.push((await upload(leaving, csv(ref))).sheet?.fileId);
+    expect(await imports.deleteAgencySheets(leaving.agencyId)).toEqual({ deleted: 3, more: false });
+    for (const f of mine) expect(await stored(leaving, f)).toBe(false);
+    expect(await stored(owner, kept.sheet?.fileId)).toBe(true);
+    expect(await imports.deleteAgencySheets(leaving.agencyId)).toEqual({ deleted: 0, more: false });
   });
 });

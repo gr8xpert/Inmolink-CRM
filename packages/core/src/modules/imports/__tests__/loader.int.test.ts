@@ -479,8 +479,16 @@ describe('bulk loader', () => {
     const broken = { ...listing('D-2'), transactionType: 'SALE' as const, pricePeriod: 'MONTH' as const };
     for (let i = 0; i < 3; i++) await runFeed(c, [listing('D-1'), broken]);
     expect((await listingsOf(c)).get('D-2')).toMatchObject({ status: 'ACTIVE', import_missed_runs: 0 });
-    // a feed with nothing valid is a broken feed, not an empty portfolio
-    for (let i = 0; i < 3; i++) await runFeed(c, []);
+    // a feed with nothing valid is a broken feed, not an empty portfolio: it pauses (S7-F1) and, even when the
+    // agency accepts it, withdraws nothing and counts no miss
+    expect((await runFeed(c, [])).run).toMatchObject({ errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+    for (let i = 0; i < 3; i++) {
+      await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: true }));
+      expect((await runFeed(c, [])).run).toMatchObject({ state: 'SUCCEEDED', counts: { withdrawn: 0 } });
+      // the acceptance is used up: the next empty run pauses again
+      expect((await runFeed(c, [])).run).toMatchObject({ errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+    }
+    await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
     expect((await listingsOf(c)).get('D-1')).toMatchObject({ status: 'ACTIVE', import_missed_runs: 0 });
     // three successful runs without D-1 (the configured default, 3) withdraw it
     for (let i = 0; i < 3; i++) await runFeed(c, [broken, listing('D-3')]);

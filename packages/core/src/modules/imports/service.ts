@@ -36,6 +36,7 @@ import { getConnector } from './connectors';
 import { importsEvents } from './events';
 import { assertCan, can } from './policy';
 import * as repo from './repo';
+import { connectionSheet } from './sheet/lifecycle';
 
 /** Scheduled connections run daily unless the agency picks another interval. */
 const DEFAULT_SCHEDULE_MINUTES = 1_440;
@@ -259,13 +260,20 @@ export async function updateFeedConnection(
   return toConnectionDto(ctx, updated);
 }
 
-/** `DELETE /v1/imports/connections/:id` (admins): the run history goes with it; a running run stops at its next batch. */
+/**
+ * `DELETE /v1/imports/connections/:id` (admins): the run history goes with it; a running run stops at its next batch.
+ * A sheet connection's uploaded file is released (S7-F1): deleted from storage after the commit.
+ */
 export async function deleteFeedConnection(ctx: Ctx, id: string): Promise<void> {
   assertCan(ctx, 'imports.manage');
   const current = await repo.getConnectionForUpdate(ctx.tx, id);
   if (!current) throw new AppError('FEED_CONNECTION_NOT_FOUND');
   assertCan(ctx, 'imports.manage', current);
   await repo.deleteConnection(ctx.tx, id);
+  const fileId = connectionSheet(current.connector, current.url);
+  if (fileId) {
+    await emit(ctx.tx, importsEvents.sheetReleased({ agencyId: current.agencyId, fileId, connectionId: id }));
+  }
   await compliance.audit(
     ctx,
     'imports.connection.deleted',
@@ -331,6 +339,7 @@ export async function listFeedRuns(ctx: Ctx, connectionId: string, q: ListFeedRu
   assertCan(ctx, 'imports.read');
   const connection = await repo.getConnection(ctx.tx, connectionId);
   if (!connection) throw new AppError('FEED_CONNECTION_NOT_FOUND');
+  assertCan(ctx, 'imports.read', connection);
   const page = await repo.listRuns(ctx.tx, connectionId, { limit: q.limit, cursor: decodeCursor(q.cursor) });
   const last = page.items.at(-1);
   return {
@@ -343,6 +352,7 @@ export async function getFeedRun(ctx: Ctx, runId: string): Promise<FeedRunDto> {
   assertCan(ctx, 'imports.read');
   const run = await repo.getRun(ctx.tx, runId);
   if (!run) throw new AppError('FEED_RUN_NOT_FOUND');
+  assertCan(ctx, 'imports.read', run);
   return toRunDto(run);
 }
 
@@ -372,6 +382,7 @@ export async function listFeedItemErrors(
   assertCan(ctx, 'imports.read');
   const run = await repo.getRun(ctx.tx, runId);
   if (!run) throw new AppError('FEED_RUN_NOT_FOUND');
+  assertCan(ctx, 'imports.read', run);
   const page = await repo.listItemErrors(ctx.tx, runId, { limit: q.limit, after: decodeErrorCursor(q.cursor) });
   const last = page.items.at(-1);
   return { items: page.items, nextCursor: page.hasMore && last ? encodeErrorCursor(last.position, last.id) : null };

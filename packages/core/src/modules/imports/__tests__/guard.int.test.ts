@@ -56,6 +56,7 @@ function listing(ref: string, price = 300_000_00): FeedListingInput {
     translations: [{ locale: 'en', title: `Home ${ref}`, description: null }],
   };
 }
+const STAFF_REASON = 'Ticket 4711: the agency confirmed the portfolio sale by phone';
 const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => listing(`${prefix}-${i}`));
 
 async function connection(
@@ -225,6 +226,56 @@ describe('import anomaly guard', () => {
   });
 });
 
+describe('empty feeds (S7-F1)', () => {
+  it('[S7-F1] an empty feed for a connection with live listings pauses it with EMPTY_FEED; nothing is withdrawn, and it resumes', async () => {
+    // N = 1: an empty run counted as a miss would withdraw everything at once
+    const c = await connection({ withdrawAfterMissedRuns: 1 });
+    const all = many('E', 5);
+    expect((await runFeed(c, all)).counts).toMatchObject({ created: 5 });
+
+    const empty = await runFeed(c, []);
+    expect(empty).toMatchObject({ state: 'FAILED', errorCode: 'FEED_PAUSED_EMPTY_FEED', counts: { withdrawn: 0 } });
+    expect((await statuses(c)).filter((s) => s.status === 'ACTIVE' && s.import_missed_runs === 0)).toHaveLength(5);
+    expect((await as((ctx) => imports.getFeedConnection(ctx, c.id))).pause).toMatchObject({
+      reason: 'EMPTY_FEED',
+      runId: empty.id,
+      details: { items: 0, live: 5 },
+    });
+    const [event] = await rows<{ payload: { reason: string } }>(sql`
+      select payload from outbox_events where type = 'imports.connection.paused'
+         and agency_id = ${owner.agencyId} and payload->>'connectionId' = ${c.id}`);
+    expect(event?.payload.reason).toBe('EMPTY_FEED');
+    await expect(as((ctx) => imports.requestFeedRun(ctx, c.id))).rejects.toMatchObject({
+      code: 'FEED_CONNECTION_PAUSED',
+    });
+
+    // entirely invalid (every item refused by the loader's contract check: a negative price) is the same as empty
+    await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
+    const invalid = await runFeed(
+      c,
+      many('EX', 3).map((l) => ({ ...l, priceCents: -1 })),
+    );
+    expect(invalid).toMatchObject({ state: 'FAILED', errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+    expect(invalid.counts).toMatchObject({ total: 3, failed: 3 });
+    expect((await as((ctx) => imports.getFeedConnection(ctx, c.id))).pause?.details).toMatchObject({
+      items: 3,
+      live: 5,
+    });
+
+    // "the change is real": the empty run succeeds once, and still withdraws nothing (S6-02)
+    await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: true }));
+    expect(await runFeed(c, [])).toMatchObject({ state: 'SUCCEEDED', counts: { withdrawn: 0 } });
+    expect((await statuses(c)).filter((s) => s.status === 'ACTIVE')).toHaveLength(5);
+    // the acceptance is used up: the next empty run pauses again
+    expect(await runFeed(c, [])).toMatchObject({ errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+
+    // a connection without live listings (a new feed, still empty) is not paused
+    const fresh = await connection();
+    expect(await runFeed(fresh, [])).toMatchObject({ state: 'SUCCEEDED', errorCode: null });
+    expect((await as((ctx) => imports.getFeedConnection(ctx, fresh.id))).pause).toBeNull();
+  });
+});
+
 describe('freshness via feed (user-approved 2026-10-19)', () => {
   const age = (c: { id: string }, days: number) =>
     system((tx) =>
@@ -286,10 +337,12 @@ describe('staff import health', () => {
     expect(Object.keys(health.unmatched).sort()).toEqual(['feature', 'location', 'propertyType']);
 
     await expect(
-      asStaff(support, (ctx) => imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: false })),
+      asStaff(support, (ctx) =>
+        imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: false, reason: STAFF_REASON }),
+      ),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const resumed = await asStaff(dataOps, (ctx) =>
-      imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: true }),
+      imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: true, reason: STAFF_REASON }),
     );
     expect(resumed).toMatchObject({ pause: null, acceptAnomalyOnce: true });
     // column grants: staff never read a connection's URL or credentials, never change its URL
@@ -304,5 +357,85 @@ describe('staff import health', () => {
     const [audit] = await rows<{ actor_kind: string }>(sql`select actor_kind from audit_logs
       where type = 'staff.imports.resumed' and agency_id = ${owner.agencyId} and target_id = ${c.id}`);
     expect(audit?.actor_kind).toBe('staff');
+  });
+
+  it('[S7-F1] a staff resume without a reason is refused; the reason is kept for staff, never for the agency or in the audit', async () => {
+    const c = await connection();
+    const all = many('R', 20);
+    await runFeed(c, all);
+    await runFeed(c, []); // EMPTY_FEED: paused
+    expect((await as((ctx) => imports.getFeedConnection(ctx, c.id))).pause?.reason).toBe('EMPTY_FEED');
+    const health = await asStaff(support, (ctx) => imports.getImportHealth(ctx));
+    expect(health.paused.find((p) => p.connectionId === c.id)?.pause.reason).toBe('EMPTY_FEED');
+    expect(health.failures.find((f) => f.code === 'FEED_PAUSED_EMPTY_FEED')?.count).toBeGreaterThanOrEqual(1);
+
+    // no reason, an empty one, a short one, markup: refused, still paused
+    for (const input of [
+      { acceptChange: false },
+      { acceptChange: false, reason: '' },
+      { acceptChange: false, reason: 'too short' },
+      { acceptChange: false, reason: '<script>alert(1)</script> resume it' },
+    ]) {
+      await expect(
+        asStaff(dataOps, (ctx) =>
+          imports.staffResumeFeedConnection(
+            ctx,
+            c.id,
+            input as Parameters<typeof imports.staffResumeFeedConnection>[2],
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    }
+    expect((await as((ctx) => imports.getFeedConnection(ctx, c.id))).pause).not.toBeNull();
+
+    const resumed = await asStaff(dataOps, (ctx) =>
+      imports.staffResumeFeedConnection(ctx, c.id, {
+        acceptChange: false,
+        reason: `  ${STAFF_REASON}\r\n`,
+      }),
+    );
+    expect(resumed.pause).toBeNull();
+    const [kept] = await rows<{ staff_resume_reason: string }>(sql`
+      select staff_resume_reason from feed_connections where id = ${c.id}`);
+    expect(kept?.staff_resume_reason).toBe(STAFF_REASON);
+    // the agency cannot read it (column grant), staff can
+    await expect(
+      as((ctx) => ctx.tx.execute(sql`select staff_resume_reason from feed_connections where id = ${c.id}`)),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+    const [seen] = await asStaff(
+      support,
+      async (ctx) =>
+        (await ctx.tx.execute(sql`select staff_resume_reason from feed_connections where id = ${c.id}`)).rows,
+    );
+    expect(seen).toEqual({ staff_resume_reason: STAFF_REASON });
+    // the audit row says a reason was given, never what it says
+    const [audit] = await rows<{ metadata: Record<string, unknown> }>(sql`select metadata from audit_logs
+      where type = 'staff.imports.resumed' and agency_id = ${owner.agencyId} and target_id = ${c.id}`);
+    expect(audit?.metadata).toMatchObject({ reason: 'EMPTY_FEED', acceptChange: false, reasonProvided: true });
+    expect(JSON.stringify(audit?.metadata)).not.toContain('4711');
+
+    // resuming a connection that is not paused changes nothing and audits nothing
+    await asStaff(dataOps, (ctx) =>
+      imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: true, reason: STAFF_REASON }),
+    );
+    const [count] = await rows<{ n: number }>(sql`select count(*)::int as n from audit_logs
+      where type = 'staff.imports.resumed' and agency_id = ${owner.agencyId} and target_id = ${c.id}`);
+    expect(count?.n).toBe(1);
+    expect((await as((ctx) => imports.getFeedConnection(ctx, c.id))).acceptAnomalyOnce).toBe(false);
+
+    // the reason belongs to the pause it lifted: the next pause clears it, and so does an agency resume
+    const reasonOf = async () =>
+      (
+        await rows<{ r: string | null }>(sql`select staff_resume_reason as r from feed_connections where id = ${c.id}`)
+      )[0]?.r;
+    await runFeed(c, []); // paused again
+    expect(await reasonOf()).toBeNull();
+    await asStaff(dataOps, (ctx) =>
+      imports.staffResumeFeedConnection(ctx, c.id, { acceptChange: false, reason: STAFF_REASON }),
+    );
+    expect(await reasonOf()).toBe(STAFF_REASON);
+    await runFeed(c, []);
+    await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
+    expect(await reasonOf()).toBeNull();
   });
 });

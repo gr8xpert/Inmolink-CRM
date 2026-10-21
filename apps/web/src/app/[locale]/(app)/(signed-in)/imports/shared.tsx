@@ -49,10 +49,12 @@ export async function PauseNotice({ connectionId, pause }: { connectionId: strin
   const what =
     pause.reason === 'VOLUME_SPIKE'
       ? t('paused.VOLUME_SPIKE', { items: format.number(d.items ?? 0), typical: format.number(d.typical ?? 0) })
-      : t('paused.MASS_WITHDRAWAL', {
-          missing: format.number(d.missing ?? 0),
-          live: format.number(d.live ?? 0),
-        });
+      : pause.reason === 'EMPTY_FEED'
+        ? t('paused.EMPTY_FEED', { items: format.number(d.items ?? 0), live: format.number(d.live ?? 0) })
+        : t('paused.MASS_WITHDRAWAL', {
+            missing: format.number(d.missing ?? 0),
+            live: format.number(d.live ?? 0),
+          });
   return (
     <section
       role="alert"

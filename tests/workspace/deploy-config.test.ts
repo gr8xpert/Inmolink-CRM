@@ -344,3 +344,39 @@ describe('restore drill helpers', () => {
     expect(pgTimestamp(new Date('2026-10-11T10:00:00.123Z'))).toBe('2026-10-11 10:00:00.123+00');
   });
 });
+
+describe('test-only network allowances (S7-F1)', () => {
+  const PRELOAD = /loopback-feeds|allowLoopbackOriginsForTests/;
+  const infraFiles = (dir: string): string[] =>
+    readdirSync(join(ROOT, dir), { withFileTypes: true, recursive: true })
+      .filter((d) => d.isFile() && /\.(ya?ml|sh|json|j2|conf|env)$|Dockerfile$/.test(d.name))
+      .map((d) => join(d.parentPath, d.name));
+
+  it('[S7-F1] no production start command loads the loopback test allowance', () => {
+    // the apps' start scripts (what the image runs) and their dev scripts never preload it
+    for (const app of APPS) {
+      const pkg = JSON.parse(read('apps', app, 'package.json')) as { scripts?: Record<string, string> };
+      for (const [name, script] of Object.entries(pkg.scripts ?? {})) {
+        expect(script, `${app} ${name}`).not.toMatch(PRELOAD);
+      }
+    }
+    // the image: NODE_ENV=production (the allowance refuses it), tests/ removed, the CMD preloads telemetry only
+    const dockerfile = read('infra', 'docker', 'app', 'Dockerfile');
+    expect(dockerfile).toMatch(/ENV NODE_ENV=production/);
+    expect(dockerfile).toMatch(/rm -rf [^\n]*\btests\b/);
+    expect(dockerfile).not.toMatch(PRELOAD);
+    for (const cmd of dockerfile.split('\n').filter((l) => l.startsWith('CMD'))) {
+      expect([...cmd.matchAll(/--import\s+(\S+)/g)].map((m) => m[1])).toEqual([
+        '@inmolink/platform/telemetry/register',
+      ]);
+    }
+    // deploy config (Kamal, Ansible, CI workflows): nothing names the preload or sets NODE_ENV to test
+    for (const file of [...infraFiles('infra'), ...infraFiles('.github')]) {
+      const text = readFileSync(file, 'utf8');
+      expect(text, file).not.toMatch(PRELOAD);
+      if (!file.includes('.github')) expect(text, file).not.toMatch(/NODE_ENV:\s*["']?test/);
+    }
+    // only the e2e stack (Playwright) preloads it
+    expect(read('playwright.config.ts')).toMatch(/loopback-feeds/);
+  });
+});

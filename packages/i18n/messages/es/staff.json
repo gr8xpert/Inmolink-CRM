@@ -244,9 +244,12 @@
     "open": "Abrir agencia",
     "reasons": {
       "VOLUME_SPIKE": "Pico de volumen: {items} inmuebles leídos, normalmente unos {typical}",
-      "MASS_WITHDRAWAL": "Retirada masiva: faltan de golpe {missing} de {live} inmuebles"
+      "MASS_WITHDRAWAL": "Retirada masiva: faltan de golpe {missing} de {live} inmuebles",
+      "EMPTY_FEED": "Feed vacío: nada válido ({items} leídos) con {live} inmuebles publicados"
     },
     "acceptChange": "Aceptar el cambio",
+    "resumeReason": "Motivo (ticket, qué comprobaste con la agencia)",
+    "resumeReasonHint": "Entre 10 y 500 caracteres. Se guarda para el personal en la conexión; el registro de auditoría anota que se dio un motivo.",
     "resume": "Reanudar",
     "resumed": "El feed se ha reanudado.",
     "failuresTitle": "Fallos por motivo",

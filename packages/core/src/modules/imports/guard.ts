@@ -11,6 +11,9 @@ import { ANOMALY } from './config';
  * - **Mass withdrawal** — at the end of a successful run, when more than `ratio` of the connection's live listings
  *   (present in the previous run) are missing from this one at once, the run withdraws nothing and counts no miss.
  *   Fewer than `MIN_LIVE_FOR_DROP` live listings never trip it.
+ * - **Empty feed** (S7-F1) — a successful run that stored no valid item (the feed was empty, or every item failed)
+ *   while the connection has at least one live listing. Such a run never withdraws anything (S6-02); the guard makes
+ *   it visible instead of letting it end as a success. A connection with no live listings (a new feed) never trips it.
  *
  * Either way the connection is paused (`feed_connections.paused_at`) until an agency admin or staff resume it; "accept
  * the change" lets the next run skip the guard once.
@@ -47,6 +50,11 @@ export function volumeSpike(items: number, typical: number | null, factor: numbe
 export function massWithdrawal(live: number, missing: number, ratio: number): FeedPauseDetails | null {
   if (live < ANOMALY.MIN_LIVE_FOR_DROP) return null;
   return missing / live > ratio ? { missing, live, ratio } : null;
+}
+
+/** The empty-feed check at the end of a run that stored nothing (`items` read, all invalid or none); null when fine. */
+export function emptyFeed(live: number, items: number): FeedPauseDetails | null {
+  return live > 0 ? { items, live } : null;
 }
 
 const meter = metrics.getMeter('@inmolink/core');

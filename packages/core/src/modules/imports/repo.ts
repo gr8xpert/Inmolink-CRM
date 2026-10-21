@@ -8,7 +8,13 @@
 
 import { MAPPING_CONNECTORS } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
-import { feedConnections, feedItemErrors, feedMappingProfiles, feedRuns } from '@inmolink/db/schema/imports';
+import {
+  feedConnections,
+  feedItemErrors,
+  feedMappingProfiles,
+  feedRuns,
+  feedSheetReleases,
+} from '@inmolink/db/schema/imports';
 import { and, asc, desc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
@@ -125,6 +131,93 @@ export async function listConnections(
     .orderBy(...keysetOrder(feedConnections.createdAt, feedConnections.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
+}
+
+// ── Uploaded sheets (S7-F1) ────────────────────────────────────────────────────────────────────────────────────
+
+/** Whether a connection of the agency (RLS) still points at this sheet url (`feed_connections_sheet_url_idx`). */
+export async function sheetInUse(tx: Tx, url: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: feedConnections.id })
+    .from(feedConnections)
+    .where(and(eq(feedConnections.connector, 'sheet-mapped'), eq(feedConnections.url, url)))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * The sweep (all agencies, `withSystem`): for each sheet url of the page, when its connections were last active —
+ * the latest of their last run, creation and change, or now while one of them has a queued or running run. A url
+ * missing from the answer has no connection. One statement per page (`feed_connections_sheet_url_idx`, the active
+ * runs through `feed_runs_active_idx`).
+ */
+export async function sheetActivity(
+  tx: Tx,
+  keys: readonly { agencyId: string; url: string }[],
+): Promise<Map<string, Date>> {
+  if (keys.length === 0) return new Map();
+  // one array parameter: sheet urls are `upload://<uuid>` (no comma, quote or brace to escape)
+  if (keys.some((k) => !/^upload:\/\/[0-9a-f-]{36}$/.test(k.url))) throw new Error('sheetActivity: not a sheet url');
+  const r = await tx.execute<{ agency_id: string; url: string; active_at: Date | string }>(sql`
+    select c.agency_id, c.url,
+           max(case when exists (select 1 from feed_runs r
+                                  where r.connection_id = c.id and r.state in ('QUEUED', 'RUNNING'))
+                    then now()
+                    else greatest(coalesce(c.last_run_at, c.created_at), c.updated_at) end) as active_at
+      from feed_connections c
+     where c.connector = 'sheet-mapped'
+       and c.url = any(${`{${keys.map((k) => k.url).join(',')}}`}::text[])
+     group by c.agency_id, c.url`);
+  const wanted = new Set(keys.map((k) => `${k.agencyId}|${k.url}`));
+  const out = new Map<string, Date>();
+  for (const row of r.rows) {
+    const key = `${row.agency_id}|${row.url}`;
+    if (wanted.has(key)) out.set(key, new Date(row.active_at));
+  }
+  return out;
+}
+
+/**
+ * The uploaded files' advisory locks (transaction-scoped), in a fixed order so two lockers never deadlock. Taken by
+ * `startSheetImport` before it points a connection at a file and by the release job / sweep before they mark a file
+ * released: a file is never released while a connection starts using it, and never used once released.
+ */
+export async function lockSheets(tx: Tx, fileIds: readonly string[]): Promise<void> {
+  if (fileIds.length === 0) return;
+  const keys = [...new Set(fileIds.map((f) => `imports.sheet:${f.toLowerCase()}`))].sort();
+  await tx.execute(sql`
+    select pg_advisory_xact_lock(hashtextextended(k, 0))
+      from unnest(${`{${keys.join(',')}}`}::text[]) as k order by k`);
+}
+
+/** Whether the agency's file was released (RLS; the primary key). */
+export async function sheetReleased(tx: Tx, agencyId: string, fileId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ fileId: feedSheetReleases.fileId })
+    .from(feedSheetReleases)
+    .where(and(eq(feedSheetReleases.agencyId, agencyId), eq(feedSheetReleases.fileId, fileId)));
+  return row !== undefined;
+}
+
+/** Marks files released (idempotent); the caller holds their locks and deletes the objects after the commit. */
+export async function insertSheetReleases(
+  tx: Tx,
+  rows: readonly { agencyId: string; fileId: string }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  await tx
+    .insert(feedSheetReleases)
+    .values([...rows])
+    .onConflictDoNothing();
+}
+
+/** Release tombstones older than `before`, `limit` per statement (`feed_sheet_releases_released_at_idx`). */
+export async function pruneSheetReleases(tx: Tx, before: Date, limit: number): Promise<number> {
+  const r = await tx.execute(sql`
+    delete from feed_sheet_releases where (agency_id, file_id) in (
+      select agency_id, file_id from feed_sheet_releases
+       where released_at < ${before.toISOString()}::timestamptz order by released_at limit ${limit})`);
+  return r.rowCount ?? 0;
 }
 
 // ── Runs (request paths) ───────────────────────────────────────────────────────────────────────────────────────
@@ -409,6 +502,8 @@ export async function pauseConnection(
       pauseDetails: pause.details,
       pausedRunId: pause.runId,
       acceptAnomalyOnce: false,
+      // S7-F1: a staff reason belongs to the pause it lifted; a new pause starts without one
+      staffResumeReason: null,
       nextRunAt: null,
       updatedAt: sql`now()`,
     })
@@ -448,6 +543,8 @@ export async function resumeConnection(
       pauseDetails: null,
       pausedRunId: null,
       acceptAnomalyOnce: acceptChange,
+      // S7-F1: resumed by the agency, not staff — no staff reason applies to this resume
+      staffResumeReason: null,
       nextRunAt: sql`case when ${feedConnections.enabled} and ${feedConnections.scheduleMinutes} is not null
         then now() else ${feedConnections.nextRunAt} end`,
       version: sql`${feedConnections.version} + 1`,
@@ -727,11 +824,12 @@ export async function lockConnectionForStaff(tx: Tx, connectionId: string) {
   return row ?? null;
 }
 
-/** `resumeConnection` for staff: same change, answering only the columns staff may read. */
-export async function resumeConnectionForStaff(tx: Tx, connectionId: string, acceptChange: boolean) {
+/** `resumeConnection` for staff: same change plus their reason (S7-F1), answering only the columns staff may read. */
+export async function resumeConnectionForStaff(tx: Tx, connectionId: string, acceptChange: boolean, reason: string) {
   const [row] = await tx
     .update(feedConnections)
     .set({
+      staffResumeReason: reason,
       pausedAt: null,
       pauseReason: null,
       pauseDetails: null,

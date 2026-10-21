@@ -244,9 +244,12 @@
     "open": "Open agency",
     "reasons": {
       "VOLUME_SPIKE": "Volume spike: {items} listings read, usually about {typical}",
-      "MASS_WITHDRAWAL": "Mass withdrawal: {missing} of {live} listings missing at once"
+      "MASS_WITHDRAWAL": "Mass withdrawal: {missing} of {live} listings missing at once",
+      "EMPTY_FEED": "Empty feed: nothing valid ({items} read) while {live} listings are live"
     },
     "acceptChange": "Accept the change",
+    "resumeReason": "Why (ticket, what you checked with the agency)",
+    "resumeReasonHint": "10–500 characters. Kept for staff on the connection; the audit log records that a reason was given.",
     "resume": "Resume",
     "resumed": "The feed was resumed.",
     "failuresTitle": "Failures by reason",

@@ -165,6 +165,29 @@ describe('xlsx', () => {
     expect(await code(collect(manyEntries))).toBe('ZIP_BOMB');
   });
 
+  it('[S7-F1] refuses a stored entry whose data length is not its size, or over the entry cap', async () => {
+    const stored = (data: Buffer | string, declaredSize?: number) =>
+      buildXlsx([['a']], {
+        extra: [
+          {
+            name: 'xl/worksheets/sheet1.xml',
+            data,
+            method: 0,
+            ...(declaredSize !== undefined ? { declaredSize } : {}),
+          },
+        ],
+      });
+    const sheetXml =
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c></row></sheetData></worksheet>';
+    // an honest stored entry is read
+    expect(await collect(stored(sheetXml))).toEqual([{ index: 0, cells: ['a'] }]);
+    // declares 16 bytes, holds the whole sheet: refused, not streamed
+    expect(await code(collect(stored(sheetXml, 16)))).toBe('ZIP_BOMB');
+    // a stored entry over the cap (declared honestly)
+    expect(await code(collect(stored(Buffer.alloc(SHEET_LIMITS.maxEntryBytes + 1, 0x20))))).toBe('ZIP_BOMB');
+  });
+
   it('[S6-05] refuses encrypted entries, damaged archives, other zips and zips without a workbook', async () => {
     expect(await code(collect(buildZip([{ name: 'xl/workbook.xml', data: 'x', encrypted: true }])))).toBe('ENCRYPTED');
     const good = buildXlsx([['a']]);

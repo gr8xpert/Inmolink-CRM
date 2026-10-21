@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CurrencyCode, PageQuery, pageOf } from './common';
 import { MEDIA_PER_LISTING_MAX } from './media';
 import { CeeRating, ContentLocaleCode, LocationPrecision, PricePeriod, TransactionType } from './properties';
+import { StaffReason } from './staff';
 import { MAPPER_SAMPLE, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from './values';
 
 export { SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR };
@@ -85,14 +86,18 @@ export const FeedSettings = z
   .refine((v) => JSON.stringify(v).length <= 4_096, 'settings too large');
 export type FeedSettings = z.infer<typeof FeedSettings>;
 
-/** Why the anomaly guard paused a connection (S6-08). */
-export const FeedPauseReason = z.enum(['VOLUME_SPIKE', 'MASS_WITHDRAWAL']);
+/**
+ * Why the anomaly guard paused a connection (S6-08). `EMPTY_FEED` (S7-F1): a run read no valid item — the feed was
+ * empty or every item failed — while the connection still had live listings; nothing was withdrawn.
+ */
+export const FeedPauseReason = z.enum(['VOLUME_SPIKE', 'MASS_WITHDRAWAL', 'EMPTY_FEED']);
 export type FeedPauseReason = z.infer<typeof FeedPauseReason>;
 
 /**
  * What the guard saw. VOLUME_SPIKE: `items` read when the run stopped vs the feed's `typical` item count (median of
  * its last successful runs) and the factor. MASS_WITHDRAWAL: `missing` of the feed's `live` listings vanished at once
- * vs the ratio. Counts only — never feed content.
+ * vs the ratio. EMPTY_FEED: `items` read (all invalid, or 0) while the connection had `live` listings. Counts only —
+ * never feed content.
  */
 export const FeedPauseDetails = z.object({
   items: z.number().int().optional(),
@@ -175,6 +180,13 @@ export type UpdateFeedConnectionBody = z.infer<typeof UpdateFeedConnectionBody>;
 export const ResumeFeedConnectionBody = z.object({ acceptChange: z.boolean() }).strict();
 export type ResumeFeedConnectionBody = z.infer<typeof ResumeFeedConnectionBody>;
 
+/**
+ * `POST /v1/staff/imports/connections/:id/resume` (S7-F1): staff also say why (`StaffReason`, the support ticket or
+ * what they checked with the agency). Stored on the connection for staff, never in the audit log (free text).
+ */
+export const StaffResumeFeedConnectionBody = z.object({ acceptChange: z.boolean(), reason: StaffReason }).strict();
+export type StaffResumeFeedConnectionBody = z.infer<typeof StaffResumeFeedConnectionBody>;
+
 export const FeedConnectionParams = z.object({ id: z.uuid() }).strict();
 export const FeedRunParams = z.object({ runId: z.uuid() }).strict();
 export const ListFeedConnectionsQuery = PageQuery.extend({}).strict();
@@ -249,6 +261,8 @@ export const FEED_RUN_ERROR_CODES = [
   /** S6-08 anomaly guard: the run stopped (spike) or withdrew nothing (drop); the connection is paused. */
   'FEED_PAUSED_VOLUME_SPIKE',
   'FEED_PAUSED_MASS_WITHDRAWAL',
+  /** S7-F1: nothing valid while the connection has live listings; nothing withdrawn, the connection is paused. */
+  'FEED_PAUSED_EMPTY_FEED',
   'FEED_CONNECTION_PAUSED',
   'INTERNAL',
 ] as const;

@@ -1,6 +1,6 @@
 'use server';
 
-import { FeedConnectionParams } from '@inmolink/contracts';
+import { FeedConnectionParams, StaffReason } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
@@ -17,8 +17,12 @@ export async function staffResumeFeedAction(form: FormData): Promise<void> {
   const path = getPathname({ href: '/staff/imports', locale: await getLocale() });
   const back = (query: Record<string, string>): never => redirect(`${path}?${new URLSearchParams(query)}`);
   const params = FeedConnectionParams.safeParse({ id: form.get('connectionId') });
-  if (!params.success) return back({ error: 'VALIDATION_FAILED' });
-  const res = await staffResumeFeedConnection(sessionRef(s.user), params.data.id, form.get('acceptChange') === 'on');
+  const reason = StaffReason.safeParse(form.get('reason'));
+  if (!params.success || !reason.success) return back({ error: 'VALIDATION_FAILED' });
+  const res = await staffResumeFeedConnection(sessionRef(s.user), params.data.id, {
+    acceptChange: form.get('acceptChange') === 'on',
+    reason: reason.data,
+  });
   if (res === 'revoked') redirect('/session/expired');
   if (res.ok) return back({ notice: 'resumed' });
   return back({ error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });

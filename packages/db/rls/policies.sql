@@ -61,7 +61,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -415,14 +415,21 @@ alter table public."feed_connections" force row level security;
 create policy own_rows on public."feed_connections" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."feed_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."feed_connections" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."feed_connections"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['staff_resume_reason']);
+  execute format('grant select (%s) on table public."feed_connections" to app_user', cols);
+end $$;
+grant insert, update, delete on table public."feed_connections" to app_user;
 grant select, insert, update, delete on table public."feed_connections" to app_system;
 create policy staff_select on public."feed_connections" for select to app_staff
   using (app_is_staff() and (true));
 create policy staff_update on public."feed_connections" for update to app_staff
   using (app_is_staff() and (true)) with check (app_is_staff() and (true));
-grant select ("id", "agency_id", "name", "connector", "enabled", "schedule_minutes", "next_run_at", "last_run_at", "last_run_state", "paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "content_changed_at", "version", "created_at", "updated_at") on table public."feed_connections" to app_staff;
-grant update ("paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "next_run_at", "version", "updated_at") on table public."feed_connections" to app_staff;
+grant select ("id", "agency_id", "name", "connector", "enabled", "schedule_minutes", "next_run_at", "last_run_at", "last_run_state", "paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "staff_resume_reason", "content_changed_at", "version", "created_at", "updated_at") on table public."feed_connections" to app_staff;
+grant update ("paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "staff_resume_reason", "next_run_at", "version", "updated_at") on table public."feed_connections" to app_staff;
 
 -- feed_image_queue: STRICT
 alter table public."feed_image_queue" enable row level security;
@@ -471,6 +478,15 @@ grant select, insert, update, delete on table public."feed_runs" to app_system;
 create policy staff_select on public."feed_runs" for select to app_staff
   using (app_is_staff() and (true));
 grant select on table public."feed_runs" to app_staff;
+
+-- feed_sheet_releases: STRICT
+alter table public."feed_sheet_releases" enable row level security;
+alter table public."feed_sheet_releases" force row level security;
+create policy own_rows on public."feed_sheet_releases" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."feed_sheet_releases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."feed_sheet_releases" to app_user;
+grant select, insert, update, delete on table public."feed_sheet_releases" to app_system;
 
 -- job_checkpoints: GLOBAL
 alter table public."job_checkpoints" enable row level security;

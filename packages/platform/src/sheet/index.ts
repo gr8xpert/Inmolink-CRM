@@ -298,6 +298,11 @@ async function* entryBytes(bytes: Uint8Array, entry: ZipEntry, max: number): Asy
   const data = bytes.subarray(start, end);
   let total = 0;
   if (entry.method === 0) {
+    // Stored: the data is the entry. A stored entry whose data length is not its size (or is over the cap) lies about
+    // what it holds and is refused (S7-F1, S6 review L1) — never streamed past the size that was checked.
+    if (entry.compressedSize !== entry.size || entry.compressedSize > max) {
+      throw new SheetError('ZIP_BOMB', 'stored entry size does not match');
+    }
     for (let i = 0; i < data.length; i += CHUNK) yield data.subarray(i, i + CHUNK);
     return;
   }

@@ -8,6 +8,7 @@ export {
   maxConcurrentRuns,
   RUNS,
   runsPerProcess,
+  SHEETS,
 } from './config';
 export {
   type ConnectorContext,
@@ -29,7 +30,7 @@ export {
 } from './connectors';
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
-export { FeedAnomalyError, massWithdrawal, typicalVolume, volumeSpike } from './guard';
+export { emptyFeed, FeedAnomalyError, massWithdrawal, typicalVolume, volumeSpike } from './guard';
 export { getImportHealth, staffResumeFeedConnection } from './health';
 // Never export repo or schema from index.
 export { infocasaConnector } from './infocasa/connector';
@@ -86,7 +87,8 @@ export {
   updateFeedConnection,
 } from './service';
 export { sheetKey, sheetMappedConnector } from './sheet/connector';
-export { startSheetImport, uploadSheet } from './sheet/service';
+export { deleteAgencySheets, deleteReleasedSheet, type SheetSweepResult, sweepSheets } from './sheet/lifecycle';
+export { authorizeSheetUpload, startSheetImport, uploadSheet } from './sheet/service';
 export { registerImportsSubscriptions } from './subscriptions';
 export { thinkspainConnector } from './thinkspain/connector';
 export { renderThinkSpainCoverageReport, THINKSPAIN_FIELDS } from './thinkspain/coverage';

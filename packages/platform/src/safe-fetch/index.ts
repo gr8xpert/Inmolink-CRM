@@ -141,6 +141,10 @@ let testOrigins: ReadonlySet<string> = new Set();
  * production, and only loopback IP literals qualify. Returns the undo function.
  */
 export function allowLoopbackOriginsForTests(origins: readonly string[]): () => void {
+  // S7-F1 (S6 review L3): production refuses first and on its own, whatever else the environment says.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('allowLoopbackOriginsForTests is refused in production');
+  }
   if (process.env.NODE_ENV !== 'test' || process.env.VITEST !== 'true') {
     throw new Error('allowLoopbackOriginsForTests is for tests only');
   }
@@ -160,6 +164,8 @@ export function allowLoopbackOriginsForTests(origins: readonly string[]): () => 
 
 /** True only for an origin a test allowed with `allowLoopbackOriginsForTests` (local http fixture servers). */
 export function isTestOrigin(url: string | URL): boolean {
+  // S7-F1: never in production, even if an allowance was somehow registered before NODE_ENV changed
+  if (process.env.NODE_ENV === 'production') return false;
   return testOrigins.has(new URL(String(url)).origin);
 }
 
@@ -187,7 +193,7 @@ export function checkUrl(input: string | URL, allowedPorts?: readonly number[]):
       reason: 'credentials',
     });
   }
-  if (testOrigins.has(url.origin)) return url;
+  if (isTestOrigin(url)) return url;
   const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80;
   if (!(allowedPorts ?? DEFAULT_ALLOWED_PORTS).includes(port)) {
     throw new SafeFetchError('BLOCKED_DESTINATION', 'destination port is not allowed', { reason: 'port' });

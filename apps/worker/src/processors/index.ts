@@ -71,6 +71,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.sweepOrphanDocuments,
     developmentsJobs.purgeDeletedDevelopments,
     importsJobs.pruneRuns,
+    // S7-F1: uploaded sheets — a released file is deleted, idle (30 days) and orphaned files are swept daily.
+    importsJobs.deleteSheet,
+    importsJobs.sweepSheets,
   ],
   ai: [],
   social: [],

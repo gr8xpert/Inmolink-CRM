@@ -1272,7 +1272,7 @@ Ref §12 · Mod all · Dep S16-01 · [H8] · 🔒
 
 ### S16-04 · GDPR flows and legal pages
 Ref §13 · Mod compliance, public · Dep S10-08 · [H7]
-**Build:** data subject export (GDPR_SUBJECT job), erasure (anonymize PII, keep deal/audit with anonymized actor), consent records, retention jobs, sub-processor list page, privacy/cookie/terms pages, cookie consent.
+**Build:** data subject export (GDPR_SUBJECT job), erasure (anonymize PII, keep deal/audit with anonymized actor; agency offboarding/erasure also calls `imports.deleteAgencySheets(agencyId)` after its commit — S7-F1), consent records, retention jobs, sub-processor list page, privacy/cookie/terms pages, cookie consent.
 **Done when:** erasure of a contact removes PII from all tables, search and read models (verified by a scan test)
 
 ### S16-05 · Operations readiness

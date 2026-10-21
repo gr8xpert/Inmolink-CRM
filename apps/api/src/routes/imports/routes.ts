@@ -502,7 +502,8 @@ async function sheetUploadRoute(upload: FastifyZod): Promise<void> {
         response: { 200: MapperSampleDto },
       },
       bodyLimit: SHEET_UPLOAD_MAX_BYTES,
-      onRequest: [upload.requireSession, takeSheetSlot],
+      // S7-F1: the role check runs before Fastify buffers the body (up to 25 MB); the service checks again.
+      onRequest: [upload.requireSession, (req) => upload.withCtx(req, imports.authorizeSheetUpload), takeSheetSlot],
       config: { rateLimit: SHEET_LIMITS },
     },
     async (req, reply) => {

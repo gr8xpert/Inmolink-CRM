@@ -8,7 +8,10 @@ import { z } from 'zod';
  *   `imports.runFeed` with the run's id as job ID.
  * - `imports.run.finished` — a run ended (SUCCEEDED or FAILED), for notifications and anomaly checks (S6-0x).
  * - `imports.connection.paused` — the anomaly guard paused a connection (S6-08): the agency notice (in-app and email
- *   once notifications land, S11-04); the connection itself shows the pause meanwhile.
+ *   once notifications land, S11-04); the connection itself shows the pause meanwhile. S7-F1 adds `EMPTY_FEED`.
+ * - `imports.sheet.released` — an uploaded sheet lost its connection (S7-F1: the connection was deleted, or a new
+ *   upload replaced its file); the subscription deletes the file from storage after the commit, unless another
+ *   connection of the agency still points at it.
  */
 export const importsEvents = {
   runRequested: defineEvent(
@@ -34,7 +37,12 @@ export const importsEvents = {
       connectionId: z.uuid(),
       agencyId: z.uuid(),
       runId: z.uuid(),
-      reason: z.enum(['VOLUME_SPIKE', 'MASS_WITHDRAWAL']),
+      reason: z.enum(['VOLUME_SPIKE', 'MASS_WITHDRAWAL', 'EMPTY_FEED']),
     }),
+  ),
+  sheetReleased: defineEvent(
+    'imports.sheet.released',
+    1,
+    z.object({ agencyId: z.uuid(), fileId: z.uuid(), connectionId: z.uuid() }),
   ),
 };

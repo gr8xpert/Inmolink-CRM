@@ -24,6 +24,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -91,7 +92,7 @@ export const feedConnections = pgTable(
      * at once. A paused connection is not scheduled and cannot be run until an agency admin or staff resume it.
      */
     pausedAt: timestamp('paused_at', { withTimezone: true }),
-    /** `VOLUME_SPIKE` or `MASS_WITHDRAWAL`. */
+    /** `VOLUME_SPIKE`, `MASS_WITHDRAWAL` or `EMPTY_FEED` (S7-F1: nothing valid while the feed has live listings). */
     pauseReason: text('pause_reason'),
     /** What the guard saw (counts and the threshold), for the agency notice and the staff dashboard. */
     pauseDetails: jsonb('pause_details'),
@@ -99,6 +100,11 @@ export const feedConnections = pgTable(
     pausedRunId: uuid('paused_run_id'),
     /** Resumed with "accept the change": the next run skips the guard once. */
     acceptAnomalyOnce: boolean('accept_anomaly_once').notNull().default(false),
+    /**
+     * S7-F1: why staff last resumed this connection (`StaffReason`, ≤ 500). Staff's own note — `app_user` cannot read
+     * it (registry `hiddenColumns`); never copied into the audit log (free text).
+     */
+    staffResumeReason: text('staff_resume_reason'),
     /**
      * S6-08 freshness via feed: when a successful run last added, changed or removed an item. A run confirms its
      * listings' freshness (S3-08) only while this is within `IMPORT_FEED_FRESHNESS_DAYS`.
@@ -125,14 +131,17 @@ export const feedConnections = pgTable(
       columns: [t.mappingProfileId, t.agencyId],
       foreignColumns: [feedMappingProfiles.id, feedMappingProfiles.agencyId],
     }),
+    // S7-F1 uploaded-sheet lifecycle: is a file still some connection's (release job, daily sweep by url page)
+    index('feed_connections_sheet_url_idx').on(t.url).where(sql`${t.connector} = 'sheet-mapped'`),
     // staff import health (S6-08): paused connections of every agency, latest first
     index('feed_connections_paused_idx').on(t.pausedAt).where(sql`${t.pausedAt} is not null`),
     check('feed_connections_name_ck', sql`char_length(${t.name}) between 1 and 120`),
     check(
       'feed_connections_pause_ck',
       sql`(${t.pausedAt} is null) = (${t.pauseReason} is null)
-        and (${t.pauseReason} is null or ${t.pauseReason} in ('VOLUME_SPIKE', 'MASS_WITHDRAWAL'))`,
+        and (${t.pauseReason} is null or ${t.pauseReason} in ('VOLUME_SPIKE', 'MASS_WITHDRAWAL', 'EMPTY_FEED'))`,
     ),
+    check('feed_connections_staff_resume_reason_ck', sql`char_length(${t.staffResumeReason}) <= 500`),
     check('feed_connections_connector_ck', sql`${t.connector} ~ '^[a-z][a-z0-9-]{1,31}$'`),
     // https feeds; an uploaded sheet is kept by file id (S6-05)
     check(
@@ -253,5 +262,27 @@ export const feedItemErrors = pgTable(
     check('feed_item_errors_code_ck', sql`${t.code} ~ '^[A-Z][A-Z0-9_]{1,63}$'`),
     check('feed_item_errors_field_ck', sql`char_length(${t.field}) <= 120`),
     check('feed_item_errors_message_ck', sql`char_length(${t.message}) <= 500`),
+  ],
+);
+
+/**
+ * S7-F1: uploaded sheets whose file was (or is being) deleted from storage — by the release job or the sweep. Written
+ * under the file's advisory lock before the storage delete; `startSheetImport` takes the same lock and refuses a
+ * released file, so no connection can start pointing at a file that is going away. Pruned by the sweep after
+ * `SHEETS.RELEASE_RETENTION_DAYS`.
+ */
+export const feedSheetReleases = pgTable(
+  'feed_sheet_releases',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    fileId: uuid('file_id').notNull(),
+    releasedAt: timestamp('released_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'feed_sheet_releases_pk', columns: [t.agencyId, t.fileId] }),
+    // the sweep's prune: releases older than the retention, oldest first
+    index('feed_sheet_releases_released_at_idx').on(t.releasedAt),
   ],
 );

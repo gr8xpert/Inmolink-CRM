@@ -67,6 +67,7 @@
     "FEED_MAPPING_INVALID": "The mapping profile of this feed is missing or no longer valid. Open the mapper and save it again.",
     "FEED_PAUSED_VOLUME_SPIKE": "Paused: the feed suddenly had far more listings than usual. Nothing past that point was imported.",
     "FEED_PAUSED_MASS_WITHDRAWAL": "Paused: a large share of the feed's listings vanished at once. Nothing was withdrawn.",
+    "FEED_PAUSED_EMPTY_FEED": "Paused: the feed was empty or none of its listings could be imported, while this feed still has live listings. Nothing was withdrawn.",
     "FEED_CONNECTION_PAUSED": "The feed is paused; resume it to import again."
   },
   "notices": {
@@ -257,7 +258,8 @@
         "TOO_MANY_ROWS": "The file has too many rows.",
         "TOO_MANY_COLUMNS": "The file has too many columns.",
         "CELL_TOO_LARGE": "A cell holds too much text.",
-        "TOO_LARGE": "The file is larger than the limit."
+        "TOO_LARGE": "The file is larger than the limit.",
+        "FILE_GONE": "The uploaded file is no longer available. Upload it again."
       },
       "FEED_RUN_ACTIVE": "An import of this file is already running. Wait until it ends.",
       "VERSION_CONFLICT": "This connection was changed by someone else. Reload and try again."
@@ -274,9 +276,11 @@
     "title": "Import paused on {date}",
     "VOLUME_SPIKE": "The last import read {items} listings; this feed usually has about {typical}.",
     "MASS_WITHDRAWAL": "{missing} of your {live} listings from this feed were missing from the last import.",
+    "EMPTY_FEED": "The last import found no listing it could import ({items} read); you have {live} live listings from this feed.",
     "explain": {
       "VOLUME_SPIKE": "We stopped before importing the extra listings, in case the feed sends someone else's portfolio or duplicates.",
-      "MASS_WITHDRAWAL": "We withdrew nothing: a feed losing this many listings at once is usually a broken export, not sales."
+      "MASS_WITHDRAWAL": "We withdrew nothing: a feed losing this many listings at once is usually a broken export, not sales.",
+      "EMPTY_FEED": "We withdrew nothing: an empty feed is usually a broken export or a wrong address, not a sold-out portfolio. Check the feed, then resume."
     },
     "acceptChange": "The change is real (import it as it is)",
     "resume": "Resume imports",

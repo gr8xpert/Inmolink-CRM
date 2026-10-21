@@ -1,7 +1,7 @@
 import {
   FeedConnectionParams,
   ImportHealthDto,
-  ResumeFeedConnectionBody,
+  StaffResumeFeedConnectionBody,
   StaffResumeFeedConnectionDto,
 } from '@inmolink/contracts';
 import * as imports from '@inmolink/core/modules/imports';
@@ -51,9 +51,10 @@ export async function staffImportsRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags,
         operationId: 'imports.staffResumeFeedConnection',
-        summary: 'Resume a feed the anomaly guard paused; acceptChange lets the next run skip the guard once',
+        summary:
+          'Resume a feed the anomaly guard paused, with a reason (kept for staff, not audited as text); acceptChange lets the next run skip the guard once',
         params: FeedConnectionParams,
-        body: ResumeFeedConnectionBody,
+        body: StaffResumeFeedConnectionBody,
         response: { 200: StaffResumeFeedConnectionDto },
       },
       onRequest: staff,

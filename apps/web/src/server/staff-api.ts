@@ -7,6 +7,7 @@ import {
   StaffAuditPage,
   type StaffAuditQuery,
   StaffMeDto,
+  type StaffResumeFeedConnectionBody,
   StaffResumeFeedConnectionDto,
   type StartImpersonationInput,
   TenantDetailDto,
@@ -104,12 +105,12 @@ export function fetchImportHealth(session: SessionRef): Promise<ApiResult<Import
 export function staffResumeFeedConnection(
   session: SessionRef,
   connectionId: string,
-  acceptChange: boolean,
+  body: StaffResumeFeedConnectionBody,
 ): Promise<ApiResult<StaffResumeFeedConnectionDto>> {
   return apiRequest(
     session,
     `/v1/staff/imports/connections/${encodeURIComponent(connectionId)}/resume`,
     StaffResumeFeedConnectionDto,
-    { method: 'POST', body: { acceptChange } },
+    { method: 'POST', body },
   );
 }

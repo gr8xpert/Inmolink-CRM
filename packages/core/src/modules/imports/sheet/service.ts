@@ -9,13 +9,16 @@ import {
   XmlMapping,
 } from '@inmolink/contracts';
 import { newId } from '@inmolink/platform/ids';
+import { emit } from '@inmolink/platform/outbox';
 import { storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../../context';
 import * as compliance from '../../compliance';
+import { importsEvents } from '../events';
 import { assertCan } from '../policy';
 import * as repo from '../repo';
 import { requestFeedRun } from '../service';
 import { sheetKey } from './connector';
+import { connectionSheet } from './lifecycle';
 import { analyzeSheet } from './sample';
 
 /**
@@ -27,6 +30,14 @@ const CONTENT_TYPES = {
   csv: 'text/csv',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 } as const;
+
+/**
+ * The upload route's early check (S7-F1, S6 security review L4): called from `onRequest`, before Fastify reads the up
+ * to 25 MB body, so a member who may not manage imports is refused without it. `uploadSheet` checks again.
+ */
+export async function authorizeSheetUpload(ctx: Ctx): Promise<void> {
+  assertCan(ctx, 'imports.manage');
+}
 
 /**
  * `POST /v1/imports/sheets` (raw body, admins): the file is identified by its first bytes (never its name or declared
@@ -57,7 +68,13 @@ export async function startSheetImport(ctx: Ctx, input: StartSheetImportBody): P
   const parsed = XmlMapping.safeParse(input.mapping);
   if (!parsed.success) throw new AppError('FEED_MAPPING_INVALID');
   const mapping = parsed.data;
-  const url = `${SHEET_URL_PREFIX}${input.fileId}`;
+  const fileId = input.fileId.toLowerCase();
+  const url = `${SHEET_URL_PREFIX}${fileId}`;
+  // S7-F1: the file's lock until this transaction ends; a file the release job or the sweep let go is refused
+  await repo.lockSheets(ctx.tx, [fileId]);
+  if (await repo.sheetReleased(ctx.tx, agencyId, fileId)) {
+    throw new AppError('FEED_SAMPLE_INVALID', { reason: 'FILE_GONE' });
+  }
   let connectionId: string;
   if (input.connectionId) {
     const current = await repo.getConnectionForUpdate(ctx.tx, input.connectionId);
@@ -84,6 +101,11 @@ export async function startSheetImport(ctx: Ctx, input: StartSheetImportBody): P
     });
     if (!updated) throw new AppError('VERSION_CONFLICT');
     connectionId = current.id;
+    // S7-F1: the file this upload replaces goes once the change commits (the job keeps it if still in use).
+    const replaced = connectionSheet(current.connector, current.url);
+    if (replaced && replaced !== fileId) {
+      await emit(ctx.tx, importsEvents.sheetReleased({ agencyId, fileId: replaced, connectionId }));
+    }
   } else {
     const profileId = newId();
     await repo.insertProfile(ctx.tx, {

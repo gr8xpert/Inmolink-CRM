@@ -11,6 +11,7 @@ import { recordOldestQueued } from './guard';
 import { listingSink } from './load';
 import * as repo from './repo';
 import { executeRun } from './runner';
+import { deleteReleasedSheet, sweepSheets } from './sheet/lifecycle';
 
 /** Total attempts of a run job: a retryable failure (network, 5xx, timeout) re-queues the run that often. */
 const RUN_ATTEMPTS = 3;
@@ -43,6 +44,11 @@ const SEEN_PRUNE_BATCH = 5_000;
  * `imports.pruneRuns` (daily, pool `maintenance`, all agencies via `withSystem`): deletes finished runs older than
  * `RUNS.RETENTION_DAYS` with their item errors, `PRUNE_BATCH` per statement; then the seen feed references a run that
  * died before its end left (S6-02, older than a day).
+ *
+ * `imports.deleteSheet` (one per `imports.sheet.released` event, pool `maintenance`, S7-F1): deletes the uploaded file
+ * a deleted connection or a replacing upload let go, unless another connection of the agency still uses it.
+ * `imports.sweepSheets` (daily, pool `maintenance`, S7-F1): deletes uploaded files idle for 30 days and files no
+ * connection points to (`sheet/lifecycle.ts`).
  */
 export const importsJobs = {
   runFeed: defineJob({
@@ -135,6 +141,35 @@ export const importsJobs = {
       }
       if (deleted > 0 || seen > 0) log.info({ deleted, seen }, 'old feed runs pruned');
       return { deleted, seen };
+    },
+  }),
+
+  deleteSheet: defineJob({
+    name: 'imports.deleteSheet',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), fileId: z.uuid() }),
+    // One job per release event: a redelivered event adds nothing, a later release of the same file (shared by two
+    // connections) is a new event and never deduplicated away.
+    jobId: (p) => `imports.deleteSheet:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 30_000 },
+    async run(p) {
+      return deleteReleasedSheet({ agencyId: p.agencyId, fileId: p.fileId });
+    },
+  }),
+
+  sweepSheets: defineJob({
+    name: 'imports.sweepSheets',
+    pool: 'maintenance',
+    payload: z.object({ maxPages: z.number().int().min(1).max(1_000).optional() }).strict(),
+    every: 24 * 3_600_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(p, { log, signal }) {
+      const result = await sweepSheets({ signal, ...(p.maxPages ? { maxPages: p.maxPages } : {}) });
+      if (result.deleted > 0) log.info(result, 'uploaded sheets deleted');
+      return result;
     },
   }),
 };
