@@ -1,0 +1,26 @@
+# Redis memory alerts (S7-04 review). Loaded by Prometheus on the monitoring host (Ansible role `monitoring`). Unit tests:
+# redis.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: redis_exporter (oliver006/redis_exporter) next to each Redis — NOT deployed yet: the scrape job is follow-up
+# S7-F7 (until then these rules have no series and never fire).
+#   redis_memory_used_bytes  used memory    redis_memory_max_bytes  `maxmemory` (0 = unlimited)
+# redis-queue holds BullMQ queues and the rate-limit counters (S7-04: about 760 bytes per website browser for up to a
+# day) with `maxmemory-policy noeviction`: once full, writes fail — queues stop and website limits fail open.
+groups:
+  - name: redis
+    rules:
+      - alert: RedisMemoryHigh
+        expr: max by (instance) (redis_memory_used_bytes / (redis_memory_max_bytes > 0)) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis {{ $labels.instance }} uses {{ $value | humanizePercentage }} of maxmemory"
+          runbook: docs/runbooks/website-api.md#redis-memory
+      - alert: RedisMemoryCritical
+        expr: max by (instance) (redis_memory_used_bytes / (redis_memory_max_bytes > 0)) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis {{ $labels.instance }} is at {{ $value | humanizePercentage }} of maxmemory (noeviction: writes will fail)"
+          runbook: docs/runbooks/website-api.md#redis-memory

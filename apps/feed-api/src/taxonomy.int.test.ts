@@ -19,6 +19,8 @@ import { buildApp } from './app';
 
 const allowAll = {
   consume: async () => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 }),
+  consumeMany: async (checks: readonly unknown[]) =>
+    checks.map(() => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 })),
 } as unknown as RateLimiter;
 
 const RUN = newId().slice(-8).toLowerCase();

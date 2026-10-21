@@ -7,5 +7,7 @@ export const websiteApiErrors = [
   'LISTING_NOT_FOUND',
   'DEVELOPMENT_NOT_FOUND',
   'CHANGES_EXPIRED',
+  'QUOTA_EXCEEDED',
+  'RATE_LIMITED',
   'VALIDATION_FAILED',
 ] as const satisfies readonly ErrorCode[];

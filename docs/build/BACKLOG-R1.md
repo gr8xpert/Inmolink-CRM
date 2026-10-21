@@ -812,6 +812,8 @@ Ref §3 #12 #60 §7 M8 · Mod websites, crm · Dep S7-03 · 🔒
 - Auto-ack is sent in < 60 s p95 and uses the site's branding
 - Duplicate submissions with the same idempotency key create one lead
 
+*Note (S7-04):* honeytoken listings (fake cards on deep search pages of suspected scrapers, `website-api/honeytokens.ts`) have references `<prefix>-<code>` or the agency's own style with check digits, which `websiteApi.honeytokenKind` recognises. A lead or viewing request naming one must not create a lead or e-mail anyone: answer as for a withdrawn listing and raise `WebsiteHoneytokenHit` (`raiseWebsiteAlert`). Count lead posts against the key's daily quota (`requireApiKey` does).
+
 ### S7-06 · CDN caching and purge
 Ref §9.2 §5.3 (4) · Mod websites, infra · Dep S7-03
 **Build:** Cloudflare cache rules for feed-api, cache keys by site scope + query + locale, purge on listing events (tags where available, else short TTL + versioned keys), `stale-if-error`.
@@ -820,6 +822,8 @@ Ref §9.2 §5.3 (4) · Mod websites, infra · Dep S7-03
 - Listing edit visible through the CDN within 5 min
 
 *Note (S7-03):* site-scoped `/v2` answers are `private, max-age=0, must-revalidate` (+ strong ETag, `Vary: X-Api-Key, Authorization, Origin`) because the site comes from the key header and Cloudflare ignores `Vary`. Switch `SITE_CACHE_POLICY` (`apps/feed-api/src/plugins/site-response.ts`) to `public` with the TTLs of `WEBSITE_API_TTL` only together with cache keys that include the site (e.g. a site-scoped hostname or a key-derived cache key).
+
+*Note (S7-04, after review):* quotas, burst and paging limits are checked at the origin in `requireApiKey`; requests the CDN answers from cache do not count. **Never CDN-cache** 429s, cursor pages (`cursor` present: deep pages must still pass the origin's paging and deep-page rules, and `/v2/listings` cursors are site-bound with a signed depth) or answers to suspicious callers (`Cache-Control: private, no-store`, no ETag — they may carry a honeytoken). Cache first pages only, keyed by site.
 
 ### S7-07 · Per-site XML feed and iFrame embed
 Ref §9.5 · Mod websites, public · Dep S7-03
@@ -901,6 +905,18 @@ Ref §9.1 · Mod websites, search, feed-api · Dep S7-03 · ⚡
 ---
 
 ## S8 — Legacy shim & WordPress plugin v2
+
+### S7-F7 · Website extraction budgets and limits-Redis ops (S7-04 review)
+Ref §9.2 §12 · Mod website-api, platform, infra · Dep S7-04 · 🔒
+**Build:**
+- **Filter-slicing:** a scraper slices the inventory by filters (location × type × price band) so no cursor chain gets deep; count filtered first pages per key / browser over a window and flag past a budget.
+- **Detail / sync counting:** detail requests (`/v2/listings/{ref}`) and sitemap + detail sync per key / browser; a WordPress plugin should sync from `/v2/changes` — budget details beyond what the change feed explains.
+- **Per-agency daily quota** across all its sites and keys (rotating or adding keys must not reset the budget).
+- **Ops:** deploy `redis_exporter` next to redis-queue (and redis-cache) and its Prometheus scrape job, so `RedisMemoryHigh` / `RedisMemoryCritical` (infra/monitoring/rules/redis.yml) have series; decide whether rate-limit counters move to their own Redis (S7-04 Decision).
+**Done when:**
+- Scripted filter-sliced full-inventory extraction is flagged within an hour
+- Rotating a key does not reset the agency's daily budget
+- Redis memory alerts fire from real series on staging
 
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]

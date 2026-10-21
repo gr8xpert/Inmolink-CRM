@@ -1,0 +1,31 @@
+# Website API anti-scraping alerts (S7-04, PLAN §9.2 §12). Loaded by Prometheus on the monitoring host (Ansible role
+# `monitoring`). Unit tests: website.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: feed-api processes (OpenTelemetry → Prometheus exporter), from packages/core/src/modules/website-api/alerts.ts:
+#   inmolink_website_scraping_detected_total  callers that tripped a paging threshold, by `action` (throttled |
+#                                             observed), `scope` (key | browser) and `key_kind` (SECRET | PUBLISHABLE)
+#   inmolink_website_honeytoken_hits_total    requests for a honeytoken listing's detail
+#   inmolink_website_honeytoken_served_total  honeytoken cards placed on deep pages of suspected scrapers
+# The feed-api log line with the same alert name (`alert: WebsiteScrapingDetected | WebsiteHoneytokenHit`) names the
+# key, agency and site.
+groups:
+  - name: website
+    rules:
+      # Scripted full-inventory paging: a secret key over its hourly paging limit, or one browser of a publishable key
+      # over its 10-minute limit (throttled for an hour), or a publishable key over its key-wide limit (observed only:
+      # a key-wide throttle would stop the site's visitors).
+      - alert: WebsiteScrapingDetected
+        expr: sum by (scope, action, key_kind) (increase(inmolink_website_scraping_detected_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Website API: scripted paging detected ({{ $labels.key_kind }} key, {{ $labels.scope }}, {{ $labels.action }})"
+          runbook: docs/runbooks/website-api.md#scraping-detected
+      # A honeytoken listing was requested: it is only on deep pages served to a suspected scraper, so its reference
+      # came from a full-inventory scrape (or a copy of one).
+      - alert: WebsiteHoneytokenHit
+        expr: sum(increase(inmolink_website_honeytoken_hits_total[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Website API: a honeytoken listing was requested — a site's inventory has been scraped"
+          runbook: docs/runbooks/website-api.md#honeytoken-hit

@@ -25,8 +25,17 @@ export function sendSiteJson<S extends z.ZodType>(
   schema: S,
   body: z.input<S>,
   ttlSeconds: number,
+  options: { noStore?: boolean } = {},
 ) {
   const json = JSON.stringify(schema.parse(body));
+  if (options.noStore ?? req.websitePaging?.suspicious === true) {
+    // S7-04: an answer to a suspected scraper (it may carry a honeytoken) is never stored or revalidated anywhere.
+    return reply
+      .header('Cache-Control', 'private, no-store')
+      .header('Vary', SITE_CACHE_POLICY.vary)
+      .type('application/json; charset=utf-8')
+      .send(json);
+  }
   const etag = etagFor(json);
   reply
     .header('Cache-Control', SITE_CACHE_POLICY.cacheControl(ttlSeconds))
@@ -38,7 +47,7 @@ export function sendSiteJson<S extends z.ZodType>(
 
 /** Headers a browser may send to the website API, and read back. */
 const ALLOW_HEADERS = 'X-Api-Key, If-None-Match, Content-Type';
-const EXPOSE_HEADERS = 'ETag';
+const EXPOSE_HEADERS = 'ETag, Retry-After';
 
 /**
  * CORS for publishable keys (S7-03 review): a browser widget's request carries `X-Api-Key`, so it is preflighted.

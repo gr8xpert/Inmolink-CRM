@@ -29,7 +29,12 @@ try {
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
   // Website API v2 (S7-03): image URLs under the media CDN; network listings follow the give-to-get standing.
-  websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  websiteApi.configureWebsiteApi({
+    mediaBaseUrl: config.MEDIA_CDN_URL,
+    cursorKey: config.HMAC_KEY,
+    // S7-04: quotas and paging limits are the defaults (website-api config.ts); honeytokens can be turned off.
+    limits: { honeytokens: config.WEBSITE_HONEYTOKENS === 'true' },
+  });
   search.configureNetworkSearch({
     giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
     giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,

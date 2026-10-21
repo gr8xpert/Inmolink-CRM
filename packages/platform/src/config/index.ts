@@ -177,6 +177,14 @@ export const websiteSearchEnv = {
 };
 
 /**
+ * Website API anti-scraping (S7-04): honeytoken cards on deep search pages of suspected scrapers (runbook
+ * `website-api.md`). `false` puts none on any page; requests for old ones still alert.
+ */
+export const websiteApiEnv = {
+  WEBSITE_HONEYTOKENS: z.enum(['true', 'false']).default('true'),
+};
+
+/**
  * Feed imports (S6-02): successful runs in a row a listing may be missing from its feed before the run withdraws it
  * (a connection's `withdrawAfterMissedRuns` setting overrides it).
  *

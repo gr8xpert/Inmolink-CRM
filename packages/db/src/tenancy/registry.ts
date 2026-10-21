@@ -362,9 +362,14 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // Agency websites (S7-01): the website API (feed-api, `app_public`) reads a key's site before it has a tenant
   // session. Public website configuration only (prefix, locales, public contact overrides, inventory policy).
+  // S7-04 (S7-01 Decision 6): `created_by` is not public (a member's id); the guard (migration 0093) lets tenants
+  // create a site only as the session user at version 1, change it only with version + 1, and never delete one.
   website_sites: {
     kind: 'PUBLIC_READ',
     publicReadSql: 'true',
+    publicHiddenColumns: ['created_by'],
+    guardedInsert: true,
+    triggers: ['website_sites_guard'],
     base: { mode: 'WIDGET', locales: '{en}', default_locale: 'en' },
     samples: { visible: [{}], hidden: [] },
   },

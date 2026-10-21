@@ -44,3 +44,23 @@ describe('Import alerts', () => {
     expect(await promtool('test', 'rules', '/rules/imports.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });
+
+describe('Website API alerts', () => {
+  it('[S7-04] website anti-scraping alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/website.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S7-04] scripted paging and a honeytoken hit alert at once, and clear after 15 quiet minutes', async () => {
+    expect(await promtool('test', 'rules', '/rules/website.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});
+
+describe('Redis memory alerts', () => {
+  it('[S7-04] redis memory alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/redis.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S7-04] redis-queue past 80 % of maxmemory warns after 10 min, past 95 % is critical after 2 min', async () => {
+    expect(await promtool('test', 'rules', '/rules/redis.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});

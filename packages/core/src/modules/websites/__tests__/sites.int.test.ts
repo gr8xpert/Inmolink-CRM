@@ -387,6 +387,45 @@ describe('website sites (S7-01)', () => {
     );
     await expect(move).rejects.toThrow(/site/);
   });
+
+  it('[S7-04] sites: tenants never delete one, keep its creator, move its version by one; created_by is not public', async () => {
+    const site = await as(a, (ctx) => websites.createSite(ctx, { ...OWN_SITE, name: 'Guarded' }));
+    const tenant = (q: ReturnType<typeof sql>) => as(a, (ctx) => ctx.tx.execute(q));
+    // The database's message (drizzle wraps it as the error's cause).
+    const refusedWith = async (work: Promise<unknown>, re: RegExp) => {
+      const err = (await work.then(
+        () => null,
+        (e: unknown) => e,
+      )) as { message?: string; cause?: { message?: string } } | null;
+      expect(err?.cause?.message ?? err?.message).toMatch(re);
+    };
+    await refusedWith(tenant(sql`delete from website_sites where id = ${site.id}`), /not deleted/);
+    await refusedWith(tenant(sql`update website_sites set created_by = ${newId()} where id = ${site.id}`), /creator/);
+    // Optimistic concurrency cannot be skipped (version unchanged) or jumped.
+    await refusedWith(tenant(sql`update website_sites set name = 'Sneaky' where id = ${site.id}`), /version/);
+    await refusedWith(
+      tenant(sql`update website_sites set name = 'Jump', version = version + 5 where id = ${site.id}`),
+      /version/,
+    );
+    await refusedWith(
+      tenant(
+        sql`insert into website_sites (id, agency_id, name, mode, locales, default_locale, created_by)
+            values (${newId()}, ${a.agencyId}, 'Planted', 'WIDGET', '{en}', 'en', ${newId()})`,
+      ),
+      /session user/,
+    );
+    // The service path still works: version + 1.
+    const renamed = await as(a, (ctx) =>
+      websites.updateSite(ctx, { siteId: site.id }, { version: site.version, name: 'Guarded 2' }),
+    );
+    expect(renamed.version).toBe(site.version + 1);
+    // The website API's role reads the site, but not who created it.
+    await refusedWith(
+      withPublicRead((tx) => tx.execute(sql`select created_by from website_sites where id = ${site.id}`)),
+      /permission denied/,
+    );
+    expect((await websites.siteScope(site.id)).siteId).toBe(site.id);
+  });
 });
 
 describe('website serializer (S7-02)', () => {

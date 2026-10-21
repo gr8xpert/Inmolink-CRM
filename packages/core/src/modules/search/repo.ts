@@ -153,6 +153,16 @@ export async function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<s
   return new Map(rows.map((r) => [r.targetId, r.code]));
 }
 
+/** Whether a public code belongs to any target (S7-04: a honeytoken-looking code is real). One unique-index probe. */
+export async function publicCodeInUse(tx: Tx, code: string): Promise<boolean> {
+  const rows = await tx
+    .select({ targetId: listingPublicCodes.targetId })
+    .from(listingPublicCodes)
+    .where(eq(listingPublicCodes.code, code))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Deletes the documents of `ids` not in `keep` (gone targets, removed locales); answers their targets. PK probes. */
 export async function deleteOthers(
   tx: Tx,

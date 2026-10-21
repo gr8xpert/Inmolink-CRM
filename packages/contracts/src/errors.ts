@@ -55,6 +55,11 @@ export const ErrorCodes = {
   API_KEY_SITE_REQUIRED: 403,
   /** A `/v2/changes` cursor or `since` older than the change log keeps: rebuild from `/v2/sitemap`, then poll again. */
   CHANGES_EXPIRED: 410,
+  /**
+   * S7-04: a website API key's daily quota (or a browser's daily share of a publishable key) is used up; `details`
+   * carry `limit`, `resetAt` (UTC midnight) and `retryAfterSeconds` (also `Retry-After`).
+   */
+  QUOTA_EXCEEDED: 429,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

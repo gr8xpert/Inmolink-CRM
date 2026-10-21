@@ -47,29 +47,15 @@ import * as agencies from '../agencies';
 import * as properties from '../properties';
 import * as search from '../search';
 import * as websites from '../websites';
-
-export interface WebsiteApiSettings {
-  /** Media CDN base URL (`MEDIA_CDN_URL`): image variant keys are served under it. */
-  mediaBaseUrl: string;
-  /** Signs `/v2/changes` cursors (`HMAC_KEY`, purpose-separated): a client cannot forge a position or its age. */
-  cursorKey: string;
-}
-
-let settings: WebsiteApiSettings | undefined;
-
-/** Boot: the media CDN base and the cursor key from config. Every use case refuses to run before it. */
-export function configureWebsiteApi(next: WebsiteApiSettings): void {
-  if (!next.mediaBaseUrl || !next.cursorKey) throw new Error('website-api: mediaBaseUrl and cursorKey are required');
-  settings = { ...next };
-}
-
-function configured(): WebsiteApiSettings {
-  if (!settings) throw new Error('website-api: configureWebsiteApi() was not called');
-  return settings;
-}
+import { raiseWebsiteAlert } from './alerts';
+import { unwrapSearchCursor, wrapSearchCursor } from './cursor';
+import { honeytokenKind, withHoneytoken } from './honeytokens';
+import { configured, cursorSecret, websiteLimits } from './settings';
 
 /** A site as one request serves it. */
 export interface ApiSite {
+  /** The calling key (alerts name it). */
+  keyId: string | null;
   scope: websites.SiteScope;
   /**
    * The site's inventory (`search.PublicSearchSite`); null: the site shows nothing now (a network-only CUSTOM site of
@@ -78,6 +64,7 @@ export interface ApiSite {
   inventory: websites.SiteSearchScope | null;
   /** A short hash of the effective inventory rules: `/v2/changes` reports it (`scope`) so a plugin can resync. */
   tag: string;
+  requestId: string;
 }
 
 /**
@@ -86,7 +73,7 @@ export interface ApiSite {
  * locked (`search.websiteNetworkOpen`, cached). Cached reads only on a warm path: no statement.
  */
 export async function siteForKey(
-  key: { agencyId: string; siteId: string | null },
+  key: { keyId?: string; agencyId: string; siteId: string | null },
   requestId: string,
 ): Promise<ApiSite> {
   if (key.siteId === null) throw new AppError('API_KEY_SITE_REQUIRED');
@@ -110,7 +97,7 @@ export async function siteForKey(
     .digest('base64url')
     .slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
-  return { scope, inventory: shows ? inventory : null, tag };
+  return { keyId: key.keyId ?? null, scope, inventory: shows ? inventory : null, tag, requestId };
 }
 
 /** `?lang=`: one of the site's languages (default its first). */
@@ -191,9 +178,18 @@ const shownSite = (site: ApiSite) => ({ agencyId: site.scope.agencyId, reference
 
 // ── Search ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** `GET /v2/listings`: one page of the site's inventory matching a visitor's filters, as the site shows it. */
-export async function searchListings(site: ApiSite, q: WebsiteListingsQuery): Promise<WebsiteListingPage> {
+/**
+ * `GET /v2/listings`: one page of the site's inventory matching a visitor's filters, as the site shows it. A caller
+ * `suspicious` of scripted paging (`checkWebsiteLimits`) may find a honeytoken on a deep page (`withHoneytoken`).
+ */
+export async function searchListings(
+  site: ApiSite,
+  q: WebsiteListingsQuery,
+  opts: { suspicious?: boolean } = {},
+): Promise<WebsiteListingPage> {
   const lang = langOf(site, q.lang);
+  const from = q.cursor === undefined ? undefined : unwrapSearchCursor(site.scope.siteId, q.cursor);
+  const depth = from?.depth ?? 0;
   const empty = { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
   if (!site.inventory) return empty;
   const input: PublicListingSearch = {
@@ -218,10 +214,10 @@ export async function searchListings(site: ApiSite, q: WebsiteListingsQuery): Pr
     facets: q.facets ?? [],
     sort: q.sort,
     limit: q.limit,
-    cursor: q.cursor,
+    cursor: from?.inner,
   };
   const found = await search.searchPublicListings(site.inventory, input);
-  const items =
+  const cards =
     found.ids.length === 0
       ? []
       : await withPublicRead(async (tx) => {
@@ -232,24 +228,49 @@ export async function searchListings(site: ApiSite, q: WebsiteListingsQuery): Pr
           const view = await viewFor(tx, site, lang, ordered);
           return websites.serializeCards(view, ordered.map(owned<ListingCardDoc | UnitCardDoc>));
         });
+  const limits = websiteLimits();
+  const items =
+    limits.honeytokens && opts.suspicious === true && q.cursor !== undefined && depth >= limits.honeytokenMinPage
+      ? withHoneytoken(cursorSecret(), site.scope, q.cursor, cards)
+      : cards;
   return {
     items,
     total: found.total,
     facets: found.facets,
-    nextCursor: found.nextCursor,
+    nextCursor: found.nextCursor === null ? null : wrapSearchCursor(site.scope.siteId, depth + 1, found.nextCursor),
     degraded: found.backend === 'fallback',
     ...(found.resultsChanged ? { resultsChanged: true as const } : {}),
   };
+}
+
+/**
+ * A reference this site has no listing for. One of its honeytokens (only a full-inventory scrape found it) raises
+ * `WebsiteHoneytokenHit`; the answer is the same 404 as for a withdrawn listing. A code-style hit is confirmed to be no
+ * real public code first (its check part is 20 bits) — one more statement on this 404 path only.
+ */
+async function listingNotFound(tx: Tx, site: ApiSite, ref: string): Promise<AppError> {
+  const token = honeytokenKind(cursorSecret(), site.scope, ref);
+  if (token && !(token.style === 'code' && (await search.publicCodeInUse(tx, token.code)))) {
+    raiseWebsiteAlert({
+      kind: 'honeytoken',
+      ref,
+      siteId: site.scope.siteId,
+      agencyId: site.scope.agencyId,
+      keyId: site.keyId,
+      requestId: site.requestId,
+    });
+  }
+  return new AppError('LISTING_NOT_FOUND');
 }
 
 /** `GET /v2/listings/{ref}`: the detail a reference names on this site (own reference, or `<prefix>-<code>`). */
 export async function listingDetail(site: ApiSite, ref: string, lang?: string): Promise<WebsiteDetail> {
   const locale = langOf(site, lang);
   const inventory = site.inventory;
-  if (!inventory) throw new AppError('LISTING_NOT_FOUND');
+  if (!inventory) throw await withPublicRead((tx) => listingNotFound(tx, site, ref));
   return withPublicRead(async (tx) => {
     const row = await search.publicDetailByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
-    if (!row) throw new AppError('LISTING_NOT_FOUND');
+    if (!row) throw await listingNotFound(tx, site, ref);
     const view = await viewFor(tx, site, locale, [row]);
     return websites.serializeDetail(view, owned<ListingDetailDoc | UnitDetailDoc>(row));
   });
@@ -267,7 +288,7 @@ interface ChangesCursor {
 const CURSOR_PURPOSE = 'website-api.changes-cursor';
 const encodeCursor = (c: unknown) => Buffer.from(JSON.stringify(c)).toString('base64url');
 
-const macOf = (c: ChangesCursor) => hmacSha256(configured().cursorKey, CURSOR_PURPOSE, `${c.x}:${c.s}:${c.h}`);
+const macOf = (c: ChangesCursor) => hmacSha256(cursorSecret(), CURSOR_PURPOSE, `${c.x}:${c.s}:${c.h}`);
 
 /** Signed (`m`): the client cannot move the position or make an expired cursor look fresh. */
 function signChangesCursor(c: ChangesCursor): string {

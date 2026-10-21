@@ -39,6 +39,32 @@ export function replyRateLimited(reply: FastifyReply, scope: RateScope, retryAft
 }
 
 /**
+ * The 429 answer for a used-up quota (S7-04): `Retry-After` and `QUOTA_EXCEEDED` with the quota's size and its reset
+ * time (`resetAt`, ISO; a daily quota resets at UTC midnight), so a client knows when to come back.
+ */
+export function replyQuotaExceeded(
+  reply: FastifyReply,
+  quota: { scope: RateScope; period: 'daily'; limit: number; resetAtMs: number; retryAfterSeconds: number },
+): FastifyReply {
+  return reply
+    .code(429)
+    .header('retry-after', String(quota.retryAfterSeconds))
+    .send({
+      error: {
+        code: 'QUOTA_EXCEEDED',
+        message: 'Quota exceeded',
+        details: {
+          scope: quota.scope,
+          quota: quota.period,
+          limit: quota.limit,
+          resetAt: new Date(quota.resetAtMs).toISOString(),
+          retryAfterSeconds: quota.retryAfterSeconds,
+        },
+      },
+    });
+}
+
+/**
  * Bucket for an IP: IPv4 as is (IPv4-mapped IPv6 unwrapped), IPv6 by /64 — one host usually owns a
  * whole /64, so per-address limits would be trivial to rotate around.
  */

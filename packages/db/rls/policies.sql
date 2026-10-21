@@ -1033,4 +1033,10 @@ create policy public_read on public."website_sites" for select to app_public
 revoke all on table public."website_sites" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
 grant select, insert, update, delete on table public."website_sites" to app_user;
 grant select, insert, update, delete on table public."website_sites" to app_system;
-grant select on table public."website_sites" to app_public;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."website_sites"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['created_by']);
+  execute format('grant select (%s) on table public."website_sites" to app_public', cols);
+end $$;

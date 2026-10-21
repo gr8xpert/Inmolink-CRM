@@ -1,0 +1,38 @@
+# promtool test rules redis.test.yml — run by tests/ops/alerts.int.test.ts (S7-04).
+rule_files:
+  - redis.yml
+evaluation_interval: 15s
+
+tests:
+  # maxmemory 1 GB: used climbs 700 MB → 900 MB at 5m → 990 MB at 20m. An unlimited Redis (max 0) never alerts.
+  - interval: 1m
+    input_series:
+      - series: 'redis_memory_max_bytes{instance="redis-queue-1"}'
+        values: "1000000000x30"
+      - series: 'redis_memory_used_bytes{instance="redis-queue-1"}'
+        values: "700000000x4 900000000x14 990000000x10"
+      - series: 'redis_memory_max_bytes{instance="redis-cache-1"}'
+        values: "0x30"
+      - series: 'redis_memory_used_bytes{instance="redis-cache-1"}'
+        values: "990000000x30"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: RedisMemoryHigh
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: RedisMemoryHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: redis-queue-1 }
+            exp_annotations:
+              summary: "Redis redis-queue-1 uses 90% of maxmemory"
+              runbook: docs/runbooks/website-api.md#redis-memory
+      - eval_time: 16m
+        alertname: RedisMemoryCritical
+        exp_alerts: []
+      - eval_time: 23m
+        alertname: RedisMemoryCritical
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: redis-queue-1 }
+            exp_annotations:
+              summary: "Redis redis-queue-1 is at 99% of maxmemory (noeviction: writes will fail)"
+              runbook: docs/runbooks/website-api.md#redis-memory

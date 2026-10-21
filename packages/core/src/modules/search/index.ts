@@ -61,6 +61,7 @@ export {
   type FullRebuildProgress,
   indexDocsFor,
   MAX_LOCKS_IN_FLIGHT,
+  publicCodeInUse,
   publicCodes,
   queueAgencyReadModelChanges,
   READ_MODEL_BATCH,

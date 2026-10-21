@@ -1,0 +1,50 @@
+# promtool test rules website.test.yml — run by tests/ops/alerts.int.test.ts (S7-04).
+rule_files:
+  - website.yml
+evaluation_interval: 15s
+
+tests:
+  # A secret key trips its paging limit at 5m on one process: the alert fires at once with the trip's labels and clears
+  # once the 15-minute window has passed. Observed-only label sets at 0 never fire.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_website_scraping_detected_total{action="throttled", scope="key", key_kind="SECRET", instance="feed-api-1"}'
+        values: "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+      - series: 'inmolink_website_scraping_detected_total{action="throttled", scope="key", key_kind="SECRET", instance="feed-api-2"}'
+        values: "0x29"
+      - series: 'inmolink_website_scraping_detected_total{action="observed", scope="key", key_kind="PUBLISHABLE", instance="feed-api-1"}'
+        values: "0x29"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: WebsiteScrapingDetected
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: WebsiteScrapingDetected
+        exp_alerts:
+          - exp_labels: { severity: warning, scope: key, action: throttled, key_kind: SECRET }
+            exp_annotations:
+              summary: "Website API: scripted paging detected (SECRET key, key, throttled)"
+              runbook: docs/runbooks/website-api.md#scraping-detected
+      - eval_time: 25m
+        alertname: WebsiteScrapingDetected
+        exp_alerts: []
+
+  # A honeytoken's detail is requested at 3m: the alert fires at once, and clears after 15 minutes without hits.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_website_honeytoken_hits_total{instance="feed-api-1"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: WebsiteHoneytokenHit
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: WebsiteHoneytokenHit
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "Website API: a honeytoken listing was requested — a site's inventory has been scraped"
+              runbook: docs/runbooks/website-api.md#honeytoken-hit
+      - eval_time: 20m
+        alertname: WebsiteHoneytokenHit
+        exp_alerts: []

@@ -165,6 +165,136 @@ function limitsAcl(): string {
   return acl;
 }
 
+describe('quotas and penalties (S7-04)', () => {
+  it('[S7-04] a fixed daily window resets at UTC midnight and says when', async () => {
+    const day: RateLimitRule = { name: 'test.daily', scope: 'key', limit: 2, windowSeconds: 86_400, fixedWindow: true };
+    const midnight = (Math.floor(clock.nowMs() / 86_400_000) + 1) * 86_400_000;
+    expect((await limiter.consume(day, 'key-d')).allowed).toBe(true);
+    const second = await limiter.consume(day, 'key-d');
+    expect(second).toMatchObject({ allowed: true, remaining: 0, resetAtMs: midnight });
+    const denied = await limiter.consume(day, 'key-d');
+    expect(denied).toMatchObject({ allowed: false, remaining: 0, resetAtMs: midnight });
+    expect(denied.retryAfterSeconds).toBe(Math.ceil((midnight - clock.nowMs()) / 1_000));
+    // No weighted carry-over from yesterday: the new day starts at zero.
+    clock.advance(midnight - clock.nowMs());
+    expect((await limiter.consume(day, 'key-d')).allowed).toBe(true);
+    expect((await limiter.consume(day, 'key-d')).allowed).toBe(true);
+    expect((await limiter.consume(day, 'key-d')).allowed).toBe(false);
+  });
+
+  it('[S7-04] the penalty box: tripped once, penalized until it ends, then counted afresh', async () => {
+    const boxed: RateLimitRule = { name: 'test.box', scope: 'key', limit: 2, windowSeconds: 60, penaltySeconds: 600 };
+    expect((await limiter.consume(boxed, 'key-p')).allowed).toBe(true);
+    expect((await limiter.consume(boxed, 'key-p')).allowed).toBe(true);
+    const tripped = await limiter.consume(boxed, 'key-p');
+    expect(tripped).toMatchObject({ allowed: false, tripped: true, retryAfterSeconds: 600 });
+    expect(tripped.penalized).toBeUndefined();
+    // The window slid out, but the penalty still holds.
+    clock.advance(180_000);
+    const held = await limiter.consume(boxed, 'key-p');
+    expect(held).toMatchObject({ allowed: false, penalized: true, retryAfterSeconds: 420 });
+    expect(held.tripped).toBeUndefined();
+    // Other identities are not affected.
+    expect((await limiter.consume(boxed, 'key-q')).allowed).toBe(true);
+    clock.advance(420_000);
+    expect((await limiter.consume(boxed, 'key-p')).allowed).toBe(true);
+    expect((await limiter.consume(boxed, 'key-p')).allowed).toBe(true);
+    expect(await limiter.consume(boxed, 'key-p')).toMatchObject({ allowed: false, tripped: true });
+  });
+});
+
+describe('consumeMany (S7-04)', () => {
+  const rule = (name: string, limit: number, extra: Partial<RateLimitRule> = {}): RateLimitRule => ({
+    name,
+    scope: 'key',
+    limit,
+    windowSeconds: 60,
+    ...extra,
+  });
+
+  it('[S7-04] one call: a quota counts only when every enforced rule allowed; alert-only rules never block it', async () => {
+    const quota = rule('test.many.quota', 100, { windowSeconds: 86_400, fixedWindow: true });
+    const tight = rule('test.many.tight', 1);
+    const watch = rule('test.many.watch', 1);
+    const id = `many-${Date.now()}`;
+    const call = () =>
+      limiter.consumeMany(
+        [
+          { rule: tight, identity: id },
+          { rule: watch, identity: id, observe: true },
+          { rule: quota, identity: id, countLast: true },
+        ],
+        { slot: 'agency-1' },
+      );
+    const first = await call();
+    expect(first.map((r) => r.allowed)).toEqual([true, true, true]);
+    expect(first[2]?.remaining).toBe(99);
+    // The tight rule refuses: the quota is not counted. The watch rule is over too, but only watches.
+    const second = await call();
+    expect(second.map((r) => r.allowed)).toEqual([false, false, true]);
+    expect(second[2]?.remaining).toBe(99);
+    const third = await limiter.consumeMany([{ rule: quota, identity: id, countLast: true }], { slot: 'agency-1' });
+    expect(third[0]?.remaining).toBe(98);
+  });
+
+  it('[S7-04] keys of one call share a hash slot; fixed-window keys expire at their reset', async () => {
+    const slot = `slot-${Date.now()}`;
+    const day = rule('test.many.day', 10, { windowSeconds: 86_400, fixedWindow: true });
+    const minute = rule('test.many.minute', 10);
+    await limiter.consumeMany(
+      [
+        { rule: day, identity: 'a' },
+        { rule: minute, identity: 'b' },
+      ],
+      { slot },
+    );
+    const keys = (await redis.keys(`${prefix}:{*}:test.many.*`)).filter((k) => /test.many.(day|minute):/.test(k));
+    const tags = new Set(keys.map((k) => /\{([^}]+)\}/.exec(k)?.[1]));
+    expect(keys.length).toBeGreaterThanOrEqual(2);
+    expect(tags.size).toBe(1);
+    const dayKey = keys.find((k) => k.includes('test.many.day')) as string;
+    const midnight = (Math.floor(clock.nowMs() / 86_400_000) + 1) * 86_400_000;
+    const ttl = await redis.pttl(dayKey);
+    expect(ttl).toBeLessThanOrEqual(midnight - clock.nowMs() + 1_000);
+    expect(ttl).toBeGreaterThan(midnight - clock.nowMs() - 5_000);
+    // A single-rule call is tagged by its identity: its own keys share a slot.
+    await limiter.consume(minute, 'solo');
+    const solo = await redis.keys(`${prefix}:test.many.minute:key:{*}:*`);
+    expect(solo.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('[S7-04] Redis down: consumeMany fails open (closed per rule) and logs once per call, sampled', async () => {
+    const dead = new Redis('redis://127.0.0.1:1', {
+      protocol: 2,
+      maxRetriesPerRequest: 0,
+      commandTimeout: 200,
+      retryStrategy: () => null,
+      lazyConnect: true,
+    });
+    dead.on('error', () => {});
+    const lines: { rules?: string[]; failClosed?: string[]; suppressed?: number }[] = [];
+    const captured = createLogger({
+      level: 'warn',
+      destination: { write: (line: string) => lines.push(JSON.parse(line)) },
+    });
+    const degraded = new RateLimiter({ redis: dead, prefix, logger: captured, hmacKey });
+    const checks = [
+      { rule: rule('test.down.a', 1), identity: 'x' },
+      { rule: rule('test.down.b', 1, { failClosed: true }), identity: 'x' },
+    ];
+    const results = await degraded.consumeMany(checks);
+    expect(results.map((r) => r.allowed)).toEqual([true, false]);
+    for (let i = 0; i < 5; i++) await degraded.consumeMany(checks);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      rules: ['test.down.a', 'test.down.b'],
+      failClosed: ['test.down.b'],
+      suppressed: 0,
+    });
+    dead.disconnect();
+  });
+});
+
 describe('rate-limit store', () => {
   it('[S1-F6] counters live on a Redis that never evicts', async () => {
     const [, policy] = (await redis.config('GET', 'maxmemory-policy')) as string[];
@@ -193,6 +323,11 @@ describe('rate-limit store', () => {
       expect((await asLimits.consume(rule, ip)).allowed).toBe(true);
       expect((await asLimits.consume(rule, ip)).allowed).toBe(true);
       expect((await asLimits.consume(rule, ip)).allowed).toBe(false);
+      // S7-04: fixed windows and the penalty box run under the same ACL (no SET, no PTTL).
+      const boxed: RateLimitRule = { ...rule, name: 'test.acl-box', limit: 1, fixedWindow: true, penaltySeconds: 60 };
+      expect((await asLimits.consume(boxed, ip)).allowed).toBe(true);
+      expect(await asLimits.consume(boxed, ip)).toMatchObject({ allowed: false, tripped: true });
+      expect(await asLimits.consume(boxed, ip)).toMatchObject({ allowed: false, penalized: true });
 
       await expect(scoped.get('inl:imports:meta')).rejects.toThrow(/NOPERM/);
       await expect(scoped.set('inl:rl:x', '1')).rejects.toThrow(/NOPERM/);

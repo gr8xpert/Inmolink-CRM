@@ -223,6 +223,11 @@ export function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string,
   return repo.publicCodes(tx, ids);
 }
 
+/** Whether a public code is taken by a real target (S7-04: honeytoken hits are confirmed against it). */
+export function publicCodeInUse(tx: Tx, code: string): Promise<boolean> {
+  return repo.publicCodeInUse(tx, code);
+}
+
 /**
  * Makes these targets' fallback rows (S5-04) match their read models: the PUBLIC index document's filter fields, no
  * row otherwise — and the development rows of the units among them (S7-F6, `listing_search_developments`: one more

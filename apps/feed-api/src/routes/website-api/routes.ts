@@ -36,6 +36,13 @@ export const WEBSITE_API_TTL = {
   units: 60,
 } as const;
 
+/**
+ * List endpoints: a request with a `cursor` counts against the paging rules (S7-04). Not `/v2/changes` — a plugin
+ * polls it with a cursor all day long.
+ */
+const PAGED = { paged: true } as const;
+const LISTINGS = { paged: true, listings: true } as const;
+
 /** The key's site (`requireApiKey` ran first); keys without a site are refused there. */
 function siteOf(req: FastifyRequest): Promise<websiteApi.ApiSite> {
   if (!req.apiKey) throw new AppError('NOT_AUTHENTICATED');
@@ -57,16 +64,19 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteListingsQuery,
         response: { 200: WebsiteListingPage },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', LISTINGS)],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const suspicious = req.websitePaging?.suspicious === true;
+      return sendSiteJson(
         req,
         reply,
         WebsiteListingPage,
-        await websiteApi.searchListings(await siteOf(req), req.query),
+        await websiteApi.searchListings(await siteOf(req), req.query, { suspicious }),
         WEBSITE_API_TTL.listings,
-      ),
+        { noStore: suspicious },
+      );
+    },
   );
 
   app.get(
@@ -124,7 +134,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteSitemapQuery,
         response: { 200: WebsiteSitemapPage },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) =>
       sendSiteJson(
@@ -146,7 +156,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteDevelopmentsQuery,
         response: { 200: WebsiteDevelopmentPage },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) =>
       sendSiteJson(
@@ -192,7 +202,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteUnitsQuery,
         response: { 200: WebsiteUnitPage },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) =>
       sendSiteJson(

@@ -14,13 +14,15 @@ import { buildApp } from './app';
 
 /** Allows everything except the rule names in `deny`. */
 function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
+  const consume = async (rule: RateLimitRule) => {
+    seen.push(rule);
+    return deny.has(rule.name)
+      ? { allowed: false, limit: rule.limit, remaining: 0, retryAfterSeconds: 7, resetAtMs: 0 }
+      : { allowed: true, limit: rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 };
+  };
   return {
-    consume: async (rule: RateLimitRule) => {
-      seen.push(rule);
-      return deny.has(rule.name)
-        ? { allowed: false, limit: rule.limit, remaining: 0, retryAfterSeconds: 7 }
-        : { allowed: true, limit: rule.limit, remaining: 1, retryAfterSeconds: 0 };
-    },
+    consume,
+    consumeMany: (checks: readonly { rule: RateLimitRule }[]) => Promise.all(checks.map((c) => consume(c.rule))),
   } as unknown as RateLimiter;
 }
 

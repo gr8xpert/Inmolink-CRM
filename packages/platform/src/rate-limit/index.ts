@@ -7,11 +7,14 @@ export {
   ipBucket,
   type RateLimitPluginOptions,
   rateLimitPlugin,
+  replyQuotaExceeded,
   replyRateLimited,
   type ScopeIdentity,
 } from './fastify';
 export {
   assertRule,
+  type ConsumeManyOptions,
+  type RateLimitCheck,
   RateLimiter,
   type RateLimiterOptions,
   type RateLimitResult,

@@ -12,6 +12,7 @@ import {
   redisEnv,
   searchEnv,
   telemetryEnv,
+  websiteApiEnv,
   websiteSearchEnv,
 } from '@inmolink/platform/config';
 
@@ -33,6 +34,8 @@ export const feedApiEnv = {
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
   /** Website search timing: engine timeout, slow threshold, circuit breaker (S6-F3). */
   ...websiteSearchEnv,
+  /** Honeytokens on deep search pages of suspected scrapers (S7-04). */
+  ...websiteApiEnv,
   /** Image URLs in website documents (S7-03). */
   ...mediaCdnEnv,
   /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */
