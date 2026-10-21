@@ -1,7 +1,18 @@
 import { readFileSync } from 'node:fs';
 import sharp, { type Sharp } from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { hammingDistance, ImageInputError, normalizeOriginal, phashOf, renderVariants } from '../processing';
+import {
+  freeImageSlots,
+  HEAVY_INPUT_PIXELS,
+  hammingDistance,
+  IMAGE_SLOTS,
+  ImageInputError,
+  isHeavyInput,
+  normalizeOriginal,
+  phashOf,
+  renderVariants,
+  withImageSlot,
+} from '../processing';
 import { ALL_VARIANTS_MASK, MEDIA_PIPELINE_VERSION, VARIANT_NAMES, variantsIn, variantsMask } from '../variants';
 
 /** A scene: a gradient with shapes, so the perceptual hash has structure to see. */
@@ -90,5 +101,48 @@ describe('media processing (S3-04)', () => {
       vips: '8.18.7',
       webp: '1.6.0',
     });
+  });
+});
+
+describe('image slots (S6-F5)', () => {
+  const flat = (width: number, height: number) =>
+    sharp({ create: { width, height, channels: 3, background: '#88aacc' } })
+      .jpeg({ quality: 50 })
+      .toBuffer();
+
+  it('[S6-F5] a 48 MP original is heavy by its header, a 12 MP one is not, a HEIC always is', async () => {
+    expect(8_000 * 6_000).toBeGreaterThan(HEAVY_INPUT_PIXELS);
+    expect(4_000 * 3_000).toBeLessThanOrEqual(HEAVY_INPUT_PIXELS);
+    expect(await isHeavyInput(await flat(8_000, 6_000), 'image/jpeg')).toBe(true);
+    expect(await isHeavyInput(await flat(4_000, 3_000), 'image/jpeg')).toBe(false);
+    const heic = new Uint8Array(readFileSync(new URL('./fixtures/large-24mp.heic', import.meta.url)));
+    expect(await isHeavyInput(heic, 'image/heic')).toBe(true);
+    // An unreadable header is not heavy: normalizeOriginal refuses the file.
+    expect(await isHeavyInput(new Uint8Array(64).fill(0x41), 'image/jpeg')).toBe(false);
+  });
+
+  it('[S6-F5] a heavy input decodes alone: takeAll waits for every slot, and two upgrading jobs never deadlock', async () => {
+    expect(IMAGE_SLOTS).toBe(2);
+    const order: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const heavyJob = (name: string) =>
+      withImageSlot(false, async (takeAll) => {
+        await held;
+        await takeAll();
+        order.push(`${name}:alone=${freeImageSlots() === 0}`);
+        await new Promise((r) => setTimeout(r, 10));
+        order.push(`${name}:done`);
+      });
+    const a = heavyJob('a');
+    const b = heavyJob('b');
+    expect(freeImageSlots()).toBe(0);
+    release();
+    await Promise.all([a, b]);
+    // One after the other, each holding every slot while it decodes.
+    expect(order).toEqual(['a:alone=true', 'a:done', 'b:alone=true', 'b:done']);
+    expect(freeImageSlots()).toBe(IMAGE_SLOTS);
   });
 });

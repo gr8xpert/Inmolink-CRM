@@ -18,6 +18,7 @@ import { newId } from '@inmolink/platform/ids';
 import { allowLoopbackOriginsForTests } from '@inmolink/platform/safe-fetch';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { containerMemoryEnv } from './container-env';
 
 /**
  * Feed import throughput (S6-02 acceptance): a 100 MB feed (~20k listings: three descriptions, features, 15 image
@@ -150,7 +151,7 @@ async function importTogether(connections: { founder: Founder; connectionId: str
       encoding: 'utf8',
       timeout: 20 * 60_000,
       maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, APP_ROLE: 'worker' },
+      env: { ...process.env, ...containerMemoryEnv('workers'), APP_ROLE: 'worker' },
     },
   );
   const lines = stdout.trim().split('\n');

@@ -10,8 +10,8 @@
  *   give byte-identical files (the first run and any on-demand regeneration agree).
  *
  * Memory: the job holds one of `IMAGE_SLOTS` (`withImageSlot`) from downloading the original until the files
- * are rendered, whatever the pool's job concurrency; a HEIC decode (whole RGBA image in WASM, twice) holds them
- * all. Inputs are capped in pixels and libvips' operation cache is off — the worker stays under its 512 MB
+ * are rendered, whatever the pool's job concurrency; a HEIC decode (whole RGBA image in WASM, twice) and an
+ * original past `HEAVY_INPUT_PIXELS` (`isHeavyInput`, read from its header) hold them all. Inputs are capped in pixels and libvips' operation cache is off — the worker stays under its 512 MB
  * RSS budget (`tests/perf/media-processing.int.test.ts`).
  */
 import { createRequire } from 'node:module';
@@ -29,6 +29,12 @@ export const IMAGE_SLOTS = 2;
 export const MAX_INPUT_PIXELS = 50_000_000;
 /** HEIC goes through a WASM decoder that holds the whole RGBA image twice (25 MP ≈ 200 MB): a lower cap. */
 export const MAX_HEIC_PIXELS = 25_000_000;
+/**
+ * Originals past this decode alone, holding every image slot like a HEIC (S6-F5): a 48 MP photo is ~150 MB of
+ * RGB when its EXIF rotation decodes it whole, and two of those at once (or one beside a 12 MP render) took the
+ * media worker past its 512 MB budget in CI. A 12 MP phone photo stays at one slot.
+ */
+export const HEAVY_INPUT_PIXELS = 24_000_000;
 
 const MASTER_WEBP = { quality: 90, effort: 2 } as const;
 const VARIANT_WEBP = { quality: 80, effort: 2 } as const;
@@ -67,17 +73,49 @@ function wake(): void {
 
 /**
  * Runs `fn` holding image slots: one, or all of them for a HEIC (`heavy`). Wrap everything that holds image
- * bytes — download, decode, render — so the pool's job concurrency never multiplies the memory.
+ * bytes — download, decode, render — so the pool's job concurrency never multiplies the memory. `fn` may call
+ * `takeAll` once it knows its input is heavy (`isHeavyInput`): it gives its slot back and waits in line for all
+ * of them (never holds one while waiting for more, so two upgrading jobs cannot deadlock).
  */
-export async function withImageSlot<T>(heavy: boolean, fn: () => Promise<T>): Promise<T> {
-  const weight = heavy ? IMAGE_SLOTS : 1;
-  if (waiting.length === 0 && free >= weight) free -= weight;
-  else await new Promise<void>((go) => waiting.push({ weight, go }));
+export async function withImageSlot<T>(heavy: boolean, fn: (takeAll: () => Promise<void>) => Promise<T>): Promise<T> {
+  let weight = heavy ? IMAGE_SLOTS : 1;
+  await acquireSlots(weight);
+  const takeAll = async () => {
+    if (weight === IMAGE_SLOTS) return;
+    free += weight;
+    weight = 0;
+    wake();
+    await acquireSlots(IMAGE_SLOTS);
+    weight = IMAGE_SLOTS;
+  };
   try {
-    return await fn();
+    return await fn(takeAll);
   } finally {
     free += weight;
     wake();
+  }
+}
+
+async function acquireSlots(weight: number): Promise<void> {
+  if (waiting.length === 0 && free >= weight) free -= weight;
+  else await new Promise<void>((go) => waiting.push({ weight, go }));
+}
+
+/** Image slots free now (tests). */
+export const freeImageSlots = (): number => free;
+
+/**
+ * Whether an original must decode alone: a HEIC, or more than `HEAVY_INPUT_PIXELS` by its header (sharp reads
+ * the dimensions only, no pixels). An unreadable header is not heavy: `normalizeOriginal` refuses the file.
+ */
+export async function isHeavyInput(bytes: Uint8Array, contentType: string): Promise<boolean> {
+  if (contentType === 'image/heic') return true;
+  const sharp = await loadSharp();
+  try {
+    const { width = 0, height = 0 } = await sharp(bytes, { failOn: 'none' }).metadata();
+    return width * height > HEAVY_INPUT_PIXELS;
+  } catch {
+    return false;
   }
 }
 

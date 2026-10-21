@@ -7,7 +7,7 @@ import { type BucketName, storage } from '@inmolink/platform/storage';
 import { z } from 'zod';
 import { mediaEvents } from './events';
 import { FEED_IMAGES, importFeedImages, overdueFeedImageAgencies } from './feed-images';
-import { ImageInputError, normalizeOriginal, renderVariants, withImageSlot } from './processing';
+import { ImageInputError, isHeavyInput, normalizeOriginal, renderVariants, withImageSlot } from './processing';
 import * as repo from './repo';
 import { mapLimit, ORIGINALS_BUCKET, originalKey } from './service';
 import {
@@ -186,7 +186,7 @@ export const mediaJobs = {
       }
 
       const heavy = state.contentType === 'image/heic';
-      const result = await withImageSlot(heavy, async () => {
+      const result = await withImageSlot(heavy, async (takeAll) => {
         let missing = wanted;
         let wroteMaster = false;
         let master =
@@ -198,6 +198,8 @@ export const mediaJobs = {
           if (!original) return giveUp(p.sha256, 'media original missing');
           // Other bytes under this key: the signed checksum is the store's to enforce (S3-03 Decisions).
           if (sha256Of(original) !== p.sha256) return giveUp(p.sha256, 'media original does not match its hash');
+          // A large original decodes alone (S6-F5): its header says so before any pixel is decoded.
+          if (await isHeavyInput(original, state.contentType)) await takeAll();
           let normalized: Awaited<ReturnType<typeof normalizeOriginal>>;
           try {
             normalized = await normalizeOriginal(original, state.contentType);

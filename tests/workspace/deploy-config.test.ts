@@ -115,6 +115,14 @@ describe('Kamal deploy config', () => {
     expect(Number(clear.MALLOC_MMAP_THRESHOLD_)).toBeGreaterThan(0);
   });
 
+  it('[S6-F5] the workers role sizes V8 and glibc like the media role (the feed-import RSS test runs with them)', () => {
+    const k = kamal('worker');
+    const workers = (k.servers.workers as KamalRole).env?.clear ?? {};
+    const media = (k.servers.media as KamalRole).env?.clear ?? {};
+    expect(workers.NODE_OPTIONS).toBe(media.NODE_OPTIONS);
+    expect(workers.MALLOC_MMAP_THRESHOLD_).toBe(media.MALLOC_MMAP_THRESHOLD_);
+  });
+
   it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
     const k = kamal('worker');
     const media = k.servers.media as KamalRole;
