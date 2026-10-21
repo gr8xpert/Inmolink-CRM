@@ -10,6 +10,10 @@
  * (S7-01 Decision 2). Query budget per request with the site scope and network gate cached (Redis + 15 s local; a
  * miss costs 2 + 1 statements once a minute per site): search 1–2 statements (+1 when the Postgres fallback answers),
  * detail 1–2, changes 2 (3 from `since`), sitemap 1–2. Overrides and owner identities are one statement.
+ *
+ * Developments (S7-F6): `/v2/developments`, `/{ref}` and `/{ref}/units` read the development rows
+ * (`listing_search_developments`, precomputed aggregates) and units' fallback rows with their read models in one
+ * statement each, plus the overrides and owner identities when another agency's development is on the page: 1–2.
  */
 import { createHash } from 'node:crypto';
 import type {
@@ -21,11 +25,17 @@ import type {
   WebsiteChangesPage,
   WebsiteChangesQuery,
   WebsiteDetail,
+  WebsiteDevelopmentDetail,
+  WebsiteDevelopmentPage,
+  WebsiteDevelopmentsQuery,
   WebsiteListingPage,
   WebsiteListingsQuery,
   WebsiteSitemapPage,
   WebsiteSitemapQuery,
+  WebsiteUnitPage,
+  WebsiteUnitsQuery,
 } from '@inmolink/contracts';
+import { PublicCode } from '@inmolink/contracts';
 import { type Tx, withPublicRead } from '@inmolink/db';
 import { LocalLru } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
@@ -139,7 +149,12 @@ type Doc = ListingCardDoc | UnitCardDoc | ListingDetailDoc | UnitDetailDoc;
  * the site agency's overrides and the owners' identities, read together in one statement (each module builds its
  * own part, `properties.siteOverridesQuery` / `agencies.ownerIdentitiesQuery`) and compiled once per identity.
  */
-async function viewFor(tx: Tx, site: ApiSite, lang: string, rows: readonly search.PublicDocRow[]) {
+async function viewFor(
+  tx: Tx,
+  site: ApiSite,
+  lang: string,
+  rows: readonly Pick<search.PublicDocRow, 'targetId' | 'ownerAgencyId' | 'doc'>[],
+) {
   const view: websites.SiteView = {
     site: { agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix },
     presenter: site.scope.presenter,
@@ -166,20 +181,28 @@ async function viewFor(tx: Tx, site: ApiSite, lang: string, rows: readonly searc
 const owned = <D>(r: search.PublicDocRow) => ({
   ownerAgencyId: r.ownerAgencyId,
   publicCode: r.publicCode,
+  developmentCode: r.developmentCode,
+  developmentOwnRef: r.developmentOwnRef,
   doc: r.doc as D,
 });
+
+/** The site as the serializer names it (references, prefixes). */
+const shownSite = (site: ApiSite) => ({ agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix });
 
 // ── Search ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** `GET /v2/listings`: one page of the site's inventory matching a visitor's filters, as the site shows it. */
 export async function searchListings(site: ApiSite, q: WebsiteListingsQuery): Promise<WebsiteListingPage> {
   const lang = langOf(site, q.lang);
-  if (!site.inventory) return { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
+  const empty = { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
+  if (!site.inventory) return empty;
   const input: PublicListingSearch = {
     text: q.q,
     locale: lang,
     kind: q.kind,
     developmentId: q.developmentId,
+    // A development by the reference the site shows (S7-F6): an own one's own reference, a network one's code.
+    developmentRef: q.development,
     ...(q.status ? { statuses: q.status } : {}),
     transactionType: q.transaction,
     propertyTypeIds: q.types,
@@ -302,7 +325,7 @@ export async function changes(site: ApiSite, q: WebsiteChangesQuery): Promise<We
   const page = await withPublicRead((tx) =>
     search.siteChanges(tx, inventory, { after, since, audience, limit: q.limit }),
   );
-  const shown = { agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix };
+  const shown = shownSite(site);
   return {
     items: page.rows.map((r) => ({
       ref: websites.siteRef(shown, r),
@@ -322,12 +345,10 @@ export async function changes(site: ApiSite, q: WebsiteChangesQuery): Promise<We
 
 // ── Sitemap ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const PUBLIC_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
-
 function decodeSitemapCursor(cursor: string): string {
   try {
     const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<string, unknown>;
-    if (typeof c.c === 'string' && PUBLIC_CODE.test(c.c)) return c.c;
+    if (typeof c.c === 'string' && PublicCode.safeParse(c.c).success) return c.c;
   } catch {
     // falls through
   }
@@ -363,6 +384,108 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
         updatedAt: (page[i] as search.PublicDocRow).updatedAt.toISOString(),
       })),
       nextCursor: rows.length > q.limit && last?.publicCode ? encodeCursor({ c: last.publicCode }) : null,
+    };
+  });
+}
+
+// ── Developments (S7-F6) ────────────────────────────────────────────────────────────────────────────────────────
+
+/** The site's new-build inventory, or null: it shows none (nothing at all, or a CUSTOM site without new builds). */
+const newBuildsOf = (site: ApiSite) =>
+  site.inventory && site.inventory.restrict?.newBuilds !== false ? site.inventory : null;
+
+/** A page cursor naming the last item's public code (`d` developments, `u` units), never an internal id. */
+function decodeCodeCursor(cursor: string, key: 'd' | 'u'): string {
+  try {
+    const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const code = c[key];
+    if (typeof code === 'string' && PublicCode.safeParse(code).success) return code;
+  } catch {
+    // falls through
+  }
+  throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
+}
+
+const developmentItem = <D extends UnitCardDoc>(r: search.DevelopmentRow): websites.DevelopmentItem<D> => ({
+  ...r,
+  doc: r.doc as D,
+});
+
+/** The rows the serializer's view needs: each development with its owner and a unit document (overrides by id). */
+const viewRows = (rows: readonly search.DevelopmentRow[]) =>
+  rows.map((r) => ({ targetId: r.developmentId, ownerAgencyId: r.ownerAgencyId, doc: r.doc }));
+
+/**
+ * `GET /v2/developments` (S7-F6): the site's new-build developments — those with AVAILABLE or RESERVED units in its
+ * inventory — newest first, white-labelled like listings. One statement, plus the overrides and owner identities when
+ * another agency's development is on the page.
+ */
+export async function developments(site: ApiSite, q: WebsiteDevelopmentsQuery): Promise<WebsiteDevelopmentPage> {
+  const lang = langOf(site, q.lang);
+  const inventory = newBuildsOf(site);
+  if (!inventory) return { items: [], nextCursor: null };
+  const after = q.cursor === undefined ? undefined : decodeCodeCursor(q.cursor, 'd');
+  return withPublicRead(async (tx) => {
+    const rows = await search.developmentPage(tx, inventory, {
+      after,
+      limit: q.limit,
+      locale: lang,
+      fallback: site.scope.defaultLocale,
+      locationIds: q.locations,
+    });
+    const page = rows.slice(0, q.limit);
+    const view = await viewFor(tx, site, lang, viewRows(page));
+    const last = page[page.length - 1];
+    return {
+      items: websites.serializeDevelopmentCards(view, page.map(developmentItem<UnitCardDoc>)),
+      nextCursor: rows.length > q.limit && last ? encodeCursor({ d: last.code }) : null,
+    };
+  });
+}
+
+/**
+ * `GET /v2/developments/{ref}` (S7-F6): a development by the reference the site shows — an own development's own
+ * reference, another agency's `<prefix>-<code>`. 1–2 statements.
+ */
+export async function developmentDetail(site: ApiSite, ref: string, lang?: string): Promise<WebsiteDevelopmentDetail> {
+  const locale = langOf(site, lang);
+  const inventory = newBuildsOf(site);
+  if (!inventory) throw new AppError('DEVELOPMENT_NOT_FOUND');
+  return withPublicRead(async (tx) => {
+    const row = await search.developmentByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
+    if (!row) throw new AppError('DEVELOPMENT_NOT_FOUND');
+    const view = await viewFor(tx, site, locale, viewRows([row]));
+    return websites.serializeDevelopmentDetail(view, developmentItem<UnitDetailDoc>(row));
+  });
+}
+
+/**
+ * `GET /v2/developments/{ref}/units` (S7-F6): the development's live unit table on this site — its AVAILABLE and
+ * RESERVED units in the inventory, in the developer's unit order — as unit cards. A development with none here is not
+ * on the site (`DEVELOPMENT_NOT_FOUND`). 1–2 statements.
+ */
+export async function developmentUnits(site: ApiSite, ref: string, q: WebsiteUnitsQuery): Promise<WebsiteUnitPage> {
+  const lang = langOf(site, q.lang);
+  const inventory = newBuildsOf(site);
+  if (!inventory) throw new AppError('DEVELOPMENT_NOT_FOUND');
+  const after = q.cursor === undefined ? undefined : decodeCodeCursor(q.cursor, 'u');
+  return withPublicRead(async (tx) => {
+    const { found, anchored, rows } = await search.developmentUnitsPage(tx, inventory, {
+      ref,
+      after,
+      limit: q.limit,
+      locale: lang,
+      fallback: site.scope.defaultLocale,
+    });
+    if (!found) throw new AppError('DEVELOPMENT_NOT_FOUND');
+    // The cursor's unit left the development's public units: the position is gone (start again).
+    if (!anchored) throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
+    const page = rows.slice(0, q.limit);
+    const view = await viewFor(tx, site, lang, page);
+    const last = page[page.length - 1];
+    return {
+      items: websites.serializeUnitCards(view, page.map(owned<UnitCardDoc>)),
+      nextCursor: rows.length > q.limit && last?.publicCode ? encodeCursor({ u: last.publicCode }) : null,
     };
   });
 }

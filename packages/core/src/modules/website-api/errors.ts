@@ -5,6 +5,7 @@ export const websiteApiErrors = [
   'API_KEY_SITE_REQUIRED',
   'SITE_NOT_FOUND',
   'LISTING_NOT_FOUND',
+  'DEVELOPMENT_NOT_FOUND',
   'CHANGES_EXPIRED',
   'VALIDATION_FAILED',
 ] as const satisfies readonly ErrorCode[];

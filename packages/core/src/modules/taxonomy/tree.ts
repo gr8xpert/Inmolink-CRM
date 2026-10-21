@@ -23,7 +23,9 @@ import type {
   TaxonomyCountry,
   TaxonomyDto,
   TaxonomyLocationsDto,
+  WebsiteFeaturesDto,
   WebsiteLocationsDto,
+  WebsiteTypesDto,
 } from '@inmolink/contracts';
 import { type Tx, withPublicRead, withTenant } from '@inmolink/db';
 import { type ContentLocale, DEFAULT_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
@@ -49,7 +51,15 @@ export interface Serialized {
   json: string;
 }
 
-type Entity = 'locations' | 'catalog' | 'document' | 'webtop' | 'webcatalog' | 'webchildren';
+type Entity =
+  | 'locations'
+  | 'catalog'
+  | 'document'
+  | 'webtop'
+  | 'webcatalog'
+  | 'webchildren'
+  | 'webtypes'
+  | 'webfeatures';
 
 export function taxonomyCacheKey(entity: Entity, locale: ContentLocale, id?: string): CacheKey {
   return cacheKey({ v: 1, module: 'taxonomy', entity, scope: 'global', locale, ...(id ? { id } : {}) });
@@ -444,4 +454,22 @@ function cutPage(body: TaxonomyLocationsDto, locale: ContentLocale, id: string, 
 export async function getWebsiteCatalog(lang?: string): Promise<Serialized> {
   const locale = websiteLocale(lang);
   return fresh(taxonomyCacheKey('webcatalog', locale), async () => serialize((await currentCatalog(locale)).body));
+}
+
+/** `GET /v2/taxonomy/types` (S7-F6): the catalog's property types, grouped. Warm: no query. */
+export async function getWebsiteTypes(lang?: string): Promise<Serialized> {
+  const locale = websiteLocale(lang);
+  return fresh(taxonomyCacheKey('webtypes', locale), async () => {
+    const { propertyTypes } = (await currentCatalog(locale)).body;
+    return serialize({ locale, propertyTypes } satisfies WebsiteTypesDto);
+  });
+}
+
+/** `GET /v2/taxonomy/features` (S7-F6): the catalog's features (with icon names), grouped. Warm: no query. */
+export async function getWebsiteFeatures(lang?: string): Promise<Serialized> {
+  const locale = websiteLocale(lang);
+  return fresh(taxonomyCacheKey('webfeatures', locale), async () => {
+    const { features } = (await currentCatalog(locale)).body;
+    return serialize({ locale, features } satisfies WebsiteFeaturesDto);
+  });
 }

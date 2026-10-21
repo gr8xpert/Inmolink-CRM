@@ -151,6 +151,15 @@ export const TaxonomyCatalogDto = z.object({
 });
 export type TaxonomyCatalogDto = z.infer<typeof TaxonomyCatalogDto>;
 
+/**
+ * `GET /v2/taxonomy/types` and `/features` (S7-F6, PLAN §9.1): the catalog's two halves for a site's filter options —
+ * platform reference data, the same for every site (counts in the site's inventory: `/v2/listings?facets=`).
+ */
+export const WebsiteTypesDto = TaxonomyCatalogDto.pick({ locale: true, propertyTypes: true });
+export type WebsiteTypesDto = z.infer<typeof WebsiteTypesDto>;
+export const WebsiteFeaturesDto = TaxonomyCatalogDto.pick({ locale: true, features: true });
+export type WebsiteFeaturesDto = z.infer<typeof WebsiteFeaturesDto>;
+
 /** The whole localized taxonomy (dashboard UI). */
 export const TaxonomyDto = TaxonomyLocationsDto.extend(TaxonomyCatalogDto.shape);
 export type TaxonomyDto = z.infer<typeof TaxonomyDto>;

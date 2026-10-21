@@ -68,6 +68,7 @@ export function roleStatements(database: string, role: DbRoleName, verifier: str
     spec.readOnly
       ? `alter role ${r} set default_transaction_read_only = on`
       : `alter role ${r} reset default_transaction_read_only`,
+    spec.jit ? `alter role ${r} reset jit` : `alter role ${r} set jit = off`,
     // No "$user" schema first: nobody can shadow public objects with a schema named after a role.
     `alter role ${r} set search_path = public`,
     `grant connect on database ${db} to ${r}`,

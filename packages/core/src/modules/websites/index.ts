@@ -5,7 +5,9 @@ export { websitesJobs } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, WEBSITES_ACTIONS, WEBSITES_IMPERSONATION, type WebsitesAction } from './policy';
 export {
   DEFAULT_NETWORK_REF_PREFIX,
+  type DevelopmentItem,
   deterministicSanitizer,
+  developmentRef,
   excerpt,
   networkRefPrefix,
   type Owned,
@@ -17,6 +19,9 @@ export {
   type SiteView,
   serializeCards,
   serializeDetail,
+  serializeDevelopmentCards,
+  serializeDevelopmentDetail,
+  serializeUnitCards,
   siteRef,
   siteScopedId,
   slugOf,

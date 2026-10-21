@@ -1,5 +1,17 @@
-import { CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
+import {
+  CreateDevelopmentBody,
+  CreateListingBody,
+  CreateUnitsBody,
+  SetDevelopmentAccessBody,
+  UpdateListingBody,
+  WebsiteDevelopmentDetail,
+  WebsiteDevelopmentPage,
+  WebsiteFeaturesDto,
+  WebsiteTypesDto,
+  WebsiteUnitPage,
+} from '@inmolink/contracts';
 import { closeDb, withMemberCtx } from '@inmolink/core';
+import * as developments from '@inmolink/core/modules/developments';
 import * as identity from '@inmolink/core/modules/identity';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
@@ -17,7 +29,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { WEBSITE_API_TTL } from './routes/website-api/routes';
 
-/** Website API v2 reads over HTTP (S7-03): cache headers, strong ETags and 304s, site-bound keys, OpenAPI. */
+/**
+ * Website API v2 reads over HTTP (S7-03, S7-F6 developments and taxonomy halves): cache headers, strong ETags and
+ * 304s, site-bound keys, OpenAPI.
+ */
 
 const RUN = newId().slice(-8);
 const allow = {
@@ -30,6 +45,10 @@ let key: string;
 let widgetKey: string;
 let ref: string;
 let country: string;
+/** The founder's OPEN development as its own site shows it (its own reference). */
+let developmentRef: string;
+/** The same development's code form, which only other agencies' sites use. */
+let networkForm: string;
 
 const as = <T>(fn: Parameters<typeof withMemberCtx<T>>[1]) =>
   withMemberCtx({ userId: founder.userId, agencyId: founder.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -103,6 +122,38 @@ beforeAll(async () => {
     ),
   );
   await withSystem('feed-api.v2.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [id]));
+  const dev = await as((ctx) =>
+    developments.createDevelopment(
+      ctx,
+      CreateDevelopmentBody.parse({ ref: `FD-${RUN}`, name: 'Feed Gardens', locationId: ids.city }),
+    ),
+  );
+  await as((ctx) =>
+    developments.setDevelopmentAccess(
+      ctx,
+      dev.id,
+      SetDevelopmentAccessBody.parse({ version: dev.version, kind: 'OPEN', allowedAgencyIds: [] }),
+    ),
+  );
+  const units = await as((ctx) =>
+    developments.createUnits(
+      ctx,
+      dev.id,
+      CreateUnitsBody.parse({
+        units: [{ ref: 'A-1', propertyTypeId: ids.villa, bedrooms: 2, priceCents: 25_000_000 }],
+      }),
+    ),
+  );
+  await withSystem('feed-api.v2.test', (tx) =>
+    search.rebuildReadModels(
+      tx,
+      'UNIT',
+      units.items.map((u) => u.id),
+    ),
+  );
+  const codes = await withSystem('feed-api.v2.test', (tx) => search.publicCodes(tx, [dev.id]));
+  developmentRef = `FD-${RUN}`;
+  networkForm = `FS-${codes.get(dev.id)}`;
   ref = (await as((ctx) => properties.getListing(ctx, id))).ref as string;
   const site = await as((ctx) =>
     websites.createSite(ctx, {
@@ -184,7 +235,7 @@ describe('website API v2 over HTTP (S7-03)', () => {
     }
     const detail = (await get(`/v2/listings/${encodeURIComponent(ref)}`)).json();
     expect(detail).toMatchObject({ ref, kind: 'LISTING' });
-    const page = (await get(`/v2/listings?locations=${country}`)).json();
+    const page = (await get(`/v2/listings?locations=${country}&kind=LISTING`)).json();
     expect(page).toMatchObject({ total: 1, degraded: true });
     expect(page.items[0].ref).toBe(ref);
   });
@@ -227,6 +278,81 @@ describe('website API v2 over HTTP (S7-03)', () => {
       'websiteV2.getListing',
       'websiteV2.listChanges',
       'websiteV2.getSitemap',
+    ]) {
+      expect(ops).toContain(op);
+    }
+  });
+});
+
+describe('website API v2 developments and taxonomy over HTTP (S7-F6)', () => {
+  it('[S7-F6] developments, a development and its unit table: ETag + 304, private like every site answer', async () => {
+    const urls: [string, number][] = [
+      [`/v2/developments?locations=${country}`, WEBSITE_API_TTL.developments],
+      [`/v2/developments/${developmentRef}?lang=en`, WEBSITE_API_TTL.development],
+      [`/v2/developments/${developmentRef}/units`, WEBSITE_API_TTL.units],
+    ];
+    for (const [url, ttl] of urls) {
+      const res = await get(url);
+      expect(res.statusCode, url).toBe(200);
+      expect(ttl).toBeGreaterThan(0);
+      expect(res.headers['cache-control'], url).toBe('private, max-age=0, must-revalidate');
+      expect(res.headers.vary, url).toBe('Accept-Encoding, X-Api-Key, Authorization, Origin');
+      const etag = res.headers.etag as string;
+      expect(etag, url).toMatch(/^"[A-Za-z0-9_-]{27}"$/);
+      const again = await get(url, { 'if-none-match': etag });
+      expect(again.statusCode, url).toBe(304);
+      expect(again.body, url).toBe('');
+    }
+    const page = WebsiteDevelopmentPage.parse((await get(`/v2/developments?locations=${country}`)).json());
+    expect(page.items.map((d) => d.ref)).toEqual([developmentRef]);
+    expect(page.items[0]).toMatchObject({ name: 'Feed Gardens', units: { total: 1, available: 1, reserved: 0 } });
+    const detail = WebsiteDevelopmentDetail.parse((await get(`/v2/developments/${developmentRef}`)).json());
+    expect(detail.ref).toBe(developmentRef);
+    const units = WebsiteUnitPage.parse((await get(`/v2/developments/${developmentRef}/units`)).json());
+    expect(units.items.map((u) => u.development.ref)).toEqual([developmentRef]);
+    // Search cards and the `development` filter use the same reference.
+    const found = (await get(`/v2/listings?development=${developmentRef}&kind=UNIT`)).json();
+    expect(found.items.map((i: { development: { ref: string } }) => i.development.ref)).toEqual([developmentRef]);
+    expect((await get(`/v2/developments/FS-ZZZZZZZZ`)).json().error.code).toBe('DEVELOPMENT_NOT_FOUND');
+    // The agency's own site names its development by its own reference, never by the network form.
+    expect((await get(`/v2/developments/${networkForm}/units`)).statusCode).toBe(404);
+    expect((await get('/v2/developments?cursor=bm9wZQ')).json().error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('[S7-F6] taxonomy types and features: localized, the same for every key, CDN-cacheable with ETag + 304', async () => {
+    // The widget's key (publishable: its allowlisted origin) has the taxonomy scope.
+    const widget = { 'x-api-key': widgetKey, origin: 'https://www.feed-site.example' };
+    for (const [url, schema] of [
+      ['/v2/taxonomy/types?lang=en', WebsiteTypesDto],
+      ['/v2/taxonomy/features?lang=en', WebsiteFeaturesDto],
+    ] as const) {
+      const res = await get(url, widget);
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['cache-control'], url).toBe(
+        'public, max-age=0, s-maxage=600, stale-while-revalidate=600, stale-if-error=86400',
+      );
+      expect(res.headers['access-control-allow-origin'], url).toBe('*');
+      const body = schema.parse(res.json());
+      expect(body.locale).toBe('en');
+      expect(Object.keys(res.json()).sort(), url).toEqual(Object.keys(schema.shape).sort());
+      const again = await get(url, { ...widget, 'if-none-match': res.headers.etag as string });
+      expect(again.statusCode, url).toBe(304);
+    }
+    const types = WebsiteTypesDto.parse((await get('/v2/taxonomy/types', widget)).json());
+    expect(types.propertyTypes.some((g) => g.key === `fv-g-${RUN}`)).toBe(true);
+    // A key without the taxonomy scope is refused.
+    expect((await get('/v2/taxonomy/types')).statusCode).toBe(403);
+  });
+
+  it('[S7-F6] OpenAPI documents the developments and taxonomy endpoints', async () => {
+    const doc = app.swagger() as { paths: Record<string, Record<string, { operationId?: string }>> };
+    const ops = Object.values(doc.paths).flatMap((p) => Object.values(p).map((o) => o.operationId));
+    for (const op of [
+      'websiteV2.listDevelopments',
+      'websiteV2.getDevelopment',
+      'websiteV2.listDevelopmentUnits',
+      'websiteV2.getTaxonomyTypes',
+      'websiteV2.getTaxonomyFeatures',
     ]) {
       expect(ops).toContain(op);
     }

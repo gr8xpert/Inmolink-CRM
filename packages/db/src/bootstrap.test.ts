@@ -16,6 +16,9 @@ describe('role bootstrap', () => {
     expect(stmts('app_user')).toContain(`set statement_timeout = '5s'`);
     expect(stmts('app_system')).toContain(`set statement_timeout = '60s'`);
     expect(stmts('app_owner')).toContain('reset statement_timeout');
+    // [S7-F6] public reads are never JIT-compiled; other roles keep the server default.
+    expect(stmts('app_public')).toContain('alter role "app_public" set jit = off');
+    expect(stmts('app_user')).toContain('alter role "app_user" reset jit');
   });
 
   it('[S1-F6] request roles cut off idle transactions after 15 s; owner and workers keep the server default', () => {

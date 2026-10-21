@@ -16,8 +16,14 @@
  * `inmolink.search.breaker.open` (gauge, 1 while the breaker is not closed); alert `SearchFallbackActive`
  * (infra/monitoring/rules/search.yml). Public path: reads as `app_public`, never inside a caller's transaction.
  */
-import { PublicListingSearch, type PublicListingSearchResult, type PublicSearchSort } from '@inmolink/contracts';
+import {
+  PublicCode,
+  PublicListingSearch,
+  type PublicListingSearchResult,
+  type PublicSearchSort,
+} from '@inmolink/contracts';
 import { withPublicRead } from '@inmolink/db';
+import { LocalLru } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import {
@@ -291,7 +297,7 @@ export function refFilter(
 ): Filter | null {
   if (!whiteLabelled(site)) return { op: 'eq', field: 'ref', value: text };
   const own = site.ownerAgencyIds ?? [];
-  const marker = site.networkRefPrefix ? `${site.networkRefPrefix}-` : null;
+  const marker = site.networkRefPrefix ? `${site.networkRefPrefix}-`.toUpperCase() : null;
   // The public code after the site's prefix (codes are upper case; never the owner's own reference).
   const networkCode =
     marker && text.length > marker.length && text.toUpperCase().startsWith(marker)
@@ -315,6 +321,58 @@ export function refFilter(
   return branches.length === 1 ? (branches[0] as Filter) : { op: 'or', filters: branches };
 }
 
+/**
+ * The public code in `<site prefix>-<code>` (prefix and code in any case), or null: not the site's network form. Only
+ * sites with network documents have one (`networkRefPrefix`).
+ */
+function codeAfterPrefix(site: Pick<PublicSearchSite, 'networkRefPrefix'>, text: string): string | null {
+  if (!site.networkRefPrefix) return null;
+  const marker = `${site.networkRefPrefix}-`.toUpperCase();
+  if (text.length <= marker.length || text.slice(0, marker.length).toUpperCase() !== marker) return null;
+  const code = text.slice(marker.length).toUpperCase();
+  return PublicCode.safeParse(code).success ? code : null;
+}
+
+/**
+ * What a development reference names on a site (S7-F6, like `refFilter` for listings): an own development by its
+ * developer's own reference, another agency's only by `<prefix>-<public code>` — never by its owner's reference, and
+ * the owner's sites never by the network form (the code is the presenting agency's, ADR 0012 #3).
+ */
+export function developmentRefMatch(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'networkRefPrefix'>,
+  text: string,
+): { ownRef: string | null; code: string | null } {
+  const own = site.ownerAgencyIds;
+  const hasOwn = own === null || own.length > 0;
+  const code = whiteLabelled(site) || own?.length === 0 ? codeAfterPrefix(site, text) : null;
+  return { ownRef: hasOwn ? text : null, code };
+}
+
+/** A development reference as a search filter (`?development=`); null: it can name nothing on this site. */
+function developmentRefFilter(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'networkRefPrefix'>,
+  text: string,
+): Filter | null {
+  const match = developmentRefMatch(site, text);
+  const own = site.ownerAgencyIds;
+  const ownAgencies: Filter | null =
+    own === null || own.length === 0 ? null : { op: 'in', field: 'ownerAgencyId', values: [...own] };
+  const branches: Filter[] = [];
+  if (match.ownRef !== null) {
+    const byRef: Filter = { op: 'eq', field: 'developmentOwnRef', value: match.ownRef };
+    branches.push(ownAgencies ? { op: 'and', filters: [ownAgencies, byRef] } : byRef);
+  }
+  if (match.code !== null) {
+    const byCode: Filter = { op: 'eq', field: 'developmentCode', value: match.code };
+    branches.push(ownAgencies ? { op: 'and', filters: [{ op: 'not', filter: ownAgencies }, byCode] } : byCode);
+  }
+  if (branches.length === 0) return null;
+  return branches.length === 1 ? (branches[0] as Filter) : { op: 'or', filters: branches };
+}
+
+/** Matches nothing (a reference or development that is not the site's). */
+const NOTHING: Filter = { op: 'eq', field: 'developmentId', value: 'ffffffff-ffff-ffff-ffff-ffffffffffff' };
+
 /** Text that may be a reference: one word (references have no spaces). */
 const REF_LIKE = /^\S{1,64}$/;
 /** Most hits a reference lookup returns. */
@@ -324,7 +382,7 @@ const nonEmpty = (ids: readonly string[] | undefined) => (ids && ids.length > 0 
 
 /** A site's search as one engine-neutral filter: PUBLIC documents of the site's inventory only. */
 export function publicSearchFilter(
-  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict'>,
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
   q: Parsed,
 ): Filter {
   const filters: Filter[] = [
@@ -361,6 +419,15 @@ export function publicSearchFilter(
     );
   }
   filters.push(...attributeFilters(q));
+  // The raw development id (cards show other agencies' developments scoped): the site's own developments only.
+  if (q.developmentId && site.ownerAgencyIds !== null) {
+    filters.push(
+      site.ownerAgencyIds.length > 0 ? { op: 'in', field: 'ownerAgencyId', values: [...site.ownerAgencyIds] } : NOTHING,
+    );
+  }
+  if (q.developmentRef !== undefined) {
+    filters.push(developmentRefFilter(site, q.developmentRef) ?? NOTHING);
+  }
   return { op: 'and', filters };
 }
 
@@ -445,13 +512,106 @@ export async function searchPublicListings(
 /** Fallback statements running beside a slow engine in this process (`hedgeMaxInFlight`). */
 let hedging = 0;
 
+/**
+ * Development references → development ids for the engine (S7-F6): the index has no code or development-reference
+ * field, so a `developmentCode` / `developmentOwnRef` filter is resolved first — one statement per reference a process
+ * has not seen. A code never changes or moves (kept a day); an own reference can be edited (kept a minute). Unknown
+ * references sit in a small cache of their own (a minute), so made-up ones cannot push known ones out. With the
+ * breaker open no engine call is made and the fallback resolves the reference inside its own statement.
+ */
+const developmentOfCode = new LocalLru<string[]>(20_000);
+const developmentsOfOwnRef = new LocalLru<string[]>(5_000);
+const unknownReferences = new LocalLru<true>(1_000);
+const DEVELOPMENT_CODE_TTL_MS = 24 * 3_600_000;
+const OWN_REF_TTL_MS = 60_000;
+const UNKNOWN_REFERENCE_TTL_MS = 60_000;
+/** Matches no development: an unknown reference finds nothing (not the platform agency's nil id). */
+export const NO_DEVELOPMENT = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+/** Tests: forget resolved development references. */
+export function resetDevelopmentCodes(): void {
+  developmentOfCode.clear();
+  developmentsOfOwnRef.clear();
+  unknownReferences.clear();
+}
+
+const refKey = (field: 'developmentCode' | 'developmentOwnRef', value: string) =>
+  `${field}:${field === 'developmentOwnRef' ? value.toLowerCase() : value}`;
+const cacheOf = (field: 'developmentCode' | 'developmentOwnRef') =>
+  field === 'developmentCode' ? developmentOfCode : developmentsOfOwnRef;
+
+/** The development ids of these references: cached, else every missing one resolved in one statement. */
+async function developmentsOf(
+  refs: readonly { field: 'developmentCode' | 'developmentOwnRef'; value: string }[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const missing: { field: 'developmentCode' | 'developmentOwnRef'; value: string }[] = [];
+  for (const r of refs) {
+    const key = refKey(r.field, r.value);
+    const hit = cacheOf(r.field).get(key);
+    if (hit) out.set(key, hit);
+    else if (unknownReferences.get(key)) out.set(key, []);
+    else missing.push(r);
+  }
+  if (missing.length === 0) return out;
+  const found = await withPublicRead((tx) =>
+    repo.resolveDevelopmentRefs(
+      tx,
+      missing.filter((r) => r.field === 'developmentCode').map((r) => r.value),
+      missing.filter((r) => r.field === 'developmentOwnRef').map((r) => r.value),
+    ),
+  );
+  for (const r of missing) {
+    const key = refKey(r.field, r.value);
+    const ids =
+      (r.field === 'developmentCode' ? found.codes.get(r.value) : found.ownRefs.get(r.value.toLowerCase())) ?? [];
+    if (ids.length === 0) unknownReferences.set(key, true, UNKNOWN_REFERENCE_TTL_MS);
+    else cacheOf(r.field).set(key, ids, r.field === 'developmentCode' ? DEVELOPMENT_CODE_TTL_MS : OWN_REF_TTL_MS);
+    out.set(key, ids);
+  }
+  return out;
+}
+
+/** The filter with development references replaced by the development ids they name (engine only). */
+async function engineFilter(filter: Filter): Promise<Filter> {
+  const refs: { field: 'developmentCode' | 'developmentOwnRef'; value: string }[] = [];
+  const collect = (f: Filter): void => {
+    if (f.op === 'and' || f.op === 'or') f.filters.forEach(collect);
+    else if (f.op === 'not') collect(f.filter);
+    else if (f.op === 'eq' && (f.field === 'developmentCode' || f.field === 'developmentOwnRef')) {
+      refs.push({ field: f.field, value: String(f.value) });
+    }
+  };
+  collect(filter);
+  if (refs.length === 0) return filter;
+  const resolved = await developmentsOf(refs);
+  const swap = (f: Filter): Filter => {
+    switch (f.op) {
+      case 'and':
+      case 'or':
+        return { ...f, filters: f.filters.map(swap) };
+      case 'not':
+        return { ...f, filter: swap(f.filter) };
+      case 'eq': {
+        if (f.field !== 'developmentCode' && f.field !== 'developmentOwnRef') return f;
+        const ids = resolved.get(refKey(f.field, String(f.value))) ?? [];
+        return { op: 'in', field: 'developmentId', values: ids.length > 0 ? ids : [NO_DEVELOPMENT] };
+      }
+      default:
+        return f;
+    }
+  };
+  return swap(filter);
+}
+
 async function engineSearch(
   engine: SearchEngine,
   site: PublicSearchSite,
   q: Parsed,
-  filter: Filter,
+  siteFilter: Filter,
   offset: number,
 ): Promise<PublicListingSearchResult> {
+  const filter = await engineFilter(siteFilter);
   const def = listingsIndex(listingsIndexUid());
   // A site showing network documents never matches free text against references (the owner's own would find a
   // network document, S7-02): a one-word text is also looked up as a reference, by filter, beside the text query.

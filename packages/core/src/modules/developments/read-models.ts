@@ -27,6 +27,8 @@ export interface ReadModelUnit {
   /** The unit's version plus its development's: grows when either changes. */
   version: number;
   development: {
+    /** The developer's own reference (white-label: websites never show it and remove it from owner text). */
+    ref: string;
     name: string;
     status: UnitRow['development']['status'];
     completionDate: string | null;
@@ -90,6 +92,7 @@ export async function unitsForReadModels(tx: Tx, ids: readonly string[]): Promis
     currency: r.currency,
     version: r.version + r.development.version,
     development: {
+      ref: r.development.ref,
       name: r.development.name,
       status: r.development.status,
       completionDate: r.development.completionDate,

@@ -4,7 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { listingsIndex } from '../index-doc';
 import { fallbackCondition, fallbackSearchSql } from '../repo';
-import { publicSearchFilter, refFilter } from '../website';
+import { developmentRefMatch, publicSearchFilter, refFilter } from '../website';
 
 /** The fallback's filter compiler (S5-04): the engine's semantics in SQL, values always parameters. */
 
@@ -193,5 +193,41 @@ describe('fallback filter → SQL', () => {
 
   it('[S6-F2] gt (keyset walks of the engine) is refused by the fallback', () => {
     expect(() => fallbackCondition({ op: 'gt', field: 'publishedAt', value: 1 })).toThrow(SearchError);
+  });
+});
+
+describe('development references (S7-F6)', () => {
+  const own = '01900000-0000-7000-8000-0000000000aa';
+  const network = { ownerAgencyIds: [own], networkOf: own, networkRefPrefix: 'CH' };
+
+  it('[S7-F6] own developments by their own reference, network ones by `<prefix>-<code>` only (prefix in any case)', () => {
+    expect(developmentRefMatch(network, 'ch-ab12cd34')).toEqual({ ownRef: 'ch-ab12cd34', code: 'AB12CD34' });
+    expect(developmentRefMatch(network, 'PROMO-7')).toEqual({ ownRef: 'PROMO-7', code: null });
+    // Not a code after the prefix: no network development can match.
+    expect(developmentRefMatch(network, 'CH-AB12')).toEqual({ ownRef: 'CH-AB12', code: null });
+    // An own-only site never matches the network form; a network-only site never an own reference.
+    expect(developmentRefMatch({ ownerAgencyIds: [own] }, 'CH-AB12CD34')).toEqual({
+      ownRef: 'CH-AB12CD34',
+      code: null,
+    });
+    expect(developmentRefMatch({ ...network, ownerAgencyIds: [] }, 'CH-AB12CD34')).toEqual({
+      ownRef: null,
+      code: 'AB12CD34',
+    });
+    expect(developmentRefMatch({ ...network, networkRefPrefix: 'ab1' }, 'AB1-AB12CD34').code).toBe('AB12CD34');
+  });
+
+  it('[S7-F6] a raw development id matches the site’s own developments only; a reference compiles to its two branches', () => {
+    const q = PublicListingSearch.parse({ locale: 'en', developmentId: ID, developmentRef: 'CH-AB12CD34' });
+    const sqlText = render(fallbackCondition(publicSearchFilter(network, q))).sql;
+    expect(sqlText).toContain('development_id = $');
+    expect(sqlText).toContain('listing_search_developments');
+    expect(sqlText).toContain('listing_public_codes');
+    const filter = JSON.stringify(publicSearchFilter(network, q));
+    expect(filter).toContain('"developmentOwnRef"');
+    expect(filter).toContain('"developmentCode"');
+    // A network-only site has no own developments: a raw id matches nothing.
+    const none = JSON.stringify(publicSearchFilter({ ...network, ownerAgencyIds: [] }, q));
+    expect(none).toContain('ffffffff-ffff-ffff-ffff-ffffffffffff');
   });
 });

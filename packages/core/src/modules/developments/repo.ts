@@ -639,6 +639,7 @@ export async function readModelUnits(tx: Tx, ids: readonly string[]) {
       allowedAgencyIds: sql<string[]>`array(select a.allowed_agency_id::text from ${developmentAccess} a
         where a.development_id = ${units.developmentId} order by 1)`,
       development: {
+        ref: developments.ref,
         name: developments.name,
         status: developments.status,
         completionDate: developments.completionDate,

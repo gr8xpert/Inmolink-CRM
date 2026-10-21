@@ -28,6 +28,8 @@ import type {
   UnitDetailDoc,
   WebsiteCard,
   WebsiteDetail,
+  WebsiteDevelopmentCard,
+  WebsiteDevelopmentDetail,
   WebsiteImage,
   WebsiteListingCard,
   WebsiteListingDetail,
@@ -102,6 +104,16 @@ export interface Owned<D> {
    * (not searchable until the rebuild).
    */
   publicCode: string | null;
+  /**
+   * The public code of the document's development (S7-F6): its reference on another agency's site
+   * (`<prefix>-<code>`); null or absent when it has none yet.
+   */
+  developmentCode?: string | null;
+  /**
+   * The developer's own reference of the document's development (S7-F6): its reference on the owner's sites, and
+   * removed from network text by the sanitizer. Null or absent when unknown.
+   */
+  developmentOwnRef?: string | null;
   doc: D;
 }
 
@@ -140,15 +152,19 @@ interface TextRules {
   pick(field: 'title' | 'description', texts: (SiteText | undefined)[], owner: string | null): string | null;
 }
 
-function rulesFor(view: SiteView, item: Owned<{ ref: string }>): TextRules {
+function rulesFor(
+  view: SiteView,
+  item: Pick<Owned<{ ref: string }>, 'ownerAgencyId' | 'doc' | 'developmentOwnRef'>,
+): TextRules {
   const network = item.ownerAgencyId !== view.site.agencyId;
   const matcher = view.sanitize ? undefined : view.matchers?.get(item.ownerAgencyId);
   const sanitize: TextSanitizer = matcher
     ? (text, c) => matcher.clean(text, c.ownerRefs)
     : (view.sanitize ?? deterministicSanitizer);
+  // The owner's own references: the document's, and its development's (S7-F6) — never left in owner text.
   const context: SanitizeContext = {
     ...(matcher?.identity ?? view.owners?.get(item.ownerAgencyId) ?? NO_OWNER),
-    ownerRefs: [item.doc.ref],
+    ownerRefs: item.developmentOwnRef ? [item.doc.ref, item.developmentOwnRef] : [item.doc.ref],
   };
   const clean = (text: string) => (network ? sanitize(plainText(text), context) : plainText(text));
   return {
@@ -201,6 +217,29 @@ export function siteScopedId(siteAgencyId: string, id: string): string {
   h[8] = ((h[8] as number) & 0x3f) | 0x80;
   const x = h.subarray(0, 16).toString('hex');
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+}
+
+/** A development as references name it: its public code and its developer's own reference. */
+export interface DevelopmentNames {
+  code: string | null | undefined;
+  ownRef: string | null | undefined;
+}
+
+/**
+ * A development's reference on a site (S7-F6), like a listing's: the developer's own reference on the owner's sites,
+ * `<prefix>-<public code>` on everyone else's — so the owner's site and a network site never share a reference a buyer
+ * could take from one to the other. Null: not known yet (before the deploy's rebuild).
+ */
+export function developmentRef(site: SiteView['site'], ownerAgencyId: string, names: DevelopmentNames): string | null {
+  if (ownerAgencyId === site.agencyId) return names.ownRef ?? null;
+  return names.code ? `${networkRefPrefix(site)}-${names.code}` : null;
+}
+
+/** `developmentRef` where the development is known to have its names (development rows always do). */
+function knownDevelopmentRef(site: SiteView['site'], ownerAgencyId: string, names: DevelopmentNames): string {
+  const ref = developmentRef(site, ownerAgencyId, names);
+  if (ref === null) throw new Error('websites: a development row without its reference');
+  return ref;
 }
 
 /** The id shown: own documents' as they are, network ones scoped to the site's agency. */
@@ -275,6 +314,10 @@ function listingCard(view: SiteView, item: Owned<ListingCardDoc>): WebsiteListin
     cover: d.cover ? imageOf(view, d.cover, rules) : null,
     imageCount: d.imageCount,
     developmentId: d.developmentId === null ? null : idOn(view, d.developmentId, rules.network),
+    developmentRef:
+      d.developmentId === null
+        ? null
+        : developmentRef(view.site, item.ownerAgencyId, { code: item.developmentCode, ownRef: item.developmentOwnRef }),
     title: title || shownRef,
     slug: rules.network ? slugOf(title, shownId) : d.slug,
     textLocale: overriddenTitle(texts) ? null : d.textLocale,
@@ -306,6 +349,10 @@ function unitCard(view: SiteView, item: Owned<UnitCardDoc>): WebsiteUnitCard {
     geo: d.geo,
     development: {
       id: developmentId,
+      ref: developmentRef(view.site, item.ownerAgencyId, {
+        code: item.developmentCode,
+        ownRef: item.developmentOwnRef,
+      }),
       name: developmentName,
       status: d.development.status,
       completionDate: d.development.completionDate,
@@ -388,9 +435,99 @@ export function serializeCards(view: SiteView, items: readonly Owned<ListingCard
   );
 }
 
+/** A development's unit table as the site serves it (S7-F6), in order. */
+export function serializeUnitCards(view: SiteView, items: readonly Owned<UnitCardDoc>[]): WebsiteUnitCard[] {
+  return canonicalOnly(view, items).map((item) => unitCard(view, item));
+}
+
 /** A detail page as the site serves it. */
 export function serializeDetail(view: SiteView, item: Owned<ListingDetailDoc | UnitDetailDoc>): WebsiteDetail {
   return item.doc.kind === 'LISTING'
     ? listingDetail(view, item as Owned<ListingDetailDoc>)
     : unitDetail(view, item as Owned<UnitDetailDoc>);
+}
+
+// ── Developments (S7-F6) ────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A development as a site lists it: aggregates over its units in the site's inventory (`search.developmentPage`) and
+ * one of those units' document, which carries the development's texts, status and place.
+ */
+export interface DevelopmentItem<D extends UnitCardDoc> {
+  developmentId: string;
+  /** The development's public code: its reference on another agency's site is `<prefix>-<code>`. */
+  code: string;
+  /** The developer's own reference: its reference on the owner's sites. */
+  ownRef: string | null;
+  ownerAgencyId: string;
+  total: number;
+  available: number;
+  reserved: number;
+  priceMin: number | null;
+  priceMax: number | null;
+  bedsMin: number | null;
+  bedsMax: number | null;
+  doc: D;
+}
+
+/** The texts above the owner's for a development: the site agency's development override (network only). */
+function developmentTexts(view: SiteView, developmentId: string, network: boolean): SiteText[] {
+  const out: SiteText[] = [];
+  const own = network ? view.overrides?.developments.get(developmentId) : undefined;
+  if (own) out.push(own);
+  const content = view.siteContent?.get(developmentId);
+  if (content) out.push(content);
+  return out;
+}
+
+function developmentCard(view: SiteView, item: DevelopmentItem<UnitCardDoc>): WebsiteDevelopmentCard {
+  const d = item.doc;
+  const rules = rulesFor(view, { ownerAgencyId: item.ownerAgencyId, doc: d, developmentOwnRef: item.ownRef });
+  const texts = developmentTexts(view, item.developmentId, rules.network);
+  const name = rules.owner(d.development.name) ?? '';
+  const title = rules.pick('title', texts, d.title) ?? '';
+  const id = idOn(view, item.developmentId, rules.network);
+  return {
+    kind: 'DEVELOPMENT',
+    id,
+    ref: knownDevelopmentRef(view.site, item.ownerAgencyId, { code: item.code, ownRef: item.ownRef }),
+    name,
+    title: title || name,
+    slug: rules.network ? slugOf(title || name, id) : d.slug,
+    textLocale: overriddenTitle(texts) ? null : d.textLocale,
+    status: d.development.status,
+    completionDate: d.development.completionDate,
+    place: d.place,
+    geo: d.geo,
+    price: { fromCents: item.priceMin, toCents: item.priceMax, currency: d.price.currency },
+    bedrooms: { min: item.bedsMin, max: item.bedsMax },
+    units: { total: item.total, available: item.available, reserved: item.reserved },
+  };
+}
+
+/** Development cards as the site serves them, in order. */
+export function serializeDevelopmentCards(
+  view: SiteView,
+  items: readonly DevelopmentItem<UnitCardDoc>[],
+): WebsiteDevelopmentCard[] {
+  return items.map((item) => developmentCard(view, item));
+}
+
+/** A development's detail page as the site serves it. */
+export function serializeDevelopmentDetail(
+  view: SiteView,
+  item: DevelopmentItem<UnitDetailDoc>,
+): WebsiteDevelopmentDetail {
+  const d = item.doc;
+  const rules = rulesFor(view, { ownerAgencyId: item.ownerAgencyId, doc: d, developmentOwnRef: item.ownRef });
+  const texts = developmentTexts(view, item.developmentId, rules.network);
+  const card = developmentCard(view, item);
+  const description = rules.pick('description', texts, d.description);
+  return {
+    ...card,
+    description,
+    paymentTerms: rules.owner(d.paymentTerms),
+    ...metaOf(rules, texts, card, description, d),
+    agency: view.presenter,
+  };
 }

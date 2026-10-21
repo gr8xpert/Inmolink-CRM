@@ -795,6 +795,13 @@ export const globalTables: Record<string, GlobalTable> = {
     noUserRead: true,
     base: { kind: 'LISTING', ref: 'INL-TEST' },
   },
+  // Website developments (S7-F6): one aggregate row per development with public units, written with the units'
+  // fallback rows by the search worker (withSystem); `/v2/developments` reads it. Public paths only, like the fallback.
+  listing_search_developments: {
+    reason: 'unit aggregates of developments with PUBLIC units of every agency (website API `/v2/developments`)',
+    publicRead: true,
+    noUserRead: true,
+  },
   listing_search_commissions: {
     reason:
       'total commission of PUBLIC listings and units of every agency (website minimum-commission filter, worker-only)',

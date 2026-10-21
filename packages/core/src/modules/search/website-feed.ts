@@ -12,11 +12,12 @@ import { cache, cacheKey } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
 import type { Filter } from '@inmolink/platform/search';
 import { metrics } from '@opentelemetry/api';
+import { attributeFilters } from './filters';
 import { giveToGetSettings } from './network';
 import * as repo from './repo';
-import { type PublicSearchSite, publicSearchFilter, refFilter } from './website';
+import { developmentRefMatch, type PublicSearchSite, publicSearchFilter, refFilter } from './website';
 
-export type { ChangeLogRow, PublicDocRow } from './repo';
+export type { ChangeLogRow, DevelopmentRow, DevelopmentUnitsPage, PublicDocRow } from './repo';
 
 /** Change-log rows are kept this long; an older cursor or `since` must start again from the sitemap. */
 export const PUBLIC_CHANGES_RETENTION_DAYS = 30;
@@ -72,6 +73,78 @@ export function sitemapPage(
     own: site.ownerAgencyIds ?? [],
     network: site.ownerAgencyIds === null || site.networkOf !== undefined,
     ...q,
+  });
+}
+
+// ── Developments (S7-F6) ────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The site's new-build unit filter: its units in the statuses a site shows (AVAILABLE, RESERVED) — PUBLIC units only,
+ * so units of OPEN developments, never PRIVATE_NETWORK ones — with the site's unit-level rules (types, price band,
+ * minimum commission). A development is on the site when one of its units matches.
+ */
+function unitFilter(site: PublicSearchSite): Filter {
+  return { op: 'and', filters: [siteInventoryFilter(site), ...attributeFilters({ kind: 'UNIT' })] };
+}
+
+/** The site's development-level rules: whose developments, anywhere under its and the visitor's locations. */
+function developmentScope(site: PublicSearchSite, locationIds?: readonly string[]): repo.DevelopmentScope {
+  const sets: (readonly string[])[] = [];
+  const restricted = site.restrict?.locationIds;
+  if (restricted && restricted.length > 0) sets.push(restricted);
+  if (locationIds && locationIds.length > 0) sets.push(locationIds);
+  return { own: site.ownerAgencyIds, network: site.networkOf !== undefined, locationSets: sets };
+}
+
+/**
+ * One page of the site's developments, newest first, after the development coded `after` (`limit + 1` rows: the extra
+ * one means more follow). One statement over the development rows.
+ */
+export function developmentPage(
+  tx: Tx,
+  site: PublicSearchSite,
+  q: { after?: string; limit: number; locale: string; fallback: string; locationIds?: readonly string[] },
+): Promise<repo.DevelopmentRow[]> {
+  const { locationIds, ...page } = q;
+  return repo.developmentPage(tx, {
+    filter: unitFilter(site),
+    scope: developmentScope(site, locationIds),
+    ...page,
+  });
+}
+
+/**
+ * The development a site reference names (an own development's own reference, another agency's `<prefix>-<code>`),
+ * as this site shows it (detail document); null: not on this site.
+ */
+export function developmentByRef(
+  tx: Tx,
+  site: PublicSearchSite,
+  ref: string,
+  locale: string,
+  fallback: string,
+): Promise<repo.DevelopmentRow | null> {
+  return repo.developmentByRef(tx, {
+    filter: unitFilter(site),
+    scope: developmentScope(site),
+    ref: developmentRefMatch(site, ref),
+    locale,
+    fallback,
+  });
+}
+
+/** One page of a development's units on this site, in the developer's order (`limit + 1` rows). One statement. */
+export function developmentUnitsPage(
+  tx: Tx,
+  site: PublicSearchSite,
+  q: { ref: string; after?: string; limit: number; locale: string; fallback: string },
+): Promise<repo.DevelopmentUnitsPage> {
+  const { ref, ...page } = q;
+  return repo.developmentUnitsPage(tx, {
+    filter: unitFilter(site),
+    scope: developmentScope(site),
+    ref: developmentRefMatch(site, ref),
+    ...page,
   });
 }
 

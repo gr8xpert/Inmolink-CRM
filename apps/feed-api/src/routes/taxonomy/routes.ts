@@ -3,8 +3,10 @@ import {
   TaxonomyCatalogDto,
   TaxonomyChildrenQuery,
   TaxonomyLangQuery,
+  WebsiteFeaturesDto,
   WebsiteLocationChildrenDto,
   WebsiteLocationsDto,
+  WebsiteTypesDto,
 } from '@inmolink/contracts';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import { cacheControl, weakCompareEtag } from '@inmolink/platform/http';
@@ -76,5 +78,37 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) => send(req, reply, await taxonomy.getWebsiteCatalog(req.query.lang)),
+  );
+
+  // S7-F6: the catalog's halves as PLAN §9.1 names them. Not narrowed to the site's inventory: the same answer for
+  // every key keeps them CDN-cacheable; counts per type or feature come from `/v2/listings?facets=`.
+  app.get(
+    '/v2/taxonomy/types',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.getTaxonomyTypes',
+        summary: 'Property types, grouped, in `lang`',
+        querystring: TaxonomyLangQuery,
+        response: { 200: WebsiteTypesDto },
+      },
+      onRequest: [app.requireApiKey('taxonomy:read')],
+    },
+    async (req, reply) => send(req, reply, await taxonomy.getWebsiteTypes(req.query.lang)),
+  );
+
+  app.get(
+    '/v2/taxonomy/features',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.getTaxonomyFeatures',
+        summary: 'Features (with Lucide icon names), grouped, in `lang`',
+        querystring: TaxonomyLangQuery,
+        response: { 200: WebsiteFeaturesDto },
+      },
+      onRequest: [app.requireApiKey('taxonomy:read')],
+    },
+    async (req, reply) => send(req, reply, await taxonomy.getWebsiteFeatures(req.query.lang)),
   );
 }

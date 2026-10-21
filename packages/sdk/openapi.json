@@ -98,6 +98,955 @@
         "tags": ["website-v2"]
       }
     },
+    "/v2/developments": {
+      "get": {
+        "operationId": "websiteV2.listDevelopments",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "locations",
+            "required": false,
+            "schema": {
+              "items": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bedrooms": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "max": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "min": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              }
+                            },
+                            "required": ["min", "max"],
+                            "type": "object"
+                          },
+                          "completionDate": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "geo": {
+                            "additionalProperties": false,
+                            "nullable": true,
+                            "properties": {
+                              "lat": {
+                                "type": "number"
+                              },
+                              "lng": {
+                                "type": "number"
+                              },
+                              "precision": {
+                                "enum": ["EXACT", "APPROX"],
+                                "type": "string"
+                              }
+                            },
+                            "required": ["lat", "lng", "precision"],
+                            "type": "object"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string"
+                          },
+                          "kind": {
+                            "enum": ["DEVELOPMENT"],
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "place": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "area": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "city": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "country": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "region": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              }
+                            },
+                            "required": ["country", "region", "city", "area"],
+                            "type": "object"
+                          },
+                          "price": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "currency": {
+                                "maxLength": 3,
+                                "minLength": 3,
+                                "type": "string"
+                              },
+                              "fromCents": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "toCents": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "nullable": true,
+                                "type": "integer"
+                              }
+                            },
+                            "required": ["fromCents", "toCents", "currency"],
+                            "type": "object"
+                          },
+                          "ref": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
+                            "type": "string"
+                          },
+                          "textLocale": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "units": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "available": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "reserved": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "total": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              }
+                            },
+                            "required": ["total", "available", "reserved"],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id",
+                          "ref",
+                          "name",
+                          "title",
+                          "slug",
+                          "textLocale",
+                          "status",
+                          "completionDate",
+                          "place",
+                          "geo",
+                          "price",
+                          "bedrooms",
+                          "units"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "maxLength": 200,
+                      "nullable": true,
+                      "pattern": "^[A-Za-z0-9_-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["items", "nextCursor"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "The site's new-build developments (price range, unit counts), newest first, one page per `cursor`",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/developments/{ref}": {
+      "get": {
+        "operationId": "websiteV2.getDevelopment",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "agency": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "accentColor": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "email": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "primaryColor": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "website": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "whatsapp": {
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": ["name", "email", "phone", "whatsapp", "website", "primaryColor", "accentColor"],
+                      "type": "object"
+                    },
+                    "bedrooms": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "max": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "min": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["min", "max"],
+                      "type": "object"
+                    },
+                    "completionDate": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "description": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "geo": {
+                      "additionalProperties": false,
+                      "nullable": true,
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "precision": {
+                          "enum": ["EXACT", "APPROX"],
+                          "type": "string"
+                        }
+                      },
+                      "required": ["lat", "lng", "precision"],
+                      "type": "object"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": ["DEVELOPMENT"],
+                      "type": "string"
+                    },
+                    "metaDescription": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "metaTitle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "paymentTerms": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "place": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "area": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["id", "name", "slug"],
+                          "type": "object"
+                        },
+                        "city": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["id", "name", "slug"],
+                          "type": "object"
+                        },
+                        "country": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["id", "name", "slug"],
+                          "type": "object"
+                        },
+                        "region": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "id": {
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["id", "name", "slug"],
+                          "type": "object"
+                        }
+                      },
+                      "required": ["country", "region", "city", "area"],
+                      "type": "object"
+                    },
+                    "price": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currency": {
+                          "maxLength": 3,
+                          "minLength": 3,
+                          "type": "string"
+                        },
+                        "fromCents": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "nullable": true,
+                          "type": "integer"
+                        },
+                        "toCents": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "nullable": true,
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["fromCents", "toCents", "currency"],
+                      "type": "object"
+                    },
+                    "ref": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
+                      "type": "string"
+                    },
+                    "textLocale": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "units": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "available": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "reserved": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "total": {
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["total", "available", "reserved"],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "ref",
+                    "name",
+                    "title",
+                    "slug",
+                    "textLocale",
+                    "status",
+                    "completionDate",
+                    "place",
+                    "geo",
+                    "price",
+                    "bedrooms",
+                    "units",
+                    "description",
+                    "paymentTerms",
+                    "metaTitle",
+                    "metaDescription",
+                    "agency"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "A development by the reference the site shows (`<prefix>-<code>`)",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/developments/{ref}/units": {
+      "get": {
+        "operationId": "websiteV2.listDevelopmentUnits",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bathrooms": {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "nullable": true,
+                            "type": "integer"
+                          },
+                          "bedrooms": {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "nullable": true,
+                            "type": "integer"
+                          },
+                          "development": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "completionDate": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "ref": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "status": {
+                                "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
+                                "type": "string"
+                              }
+                            },
+                            "required": ["id", "name", "status", "completionDate", "ref"],
+                            "type": "object"
+                          },
+                          "floor": {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "nullable": true,
+                            "type": "integer"
+                          },
+                          "geo": {
+                            "additionalProperties": false,
+                            "nullable": true,
+                            "properties": {
+                              "lat": {
+                                "type": "number"
+                              },
+                              "lng": {
+                                "type": "number"
+                              },
+                              "precision": {
+                                "enum": ["EXACT", "APPROX"],
+                                "type": "string"
+                              }
+                            },
+                            "required": ["lat", "lng", "precision"],
+                            "type": "object"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string"
+                          },
+                          "internalM2": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "kind": {
+                            "enum": ["UNIT"],
+                            "type": "string"
+                          },
+                          "orientation": {
+                            "enum": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "place": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "area": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "city": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "country": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "region": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              }
+                            },
+                            "required": ["country", "region", "city", "area"],
+                            "type": "object"
+                          },
+                          "plotM2": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "price": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "amountCents": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "currency": {
+                                "maxLength": 3,
+                                "minLength": 3,
+                                "type": "string"
+                              },
+                              "onRequest": {
+                                "type": "boolean"
+                              },
+                              "period": {
+                                "enum": ["NIGHT", "WEEK", "MONTH"],
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": ["amountCents", "currency", "period", "onRequest"],
+                            "type": "object"
+                          },
+                          "propertyType": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["id", "name", "slug"],
+                            "type": "object"
+                          },
+                          "ref": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": ["AVAILABLE", "RESERVED", "SOLD"],
+                            "type": "string"
+                          },
+                          "terraceM2": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "textLocale": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id",
+                          "ref",
+                          "status",
+                          "price",
+                          "propertyType",
+                          "place",
+                          "bedrooms",
+                          "bathrooms",
+                          "internalM2",
+                          "terraceM2",
+                          "plotM2",
+                          "floor",
+                          "orientation",
+                          "geo",
+                          "development",
+                          "title",
+                          "slug",
+                          "textLocale"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "maxLength": 200,
+                      "nullable": true,
+                      "pattern": "^[A-Za-z0-9_-]+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["items", "nextCursor"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "A development's live unit table (available and reserved units), one page per `cursor`",
+        "tags": ["website-v2"]
+      }
+    },
     "/v2/listings": {
       "get": {
         "operationId": "websiteV2.listListings",
@@ -137,6 +1086,17 @@
             "schema": {
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "development",
+            "required": false,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^\\S+$",
               "type": "string"
             }
           },
@@ -473,6 +1433,10 @@
                                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                                 "type": "string"
                               },
+                              "developmentRef": {
+                                "nullable": true,
+                                "type": "string"
+                              },
                               "geo": {
                                 "additionalProperties": false,
                                 "nullable": true,
@@ -677,7 +1641,8 @@
                               "title",
                               "slug",
                               "textLocale",
-                              "cover"
+                              "cover",
+                              "developmentRef"
                             ],
                             "type": "object"
                           },
@@ -711,12 +1676,16 @@
                                   "name": {
                                     "type": "string"
                                   },
+                                  "ref": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
                                   "status": {
                                     "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
                                     "type": "string"
                                   }
                                 },
-                                "required": ["id", "name", "status", "completionDate"],
+                                "required": ["id", "name", "status", "completionDate", "ref"],
                                 "type": "object"
                               },
                               "floor": {
@@ -1139,6 +2108,10 @@
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                           "type": "string"
                         },
+                        "developmentRef": {
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "energyEmissionsRating": {
                           "enum": ["A", "B", "C", "D", "E", "F", "G", "EXEMPT", "PENDING"],
                           "nullable": true,
@@ -1501,6 +2474,7 @@
                         "energyEmissionsRating",
                         "features",
                         "cover",
+                        "developmentRef",
                         "media",
                         "agency"
                       ],
@@ -1574,12 +2548,16 @@
                             "name": {
                               "type": "string"
                             },
+                            "ref": {
+                              "nullable": true,
+                              "type": "string"
+                            },
                             "status": {
                               "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
                               "type": "string"
                             }
                           },
-                          "required": ["id", "name", "status", "completionDate"],
+                          "required": ["id", "name", "status", "completionDate", "ref"],
                           "type": "object"
                         },
                         "floor": {
@@ -2070,6 +3048,94 @@
         "tags": ["website-v2"]
       }
     },
+    "/v2/taxonomy/features": {
+      "get": {
+        "operationId": "websiteV2.getTaxonomyFeatures",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "features": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "features": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "icon": {
+                                  "type": "string"
+                                },
+                                "id": {
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                  "type": "string"
+                                },
+                                "key": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "slug": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["id", "key", "name", "slug", "icon"],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "key", "name", "slug", "features"],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "locale": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["locale", "features"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Features (with Lucide icon names), grouped, in `lang`",
+        "tags": ["website-v2"]
+      }
+    },
     "/v2/taxonomy/locations": {
       "get": {
         "operationId": "websiteV2.getTaxonomyLocations",
@@ -2303,6 +3369,91 @@
           }
         },
         "summary": "A location's direct children (a region's cities, a city's areas) in `lang`, one page per `cursor`",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/taxonomy/types": {
+      "get": {
+        "operationId": "websiteV2.getTaxonomyTypes",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "locale": {
+                      "type": "string"
+                    },
+                    "propertyTypes": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string"
+                          },
+                          "key": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "types": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                  "type": "string"
+                                },
+                                "key": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "slug": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["id", "key", "name", "slug"],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": ["id", "key", "name", "slug", "types"],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": ["locale", "propertyTypes"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Property types, grouped, in `lang`",
         "tags": ["website-v2"]
       }
     }

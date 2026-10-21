@@ -67,6 +67,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'listing_search_docs',
     definition: `ON "listing_search_docs" USING btree ("owner_agency_id","public_code") WHERE "listing_search_docs"."public_code" is not null`,
   },
+  {
+    // `/v2/developments/{ref}/units` (S7-F6): a development's units in the developer's order
+    name: 'listing_search_docs_development_ref_idx',
+    table: 'listing_search_docs',
+    definition: `ON "listing_search_docs" USING btree ("development_id","ref","target_id") WHERE "listing_search_docs"."development_id" is not null`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

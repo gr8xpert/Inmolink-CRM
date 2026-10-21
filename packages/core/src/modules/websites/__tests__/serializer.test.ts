@@ -6,10 +6,14 @@ import {
   type UnitDetailDoc,
   WebsiteCard,
   WebsiteDetail,
+  WebsiteDevelopmentCard,
+  WebsiteDevelopmentDetail,
   type WebsitePresenter,
+  WebsiteUnitCard,
 } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+  type DevelopmentItem,
   deterministicSanitizer,
   networkRefPrefix,
   type Owned,
@@ -17,6 +21,9 @@ import {
   type SiteView,
   serializeCards,
   serializeDetail,
+  serializeDevelopmentCards,
+  serializeDevelopmentDetail,
+  serializeUnitCards,
   siteScopedId,
   slugOf,
 } from '../serializer';
@@ -416,5 +423,130 @@ describe('website serializer (S7-02)', () => {
         owner,
       ),
     ).toBe('() on:,');
+  });
+});
+
+describe('website serializer: developments (S7-F6)', () => {
+  /** A development as its row and representative unit document give it, with the owner's own reference planted. */
+  function development(r: Rng, o: Owner) {
+    const detail = unitDetail(r, o);
+    const ownRef = `PRM-${r.digits(5)}`;
+    detail.description = `${detail.description} Promotion ${ownRef}.`;
+    detail.paymentTerms = `Reservation for ${ownRef.toLowerCase()}: 10 %`;
+    const facts = {
+      developmentId: detail.development.id,
+      code: 'DV12CD34',
+      ownRef,
+      ownerAgencyId: o.agencyId,
+      total: 3,
+      available: 2,
+      reserved: 1,
+      priceMin: 10_000_000,
+      priceMax: 20_000_000,
+      bedsMin: 1,
+      bedsMax: 3,
+    };
+    return { detail, facts, ownRef };
+  }
+
+  it('[S7-F6] network developments and their units name no owner id, reference, name or contact (property-based)', () => {
+    for (let seed = 1; seed <= RUNS; seed++) {
+      const r = rng(10_000 + seed);
+      const o = ownerOf(r);
+      const view: SiteView = {
+        site: { agencyId: SITE_AGENCY, referencePrefix: r.next() < 0.5 ? 'CH' : null },
+        presenter: PRESENTER,
+        mediaBaseUrl: 'https://cdn.example/media/',
+        owners: new Map([[o.agencyId, { names: [o.name], emails: [o.email], phones: [o.phone], hosts: [o.domain] }]]),
+        overrides: r.next() < 0.5 ? { targets: new Map(), developments: new Map() } : undefined,
+      };
+      const { detail, facts, ownRef } = development(r, o);
+      const developmentId = facts.developmentId;
+      if (view.overrides && r.next() < 0.5) {
+        // The presenting agency's development override may quote the owner too: it passes the same sanitizer.
+        (view.overrides.developments as Map<string, { title: string | null; description: string | null }>).set(
+          developmentId,
+          { title: r.next() < 0.5 ? ownerText(r, o) : null, description: ownerText(r, o) },
+        );
+      }
+      const item: DevelopmentItem<UnitDetailDoc> = { ...facts, doc: detail };
+      const served = serializeDevelopmentDetail(view, item);
+      const cards = serializeDevelopmentCards(view, [{ ...facts, doc: cardOf(detail) as UnitCardDoc }]);
+      const units = serializeUnitCards(view, [
+        {
+          ownerAgencyId: o.agencyId,
+          publicCode: 'UN12CD34',
+          developmentCode: facts.code,
+          developmentOwnRef: ownRef,
+          doc: cardOf(detail) as UnitCardDoc,
+        },
+      ]);
+      const label = `seed ${seed}`;
+      expect(WebsiteDevelopmentDetail.safeParse(served).success, label).toBe(true);
+      for (const c of cards) expect(WebsiteDevelopmentCard.safeParse(c).success, label).toBe(true);
+      for (const u of units) expect(WebsiteUnitCard.safeParse(u).success, label).toBe(true);
+      for (const [out, what] of [
+        [served, 'detail'],
+        [cards, 'card'],
+        [units, 'unit'],
+      ] as const) {
+        assertWhiteLabelled(out, o, `${label} ${what}`);
+        const json = JSON.stringify(out);
+        // Never the owner's id or the development's own id (a site shows ids scoped to its agency).
+        expect(json.includes(o.agencyId), `${label} ${what}: owner id`).toBe(false);
+        expect(json.includes(developmentId), `${label} ${what}: development id`).toBe(false);
+        expect(json.toLowerCase().includes(ownRef.toLowerCase()), `${label} ${what}: development reference`).toBe(
+          false,
+        );
+      }
+      const ref = `${networkRefPrefix(view.site)}-${facts.code}`;
+      expect(served).toMatchObject({ ref, id: siteScopedId(SITE_AGENCY, developmentId), agency: PRESENTER });
+      expect(cards[0]?.ref).toBe(ref);
+      expect(units[0]?.development).toMatchObject({ ref, id: served.id });
+    }
+  });
+
+  it("[S7-F6] the owner's site and a network site never share a development reference (property-based)", () => {
+    for (let seed = 1; seed <= RUNS; seed++) {
+      const r = rng(20_000 + seed);
+      const o = ownerOf(r);
+      const { detail, facts, ownRef } = development(r, o);
+      const site = (agencyId: string): SiteView => ({
+        site: { agencyId, referencePrefix: r.pick(['CH', 'AB1', null]) },
+        presenter: PRESENTER,
+        mediaBaseUrl: 'https://cdn.example/media/',
+      });
+      const ownerSite = site(o.agencyId);
+      const networkSite = site(SITE_AGENCY);
+      const shownOn = (view: SiteView) => {
+        const d = serializeDevelopmentDetail(view, { ...facts, doc: detail });
+        const [u] = serializeUnitCards(view, [
+          {
+            ownerAgencyId: o.agencyId,
+            publicCode: 'UN12CD34',
+            developmentCode: facts.code,
+            developmentOwnRef: ownRef,
+            doc: cardOf(detail) as UnitCardDoc,
+          },
+        ]);
+        expect(u?.development.ref).toBe(d.ref);
+        return d.ref;
+      };
+      const label = `seed ${seed}`;
+      const onOwner = shownOn(ownerSite);
+      const onNetwork = shownOn(networkSite);
+      // The owner's site shows its own reference (as it shows its own listings), never the code a network site shows.
+      expect(onOwner, label).toBe(ownRef);
+      expect(onNetwork, label).toBe(`${networkRefPrefix(networkSite.site)}-${facts.code}`);
+      expect(onOwner.toUpperCase().includes(facts.code), label).toBe(false);
+      expect(onNetwork.toUpperCase().includes(ownRef.toUpperCase()), label).toBe(false);
+      // The owner's own development keeps its id and plain texts.
+      const own = serializeDevelopmentDetail(ownerSite, { ...facts, doc: detail });
+      expect(own, label).toMatchObject({
+        id: facts.developmentId,
+        slug: detail.slug,
+        description: plainText(detail.description as string),
+      });
+    }
   });
 });

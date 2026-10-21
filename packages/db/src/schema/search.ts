@@ -243,6 +243,53 @@ export const listingSearchDocs = pgTable(
       .where(sql`${t.publicCode} is not null`),
     // map view (a box: a lat range, lng checked in the index)
     index('listing_search_docs_geo_idx').on(t.lat, t.lng).where(sql`${t.lat} is not null`),
+    // `/v2/developments/{ref}/units`: a development's unit table in the developer's order, keyset by (ref, id)
+    // (S7-F6; built CONCURRENTLY, concurrent-indexes.ts)
+    index('listing_search_docs_development_ref_idx')
+      .on(t.developmentId, t.ref, t.targetId)
+      .where(sql`${t.developmentId} is not null`),
+  ],
+);
+
+/**
+ * Website developments (S7-F6, PLAN §9.1 `/v2/developments`): one row per development with public units a site may
+ * show (AVAILABLE or RESERVED units of an OPEN development), its aggregates over those units and the unit whose
+ * document carries the development's texts. Written by the search worker with the units' fallback rows (same
+ * transaction, `withSystem`); no row when no such unit is left. Global and public like `listing_search_docs`:
+ * `owner_agency_id` and `ref` (the developer's own reference: own sites show it, the white-label sanitizer removes it
+ * from network text) are filters and serializer input, never shown on another agency's site.
+ *
+ * Aggregates are over all of the development's shown units, not per site: a CUSTOM site's unit-level rules (types,
+ * price band, minimum commission) decide only whether the development is on the site (one matching unit).
+ */
+export const listingSearchDevelopments = pgTable(
+  'listing_search_developments',
+  {
+    developmentId: uuid('development_id').primaryKey(),
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    /** The developer's own reference; null until a rebuild wrote it. */
+    ref: text('ref'),
+    /** The development's place lineage (country, region, city, area), as its units carry it. */
+    locationIds: uuid('location_ids').array().notNull(),
+    units: integer('units').notNull(),
+    available: integer('available').notNull(),
+    reserved: integer('reserved').notNull(),
+    /** AVAILABLE units with a price: the lowest and highest. */
+    priceMinCents: bigint('price_min_cents', { mode: 'number' }),
+    priceMaxCents: bigint('price_max_cents', { mode: 'number' }),
+    bedsMin: integer('beds_min'),
+    bedsMax: integer('beds_max'),
+    /** The unit whose read model gives the development's name, texts, status, completion and place. */
+    repTargetId: uuid('rep_target_id').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // an own site's developments, newest first
+    index('listing_search_developments_owner_idx').on(t.ownerAgencyId, t.developmentId),
+    // a CUSTOM site's or a visitor's locations
+    index('listing_search_developments_locations_idx').using('gin', t.locationIds),
+    // an own development by its own reference (`/v2/developments/{ref}`, `?development=`)
+    index('listing_search_developments_ref_idx').on(t.ownerAgencyId, sql`lower(${t.ref})`),
   ],
 );
 

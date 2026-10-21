@@ -11,6 +11,7 @@ import {
   listingPublicCodes,
   listingReadModels,
   listingSearchCommissions,
+  listingSearchDevelopments,
   listingSearchDocs,
   readModelQueue,
   searchIndexQueue,
@@ -733,15 +734,29 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
     });
 }
 
-/** Drops the fallback rows of these targets (no read model any more, or no longer PUBLIC). PK probes. */
-export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await tx.execute(sql`delete from ${listingSearchDocs} where target_id = any(${uuidArray(ids)})`);
+/**
+ * Drops the fallback rows of these targets (no read model any more, or no longer PUBLIC). PK probes. Answers the
+ * developments of the units dropped (their development rows change, S7-F6).
+ */
+export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute(sql`delete from ${listingSearchDocs} where target_id = any(${uuidArray(ids)})
+    returning case when kind = 'UNIT' then development_id end as development_id`);
+  return [
+    ...new Set(
+      (res.rows as { development_id: string | null }[]).flatMap((r) => (r.development_id ? [r.development_id] : [])),
+    ),
+  ];
 }
 
 /** `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). */
 type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
-type FieldSpec = { column: string; type: ColumnType } | { constant: string } | { commissionAtLeast: true };
+type FieldSpec =
+  | { column: string; type: ColumnType }
+  | { constant: string }
+  | { commissionAtLeast: true }
+  | { developmentCode: true }
+  | { developmentOwnRef: true };
 
 /**
  * Filterable fields of the listings index → fallback columns. `visibility` is a constant (every row is PUBLIC).
@@ -776,6 +791,11 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   // A CUSTOM site's minimum commission on network listings (S7-F4): a boolean per target from a SECURITY DEFINER
   // function; the value itself is in a table no public role can read.
   commissionBp: { commissionAtLeast: true },
+  // A development by its public code (S7-F6: sites name developments `<prefix>-<code>`): its id from the code table
+  // in the same statement. The engine has no such field: website search resolves the code first (`website.ts`).
+  developmentCode: { developmentCode: true },
+  // An own development by its developer's reference (S7-F6; the site's filter keeps its own agencies beside it).
+  developmentOwnRef: { developmentOwnRef: true },
 };
 
 /** Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction). */
@@ -827,6 +847,13 @@ export function fallbackCondition(filter: Filter): SQL {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
       if ('commissionAtLeast' in f) throw new SearchError(`field supports only a minimum: ${filter.field}`);
+      if ('developmentCode' in f) {
+        return sql`development_id = (select pc.target_id from ${listingPublicCodes} pc where pc.code = ${String(filter.value)})`;
+      }
+      if ('developmentOwnRef' in f) {
+        return sql`development_id in (select dr.development_id from ${listingSearchDevelopments} dr
+                                       where lower(dr.ref) = lower(${String(filter.value)}))`;
+      }
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} @> ${typedArray([filter.value], f.type)}`;
       if (f.type === 'ci') return sql`lower(${sql.raw(f.column)}) = lower(${String(filter.value)})`;
       return sql`${sql.raw(f.column)} = ${paramOf(f.type, filter.value)}`;
@@ -835,7 +862,9 @@ export function fallbackCondition(filter: Filter): SQL {
       if (filter.values.length === 0) throw new SearchError('empty in');
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.values.includes(f.constant) ? sql`true` : sql`false`;
-      if ('commissionAtLeast' in f) throw new SearchError(`field supports only a minimum: ${filter.field}`);
+      if ('commissionAtLeast' in f || 'developmentCode' in f || 'developmentOwnRef' in f) {
+        throw new SearchError(`field supports only equality: ${filter.field}`);
+      }
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} && ${typedArray(filter.values, f.type)}`;
       if (f.type === 'ci') {
         return sql`lower(${sql.raw(f.column)}) in (${sql.join(
@@ -852,7 +881,7 @@ export function fallbackCondition(filter: Filter): SQL {
         if (filter.gte === undefined || filter.lte !== undefined) throw new SearchError('commission: a minimum only');
         return sql`public.search_commission_at_least(target_id, ${Math.trunc(finite(filter.gte))}::int)`;
       }
-      if ('constant' in f || !NUMERIC.includes(f.type))
+      if ('constant' in f || 'developmentCode' in f || 'developmentOwnRef' in f || !NUMERIC.includes(f.type))
         throw new SearchError(`field is not comparable: ${filter.field}`);
       const parts: SQL[] = [sql`${sql.raw(f.column)} is not null`];
       if (filter.gte !== undefined) parts.push(sql`${sql.raw(f.column)} >= ${finite(filter.gte)}`);
@@ -1225,6 +1254,16 @@ export interface PublicDocRow {
   kind: Kind;
   ownerAgencyId: string;
   publicCode: string | null;
+  /**
+   * The public code of the document's development (S7-F6: sites show it as the development's reference), null when
+   * it has none (no development, or no code yet). Not read for sitemap rows.
+   */
+  developmentCode: string | null;
+  /**
+   * The developer's own reference of the document's development (S7-F6, its development row): the owner's sites show
+   * it, the white-label sanitizer removes it from network text. Null without one.
+   */
+  developmentOwnRef: string | null;
   doc: unknown;
   updatedAt: Date;
 }
@@ -1257,10 +1296,13 @@ export async function publicDocs(
   if (ids.length === 0) return [];
   const res = await tx.execute(sql`
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.${sql.raw(part)} as doc,
-           m.updated_at as "updatedAt", c.code as "publicCode"
+           m.updated_at as "updatedAt", c.code as "publicCode", dc.code as "developmentCode",
+           dg.ref as "developmentOwnRef"
       from unnest(${uuidArray([...new Set(ids)])}) as t(id)
       join ${listingReadModels} m on m.target_id = t.id and m.locale = ${bestLocale(sql`t.id`, locale, fallback)}
-      left join ${listingPublicCodes} c on c.target_id = t.id`);
+      left join ${listingPublicCodes} c on c.target_id = t.id
+      left join ${listingPublicCodes} dc on dc.target_id = m.development_id
+      left join ${listingSearchDevelopments} dg on dg.development_id = m.development_id`);
   return docRows(res.rows);
 }
 
@@ -1278,9 +1320,12 @@ export async function publicDetailWhere(
     with t as (select target_id, public_code from ${listingSearchDocs} where ${fallbackCondition(filter)}
                 order by kind, target_id limit 1)
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.detail as doc,
-           m.updated_at as "updatedAt", t.public_code as "publicCode"
+           m.updated_at as "updatedAt", t.public_code as "publicCode", dc.code as "developmentCode",
+           dg.ref as "developmentOwnRef"
       from t join ${listingReadModels} m on m.target_id = t.target_id
-       and m.locale = ${bestLocale(sql`t.target_id`, locale, fallback)}`);
+       and m.locale = ${bestLocale(sql`t.target_id`, locale, fallback)}
+      left join ${listingPublicCodes} dc on dc.target_id = m.development_id
+      left join ${listingSearchDevelopments} dg on dg.development_id = m.development_id`);
   return docRows(res.rows)[0] ?? null;
 }
 
@@ -1322,11 +1367,328 @@ export async function sitemapPage(
   const res = await tx.execute(sql`
     with s as (select * from (${sql.join(branches, sql` union all `)}) u order by public_code limit ${take})
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", s.public_code as "publicCode",
-           m.card as doc, m.updated_at as "updatedAt"
+           null::text as "developmentCode", null::text as "developmentOwnRef", m.card as doc, m.updated_at as "updatedAt"
       from s join ${listingReadModels} m on m.target_id = s.target_id
        and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
      order by s.public_code`);
   return docRows(res.rows);
+}
+
+// ── Website developments (S7-F6) ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Brings the development rows (`listing_search_developments`) of these developments up to date from their units'
+ * fallback rows: the aggregates over the AVAILABLE and RESERVED units, the unit carrying the texts, the owner and
+ * place; no row when none is left. `refs`: the developers' own references from the documents just built (a row keeps
+ * its reference otherwise). One statement.
+ */
+export async function refreshDevelopments(
+  tx: Tx,
+  ids: readonly string[],
+  refs: ReadonlyMap<string, string>,
+): Promise<void> {
+  if (ids.length === 0) return;
+  const unique = uuidArray([...new Set(ids)]);
+  const known = [...refs.entries()];
+  const refRows =
+    known.length === 0
+      ? sql`select null::uuid as id, null::text as ref where false`
+      : sql`select * from unnest(${uuidArray(known.map(([id]) => id))}, ${sql`array[${sql.join(
+          known.map(([, ref]) => sql`${ref}`),
+          sql`, `,
+        )}]::text[]`}) as r(id, ref)`;
+  await tx.execute(sql`
+    with agg as (
+      select s.development_id as id, count(*)::int as units,
+             (count(*) filter (where s.status = 'AVAILABLE'))::int as available,
+             (count(*) filter (where s.status = 'RESERVED'))::int as reserved,
+             min(s.price_cents) filter (where s.status = 'AVAILABLE') as price_min,
+             max(s.price_cents) filter (where s.status = 'AVAILABLE') as price_max,
+             min(s.beds) as beds_min, max(s.beds) as beds_max,
+             (array_agg(s.target_id order by s.target_id))[1] as rep
+        from ${listingSearchDocs} s
+       where s.development_id = any(${unique}) and s.kind = 'UNIT' and s.status in ('AVAILABLE', 'RESERVED')
+       group by s.development_id),
+    refs as (${refRows}),
+    up as (
+      insert into ${listingSearchDevelopments} as g (development_id, owner_agency_id, ref, location_ids, units,
+             available, reserved, price_min_cents, price_max_cents, beds_min, beds_max, rep_target_id, updated_at)
+      select agg.id, r.owner_agency_id, refs.ref, r.location_ids, agg.units, agg.available, agg.reserved,
+             agg.price_min, agg.price_max, agg.beds_min, agg.beds_max, agg.rep, now()
+        from agg join ${listingSearchDocs} r on r.target_id = agg.rep
+        left join refs on refs.id = agg.id
+      on conflict (development_id) do update set
+        owner_agency_id = excluded.owner_agency_id, ref = coalesce(excluded.ref, g.ref),
+        location_ids = excluded.location_ids, units = excluded.units, available = excluded.available,
+        reserved = excluded.reserved, price_min_cents = excluded.price_min_cents,
+        price_max_cents = excluded.price_max_cents, beds_min = excluded.beds_min, beds_max = excluded.beds_max,
+        rep_target_id = excluded.rep_target_id, updated_at = now()
+      returning g.development_id)
+    delete from ${listingSearchDevelopments} d
+     where d.development_id = any(${unique}) and not exists (select 1 from agg where agg.id = d.development_id)`);
+}
+
+/**
+ * A development as a site shows it (S7-F6): its row's aggregates (over all its AVAILABLE and RESERVED units) and the
+ * representative unit's public document (`card` or `detail`, best locale), which carries the development's texts,
+ * status and place.
+ */
+export interface DevelopmentRow {
+  developmentId: string;
+  /** The development's public code: its reference on another agency's site is `<prefix>-<code>`. */
+  code: string;
+  /** The developer's own reference (the owner's sites show it; never another agency's). */
+  ownRef: string | null;
+  ownerAgencyId: string;
+  total: number;
+  available: number;
+  reserved: number;
+  priceMin: number | null;
+  priceMax: number | null;
+  bedsMin: number | null;
+  bedsMax: number | null;
+  doc: unknown;
+}
+
+/**
+ * Which developments a site may show, on the development row `g` (S7-F6): its own agencies' and — network sites —
+ * other agencies' (units are shared with every agency and never freshness-hidden, so the owner decides), anywhere
+ * under every set of locations (a development's units share its place); with a public code (addressable). The
+ * unit-level rules (statuses, types, price band, minimum commission) are `member`.
+ */
+export interface DevelopmentScope {
+  /** The site's own agencies; null: every agency's. */
+  own: readonly string[] | null;
+  /** Other agencies' developments too. */
+  network: boolean;
+  /** Each: anywhere under any of these locations. */
+  locationSets: readonly (readonly string[])[];
+}
+
+/** A site's reference to a development: its own reference (own developments) and/or a public code (network ones). */
+export interface DevelopmentRefMatch {
+  ownRef: string | null;
+  code: string | null;
+}
+
+function scopeSql(scope: DevelopmentScope): SQL {
+  const parts: SQL[] = [sql`exists (select 1 from ${listingPublicCodes} pc where pc.target_id = g.development_id)`];
+  if (scope.own !== null) {
+    const whose: SQL[] = [];
+    if (scope.own.length > 0) whose.push(sql`g.owner_agency_id = any(${uuidArray(scope.own)})`);
+    if (scope.network) {
+      whose.push(scope.own.length > 0 ? sql`g.owner_agency_id <> all(${uuidArray(scope.own)})` : sql`true`);
+    }
+    parts.push(whose.length === 0 ? sql`false` : sql`(${sql.join(whose, sql` or `)})`);
+  }
+  for (const set of scope.locationSets) parts.push(sql`g.location_ids && ${uuidArray(set)}`);
+  return sql.join(parts, sql` and `);
+}
+
+/**
+ * One unit of the development matches the site's unit filter. Unqualified columns inside resolve to the units' rows
+ * (the innermost table), so the filter compiled for `listing_search_docs` applies as it is.
+ */
+const memberSql = (where: SQL) =>
+  sql`exists (select 1 from ${listingSearchDocs} where development_id = g.development_id and ${where})`;
+
+function refMatchSql(scope: DevelopmentScope, ref: DevelopmentRefMatch): SQL {
+  const own = scope.own ?? [];
+  const branches: SQL[] = [];
+  if (ref.ownRef !== null && (scope.own === null || own.length > 0)) {
+    branches.push(
+      scope.own === null
+        ? sql`lower(g.ref) = lower(${ref.ownRef})`
+        : sql`(g.owner_agency_id = any(${uuidArray(own)}) and lower(g.ref) = lower(${ref.ownRef}))`,
+    );
+  }
+  if (ref.code !== null) {
+    const notOwn = own.length > 0 ? sql`g.owner_agency_id <> all(${uuidArray(own)}) and` : sql``;
+    branches.push(
+      sql`(${notOwn} g.development_id = (select pk.target_id from ${listingPublicCodes} pk where pk.code = ${ref.code}))`,
+    );
+  }
+  return branches.length === 0 ? sql`false` : sql`(${sql.join(branches, sql` or `)})`;
+}
+
+/** The development rows of `d(id)` with their representative document, newest first. */
+function developmentRows(part: 'card' | 'detail', locale: string, fallback: string): SQL {
+  return sql`
+    select g.development_id as "developmentId", dc.code, g.ref as "ownRef", g.owner_agency_id as "ownerAgencyId",
+           g.units as total, g.available, g.reserved, g.price_min_cents as "priceMin", g.price_max_cents as "priceMax",
+           g.beds_min as "bedsMin", g.beds_max as "bedsMax", r.${sql.raw(part)} as doc
+      from d
+      join ${listingSearchDevelopments} g on g.development_id = d.id
+      join ${listingPublicCodes} dc on dc.target_id = g.development_id
+      join ${listingReadModels} r on r.target_id = g.rep_target_id
+       and r.locale = ${bestLocale(sql`g.rep_target_id`, locale, fallback)}
+     order by g.development_id desc`;
+}
+
+const numOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
+const developmentRowsOf = (rows: unknown[]): DevelopmentRow[] =>
+  (rows as Record<string, unknown>[]).map((r) => ({
+    developmentId: r.developmentId as string,
+    code: r.code as string,
+    ownRef: (r.ownRef as string | null) ?? null,
+    ownerAgencyId: r.ownerAgencyId as string,
+    total: Number(r.total),
+    available: Number(r.available),
+    reserved: Number(r.reserved),
+    priceMin: numOrNull(r.priceMin),
+    priceMax: numOrNull(r.priceMax),
+    bedsMin: numOrNull(r.bedsMin),
+    bedsMax: numOrNull(r.bedsMax),
+    doc: r.doc,
+  }));
+
+/**
+ * One page of the site's developments (`/v2/developments`), newest first (UUIDv7 ids), after the development coded
+ * `after`: development rows in the site's scope with one unit matching its unit filter; `limit + 1` rows (an extra
+ * one: a next page). One statement over the development rows (an own site's by its owner index, a regional one's by
+ * the locations index, a broad one newest-first by the primary key) — no unit aggregated per request.
+ */
+export async function developmentPage(
+  tx: Tx,
+  q: {
+    filter: Filter;
+    scope: DevelopmentScope;
+    after?: string;
+    limit: number;
+    locale: string;
+    fallback: string;
+  },
+): Promise<DevelopmentRow[]> {
+  const after = q.after
+    ? sql`and g.development_id < (select pa.target_id from ${listingPublicCodes} pa where pa.code = ${q.after})`
+    : sql``;
+  const res = await tx.execute(sql`
+    with d as (
+      select g.development_id as id from ${listingSearchDevelopments} g
+       where ${scopeSql(q.scope)} ${after} and ${memberSql(fallbackCondition(q.filter))}
+       order by g.development_id desc limit ${q.limit + 1})
+    ${developmentRows('card', q.locale, q.fallback)}`);
+  return developmentRowsOf(res.rows);
+}
+
+/** The development a site reference names, as the site shows it (`/v2/developments/{ref}`); null: not on the site. */
+export async function developmentByRef(
+  tx: Tx,
+  q: { filter: Filter; scope: DevelopmentScope; ref: DevelopmentRefMatch; locale: string; fallback: string },
+): Promise<DevelopmentRow | null> {
+  const res = await tx.execute(sql`
+    with d as (
+      select g.development_id as id from ${listingSearchDevelopments} g
+       where ${refMatchSql(q.scope, q.ref)} and ${scopeSql(q.scope)} and ${memberSql(fallbackCondition(q.filter))}
+       limit 1)
+    ${developmentRows('detail', q.locale, q.fallback)}`);
+  return developmentRowsOf(res.rows)[0] ?? null;
+}
+
+/** One unit-table page and whether the development is on the site, and the cursor's unit is one of its units. */
+export interface DevelopmentUnitsPage {
+  /** The site shows the development. */
+  found: boolean;
+  /** The cursor's unit is (still) a unit of it; true without a cursor. */
+  anchored: boolean;
+  rows: PublicDocRow[];
+}
+
+/**
+ * One page of a development's unit table (`/v2/developments/{ref}/units`): its units the site's unit filter matches, in
+ * the developer's unit order (reference, then id — neither is shown) after the unit coded `after`, each with its card
+ * in the best locale; `limit + 1` rows. The development and the cursor's position are resolved once; the page walks
+ * `listing_search_docs_development_ref_idx`. Units without a public code yet are left out. One statement.
+ */
+export async function developmentUnitsPage(
+  tx: Tx,
+  q: {
+    filter: Filter;
+    scope: DevelopmentScope;
+    ref: DevelopmentRefMatch;
+    after?: string;
+    limit: number;
+    locale: string;
+    fallback: string;
+  },
+): Promise<DevelopmentUnitsPage> {
+  const where = fallbackCondition(q.filter);
+  const anchor = q.after
+    ? sql`select x.ref, x.target_id from ${listingSearchDocs} x, dev
+           where x.public_code = ${q.after} and x.development_id = dev.id`
+    : sql`select null::text as ref, null::uuid as target_id where false`;
+  const res = await tx.execute(sql`
+    with dev as materialized (
+      select g.development_id as id, g.ref as own_ref from ${listingSearchDevelopments} g
+       where ${refMatchSql(q.scope, q.ref)} and ${scopeSql(q.scope)} and ${memberSql(where)}
+       limit 1),
+    anchor as materialized (${anchor}),
+    u as (
+      select s.target_id, s.public_code, s.ref from ${listingSearchDocs} s
+       where s.development_id = (select id from dev) and ${where} and s.public_code is not null
+         ${q.after ? sql`and (s.ref, s.target_id) > (select a.ref, a.target_id from anchor a)` : sql``}
+       order by s.development_id, s.ref, s.target_id limit ${q.limit + 1}),
+    page as (
+      select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", u.public_code as "publicCode",
+             dc.code as "developmentCode", (select own_ref from dev) as "developmentOwnRef", m.card as doc,
+             m.updated_at as "updatedAt", u.ref as sort_ref
+        from u join ${listingReadModels} m on m.target_id = u.target_id
+         and m.locale = ${bestLocale(sql`u.target_id`, q.locale, q.fallback)}
+        left join ${listingPublicCodes} dc on dc.target_id = (select id from dev))
+    select exists (select 1 from dev) as found, ${q.after ? sql`exists (select 1 from anchor)` : sql`true`} as anchored,
+           p.*
+      from (select 1) one left join page p on true
+     order by p.sort_ref, p."targetId"`);
+  const raw = res.rows as ({ found: boolean; anchored: boolean; targetId: string | null } & Record<string, unknown>)[];
+  const first = raw[0];
+  return {
+    found: first?.found === true,
+    anchored: first?.anchored === true,
+    rows: docRows(raw.filter((r) => r.targetId !== null).map(({ found: _f, anchored: _a, sort_ref: _s, ...r }) => r)),
+  };
+}
+
+/** The target a public code names (a listing, unit or development), or null. One statement by the unique index. */
+export async function targetOfCode(tx: Tx, code: string): Promise<string | null> {
+  const res = await tx.execute(sql`select target_id as id from ${listingPublicCodes} where code = ${code}`);
+  return (res.rows[0] as { id: string } | undefined)?.id ?? null;
+}
+
+/**
+ * The developments these references name (engine filters, S7-F6): public codes → their target, own references → the
+ * developments of any agency with that reference (a filter beside it keeps the site's own; at most 50 each). One
+ * statement for all.
+ */
+export async function resolveDevelopmentRefs(
+  tx: Tx,
+  codes: readonly string[],
+  ownRefs: readonly string[],
+): Promise<{ codes: Map<string, string[]>; ownRefs: Map<string, string[]> }> {
+  const out = { codes: new Map<string, string[]>(), ownRefs: new Map<string, string[]>() };
+  if (codes.length === 0 && ownRefs.length === 0) return out;
+  const texts = (values: readonly string[]) =>
+    sql`array[${sql.join(
+      values.map((v) => sql`${v}`),
+      sql`, `,
+    )}]::text[]`;
+  const parts: SQL[] = [];
+  if (codes.length > 0) {
+    parts.push(sql`select 'code' as k, pc.code as v, pc.target_id as id from ${listingPublicCodes} pc
+                    where pc.code = any(${texts(codes)})`);
+  }
+  if (ownRefs.length > 0) {
+    parts.push(sql`select 'ref' as k, r.v, g.development_id as id from unnest(${texts(ownRefs)}) as r(v)
+                    cross join lateral (select development_id from ${listingSearchDevelopments}
+                                         where lower(ref) = lower(r.v) limit 50) g`);
+  }
+  const res = await tx.execute(sql.join(parts, sql` union all `));
+  for (const r of res.rows as { k: 'code' | 'ref'; v: string; id: string }[]) {
+    const map = r.k === 'code' ? out.codes : out.ownRefs;
+    const key = r.k === 'code' ? r.v : r.v.toLowerCase();
+    map.set(key, [...(map.get(key) ?? []), r.id]);
+  }
+  return out;
 }
 
 /** May the agency's websites show network listings (give-to-get, `website_network_open`)? One statement. */

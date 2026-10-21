@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { Cursor, pageOf } from './common';
+import { DevelopmentStatus } from './developments';
 import { ListingMediaKind, ListingRoomType, VideoProvider } from './media';
 import { TransactionType } from './properties';
 import {
@@ -15,6 +16,8 @@ import {
   PublicSearchSort,
   PublicSearchStatus,
   READ_MODEL_IMAGE_SIZES,
+  ReadModelGeo,
+  ReadModelPlace,
   UnitCardDoc,
   UnitDetailDoc,
 } from './search';
@@ -245,26 +248,89 @@ export const WebsiteVideo = z.strictObject({ kind: z.literal('VIDEO'), provider:
 export const WebsiteMedia = z.union([WebsiteImage, WebsiteVideo]);
 export type WebsiteMedia = z.infer<typeof WebsiteMedia>;
 
-export const WebsiteListingCard = ListingCardDoc.omit({ cover: true }).extend({ cover: WebsiteImage.nullable() });
+/**
+ * A development's reference on a site (S7-F6), like a listing's: the developer's own reference on the owner's sites,
+ * `<prefix>-<code>` on every other site — `/v2/developments/{ref}` and the `development` search filter take it. Null
+ * until known (the development's units' first rebuild with S7-F6).
+ */
+const DevelopmentRef = z.string().nullable();
+
+export const WebsiteListingCard = ListingCardDoc.omit({ cover: true }).extend({
+  cover: WebsiteImage.nullable(),
+  developmentRef: DevelopmentRef,
+});
 export type WebsiteListingCard = z.infer<typeof WebsiteListingCard>;
 
 export const WebsiteListingDetail = ListingDetailDoc.omit({ cover: true, media: true }).extend({
   cover: WebsiteImage.nullable(),
+  developmentRef: DevelopmentRef,
   media: z.array(WebsiteMedia),
   agency: WebsitePresenter,
 });
 export type WebsiteListingDetail = z.infer<typeof WebsiteListingDetail>;
 
-export const WebsiteUnitCard = UnitCardDoc;
+/** A unit's development as a site shows it: its reference (`/v2/developments/{ref}`) beside the shown id. */
+const WebsiteUnitDevelopment = UnitCardDoc.shape.development.extend({ ref: DevelopmentRef });
+
+export const WebsiteUnitCard = UnitCardDoc.extend({ development: WebsiteUnitDevelopment });
 export type WebsiteUnitCard = z.infer<typeof WebsiteUnitCard>;
 
-export const WebsiteUnitDetail = UnitDetailDoc.extend({ agency: WebsitePresenter });
+export const WebsiteUnitDetail = UnitDetailDoc.extend({
+  development: WebsiteUnitDevelopment,
+  agency: WebsitePresenter,
+});
 export type WebsiteUnitDetail = z.infer<typeof WebsiteUnitDetail>;
 
 export const WebsiteCard = z.discriminatedUnion('kind', [WebsiteListingCard, WebsiteUnitCard]);
 export type WebsiteCard = z.infer<typeof WebsiteCard>;
 export const WebsiteDetail = z.discriminatedUnion('kind', [WebsiteListingDetail, WebsiteUnitDetail]);
 export type WebsiteDetail = z.infer<typeof WebsiteDetail>;
+
+/**
+ * A new-build development as a site shows it (S7-F6, PLAN §9.1 `/v2/developments`): built from its units' public read
+ * models — the development's name, texts, status, completion and place as its units carry them, with the price range
+ * and unit counts of the units the site shows (AVAILABLE and RESERVED units of OPEN developments, within the site's
+ * inventory). White-labelled like listings: a network development carries the site's reference and a site-scoped id,
+ * sanitized owner text, and never its owner's id, reference, name or contacts.
+ */
+export const WebsiteDevelopmentCard = z.strictObject({
+  kind: z.literal('DEVELOPMENT'),
+  /** The development's id (another agency's: scoped to the site's agency, like listings). */
+  id: z.uuid(),
+  /** The owner's sites: the developer's own reference; every other site: `<prefix>-<code>` (`/v2/developments/{ref}`). */
+  ref: z.string(),
+  name: z.string(),
+  title: z.string(),
+  slug: z.string(),
+  textLocale: z.string().nullable(),
+  status: DevelopmentStatus,
+  completionDate: z.string().nullable(),
+  place: ReadModelPlace,
+  geo: ReadModelGeo.nullable(),
+  /** Prices of the AVAILABLE units with a price (null: none). */
+  price: z.strictObject({
+    fromCents: z.number().int().nonnegative().nullable(),
+    toCents: z.number().int().nonnegative().nullable(),
+    currency: z.string().length(3),
+  }),
+  bedrooms: z.strictObject({ min: z.number().int().nullable(), max: z.number().int().nullable() }),
+  /** Units the site shows: AVAILABLE and RESERVED (sold units are not shown). */
+  units: z.strictObject({
+    total: z.number().int().nonnegative(),
+    available: z.number().int().nonnegative(),
+    reserved: z.number().int().nonnegative(),
+  }),
+});
+export type WebsiteDevelopmentCard = z.infer<typeof WebsiteDevelopmentCard>;
+
+export const WebsiteDevelopmentDetail = WebsiteDevelopmentCard.extend({
+  description: z.string().nullable(),
+  paymentTerms: z.string().nullable(),
+  metaTitle: z.string().nullable(),
+  metaDescription: z.string().nullable(),
+  agency: WebsitePresenter,
+});
+export type WebsiteDevelopmentDetail = z.infer<typeof WebsiteDevelopmentDetail>;
 
 // ── Website API v2 read endpoints (S7-03) ───────────────────────────────────────────────────────────────────────
 
@@ -317,8 +383,13 @@ export const WebsiteListingsQuery = z.strictObject({
   q: z.string().trim().min(1).max(100).optional(),
   lang: WebsiteLang.optional(),
   kind: z.enum(['LISTING', 'UNIT']).optional(),
-  /** A development's units (the id as this site shows it; own developments only until R2). */
+  /** An own development's units and listings by its id (network developments: `development`). */
   developmentId: z.uuid().optional(),
+  /**
+   * A development's units and listings by the reference the site shows (S7-F6): an own development's own reference,
+   * another agency's `<prefix>-<code>`.
+   */
+  development: z.string().min(1).max(64).regex(/^\S+$/).optional(),
   status: csv(PublicSearchStatus, PUBLIC_SEARCH_STATUSES.length).optional(),
   transaction: TransactionType.optional(),
   /** Any of these property types. */
@@ -418,3 +489,39 @@ export type WebsiteSitemapEntry = z.infer<typeof WebsiteSitemapEntry>;
 
 export const WebsiteSitemapPage = pageOf(WebsiteSitemapEntry);
 export type WebsiteSitemapPage = z.infer<typeof WebsiteSitemapPage>;
+
+// ── Website API v2 developments (S7-F6) ─────────────────────────────────────────────────────────────────────────
+
+/** `GET /v2/developments`: the site's new-build developments, newest first, one page per `cursor`. */
+export const WebsiteDevelopmentsQuery = z.strictObject({
+  lang: WebsiteLang.optional(),
+  /** Anywhere under any of these locations. */
+  locations: csv(z.uuid(), 50).optional(),
+  cursor: Cursor.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(24),
+});
+export type WebsiteDevelopmentsQuery = z.infer<typeof WebsiteDevelopmentsQuery>;
+
+export const WebsiteDevelopmentPage = z.strictObject({
+  items: z.array(WebsiteDevelopmentCard),
+  nextCursor: Cursor.nullable(),
+});
+export type WebsiteDevelopmentPage = z.infer<typeof WebsiteDevelopmentPage>;
+
+/** `GET /v2/developments/{ref}`: a development by the reference the site shows. */
+export const WebsiteDevelopmentParams = WebsiteListingParams;
+export type WebsiteDevelopmentParams = z.infer<typeof WebsiteDevelopmentParams>;
+
+/** `GET /v2/developments/{ref}/units`: the live unit table, in the developer's unit order, one page per `cursor`. */
+export const WebsiteUnitsQuery = z.strictObject({
+  lang: WebsiteLang.optional(),
+  cursor: Cursor.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+});
+export type WebsiteUnitsQuery = z.infer<typeof WebsiteUnitsQuery>;
+
+export const WebsiteUnitPage = z.strictObject({
+  items: z.array(WebsiteUnitCard),
+  nextCursor: Cursor.nullable(),
+});
+export type WebsiteUnitPage = z.infer<typeof WebsiteUnitPage>;

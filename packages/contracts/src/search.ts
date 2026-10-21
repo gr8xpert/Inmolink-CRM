@@ -172,6 +172,9 @@ export type PublicSearchSort = z.infer<typeof PublicSearchSort>;
 export const PUBLIC_SEARCH_FACETS = ['propertyTypeId', 'locationIds', 'featureIds', 'beds', 'transactionType'] as const;
 export const PublicSearchFacet = z.enum(PUBLIC_SEARCH_FACETS);
 
+/** A public code (S7-02, `listing_public_codes`): 8 Crockford base32 characters, upper case. */
+export const PublicCode = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+
 /** Statuses a visitor may filter on (listings and new-build units that are on the market). */
 export const PUBLIC_SEARCH_STATUSES = ['ACTIVE', 'UNDER_OFFER', 'AVAILABLE', 'RESERVED'] as const;
 export const PublicSearchStatus = z.enum(PUBLIC_SEARCH_STATUSES);
@@ -187,6 +190,11 @@ export const PublicListingSearch = z.strictObject({
   locale: ContentLocaleCode,
   kind: z.enum(['LISTING', 'UNIT']).optional(),
   developmentId: z.uuid().optional(),
+  /**
+   * A development by the reference the site shows (S7-F6): an own development's own reference, another agency's
+   * `<prefix>-<code>` — resolved against the site's inventory like a typed listing reference.
+   */
+  developmentRef: z.string().trim().min(1).max(64).optional(),
   /** Live statuses only: drafts, withdrawn and sold listings are not a visitor's to list. */
   statuses: z.array(PublicSearchStatus).min(1).max(PUBLIC_SEARCH_STATUSES.length).default(['ACTIVE', 'AVAILABLE']),
   transactionType: TransactionType.optional(),

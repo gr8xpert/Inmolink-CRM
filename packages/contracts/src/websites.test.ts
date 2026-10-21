@@ -81,6 +81,7 @@ describe('website documents (S7-02)', () => {
     cover: null,
     imageCount: 0,
     developmentId: null,
+    developmentRef: null,
     title: 'Villa',
     slug: 'villa',
     textLocale: null,

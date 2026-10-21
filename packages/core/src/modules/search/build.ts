@@ -38,6 +38,11 @@ export interface BuiltDoc {
   networkHidden: boolean;
   /** A PREFERRED listing: the agencies its owner prefers, sorted (S6-F2); else null. Never inside the documents. */
   preferredAgencyIds: string[] | null;
+  /**
+   * A unit's development's own reference (S7-F6): the development row of `listing_search_developments` keeps it (own
+   * sites show it; the sanitizer removes it from network text); null for listings. Never inside the documents.
+   */
+  developmentRef: string | null;
   version: number;
   card: ListingCardDoc | UnitCardDoc;
   detail: ListingDetailDoc | UnitDetailDoc;
@@ -165,6 +170,7 @@ export function buildListingDocs(
       allowedAgencyIds: null,
       networkHidden: l.networkHidden,
       preferredAgencyIds: l.shareScope === 'PREFERRED' ? [...owner.preferred].sort() : null,
+      developmentRef: null,
       version: l.version,
       card,
       detail,
@@ -199,7 +205,12 @@ export function buildUnitDocs(
       orientation: u.orientation,
       // A building site: its shown point is the development's own.
       geo: geoOf(d.lat, d.lng, 'EXACT'),
-      development: { id: u.developmentId, name: d.name, status: d.status, completionDate: d.completionDate },
+      development: {
+        id: u.developmentId,
+        name: d.name,
+        status: d.status,
+        completionDate: d.completionDate,
+      },
       title: picked?.text.title ?? d.name,
       slug: picked?.text.slug ?? u.developmentId,
       textLocale: picked?.textLocale ?? null,
@@ -224,6 +235,7 @@ export function buildUnitDocs(
       allowedAgencyIds: d.open ? null : [...d.allowedAgencyIds].sort(),
       networkHidden: false,
       preferredAgencyIds: null,
+      developmentRef: d.ref,
       version: u.version,
       card,
       detail,

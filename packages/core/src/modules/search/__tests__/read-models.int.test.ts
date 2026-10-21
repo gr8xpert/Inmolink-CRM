@@ -323,6 +323,7 @@ describe('listing read models', () => {
           allowedAgencyIds: null,
           networkHidden: false,
           preferredAgencyIds: null,
+          developmentRef: null,
           version: latest - 2,
           card: older,
           detail: current?.detail as never,

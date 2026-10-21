@@ -44,6 +44,8 @@ export interface RebuildResult {
   deleted: number;
   /** Listings with images still processing: their documents lack them until a later rebuild. */
   pendingMedia: string[];
+  /** The developers' own references of the units' developments (S7-F6: their development rows keep them). */
+  developmentRefs?: ReadonlyMap<string, string>;
 }
 
 /** An agency without settings: no locales, so no documents. */
@@ -138,13 +140,21 @@ export interface WriteOptions {
  * fallback rows up to date (S5-04) unless the caller does (`refreshSearchDocs: false`).
  */
 async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
+  const developmentRefs = new Map<string, string>();
+  for (const d of docs) if (d.developmentId && d.developmentRef) developmentRefs.set(d.developmentId, d.developmentRef);
   const deleted = await repo.deleteOthers(tx, ids, docs);
   const written = await repo.upsertDocs(tx, docs);
-  // Public targets get their public code (S7-02) once; a target that got one now is pushed again with it.
-  const coded = await ensurePublicCodes(
-    tx,
-    docs.filter((d) => d.public).map((d) => d.targetId),
-  );
+  // Public targets get their public code (S7-02) once; a target that got one now is pushed again with it. Their
+  // developments get one in the same statement (S7-F6: sites name developments `<prefix>-<code>`); a development is
+  // not a target, so its new code changes nothing here.
+  const publicDocs = docs.filter((d) => d.public);
+  const targets = new Set(publicDocs.map((d) => d.targetId));
+  const coded = (
+    await ensurePublicCodes(tx, [
+      ...targets,
+      ...publicDocs.flatMap((d) => (d.developmentId === null ? [] : [d.developmentId])),
+    ])
+  ).filter((id) => targets.has(id));
   // Commission (S7-F4) is read from the listing or unit itself, so an edit of only the commission leaves the read
   // model alone: its rows are compared here and a target whose commission changed is pushed like a changed document.
   const wanted = await commissionOf(
@@ -156,9 +166,9 @@ async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: 
   if (changed.length > 0) {
     await logPublicChanges(tx, changed, docs);
     await repo.queueIndexSync(tx, changed);
-    if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed);
+    if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed, developmentRefs);
   }
-  return { written: written.length, deleted: deleted.length };
+  return { written: written.length, deleted: deleted.length, developmentRefs };
 }
 
 /**
@@ -215,16 +225,29 @@ export function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string,
 
 /**
  * Makes these targets' fallback rows (S5-04) match their read models: the PUBLIC index document's filter fields, no
- * row otherwise. Three statements per `READ_MODEL_BATCH` targets; unchanged rows are not rewritten.
+ * row otherwise — and the development rows of the units among them (S7-F6, `listing_search_developments`: one more
+ * statement when units are). Three statements per `READ_MODEL_BATCH` targets; unchanged rows are not rewritten.
  */
-async function refreshSearchDocs(tx: Tx, ids: readonly string[]): Promise<void> {
+async function refreshSearchDocs(
+  tx: Tx,
+  ids: readonly string[],
+  developmentRefs: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
   // The fallback matches no text (references only): documents without text, no owner identities read (S7-F5).
   const { docs, missing } = await indexDocsFor(tx, ids, { text: false });
   await repo.upsertSearchDocs(
     tx,
     docs.filter((d) => d.visibility === 'PUBLIC'),
   );
-  await repo.deleteSearchDocs(tx, [...missing, ...docs.filter((d) => d.visibility !== 'PUBLIC').map((d) => d.id)]);
+  const dropped = await repo.deleteSearchDocs(tx, [
+    ...missing,
+    ...docs.filter((d) => d.visibility !== 'PUBLIC').map((d) => d.id),
+  ]);
+  const developments = [
+    ...dropped,
+    ...docs.flatMap((d) => (d.kind === 'UNIT' && d.developmentId ? [d.developmentId] : [])),
+  ];
+  await repo.refreshDevelopments(tx, developments, developmentRefs);
 }
 
 export const rebuildReadModels = (tx: Tx, kind: ReadModelKind, ids: readonly string[], options: WriteOptions = {}) =>
@@ -511,7 +534,7 @@ export async function rebuildAllReadModels(
           await repo.queueIndexSync(tx, swept);
           await logPublicChanges(tx, swept, []);
           // Every live target of the page, changed or not: the full rebuild also fills and repairs the fallback.
-          await refreshSearchDocs(tx, [...ids, ...swept]);
+          await refreshSearchDocs(tx, [...ids, ...swept], res.developmentRefs);
           return { ...res, deleted: res.deleted + swept.length };
         });
         progress.done += ids.length;
