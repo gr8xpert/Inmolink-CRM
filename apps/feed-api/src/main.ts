@@ -6,6 +6,7 @@ import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
+import { configureSearch, requestSearchConfig, searchEngine } from '@inmolink/platform/search';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
 import { configureStorage, storageConfigForBuckets } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
@@ -56,6 +57,10 @@ try {
   configureStorage(storageConfigForBuckets(config, { feeds: config.S3_BUCKET_FEEDS ?? config.S3_BUCKET_EXPORTS }));
   if (!config.TURNSTILE_SECRET_KEY)
     logger.warn('no TURNSTILE_SECRET_KEY: website forms through publishable keys are refused');
+  // Search (S5-05, S7-08): `requestSearchConfig` — the search-only key; a deployed app without it fails to boot.
+  const searchConfig = requestSearchConfig(config);
+  if (searchConfig) configureSearch(searchConfig);
+  else logger.warn('no MEILI_SEARCH_KEY: website search answers 500 until it is set');
   search.configureNetworkSearch({
     giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
     giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,
@@ -88,6 +93,10 @@ try {
       // A wrong REDIS_LIMITS_URL credential would otherwise surface only as refused logins.
       redisLimits: redisCheck(rateLimitConnection),
       search: httpCheck(new URL('/health', config.MEILI_URL).href),
+      // S7-08: a website search engine is configured (not ready without one: every search would be a 500).
+      searchConfigured: async () => {
+        searchEngine();
+      },
     },
   });
 

@@ -10,7 +10,7 @@ import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/j
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
-import { configureSearch, searchConfigFromEnv } from '@inmolink/platform/search';
+import { configureSearch, requestSearchConfig } from '@inmolink/platform/search';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
 import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
@@ -52,21 +52,10 @@ try {
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
   // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
   imports.configureImports({ keyring: keyringFromEnv(config) });
-  // Network search (S5-05): the search-only key; the master key only on a developer's machine or in tests (security
-  // review: never in a shared environment, whatever its NODE_ENV).
-  const localKey =
-    config.NODE_ENV === 'development' || config.NODE_ENV === 'test' ? config.MEILI_MASTER_KEY : undefined;
-  if (config.MEILI_SEARCH_KEY || localKey) {
-    configureSearch(
-      searchConfigFromEnv({
-        MEILI_URL: config.MEILI_URL,
-        MEILI_SEARCH_KEY: config.MEILI_SEARCH_KEY,
-        MEILI_MASTER_KEY: config.MEILI_SEARCH_KEY ? undefined : localKey,
-      }),
-    );
-  } else {
-    logger.warn('no MEILI_SEARCH_KEY: network search answers 503 until it is set');
-  }
+  // Search (S5-05, S7-08): `requestSearchConfig` — the search-only key; a deployed app without it fails to boot.
+  const searchConfig = requestSearchConfig(config);
+  if (searchConfig) configureSearch(searchConfig);
+  else logger.warn('no MEILI_SEARCH_KEY: network search answers 503 until it is set');
   search.configureNetworkSearch({
     giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
     giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,

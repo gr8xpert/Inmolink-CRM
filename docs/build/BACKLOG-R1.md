@@ -931,6 +931,16 @@ Ref §9.5 · Mod public, websites, web · Dep S7-07, S7-05 · 🔒⚡
 - The iFrame pages render only inside the site's domains (frame-ancestors), and a lead from them reaches the presenting agency
 - An agency admin turns the feed on, copies the URLs and rotates the token from the dashboard
 
+### S7-F9 · Index-driven fallback search for network sites (split from S7-08 perf audit)
+Ref §4.2 §15 · Mod search · Dep S5-04, S7-08 · ⚡
+**Build:**
+- The Postgres fallback's candidate set `m` (`search/repo.ts` `fallbackSearch`, ~l. 1038) is a filter over `listing_search_docs` then a sort: for a **network site with a price band and a price sort** it reads the whole network branch (Seq Scan) — 13–1,055 ms locally at ~800k rows, over the 2 s statement timeout at 2M (perf audit of S7-08), and it would carry ~600 rps of website search whenever the engine's circuit opens. Make it index-driven on the sort column: a keyset walk of `price_idx` (and the other sort indexes) with an early stop at `limit + 1` matches, or composite indexes for the network branch (`share_scope`, `status`, sort column), whichever keeps every fallback shape ≤ 3 statements and p95 < 150 ms.
+- Perf test (`tests/perf/search-fallback.int.test.ts` or a new file): network + price band + `price_asc` / `price_desc`, own + network, at the scale seed — no Seq Scan, p95 < 150 ms; EXPLAIN in STATUS.
+- **Degraded-engine k6 profile:** the S7-08 mix with Meilisearch stopped (circuit open) at the staging rate — a runbook step in `website-api.md` › Load test, numbers in STATUS.
+**Done when:**
+- Every fallback shape is index-driven (no Seq Scan) with p95 < 150 ms at 2M rows (staging, with S5-04)
+- The degraded-engine load run holds the S7-08 thresholds
+
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]
 **Build:** log analysis script (endpoints, params, frequencies per site); recorder that replays representative requests against the legacy API and stores normalized responses in `tests/golden/`.

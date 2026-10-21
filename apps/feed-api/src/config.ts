@@ -42,6 +42,8 @@ export const feedApiEnv = {
   MEILI_URL: searchEnv.MEILI_URL,
   /** Search-only key (S1-F5) — never the master key in a request app. */
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
+  /** Development and test only, when no search key is set (refused for APP_ROLE=http in production). */
+  MEILI_MASTER_KEY: searchEnv.MEILI_MASTER_KEY.optional(),
   /** Website search timing: engine timeout, slow threshold, circuit breaker (S6-F3). */
   ...websiteSearchEnv,
   /** Honeytokens on deep search pages of suspected scrapers (S7-04). */

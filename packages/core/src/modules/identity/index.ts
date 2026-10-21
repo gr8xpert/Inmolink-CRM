@@ -12,6 +12,7 @@ export {
   resetApiKeyUsageMarks,
   revokeApiKey,
   rotateApiKey,
+  setApiKeyRateTier,
 } from './api-keys';
 export {
   API_KEYS,

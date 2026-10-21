@@ -90,6 +90,14 @@ export function registerIdentitySubscriptions(): void {
         { name: `identity.apiKeyCache.${def.type.split('.').at(-1)}` },
       ),
     ),
+    // S7-08: a changed tier is read on the key's next lookup.
+    subscribe(
+      identityEvents.apiKeyTierChanged,
+      async (payload) => {
+        if (isApiKeyPrefix(payload.prefix)) await cache.delete(apiKeyCacheKey(payload.prefix));
+      },
+      { name: 'identity.apiKeyCache.tierChanged' },
+    ),
     subscribe(
       agenciesEvents.statusChanged,
       (payload, meta) =>

@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { apiKeys } from '@inmolink/db/schema/identity';
-import { and, count, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -146,6 +146,22 @@ export async function revokeApiKey(
     .where(and(eq(apiKeys.agencyId, agencyId), eq(apiKeys.id, id), isNull(apiKeys.revokedAt)))
     .returning({ prefix: apiKeys.prefix });
   return row ?? null;
+}
+
+/** Sets the rate tier of the agency's active keys among `ids` (S7-08). Answers the keys changed. */
+export async function setApiKeyRateTier(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  tier: ApiKeyRateTier,
+  now: Date,
+): Promise<{ id: string; prefix: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .update(apiKeys)
+    .set({ rateTier: tier, updatedAt: now })
+    .where(and(eq(apiKeys.agencyId, agencyId), inArray(apiKeys.id, [...ids]), isNull(apiKeys.revokedAt)))
+    .returning({ id: apiKeys.id, prefix: apiKeys.prefix });
 }
 
 export interface ApiKeyAuthRow {

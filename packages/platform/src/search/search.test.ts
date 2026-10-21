@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { compileFilter, type IndexDefinition, meiliSettings, SearchError, settingsDiff } from './index';
+import {
+  compileFilter,
+  type IndexDefinition,
+  meiliSettings,
+  requestSearchConfig,
+  SearchError,
+  settingsDiff,
+} from './index';
 
 const def: IndexDefinition = {
   uid: 'test',
@@ -88,5 +95,28 @@ describe('platform/search settings', () => {
       'searchableAttributes',
     ]);
     expect(settingsDiff({}, desired)).toEqual(Object.keys(desired));
+  });
+});
+
+describe('requestSearchConfig (S7-08)', () => {
+  const url = 'http://meili:7700';
+  it('[S7-08] a request app uses the search-only key; a deployed one without it fails to boot', () => {
+    expect(requestSearchConfig({ NODE_ENV: 'production', MEILI_URL: url, MEILI_SEARCH_KEY: 'sk' })).toEqual({
+      url,
+      apiKey: 'sk',
+    });
+    for (const env of [
+      { NODE_ENV: 'production' },
+      { NODE_ENV: 'test', DEPLOY_ENV: 'staging' },
+      { NODE_ENV: 'development', DEPLOY_ENV: 'production', MEILI_MASTER_KEY: 'mk' },
+    ]) {
+      expect(() => requestSearchConfig({ ...env, MEILI_URL: url })).toThrow(/MEILI_SEARCH_KEY/);
+    }
+    // The master key only on a developer's machine or in tests; nothing at all: no engine (the caller warns).
+    expect(requestSearchConfig({ NODE_ENV: 'test', MEILI_URL: url, MEILI_MASTER_KEY: 'mk' })).toEqual({
+      url,
+      apiKey: 'mk',
+    });
+    expect(requestSearchConfig({ NODE_ENV: 'development', MEILI_URL: url })).toBeNull();
   });
 });

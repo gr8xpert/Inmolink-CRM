@@ -44,6 +44,12 @@ export const identityEvents = {
   apiKeyCreated: defineEvent('identity.apiKey.created', 1, ApiKeyChange),
   apiKeyRotated: defineEvent('identity.apiKey.rotated', 1, ApiKeyChange.extend({ retiredPrefix: z.string().max(40) })),
   apiKeyRevoked: defineEvent('identity.apiKey.revoked', 1, ApiKeyChange.extend({ retiredPrefix: z.string().max(40) })),
+  /** A key's rate tier changed (S7-08, system only): its cached lookup leaves the shared cache. */
+  apiKeyTierChanged: defineEvent(
+    'identity.apiKey.tierChanged',
+    1,
+    z.object({ agencyId: z.uuid(), keyId: z.uuid(), prefix: z.string().max(40), tier: z.enum(['STANDARD', 'HIGH']) }),
+  ),
   /** The member can no longer log in or reach the agency. */
   memberDeactivated: defineEvent('identity.member.deactivated', 1, z.object({ agencyId: z.uuid(), userId: z.uuid() })),
 };

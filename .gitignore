@@ -23,6 +23,8 @@ secrets/
 *.dump
 *.bak
 dumps/
+# Load-test keys and k6 summaries (S7-08): secrets of the test stack or staging
+tests/load/.data/
 
 # Local tooling
 .claude/settings.local.json

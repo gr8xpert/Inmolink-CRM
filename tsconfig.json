@@ -17,6 +17,10 @@
     "tests/boundaries",
     "scripts/ci",
     "tests/ci",
-    "tests/ops"
+    "tests/ops",
+    "tests/load",
+    "scripts/perf/load-setup.ts",
+    "scripts/perf/load-sites.ts",
+    "scripts/perf/smoke.ts"
   ]
 }

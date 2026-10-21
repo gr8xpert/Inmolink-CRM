@@ -215,6 +215,35 @@ export async function revokeApiKey(ctx: Ctx, input: ApiKeyParams): Promise<void>
   );
 }
 
+/**
+ * Sets the rate tier of some of the agency's active keys (S7-08). Not an agency action — no member can choose a tier:
+ * only a system context (an ops script under `withSystem`, its reason in the actor) may, e.g. for the HIGH-tier keys of
+ * the website load test. One audit row per key; the event drops each key's cached lookup once committed.
+ */
+export async function setApiKeyRateTier(
+  ctx: Ctx,
+  input: { keyIds: readonly string[]; tier: ApiKeyRateTier; reason: string },
+): Promise<number> {
+  if (ctx.actor.kind !== 'system') throw new AppError('FORBIDDEN');
+  // The reason is a code (audit metadata holds no free text), e.g. `perf.load-test`.
+  if (!/^[a-z0-9][a-z0-9.:-]{0,63}$/.test(input.reason)) throw new TypeError('reason must be a short code');
+  const { agencyId } = ctx.tenant;
+  const changed = await keysRepo.setApiKeyRateTier(ctx.tx, agencyId, input.keyIds, input.tier, clock.now());
+  for (const key of changed) {
+    await emit(
+      ctx.tx,
+      identityEvents.apiKeyTierChanged({ agencyId, keyId: key.id, prefix: key.prefix, tier: input.tier }),
+    );
+    await compliance.audit(
+      ctx,
+      'identity.apiKey.tierChanged',
+      { type: 'apiKey', id: key.id },
+      { prefix: key.prefix, tier: input.tier, reason: input.reason },
+    );
+  }
+  return changed.length;
+}
+
 // ── Website API: authenticate a request ───────────────────────────────────────────────────────────
 
 /** Who is calling the website API, once the key checked out. */

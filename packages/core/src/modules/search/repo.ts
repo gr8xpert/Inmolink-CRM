@@ -1220,10 +1220,13 @@ export async function publicChangesPage(
       ? sql`and c.owner_agency_id = ${q.audience.ownerAgencyId}::uuid`
       : sql`and (c.owner_agency_id = ${q.audience.networkOf}::uuid or c.shared_all
                  or c.preferred_agency_ids @> array[${q.audience.networkOf}::uuid])`;
+  // `held`: the rows of transactions still in flight (usually none), by `tx_idx` from the horizon, capped at 1,000
+  // (S7-08 load test: as a join filter against `h` it was a sequential scan of the whole log on every request).
   const res = await tx.execute(sql`
     with h as (select pg_snapshot_xmin(pg_current_snapshot()) as xmin),
     held as (select coalesce(extract(epoch from now() - min(w.changed_at)), 0)::float8 as s
-               from ${listingPublicChanges} w, h where w.tx_id >= h.xmin)
+               from (select w.changed_at from ${listingPublicChanges} w
+                      where w.tx_id >= (select xmin from h) order by w.tx_id, w.seq limit 1000) w)
     select h.xmin::text as horizon, held.s as held, r.* from h cross join held
       left join lateral (
         select c.tx_id::text as tx, c.seq, c.target_id as "targetId", c.kind, c.owner_agency_id as "ownerAgencyId",
@@ -1268,12 +1271,19 @@ export async function publicChangesPage(
 export async function publicChangesStart(tx: Tx, since: Date, marginSeconds: number): Promise<ChangePosition> {
   const at = sql`${since.toISOString()}::timestamptz`;
   const margin = sql`make_interval(secs => ${marginSeconds})`;
+  // The window is a range on `changed_idx` with both bounds from `f` (a lateral parameter), then its smallest position
+  // (S7-08 load test + perf audit: with the sort and limit in one step the planner walked `tx_idx` from the log's
+  // start; with an upper bound unknown at plan time it chose a sequential scan for an old `since`). The window starts
+  // `margin` before the first change at or after `since` (nothing changed between `since` and it).
   const res = await tx.execute(sql`
     with f as (select c.changed_at from ${listingPublicChanges} c where c.changed_at >= ${at}
                 order by c.changed_at limit 1),
-    s as (select c.tx_id, c.seq from ${listingPublicChanges} c, f
-           where c.changed_at >= ${at} - ${margin} and c.changed_at < f.changed_at + ${margin}
-           order by c.tx_id, c.seq limit 1)
+    s as (select w.tx_id, w.seq from f cross join lateral (
+            select c.tx_id, c.seq from ${listingPublicChanges} c
+             where c.changed_at >= greatest(${at}, f.changed_at) - ${margin}
+               and c.changed_at < f.changed_at + ${margin}
+             offset 0) w
+           order by w.tx_id, w.seq limit 1)
     select coalesce((select tx_id::text from s), pg_snapshot_xmin(pg_current_snapshot())::text) as tx,
            coalesce((select seq - 1 from s), -1) as seq`);
   const row = res.rows[0] as { tx: string; seq: string | number };

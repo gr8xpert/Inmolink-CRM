@@ -614,3 +614,27 @@ export function searchConfigFromEnv(env: {
   if (!apiKey) throw new Error('search needs MEILI_MASTER_KEY or MEILI_SEARCH_KEY');
   return { url: env.MEILI_URL, apiKey };
 }
+
+/**
+ * Search for a request app (api, feed-api — S7-08 review: one wiring for both): the search-only key; the master key
+ * only on a developer's machine or in tests (never in a shared environment, whatever its NODE_ENV). A deployed app
+ * (`DEPLOY_ENV` staging or production, or NODE_ENV production) without `MEILI_SEARCH_KEY` fails to boot — feed-api
+ * once booted without an engine and answered every website search with a 500. Elsewhere: null (no engine; the caller
+ * logs it).
+ */
+export function requestSearchConfig(env: {
+  NODE_ENV: string;
+  DEPLOY_ENV?: string | undefined;
+  MEILI_URL: string;
+  MEILI_SEARCH_KEY?: string | undefined;
+  MEILI_MASTER_KEY?: string | undefined;
+}): MeiliConfig | null {
+  if (env.MEILI_SEARCH_KEY)
+    return searchConfigFromEnv({ MEILI_URL: env.MEILI_URL, MEILI_SEARCH_KEY: env.MEILI_SEARCH_KEY });
+  const deployed = env.DEPLOY_ENV === 'staging' || env.DEPLOY_ENV === 'production' || env.NODE_ENV === 'production';
+  if (deployed) throw new Error('MEILI_SEARCH_KEY is required in a deployed environment (website and network search)');
+  const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  return local && env.MEILI_MASTER_KEY
+    ? searchConfigFromEnv({ MEILI_URL: env.MEILI_URL, MEILI_MASTER_KEY: env.MEILI_MASTER_KEY })
+    : null;
+}

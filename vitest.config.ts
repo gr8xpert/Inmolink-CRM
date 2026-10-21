@@ -12,7 +12,7 @@ export default defineConfig({
         resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
         test: {
           name: 'workspace',
-          include: ['tests/workspace/**/*.test.ts'],
+          include: ['tests/workspace/**/*.test.ts', 'tests/load/**/*.test.ts'],
           environment: 'node',
         },
       },

@@ -90,6 +90,9 @@ describe('app entry points', () => {
       const metrics = await fetch(`http://127.0.0.1:${app.metrics}/metrics`);
       expect(metrics.status).toBe(200);
       expect(await metrics.text()).toContain(`service_name="${app.name}"`);
+      // [S7-08] the load test found feed-api booting without a search engine (every `/v2/listings` a 500): its
+      // readiness now reports the engine configured.
+      if (app.name === 'feed-api') expect(body).toMatchObject({ checks: { searchConfigured: 'ok' } });
 
       const exited = new Promise<number | null>((resolve) => child.once('exit', (code) => resolve(code)));
       child.kill('SIGTERM');

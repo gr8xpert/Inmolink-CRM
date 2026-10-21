@@ -171,6 +171,38 @@ describe('API keys', () => {
     expect(await refusal(as(f, (ctx) => identity.revokeApiKey(ctx, { keyId: issued.key.id })))).toBe('NOT_FOUND');
   });
 
+  it('[S7-08] only a system context sets the rate tier of a key: audited, and the event drops the cached lookup', async () => {
+    const f = await verifiedFounder();
+    const issued = await as(f, (ctx) => identity.createApiKey(ctx, SECRET_KEY));
+    expect((await authenticate(issued.secret)).rateTier).toBe('STANDARD');
+    const set = (ctx: Ctx) =>
+      identity.setApiKeyRateTier(ctx, { keyIds: [issued.key.id], tier: 'HIGH', reason: 'perf.load-test' });
+    // An agency admin cannot choose a tier.
+    expect(await refusal(as(f, set))).toBe('FORBIDDEN');
+    const changed = await withSystem('api keys test: tier', (tx) =>
+      set({
+        tx,
+        tenant: { agencyId: f.agencyId, verified: true, plan: 'none', locales: ['en'] },
+        actor: { kind: 'system', reason: 'perf.load-test' },
+        locale: 'en',
+        requestId: newId(),
+        clientMode: false,
+      }),
+    );
+    expect(changed).toBe(1);
+    await deliver('identity.apiKey.tierChanged', issued.key.id);
+    cache.clearLocal();
+    expect((await authenticate(issued.secret)).rateTier).toBe('HIGH');
+    const audit = await withSystem('api keys test: audit', (tx) =>
+      tx.execute<{ actor_kind: string; metadata: { tier: string; reason: string } }>(
+        sql`select actor_kind, metadata from audit_logs
+             where type = 'identity.apiKey.tierChanged' and target_id = ${issued.key.id}`,
+      ),
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0]).toMatchObject({ actor_kind: 'system', metadata: { tier: 'HIGH', reason: 'perf.load-test' } });
+  });
+
   it('[S1-05] the revocation event drops the shared cache entry', async () => {
     const f = await verifiedFounder();
     const issued = await as(f, (ctx) => identity.createApiKey(ctx, SECRET_KEY));
