@@ -34,3 +34,16 @@ scrape_configs:
         labels: { instance: {{ h }}, role: replica }
 {% endfor %}
 
+  # S7-F7: one redis_exporter per Redis — redis-queue on the db primary (Ansible role redis_queue; BullMQ and the
+  # rate-limit counters, noeviction) and redis-cache on the app host (Kamal accessory redis-cache-exporter, LRU).
+  # Feeds RedisMemoryHigh / RedisMemoryCritical (infra/monitoring/rules/redis.yml); `instance` names the Redis.
+  - job_name: redis
+    static_configs:
+{% for h in groups['db_primary'] %}
+      - targets: ["{{ hostvars[h].wg_ip }}:{{ redis_exporter_port }}"]
+        labels: { instance: redis-queue, host: {{ h }} }
+{% endfor %}
+      # The one host that runs the api's redis-cache accessory (and its exporter): `redis_cache_host` per environment.
+      - targets: ["{{ hostvars[redis_cache_host].wg_ip }}:{{ redis_cache_exporter_port }}"]
+        labels: { instance: redis-cache, host: {{ redis_cache_host }} }
+

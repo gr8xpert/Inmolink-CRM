@@ -11,10 +11,17 @@
  *   cursor) flags the caller (alert `WebsiteScrapingDetected`, action `flagged`) and its deep pages are counted: past
  *   `deepPerHour` it is throttled for an hour (`throttled`). A publishable-key browser is also flagged and throttled on
  *   paging volume; a publishable key's key-wide paging volume only alerts. Volume never flags a secret key.
+ * - **Filter-slicing** (S7-F7): distinct filtered first pages of `/v2/listings` per window (a HyperLogLog per identity)
+ *   flag and then throttle a publishable browser; key-wide they only alert.
+ * - **Detail / sitemap sync** (S7-F7): detail and sitemap requests per window, net of the UPSERTs the caller read from
+ *   `/v2/changes` (a credit), flag and then throttle a publishable browser; key-wide they only alert.
+ * - **Per-agency daily quota** (S7-F7): keyed by the agency over all its sites and keys (rotation does not reset it),
+ *   enforced for secret keys and counted last; publishable keys count apart and only alert.
  * - **Suspicious** (honeytokens, `no-store`): only a caller that tripped a flag — this request is deep, or its browser
  *   is flagged.
  */
 
+import { WebsiteDevelopmentsQuery, WebsiteListingsQuery } from '@inmolink/contracts';
 import type {
   RateLimitCheck,
   RateLimiter,
@@ -37,6 +44,10 @@ export interface WebsiteRequestFacts {
   listingsCursor?: string;
   /** A website form post (S7-05: lead or viewing request): the form-spam limits apply too. */
   write?: boolean;
+  /** A filtered first page of `/v2/listings` or `/v2/developments`: its `sliceSignature` (S7-F7 filter-slicing). */
+  filterSignature?: string;
+  /** A detail or sitemap request (S7-F7 sync counting). */
+  sync?: boolean;
   requestId: string;
 }
 
@@ -67,6 +78,72 @@ export interface WebsiteCheck {
   rule: RateLimitRule;
   identity: string;
   role: Role;
+  /** Counts distinct values (S7-F7 filter signatures), not requests. */
+  distinct?: string;
+  /** Allowance raised by the identity's change-feed credit (S7-F7 sync counting). */
+  creditPool?: string;
+  /** Only reads whether the rule's penalty runs (a flag set on another request kind; S7-F7). */
+  peek?: boolean;
+}
+
+/** The credit pool a secret key's `/v2/changes` UPSERTs go to and its key-wide sync rule reads (S7-F7). */
+export const SYNC_CREDIT_POOL = 'feed.sync';
+
+/** Search fields that slice the inventory (S7-F7), per endpoint; `sort` is added to a filtered listings signature. */
+const SLICE_FIELDS = {
+  listings: [
+    'q',
+    'kind',
+    'developmentId',
+    'development',
+    'status',
+    'transaction',
+    'types',
+    'locations',
+    'features',
+    'priceMin',
+    'priceMax',
+    'bedsMin',
+    'bathsMin',
+    'areaMin',
+    'areaMax',
+    'bbox',
+  ],
+  developments: ['locations'],
+} as const;
+
+export type SliceEndpoint = keyof typeof SLICE_FIELDS;
+
+/** One parsed value in canonical form: numbers as numbers print, text case-folded, lists sorted (a box keeps order). */
+function canonical(field: string, value: unknown): string {
+  if (Array.isArray(value)) {
+    const items = value.map((v) => canonical(field, v));
+    return field === 'bbox' ? items.join(',') : [...new Set(items)].sort().join(',');
+  }
+  if (typeof value === 'number') return String(value);
+  return String(value).trim().toLowerCase();
+}
+
+/**
+ * The slice signature of a first page (S7-F7 filter-slicing): the request's query **as the endpoint parses it** (the
+ * contract's Zod schema), only the fields that filter the inventory, in canonical form (`0100000` = `100000`,
+ * `types=b,a` = `types=a,b`, text case-folded), plus the sort for listings. Unknown parameters cannot inflate it: the
+ * schemas are strict, so such a request is refused (400) and has no signature; nor can `limit`, `lang`, `facets`, `_k`.
+ * Undefined without a filter (an unfiltered first page slices nothing).
+ */
+export function sliceSignature(endpoint: SliceEndpoint, rawQuery: unknown): string | undefined {
+  const schema = endpoint === 'listings' ? WebsiteListingsQuery : WebsiteDevelopmentsQuery;
+  const parsed = schema.safeParse(rawQuery ?? {});
+  if (!parsed.success) return undefined;
+  const query = parsed.data as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const field of SLICE_FIELDS[endpoint]) {
+    const value = query[field];
+    if (value !== undefined) parts.push(`${field}=${canonical(field, value)}`);
+  }
+  if (parts.length === 0) return undefined;
+  if (endpoint === 'listings') parts.push(`sort=${String(query.sort)}`);
+  return `${endpoint}|${parts.join('&')}`;
 }
 
 const DAY_SECONDS = 86_400;
@@ -82,7 +159,7 @@ export function depthOf(key: ApiKeyPrincipal, cursor: string | undefined): numbe
 /** The rules one request is checked against (in this order: the key's tier first). */
 export function websiteRequestChecks(
   key: ApiKeyPrincipal,
-  facts: Pick<WebsiteRequestFacts, 'ip' | 'paged' | 'write'> & { depth?: number },
+  facts: Pick<WebsiteRequestFacts, 'ip' | 'paged' | 'write' | 'filterSignature' | 'sync'> & { depth?: number },
 ): WebsiteCheck[] {
   const l = websiteLimits();
   const tier = tierName(key.rateTier);
@@ -115,6 +192,20 @@ export function websiteRequestChecks(
         ...alertBox,
       },
       identity: key.keyId,
+      role: secret ? 'quota' : 'observe',
+    },
+    // S7-F7: the agency's day over all its sites and keys (keyed by the agency: a new or rotated key starts no new
+    // budget). Publishable traffic counts apart and only alerts, so browsers cannot lock out the agency's servers.
+    {
+      rule: {
+        name: secret ? 'feed.agency.quota' : 'feed.agency.pk.day',
+        scope: 'tenant',
+        limit: l.agencyDailyQuota,
+        windowSeconds: DAY_SECONDS,
+        fixedWindow: true,
+        ...(secret ? {} : { penaltySeconds: l.pagingPenaltySeconds }),
+      },
+      identity: key.agencyId,
       role: secret ? 'quota' : 'observe',
     },
   ];
@@ -182,7 +273,18 @@ export function websiteRequestChecks(
       );
     }
   }
+  if (facts.filterSignature !== undefined) checks.push(...sliceChecks(key, browser, facts.filterSignature));
+  if (facts.sync) checks.push(...syncChecks(key, browser));
   if (!facts.paged) return checks;
+  if (!secret) {
+    // S7-F7: a browser flagged for slicing or a detail crawl (on other requests) is suspicious on its paged ones —
+    // honeytokens on its deep pages, never cached. Only its penalty is read (same rule, same keys); nothing counted.
+    const [sliceFlag] = sliceChecks(key, browser, '');
+    const [syncFlag] = syncChecks(key, browser);
+    for (const flag of [sliceFlag, syncFlag]) {
+      if (flag) checks.push({ rule: flag.rule, identity: browser, role: 'flag', peek: true });
+    }
+  }
   const deepIdentity = secret ? key.keyId : browser;
   const deepScope: RateScope = secret ? 'key' : 'ip';
   if ((facts.depth ?? 0) >= l.deepPage) {
@@ -253,6 +355,103 @@ export function websiteRequestChecks(
   return checks;
 }
 
+/** Filter-slicing (S7-F7): distinct filtered first pages per browser (flag, throttle) and key-wide (alert). */
+function sliceChecks(key: ApiKeyPrincipal, browser: string, signature: string): WebsiteCheck[] {
+  const l = websiteLimits();
+  const window = { windowSeconds: l.sliceWindowSeconds, fixedWindow: true, penaltySeconds: l.pagingPenaltySeconds };
+  const checks: WebsiteCheck[] = [];
+  if (key.kind !== 'SECRET') {
+    checks.push(
+      {
+        rule: { name: 'feed.slice.browser.flag', scope: 'ip', limit: l.sliceBrowserFlag, ...window },
+        identity: browser,
+        role: 'flag',
+        distinct: signature,
+      },
+      {
+        rule: { name: 'feed.slice.browser', scope: 'ip', limit: l.sliceBrowserLimit, ...window },
+        identity: browser,
+        role: 'throttle',
+        distinct: signature,
+      },
+    );
+  }
+  checks.push({
+    rule: {
+      name: `feed.slice.key.${tierName(key.rateTier)}`,
+      scope: 'key',
+      limit: l.slicePerKey[key.rateTier],
+      ...window,
+    },
+    identity: key.keyId,
+    role: 'observe',
+    distinct: signature,
+  });
+  return checks;
+}
+
+/**
+ * Detail / sitemap sync (S7-F7): per browser (flag, throttle) and key-wide (alert); a secret key's allowance is raised
+ * by the change-feed entries it read (`creditChangeFeed`). Publishable keys get no credit.
+ */
+function syncChecks(key: ApiKeyPrincipal, browser: string): WebsiteCheck[] {
+  const l = websiteLimits();
+  const window = { windowSeconds: l.syncWindowSeconds, penaltySeconds: l.pagingPenaltySeconds };
+  const checks: WebsiteCheck[] = [];
+  const secret = key.kind === 'SECRET';
+  if (!secret) {
+    checks.push(
+      // No change-feed credit for browsers: a site syncs from `/v2/changes` with its secret key (WordPress plugin).
+      {
+        rule: { name: 'feed.sync.browser.flag', scope: 'ip', limit: l.syncBrowserFlag, ...window },
+        identity: browser,
+        role: 'flag',
+      },
+      {
+        rule: { name: 'feed.sync.browser', scope: 'ip', limit: l.syncBrowserLimit, ...window },
+        identity: browser,
+        role: 'throttle',
+      },
+    );
+  }
+  checks.push({
+    rule: {
+      name: `feed.sync.key.${tierName(key.rateTier)}`,
+      scope: 'key',
+      limit: l.syncPerKey[key.rateTier],
+      ...window,
+    },
+    identity: key.keyId,
+    role: 'observe',
+    ...(secret ? { creditPool: SYNC_CREDIT_POOL } : {}),
+  });
+  return checks;
+}
+
+/**
+ * Credits a **secret** key with the change-feed entries it was sent (S7-F7): one detail per UPSERT (`ref` +
+ * `changedAt`) it has not been credited for within `syncCreditSeenSeconds` — re-reading a page, or the whole feed with
+ * an old `since`, earns nothing again — for `syncWindowSeconds`, capped at `syncCreditCap`. Publishable keys earn
+ * nothing (a browser has no reason to sync). Fire-and-forget from the route: never throws (the limiter counts and logs
+ * failures). Answers the credits granted.
+ */
+export async function creditChangeFeed(
+  limiter: RateLimiter,
+  key: ApiKeyPrincipal,
+  changes: readonly { ref: string; change: string; changedAt: string }[],
+): Promise<number> {
+  if (key.kind !== 'SECRET') return 0;
+  const items = changes.filter((c) => c.change === 'UPSERT').map((c) => `${c.ref}|${c.changedAt}`);
+  if (items.length === 0) return 0;
+  const l = websiteLimits();
+  return limiter.credit(SYNC_CREDIT_POOL, key.keyId, items, {
+    slot: key.agencyId,
+    cap: l.syncCreditCap,
+    ttlSeconds: l.syncWindowSeconds,
+    seenSeconds: Math.max(l.syncCreditSeenSeconds, l.syncWindowSeconds),
+  });
+}
+
 const ALERT_ACTION = { throttle: 'throttled', flag: 'flagged', observe: 'observed' } as const;
 
 /**
@@ -273,6 +472,9 @@ export async function checkWebsiteLimits(
     identity: c.identity,
     observe: c.role === 'flag' || c.role === 'observe',
     countLast: c.role === 'quota',
+    ...(c.distinct !== undefined ? { distinct: c.distinct } : {}),
+    ...(c.creditPool !== undefined ? { creditPool: c.creditPool } : {}),
+    ...(c.peek === true ? { peek: true } : {}),
   }));
   const results = await limiter.consumeMany(calls, { slot: key.agencyId });
   let suspicious = facts.paged && depth >= l.deepPage;
@@ -284,7 +486,7 @@ export async function checkWebsiteLimits(
         kind: 'scraping',
         rule: check.rule.name,
         action: ALERT_ACTION[check.role as keyof typeof ALERT_ACTION],
-        scope: check.rule.scope === 'ip' ? 'browser' : 'key',
+        scope: check.rule.scope === 'ip' ? 'browser' : check.rule.scope === 'tenant' ? 'agency' : 'key',
         keyId: key.keyId,
         keyKind: key.kind,
         agencyId: key.agencyId,
@@ -292,7 +494,9 @@ export async function checkWebsiteLimits(
         requestId: facts.requestId,
       });
     }
-    if (check.role === 'flag' && (result.tripped || result.penalized)) suspicious = true;
+    // Suspicion only on paged requests (S7-06 Decision 3): a first page is the key's shared answer and carries no
+    // honeytoken; a flag tripped on one (slicing) or on a detail (sync) shows on the browser's paged requests (peeks).
+    if (check.role === 'flag' && facts.paged && (result.tripped || result.penalized)) suspicious = true;
     if (result.allowed || check.role === 'flag' || check.role === 'observe') return;
     if (!worst || result.retryAfterSeconds > worst.result.retryAfterSeconds) worst = { check, result };
   });

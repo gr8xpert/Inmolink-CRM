@@ -51,6 +51,7 @@ const result = () => ({
 });
 const limiter = {
   consume: async () => result(),
+  credit: async () => undefined,
   consumeMany: async (checks: readonly unknown[]) => checks.map(() => result()),
 } as unknown as RateLimiter;
 

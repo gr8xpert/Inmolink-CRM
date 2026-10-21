@@ -39,7 +39,11 @@ export {
 export { LEAD_TURNSTILE_ACTION, type LeadInput, type LeadRequestFacts, submitLead } from './leads';
 export {
   checkWebsiteLimits,
+  creditChangeFeed,
   depthOf,
+  type SliceEndpoint,
+  SYNC_CREDIT_POOL,
+  sliceSignature,
   type WebsiteCheck,
   type WebsiteLimitDecision,
   type WebsiteRequestFacts,

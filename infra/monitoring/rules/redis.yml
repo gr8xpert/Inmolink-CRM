@@ -1,10 +1,13 @@
 # Redis memory alerts (S7-04 review). Loaded by Prometheus on the monitoring host (Ansible role `monitoring`). Unit tests:
 # redis.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
-# Metrics: redis_exporter (oliver006/redis_exporter) next to each Redis — NOT deployed yet: the scrape job is follow-up
-# S7-F7 (until then these rules have no series and never fire).
-#   redis_memory_used_bytes  used memory    redis_memory_max_bytes  `maxmemory` (0 = unlimited)
-# redis-queue holds BullMQ queues and the rate-limit counters (S7-04: about 760 bytes per website browser for up to a
-# day) with `maxmemory-policy noeviction`: once full, writes fail — queues stop and website limits fail open.
+# Metrics: redis_exporter (oliver006/redis_exporter) next to each Redis (S7-F7), Prometheus job `redis`
+# (roles/monitoring prometheus.yml.j2): redis-queue (Ansible role redis_queue, `instance="redis-queue"`) and
+# redis-cache (Kamal accessory redis-cache-exporter, `instance="redis-cache"`).
+#   redis_memory_used_bytes  used memory    redis_memory_max_bytes  `maxmemory` from INFO (0 = unlimited: never alerts;
+#   redis-queue's is `redis_queue_maxmemory` per environment, redis-cache's 4 GB)
+# redis-queue holds BullMQ queues and the rate-limit counters (S7-04 / S7-F7: about 1.4 KB per active website browser,
+# STATUS › Decisions S7-F7) with `maxmemory-policy noeviction`: once full, writes fail — queues stop and website
+# limits fail open. redis-cache evicts (allkeys-lru): high there means the cache is too small, not an outage.
 groups:
   - name: redis
     rules:
@@ -23,4 +26,13 @@ groups:
           severity: critical
         annotations:
           summary: "Redis {{ $labels.instance }} is at {{ $value | humanizePercentage }} of maxmemory (noeviction: writes will fail)"
+          runbook: docs/runbooks/website-api.md#redis-memory
+      # S7-F7: no series means the memory alerts above are blind — the exporter is down, or its Redis does not answer it.
+      - alert: RedisExporterDown
+        expr: (up{job="redis"} == 0) or (redis_up == 0)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis {{ $labels.instance }}: no metrics (exporter down or Redis not answering) — the memory alerts are blind"
           runbook: docs/runbooks/website-api.md#redis-memory

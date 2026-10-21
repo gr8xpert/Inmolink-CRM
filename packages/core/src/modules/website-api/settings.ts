@@ -6,11 +6,12 @@ import { DEFAULT_WEBSITE_LIMITS, type WebsiteLimits } from './config';
 export type WebsiteAlert =
   | {
       kind: 'scraping';
-      /** The paging rule that tripped (`feed.paging.*`). */
+      /** The rule that tripped (`feed.paging.*`, `feed.deep*`, `feed.slice.*`, `feed.sync.*`, `feed.agency.*`, …). */
       rule: string;
       /** `flagged`: suspected scraper (honeytokens on its deep pages); `throttled`: in the penalty box; `observed`: alert only. */
       action: 'flagged' | 'throttled' | 'observed';
-      scope: 'key' | 'browser';
+      /** `agency`: the agency-wide day over all its keys (S7-F7). */
+      scope: 'key' | 'browser' | 'agency';
       keyId: string;
       keyKind: 'SECRET' | 'PUBLISHABLE';
       agencyId: string;

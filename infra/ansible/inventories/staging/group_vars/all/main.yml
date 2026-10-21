@@ -9,3 +9,8 @@ postgres_max_connections: 200
 walg_s3_prefix: s3://inmolink-backups-staging/pg/main
 walg_retain_full: 7
 alert_email_to: ops@inmolink.es
+# redis-queue ceiling (one shared box): BullMQ + the website rate-limit counters (S7-F7 memory math: STATUS › Decisions).
+# The app host running the api's redis-cache accessory and its exporter (infra/kamal/api.staging.yml), scraped by
+# Prometheus job `redis` (S7-F7).
+redis_cache_host: staging-1
+redis_queue_maxmemory: 1gb

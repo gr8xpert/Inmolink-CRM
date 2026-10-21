@@ -12,7 +12,13 @@ import {
   isHoneytokenRef,
   withHoneytoken,
 } from '../honeytokens';
-import { checkWebsiteLimits, websiteRequestChecks } from '../limits';
+import {
+  checkWebsiteLimits,
+  creditChangeFeed,
+  SYNC_CREDIT_POOL,
+  sliceSignature,
+  websiteRequestChecks,
+} from '../limits';
 import { configureWebsiteApi, type WebsiteAlert } from '../settings';
 
 /** Quotas, paging rules and honeytokens (S7-04) without Redis: a scripted limiter. */
@@ -66,6 +72,7 @@ describe('website API limits (S7-04)', () => {
       'feed.agency:enforce',
       'feed.burst.standard:enforce',
       'feed.quota.standard:quota',
+      'feed.agency.quota:quota',
     ]);
     // Volume never flags a secret key: paging adds nothing until a cursor chain is deep.
     expect(names(secret, true, 49)).toEqual(names(secret, false));
@@ -75,9 +82,13 @@ describe('website API limits (S7-04)', () => {
       'feed.agency:enforce',
       'feed.burst.standard:observe',
       'feed.quota.standard:observe',
+      'feed.agency.pk.day:observe',
       'feed.browser:enforce',
       'feed.browser.burst:enforce',
       'feed.browser.day:quota',
+      // S7-F7: peeks at the browser's slicing and sync flags.
+      'feed.slice.browser.flag:flag',
+      'feed.sync.browser.flag:flag',
       'feed.paging.browser.flag:flag',
       'feed.paging.browser:throttle',
       'feed.paging.pk.standard:observe',
@@ -211,6 +222,219 @@ describe('website API limits (S7-04)', () => {
       facts,
     );
     expect(observed).toEqual({ allowed: true, suspicious: false });
+  });
+});
+
+describe('website API extraction budgets (S7-F7)', () => {
+  const names = (k: ApiKeyPrincipal, extra: { filterSignature?: string; sync?: boolean }) =>
+    websiteRequestChecks(k, { ip: facts.ip, paged: false, ...extra }).map((c) => `${c.rule.name}:${c.role}`);
+
+  it('[S7-F7] the slice signature: the parsed filters and sort in canonical form; junk and no-op parameters change nothing', () => {
+    const T1 = '01900000-0000-7000-8000-0000000000e1';
+    const T2 = '01900000-0000-7000-8000-0000000000e2';
+    const L = '01900000-0000-7000-8000-0000000000f1';
+    const a = sliceSignature('listings', { types: `${T2},${T1}`, locations: L, priceMin: '100000' });
+    expect(a).toBe(`listings|types=${T1},${T2}&locations=${L}&priceMin=100000&sort=newest`);
+    // No-op and canonical-equal parameters: the same signature.
+    for (const same of [
+      { types: `${T1}, ${T2} ,${T1}`, locations: L, priceMin: '0100000' },
+      {
+        types: `${T1},${T2}`,
+        locations: L.toUpperCase(),
+        priceMin: '100000',
+        limit: '100',
+        lang: 'es',
+        facets: 'beds',
+      },
+      { types: `${T1},${T2}`, locations: L, priceMin: '100000', sort: 'newest', _k: 'a'.repeat(22) },
+    ]) {
+      expect(sliceSignature('listings', same)).toBe(a);
+    }
+    // Junk parameters cannot inflate the count: the strict schema refuses the request (400), so it has no signature.
+    for (const junk of [{ _: '1700000000' }, { utm_source: 'x' }, { zz: '1' }]) {
+      expect(sliceSignature('listings', { types: T1, ...junk })).toBeUndefined();
+    }
+    // Another band or another sort is another slice; the box keeps its order (north,west,south,east).
+    expect(sliceSignature('listings', { types: `${T1},${T2}`, locations: L, priceMin: '200000' })).not.toBe(a);
+    expect(
+      sliceSignature('listings', { types: `${T1},${T2}`, locations: L, priceMin: '100000', sort: 'price_asc' }),
+    ).toBe(`listings|types=${T1},${T2}&locations=${L}&priceMin=100000&sort=price_asc`);
+    expect(sliceSignature('listings', { bbox: '37,-5,36,-4' })).toBe('listings|bbox=37,-5,36,-4&sort=newest');
+    expect(sliceSignature('listings', { q: 'Sea VIEW ' })).toBe('listings|q=sea view&sort=newest');
+    // No filter: an unfiltered first page slices nothing (whatever its sort).
+    expect(sliceSignature('listings', { limit: '24', sort: 'price_asc', facets: 'beds' })).toBeUndefined();
+    expect(sliceSignature('listings', undefined)).toBeUndefined();
+    // Developments: by location, their own namespace.
+    expect(sliceSignature('developments', { locations: L, limit: '10' })).toBe(`developments|locations=${L}`);
+    expect(sliceSignature('developments', {})).toBeUndefined();
+  });
+
+  it('[S7-F7] filter-slicing: distinct filtered first pages flag and throttle a browser; key-wide they only alert', () => {
+    expect(names(widget, { filterSignature: 'types=a' }).slice(-3)).toEqual([
+      'feed.slice.browser.flag:flag',
+      'feed.slice.browser:throttle',
+      'feed.slice.key.standard:observe',
+    ]);
+    // A secret key's volume never flags it: key-wide alert only.
+    expect(names(secret, { filterSignature: 'types=a' }).at(-1)).toBe('feed.slice.key.standard:observe');
+    expect(names(secret, { filterSignature: 'types=a' }).some((n) => n.startsWith('feed.slice.browser'))).toBe(false);
+    const checks = websiteRequestChecks(widget, { ip: facts.ip, paged: false, filterSignature: 'types=a' });
+    for (const c of checks.filter((x) => x.rule.name.startsWith('feed.slice.'))) {
+      expect(c.distinct).toBe('types=a');
+      expect(c.rule).toMatchObject({ fixedWindow: true, windowSeconds: 3_600, penaltySeconds: 3_600 });
+    }
+    expect(checks.find((c) => c.rule.name === 'feed.slice.browser.flag')).toMatchObject({
+      identity: `${widget.keyId}|${facts.ip}`,
+      rule: { limit: 150 },
+    });
+  });
+
+  it('[S7-F7] detail / sitemap sync: per browser flag and throttle, key-wide alert; only a secret key has a change-feed credit', () => {
+    expect(names(widget, { sync: true }).slice(-3)).toEqual([
+      'feed.sync.browser.flag:flag',
+      'feed.sync.browser:throttle',
+      'feed.sync.key.standard:observe',
+    ]);
+    expect(names(secret, { sync: true }).at(-1)).toBe('feed.sync.key.standard:observe');
+    const widgetChecks = websiteRequestChecks(widget, { ip: facts.ip, paged: false, sync: true });
+    expect(widgetChecks.filter((c) => c.creditPool !== undefined)).toEqual([]);
+    const secretSync = websiteRequestChecks(secret, { ip: facts.ip, paged: false, sync: true }).at(-1);
+    expect(secretSync).toMatchObject({ identity: secret.keyId, creditPool: SYNC_CREDIT_POOL });
+  });
+
+  it('[S7-F7] change-feed credit: secret keys only, one item per UPSERT (reference and change time)', async () => {
+    const granted: { pool: string; identity: string; items: readonly string[]; slot?: string }[] = [];
+    const limiter = {
+      credit: async (pool: string, identity: string, items: readonly string[], o: { slot?: string }) => {
+        granted.push({ pool, identity, items, slot: o.slot });
+        return items.length;
+      },
+    } as unknown as RateLimiter;
+    const page = [
+      { ref: 'SS-1', change: 'UPSERT', changedAt: '2026-10-21T10:00:00.000Z' },
+      { ref: 'SS-2', change: 'REMOVE', changedAt: '2026-10-21T10:00:01.000Z' },
+      { ref: 'SS-3', change: 'UPSERT', changedAt: '2026-10-21T10:00:02.000Z' },
+    ];
+    expect(await creditChangeFeed(limiter, widget, page)).toBe(0);
+    expect(await creditChangeFeed(limiter, secret, [])).toBe(0);
+    expect(await creditChangeFeed(limiter, secret, page)).toBe(2);
+    expect(granted).toEqual([
+      {
+        pool: SYNC_CREDIT_POOL,
+        identity: secret.keyId,
+        items: ['SS-1|2026-10-21T10:00:00.000Z', 'SS-3|2026-10-21T10:00:02.000Z'],
+        slot: secret.agencyId,
+      },
+    ]);
+  });
+
+  it('[S7-F7] the agency day is keyed by the agency: enforced and counted last for secret keys, alert only for publishable ones', async () => {
+    const day = websiteRequestChecks(secret, { ip: facts.ip, paged: false }).find(
+      (c) => c.rule.name === 'feed.agency.quota',
+    );
+    expect(day).toMatchObject({
+      identity: secret.agencyId,
+      role: 'quota',
+      rule: { scope: 'tenant', windowSeconds: 86_400, fixedWindow: true, limit: 2_000_000 },
+    });
+    // Another key of the agency (rotated or new) counts against the same identity.
+    const other = { ...secret, keyId: '01900000-0000-7000-8000-000000000009' };
+    expect(
+      websiteRequestChecks(other, { ip: facts.ip, paged: false }).find(
+        (c) => c.role === 'quota' && c.rule.scope === 'tenant',
+      )?.identity,
+    ).toBe(secret.agencyId);
+    const midnight = Date.UTC(2026, 9, 22);
+    const refused = await checkWebsiteLimits(
+      scripted({ 'feed.agency.quota': { allowed: false, remaining: 0, retryAfterSeconds: 60, resetAtMs: midnight } }),
+      secret,
+      { ...facts, paged: false },
+    );
+    expect(refused).toMatchObject({ allowed: false, kind: 'quota', scope: 'tenant', resetAtMs: midnight });
+    const seen: { checks: RateLimitCheck[] }[] = [];
+    await checkWebsiteLimits(scripted({}, seen), secret, { ...facts, paged: false });
+    expect(seen[0]?.checks.find((c) => c.rule.name === 'feed.agency.quota')).toMatchObject({ countLast: true });
+    // Publishable keys: their own agency-wide counter, alert only.
+    const observed = await checkWebsiteLimits(
+      scripted({ 'feed.agency.pk.day': { allowed: false, remaining: 0, retryAfterSeconds: 60, tripped: true } }),
+      widget,
+      { ...facts, paged: false },
+    );
+    expect(observed).toEqual({ allowed: true, suspicious: false });
+    expect(alerts).toEqual([
+      expect.objectContaining({ action: 'observed', scope: 'agency', rule: 'feed.agency.pk.day' }),
+    ]);
+  });
+
+  it('[S7-F7] a tripped slicing or sync flag alerts (and throttles past its limit); key-wide budgets only alert', async () => {
+    const trip = { allowed: false, remaining: 0, retryAfterSeconds: 3_600, tripped: true };
+    expect(
+      await checkWebsiteLimits(scripted({ 'feed.slice.browser.flag': trip }), widget, {
+        ...facts,
+        paged: false,
+        filterSignature: 'types=a',
+      }),
+      // Alerted; suspicious on its paged requests (peeks), not on this first page.
+    ).toEqual({ allowed: true, suspicious: false });
+    expect(
+      await checkWebsiteLimits(scripted({ 'feed.sync.browser': trip }), widget, { ...facts, paged: false, sync: true }),
+    ).toMatchObject({ allowed: false, kind: 'rate', scope: 'ip' });
+    expect(
+      await checkWebsiteLimits(scripted({ 'feed.slice.key.standard': trip }), secret, {
+        ...facts,
+        paged: false,
+        filterSignature: 'types=a',
+      }),
+    ).toEqual({ allowed: true, suspicious: false });
+    expect(alerts.map((a) => (a.kind === 'scraping' ? `${a.rule}:${a.action}:${a.scope}` : a.kind))).toEqual([
+      'feed.slice.browser.flag:flagged:browser',
+      'feed.sync.browser:throttled:browser',
+      'feed.slice.key.standard:observed:key',
+    ]);
+    // Sent to the limiter with what it counts.
+    const seen: { checks: RateLimitCheck[] }[] = [];
+    await checkWebsiteLimits(scripted({}, seen), widget, {
+      ...facts,
+      paged: false,
+      filterSignature: 'types=a',
+      sync: true,
+    });
+    const sent = Object.fromEntries((seen[0]?.checks ?? []).map((c) => [c.rule.name, c]));
+    expect(sent['feed.slice.browser']).toMatchObject({ distinct: 'types=a', observe: false });
+    expect(sent['feed.slice.key.standard']).toMatchObject({ distinct: 'types=a', observe: true });
+    expect(sent['feed.sync.browser.flag']).toMatchObject({ observe: true });
+    expect(sent['feed.sync.browser.flag']?.creditPool).toBeUndefined();
+  });
+
+  it('[S7-F7] a browser flagged for slicing or sync is suspicious on its paged requests (peeks), never on a first page', async () => {
+    const paged = websiteRequestChecks(widget, { ip: facts.ip, paged: true });
+    const peeks = paged.filter((c) => c.peek === true);
+    expect(peeks.map((c) => `${c.rule.name}:${c.role}`)).toEqual([
+      'feed.slice.browser.flag:flag',
+      'feed.sync.browser.flag:flag',
+    ]);
+    // The same rule (name, scope, identity, penalty) as the counting one, so the same penalty key.
+    const slicing = websiteRequestChecks(widget, { ip: facts.ip, paged: false, filterSignature: 'x' }).find(
+      (c) => c.rule.name === 'feed.slice.browser.flag',
+    );
+    expect(peeks[0]?.rule).toEqual(slicing?.rule);
+    expect(peeks[0]?.identity).toBe(slicing?.identity);
+    // Secret keys have no browser flags to peek at.
+    expect(websiteRequestChecks(secret, { ip: facts.ip, paged: true }).some((c) => c.peek)).toBe(false);
+    const penalized = { allowed: false, remaining: 0, retryAfterSeconds: 99, penalized: true };
+    expect(await checkWebsiteLimits(scripted({ 'feed.slice.browser.flag': penalized }), widget, facts)).toEqual({
+      allowed: true,
+      suspicious: true,
+    });
+    // A first page (not paged) never becomes suspicious: it is the key's shared answer (S7-06).
+    expect(
+      await checkWebsiteLimits(scripted({ 'feed.slice.browser.flag': penalized }), widget, {
+        ...facts,
+        paged: false,
+        filterSignature: 'x',
+      }),
+    ).toEqual({ allowed: true, suspicious: false });
+    expect(alerts).toEqual([]);
   });
 });
 

@@ -174,3 +174,127 @@ it('[S7-04] exactly one Redis call and no database statement per request; Redis 
   expect(perBrowser.keys).toBeLessThanOrEqual(5);
   expect(perBrowser.bytes).toBeLessThan(1_000);
 });
+
+it('[S7-F7] extraction budgets stay in the one call: filtered first pages and details, no statement; memory per browser and key', async () => {
+  const N = 200;
+  const own = new RateLimiter({
+    redis: rateLimitConnection(),
+    prefix: `${prefix}:f7`,
+    logger: createLogger({ level: 'silent' }),
+    hmacKey: 'perf-rate-limit-hmac-key-0123456789abcdef',
+  });
+  websiteApi.configureWebsiteApi({
+    mediaBaseUrl: 'https://media.example',
+    cursorKey: 'perf-cursor-key-0123456789abcdef0123',
+    limits: {
+      dailyQuota: { STANDARD: 1e9, HIGH: 1e9 },
+      burst: { STANDARD: 1e9, HIGH: 1e9 },
+      browserPerMinute: 1e9,
+      browserBurst: 1e9,
+      browserPerDay: 1e9,
+      sliceBrowserFlag: 1e9,
+      sliceBrowserLimit: 1e9,
+      slicePerKey: { STANDARD: 1e9, HIGH: 1e9 },
+      syncBrowserFlag: 1e9,
+      syncBrowserLimit: 1e9,
+      syncPerKey: { STANDARD: 1e9, HIGH: 1e9 },
+      agencyDailyQuota: 1e9,
+    },
+  });
+  const unlimited = {
+    consumeMany: (checks: readonly RateLimitCheck[], options?: { slot?: string }) =>
+      own.consumeMany(
+        checks.map((c) =>
+          c.rule.name.startsWith('feed.key') || c.rule.name === 'feed.agency'
+            ? { ...c, rule: { ...c.rule, limit: 1e9 } }
+            : c,
+        ),
+        options,
+      ),
+  } as RateLimiter;
+  const widget = key('PUBLISHABLE', 3);
+  // A visitor: ten filtered searches (two repeated) and twenty details.
+  const visitor = async (ip: string, i: number) => {
+    for (let s = 0; s < 10; s++) {
+      await websiteApi.checkWebsiteLimits(unlimited, widget, {
+        ip,
+        paged: false,
+        filterSignature: `pricemin=${(s % 8) * 100_000}&types=${i % 3}`,
+        requestId: 'perf',
+      });
+    }
+    for (let d = 0; d < 20; d++) {
+      await websiteApi.checkWebsiteLimits(unlimited, widget, { ip, paged: false, sync: true, requestId: 'perf' });
+    }
+  };
+  await visitor('192.0.2.250', 0); // the script is loaded
+  const before = await commandCalls();
+  let statements = 0;
+  for (let i = 0; i < N; i++) statements += await countQueries(() => visitor(`192.0.2.${i}`, i));
+  const after = await commandCalls();
+  const scriptCalls = (after.evalsha ?? 0) - (before.evalsha ?? 0) + ((after.eval ?? 0) - (before.eval ?? 0));
+  expect(statements).toBe(0);
+  expect(scriptCalls).toBe(N * 30);
+
+  // What one browser adds for slicing and sync, and one busy key's slicing HyperLogLog.
+  const redis = rateLimitConnection();
+  const usage = async (pattern: RegExp) => {
+    const keys = (await redis.keys(`${prefix}:f7:*`)).filter((k) => pattern.test(k));
+    const bytes = (await Promise.all(keys.map((k) => redis.memory('USAGE', k)))).reduce<number>(
+      (a, b) => a + Number(b ?? 0),
+      0,
+    );
+    const each = await Promise.all(keys.map((k) => redis.memory('USAGE', k)));
+    return { keys: keys.length, bytes, max: Math.max(0, ...each.map((b) => Number(b ?? 0))) };
+  };
+  // Measured before the latency runs below, which add browsers of other keys.
+  const browsers = N + 1;
+  const slice = await usage(/:u:ip:/); // the browser's slicing HyperLogLog (flag and throttle share it)
+  const sync = await usage(/:feed\.sync\.browser[^:]*:ip:/);
+  const perBrowser = {
+    keys: (slice.keys + sync.keys) / browsers,
+    bytes: Math.round((slice.bytes + sync.bytes) / browsers),
+  };
+  const sliced = await measure((i) =>
+    websiteApi.checkWebsiteLimits(unlimited, key('PUBLISHABLE', i), {
+      ip: `198.51.100.${i % 200}`,
+      paged: false,
+      filterSignature: `pricemin=${i}`,
+      requestId: 'perf',
+    }),
+  );
+  const detail = await measure((i) =>
+    websiteApi.checkWebsiteLimits(unlimited, key('PUBLISHABLE', i), {
+      ip: `198.51.100.${i % 200}`,
+      paged: false,
+      sync: true,
+      requestId: 'perf',
+    }),
+  );
+
+  // Last: 20k writes to one key can set off an AOF rewrite that would stall the latency runs above.
+  const busy = key('SECRET', 1);
+  for (let i = 0; i < 20_000; i += 200) {
+    await Promise.all(
+      Array.from({ length: 200 }, (_, j) =>
+        websiteApi.checkWebsiteLimits(unlimited, busy, {
+          ip: '198.51.100.1',
+          paged: false,
+          filterSignature: `slice=${i + j}`,
+          requestId: 'perf',
+        }),
+      ),
+    );
+  }
+  const keyHll = await usage(/:u:key:/);
+  console.info(
+    `[S7-F7] limit checks (ms): ${JSON.stringify({ sliced, detail })}; per request ${scriptCalls / (N * 30)} Redis call(s), ${statements} DB statements; per browser (10 searches, 20 details): ${JSON.stringify(perBrowser)}; busiest key's slicing HLL (20k distinct): ${JSON.stringify(keyHll)}`,
+  );
+  expect(sliced.p95).toBeLessThan(10);
+  expect(detail.p95).toBeLessThan(10);
+  // One HyperLogLog (shared by the slicing flag and throttle) and the two sync rules' window keys.
+  expect(perBrowser.keys).toBeLessThanOrEqual(3);
+  expect(perBrowser.bytes).toBeLessThan(1_000);
+  // However many slices a key sends, its HyperLogLog stays ≤ 12 KB (dense) plus Redis overhead.
+  expect(keyHll.max).toBeLessThan(16_000);
+}, 300_000);

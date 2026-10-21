@@ -8,7 +8,8 @@ import { alertListener, type WebsiteAlert } from './settings';
 
 const meter = metrics.getMeter('@inmolink/core');
 const scraping = meter.createCounter('inmolink.website.scraping.detected', {
-  description: 'Website API callers that tripped a paging threshold (scripted full-inventory paging), by action',
+  description:
+    'Website API callers that tripped an extraction threshold (deep paging, paging volume, filter-slicing, detail sync), by action',
 });
 const honeytokenHits = meter.createCounter('inmolink.website.honeytoken.hits', {
   description: 'Requests for a honeytoken listing (only a full-inventory scrape finds one)',
@@ -27,6 +28,9 @@ for (const attrs of [
   { action: 'flagged', scope: 'browser', key_kind: 'PUBLISHABLE' },
   { action: 'throttled', scope: 'browser', key_kind: 'PUBLISHABLE' },
   { action: 'observed', scope: 'key', key_kind: 'PUBLISHABLE' },
+  // S7-F7: key-wide slicing / sync budgets (both kinds), the agency-wide publishable day.
+  { action: 'observed', scope: 'key', key_kind: 'SECRET' },
+  { action: 'observed', scope: 'agency', key_kind: 'PUBLISHABLE' },
 ]) {
   scraping.add(0, attrs);
 }

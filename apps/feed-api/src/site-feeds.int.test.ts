@@ -32,6 +32,7 @@ const allow = {
     limited.push({ rule: rule.name, identity });
     return { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 };
   },
+  credit: async () => undefined,
   consumeMany: async (checks: readonly unknown[]) =>
     checks.map(() => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 })),
 } as unknown as RateLimiter;

@@ -24,6 +24,8 @@ vault_redis_queue_password: ""
 vault_redis_limits_password: ""
 # redis-queue `media` ACL user (S3-F7): REDIS_QUEUE_URL_MEDIA=redis://media:<this>@<db-1 WireGuard IP>:6379.
 vault_redis_media_password: ""
+# redis-queue `exporter` ACL user (S7-F7): redis_exporter's login (INFO only, no key).
+vault_redis_exporter_password: ""
 vault_grafana_admin_password: ""
 # Cloudflare R2 API token scoped to the backups bucket (read + write).
 vault_r2_account_id: ""

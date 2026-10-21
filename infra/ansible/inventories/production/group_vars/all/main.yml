@@ -11,3 +11,8 @@ postgres_max_connections: 300
 walg_s3_prefix: s3://inmolink-backups-production/pg/main
 walg_retain_full: 14
 alert_email_to: ops@inmolink.es
+# redis-queue ceiling (db-1: 64–128 GB): BullMQ + the website rate-limit counters (S7-F7 memory math: STATUS › Decisions).
+# The app host running the api's redis-cache accessory and its exporter (infra/kamal/api.production.yml), scraped by
+# Prometheus job `redis` (S7-F7).
+redis_cache_host: app-1
+redis_queue_maxmemory: 8gb

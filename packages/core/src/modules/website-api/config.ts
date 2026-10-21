@@ -34,6 +34,39 @@ export interface WebsiteLimits {
   /** Publishable keys, key-wide paged requests per hour by tier: alert only. */
   pagingPerKeyHour: { STANDARD: number; HIGH: number };
   pagingPenaltySeconds: number;
+  /**
+   * Filter-slicing (S7-F7): a scraper slices the inventory by filters (location × type × price band) so no cursor chain
+   * gets deep. Counted: **distinct** filtered first pages of `/v2/listings` and `/v2/developments` (`sliceSignature`:
+   * the parsed filters and sort) per `sliceWindowSeconds` (a fixed window). Publishable keys, per browser: past `sliceBrowserFlag`
+   * the browser is flagged (alert, honeytokens), past `sliceBrowserLimit` its filtered first pages are throttled for
+   * `pagingPenaltySeconds`. Key-wide (both kinds, by tier): alert only — a server-rendered site searches for all its
+   * visitors, so volume never flags a secret key (S7-04).
+   */
+  sliceWindowSeconds: number;
+  sliceBrowserFlag: number;
+  sliceBrowserLimit: number;
+  slicePerKey: { STANDARD: number; HIGH: number };
+  /**
+   * Detail / sitemap sync (S7-F7): detail requests (`/v2/listings/{ref}`, `/v2/developments/{ref}`) and sitemap pages
+   * per `syncWindowSeconds` (sliding). A secret key's allowance grows by the change-feed entries it read: every UPSERT
+   * of `/v2/changes` it had not been credited for within `syncCreditSeenSeconds` adds one for `syncWindowSeconds` (at
+   * most `syncCreditCap`), so a WordPress plugin syncing from `/v2/changes` never trips it and re-reading the feed
+   * earns nothing. Per browser (publishable keys, no credit): flag / throttle as for slicing; key-wide by tier: alert
+   * only.
+   */
+  syncWindowSeconds: number;
+  syncBrowserFlag: number;
+  syncBrowserLimit: number;
+  syncPerKey: { STANDARD: number; HIGH: number };
+  syncCreditCap: number;
+  syncCreditSeenSeconds: number;
+  /**
+   * Requests per agency per UTC day over all its sites and keys (S7-F7), keyed by the agency — rotating or adding keys
+   * does not reset it. Secret keys: 429 `QUOTA_EXCEEDED` (scope `tenant`), counted last like the key quota. Publishable
+   * keys count in their own agency-wide counter, alert only (browsers must not be able to lock out the agency's
+   * servers).
+   */
+  agencyDailyQuota: number;
   /** Honeytokens only on search pages at this depth or deeper (and only for flagged callers). */
   honeytokenMinPage: number;
   /** Honeytokens on (default). Off: no page carries one; detail hits on old ones still alert. */
@@ -71,6 +104,17 @@ export const DEFAULT_WEBSITE_LIMITS: WebsiteLimits = {
   browserPagingWindowSeconds: 600,
   pagingPerKeyHour: { STANDARD: 3_000, HIGH: 15_000 },
   pagingPenaltySeconds: 3_600,
+  sliceWindowSeconds: 3_600,
+  sliceBrowserFlag: 150,
+  sliceBrowserLimit: 500,
+  slicePerKey: { STANDARD: 5_000, HIGH: 25_000 },
+  syncWindowSeconds: 3_600,
+  syncBrowserFlag: 300,
+  syncBrowserLimit: 1_000,
+  syncPerKey: { STANDARD: 10_000, HIGH: 50_000 },
+  syncCreditCap: 20_000,
+  syncCreditSeenSeconds: 86_400,
+  agencyDailyQuota: 2_000_000,
   honeytokenMinPage: 10,
   honeytokens: true,
   leadsPerBrowser: 5,

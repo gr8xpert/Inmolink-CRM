@@ -11,5 +11,9 @@ env:
 accessories:
   redis-cache:
     host: 203.0.113.50
+  redis-cache-exporter:
+    host: 203.0.113.50
+    # staging-1's WireGuard address (infra/ansible/inventories/staging/hosts.yml) : redis_cache_exporter_port.
+    port: "10.20.0.11:9122:9121"
   meilisearch:
     host: 203.0.113.50

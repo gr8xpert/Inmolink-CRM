@@ -265,7 +265,10 @@ describe('edge and access', () => {
       accessories: Record<string, { cmd?: string; env?: { secret?: string[] } }>;
     };
     expect(api.accessories['redis-cache']?.cmd).toContain('requirepass');
-    expect(api.accessories['redis-cache']?.env?.secret).toEqual(['REDIS_CACHE_PASSWORD']);
+    expect(api.accessories['redis-cache']?.env?.secret).toEqual([
+      'REDIS_CACHE_PASSWORD',
+      'REDIS_CACHE_EXPORTER_PASSWORD',
+    ]);
     for (const app of APPS) {
       const k = kamal(app);
       // The URL carries the password, so it is a secret everywhere.
@@ -386,5 +389,95 @@ describe('test-only network allowances (S7-F1)', () => {
     }
     // only the e2e stack (Playwright) preloads it
     expect(read('playwright.config.ts')).toMatch(/loopback-feeds/);
+  });
+});
+
+describe('Redis memory monitoring (S7-F7)', () => {
+  const vars = yaml<Record<string, unknown>>('infra', 'ansible', 'group_vars', 'all.yml');
+  type Accessory = {
+    host?: string;
+    port?: string;
+    image?: string;
+    env?: { clear?: Record<string, string>; secret?: string[] };
+  };
+
+  it('[S7-F7] every Redis has an exporter Prometheus scrapes, and redis-queue a ceiling the memory alerts measure against', () => {
+    // redis-queue: the exporter next to it (WireGuard address), a keyless ACL user without CONFIG, and a maxmemory.
+    const role = read('infra', 'ansible', 'roles', 'redis_queue', 'tasks', 'main.yml');
+    expect(role).toContain('maxmemory {{ redis_queue_maxmemory }}');
+    expect(role).toContain('user exporter on >{{ vault_redis_exporter_password }} {{ redis_exporter_acl }}');
+    expect(role).toContain('image: "{{ redis_exporter_image }}"');
+    expect(role).toContain('REDIS_EXPORTER_WEB_LISTEN_ADDRESS: "{{ wg_ip }}:{{ redis_exporter_port }}"');
+    const acl = String(vars.redis_exporter_acl);
+    expect(acl).toMatch(/^resetkeys resetchannels -@all /);
+    expect(acl).not.toMatch(/~|\+@all|\+config|\+client( |$)|\+@admin|\+@dangerous/);
+    for (const env of DESTS) {
+      expect(read('infra', 'ansible', 'inventories', env, 'group_vars', 'all', 'main.yml')).toMatch(
+        /^redis_queue_maxmemory: \d+[gm]b$/m,
+      );
+      expect(read('infra', 'ansible', 'inventories', env, 'group_vars', 'all', 'vault.example.yml')).toContain(
+        'vault_redis_exporter_password: ""',
+      );
+    }
+    // redis-cache: the api's Kamal accessory, the same pinned image, on each destination's app host WireGuard address.
+    const exporter = (kamal('api').accessories as Record<string, Accessory>)['redis-cache-exporter'];
+    expect(exporter?.image).toBe(vars.redis_exporter_image);
+    expect(exporter?.env?.clear?.REDIS_ADDR).toBe('redis://inmolink-api-redis-cache:6379');
+    // Its own keyless ACL user on redis-cache (the same ACL as redis-queue's), never the cache password.
+    expect(exporter?.env?.clear?.REDIS_USER).toBe('exporter');
+    expect(exporter?.env?.secret).toEqual(['REDIS_PASSWORD:REDIS_CACHE_EXPORTER_PASSWORD']);
+    const cacheCmd = String((kamal('api').accessories as Record<string, { cmd?: string }>)['redis-cache']?.cmd);
+    expect(cacheCmd).toContain('user exporter on >%s %s');
+    expect(cacheCmd).toContain(`"${acl}"`);
+    expect(read('.kamal', 'secrets.example')).toMatch(
+      /^REDIS_CACHE_EXPORTER_PASSWORD=\$REDIS_CACHE_EXPORTER_PASSWORD$/m,
+    );
+    // `/scrape?target=` would log in to any target with the exporter's password: off on both.
+    expect(exporter?.env?.clear?.REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT).toBe('true');
+    expect(role).toContain('REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT: "true"');
+    for (const d of DESTS) {
+      const accessories = dest('api', d).accessories as Record<string, Accessory>;
+      const host = groupHosts(loadInventory(d), 'app').find(
+        (h) => h.vars.ansible_host === accessories['redis-cache']?.host,
+      );
+      expect(host, d).toBeDefined();
+      // Prometheus targets the host that runs the accessory (`redis_cache_host`), not every app host.
+      expect(read('infra', 'ansible', 'inventories', d, 'group_vars', 'all', 'main.yml')).toContain(
+        `redis_cache_host: ${host?.name}`,
+      );
+      expect(accessories['redis-cache-exporter']?.host).toBe(accessories['redis-cache']?.host);
+      expect(accessories['redis-cache-exporter']?.port).toBe(
+        `${host?.vars.wg_ip}:${vars.redis_cache_exporter_port}:9121`,
+      );
+    }
+    // Prometheus scrapes both, named by the Redis (the alerts' `instance`).
+    const prometheus = read('infra', 'ansible', 'roles', 'monitoring', 'templates', 'prometheus.yml.j2');
+    expect(prometheus).toContain('- job_name: redis');
+    expect(prometheus).toContain('{{ hostvars[h].wg_ip }}:{{ redis_exporter_port }}');
+    expect(prometheus).toContain('labels: { instance: redis-queue, host: {{ h }} }');
+    expect(prometheus).toContain('{{ hostvars[redis_cache_host].wg_ip }}:{{ redis_cache_exporter_port }}');
+    expect(prometheus).toContain('labels: { instance: redis-cache, host: {{ redis_cache_host }} }');
+    expect(prometheus).not.toContain("{% for h in groups['app'] %}");
+    // The rules the series feed, and the alert when there are none.
+    const rules = read('infra', 'monitoring', 'rules', 'redis.yml');
+    expect(rules).toContain('redis_memory_used_bytes / (redis_memory_max_bytes > 0)');
+    expect(rules).toContain('expr: (up{job="redis"} == 0) or (redis_up == 0)');
+  });
+
+  it('[S7-F7] the exporter ports are reachable from the monitoring host(s) only', () => {
+    // redis-queue's (host network): ufw, inserted above the private-network allow — deny first, then the allows.
+    const role = read('infra', 'ansible', 'roles', 'redis_queue', 'tasks', 'main.yml');
+    const deny = role.indexOf('name: Firewall — redis-queue exporter closed to the private network');
+    const allow = role.indexOf('name: Firewall — redis-queue exporter open to the monitoring host(s)');
+    expect(deny).toBeGreaterThan(0);
+    expect(allow).toBeGreaterThan(deny);
+    expect(role.slice(deny, allow)).toMatch(/rule: deny[\s\S]*port: "\{\{ redis_exporter_port \}\}"[\s\S]*insert: 1/);
+    expect(role.slice(allow)).toMatch(/rule: allow[\s\S]*from_ip: "\{\{ hostvars\[item\]\.wg_ip \}\}"[\s\S]*insert: 1/);
+    expect(role.slice(allow)).toContain(`loop: "{{ groups['monitoring'] }}"`);
+    // redis-cache's (a Docker-published port bypasses ufw): the DOCKER-USER chain, monitoring hosts and loopback only.
+    const lock = read('infra', 'ansible', 'roles', 'docker', 'templates', 'inmolink-origin-lock.j2');
+    expect(lock).toContain('--ctorigdstport {{ redis_cache_exporter_port }} --ctdir ORIGINAL -j INMOLINK-METRICS');
+    expect(lock).toContain("metrics iptables {{ (groups['monitoring'] | map('extract', hostvars, 'wg_ip')");
+    expect(lock).toContain('$ipt -A INMOLINK-METRICS -j DROP');
   });
 });

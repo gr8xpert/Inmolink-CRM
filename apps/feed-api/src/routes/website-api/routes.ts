@@ -25,11 +25,19 @@ import { sendSiteJson } from '../../plugins/site-response';
 export const WEBSITE_API_TTL = websiteApi.WEBSITE_API_TTL;
 
 /**
- * List endpoints: a request with a `cursor` counts against the paging rules (S7-04). Not `/v2/changes` — a plugin
- * polls it with a cursor all day long.
+ * List endpoints: a request with a `cursor` counts against the paging rules (S7-04). `/v2/changes` too (S7-F7): paging
+ * volume never flags a secret key (a plugin polls with a cursor all day long), while a browser crawling the change feed
+ * meets its per-browser paging limits.
  */
 const PAGED = { paged: true } as const;
-const LISTINGS = { paged: true, listings: true } as const;
+/** `/v2/listings`: deep-paging rules, and filtered first pages count towards filter-slicing (S7-F7). */
+const LISTINGS = { paged: true, listings: true, slicing: 'listings' } as const;
+/** `/v2/developments`: filtered first pages count towards filter-slicing too (S7-F7). */
+const DEVELOPMENTS = { paged: true, slicing: 'developments' } as const;
+/** Details count towards the sync budget, net of what the change feed explained (S7-F7). */
+const DETAIL = { sync: true } as const;
+/** Sitemap pages: paging rules, and the sync budget (a sitemap + detail crawl, S7-F7). */
+const SITEMAP = { paged: true, sync: true } as const;
 
 /** The key's site (`requireApiKey` ran first); keys without a site are refused there. */
 function siteOf(req: FastifyRequest): Promise<websiteApi.ApiSite> {
@@ -79,7 +87,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteLangQuery,
         response: { 200: WebsiteDetail },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', DETAIL)],
     },
     async (req, reply) => {
       const site = await siteOf(req);
@@ -104,18 +112,13 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteChangesQuery,
         response: { 200: WebsiteChangesPage },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) => {
       const site = await siteOf(req);
-      return sendSiteJson(
-        req,
-        reply,
-        WebsiteChangesPage,
-        await websiteApi.changes(site, req.query),
-        WEBSITE_API_TTL.changes,
-        { site, edge: false },
-      );
+      const page = await websiteApi.changes(site, req.query);
+      app.creditChangeFeed(req, page.items);
+      return sendSiteJson(req, reply, WebsiteChangesPage, page, WEBSITE_API_TTL.changes, { site, edge: false });
     },
   );
 
@@ -129,7 +132,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteSitemapQuery,
         response: { 200: WebsiteSitemapPage },
       },
-      onRequest: [app.requireApiKey('listings:read', PAGED)],
+      onRequest: [app.requireApiKey('listings:read', SITEMAP)],
     },
     async (req, reply) => {
       const site = await siteOf(req);
@@ -154,7 +157,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteDevelopmentsQuery,
         response: { 200: WebsiteDevelopmentPage },
       },
-      onRequest: [app.requireApiKey('listings:read', PAGED)],
+      onRequest: [app.requireApiKey('listings:read', DEVELOPMENTS)],
     },
     async (req, reply) => {
       const site = await siteOf(req);
@@ -180,7 +183,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteLangQuery,
         response: { 200: WebsiteDevelopmentDetail },
       },
-      onRequest: [app.requireApiKey('listings:read')],
+      onRequest: [app.requireApiKey('listings:read', DETAIL)],
     },
     async (req, reply) => {
       const site = await siteOf(req);

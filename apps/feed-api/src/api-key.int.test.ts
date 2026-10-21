@@ -22,6 +22,7 @@ function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
   };
   return {
     consume,
+    credit: async () => undefined,
     consumeMany: (checks: readonly { rule: RateLimitRule }[]) => Promise.all(checks.map((c) => consume(c.rule))),
   } as unknown as RateLimiter;
 }

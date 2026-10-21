@@ -295,6 +295,148 @@ describe('consumeMany (S7-04)', () => {
   });
 });
 
+describe('distinct counting and credits (S7-F7)', () => {
+  const hour = (name: string, limit: number, extra: Partial<RateLimitRule> = {}): RateLimitRule => ({
+    name,
+    scope: 'ip',
+    limit,
+    windowSeconds: 3_600,
+    fixedWindow: true,
+    ...extra,
+  });
+  /** A limiter with its own key prefix, so a test can list exactly its keys. */
+  const own = (tag: string) => {
+    const p = `${prefix}:${tag}`;
+    return { p, l: new RateLimiter({ redis, prefix: p, logger: log, clock, hmacKey }) };
+  };
+
+  it('[S7-F7] distinct values per fixed window: repeats never count, the first new value past the limit trips, memory stays bounded', async () => {
+    const { p, l } = own('d1');
+    const rule = hour('test.distinct', 3, { penaltySeconds: 600 });
+    const id = `distinct-${Date.now()}`;
+    const send = (value: string) => l.consumeMany([{ rule, identity: id, distinct: value }], { slot: 'agency-d' });
+    for (const v of ['a', 'b', 'c', 'a', 'b', 'c', 'a']) expect((await send(v))[0]?.allowed).toBe(true);
+    const [tripped] = await send('d');
+    expect(tripped).toMatchObject({ allowed: false, tripped: true });
+    expect((await send('a'))[0]).toMatchObject({ allowed: false, penalized: true });
+    // A peek reads the running penalty without counting anything; another identity has none.
+    const peek = (identity: string) => l.consumeMany([{ rule, identity, peek: true }], { slot: 'agency-d' });
+    expect((await peek(id))[0]).toMatchObject({ allowed: false, penalized: true });
+    expect((await peek(`${id}-other`))[0]?.allowed).toBe(true);
+    await expect(
+      l.consumeMany([{ rule: { ...rule, penaltySeconds: undefined }, identity: id, peek: true }]),
+    ).rejects.toThrow(/peek/);
+    // The values are HMAC'd and counted in one HyperLogLog per identity and window, expiring at its reset: a, b, c and
+    // the value that tripped the rule (added to learn it was new); nothing while penalized.
+    const keys = await redis.keys(`${p}:{*}:u:*`);
+    expect(keys).toHaveLength(1);
+    const key = keys[0] as string;
+    expect(await redis.pfcount(key)).toBe(4);
+    const reset = (Math.floor(clock.nowMs() / 3_600_000) + 1) * 3_600_000;
+    expect(await redis.pttl(key)).toBeLessThanOrEqual(reset - clock.nowMs() + 1_000);
+    // However many values a scraper sends, the key stays at most a dense HyperLogLog (12 KB + header).
+    const { p: pb, l: lb } = own('d2');
+    const many = hour('test.distinct.many', 1_000_000);
+    for (let i = 0; i < 20_000; i += 500) {
+      await Promise.all(
+        Array.from({ length: 500 }, (_, j) =>
+          lb.consumeMany([{ rule: many, identity: 'bulk', distinct: `slice-${i + j}` }], { slot: 'agency-d' }),
+        ),
+      );
+    }
+    const [bulkKey] = await redis.keys(`${pb}:{*}:u:*`);
+    expect(await redis.strlen(bulkKey as string)).toBeLessThanOrEqual(12_304);
+    const estimate = await redis.pfcount(bulkKey as string);
+    expect(Math.abs(estimate - 20_000) / 20_000).toBeLessThan(0.03);
+  }, 120_000);
+
+  it('[S7-F7] a refused request records no value; a flag and its throttle share one HyperLogLog', async () => {
+    const { p, l } = own('d3');
+    const flag = hour('test.share.flag', 3, { penaltySeconds: 600 });
+    const throttle = hour('test.share.throttle', 5, { penaltySeconds: 600 });
+    const gate: RateLimitRule = { name: 'test.share.gate', scope: 'key', limit: 2, windowSeconds: 60 };
+    const send = (value: string) =>
+      l.consumeMany(
+        [
+          { rule: gate, identity: 'k' },
+          { rule: flag, identity: 'b', distinct: value, observe: true },
+          { rule: throttle, identity: 'b', distinct: value },
+        ],
+        { slot: 'agency-s' },
+      );
+    expect((await send('a')).map((r) => r.allowed)).toEqual([true, true, true]);
+    expect((await send('b')).map((r) => r.allowed)).toEqual([true, true, true]);
+    // The gate refuses: the request is not served, so its value is not recorded.
+    expect((await send('c')).map((r) => r.allowed)).toEqual([false, true, true]);
+    const keys = await redis.keys(`${p}:{*}:u:*`);
+    expect(keys).toHaveLength(1);
+    expect(await redis.pfcount(keys[0] as string)).toBe(2);
+  });
+
+  it('[S7-F7] distinct counting needs a fixed window', async () => {
+    await expect(
+      limiter.consumeMany([
+        { rule: { ...hour('test.distinct.bad', 1), fixedWindow: false }, identity: 'x', distinct: 'v' },
+      ]),
+    ).rejects.toThrow(/fixed window/);
+  });
+
+  it('[S7-F7] credits: one per item not seen before (the same items again earn nothing), capped, per pool and identity', async () => {
+    const { p, l } = own('c1');
+    const rule: RateLimitRule = { name: 'test.credit', scope: 'key', limit: 2, windowSeconds: 3_600 };
+    const id = 'credited';
+    const opts = { slot: 'agency-c', cap: 4, ttlSeconds: 600, seenSeconds: 3_600 };
+    const send = () =>
+      l.consumeMany([{ rule, identity: id, creditPool: 'test.pool' }], { slot: 'agency-c' }).then((r) => r[0]);
+    expect((await send())?.allowed).toBe(true);
+    expect((await send())?.allowed).toBe(true);
+    expect((await send())?.allowed).toBe(false);
+    expect(await l.credit('test.pool', id, ['x|1', 'y|1'], opts)).toBe(2);
+    // The same page read again (or overlapping) earns only what is new.
+    expect(await l.credit('test.pool', id, ['x|1', 'y|1'], opts)).toBe(0);
+    expect(await l.credit('test.pool', id, ['y|1', 'x|2'], opts)).toBe(1);
+    for (let i = 0; i < 3; i++) expect((await send())?.allowed).toBe(true);
+    expect((await send())?.allowed).toBe(false);
+    // Capped: 10 new items only fill the pool to 4 (one more than now).
+    await l.credit(
+      'test.pool',
+      id,
+      Array.from({ length: 10 }, (_, i) => `n|${i}`),
+      opts,
+    );
+    expect((await send())?.allowed).toBe(true);
+    expect((await send())?.allowed).toBe(false);
+    // Another identity has none.
+    const other = await l.consumeMany([{ rule, identity: 'other', creditPool: 'test.pool' }], { slot: 'agency-c' });
+    expect(other[0]?.allowed).toBe(true);
+    const [poolKey] = await redis.keys(`${p}:{*}:cr:test.pool:*`);
+    expect(Number(await redis.get(poolKey as string))).toBe(4);
+    expect(await redis.pttl(poolKey as string)).toBeLessThanOrEqual(600_000);
+    const [seenKey] = await redis.keys(`${p}:{*}:crs:test.pool:*`);
+    expect(await redis.pttl(seenKey as string)).toBeGreaterThan(600_000);
+    await expect(l.credit('test.pool', id, ['z'], { ...opts, seenSeconds: 60 })).rejects.toThrow(/seenSeconds/);
+  });
+
+  it('[S7-F7] readiness self-test runs both scripts, and fails (where requests fail open) when Redis refuses', async () => {
+    await limiter.selfTest();
+    const dead = new Redis('redis://127.0.0.1:1', {
+      protocol: 2,
+      maxRetriesPerRequest: 0,
+      commandTimeout: 200,
+      retryStrategy: () => null,
+      lazyConnect: true,
+    });
+    dead.on('error', () => {});
+    const degraded = new RateLimiter({ redis: dead, prefix, logger: log, hmacKey });
+    await expect(degraded.selfTest()).rejects.toThrow();
+    expect((await degraded.consume({ name: 'test.open', scope: 'ip', limit: 1, windowSeconds: 60 }, 'x')).allowed).toBe(
+      true,
+    );
+    expect(await degraded.credit('test.pool', 'x', ['a'], { cap: 1, ttlSeconds: 60, seenSeconds: 60 })).toBe(0);
+    dead.disconnect();
+  });
+});
+
 describe('rate-limit store', () => {
   it('[S1-F6] counters live on a Redis that never evicts', async () => {
     const [, policy] = (await redis.config('GET', 'maxmemory-policy')) as string[];
@@ -328,6 +470,49 @@ describe('rate-limit store', () => {
       expect((await asLimits.consume(boxed, ip)).allowed).toBe(true);
       expect(await asLimits.consume(boxed, ip)).toMatchObject({ allowed: false, tripped: true });
       expect(await asLimits.consume(boxed, ip)).toMatchObject({ allowed: false, penalized: true });
+      // S7-F7: distinct counting (PFADD / PFCOUNT) and credits under the same ACL.
+      const distinct: RateLimitRule = { ...rule, name: 'test.acl-distinct', limit: 1, fixedWindow: true };
+      const one = await asLimits.consumeMany([{ rule: distinct, identity: ip, distinct: 'a' }], { slot: 'acl' });
+      expect(one[0]?.allowed).toBe(true);
+      const two = await asLimits.consumeMany([{ rule: distinct, identity: ip, distinct: 'b' }], { slot: 'acl' });
+      expect(two[0]?.allowed).toBe(false);
+      const credited: RateLimitRule = { ...rule, name: 'test.acl-credit', limit: 1 };
+      const call = () =>
+        asLimits.consumeMany([{ rule: credited, identity: ip, creditPool: 'test.acl' }], { slot: 'acl' });
+      expect((await call())[0]?.allowed).toBe(true);
+      expect((await call())[0]?.allowed).toBe(false);
+      expect(
+        await asLimits.credit('test.acl', ip, ['a|1'], { slot: 'acl', cap: 5, ttlSeconds: 60, seenSeconds: 60 }),
+      ).toBe(1);
+      expect((await call())[0]?.allowed).toBe(true);
+      // The readiness self-test runs every command the scripts use, as this user.
+      await asLimits.selfTest();
+      // Without PFADD / PFCOUNT (the ACL before S7-F7) the self-test fails with NOPERM.
+      const old = `${user}-old`;
+      await redis.call(
+        'ACL',
+        'SETUSER',
+        old,
+        'on',
+        `>${password}`,
+        ...limitsAcl().replace(' +pfadd +pfcount', '').split(' '),
+      );
+      const oldConn = new Redis({
+        host: url.hostname,
+        port: Number(url.port),
+        username: old,
+        password,
+        protocol: 2,
+        maxRetriesPerRequest: 1,
+      });
+      try {
+        await expect(new RateLimiter({ redis: oldConn, logger: log, clock, hmacKey }).selfTest()).rejects.toThrow(
+          /NOPERM|permission/i,
+        );
+      } finally {
+        oldConn.disconnect();
+        await redis.call('ACL', 'DELUSER', old);
+      }
 
       await expect(scoped.get('inl:imports:meta')).rejects.toThrow(/NOPERM/);
       await expect(scoped.set('inl:rl:x', '1')).rejects.toThrow(/NOPERM/);

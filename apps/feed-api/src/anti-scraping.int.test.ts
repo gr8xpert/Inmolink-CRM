@@ -14,7 +14,7 @@ import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, RateLimiter, rateLimitConnection } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from './app';
 
 /**
@@ -371,5 +371,198 @@ describe('website API quotas and anti-scraping (S7-04)', () => {
     const res = await get(`/v2/listings?limit=1&cursor=${reset}`, key);
     expect(res.statusCode).toBe(422);
     expect(res.json().error.details).toMatchObject({ field: 'cursor' });
+  });
+});
+
+describe('website API extraction budgets (S7-F7)', () => {
+  const origin = 'https://www.scrape-site.example';
+  const HOUR = 3_600_000;
+  /** Moves the fake clock to 30 s past the next full hour (fixed slicing windows start there). */
+  const nextHour = () => clock.advance(Math.ceil(clock.nowMs() / HOUR) * HOUR + 30_000 - clock.nowMs());
+  const scraping = (rule: string, action: string) =>
+    alerts.some((a) => a.kind === 'scraping' && a.rule === rule && a.action === action);
+
+  it('[S7-F7] scripted filter-sliced full-inventory extraction is flagged within an hour', async () => {
+    // The default budgets: what production runs.
+    limits({});
+    nextHour();
+    const key = await newKey('PUBLISHABLE');
+    // A visitor searching (a dozen filter combinations, some repeated) is nothing.
+    for (let i = 0; i < 24; i++) {
+      const res = await get(`/v2/listings?limit=24&bedsMin=${i % 12}&priceMax=${(1 + (i % 12)) * 100_000}`, key, {
+        ip: '203.0.113.71',
+        origin,
+      });
+      expect(res.statusCode).toBe(200);
+      clock.advance(60_000);
+    }
+    expect(alerts).toEqual([]);
+    // The script: every price band of the inventory, one first page each (100 cards, never a cursor, so no chain gets
+    // deep), one request every 5 seconds.
+    nextHour();
+    const start = clock.nowMs();
+    const ip = '203.0.113.70';
+    let flaggedAfter: number | undefined;
+    let throttledAfter: number | undefined;
+    let served = 0;
+    for (let i = 0; i < 1_000 && throttledAfter === undefined; i++) {
+      const band = `priceMin=${i * 50_000}&priceMax=${(i + 1) * 50_000}`;
+      const res = await get(`/v2/listings?limit=100&${band}&bedsMin=${i % 4}`, key, { ip, origin });
+      if (flaggedAfter === undefined && scraping('feed.slice.browser.flag', 'flagged')) {
+        flaggedAfter = clock.nowMs() - start;
+      }
+      if (res.statusCode === 429) {
+        throttledAfter = clock.nowMs() - start;
+        expect(res.json().error).toMatchObject({ code: 'RATE_LIMITED', details: { scope: 'ip' } });
+      } else {
+        expect(res.statusCode).toBe(200);
+        served++;
+      }
+      clock.advance(5_000);
+    }
+    expect(flaggedAfter).toBeDefined();
+    expect(flaggedAfter as number).toBeLessThan(HOUR);
+    expect(throttledAfter as number).toBeLessThan(HOUR);
+    // The limits count distinct slices with a HyperLogLog (about 1 % error at this size).
+    expect(served).toBeGreaterThanOrEqual(490);
+    expect(served).toBeLessThanOrEqual(510);
+    expect(alerts).toEqual([
+      expect.objectContaining({ rule: 'feed.slice.browser.flag', action: 'flagged', scope: 'browser', siteId }),
+      expect.objectContaining({ rule: 'feed.slice.browser', action: 'throttled', scope: 'browser', siteId }),
+    ]);
+    // Flagged on its first pages, the browser is suspicious on its paged requests: honeytokens on deep pages, never
+    // cached (its unfiltered first page stays the key's shared answer).
+    const first = await get('/v2/listings?limit=1', key, { ip, origin });
+    expect(first.headers.etag).toBeDefined();
+    const paged = await get(`/v2/listings?limit=1&cursor=${(first.json() as WebsiteListingPage).nextCursor}`, key, {
+      ip,
+      origin,
+    });
+    expect(paged.statusCode).toBe(200);
+    expect(paged.headers['cache-control']).toBe('private, no-store');
+    // Other visitors of the site search on, cacheable as before.
+    const after = await get('/v2/listings?limit=1&priceMin=1', key, { ip: '203.0.113.72', origin });
+    expect(after.statusCode).toBe(200);
+    expect(after.headers.etag).toBeDefined();
+  }, 240_000);
+
+  it('[S7-F7] a secret key slicing the inventory alerts key-wide but is never suspicious', async () => {
+    limits({ slicePerKey: { STANDARD: 5, HIGH: 5 } });
+    nextHour();
+    const key = await newKey('SECRET');
+    const pages = [];
+    for (let i = 0; i < 8; i++) {
+      // Repeats of a slice count once.
+      pages.push(await get(`/v2/listings?limit=1&priceMin=${i * 1_000}`, key));
+      pages.push(await get(`/v2/listings?limit=1&priceMin=${i * 1_000}`, key));
+    }
+    expect(pages.every((p) => p.statusCode === 200 && p.headers.etag !== undefined)).toBe(true);
+    expect(alerts).toEqual([
+      expect.objectContaining({ rule: 'feed.slice.key.standard', action: 'observed', scope: 'key', keyKind: 'SECRET' }),
+    ]);
+  });
+
+  it('[S7-F7] details the change feed explains do not count against the sync budget (each entry credited once, secret keys only); unexplained ones do', async () => {
+    limits({ syncPerKey: { STANDARD: 3, HIGH: 3 }, syncBrowserFlag: 3, syncBrowserLimit: 5 });
+    const plugin = await newKey('SECRET');
+    const refs = ((await get('/v2/listings?limit=10', plugin)).json() as WebsiteListingPage).items.map((c) => c.ref);
+    expect(refs).toHaveLength(LISTINGS);
+    // A WordPress plugin (secret key): the change feed, then every changed listing's detail (twice: a re-sync).
+    const redis = rateLimitConnection();
+    const pools = () => redis.keys(`${prefix}:{*}:cr:${websiteApi.SYNC_CREDIT_POOL}:*`);
+    const poolsBefore = new Set(await pools());
+    const since = encodeURIComponent(new Date(Date.now() - HOUR).toISOString());
+    const feed = (await get(`/v2/changes?since=${since}`, plugin)).json() as { items: { change: string }[] };
+    const upserts = feed.items.filter((c) => c.change === 'UPSERT').length;
+    expect(upserts).toBeGreaterThanOrEqual(LISTINGS);
+    // The credit is fire-and-forget (the response does not wait for it).
+    const pool = await vi.waitFor(async () => {
+      const added = (await pools()).filter((k) => !poolsBefore.has(k));
+      expect(added).toHaveLength(1);
+      expect(Number(await redis.get(added[0] as string))).toBe(upserts);
+      return added[0] as string;
+    });
+    // The same page read again earns nothing (each entry is credited once).
+    expect((await get(`/v2/changes?since=${since}`, plugin)).statusCode).toBe(200);
+    expect((await get('/v2/listings?limit=1', plugin)).statusCode).toBe(200); // after the credit call (one connection)
+    expect(Number(await redis.get(pool))).toBe(upserts);
+    const details = [...refs, ...refs, ...refs].slice(0, upserts + 3);
+    expect(details).toHaveLength(upserts + 3);
+    for (const ref of details) expect((await get(`/v2/listings/${ref}`, plugin)).statusCode).toBe(200);
+    expect(alerts).toEqual([]);
+    // Past budget + explained: an alert (a secret key is never refused or flagged for volume).
+    expect((await get(`/v2/listings/${refs[0]}`, plugin)).statusCode).toBe(200);
+    expect(alerts).toEqual([
+      expect.objectContaining({ rule: 'feed.sync.key.standard', action: 'observed', scope: 'key', keyKind: 'SECRET' }),
+    ]);
+
+    // A sitemap + detail crawl with nothing from the change feed: the budget alone.
+    alerts.length = 0;
+    const crawler = await newKey('SECRET');
+    expect((await get('/v2/sitemap?limit=100', crawler)).statusCode).toBe(200);
+    for (const ref of refs.slice(0, 2)) expect((await get(`/v2/listings/${ref}`, crawler)).statusCode).toBe(200);
+    expect(alerts).toEqual([]);
+    await get(`/v2/listings/${refs[2]}`, crawler);
+    expect(scraping('feed.sync.key.standard', 'observed')).toBe(true);
+
+    // A browser crawling details: flagged past its budget, then throttled; another visitor reads on. Reading the
+    // change feed first earns a browser nothing (only a site's secret key syncs).
+    alerts.length = 0;
+    const widget = await newKey('PUBLISHABLE');
+    const ip = '203.0.113.80';
+    const poolsNow = (await pools()).length;
+    expect((await get(`/v2/changes?since=${since}`, widget, { ip, origin })).statusCode).toBe(200);
+    expect((await get('/v2/listings?limit=1', widget, { ip: '203.0.113.79', origin })).statusCode).toBe(200);
+    expect(await pools()).toHaveLength(poolsNow);
+    const statuses = [];
+    for (const ref of refs) statuses.push((await get(`/v2/listings/${ref}`, widget, { ip, origin })).statusCode);
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    expect(alerts.map((a) => (a.kind === 'scraping' ? `${a.rule}:${a.action}` : a.kind))).toEqual([
+      'feed.sync.browser.flag:flagged',
+      // The narrowed key-wide budget (3) is past too: alert only.
+      'feed.sync.key.standard:observed',
+      'feed.sync.browser:throttled',
+    ]);
+    expect((await get(`/v2/listings/${refs[0]}`, widget, { ip: '203.0.113.81', origin })).statusCode).toBe(200);
+  });
+
+  it('[S7-F7] rotating a key does not reset the agency’s daily budget (nor does adding one)', async () => {
+    // A new UTC day: the agency's earlier traffic in this file is yesterday's.
+    clock.advance((Math.floor(clock.nowMs() / 86_400_000) + 1) * 86_400_000 + 12 * HOUR - clock.nowMs());
+    limits({ agencyDailyQuota: 4 });
+    const issued = await as((ctx) =>
+      identity.createApiKey(ctx, {
+        name: 'Rotating',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+        siteId,
+      }),
+    );
+    for (let i = 0; i < 4; i++) expect((await get('/v2/listings?limit=1', issued.secret)).statusCode).toBe(200);
+    const refused = await get('/v2/listings?limit=1', issued.secret);
+    expect(refused.statusCode).toBe(429);
+    const midnight = (Math.floor(clock.nowMs() / 86_400_000) + 1) * 86_400_000;
+    expect(refused.json().error).toMatchObject({
+      code: 'QUOTA_EXCEEDED',
+      details: { scope: 'tenant', quota: 'daily', limit: 4, resetAt: new Date(midnight).toISOString() },
+    });
+    const rotated = await as((ctx) => identity.rotateApiKey(ctx, { keyId: issued.key.id }));
+    expect(rotated.secret).not.toBe(issued.secret);
+    expect((await get('/v2/listings?limit=1', rotated.secret)).json().error).toMatchObject({
+      code: 'QUOTA_EXCEEDED',
+      details: { scope: 'tenant' },
+    });
+    const added = await newKey('SECRET');
+    expect((await get('/v2/sitemap', added)).json().error).toMatchObject({
+      code: 'QUOTA_EXCEEDED',
+      details: { scope: 'tenant' },
+    });
+    // Browsers count apart (alert only): they cannot lock the agency's servers out, nor be locked out by them.
+    const widget = await newKey('PUBLISHABLE');
+    expect((await get('/v2/listings?limit=1', widget, { ip: '203.0.113.90', origin })).statusCode).toBe(200);
+    // The next UTC day starts afresh.
+    clock.advance(midnight - clock.nowMs() + 60_000);
+    expect((await get('/v2/listings?limit=1', added)).statusCode).toBe(200);
   });
 });

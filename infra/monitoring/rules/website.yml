@@ -6,6 +6,10 @@
 #   inmolink_website_honeytoken_hits_total    requests for a honeytoken listing's detail
 #   inmolink_website_honeytoken_served_total  honeytoken cards placed on deep pages of suspected scrapers
 #   inmolink_website_edge_purge_failed_total  edge cache purges that failed their last attempt (worker, S7-06)
+#   inmolink_rate_limit_failures_total        rate-limit script calls that failed, by `call` (consume | credit) —
+#                                             platform limiter (S7-F7); the limits then fail open
+# WebsiteScrapingDetected fires for every action, `observed` (key-wide, alert-only budgets) included; every alert goes
+# to the ops e-mail receiver (roles/monitoring alertmanager.yml.j2), critical ones repeated hourly.
 # The feed-api log line with the same alert name (`alert: WebsiteScrapingDetected | WebsiteHoneytokenHit`) names the
 # key, agency and site.
 groups:
@@ -39,3 +43,14 @@ groups:
         annotations:
           summary: "Website API: edge cache purges are failing"
           runbook: docs/runbooks/cdn.md#purge-failing
+      # S7-F7: the limiter's script calls fail (NOPERM after an ACL change, OOM on a full redis-queue, an outage): every
+      # website limit fails open, so quotas and scraping detection are off until it is fixed. feed-api's readiness
+      # (`rateLimitScripts`) fails on the same cause.
+      - alert: RateLimitFailing
+        expr: sum by (call) (increase(inmolink_rate_limit_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rate limits are failing open ({{ $labels.call }} script calls fail): quotas and scraping detection are off"
+          runbook: docs/runbooks/website-api.md#rate-limits-failing

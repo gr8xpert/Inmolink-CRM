@@ -50,7 +50,8 @@ describe('Website API alerts', () => {
     expect(await promtool('check', 'rules', '/rules/website.yml')).toMatch(/SUCCESS: \d+ rules found/);
   }, 200_000);
 
-  it('[S7-04] scripted paging and a honeytoken hit alert at once, and clear after 15 quiet minutes', async () => {
+  // The test file also holds the S7-F7 case: failing limiter calls are critical after 5 minutes.
+  it('[S7-04] [S7-F7] scripted paging and a honeytoken hit alert at once and clear after 15 quiet minutes; failing rate limits page', async () => {
     expect(await promtool('test', 'rules', '/rules/website.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });
@@ -60,7 +61,8 @@ describe('Redis memory alerts', () => {
     expect(await promtool('check', 'rules', '/rules/redis.yml')).toMatch(/SUCCESS: \d+ rules found/);
   }, 200_000);
 
-  it('[S7-04] redis-queue past 80 % of maxmemory warns after 10 min, past 95 % is critical after 2 min', async () => {
+  // The test file also holds the S7-F7 case: an exporter (or its Redis) not answering is critical after 5 minutes.
+  it('[S7-04] [S7-F7] redis-queue past 80 % of maxmemory warns after 10 min, past 95 % is critical after 2 min; a silent exporter is critical', async () => {
     expect(await promtool('test', 'rules', '/rules/redis.test.yml')).toMatch(/SUCCESS/);
   }, 200_000);
 });

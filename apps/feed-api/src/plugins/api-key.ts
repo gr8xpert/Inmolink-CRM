@@ -12,8 +12,12 @@ export interface RequireApiKeyOptions {
   paged?: boolean;
   /** `/v2/listings`: its cursor carries a signed page depth (deep-paging rules). */
   listings?: boolean;
+  /** Filtered first pages of this search count towards filter-slicing (S7-F7). */
+  slicing?: websiteApi.SliceEndpoint;
   /** A website form post (S7-05: leads, viewing requests): the form-spam limits apply too. */
   write?: boolean;
+  /** A detail or sitemap request: the sync rules apply (S7-F7 detail / sync counting). */
+  sync?: boolean;
 }
 
 declare module 'fastify' {
@@ -38,6 +42,15 @@ declare module 'fastify' {
       scope: ApiKeyScope,
       options?: RequireApiKeyOptions,
     ): (request: FastifyRequest, reply: FastifyReply) => Promise<FastifyReply | undefined>;
+    /**
+     * `/v2/changes` (S7-F7): credits a secret key with the UPSERTs of the page it is sent (once per entry), so the
+     * detail requests its plugin makes to sync them do not count against its sync budget. Fire-and-forget: the response
+     * never waits for it (the request keeps one awaited Redis call); failures are counted and logged by the limiter.
+     */
+    creditChangeFeed(
+      request: FastifyRequest,
+      changes: readonly { ref: string; change: string; changedAt: string }[],
+    ): void;
   }
 }
 
@@ -74,10 +87,18 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
         request.edgeKeyToken = edgeKeyToken(keyOf(request) as string, request.headers.origin);
         // The key's tier, the agency's ceiling, burst, daily quota, per-browser limits (publishable keys) and the paging
         // rules (S7-04): one Redis round trip, decided in core.
+        const cursor = cursorOf(request);
         const decision = await websiteApi.checkWebsiteLimits(deps.limiter, principal, {
           ip: ipBucket(request.ip),
-          paged: options.paged === true && cursorOf(request) !== undefined,
-          listingsCursor: options.listings === true ? cursorOf(request) : undefined,
+          paged: options.paged === true && cursor !== undefined,
+          listingsCursor: options.listings === true ? cursor : undefined,
+          // S7-F7: a filtered first page of `/v2/listings` or `/v2/developments` counts towards filter-slicing (its
+          // signature from the query as the route's schema parses it); details and sitemap pages towards the sync budget.
+          filterSignature:
+            options.slicing !== undefined && cursor === undefined
+              ? websiteApi.sliceSignature(options.slicing, request.query)
+              : undefined,
+          sync: options.sync === true,
           write: options.write === true,
           requestId: request.id,
         });
@@ -90,6 +111,15 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
         request.websitePaging = { suspicious: decision.suspicious };
         return undefined;
       },
+  );
+  app.decorate(
+    'creditChangeFeed',
+    (request: FastifyRequest, changes: readonly { ref: string; change: string; changedAt: string }[]) => {
+      if (request.apiKey?.kind !== 'SECRET') return;
+      websiteApi.creditChangeFeed(deps.limiter, request.apiKey, changes).catch((err) => {
+        request.log.warn({ err }, 'change-feed credit failed');
+      });
+    },
   );
 }
 

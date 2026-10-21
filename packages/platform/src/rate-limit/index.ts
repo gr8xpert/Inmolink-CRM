@@ -14,6 +14,7 @@ export {
 export {
   assertRule,
   type ConsumeManyOptions,
+  type CreditOptions,
   type RateLimitCheck,
   RateLimiter,
   type RateLimiterOptions,

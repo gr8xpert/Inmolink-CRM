@@ -68,3 +68,23 @@ tests:
       - eval_time: 39m
         alertname: WebsiteEdgePurgeFailing
         exp_alerts: []
+
+  # S7-F7: limiter calls start failing at 3m on one process (an ACL change): critical after 5 minutes of failures; a
+  # credit series at 0 never fires.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_rate_limit_failures_total{call="consume", instance="feed-api-1"}'
+        values: "0 0 0 5 10 15 20 25 30 35 40 45 50 55 60 65 70"
+      - series: 'inmolink_rate_limit_failures_total{call="credit", instance="feed-api-1"}'
+        values: "0x16"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RateLimitFailing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RateLimitFailing
+        exp_alerts:
+          - exp_labels: { severity: critical, call: consume }
+            exp_annotations:
+              summary: "Rate limits are failing open (consume script calls fail): quotas and scraping detection are off"
+              runbook: docs/runbooks/website-api.md#rate-limits-failing

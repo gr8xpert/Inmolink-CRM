@@ -92,6 +92,9 @@ try {
       redisCache: redisCheck(cacheConnection),
       // A wrong REDIS_LIMITS_URL credential would otherwise surface only as refused logins.
       redisLimits: redisCheck(rateLimitConnection),
+      // S7-F7: the limit scripts themselves run as the `limits` ACL user — an ACL missing a command (NOPERM) or a
+      // full Redis (OOM) fails readiness here, while requests keep failing open (S7-04).
+      rateLimitScripts: () => rateLimiter().selfTest(),
       search: httpCheck(new URL('/health', config.MEILI_URL).href),
       // S7-08: a website search engine is configured (not ready without one: every search would be a 500).
       searchConfigured: async () => {

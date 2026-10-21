@@ -1,4 +1,4 @@
-# Website API — quotas and anti-scraping (S7-04)
+# Website API — quotas and anti-scraping (S7-04, S7-F7)
 
 Limits live in `packages/core/src/modules/website-api/config.ts` (`DEFAULT_WEBSITE_LIMITS`) on top of the per-minute
 key tiers in identity `API_KEYS` (S1-05). All of a request's rules go to the limits Redis (redis-queue, `inl:rl:*`,
@@ -15,11 +15,46 @@ offline.
 | `feed.deep.flag`, `feed.deep` | key (secret) or browser, `/v2/listings` at depth ≥ 50 | flag at once; 100 deep pages / hour | flagged; then throttled 1 h + alert |
 | `feed.paging.browser.flag`, `feed.paging.browser` | publishable browser, paged | 600 / 1,800 per 10 min | flagged; throttled 1 h + alert |
 | `feed.paging.pk.<tier>` | publishable key, paged | 3,000 / 15,000 per hour | alert only |
+| `feed.agency.quota` | agency (all its sites and secret keys) | 2,000,000 per UTC day | 429 `QUOTA_EXCEEDED` (scope `tenant`) |
+| `feed.agency.pk.day` | agency (all its publishable keys) | 2,000,000 per UTC day | alert only |
+| `feed.slice.browser.flag`, `feed.slice.browser` | publishable browser, distinct filtered first pages of `/v2/listings` and `/v2/developments` | 150 / 500 per clock hour | flagged; throttled 1 h + alert |
+| `feed.slice.key.<tier>` | key, distinct filtered first pages | 5,000 / 25,000 per clock hour | alert only |
+| `feed.sync.browser.flag`, `feed.sync.browser` | publishable browser, details + sitemap pages | 300 / 1,000 per hour (no credit) | flagged; throttled 1 h + alert |
+| `feed.sync.key.<tier>` | key, details + sitemap pages | 10,000 / 50,000 per hour (+ change-feed credit, secret keys) | alert only |
 
-A paged request is a `cursor` on `/v2/listings`, `/v2/developments`, `/v2/developments/{ref}/units` or `/v2/sitemap`
-(not `/v2/changes`). `/v2/listings` cursors carry a signed page depth bound to the site. Daily quotas count only
+A paged request is a `cursor` on `/v2/listings`, `/v2/developments`, `/v2/developments/{ref}/units`, `/v2/sitemap` or
+`/v2/changes` (S7-F7: a secret key's plugin polls it all day, which paging volume never flags; a browser crawling it
+meets its per-browser paging limits). `/v2/listings` cursors carry a signed page depth bound to the site. Daily quotas count only
 requests every enforced rule allowed. A throttled caller still gets first pages and details. Volume never flags a
 secret key: a server-rendered site pages for all its visitors.
+
+**S7-F7 extraction budgets.** *Filter-slicing*: a scraper slices the inventory by filters (location × type × price
+band) so no cursor chain gets deep; the limits count **distinct** filtered first pages of `/v2/listings` and
+`/v2/developments` per identity and clock hour — the slice signature is the query as the route's schema parses it
+(only filter fields and the listings sort, canonical: numbers normalized, lists sorted, text case-folded; unknown
+parameters make the request a 400, so `_=…`, `utm_*` cannot inflate it) — in one HyperLogLog per identity and hour
+(the flag and the throttle share it; ≤ ~14.5 KB, about 1 % error). Only served requests record a signature.
+*Detail / sync*: details (`/v2/listings/{ref}`, `/v2/developments/{ref}`) and sitemap pages per hour. A **secret**
+key's allowance grows by one per change-feed entry (`ref` + `changedAt`, UPSERTs) it was sent and not credited for in
+the last 24 h — re-reading a page or the whole feed earns nothing again — for an hour, at most 20,000, so a WordPress
+plugin syncing from `/v2/changes` never trips it; a sitemap + detail crawl does. Publishable keys earn no credit. The
+credit is one Redis call made after the change page is built and not awaited (failures counted, `RateLimitFailing`).
+*Agency day*: keyed by the agency, so rotating a key (same id) or adding keys starts no new budget; publishable traffic
+counts apart (alert only) so browsers cannot lock out the agency's servers. Every request still makes exactly one
+awaited Redis call (its limit script).
+
+## Rate limits failing
+
+`RateLimitFailing` (critical): the limiter's script calls fail (`inmolink_rate_limit_failures_total` by `call`), so every
+website limit **fails open** (S7-04: a Redis problem must not take websites offline) — quotas, throttles and scraping
+detection are off. feed-api's readiness check `rateLimitScripts` (it runs both scripts once as the `limits` user)
+fails on the same cause, so a broken deploy does not take traffic.
+
+1. feed-api log `rate limit check failed` (sampled, one line per 10 s) names the rules and the error.
+2. `NOPERM`: the `limits` ACL (`redis_limits_acl`, infra/ansible group_vars) lacks a command the scripts use — re-run
+   the Ansible play (`redis_queue` role) before feed-api; `PFADD` / `PFCOUNT` came with S7-F7.
+3. `OOM command not allowed`: redis-queue is full — see *Redis memory*.
+4. Timeouts / connection refused: redis-queue down or unreachable (WireGuard) — see `queues.md`.
 
 **Client IPs** come from `X-Forwarded-For` only through trusted hops: feed-api's `TRUST_PROXY` lists the Cloudflare
 ranges and the kamal network (`infra/kamal/feed-api.yml`), and the origin lock (`infra/ansible/roles/docker`,
@@ -28,9 +63,10 @@ spoof its browser bucket. Keep both lists in step with https://www.cloudflare.co
 
 ## Scraping detected
 
-`WebsiteScrapingDetected` (by `action`): `flagged` — a caller paged deep (or a browser paged a lot) and now gets
-honeytokens; `throttled` — it is in the one-hour penalty box; `observed` — a publishable key's key-wide paging, burst
-or quota is over (alert only). The feed-api log line `alert: WebsiteScrapingDetected` names `keyId`, `agencyId`,
+`WebsiteScrapingDetected` (by `action`): `flagged` — a caller paged deep (or a browser paged a lot, sliced the
+inventory by filters, or crawled details) and now gets honeytokens; `throttled` — it is in the one-hour penalty box;
+`observed` — a key-wide budget is over (alert only: a publishable key's paging, burst or quota; any key's slicing or
+detail budget, `feed.slice.key.*` / `feed.sync.key.*`; `scope="agency"`: the agency's publishable day). The feed-api log line `alert: WebsiteScrapingDetected` names `keyId`, `agencyId`,
 `siteId` and the rule.
 
 1. Look up the key (dashboard → API keys of the agency, or `api_keys` by id): the agency's own WordPress plugin (a
@@ -41,6 +77,13 @@ or quota is over (alert only). The feed-api log line `alert: WebsiteScrapingDete
 4. `observed` on a publishable key (many IPs, key-wide): a distributed scrape using the site's widget key. Ask the
    agency to rotate the widget key; per-browser limits keep throttling each IP meanwhile. Consider a Cloudflare WAF
    rule for the source ASN.
+5. `feed.sync.key.*` on a secret key: the site fetches more details than its change feed explains. A plugin that
+   rebuilds from `/v2/sitemap` after a `scope` change does this once (expected); a steady stream is a crawl. A busy
+   server-rendered site without its own page cache also does it — raise the tier or ask the agency to cache.
+6. `feed.slice.key.*` on a secret key: many distinct searches. A busy site's visitors do this too; compare with the
+   site's traffic before acting.
+7. `QUOTA_EXCEEDED` with `scope: "tenant"`: the agency's day over all keys. New keys do not help (by design); raise
+   `agencyDailyQuota` in config or the agency's keys' tier after checking the traffic is theirs.
 
 ## Honeytoken hit
 
@@ -62,17 +105,41 @@ Rotating `HMAC_KEY` changes every site's honeytoken codes and invalidates search
 
 ## Redis memory
 
-`RedisMemoryHigh` (> 80 % of `maxmemory` for 10 min) / `RedisMemoryCritical` (> 95 % for 2 min). redis-queue runs
-`noeviction`: when full, writes fail — BullMQ queues stop and website limits fail open. Rate-limit counters cost about
-**5 keys and ~760 bytes per website browser** (key × IP): the daily key (~150 B) lives until UTC midnight, the minute
-and 10-minute keys 2–20 min — 1M distinct browsers a day ≈ 150 MB resident plus minute-scale churn.
+`RedisMemoryHigh` (> 80 % of `maxmemory` for 10 min) / `RedisMemoryCritical` (> 95 % for 2 min), by `instance`
+(`redis-queue`, `redis-cache`). redis-queue runs `noeviction` with `maxmemory` = `redis_queue_maxmemory` (staging 1 GB,
+production 8 GB): when full, writes fail — BullMQ queues stop and website limits fail open. redis-cache evicts (LRU,
+4 GB): high there only means the cache is small. Rate-limit counters cost about **5 keys and ~760 bytes per website
+browser** (S7-04: the daily key ~150 B until UTC midnight, the rest 2–20 min) plus **up to 4 keys and ~800 bytes** for
+a browser that searches with filters and views details (S7-F7: two slicing HyperLogLogs ≤ 1 h, two sync keys ≤ 2 h),
+and per key ≤ ~14.5 KB for its slicing HyperLogLog (dense, once a key has thousands of distinct searches in an hour).
+Worst case at 5,000 agencies: ≈ 0.75 GB (STATUS › Decisions S7-F7) — under 10 % of production's ceiling.
 
-1. `redis-cli --scan --pattern 'inl:rl:*' | head` and `INFO memory` on redis-queue: counters or queues?
-2. Counters: a scrape from very many IPs. Raise `maxmemory` (headroom), block the source at Cloudflare; S7-F7 decides
-   on a separate limits Redis.
+1. `INFO memory` on redis-queue, then the counters' share: `redis-cli --scan --pattern 'inl:rl:*' | head -2000 | xargs
+   -n1 redis-cli MEMORY USAGE` (a sample) against `INFO keyspace` — counters or queues?
+2. Counters: a scrape from very many IPs. Block the source at Cloudflare; raise `redis_queue_maxmemory` (headroom; the
+   db host has 64–128 GB). If counters stay above ~25 % of the ceiling, move them to their own noeviction Redis
+   (`REDIS_LIMITS_URL` is already separate config; S7-F7 Decision).
 3. Queues: see `queues.md`.
 
-The alerts need `redis_exporter` scraped next to each Redis (follow-up S7-F7); until then they have no series.
+**Exporters (S7-F7):** `redis-queue-exporter` (Ansible role `redis_queue`, `<db wg_ip>:9121`) and the api's Kamal
+accessory `redis-cache-exporter` (`<redis_cache_host wg_ip>:9122`), each logging in as a keyless `exporter` ACL user
+(INFO / SLOWLOG / LATENCY only, no key, no CONFIG; vault `vault_redis_exporter_password`, Kamal secret
+`REDIS_CACHE_EXPORTER_PASSWORD`); Prometheus job `redis`. Only the monitoring host(s) reach the ports (ufw on db hosts,
+the `INMOLINK-METRICS` DOCKER-USER chain on the app host); `/scrape?target=` is disabled
+(`REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT`: it would log in to any target with the exporter's password).
+`RedisExporterDown` (critical, 5 min) fires when a target or its Redis stops answering — the memory alerts are blind
+then. Check: Prometheus → Status → Targets, job `redis` both UP; `redis_memory_max_bytes{instance="redis-queue"}`
+equals the ceiling.
+
+**Staging acceptance (H4):** once staging exists — (1) `ansible-playbook site.yml -i inventories/staging` (sets
+`maxmemory 1gb`, the `exporter` user, the exporter container, the firewall rules) and, with `REDIS_CACHE_EXPORTER_PASSWORD`
+in `.kamal/secrets.staging`, `kamal accessory reboot redis-cache -c infra/kamal/api.yml -d staging` (its new
+`exporter` user; the cache starts empty) and `kamal accessory boot redis-cache-exporter -c infra/kamal/api.yml -d
+staging`; (2) both `redis` targets UP; (3) make the alert fire from the real series: on
+staging-1 `redis-cli -a <queue password> CONFIG SET maxmemory <INFO used_memory × 1.1>` (used ≈ 91 % of max) → after
+10 min `RedisMemoryHigh{instance="redis-queue"}` fires in Alertmanager (e-mail); then `CONFIG SET maxmemory <used ×
+1.03>` (≈ 97 %) → `RedisMemoryCritical` within 2 min; (4) restore `CONFIG SET maxmemory 1gb` (or re-run the play) and
+see both resolve; record the times in STATUS. Do it outside business hours: near the ceiling, BullMQ writes may fail.
 
 ## Load test (S7-08)
 

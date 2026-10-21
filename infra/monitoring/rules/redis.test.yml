@@ -36,3 +36,36 @@ tests:
             exp_annotations:
               summary: "Redis redis-queue-1 is at 99% of maxmemory (noeviction: writes will fail)"
               runbook: docs/runbooks/website-api.md#redis-memory
+
+  # S7-F7: the redis-queue exporter stops answering at 4m (up 0) and redis-cache's Redis refuses its exporter at 10m
+  # (redis_up 0): each alerts after 5 minutes; a healthy target never does.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="redis", instance="redis-queue"}'
+        values: "1x3 0x20"
+      - series: 'redis_up{job="redis", instance="redis-cache"}'
+        values: "1x9 0x14"
+      - series: 'up{job="redis", instance="redis-cache"}'
+        values: "1x23"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: RedisExporterDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RedisExporterDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: redis, instance: redis-queue }
+            exp_annotations:
+              summary: "Redis redis-queue: no metrics (exporter down or Redis not answering) — the memory alerts are blind"
+              runbook: docs/runbooks/website-api.md#redis-memory
+      - eval_time: 16m
+        alertname: RedisExporterDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: redis, instance: redis-queue }
+            exp_annotations:
+              summary: "Redis redis-queue: no metrics (exporter down or Redis not answering) — the memory alerts are blind"
+              runbook: docs/runbooks/website-api.md#redis-memory
+          - exp_labels: { severity: critical, job: redis, instance: redis-cache }
+            exp_annotations:
+              summary: "Redis redis-cache: no metrics (exporter down or Redis not answering) — the memory alerts are blind"
+              runbook: docs/runbooks/website-api.md#redis-memory
