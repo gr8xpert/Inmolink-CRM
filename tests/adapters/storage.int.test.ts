@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
@@ -17,6 +18,36 @@ beforeAll(() => {
 });
 
 describe('storage (MinIO as R2)', () => {
+  it('[S7-07] streams an upload in parts (multipart past one part) and reads it back as a stream', async () => {
+    const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+    for (const size of [1_000, 17 * 1024 * 1024 + 123]) {
+      const key = `test/${newId()}`;
+      const body = randomBytes(size);
+      const up = store.upload('exports', key, { contentType: 'application/gzip' });
+      for (let at = 0; at < size; at += 1_000_003) await up.write(body.subarray(at, at + 1_000_003));
+      expect(await up.complete()).toEqual({ sizeBytes: size });
+      const stream = await store.getStream('exports', key, { maxBytes: size });
+      const chunks: Buffer[] = [];
+      for await (const c of stream ?? []) chunks.push(c as Buffer);
+      expect(sha(Buffer.concat(chunks))).toBe(sha(body));
+      await expect(
+        (async () => {
+          for await (const _ of (await store.getStream('exports', key, { maxBytes: size - 1 })) ?? []) {
+            // drain
+          }
+        })(),
+      ).rejects.toThrow(/too large/);
+      await store.delete('exports', key);
+    }
+    // An aborted upload leaves nothing.
+    const key = `test/${newId()}`;
+    const up = store.upload('exports', key, { contentType: 'application/gzip' });
+    await up.write(randomBytes(9 * 1024 * 1024));
+    await up.abort();
+    expect(await store.head('exports', key)).toBeNull();
+    expect(await store.getStream('exports', key, { maxBytes: 10 })).toBeNull();
+  });
+
   it('[S1-03] puts, reads through a signed URL, and deletes an object in the private bucket', async () => {
     const key = `test/${newId()}`;
     const body = new TextEncoder().encode('%PDF-1.7 test document');

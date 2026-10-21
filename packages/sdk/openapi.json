@@ -1083,6 +1083,197 @@
         "tags": ["website-v2"]
       }
     },
+    "/v2/feeds/{token}/{file}": {
+      "get": {
+        "operationId": "websiteV2.getFeed",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "enum": ["kyero.xml", "inmolink.xml"],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "The feed document, `application/xml; charset=utf-8` (gzip when accepted)",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The feed document, `application/xml; charset=utf-8` (gzip when accepted)"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Not modified (`If-None-Match`)",
+                  "enum": [null],
+                  "nullable": true,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Not modified (`If-None-Match`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "description": "SITE_FEED_NOT_FOUND: unknown, rotated or revoked token, or no feed yet",
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "BAD_REQUEST",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "SERVICE_UNAVAILABLE",
+                            "FORBIDDEN",
+                            "NOT_AUTHENTICATED",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "VERSION_CONFLICT",
+                            "PLAN_REQUIRED",
+                            "VERIFICATION_REQUIRED",
+                            "RATE_LIMITED",
+                            "INTERNAL",
+                            "LISTING_NOT_FOUND",
+                            "INVALID_CREDENTIALS",
+                            "EMAIL_NOT_VERIFIED",
+                            "TOKEN_INVALID",
+                            "SESSION_REVOKED",
+                            "INVITE_EMAIL_IN_USE",
+                            "ALREADY_MEMBER",
+                            "MFA_REQUIRED",
+                            "MFA_CODE_INVALID",
+                            "MFA_ALREADY_ENABLED",
+                            "API_KEY_INVALID",
+                            "API_KEY_ORIGIN_DENIED",
+                            "API_KEY_SCOPE_DENIED",
+                            "API_KEY_LIMIT_REACHED",
+                            "SITE_NOT_FOUND",
+                            "SITE_LIMIT_REACHED",
+                            "SITE_FEED_NOT_FOUND",
+                            "API_KEY_SITE_REQUIRED",
+                            "CHANGES_EXPIRED",
+                            "QUOTA_EXCEEDED",
+                            "TURNSTILE_FAILED",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "AGENCY_DETAILS_LOCKED",
+                            "AGENCY_NOT_ONBOARDED",
+                            "VERIFICATION_ALREADY_SUBMITTED",
+                            "VERIFICATION_DOCUMENTS_REQUIRED",
+                            "VERIFICATION_NOT_OPEN",
+                            "VERIFICATION_STALE",
+                            "DOCUMENT_TYPE_NOT_ALLOWED",
+                            "DOCUMENT_LIMIT_REACHED",
+                            "DOCUMENT_LOCKED",
+                            "PREFERRED_AGENCY_INVALID",
+                            "PREFERRED_AGENCY_EXISTS",
+                            "PREFERRED_AGENCY_LIMIT_REACHED",
+                            "IMPERSONATION_ENDED",
+                            "IMPERSONATION_TARGET_INVALID",
+                            "LOCATION_NOT_FOUND",
+                            "LOCATION_PARENT_INVALID",
+                            "LOCATION_SLUG_TAKEN",
+                            "LOCATION_ALIAS_TAKEN",
+                            "TAXONOMY_NOT_FOUND",
+                            "TAXONOMY_KEY_TAKEN",
+                            "TAXONOMY_SLUG_TAKEN",
+                            "TAXONOMY_ALIAS_TAKEN",
+                            "LOCATION_POLYGON_INVALID",
+                            "TAXONOMY_ORDER_INVALID",
+                            "VIDEO_URL_NOT_ALLOWED",
+                            "VIDEO_ALREADY_ADDED",
+                            "ENERGY_RATING_REQUIRED",
+                            "LISTING_STATUS_INVALID",
+                            "LISTING_RESTORE_UNAVAILABLE",
+                            "LISTING_PRICE_MISSING",
+                            "LISTING_VIEW_NOT_FOUND",
+                            "LISTING_VIEW_LIMIT",
+                            "LISTING_VIEW_NAME_TAKEN",
+                            "LISTING_BULK_NOT_FOUND",
+                            "LISTING_BULK_BUSY",
+                            "LISTING_BULK_TOO_MANY",
+                            "BOOKMARK_FOLDER_NOT_FOUND",
+                            "BOOKMARK_FOLDER_LIMIT",
+                            "BOOKMARK_FOLDER_NAME_TAKEN",
+                            "BOOKMARK_FOLDER_FULL",
+                            "BOOKMARK_NOT_FOUND",
+                            "BOOKMARK_EXISTS",
+                            "LISTING_OVERRIDE_NOT_FOUND",
+                            "LISTING_OVERRIDE_OWN_TARGET",
+                            "MEDIA_TYPE_NOT_ALLOWED",
+                            "MEDIA_NOT_UPLOADED",
+                            "MEDIA_LIMIT_REACHED",
+                            "MEDIA_NOT_FOUND",
+                            "MEDIA_ORDER_STALE",
+                            "DEVELOPMENT_NOT_FOUND",
+                            "DEVELOPMENT_REF_TAKEN",
+                            "UNIT_NOT_FOUND",
+                            "UNIT_REF_TAKEN",
+                            "DEVELOPMENT_UNIT_LIMIT",
+                            "PRICE_LIST_NOT_FOUND",
+                            "PRICE_LIST_REVIEWED",
+                            "PRICE_LIST_SUPERSEDED",
+                            "DEVELOPMENT_DOCUMENT_NOT_FOUND",
+                            "FEED_CONNECTION_NOT_FOUND",
+                            "FEED_RUN_NOT_FOUND",
+                            "FEED_MAPPING_PROFILE_NOT_FOUND",
+                            "FEED_CONNECTOR_UNKNOWN",
+                            "FEED_URL_NOT_ALLOWED",
+                            "FEED_RUN_ACTIVE",
+                            "FEED_CONNECTION_DISABLED",
+                            "FEED_CONNECTION_PAUSED",
+                            "FEED_SAMPLE_INVALID",
+                            "FEED_MAPPING_INVALID",
+                            "FEED_MAPPING_REQUIRED"
+                          ],
+                          "type": "string"
+                        },
+                        "details": {
+                          "additionalProperties": {},
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "SITE_FEED_NOT_FOUND: unknown, rotated or revoked token, or no feed yet"
+          }
+        },
+        "summary": "The site's XML feed: `kyero.xml` (Kyero v3) or `inmolink.xml` (generic). The token URL is the credential",
+        "tags": ["website-v2"]
+      }
+    },
     "/v2/leads": {
       "post": {
         "operationId": "websiteV2.createLead",

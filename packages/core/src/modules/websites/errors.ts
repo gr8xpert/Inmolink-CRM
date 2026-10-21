@@ -4,6 +4,7 @@ import type { ErrorCode } from '@inmolink/contracts';
 export const websitesErrors = [
   'SITE_NOT_FOUND',
   'SITE_LIMIT_REACHED',
+  'SITE_FEED_NOT_FOUND',
   'VERSION_CONFLICT',
   'VALIDATION_FAILED',
 ] as const satisfies readonly ErrorCode[];

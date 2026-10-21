@@ -1,6 +1,21 @@
 /** websites — public API (PATTERNS §1). The only import path for other modules and apps. */
 export { websitesErrors } from './errors';
 export { websitesEvents } from './events';
+export {
+  agencyFeedSiteIds,
+  configureSiteFeeds,
+  dueSiteFeeds,
+  type FeedRun,
+  feedByToken,
+  getSiteFeed,
+  liveSiteFeed,
+  recordFeedFailure,
+  recordFeedRun,
+  revokeSiteFeed,
+  rotateSiteFeed,
+  type ServedFeed,
+  siteFeedPath,
+} from './feeds';
 export { websitesJobs } from './jobs';
 export {
   type AckSkipReason,

@@ -386,6 +386,15 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { mode: 'WIDGET', locales: '{en}', default_locale: 'en' },
     samples: { visible: [{}], hidden: [] },
   },
+  // Per-site XML feeds (S7-07): feed-api (`app_public`) looks a feed token's keyed hash up before it has a tenant
+  // session; a revoked feed is invisible to it. The admin who set the token and the last run's error are not public.
+  website_feeds: {
+    kind: 'PUBLIC_READ',
+    publicReadSql: 'revoked_at is null',
+    publicHiddenColumns: ['created_by', 'last_error', 'idempotency_hash'],
+    base: { token_hint: 'abcd' },
+    samples: { visible: [{}], hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }] },
+  },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
   // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
   // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.

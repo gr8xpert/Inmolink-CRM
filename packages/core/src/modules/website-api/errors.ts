@@ -4,6 +4,7 @@ import type { ErrorCode } from '@inmolink/contracts';
 export const websiteApiErrors = [
   'API_KEY_SITE_REQUIRED',
   'SITE_NOT_FOUND',
+  'SITE_FEED_NOT_FOUND',
   'LISTING_NOT_FOUND',
   'DEVELOPMENT_NOT_FOUND',
   'CHANGES_EXPIRED',

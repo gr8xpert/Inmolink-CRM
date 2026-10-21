@@ -76,10 +76,26 @@ function errSerializer(err: unknown): unknown {
   return out;
 }
 
-/** Drops the query string (reset tokens, API keys) — use for any URL that goes into a log. */
+/**
+ * Path segments that are credentials (S7-07: per-site XML feed tokens, `/v2/feeds/<token>/…`): never in a log line, a
+ * trace or an error report.
+ */
+const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/];
+
+/** A path with its credential segments replaced by `[REDACTED]`. */
+export function redactPath(path: string): string {
+  let out = path;
+  for (const re of SECRET_PATHS) out = out.replace(re, `$1${REDACTED}`);
+  return out;
+}
+
+/**
+ * Drops the query string (reset tokens, API keys) and redacts credential path segments (`redactPath`) — use for any
+ * URL that goes into a log.
+ */
 export function stripQuery(url: string): string {
   const i = url.indexOf('?');
-  return i === -1 ? url : url.slice(0, i);
+  return redactPath(i === -1 ? url : url.slice(0, i));
 }
 
 export const REDACTED = '[REDACTED]';

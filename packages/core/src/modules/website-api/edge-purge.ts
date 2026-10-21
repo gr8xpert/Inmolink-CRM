@@ -35,8 +35,11 @@ export async function addPendingPurges(agencyId: string, tags: readonly PendingT
     .exec();
 }
 
-/** Site and key tags end access (suspension, revocation): never dropped for their age. */
-const ageless = (tag: string) => tag.startsWith('s') || tag.startsWith('k');
+/**
+ * Site and key tags end access (suspension, revocation), feed tags too (a rotated token, S7-07; and a feed is cached
+ * longer than the horizon): never dropped for their age.
+ */
+const ageless = (tag: string) => tag.startsWith('s') || tag.startsWith('k') || tag.startsWith('f');
 
 /**
  * Takes up to `CDN_PURGE_MAX_TAGS` tags, oldest first; listing and development tags older than `cutoff` are dropped

@@ -4,29 +4,11 @@ import * as agencies from '../agencies';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
-import { type EdgeTagKind, edgeTag, edgeTagsConfigured } from './edge';
-import { addPendingPurges } from './edge-purge';
-import { queueEdgePurgeRun, websiteApiJobs } from './jobs';
+import { queueEdgePurge, queueSiteFeed, SITE_FEED_SOON_MS, websiteApiJobs } from './jobs';
+
+export { queueEdgePurge };
 
 let unsubscribe: (() => void)[] | undefined;
-
-/**
- * Queues edge purges (S7-06): the tags join the agency's pending set (coalesced, `edge-purge.ts`) and the agency's
- * throttled purge run is enqueued. A redelivered event adds the same tags again: harmless.
- */
-export async function queueEdgePurge(
-  agencyId: string,
-  items: readonly { kind: EdgeTagKind; id: string }[],
-  changedAt: Date,
-): Promise<void> {
-  if (items.length === 0 || !edgeTagsConfigured()) return;
-  const at = changedAt.getTime();
-  await addPendingPurges(
-    agencyId,
-    items.map((i) => ({ tag: edgeTag(i.kind, i.id), at })),
-  );
-  await queueEdgePurgeRun(agencyId);
-}
 
 /** Every site of an agency gets its `s` tag purged (its status or its network view changed). */
 async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void> {
@@ -46,6 +28,11 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
  * site's setup (`s`), a key rotated or revoked (`k`), an agency's status (its sites' `s`), a preferred agency added or
  * removed (the preferred agency's sites' `s`: their network view changed; the owner's documents are rebuilt too and
  * purge their `t` tags through `search.publicDocs.changed`).
+ *
+ * Outbox → per-site XML feeds (S7-07): a new token generates the feed at once and purges the old URL's edge copies
+ * (`f`), a revoked one purges them and deletes the stored files; a site's setup or its agency's public documents changing queues the agency's
+ * live feeds (throttled per site: `queueSiteFeed`). Network listings and overrides reach feeds through the 6-hourly
+ * refresh (`websiteApi.refreshSiteFeeds`).
  *
  * Called once by the worker; idempotent.
  */
@@ -89,6 +76,39 @@ export function registerWebsiteApiSubscriptions(): void {
         await queueEdgePurge(payload.agencyId, [{ kind: 's', id: payload.siteId }], meta.createdAt);
       },
       { name: 'websiteApi.edge.siteChanged' },
+    ),
+    subscribe(
+      websites.websitesEvents.feedChanged,
+      async (payload, meta) => {
+        await queueEdgePurge(payload.agencyId, [{ kind: 'f', id: payload.siteId }], meta.createdAt);
+        if (payload.action === 'ROTATED') await queueSiteFeed(payload.siteId, payload.agencyId, SITE_FEED_SOON_MS);
+        else {
+          await websiteApiJobs.deleteSiteFeedFiles.enqueue({
+            eventId: meta.eventId,
+            siteId: payload.siteId,
+            agencyId: payload.agencyId,
+          });
+        }
+      },
+      { name: 'websiteApi.feed.changed' },
+    ),
+    subscribe(
+      websites.websitesEvents.siteChanged,
+      async (payload) => {
+        const live = await withSystem('websiteApi.feed siteChanged', (tx) => websites.liveSiteFeed(tx, payload.siteId));
+        if (live) await queueSiteFeed(payload.siteId, payload.agencyId);
+      },
+      { name: 'websiteApi.feed.siteChanged' },
+    ),
+    subscribe(
+      search.searchEvents.publicDocsChanged,
+      async (_payload, meta) => {
+        const siteIds = await withSystem('websiteApi.feed publicDocsChanged', (tx) =>
+          websites.agencyFeedSiteIds(tx, meta.agencyId),
+        );
+        for (const siteId of siteIds) await queueSiteFeed(siteId, meta.agencyId);
+      },
+      { name: 'websiteApi.feed.publicDocsChanged' },
     ),
     subscribe(identity.identityEvents.apiKeyRotated, keyChanged, { name: 'websiteApi.edge.apiKeyRotated' }),
     subscribe(identity.identityEvents.apiKeyRevoked, keyChanged, { name: 'websiteApi.edge.apiKeyRevoked' }),

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { AwsClient } from 'aws4fetch';
 
 /**
@@ -17,6 +19,11 @@ export interface StorageBuckets {
    * (bucket-scoped on R2) cover it and the media bucket without reaching private documents.
    */
   work: string;
+  /**
+   * Per-site XML feeds (S7-07): served by feed-api, whose token reaches this bucket only. Unset, the feeds live in
+   * the exports bucket (local stacks; production sets `inmolink-feeds`, H3).
+   */
+  feeds?: string;
 }
 
 export type BucketName = keyof StorageBuckets;
@@ -83,8 +90,30 @@ export interface ListPage {
   next: string | null;
 }
 
+/**
+ * An object written in pieces (S7-07: a generated feed, never held whole in memory): a multipart upload whose parts
+ * are sent as they fill, so at most one part is buffered. Small objects (one part) go up as a plain PUT on `complete`.
+ */
+export interface ObjectUpload {
+  write(chunk: Uint8Array): Promise<void>;
+  /** Sends the rest and makes the object visible; returns its size. */
+  complete(): Promise<{ sizeBytes: number }>;
+  /** Drops the parts sent so far (idempotent); nothing becomes visible. */
+  abort(): Promise<void>;
+}
+
+/** Multipart part size: equal parts (R2 requires it), above S3's 5 MiB minimum. */
+export const UPLOAD_PART_BYTES = 8 * 1024 * 1024;
+
 export interface ObjectStore {
   put(bucket: BucketName, key: string, body: Uint8Array, options: PutOptions): Promise<void>;
+  /** A streamed write (`ObjectUpload`); call `complete()` or `abort()`. */
+  upload(bucket: BucketName, key: string, options: PutOptions): ObjectUpload;
+  /**
+   * The object as a stream (S7-07: served as it is read, never buffered whole), or null when it does not exist. Fails
+   * (`StorageError` 413) on an object larger than `maxBytes`, before or while streaming.
+   */
+  getStream(bucket: BucketName, key: string, options: GetOptions): Promise<Readable | null>;
   /** The whole object, or null when it does not exist (worker use: one image to process, S3-04). */
   get(bucket: BucketName, key: string, options: GetOptions): Promise<Uint8Array | null>;
   /** Idempotent: deleting a missing object succeeds. */
@@ -119,6 +148,8 @@ export interface S3StoreConfig {
   buckets: StorageBuckets;
   /** Per request. Default 15 s. */
   timeoutMs?: number;
+  /** Multipart part size (`UPLOAD_PART_BYTES`). */
+  partBytes?: number;
   fetch?: typeof fetch;
 }
 
@@ -182,6 +213,18 @@ function assertMaxBytes(value: number): number {
   return value;
 }
 
+/** Passes bytes through, failing the stream past `max` (a missing or wrong Content-Length cannot exceed it). */
+function capped(max: number): Transform {
+  let total = 0;
+  return new Transform({
+    transform(chunk: Buffer, _enc, done) {
+      total += chunk.byteLength;
+      if (total > max) done(new StorageError('storage GET: object too large', 413));
+      else done(null, chunk);
+    },
+  });
+}
+
 function concat(chunks: Uint8Array[], total: number): Uint8Array {
   const out = new Uint8Array(total);
   let at = 0;
@@ -241,11 +284,16 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     retries: 0,
   });
   const timeoutMs = config.timeoutMs ?? 15_000;
+  const partBytes = config.partBytes ?? UPLOAD_PART_BYTES;
+  const bucketName = (bucket: BucketName): string =>
+    (bucket === 'feeds' ? (config.buckets.feeds ?? config.buckets.exports) : config.buckets[bucket]) ?? '';
   const doFetch = config.fetch ?? fetch;
 
   const urlOf = (bucket: BucketName, key: string): URL => {
     assertObjectKey(key);
-    const name = config.buckets[bucket];
+    const name = bucketName(bucket);
+    // A store built for some buckets only (`storageConfigForBuckets`) reaches nothing else.
+    if (!name) throw new StorageError(`storage: bucket ${bucket} is not configured`);
     return new URL(`${endpoint}/${encodeURIComponent(name)}/${key.split('/').map(encodeURIComponent).join('/')}`);
   };
 
@@ -273,6 +321,115 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       });
       if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
       await res.body?.cancel();
+    },
+    upload(bucket, key, options) {
+      const target = urlOf(bucket, key);
+      const meta = {
+        'content-type': options.contentType,
+        ...(options.cacheControl ? { 'cache-control': assertCacheControl(options.cacheControl) } : {}),
+      };
+      const at = (params: Record<string, string>) => {
+        const url = new URL(target.href);
+        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+        return url;
+      };
+      const part = Buffer.allocUnsafe(partBytes);
+      let fill = 0;
+      let size = 0;
+      let uploadId: string | null = null;
+      let state: 'open' | 'done' | 'aborted' = 'open';
+      const etags: string[] = [];
+      const sendPart = async (bytes: Uint8Array) => {
+        if (uploadId === null) {
+          const res = await send(at({ uploads: '' }), { method: 'POST', headers: meta });
+          const xml = await res.text();
+          const started = /<UploadId>([^<]+)<\/UploadId>/.exec(xml)?.[1];
+          if (!res.ok || !started) throw new StorageError(`storage upload start failed (${res.status})`, res.status);
+          uploadId = started;
+        }
+        const res = await send(at({ partNumber: String(etags.length + 1), uploadId }), {
+          method: 'PUT',
+          body: bytes as Uint8Array<ArrayBuffer>,
+          headers: { 'x-amz-content-sha256': createHash('sha256').update(bytes).digest('hex') },
+        });
+        await res.body?.cancel();
+        const etag = res.headers.get('etag');
+        if (!res.ok || !etag) throw new StorageError(`storage upload part failed (${res.status})`, res.status);
+        etags.push(etag);
+      };
+      const assertOpen = () => {
+        if (state !== 'open') throw new StorageError(`storage upload is ${state}`);
+      };
+      return {
+        async write(chunk) {
+          assertOpen();
+          let from = 0;
+          while (from < chunk.byteLength) {
+            const n = Math.min(partBytes - fill, chunk.byteLength - from);
+            part.set(chunk.subarray(from, from + n), fill);
+            fill += n;
+            from += n;
+            size += n;
+            if (fill === partBytes) {
+              await sendPart(part);
+              fill = 0;
+            }
+          }
+        },
+        async complete() {
+          assertOpen();
+          if (uploadId === null) {
+            // One part at most: a plain PUT (no multipart for small objects).
+            const body = part.subarray(0, fill);
+            const res = await send(target, {
+              method: 'PUT',
+              body: body as Uint8Array<ArrayBuffer>,
+              headers: { ...meta, 'x-amz-content-sha256': createHash('sha256').update(body).digest('hex') },
+            });
+            await res.body?.cancel();
+            if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
+          } else {
+            if (fill > 0) await sendPart(part.subarray(0, fill));
+            const parts = etags.map((e, i) => `<Part><PartNumber>${i + 1}</PartNumber><ETag>${e}</ETag></Part>`);
+            const res = await send(at({ uploadId }), {
+              method: 'POST',
+              body: `<CompleteMultipartUpload>${parts.join('')}</CompleteMultipartUpload>`,
+              headers: { 'content-type': 'application/xml' },
+            });
+            const xml = await res.text();
+            // S3 may answer 200 with an error document.
+            if (!res.ok || xml.includes('<Error>')) {
+              throw new StorageError(`storage upload completion failed (${res.status})`, res.status);
+            }
+          }
+          state = 'done';
+          return { sizeBytes: size };
+        },
+        async abort() {
+          if (state !== 'open') return;
+          state = 'aborted';
+          if (uploadId === null) return;
+          const res = await send(at({ uploadId }), { method: 'DELETE' });
+          await res.body?.cancel();
+        },
+      };
+    },
+    async getStream(bucket, key, options) {
+      const max = assertMaxBytes(options.maxBytes);
+      const res = await send(urlOf(bucket, key), { method: 'GET' });
+      if (res.status === 404) {
+        await res.body?.cancel();
+        return null;
+      }
+      if (!res.ok || !res.body) {
+        await res.body?.cancel();
+        throw new StorageError(`storage GET failed (${res.status})`, res.status);
+      }
+      if (Number(res.headers.get('content-length') ?? 0) > max) {
+        await res.body.cancel();
+        throw new StorageError('storage GET: object too large', 413);
+      }
+      return Readable.fromWeb(res.body as WebReadableStream<Uint8Array>).pipe(capped(max));
     },
     async get(bucket, key, options) {
       const max = assertMaxBytes(options.maxBytes);
@@ -324,7 +481,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     async list(bucket, prefix, options) {
       assertListPrefix(prefix);
       const limit = Math.min(Math.max(Math.floor(options.limit), 1), 1_000);
-      const url = new URL(`${endpoint}/${encodeURIComponent(config.buckets[bucket])}`);
+      const url = new URL(`${endpoint}/${encodeURIComponent(bucketName(bucket))}`);
       url.searchParams.set('list-type', '2');
       url.searchParams.set('prefix', prefix);
       url.searchParams.set('max-keys', String(limit));
@@ -419,6 +576,39 @@ export function createMemoryStore(): MemoryStore {
       if (options.cacheControl) assertCacheControl(options.cacheControl);
       objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType, lastModified: new Date() });
     },
+    upload(bucket, key, options) {
+      const target = id(bucket, key);
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      let state: 'open' | 'done' | 'aborted' = 'open';
+      return {
+        async write(chunk) {
+          if (state !== 'open') throw new StorageError(`storage upload is ${state}`);
+          chunks.push(chunk.slice());
+          size += chunk.byteLength;
+        },
+        async complete() {
+          if (state !== 'open') throw new StorageError(`storage upload is ${state}`);
+          state = 'done';
+          objects.set(target, {
+            body: concat(chunks, size),
+            contentType: options.contentType,
+            lastModified: new Date(),
+          });
+          return { sizeBytes: size };
+        },
+        async abort() {
+          if (state === 'open') state = 'aborted';
+        },
+      };
+    },
+    async getStream(bucket, key, options) {
+      const max = assertMaxBytes(options.maxBytes);
+      const o = objects.get(id(bucket, key));
+      if (!o) return null;
+      if (o.body.byteLength > max) throw new StorageError('storage GET: object too large', 413);
+      return Readable.from([Buffer.from(o.body)]);
+    },
     async get(bucket, key, options) {
       const max = assertMaxBytes(options.maxBytes);
       const o = objects.get(id(bucket, key));
@@ -489,6 +679,7 @@ export function storageConfigFromEnv(env: {
   S3_BUCKET_EXPORTS: string;
   S3_BUCKET_PRIVATE: string;
   S3_BUCKET_MEDIA_WORK: string;
+  S3_BUCKET_FEEDS?: string;
 }): S3StoreConfig {
   return {
     endpoint: env.S3_ENDPOINT,
@@ -500,7 +691,25 @@ export function storageConfigFromEnv(env: {
       exports: env.S3_BUCKET_EXPORTS,
       private: env.S3_BUCKET_PRIVATE,
       work: env.S3_BUCKET_MEDIA_WORK,
+      ...(env.S3_BUCKET_FEEDS ? { feeds: env.S3_BUCKET_FEEDS } : {}),
     },
+  };
+}
+
+/**
+ * A store that reaches only `buckets` (S7-07: feed-api reads site feeds from `exports` and nothing else); a call on
+ * any other bucket fails before a request is made. Pair it with credentials scoped the same way.
+ */
+export function storageConfigForBuckets(
+  env: { S3_ENDPOINT: string; S3_REGION: string; S3_ACCESS_KEY_ID: string; S3_SECRET_ACCESS_KEY: string },
+  buckets: Partial<StorageBuckets>,
+): S3StoreConfig {
+  return {
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION,
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    buckets: { media: '', exports: '', private: '', work: '', ...buckets },
   };
 }
 

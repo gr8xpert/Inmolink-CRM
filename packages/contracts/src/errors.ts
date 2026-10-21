@@ -50,6 +50,11 @@ export const ErrorCodes = {
   SITE_NOT_FOUND: 404,
   /** The agency has as many sites as allowed. */
   SITE_LIMIT_REACHED: 409,
+  /**
+   * S7-07: no XML feed answers this URL — an unknown, rotated or revoked feed token, a site whose agency is not
+   * verified, or a feed not generated yet. The same answer for each, so a token cannot be probed.
+   */
+  SITE_FEED_NOT_FOUND: 404,
   // websites: API v2 (S7-03)
   /** A key created before websites existed (no site): website API v2 needs a key bound to a site — issue a new one. */
   API_KEY_SITE_REQUIRED: 403,

@@ -1,4 +1,14 @@
-import { CreateSiteBody, PageQuery, SiteDto, SitePage, SiteParams, UpdateSiteBody } from '@inmolink/contracts';
+import {
+  CreateSiteBody,
+  PageQuery,
+  SiteDto,
+  SiteFeedDto,
+  SiteFeedSecretDto,
+  SiteFeedTokenHeaders,
+  SitePage,
+  SiteParams,
+  UpdateSiteBody,
+} from '@inmolink/contracts';
 import * as websites from '@inmolink/core/modules/websites';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -81,5 +91,67 @@ export async function websitesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => websites.updateSite(ctx, req.params, req.body)),
+  );
+
+  // Per-site XML feeds (S7-07): members see whether the feed is on; admins turn it on (a new token, shown once),
+  // rotate it (the old URL stops working) or turn it off.
+  app.get(
+    '/v1/sites/:siteId/feed',
+    {
+      schema: {
+        tags: ['websites'],
+        operationId: 'websites.getSiteFeed',
+        summary: 'The website’s XML feed: on or off, the token’s last characters, the last run',
+        params: SiteParams,
+        response: { 200: SiteFeedDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => websites.getSiteFeed(ctx, req.params)),
+  );
+
+  app.post(
+    '/v1/sites/:siteId/feed/token',
+    {
+      schema: {
+        tags: ['websites'],
+        operationId: 'websites.rotateSiteFeedToken',
+        summary:
+          'Turn the website’s XML feed on with a new token, or rotate it; the token is shown once (agency admins). With an Idempotency-Key, a retry within 24 h answers the same token (200)',
+        params: SiteParams,
+        headers: SiteFeedTokenHeaders,
+        response: { 200: SiteFeedSecretDto, 201: SiteFeedSecretDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const result = await app.withCtx(req, (ctx) =>
+        websites.rotateSiteFeed(ctx, req.params, {
+          idempotencyKey: req.headers['idempotency-key'] as string | undefined,
+        }),
+      );
+      return reply
+        .code(result.replayed ? 200 : 201)
+        .header('Cache-Control', 'no-store')
+        .send(result.secret);
+    },
+  );
+
+  app.delete(
+    '/v1/sites/:siteId/feed',
+    {
+      schema: {
+        tags: ['websites'],
+        operationId: 'websites.revokeSiteFeed',
+        summary: 'Turn the website’s XML feed off: its URL answers 404 (agency admins)',
+        params: SiteParams,
+        response: { 200: SiteFeedDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => websites.revokeSiteFeed(ctx, req.params)),
   );
 }

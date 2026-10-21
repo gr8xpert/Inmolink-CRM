@@ -101,6 +101,12 @@ const leadEmailEnv = {
 };
 
 /**
+ * The `exports` pool's per-site XML feeds (S7-07): the site's inventory through the website API's read path as
+ * `app_public`, image URLs under the media CDN (the same variables as the lead acknowledgements).
+ */
+const siteFeedEnv = leadEmailEnv;
+
+/**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
  * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys, no cache (S3-F7).
  */
@@ -121,6 +127,7 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(others ? systemEnv : {}),
     ...(pools.includes('media') ? mediaPoolEnv : {}),
     ...(pools.includes('email') ? { ...emailEnv, ...leadEmailEnv } : {}),
+    ...(pools.includes('exports') ? siteFeedEnv : {}),
     ...(pools.includes('indexing') ? indexingEnv : {}),
   };
 }

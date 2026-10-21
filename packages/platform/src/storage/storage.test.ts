@@ -6,6 +6,8 @@ import {
   createS3Store,
   detectFileType,
   parseListPage,
+  StorageError,
+  storageConfigForBuckets,
 } from './index';
 
 const store = createS3Store({
@@ -17,6 +19,24 @@ const store = createS3Store({
 });
 
 describe('storage', () => {
+  it('[S7-07] a store for some buckets only reaches nothing else', async () => {
+    const calls: string[] = [];
+    const feeds = createS3Store({
+      ...storageConfigForBuckets(
+        { S3_ENDPOINT: 'http://localhost:9000', S3_REGION: 'auto', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 's' },
+        { exports: 'e' },
+      ),
+      fetch: async (req) => {
+        calls.push((req as Request).url);
+        return new Response(null, { status: 404 });
+      },
+    });
+    await expect(feeds.get('exports', 'site-feeds/a/b', { maxBytes: 10 })).resolves.toBeNull();
+    await expect(feeds.get('private', 'verification/a', { maxBytes: 10 })).rejects.toThrow(StorageError);
+    await expect(feeds.signedGetUrl('media', 'x', { expiresInSeconds: 60 })).rejects.toThrow(/not configured/);
+    expect(calls).toEqual(['http://localhost:9000/e/site-feeds/a/b']);
+  });
+
   it('[S1-03] detects uploads by magic bytes, not by name or header', () => {
     const bytes = (s: number[]) => new Uint8Array(s);
     expect(detectFileType(new TextEncoder().encode('%PDF-1.7\n'))?.contentType).toBe('application/pdf');

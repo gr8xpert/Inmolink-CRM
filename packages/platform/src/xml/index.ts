@@ -350,3 +350,11 @@ export async function scanXmlStructure(
   }
   return [...stats.values()].map(({ children, ...s }) => ({ ...s, childNames: children.size }));
 }
+
+export {
+  escapeXmlAttribute,
+  escapeXmlText,
+  type XmlAttributes,
+  type XmlValue,
+  XmlWriter,
+} from './writer';

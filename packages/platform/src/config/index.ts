@@ -262,6 +262,22 @@ export const storageEnv = {
   S3_BUCKET_PRIVATE: nonEmpty,
   /** Media originals and masters (S3-F9): no public access; the media container's token covers it, not the private bucket. */
   S3_BUCKET_MEDIA_WORK: nonEmpty,
+  /** Per-site XML feeds (S7-07): their own bucket in production (H3); unset, the exports bucket. */
+  S3_BUCKET_FEEDS: nonEmpty.optional(),
+};
+
+/**
+ * feed-api's object storage (S7-07): per-site XML feeds are read from the feeds bucket (`S3_BUCKET_FEEDS`; unset,
+ * the exports bucket), nothing else. Production gives it a read-only token for that bucket (`S3_FEEDS_ACCESS_KEY_ID`,
+ * runbook deploy.md).
+ */
+export const siteFeedStorageEnv = {
+  S3_ENDPOINT: storageEnv.S3_ENDPOINT,
+  S3_REGION: storageEnv.S3_REGION,
+  S3_ACCESS_KEY_ID: storageEnv.S3_ACCESS_KEY_ID,
+  S3_SECRET_ACCESS_KEY: storageEnv.S3_SECRET_ACCESS_KEY,
+  S3_BUCKET_EXPORTS: storageEnv.S3_BUCKET_EXPORTS,
+  S3_BUCKET_FEEDS: storageEnv.S3_BUCKET_FEEDS,
 };
 
 /** Transactional email (platform/email). Workers only: requests never send mail. */

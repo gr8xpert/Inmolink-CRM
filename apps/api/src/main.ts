@@ -3,6 +3,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
+import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
@@ -47,6 +48,8 @@ try {
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
   media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
+  // Per-site XML feed tokens (S7-07): stored as HMACs; feed-api checks them with the same key.
+  websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
   // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
   imports.configureImports({ keyring: keyringFromEnv(config) });
   // Network search (S5-05): the search-only key; the master key only on a developer's machine or in tests (security

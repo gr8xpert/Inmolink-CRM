@@ -70,6 +70,8 @@ export const AUDIT_TYPES = [
   'imports.connection.resumed',
   'websites.site.created',
   'websites.site.changed',
+  'websites.feed.rotated',
+  'websites.feed.revoked',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',

@@ -210,6 +210,57 @@ export type SitePage = z.infer<typeof SitePage>;
 export const SiteParams = z.object({ siteId: z.uuid() });
 export type SiteParams = z.infer<typeof SiteParams>;
 
+// ── Per-site XML feeds (S7-07) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The files of a site's XML feed (PLAN §9.5): `kyero.xml` (Kyero v3) and `inmolink.xml` (generic). Both carry the
+ * site's inventory with the API's policy, white-label and overrides, refreshed when listings or the site change.
+ */
+export const SITE_FEED_FILES = ['kyero.xml', 'inmolink.xml'] as const;
+export const SiteFeedFile = z.enum(SITE_FEED_FILES);
+export type SiteFeedFile = z.infer<typeof SiteFeedFile>;
+
+/** A feed token: 43 base64url characters (32 random bytes). Not an API key. */
+export const SiteFeedToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** `GET /v2/feeds/{token}/{file}` (feed-api). */
+export const WebsiteFeedParams = z.object({ token: SiteFeedToken, file: SiteFeedFile });
+export type WebsiteFeedParams = z.infer<typeof WebsiteFeedParams>;
+
+/** A site's feed as the dashboard shows it: never the token, only its last characters. */
+export const SiteFeedDto = z.strictObject({
+  siteId: z.uuid(),
+  /** false: no feed, or revoked (its URL answers 404). */
+  enabled: z.boolean(),
+  tokenHint: z.string().nullable(),
+  tokenCreatedAt: z.iso.datetime().nullable(),
+  generatedAt: z.iso.datetime().nullable(),
+  /** Listings and units in the generic feed; those in the Kyero feed (priced sales and monthly or weekly rentals). */
+  itemCount: z.number().int().nullable(),
+  kyeroCount: z.number().int().nullable(),
+  /** The last run failed (an error code); null after a success. */
+  lastError: z.string().nullable(),
+});
+export type SiteFeedDto = z.infer<typeof SiteFeedDto>;
+
+/** `POST /v1/sites/{id}/feed/token`: an optional `Idempotency-Key` — a retry within 24 h answers the same token. */
+export const SiteFeedTokenHeaders = z.object({
+  'idempotency-key': z
+    .string()
+    .min(16)
+    .max(128)
+    .regex(/^[A-Za-z0-9_.:-]+$/)
+    .optional(),
+});
+
+/** A new or rotated token: shown once. `paths` are on the website API host (`/v2/feeds/<token>/<file>`). */
+export const SiteFeedSecretDto = z.strictObject({
+  feed: SiteFeedDto,
+  token: SiteFeedToken,
+  paths: z.strictObject({ kyero: z.string(), generic: z.string() }),
+});
+export type SiteFeedSecretDto = z.infer<typeof SiteFeedSecretDto>;
+
 // ── Website API documents (S7-02) ───────────────────────────────────────────────────────────────────────────────
 
 /**

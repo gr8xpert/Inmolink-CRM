@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Inmolink generic XML feed, version 1 (S7-07, `/v2/feeds/<token>/inmolink.xml`): one site's inventory as its website
+  API shows it — white-labelled (`<agency>` is the presenting agency, references are the site's), every text plain
+  text. Our own format: this schema is its definition (source: packages/core/src/modules/website-api/feed-xml.ts).
+  Prices are in cents with their currency, like the API's `amountCents`; areas in m²; dates ISO 8601 UTC.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <xs:complexType name="taxon">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="id" type="xs:string" use="required"/>
+        <xs:attribute name="slug" type="xs:string" use="required"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:simpleType name="kind">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="LISTING"/>
+      <xs:enumeration value="UNIT"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:element name="inmolink_feed">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="site">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="name" type="xs:string"/>
+              <xs:element name="languages" type="xs:string"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="agency">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="name" type="xs:string"/>
+              <xs:element name="email" type="xs:string" minOccurs="0"/>
+              <xs:element name="phone" type="xs:string" minOccurs="0"/>
+              <xs:element name="website" type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="items">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="item" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:all>
+                    <xs:element name="updated" type="xs:dateTime"/>
+                    <xs:element name="status" type="xs:string"/>
+                    <xs:element name="transaction" minOccurs="0">
+                      <xs:simpleType>
+                        <xs:restriction base="xs:string">
+                          <xs:enumeration value="SALE"/>
+                          <xs:enumeration value="RENT_LONG_TERM"/>
+                          <xs:enumeration value="RENT_SHORT_TERM"/>
+                        </xs:restriction>
+                      </xs:simpleType>
+                    </xs:element>
+                    <xs:element name="price" minOccurs="0">
+                      <xs:complexType>
+                        <xs:simpleContent>
+                          <xs:extension base="xs:nonNegativeInteger">
+                            <xs:attribute name="currency" type="xs:string" use="required"/>
+                            <xs:attribute name="period" type="xs:string"/>
+                          </xs:extension>
+                        </xs:simpleContent>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="price_on_request" minOccurs="0">
+                      <xs:complexType>
+                        <xs:simpleContent>
+                          <xs:extension base="xs:boolean">
+                            <xs:attribute name="currency" type="xs:string" use="required"/>
+                          </xs:extension>
+                        </xs:simpleContent>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="type" type="taxon"/>
+                    <xs:element name="place">
+                      <xs:complexType>
+                        <xs:sequence>
+                          <xs:element name="country" type="taxon" minOccurs="0"/>
+                          <xs:element name="region" type="taxon" minOccurs="0"/>
+                          <xs:element name="city" type="taxon" minOccurs="0"/>
+                          <xs:element name="area" type="taxon" minOccurs="0"/>
+                        </xs:sequence>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="geo" minOccurs="0">
+                      <xs:complexType>
+                        <xs:attribute name="lat" type="xs:decimal" use="required"/>
+                        <xs:attribute name="lng" type="xs:decimal" use="required"/>
+                        <xs:attribute name="precision" type="xs:string" use="required"/>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="bedrooms" type="xs:nonNegativeInteger" minOccurs="0"/>
+                    <xs:element name="bathrooms" type="xs:nonNegativeInteger" minOccurs="0"/>
+                    <xs:element name="built_m2" type="xs:decimal" minOccurs="0"/>
+                    <xs:element name="internal_m2" type="xs:decimal" minOccurs="0"/>
+                    <xs:element name="plot_m2" type="xs:decimal" minOccurs="0"/>
+                    <xs:element name="terrace_m2" type="xs:decimal" minOccurs="0"/>
+                    <xs:element name="year_built" type="xs:integer" minOccurs="0"/>
+                    <xs:element name="floor" type="xs:integer" minOccurs="0"/>
+                    <xs:element name="orientation" type="xs:string" minOccurs="0"/>
+                    <xs:element name="energy_rating" type="xs:string" minOccurs="0"/>
+                    <xs:element name="energy_emissions_rating" type="xs:string" minOccurs="0"/>
+                    <xs:element name="development_ref" type="xs:string" minOccurs="0"/>
+                    <xs:element name="development" minOccurs="0">
+                      <xs:complexType>
+                        <xs:simpleContent>
+                          <xs:extension base="xs:string">
+                            <xs:attribute name="ref" type="xs:string"/>
+                            <xs:attribute name="status" type="xs:string" use="required"/>
+                            <xs:attribute name="completion" type="xs:string"/>
+                          </xs:extension>
+                        </xs:simpleContent>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="texts" minOccurs="0">
+                      <xs:complexType>
+                        <xs:sequence>
+                          <xs:element name="text" maxOccurs="unbounded">
+                            <xs:complexType>
+                              <xs:sequence>
+                                <xs:element name="title" type="xs:string"/>
+                                <xs:element name="slug" type="xs:string"/>
+                                <xs:element name="description" type="xs:string" minOccurs="0"/>
+                                <xs:element name="meta_title" type="xs:string" minOccurs="0"/>
+                                <xs:element name="meta_description" type="xs:string" minOccurs="0"/>
+                                <xs:element name="payment_terms" type="xs:string" minOccurs="0"/>
+                              </xs:sequence>
+                              <xs:attribute name="lang" type="xs:language" use="required"/>
+                            </xs:complexType>
+                          </xs:element>
+                        </xs:sequence>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="features" minOccurs="0">
+                      <xs:complexType>
+                        <xs:sequence>
+                          <xs:element name="feature" type="taxon" maxOccurs="unbounded"/>
+                        </xs:sequence>
+                      </xs:complexType>
+                    </xs:element>
+                    <xs:element name="images" minOccurs="0">
+                      <xs:complexType>
+                        <xs:sequence>
+                          <xs:element name="image" maxOccurs="unbounded">
+                            <xs:complexType>
+                              <xs:sequence>
+                                <xs:element name="alt" type="xs:string" minOccurs="0"/>
+                                <xs:element name="url" maxOccurs="unbounded">
+                                  <xs:complexType>
+                                    <xs:simpleContent>
+                                      <xs:extension base="xs:anyURI">
+                                        <xs:attribute name="size" type="xs:string" use="required"/>
+                                      </xs:extension>
+                                    </xs:simpleContent>
+                                  </xs:complexType>
+                                </xs:element>
+                              </xs:sequence>
+                              <xs:attribute name="kind" type="xs:string" use="required"/>
+                              <xs:attribute name="cover" type="xs:boolean" use="required"/>
+                              <xs:attribute name="width" type="xs:positiveInteger" use="required"/>
+                              <xs:attribute name="height" type="xs:positiveInteger" use="required"/>
+                            </xs:complexType>
+                          </xs:element>
+                        </xs:sequence>
+                      </xs:complexType>
+                    </xs:element>
+                  </xs:all>
+                  <xs:attribute name="kind" type="kind" use="required"/>
+                  <xs:attribute name="ref" type="xs:string" use="required"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="version" type="xs:integer" fixed="1" use="required"/>
+      <xs:attribute name="generated" type="xs:dateTime" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

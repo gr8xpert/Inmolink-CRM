@@ -1,0 +1,1 @@
+ALTER TABLE "website_feeds" ADD COLUMN "idempotency_hash" text;

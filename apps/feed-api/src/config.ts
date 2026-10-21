@@ -12,6 +12,7 @@ import {
   rateLimitEnv,
   redisEnv,
   searchEnv,
+  siteFeedStorageEnv,
   telemetryEnv,
   turnstileEnv,
   websiteApiEnv,
@@ -49,6 +50,8 @@ export const feedApiEnv = {
   ...edgeCacheEnv,
   /** Image URLs in website documents (S7-03). */
   ...mediaCdnEnv,
+  /** Per-site XML feeds (S7-07): read from the `exports` bucket only (`site-feeds/…`). */
+  ...siteFeedStorageEnv,
   /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */
   NETWORK_GIVE_TO_GET_MIN_SHARED: networkEnv.NETWORK_GIVE_TO_GET_MIN_SHARED,
   NETWORK_GIVE_TO_GET_GRACE_DAYS: networkEnv.NETWORK_GIVE_TO_GET_GRACE_DAYS,

@@ -71,6 +71,71 @@ export const websiteSites = pgTable(
   ],
 );
 
+/**
+ * A site's XML feed (S7-07, PLAN §9.5): the site's inventory as Kyero v3 and generic XML, for web designers who want
+ * XML instead of the API. The feed is fetched at `/v2/feeds/<token>/<file>` (feed-api, CDN-cached): the token is
+ * per site, random (32 bytes), shown once, and stored only as its keyed hash (`HMAC_KEY`, purpose
+ * `websites.feed-token`); rotating it replaces the hash (the old URL stops working), revoking it sets `revoked_at`.
+ * Never the API key. The generator (worker, `websiteApi.generateSiteFeed`) writes the files to object storage under
+ * `site-feeds/<site>/<run>/` and records the run here.
+ *
+ * PUBLIC_READ (`revoked_at is null`): feed-api looks a token up as `app_public` before it knows the tenant; only the
+ * run columns and the site are read there. `created_by` and `last_error` are not public.
+ */
+export const websiteFeeds = pgTable(
+  'website_feeds',
+  {
+    siteId: uuid('site_id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    /** `hmacSha256(HMAC_KEY, 'websites.feed-token', token)`; the token itself is never stored. */
+    tokenHash: text('token_hash').notNull(),
+    /** The token's last 4 characters (the dashboard shows which token is live). */
+    tokenHint: text('token_hint').notNull(),
+    tokenCreatedAt: timestamp('token_created_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * HMAC of the `Idempotency-Key` the token was set with (S7-07 review): a retried request within 24 h answers the
+     * same token (re-derived, never stored) instead of rotating again. Null without one.
+     */
+    idempotencyHash: text('idempotency_hash'),
+    /** The admin who last set the token (audit; no FK). */
+    createdBy: uuid('created_by').notNull(),
+    /** The generation run whose files are served (`site-feeds/<site>/<run>/`); null until the first run. */
+    runId: uuid('run_id'),
+    generatedAt: timestamp('generated_at', { withTimezone: true }),
+    /** Listings and units in the generic feed, and in the Kyero feed (sale and monthly or weekly rentals with a price). */
+    itemCount: integer('item_count'),
+    kyeroCount: integer('kyero_count'),
+    /** SHA-256 (base64url) of each served file (gzip bytes): the strong ETag. */
+    kyeroSha256: text('kyero_sha256'),
+    genericSha256: text('generic_sha256'),
+    /** Why the last run failed (an error code, never a message with data); null after a success. */
+    lastError: text('last_error'),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // feed-api: where token_hash = ? (the token's lookup)
+    uniqueIndex('website_feeds_token_uq').on(t.tokenHash),
+    // FK + the agency's feeds (a listing change regenerates them): where agency_id = ? and revoked_at is null
+    index('website_feeds_agency_idx').on(t.agencyId),
+    // periodic refresh: where revoked_at is null and (generated_at < ? or generated_at is null) order by generated_at
+    index('website_feeds_refresh_idx').on(t.generatedAt).where(sql`${t.revokedAt} is null`),
+    check('website_feeds_hint_ck', sql`length(${t.tokenHint}) = 4`),
+    check('website_feeds_error_ck', sql`${t.lastError} is null or length(${t.lastError}) <= 64`),
+    foreignKey({
+      name: 'website_feeds_site_fk',
+      columns: [t.agencyId, t.siteId],
+      foreignColumns: [websiteSites.agencyId, websiteSites.id],
+      // A site's feed goes with the site (sites are never deleted by tenants; an agency's deletion removes both).
+    }).onDelete('cascade'),
+  ],
+);
+
 export const websiteLeadKindEnum = pgEnum('website_lead_kind', ['ENQUIRY', 'VIEWING_REQUEST']);
 /** How the visitor was checked: Cloudflare Turnstile, or a site server (secret key) that ran its own check. */
 export const websiteLeadVerificationEnum = pgEnum('website_lead_verification', ['TURNSTILE', 'SERVER_KEY']);

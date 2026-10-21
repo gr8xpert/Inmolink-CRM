@@ -15,23 +15,45 @@
  * acknowledgement rather than risk exceeding a cap. The agency notification: a crash between the send and the mark
  * sends at most once more. The 60 s budget:
  * outbox poll (≤ 250 ms) + queue pickup + the search (≤ engine timeout, else the Postgres fallback) + one SMTP send.
+ *
+ * Per-site XML feeds (S7-07), pool `exports`: `websiteApi.generateSiteFeed` writes one site's feed files
+ * (`site-feeds.ts`) — throttled per site (`queueSiteFeed`: a burst of listing changes is one run 5 minutes after the
+ * first), fair-shared per agency (one run per agency at a time, two per process: memory), idempotent (a run that
+ * loses to a later one deletes its own files). Triggers: a new token (at once), the site's setup, its agency's public
+ * documents (`search.publicDocs.changed`), and **schedule** `websiteApi.refreshSiteFeeds` every 15 minutes (stable
+ * scheduler id = the job name): live feeds older than 6 hours (network listings and overrides name no site), at most
+ * 500 per sweep, the stalest first.
  */
 import type { ListingCardDoc, UnitCardDoc, ViewingSlot, WebsiteCard, WebsiteListingsQuery } from '@inmolink/contracts';
 import { withPublicRead, withSystem } from '@inmolink/db';
 import { cdnPurger } from '@inmolink/platform/cdn';
 import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
-import { defineJob } from '@inmolink/platform/queue';
+import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
 import { raiseWebsiteAlert } from './alerts';
-import { EDGE_PURGE_HORIZON_MS, edgeTagsConfigured } from './edge';
-import { clearPendingPurges, EDGE_PURGE_THROTTLE_MS, returnPendingPurges, takePendingPurges } from './edge-purge';
+import { EDGE_PURGE_HORIZON_MS, type EdgeTagKind, edgeTag, edgeTagsConfigured } from './edge';
+import {
+  addPendingPurges,
+  clearPendingPurges,
+  EDGE_PURGE_THROTTLE_MS,
+  returnPendingPurges,
+  takePendingPurges,
+} from './edge-purge';
 import { notifyLocale, renderLeadAck, renderLeadNotification } from './emails';
 import { type ApiSite, searchListings, siteForKey } from './service';
 import { websiteLimits } from './settings';
+import {
+  deleteSiteFeedFiles,
+  generateSiteFeed,
+  recordSiteFeedFailure,
+  SITE_FEED_ATTEMPTS,
+  SITE_FEED_MAX_AGE_MS,
+  SiteFeedError,
+} from './site-feeds';
 
 /** Suggestions in the acknowledgement. */
 export const SIMILAR_LISTINGS = 3;
@@ -327,7 +349,107 @@ export const websiteApiJobs = {
       return { sent: true };
     },
   }),
+
+  /**
+   * S7-07: one site's XML feed files (`generateSiteFeed`). A run over the size cap fails for good (`TOO_LARGE`, no
+   * retry); other failures retry with backoff and record `GENERATION_FAILED` on the last attempt. The feed keeps
+   * serving the previous run's files meanwhile. A recorded run purges the feed's edge copies (`f`).
+   */
+  generateSiteFeed: defineJob({
+    name: 'websiteApi.generateSiteFeed',
+    pool: 'exports',
+    payload: z.object({ siteId: z.uuid(), agencyId: z.uuid() }),
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    perProcessConcurrency: 2,
+    attempts: SITE_FEED_ATTEMPTS,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { log, signal, attempt, progress }) {
+      try {
+        const result = await generateSiteFeed(p.siteId, { signal, log, progress: (items) => progress({ items }) });
+        if (result.runId && !result.skipped) {
+          await queueEdgePurge(p.agencyId, [{ kind: 'f', id: p.siteId }], clock.now());
+        }
+        return result;
+      } catch (err) {
+        if (err instanceof SiteFeedError || attempt >= SITE_FEED_ATTEMPTS) await recordSiteFeedFailure(p.siteId, err);
+        if (err instanceof SiteFeedError) throw new UnrecoverableError(err.message);
+        throw err;
+      }
+    },
+  }),
+
+  /** S7-07 review: a revoked feed's stored files are deleted (unless a new token made it live again meanwhile). */
+  deleteSiteFeedFiles: defineJob({
+    name: 'websiteApi.deleteSiteFeedFiles',
+    pool: 'exports',
+    payload: z.object({ eventId: z.uuid(), siteId: z.uuid(), agencyId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 10_000 },
+    timeoutMs: 120_000,
+    async run(p, { log }) {
+      return { deleted: await deleteSiteFeedFiles(p.siteId, log) };
+    },
+  }),
+
+  /** S7-07, every 15 minutes: live feeds older than `SITE_FEED_MAX_AGE_MS` (or never generated) get a run soon. */
+  refreshSiteFeeds: defineJob({
+    name: 'websiteApi.refreshSiteFeeds',
+    pool: 'exports',
+    payload: z.object({}),
+    every: 15 * 60_000,
+    attempts: 1,
+    timeoutMs: 60_000,
+    async run(_p, { log }) {
+      const due = await withSystem('websiteApi.refreshSiteFeeds', (tx) =>
+        websites.dueSiteFeeds(tx, new Date(clock.now().getTime() - SITE_FEED_MAX_AGE_MS), SITE_FEED_SWEEP),
+      );
+      for (const f of due) await queueSiteFeed(f.siteId, f.agencyId, SITE_FEED_SOON_MS);
+      if (due.length > 0) log.info({ feeds: due.length }, 'site feeds queued for refresh');
+      return { queued: due.length };
+    },
+  }),
 };
+
+/** Live feeds queued per refresh sweep (every 15 minutes: up to 48,000 a day). */
+const SITE_FEED_SWEEP = 500;
+/** A listing or site change: one run this long after the first change (later changes fold into it). */
+export const SITE_FEED_THROTTLE_MS = 5 * 60_000;
+/** A new token or a due refresh: a run within seconds. */
+export const SITE_FEED_SOON_MS = 5_000;
+
+/** Queues a run of the site's feed (S7-07), at most one per throttle window per site. */
+export async function queueSiteFeed(
+  siteId: string,
+  agencyId: string,
+  throttleMs = SITE_FEED_THROTTLE_MS,
+): Promise<void> {
+  await websiteApiJobs.generateSiteFeed.enqueue(
+    { siteId, agencyId },
+    { throttleMs, debounceKey: `site-feed:${siteId}` },
+  );
+}
+
+/**
+ * Queues edge purges (S7-06): the tags join the agency's pending set (coalesced, `edge-purge.ts`) and the agency's
+ * throttled purge run is enqueued. A redelivered event adds the same tags again: harmless.
+ */
+export async function queueEdgePurge(
+  agencyId: string,
+  items: readonly { kind: EdgeTagKind; id: string }[],
+  changedAt: Date,
+): Promise<void> {
+  if (items.length === 0 || !edgeTagsConfigured()) return;
+  const at = changedAt.getTime();
+  await addPendingPurges(
+    agencyId,
+    items.map((i) => ({ tag: edgeTag(i.kind, i.id), at })),
+  );
+  await queueEdgePurgeRun(agencyId);
+}
 
 /** The agency's next purge run, at most one per throttle window (S7-06: per-tenant purge budget). */
 export async function queueEdgePurgeRun(agencyId: string): Promise<void> {

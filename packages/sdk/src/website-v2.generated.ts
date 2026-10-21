@@ -130,6 +130,14 @@ export type GetDevelopmentResponse = {
   };
 };
 
+/** The site's XML feed: `kyero.xml` (Kyero v3) or `inmolink.xml` (generic). The token URL is the credential */
+export type GetFeedParams = {
+  token: string;
+  file: "kyero.xml" | "inmolink.xml";
+};
+export type GetFeedQuery = Record<string, never>;
+export type GetFeedResponse = string;
+
 /** A listing or unit by the reference the site shows (own reference, or `<prefix>-<code>`) */
 export type GetListingParams = {
   ref: string;
@@ -805,6 +813,7 @@ export const OPERATIONS = {
   createLead: { method: "POST", path: "/v2/leads" },
   createViewingRequest: { method: "POST", path: "/v2/viewing-requests" },
   getDevelopment: { method: "GET", path: "/v2/developments/{ref}" },
+  getFeed: { method: "GET", path: "/v2/feeds/{token}/{file}" },
   getListing: { method: "GET", path: "/v2/listings/{ref}" },
   getSitemap: { method: "GET", path: "/v2/sitemap" },
   getTaxonomyCatalog: { method: "GET", path: "/v2/taxonomy/catalog" },
@@ -822,6 +831,7 @@ export interface Operations {
   createLead: { params: CreateLeadParams; query: CreateLeadQuery; body: CreateLeadBody; headers: CreateLeadHeaders; response: CreateLeadResponse };
   createViewingRequest: { params: CreateViewingRequestParams; query: CreateViewingRequestQuery; body: CreateViewingRequestBody; headers: CreateViewingRequestHeaders; response: CreateViewingRequestResponse };
   getDevelopment: { params: GetDevelopmentParams; query: GetDevelopmentQuery; body?: never; headers?: never; response: GetDevelopmentResponse };
+  getFeed: { params: GetFeedParams; query: GetFeedQuery; body?: never; headers?: never; response: GetFeedResponse };
   getListing: { params: GetListingParams; query: GetListingQuery; body?: never; headers?: never; response: GetListingResponse };
   getSitemap: { params: GetSitemapParams; query: GetSitemapQuery; body?: never; headers?: never; response: GetSitemapResponse };
   getTaxonomyCatalog: { params: GetTaxonomyCatalogParams; query: GetTaxonomyCatalogQuery; body?: never; headers?: never; response: GetTaxonomyCatalogResponse };
@@ -853,6 +863,7 @@ export function bindOperations(
     createLead: (body: CreateLeadBody, headers: CreateLeadHeaders) => call('createLead', { body, headers }),
     createViewingRequest: (body: CreateViewingRequestBody, headers: CreateViewingRequestHeaders) => call('createViewingRequest', { body, headers }),
     getDevelopment: (params: GetDevelopmentParams, query?: GetDevelopmentQuery) => call('getDevelopment', { params, query }),
+    getFeed: (params: GetFeedParams, query?: GetFeedQuery) => call('getFeed', { params, query }),
     getListing: (params: GetListingParams, query?: GetListingQuery) => call('getListing', { params, query }),
     getSitemap: (query?: GetSitemapQuery) => call('getSitemap', { query }),
     getTaxonomyCatalog: (query?: GetTaxonomyCatalogQuery) => call('getTaxonomyCatalog', { query }),

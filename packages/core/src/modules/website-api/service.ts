@@ -281,6 +281,26 @@ export async function listingDetail(site: ApiSite, ref: string, lang?: string): 
   });
 }
 
+/**
+ * S7-07: the details of these documents as the site shows them in `lang` — the XML feed's items, white-labelled and
+ * overridden exactly like `/v2/listings/{ref}` — and whether the site agency overrides each one's text in `lang`. One
+ * statement when other agencies' documents are among them.
+ */
+export async function serializeDetailsFor(
+  tx: Tx,
+  site: ApiSite,
+  lang: string,
+  rows: readonly search.PublicDocRow[],
+): Promise<{ row: search.PublicDocRow; detail: WebsiteDetail; overridden: boolean }[]> {
+  const view = await viewFor(tx, site, lang, rows);
+  const overrides = 'overrides' in view ? view.overrides?.targets : undefined;
+  return rows.map((r) => ({
+    row: r,
+    detail: websites.serializeDetail(view, owned<ListingDetailDoc | UnitDetailDoc>(r)),
+    overridden: overrides?.has(r.targetId) ?? false,
+  }));
+}
+
 // ── Delta feed ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A changes cursor: the log position (`x` xid8, `s` seq) and the hour it was handed out (`h`, epoch hours). */

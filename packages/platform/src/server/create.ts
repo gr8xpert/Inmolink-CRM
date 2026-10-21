@@ -8,7 +8,7 @@ import {
 } from '@fastify/type-provider-zod';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance, LogController } from 'fastify';
 import { newId, requestIdFrom } from '../ids';
-import { type Logger, stripQuery } from '../logger';
+import { type Logger, REDACTED, stripQuery } from '../logger';
 import { registerErrorHandling, sendError } from './errors';
 import { observeRequests } from './observe';
 
@@ -104,7 +104,7 @@ export async function createServer(options: ServerOptions): Promise<FastifyZod> 
     request.log[level](
       {
         method: request.method,
-        url: stripQuery(request.url),
+        url: loggedPath(request),
         route: request.routeOptions.url,
         statusCode: reply.statusCode,
         ms: Math.round(reply.elapsedTime),
@@ -124,6 +124,26 @@ export async function createServer(options: ServerOptions): Promise<FastifyZod> 
   if (options.docsUi) await app.register((await import('@fastify/swagger-ui')).default, { routePrefix: '/docs' });
 
   return app;
+}
+
+/** Route parameters that are credentials (S7-07: feed tokens): their values never reach a log line. */
+const SECRET_PARAM = /token|secret/i;
+
+/**
+ * The request path as logged: no query string, credential path segments redacted (`stripQuery`), and any route
+ * parameter whose name says it is a credential (`:token`, …) replaced, whatever the route.
+ */
+export function loggedPath(request: { url: string; params?: unknown }): string {
+  let path = stripQuery(request.url);
+  const params = (request.params ?? {}) as Record<string, unknown>;
+  for (const [name, value] of Object.entries(params)) {
+    if (!SECRET_PARAM.test(name) || typeof value !== 'string' || value.length === 0) continue;
+    path = path
+      .split('/')
+      .map((seg) => (seg === value || seg === encodeURIComponent(value) ? REDACTED : seg))
+      .join('/');
+  }
+  return path;
 }
 
 /** A hop count becomes "trust the nearest n proxies" (what proxy-addr does for a number). */

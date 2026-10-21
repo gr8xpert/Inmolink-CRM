@@ -4,6 +4,7 @@ import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@
 import { apiKeyPlugin } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
+import { feedTokenIdentity, websiteFeedRoutes } from './routes/website-api/feeds';
 import { websiteLeadRoutes } from './routes/website-api/leads';
 import { websiteApiRoutes } from './routes/website-api/routes';
 
@@ -45,11 +46,17 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   await app.register(rateLimitPlugin, {
     limiter: deps.limiter,
     defaults: DEFAULT_LIMITS,
-    identify: { ip: (r) => ipBucket(r.ip), key: (r) => r.apiKey?.keyId, tenant: (r) => r.apiKey?.agencyId },
+    identify: {
+      ip: (r) => ipBucket(r.ip),
+      // S7-07: feed requests carry no key; their token's hash is their `key` identity.
+      key: (r) => r.apiKey?.keyId ?? feedTokenIdentity(r),
+      tenant: (r) => r.apiKey?.agencyId,
+    },
   });
   healthRoutes(app, { checks: deps.checks });
   await app.register(taxonomyRoutes);
   await app.register(websiteApiRoutes);
   await app.register(websiteLeadRoutes);
+  await app.register(websiteFeedRoutes);
   return app;
 }

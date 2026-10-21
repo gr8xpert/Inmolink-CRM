@@ -30,6 +30,11 @@ the plugin still works; it just does not get edge-cached answers.
 Its query schema strips unknown parameters, so a URL with any parameter other than `lang`, `cursor` or `_k` answers
 `private` (no cache-busting copies).
 
+**Per-site XML feeds** (S7-07, `/v2/feeds/<token>/kyero.xml|inmolink.xml`) carry no key header: the per-site token is
+in the path, so the URL alone is the cache key. They answer `public, s-maxage=900` with `Vary: Accept-Encoding` only,
+`Cache-Tag` `s` (site) and `f` (feed). A new run, a token rotation or revocation purges `f`; an agency or site change
+purges `s`. A rotated token's URL answers 404 at the origin (never cached), so after the purge it stops at the edge too.
+
 **Never turn `WEBSITE_EDGE_CACHE` on before the rule is live and `--verify` passed for that environment.**
 
 ## What is never edge-cached

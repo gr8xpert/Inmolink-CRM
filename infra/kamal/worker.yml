@@ -96,6 +96,8 @@ env:
     S3_BUCKET_EXPORTS: "inmolink-exports"
     # Media originals and masters (S3-F9).
     S3_BUCKET_MEDIA_WORK: "inmolink-media-work"
+    # Per-site XML feeds (S7-07): their own bucket (H3), written by the exports pool, read by feed-api.
+    S3_BUCKET_FEEDS: "inmolink-feeds"
   secret:
     - RELEASE
     - SENTRY_DSN

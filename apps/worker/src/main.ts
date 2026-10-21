@@ -45,12 +45,15 @@ try {
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   // A media-only container has no cache (S3-F7): nothing it runs reads or writes cached bodies.
   if (config.REDIS_CACHE_URL) await configureCache({ url: config.REDIS_CACHE_URL, logger });
-  if (config.WORKER_POOLS.includes('email')) {
-    await configureEmail(emailConfig(config));
-    // S7-05: lead acknowledgements serialize similar listings like the website API (media CDN, white-label).
-    if (config.HMAC_KEY && config.MEDIA_CDN_URL) {
-      websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
-    }
+  if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
+  // S7-05: lead acknowledgements (email) and S7-07: per-site XML feeds (exports) serialize listings like the website
+  // API (media CDN, white-label).
+  if (
+    (config.WORKER_POOLS.includes('email') || config.WORKER_POOLS.includes('exports')) &&
+    config.HMAC_KEY &&
+    config.MEDIA_CDN_URL
+  ) {
+    websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
   }
   // S7-06: the indexing pool purges the website API's edge cache (same tag key as feed-api); without a zone and token
   // there is nothing to purge and cached answers expire with their TTL.

@@ -9,13 +9,14 @@ import { hmacSha256 } from '@inmolink/platform/crypto';
  * - `s` site — every answer of the site (its policy, branding or locales changed);
  * - `k` key — every answer to that API key (rotated or revoked);
  * - `t` target — answers showing a listing or unit (its detail, first pages and unit tables listing it);
- * - `d` development — a development's card, detail and unit table.
+ * - `d` development — a development's card, detail and unit table;
+ * - `f` feed (S7-07) — a site's XML feed files (regenerated, token rotated or revoked).
  *
  * Lists are tagged with the targets on them, so a change purges every page showing the target on every site with one
  * tag — no fan-out over the sites a network listing is on. A target new to a list's results is not on its cached page
  * yet: that page follows within its TTL (60 s).
  */
-export type EdgeTagKind = 's' | 'k' | 't' | 'd';
+export type EdgeTagKind = 's' | 'k' | 't' | 'd' | 'f';
 
 /** Tags on one answer at most (Cloudflare: 16 KB of `Cache-Tag`, ~700 of ours); more → not edge-cached. */
 export const EDGE_MAX_TAGS = 300;

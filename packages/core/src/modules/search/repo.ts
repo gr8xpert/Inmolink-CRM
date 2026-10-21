@@ -1316,6 +1316,8 @@ export interface PublicDocRow {
   developmentOwnRef: string | null;
   doc: unknown;
   updatedAt: Date;
+  /** The document's locale (`publicDocs` only, S7-07): the best one may not be the one asked for. */
+  locale?: string;
 }
 
 /**
@@ -1347,7 +1349,7 @@ export async function publicDocs(
   const res = await tx.execute(sql`
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.${sql.raw(part)} as doc,
            m.updated_at as "updatedAt", c.code as "publicCode", dc.code as "developmentCode",
-           dg.ref as "developmentOwnRef"
+           dg.ref as "developmentOwnRef", m.locale
       from unnest(${uuidArray([...new Set(ids)])}) as t(id)
       join ${listingReadModels} m on m.target_id = t.id and m.locale = ${bestLocale(sql`t.id`, locale, fallback)}
       left join ${listingPublicCodes} c on c.target_id = t.id
@@ -1397,6 +1399,8 @@ export async function sitemapPage(
     limit: number;
     locale: string;
     fallback: string;
+    /** `none` (S7-07, the XML feed reads details per locale itself): codes and ids only, no document. */
+    part?: 'card' | 'none';
   },
 ): Promise<PublicDocRow[]> {
   const after = q.after ? sql`and public_code > ${q.after}` : sql``;
@@ -1417,7 +1421,8 @@ export async function sitemapPage(
   const res = await tx.execute(sql`
     with s as (select * from (${sql.join(branches, sql` union all `)}) u order by public_code limit ${take})
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", s.public_code as "publicCode",
-           null::text as "developmentCode", null::text as "developmentOwnRef", m.card as doc, m.updated_at as "updatedAt"
+           null::text as "developmentCode", null::text as "developmentOwnRef",
+           ${q.part === 'none' ? sql`null::jsonb` : sql`m.card`} as doc, m.updated_at as "updatedAt"
       from s join ${listingReadModels} m on m.target_id = s.target_id
        and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
      order by s.public_code`);

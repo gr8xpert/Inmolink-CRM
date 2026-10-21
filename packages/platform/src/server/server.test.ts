@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { httpEnv, loadConfig } from '../config';
@@ -274,5 +275,38 @@ describe('httpEnv', () => {
       '2001:db8::/32',
       '192.168.1.10',
     ]);
+  });
+});
+
+describe('request logs (S7-07)', () => {
+  it('[S7-07] a credential in the path (feed token, any :token route parameter) never reaches the access log', async () => {
+    const raw: string[] = [];
+    const destination = new Writable({
+      write(chunk, _enc, done) {
+        raw.push(String(chunk));
+        done();
+      },
+    });
+    const app = await createServer({
+      logger: createLogger({ destination, level: 'debug' }),
+      trustProxy: false,
+      openapi: { title: 't', version: '1' },
+      successLogLevel: 'info',
+    });
+    opened.push(app);
+    app.get('/v2/feeds/:token/:file', async (_req, reply) => reply.code(404).send({ error: 'x' }));
+    app.get('/v1/invites/:inviteToken', async () => ({ ok: true }));
+    const feedToken = 'Zx9_feed-token-AbCdEfGhIjKlMnOpQrStUvWxYz0123';
+    const inviteToken = 'invite-secret-0123456789';
+    for (const url of [`/v2/feeds/${feedToken}/kyero.xml`, `/v2/feeds/${feedToken}/kyero.xml?x=1`]) {
+      await app.inject({ method: 'GET', url });
+    }
+    await app.inject({ method: 'GET', url: `/v1/invites/${inviteToken}` });
+    const log = raw.join('');
+    expect(log).toContain('request completed');
+    expect(log).toContain('/v2/feeds/[REDACTED]/kyero.xml');
+    expect(log).toContain('/v1/invites/[REDACTED]');
+    expect(log).not.toContain(feedToken);
+    expect(log).not.toContain(inviteToken);
   });
 });

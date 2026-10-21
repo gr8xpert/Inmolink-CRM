@@ -4,6 +4,7 @@ import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { IORedisInstrumentation } from '@opentelemetry/instrumentation-ioredis';
 import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici';
+import { redactPath } from '../logger';
 
 /** Probes and scrapes are not traced: they would be most of the spans and none of the insight. */
 const UNTRACED_PATHS = new Set(['/healthz', '/readyz', '/metrics']);
@@ -24,6 +25,17 @@ export function defaultInstrumentations(): Instrumentation[] {
   return [
     new HttpInstrumentation({
       ignoreIncomingRequestHook: (req: IncomingMessage) => UNTRACED_PATHS.has(pathOf(req.url)),
+      // S7-07: credential path segments (feed tokens) never reach a trace.
+      requestHook: (span, req) => {
+        if (!('headers' in req) || typeof (req as IncomingMessage).url !== 'string') return;
+        const path = pathOf((req as IncomingMessage).url);
+        const redacted = redactPath(path);
+        if (redacted === path) return;
+        span.setAttribute('http.target', redacted);
+        span.setAttribute('url.path', redacted);
+        span.setAttribute('http.url', redacted);
+        span.setAttribute('url.full', redacted);
+      },
     }),
     new UndiciInstrumentation(),
     new PgInstrumentation({ requireParentSpan: true, enhancedDatabaseReporting: false }),

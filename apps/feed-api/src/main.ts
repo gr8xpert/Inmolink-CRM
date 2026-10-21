@@ -2,10 +2,12 @@ import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
+import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
+import { configureStorage, storageConfigForBuckets } from '@inmolink/platform/storage';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { createTurnstileVerifier } from '@inmolink/platform/turnstile';
 import { buildApp } from './app';
@@ -49,6 +51,9 @@ try {
   });
   // S7-06: Cache-Tags of site answers (keyed hashes; the worker purges the same tags).
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
+  // S7-07: per-site XML feeds — tokens hashed with HMAC_KEY, files read from the feeds bucket only.
+  websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
+  configureStorage(storageConfigForBuckets(config, { feeds: config.S3_BUCKET_FEEDS ?? config.S3_BUCKET_EXPORTS }));
   if (!config.TURNSTILE_SECRET_KEY)
     logger.warn('no TURNSTILE_SECRET_KEY: website forms through publishable keys are refused');
   search.configureNetworkSearch({
