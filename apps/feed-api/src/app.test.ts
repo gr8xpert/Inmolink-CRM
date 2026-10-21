@@ -31,8 +31,11 @@ describe('feed-api app', () => {
     // turbo tasks) that cold load alone exceeded the 5 s default once.
   }, 30_000);
 
-  it('[S0-08] feed-api config holds only the app_public database URL', () => {
-    expect(Object.keys(feedApiEnv).filter((k) => k.startsWith('DATABASE_URL_'))).toEqual(['DATABASE_URL_APP_PUBLIC']);
+  it('[S0-08] feed-api config holds only the app_public database URL and (S7-05) the narrow intake role', () => {
+    expect(Object.keys(feedApiEnv).filter((k) => k.startsWith('DATABASE_URL_'))).toEqual([
+      'DATABASE_URL_APP_PUBLIC',
+      'DATABASE_URL_APP_INTAKE',
+    ]);
     expect(Object.keys(feedApiEnv)).not.toContain('REDIS_QUEUE_URL');
   });
 });

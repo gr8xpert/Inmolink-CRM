@@ -112,7 +112,7 @@ describe('RLS generator', () => {
 
   it('[S0-05] every table resets its grants and policies, so reruns are idempotent', () => {
     expect(out).toContain(
-      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;`,
+      `revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;`,
     );
     expect(out).toContain(`array['contacts', 'listing_read_models', 'locations', 'properties']`);
     expect(generateRlsSql(reg)).toBe(out);
@@ -250,6 +250,7 @@ describe('RLS generator', () => {
       app_auth: ['INSERT'],
       app_staff: ['SELECT', 'INSERT'],
       app_media: [],
+      app_intake: [],
     });
     expect(() =>
       tablesSql({ tenant: { audit: { kind: 'STRICT', immutable: true, staff: { update: 'true' } } }, global: {} }),
@@ -278,6 +279,7 @@ describe('RLS generator', () => {
       app_auth: [],
       app_staff: [],
       app_media: [],
+      app_intake: [],
     });
     expect(() => mergeRegistries(reg, { tenant: {}, global: { contacts: { reason: 'x' } } })).toThrow(/twice/);
   });
@@ -301,6 +303,7 @@ describe('RLS generator', () => {
       app_auth: ['SELECT', 'INSERT', 'UPDATE'],
       app_staff: [],
       app_media: [],
+      app_intake: [],
     });
     expect(() => tablesSql({ tenant: { t: { kind: 'STRICT', authAppend } }, global: {} })).toThrow(/appendOnly/);
     const smuggled = { column: 'type', prefix: "x'; drop table y; --" };
@@ -403,6 +406,7 @@ describe('RLS generator', () => {
       app_auth: ['SELECT'],
       app_staff: ['SELECT'],
       app_media: [],
+      app_intake: [],
     });
     expect(() => tablesSql({ tenant: {}, global: { g: { reason: 'x', access: 'staff', publicRead: true } } })).toThrow(
       /publicRead/,
@@ -486,6 +490,43 @@ describe('RLS generator', () => {
     expect(() =>
       generateRlsSql({ tenant: { x: { kind: 'STRICT', mediaRead: { columns: ['a b'] } } }, global: {} }),
     ).toThrow(/not a column name/);
+  });
+
+  it('[S7-05] intake access: app_intake appends its pinned agency rows, reads back only the listed columns', () => {
+    const r: TenantRegistry = {
+      tenant: {
+        leads: { kind: 'STRICT', intake: { selectColumns: ['id', 'request_hash'] } },
+        events: {
+          kind: 'STRICT',
+          appendOnly: true,
+          intakeAppend: { column: 'type', values: ['websites.lead.received'] },
+        },
+        contacts: { kind: 'STRICT' },
+      },
+      global: { flags: { reason: 'flags' } },
+    };
+    const sql = generateRlsSql(r);
+    expect(sql).toContain(`create policy intake_insert on public."leads" for insert to app_intake
+  with check (agency_id = app_agency());`);
+    expect(sql).toContain(`create policy intake_select on public."leads" for select to app_intake
+  using (agency_id = app_agency());`);
+    expect(sql).toContain('grant select ("id", "request_hash") on table public."leads" to app_intake;');
+    expect(sql).toContain(`create policy intake_append on public."events" for insert to app_intake
+  with check (agency_id = app_agency() and "type" in ('websites.lead.received'));`);
+    expect(sql).not.toMatch(/on table public\."(contacts|flags)" to app_intake/);
+    expect(expectedPrivileges(r.tenant.leads as never).app_intake).toEqual(['SELECT', 'INSERT']);
+    expect(expectedPrivileges(r.tenant.events as never).app_intake).toEqual(['INSERT']);
+    expect(expectedPrivileges(r.tenant.contacts as never).app_intake).toEqual([]);
+    expect(() =>
+      generateRlsSql({
+        tenant: { x: { kind: 'STRICT', intakeAppend: { column: 'type', values: ['a'] } } },
+        global: {},
+      }),
+    ).toThrow(/appendOnly/);
+    expect(() =>
+      generateRlsSql({ tenant: { x: { kind: 'STRICT', intake: { selectColumns: [] } } }, global: {} }),
+    ).toThrow(/selectColumns/);
+    expect(registry.tenant.website_leads).toMatchObject({ kind: 'STRICT' });
   });
 
   it('[S0-05] the production registry generates valid SQL', () => {

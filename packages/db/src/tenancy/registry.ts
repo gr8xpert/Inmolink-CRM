@@ -129,6 +129,17 @@ interface TenantBase {
    * role gains anything; forced RLS binds the owner too, hence the explicit policy.
    */
   definerRead?: true;
+  /**
+   * STRICT only (S7-05): `app_intake` (website form intake, `withIntake()`) may INSERT rows of the agency its
+   * transaction is pinned to (`agency_id = app_agency()`) and SELECT only `selectColumns` of them (a column grant: the
+   * idempotency replay reads its key and body hash, never the client's details). No UPDATE or DELETE.
+   */
+  intake?: { selectColumns: readonly string[] };
+  /**
+   * appendOnly only (S7-05): `app_intake` may INSERT rows of its pinned agency whose `column` is one of `values` — the
+   * intake transaction's own outbox event — and nothing else.
+   */
+  intakeAppend?: { column: string; values: readonly string[] };
 }
 
 export interface AuthAccess {
@@ -252,6 +263,8 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     appendOnly: true,
     authAppend: { column: 'type', prefix: 'identity.' },
+    // Website form intake (app_intake, S7-05) appends the lead's own event for the agency its transaction is pinned to.
+    intakeAppend: { column: 'type', values: ['websites.lead.received'] },
     staff: {
       insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
     },
@@ -372,6 +385,23 @@ export const tenantTables: Record<string, TenantTable> = {
     triggers: ['website_sites_guard'],
     base: { mode: 'WIDGET', locales: '{en}', default_locale: 'en' },
     samples: { visible: [{}], hidden: [] },
+  },
+  // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
+  // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
+  // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.
+  website_leads: {
+    kind: 'STRICT',
+    intake: { selectColumns: ['id', 'site_id', 'idempotency_hash', 'request_hash', 'kind', 'created_at'] },
+    base: {
+      kind: 'ENQUIRY',
+      verification: 'TURNSTILE',
+      request_hash: 'x',
+      locale: 'en',
+      name: 'Iso Fixture',
+      email: 'iso@example.com',
+      email_hash: 'x',
+      key_tier: 'STANDARD',
+    },
   },
   // Directory of verified agencies (S1-07): name and kind only. Verified agencies read the listed rows
   // (find a partner, show partner names). A trigger on `agencies` keeps it in step in the status change's

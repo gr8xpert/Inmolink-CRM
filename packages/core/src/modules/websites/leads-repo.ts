@@ -1,0 +1,170 @@
+/**
+ * Inbound website lead queries (S7-05, PATTERNS §5). Intake runs as `app_intake` under `withIntake` (feed-api: insert,
+ * and read back the idempotency columns only — the role cannot read the rest); the acknowledgement jobs and the
+ * replay-window prune run as `app_system`. Queries only `@inmolink/db/schema/websites`.
+ */
+import type { Tx } from '@inmolink/db';
+import { websiteLeads } from '@inmolink/db/schema/websites';
+import { emitFrom, type OutboxMessage } from '@inmolink/platform/outbox';
+import { and, eq, gt, sql } from 'drizzle-orm';
+
+export type LeadKind = (typeof websiteLeads.$inferSelect)['kind'];
+export type LeadVerification = (typeof websiteLeads.$inferSelect)['verification'];
+
+export type NewLeadRow = typeof websiteLeads.$inferInsert & {
+  id: string;
+  agencyId: string;
+  siteId: string;
+  idempotencyHash: string;
+};
+
+/** What intake may read back: the idempotency columns (`app_intake`'s column grant). */
+export interface LeadReceipt {
+  id: string;
+  kind: LeadKind;
+  requestHash: string;
+}
+
+/**
+ * Inserts the lead and its event in **one** statement (a writable CTE: the event is written only when the row was),
+ * unless the site already has a lead with this idempotency key (`website_leads_idempotency_uq`). Returns the new
+ * row's receipt, or null when the key was taken (a replay, or a concurrent duplicate).
+ */
+export async function insertLeadWithEvent(tx: Tx, row: NewLeadRow, event: OutboxMessage): Promise<LeadReceipt | null> {
+  const insert = tx
+    .insert(websiteLeads)
+    .values(row)
+    .onConflictDoNothing({
+      target: [websiteLeads.siteId, websiteLeads.idempotencyHash],
+      where: sql`${websiteLeads.idempotencyHash} is not null`,
+    })
+    .returning({ id: websiteLeads.id, kind: websiteLeads.kind, requestHash: websiteLeads.requestHash });
+  const res = await tx.execute<{ id: string; kind: LeadKind; request_hash: string }>(sql`
+    with ins as (${insert.getSQL()}), ev as (${emitFrom(event, sql`ins`, { agencyId: row.agencyId })})
+    select id, kind, request_hash from ins`);
+  const r = res.rows[0];
+  return r ? { id: r.id, kind: r.kind, requestHash: r.request_hash } : null;
+}
+
+/** The lead a site's idempotency key names within the replay window (`since`: the window's start). */
+export async function leadByIdempotency(
+  tx: Tx,
+  siteId: string,
+  idempotencyHash: string,
+  since: Date,
+): Promise<LeadReceipt | null> {
+  const rows = await tx
+    .select({ id: websiteLeads.id, kind: websiteLeads.kind, requestHash: websiteLeads.requestHash })
+    .from(websiteLeads)
+    .where(
+      and(
+        eq(websiteLeads.siteId, siteId),
+        eq(websiteLeads.idempotencyHash, idempotencyHash),
+        gt(websiteLeads.createdAt, since),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export interface LeadRow {
+  id: string;
+  agencyId: string;
+  siteId: string;
+  kind: LeadKind;
+  targetKind: string | null;
+  targetId: string | null;
+  shownRef: string | null;
+  locale: string;
+  name: string;
+  email: string;
+  emailHash: string;
+  keyTier: string;
+  phone: string | null;
+  message: string | null;
+  viewingSlots: unknown;
+  marketingConsent: boolean;
+  pageUrl: string | null;
+  ackSentAt: Date | null;
+  ackSkippedReason: string | null;
+  agencyNotifiedAt: Date | null;
+  createdAt: Date;
+}
+
+/** A lead as the acknowledgement and notification jobs read it (`app_system`, by id). */
+export async function leadById(tx: Tx, id: string): Promise<LeadRow | null> {
+  const rows = await tx
+    .select({
+      id: websiteLeads.id,
+      agencyId: websiteLeads.agencyId,
+      siteId: websiteLeads.siteId,
+      kind: websiteLeads.kind,
+      targetKind: websiteLeads.targetKind,
+      targetId: websiteLeads.targetId,
+      shownRef: websiteLeads.shownRef,
+      locale: websiteLeads.locale,
+      name: websiteLeads.name,
+      email: websiteLeads.email,
+      emailHash: websiteLeads.emailHash,
+      keyTier: websiteLeads.keyTier,
+      phone: websiteLeads.phone,
+      message: websiteLeads.message,
+      viewingSlots: websiteLeads.viewingSlots,
+      marketingConsent: websiteLeads.marketingConsent,
+      pageUrl: websiteLeads.pageUrl,
+      ackSentAt: websiteLeads.ackSentAt,
+      ackSkippedReason: websiteLeads.ackSkippedReason,
+      agencyNotifiedAt: websiteLeads.agencyNotifiedAt,
+      createdAt: websiteLeads.createdAt,
+    })
+    .from(websiteLeads)
+    .where(eq(websiteLeads.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Records that the visitor's acknowledgement (`ack`) or the agency's notification (`agency`) went out. */
+export async function markLeadSent(tx: Tx, id: string, what: 'ack' | 'agency', at: Date): Promise<void> {
+  await tx
+    .update(websiteLeads)
+    .set(what === 'ack' ? { ackSentAt: at, updatedAt: at } : { agencyNotifiedAt: at, updatedAt: at })
+    .where(eq(websiteLeads.id, id));
+}
+
+/** Records that no acknowledgement goes out, and why (a daily cap). */
+export async function markAckSkipped(tx: Tx, id: string, reason: AckSkipReason, at: Date): Promise<void> {
+  await tx.update(websiteLeads).set({ ackSkippedReason: reason, updatedAt: at }).where(eq(websiteLeads.id, id));
+}
+
+export type AckSkipReason = 'RECIPIENT_SITE_DAILY' | 'RECIPIENT_DAILY' | 'SITE_DAILY';
+
+/**
+ * Acknowledgements sent since `since`: to this recipient by this site, to this recipient by any site (cross-tenant:
+ * `app_system` only), and by this site at all. One statement (`website_leads_recipient_ack_idx`, `…_site_ack_idx`).
+ */
+export async function ackUsage(
+  tx: Tx,
+  q: { siteId: string; emailHash: string; since: Date },
+): Promise<{ recipientSite: number; recipient: number; site: number }> {
+  const res = await tx.execute<{ recipient_site: string; recipient: string; site: string }>(sql`
+    select (select count(*) from ${websiteLeads} where email_hash = ${q.emailHash} and ack_sent_at > ${q.since}
+               and site_id = ${q.siteId}) as recipient_site,
+           (select count(*) from ${websiteLeads} where email_hash = ${q.emailHash} and ack_sent_at > ${q.since}) as recipient,
+           (select count(*) from ${websiteLeads} where site_id = ${q.siteId} and ack_sent_at > ${q.since}) as site`);
+  const r = res.rows[0];
+  return { recipientSite: Number(r?.recipient_site), recipient: Number(r?.recipient), site: Number(r?.site) };
+}
+
+/**
+ * Clears the idempotency keys of leads created before `before` (the replay window is over), at most `limit` rows per
+ * call (`website_leads_idempotency_created_idx`). Returns the rows cleared.
+ */
+export async function clearIdempotencyKeys(tx: Tx, before: Date, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    update ${websiteLeads} set idempotency_hash = null
+     where id in (select id from ${websiteLeads}
+                   where idempotency_hash is not null and created_at < ${before}
+                   order by created_at limit ${limit}
+                   for update skip locked)`);
+  return res.rowCount ?? 0;
+}

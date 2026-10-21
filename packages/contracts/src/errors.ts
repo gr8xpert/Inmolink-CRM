@@ -60,6 +60,11 @@ export const ErrorCodes = {
    * carry `limit`, `resetAt` (UTC midnight) and `retryAfterSeconds` (also `Retry-After`).
    */
   QUOTA_EXCEEDED: 429,
+  // websites: lead intake (S7-05)
+  /** The form's Turnstile token is missing, used, expired or not for this site (or a secret key sent no check). */
+  TURNSTILE_FAILED: 403,
+  /** The `Idempotency-Key` was already used on this site with another body: send a new key for a new submission. */
+  IDEMPOTENCY_KEY_REUSED: 422,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

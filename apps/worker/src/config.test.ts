@@ -57,4 +57,12 @@ describe('worker env per pool', () => {
     expect(Object.keys(workerEnvFor(['outbox', 'email']))).not.toContain('MEILI_MASTER_KEY');
     expect(read('main.ts')).toContain('.ensureListingsIndex()');
   });
+
+  it('[S7-05] the email pool reads the public inventory as app_public (lead acknowledgements); media never does', () => {
+    expect(Object.keys(workerEnvFor(['email']))).toEqual(
+      expect.arrayContaining(['DATABASE_URL_APP_PUBLIC', 'MEDIA_CDN_URL']),
+    );
+    expect(Object.keys(workerEnvFor(['media']))).not.toContain('DATABASE_URL_APP_PUBLIC');
+    expect(read('main.ts')).toContain('websiteApi.configureWebsiteApi(');
+  });
 });

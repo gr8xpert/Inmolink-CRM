@@ -1047,6 +1047,152 @@
         "tags": ["website-v2"]
       }
     },
+    "/v2/leads": {
+      "post": {
+        "operationId": "websiteV2.createLead",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "lang": {
+                    "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+                    "type": "string"
+                  },
+                  "marketingConsent": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[^\\p{Cc}<>]*$",
+                    "type": "string"
+                  },
+                  "pageUrl": {
+                    "maxLength": 2048,
+                    "type": "string"
+                  },
+                  "phone": {
+                    "maxLength": 32,
+                    "pattern": "^\\+?[0-9 ().-]{6,24}$",
+                    "type": "string"
+                  },
+                  "privacyAccepted": {
+                    "enum": [true],
+                    "type": "boolean"
+                  },
+                  "ref": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^\\S+$",
+                    "type": "string"
+                  },
+                  "serverVerified": {
+                    "enum": [true],
+                    "type": "boolean"
+                  },
+                  "turnstileToken": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "email", "privacyAccepted"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": ["ENQUIRY", "VIEWING_REQUEST"],
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "enum": ["RECEIVED"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "kind", "status", "replayed"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": ["ENQUIRY", "VIEWING_REQUEST"],
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "enum": ["RECEIVED"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "kind", "status", "replayed"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "A visitor's enquiry from the site's form (about a listing by the reference the site shows, or general). Needs Turnstile (publishable keys) and an Idempotency-Key",
+        "tags": ["website-v2"]
+      }
+    },
     "/v2/listings": {
       "get": {
         "operationId": "websiteV2.listListings",
@@ -3454,6 +3600,173 @@
           }
         },
         "summary": "Property types, grouped, in `lang`",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/viewing-requests": {
+      "post": {
+        "operationId": "websiteV2.createViewingRequest",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "lang": {
+                    "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+                    "type": "string"
+                  },
+                  "marketingConsent": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[^\\p{Cc}<>]*$",
+                    "type": "string"
+                  },
+                  "pageUrl": {
+                    "maxLength": 2048,
+                    "type": "string"
+                  },
+                  "phone": {
+                    "maxLength": 32,
+                    "pattern": "^\\+?[0-9 ().-]{6,24}$",
+                    "type": "string"
+                  },
+                  "privacyAccepted": {
+                    "enum": [true],
+                    "type": "boolean"
+                  },
+                  "ref": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^\\S+$",
+                    "type": "string"
+                  },
+                  "serverVerified": {
+                    "enum": [true],
+                    "type": "boolean"
+                  },
+                  "slots": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "date": {
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+                          "type": "string"
+                        },
+                        "timeOfDay": {
+                          "enum": ["MORNING", "AFTERNOON", "EVENING", "ANY"],
+                          "type": "string"
+                        }
+                      },
+                      "required": ["date", "timeOfDay"],
+                      "type": "object"
+                    },
+                    "maxItems": 3,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "turnstileToken": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "email", "privacyAccepted", "ref", "slots"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": ["ENQUIRY", "VIEWING_REQUEST"],
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "enum": ["RECEIVED"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "kind", "status", "replayed"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": ["ENQUIRY", "VIEWING_REQUEST"],
+                      "type": "string"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "enum": ["RECEIVED"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "kind", "status", "replayed"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "A viewing request for a listing or unit (the reference the site shows) with up to three preferred slots. Needs Turnstile (publishable keys) and an Idempotency-Key",
         "tags": ["website-v2"]
       }
     }

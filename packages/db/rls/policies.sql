@@ -52,6 +52,7 @@ grant execute on function search_commission_at_least(uuid, integer) to app_publi
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
+grant execute on function app_agency() to app_intake;
 grant execute on function app_is_staff() to app_staff;
 grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;
 grant execute on function app_partition_maintenance() to app_system;
@@ -60,7 +61,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -71,7 +72,7 @@ alter table public."agencies" enable row level security;
 alter table public."agencies" force row level security;
 create policy own_rows on public."agencies" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agencies" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agencies" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 do $$
 declare cols text;
 begin
@@ -104,7 +105,7 @@ create policy network_read on public."agency_directory" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (listed));
 create policy public_read on public."agency_directory" for select to app_public
   using (true);
-revoke all on table public."agency_directory" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_directory" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_directory" to app_user;
 grant select, insert, update, delete on table public."agency_directory" to app_system;
 grant select on table public."agency_directory" to app_public;
@@ -121,7 +122,7 @@ alter table public."agency_invites" enable row level security;
 alter table public."agency_invites" force row level security;
 create policy own_rows on public."agency_invites" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_invites" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_invites" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_invites" to app_user;
 grant select, insert, update, delete on table public."agency_invites" to app_system;
 create policy auth_select on public."agency_invites" for select to app_auth
@@ -135,7 +136,7 @@ alter table public."agency_members" enable row level security;
 alter table public."agency_members" force row level security;
 create policy own_rows on public."agency_members" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_members" to app_user;
 grant select, insert, update, delete on table public."agency_members" to app_system;
 create policy auth_select on public."agency_members" for select to app_auth
@@ -156,7 +157,7 @@ create policy own_rows on public."agency_profiles" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy public_read on public."agency_profiles" for select to app_public
   using (true);
-revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_profiles" to app_user;
 grant select, insert, update, delete on table public."agency_profiles" to app_system;
 do $$
@@ -172,7 +173,7 @@ alter table public."agency_settings" enable row level security;
 alter table public."agency_settings" force row level security;
 create policy own_rows on public."agency_settings" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_settings" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_settings" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_settings" to app_user;
 grant select, insert, update, delete on table public."agency_settings" to app_system;
 create policy auth_insert on public."agency_settings" for insert to app_auth
@@ -184,7 +185,7 @@ alter table public."agency_translations" enable row level security;
 alter table public."agency_translations" force row level security;
 create policy own_rows on public."agency_translations" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_translations" to app_user;
 grant select, insert, update, delete on table public."agency_translations" to app_system;
 
@@ -193,7 +194,7 @@ alter table public."agency_verification_documents" enable row level security;
 alter table public."agency_verification_documents" force row level security;
 create policy own_rows on public."agency_verification_documents" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_verification_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_verification_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_verification_documents" to app_user;
 grant select, insert, update, delete on table public."agency_verification_documents" to app_system;
 create policy staff_select on public."agency_verification_documents" for select to app_staff
@@ -205,7 +206,7 @@ alter table public."agency_verification_requests" enable row level security;
 alter table public."agency_verification_requests" force row level security;
 create policy own_rows on public."agency_verification_requests" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."agency_verification_requests" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."agency_verification_requests" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_verification_requests" to app_user;
 grant select, insert, update, delete on table public."agency_verification_requests" to app_system;
 create policy staff_select on public."agency_verification_requests" for select to app_staff
@@ -221,7 +222,7 @@ create policy own_rows on public."api_keys" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy public_read on public."api_keys" for select to app_public
   using (revoked_at is null and agency_active);
-revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."api_keys" to app_user;
 grant select, insert, update, delete on table public."api_keys" to app_system;
 grant select on table public."api_keys" to app_public;
@@ -231,7 +232,7 @@ alter table public."audit_logs" enable row level security;
 alter table public."audit_logs" force row level security;
 create policy own_rows on public."audit_logs" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency() and (actor_user_id is not distinct from app_user_id() and actor_kind <> 'staff' and impersonated_by is not distinct from app_impersonated_by()));
-revoke all on table public."audit_logs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."audit_logs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."audit_logs" to app_user;
 grant select, insert on table public."audit_logs" to app_system;
 create policy auth_insert on public."audit_logs" for insert to app_auth
@@ -247,7 +248,7 @@ grant select, insert on table public."audit_logs" to app_staff;
 alter table public."auth_tokens" enable row level security;
 alter table public."auth_tokens" force row level security;
 create policy auth_rows on public."auth_tokens" to app_auth using (true) with check (true);
-revoke all on table public."auth_tokens" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."auth_tokens" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update on table public."auth_tokens" to app_auth;
 grant select, insert, update, delete on table public."auth_tokens" to app_system;
 
@@ -262,7 +263,7 @@ create policy own_delete on public."bookmark_folders" for delete to app_user
   using (agency_id = app_agency());
 create policy user_select on public."bookmark_folders" for select to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
-revoke all on table public."bookmark_folders" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."bookmark_folders" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."bookmark_folders" to app_user;
 grant select, insert, update, delete on table public."bookmark_folders" to app_system;
 
@@ -273,7 +274,7 @@ create policy own_rows on public."development_access" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."development_access" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (allowed_agency_id = app_agency()));
-revoke all on table public."development_access" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."development_access" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."development_access" to app_user;
 grant select, insert, update, delete on table public."development_access" to app_system;
 
@@ -284,7 +285,7 @@ create policy own_rows on public."development_documents" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."development_documents" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (shared and exists (select 1 from public.developments d where d.id = development_documents.development_id)));
-revoke all on table public."development_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."development_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 do $$
 declare cols text;
 begin
@@ -302,7 +303,7 @@ create policy own_rows on public."development_phases" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."development_phases" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = development_phases.development_id)));
-revoke all on table public."development_phases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."development_phases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."development_phases" to app_user;
 grant select, insert, update, delete on table public."development_phases" to app_system;
 
@@ -313,7 +314,7 @@ create policy own_rows on public."development_translations" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."development_translations" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = development_translations.development_id)));
-revoke all on table public."development_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."development_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."development_translations" to app_user;
 grant select, insert, update, delete on table public."development_translations" to app_system;
 
@@ -324,7 +325,7 @@ create policy own_rows on public."developments" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."developments" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (deleted_at is null and exists (select 1 from public.agency_directory d where d.agency_id = developments.agency_id and d.listed) and (access = 'OPEN' or exists (select 1 from public.development_access a where a.development_id = developments.id and a.allowed_agency_id = app_agency()))));
-revoke all on table public."developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 do $$
 declare cols text;
 begin
@@ -339,7 +340,7 @@ grant select, insert, update, delete on table public."developments" to app_syste
 alter table public."feature_aliases" enable row level security;
 alter table public."feature_aliases" force row level security;
 create policy global_read on public."feature_aliases" for select to app_user, app_public using (true);
-revoke all on table public."feature_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feature_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_aliases" to app_system;
 create policy staff_select on public."feature_aliases" for select to app_staff using (app_is_staff());
@@ -352,7 +353,7 @@ grant select, insert, update, delete on table public."feature_aliases" to app_st
 alter table public."feature_flags" enable row level security;
 alter table public."feature_flags" force row level security;
 create policy global_read on public."feature_flags" for select to app_user using (true);
-revoke all on table public."feature_flags" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feature_flags" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_flags" to app_user;
 grant select, insert, update, delete on table public."feature_flags" to app_system;
 
@@ -360,7 +361,7 @@ grant select, insert, update, delete on table public."feature_flags" to app_syst
 alter table public."feature_group_translations" enable row level security;
 alter table public."feature_group_translations" force row level security;
 create policy global_read on public."feature_group_translations" for select to app_user, app_public using (true);
-revoke all on table public."feature_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feature_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_group_translations" to app_system;
 create policy staff_select on public."feature_group_translations" for select to app_staff using (app_is_staff());
@@ -373,7 +374,7 @@ grant select, insert, update, delete on table public."feature_group_translations
 alter table public."feature_groups" enable row level security;
 alter table public."feature_groups" force row level security;
 create policy global_read on public."feature_groups" for select to app_user, app_public using (true);
-revoke all on table public."feature_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feature_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_groups" to app_system;
 create policy staff_select on public."feature_groups" for select to app_staff using (app_is_staff());
@@ -386,7 +387,7 @@ grant select, insert, update, delete on table public."feature_groups" to app_sta
 alter table public."feature_translations" enable row level security;
 alter table public."feature_translations" force row level security;
 create policy global_read on public."feature_translations" for select to app_user, app_public using (true);
-revoke all on table public."feature_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feature_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_translations" to app_system;
 create policy staff_select on public."feature_translations" for select to app_staff using (app_is_staff());
@@ -399,7 +400,7 @@ grant select, insert, update, delete on table public."feature_translations" to a
 alter table public."features" enable row level security;
 alter table public."features" force row level security;
 create policy global_read on public."features" for select to app_user, app_public using (true);
-revoke all on table public."features" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."features" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."features" to app_user, app_public;
 grant select, insert, update, delete on table public."features" to app_system;
 create policy staff_select on public."features" for select to app_staff using (app_is_staff());
@@ -413,7 +414,7 @@ alter table public."feed_connections" enable row level security;
 alter table public."feed_connections" force row level security;
 create policy own_rows on public."feed_connections" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_connections" to app_user;
 grant select, insert, update, delete on table public."feed_connections" to app_system;
 create policy staff_select on public."feed_connections" for select to app_staff
@@ -428,7 +429,7 @@ alter table public."feed_image_queue" enable row level security;
 alter table public."feed_image_queue" force row level security;
 create policy own_rows on public."feed_image_queue" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_image_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_image_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_image_queue" to app_user;
 grant select, insert, update, delete on table public."feed_image_queue" to app_system;
 
@@ -437,7 +438,7 @@ alter table public."feed_image_sources" enable row level security;
 alter table public."feed_image_sources" force row level security;
 create policy own_rows on public."feed_image_sources" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_image_sources" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_image_sources" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_image_sources" to app_user;
 grant select, insert, update, delete on table public."feed_image_sources" to app_system;
 
@@ -446,7 +447,7 @@ alter table public."feed_item_errors" enable row level security;
 alter table public."feed_item_errors" force row level security;
 create policy own_rows on public."feed_item_errors" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_item_errors" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_item_errors" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_item_errors" to app_user;
 grant select, insert, update, delete on table public."feed_item_errors" to app_system;
 
@@ -455,7 +456,7 @@ alter table public."feed_mapping_profiles" enable row level security;
 alter table public."feed_mapping_profiles" force row level security;
 create policy own_rows on public."feed_mapping_profiles" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_mapping_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_mapping_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_mapping_profiles" to app_user;
 grant select, insert, update, delete on table public."feed_mapping_profiles" to app_system;
 
@@ -464,7 +465,7 @@ alter table public."feed_runs" enable row level security;
 alter table public."feed_runs" force row level security;
 create policy own_rows on public."feed_runs" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."feed_runs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."feed_runs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."feed_runs" to app_user;
 grant select, insert, update, delete on table public."feed_runs" to app_system;
 create policy staff_select on public."feed_runs" for select to app_staff
@@ -474,13 +475,13 @@ grant select on table public."feed_runs" to app_staff;
 -- job_checkpoints: GLOBAL
 alter table public."job_checkpoints" enable row level security;
 alter table public."job_checkpoints" force row level security;
-revoke all on table public."job_checkpoints" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."job_checkpoints" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."job_checkpoints" to app_system;
 
 -- legacy_id_maps: GLOBAL
 alter table public."legacy_id_maps" enable row level security;
 alter table public."legacy_id_maps" force row level security;
-revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
 
 -- listing_bookmarks: STRICT
@@ -494,7 +495,7 @@ create policy own_delete on public."listing_bookmarks" for delete to app_user
   using (agency_id = app_agency());
 create policy user_select on public."listing_bookmarks" for select to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
-revoke all on table public."listing_bookmarks" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_bookmarks" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_bookmarks" to app_user;
 grant select, insert, update, delete on table public."listing_bookmarks" to app_system;
 
@@ -503,7 +504,7 @@ alter table public."listing_bulk_actions" enable row level security;
 alter table public."listing_bulk_actions" force row level security;
 create policy own_rows on public."listing_bulk_actions" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."listing_bulk_actions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_bulk_actions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_bulk_actions" to app_user;
 grant select, insert, update, delete on table public."listing_bulk_actions" to app_system;
 
@@ -512,7 +513,7 @@ alter table public."listing_documents" enable row level security;
 alter table public."listing_documents" force row level security;
 create policy own_rows on public."listing_documents" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."listing_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_documents" to app_user;
 grant select, insert, update, delete on table public."listing_documents" to app_system;
 
@@ -523,7 +524,7 @@ create policy own_rows on public."listing_overrides" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy public_read on public."listing_overrides" for select to app_public
   using ((target_kind = 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r where r.development_id = listing_overrides.target_id and r.public)) or (target_kind <> 'DEVELOPMENT' and exists (select 1 from public.listing_read_models r where r.target_id = listing_overrides.target_id and r.public)));
-revoke all on table public."listing_overrides" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_overrides" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_overrides" to app_user;
 grant select, insert, update, delete on table public."listing_overrides" to app_system;
 grant select on table public."listing_overrides" to app_public;
@@ -532,7 +533,7 @@ grant select on table public."listing_overrides" to app_public;
 alter table public."listing_public_changes" enable row level security;
 alter table public."listing_public_changes" force row level security;
 create policy global_read on public."listing_public_changes" for select to app_public using (true);
-revoke all on table public."listing_public_changes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_public_changes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."listing_public_changes" to app_public;
 grant select, insert, update, delete on table public."listing_public_changes" to app_system;
 
@@ -540,7 +541,7 @@ grant select, insert, update, delete on table public."listing_public_changes" to
 alter table public."listing_public_codes" enable row level security;
 alter table public."listing_public_codes" force row level security;
 create policy global_read on public."listing_public_codes" for select to app_public using (true);
-revoke all on table public."listing_public_codes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_public_codes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."listing_public_codes" to app_public;
 grant select, insert, update, delete on table public."listing_public_codes" to app_system;
 
@@ -553,7 +554,7 @@ create policy network_read on public."listing_read_models" for select to app_use
   using (app_agency() is not null and (select public.app_agency_verified()) and ((kind = 'LISTING' and exists (select 1 from public.properties p where p.id = listing_read_models.target_id)) or (kind = 'UNIT' and exists (select 1 from public.units u where u.id = listing_read_models.target_id))));
 create policy public_read on public."listing_read_models" for select to app_public
   using (public);
-revoke all on table public."listing_read_models" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_read_models" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 do $$
 declare cols text;
 begin
@@ -574,14 +575,14 @@ end $$;
 alter table public."listing_search_commissions" enable row level security;
 alter table public."listing_search_commissions" force row level security;
 create policy definer_read on public."listing_search_commissions" for select to app_owner using (true);
-revoke all on table public."listing_search_commissions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_search_commissions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_search_commissions" to app_system;
 
 -- listing_search_developments: GLOBAL
 alter table public."listing_search_developments" enable row level security;
 alter table public."listing_search_developments" force row level security;
 create policy global_read on public."listing_search_developments" for select to app_public using (true);
-revoke all on table public."listing_search_developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_search_developments" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."listing_search_developments" to app_public;
 grant select, insert, update, delete on table public."listing_search_developments" to app_system;
 
@@ -589,7 +590,7 @@ grant select, insert, update, delete on table public."listing_search_development
 alter table public."listing_search_docs" enable row level security;
 alter table public."listing_search_docs" force row level security;
 create policy global_read on public."listing_search_docs" for select to app_public using (true);
-revoke all on table public."listing_search_docs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_search_docs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."listing_search_docs" to app_public;
 grant select, insert, update, delete on table public."listing_search_docs" to app_system;
 
@@ -598,7 +599,7 @@ alter table public."listing_views" enable row level security;
 alter table public."listing_views" force row level security;
 create policy own_rows on public."listing_views" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."listing_views" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."listing_views" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."listing_views" to app_user;
 grant select, insert, update, delete on table public."listing_views" to app_system;
 
@@ -606,7 +607,7 @@ grant select, insert, update, delete on table public."listing_views" to app_syst
 alter table public."location_aliases" enable row level security;
 alter table public."location_aliases" force row level security;
 create policy global_read on public."location_aliases" for select to app_user, app_public using (true);
-revoke all on table public."location_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."location_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."location_aliases" to app_system;
 create policy staff_select on public."location_aliases" for select to app_staff using (app_is_staff());
@@ -619,7 +620,7 @@ grant select, insert, update, delete on table public."location_aliases" to app_s
 alter table public."location_group_members" enable row level security;
 alter table public."location_group_members" force row level security;
 create policy global_read on public."location_group_members" for select to app_user, app_public using (true);
-revoke all on table public."location_group_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."location_group_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_group_members" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_members" to app_system;
 create policy staff_select on public."location_group_members" for select to app_staff using (app_is_staff());
@@ -632,7 +633,7 @@ grant select, insert, update, delete on table public."location_group_members" to
 alter table public."location_group_translations" enable row level security;
 alter table public."location_group_translations" force row level security;
 create policy global_read on public."location_group_translations" for select to app_user, app_public using (true);
-revoke all on table public."location_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."location_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_translations" to app_system;
 create policy staff_select on public."location_group_translations" for select to app_staff using (app_is_staff());
@@ -645,7 +646,7 @@ grant select, insert, update, delete on table public."location_group_translation
 alter table public."location_groups" enable row level security;
 alter table public."location_groups" force row level security;
 create policy global_read on public."location_groups" for select to app_user, app_public using (true);
-revoke all on table public."location_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."location_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."location_groups" to app_system;
 create policy staff_select on public."location_groups" for select to app_staff using (app_is_staff());
@@ -658,7 +659,7 @@ grant select, insert, update, delete on table public."location_groups" to app_st
 alter table public."location_translations" enable row level security;
 alter table public."location_translations" force row level security;
 create policy global_read on public."location_translations" for select to app_user, app_public using (true);
-revoke all on table public."location_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."location_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_translations" to app_system;
 create policy staff_select on public."location_translations" for select to app_staff using (app_is_staff());
@@ -671,7 +672,7 @@ grant select, insert, update, delete on table public."location_translations" to 
 alter table public."locations" enable row level security;
 alter table public."locations" force row level security;
 create policy global_read on public."locations" for select to app_user, app_public using (true);
-revoke all on table public."locations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."locations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."locations" to app_user, app_public;
 grant select, insert, update, delete on table public."locations" to app_system;
 create policy staff_select on public."locations" for select to app_staff using (app_is_staff());
@@ -684,7 +685,7 @@ grant select, insert, update, delete on table public."locations" to app_staff;
 alter table public."media_objects" enable row level security;
 alter table public."media_objects" force row level security;
 create policy global_read on public."media_objects" for select to app_user using (true);
-revoke all on table public."media_objects" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."media_objects" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."media_objects" to app_user;
 grant select, insert, update, delete on table public."media_objects" to app_system;
 create policy media_rows on public."media_objects" to app_media using (true) with check (true);
@@ -695,9 +696,12 @@ alter table public."outbox_events" enable row level security;
 alter table public."outbox_events" force row level security;
 create policy own_rows on public."outbox_events" for insert to app_user
   with check (agency_id = app_agency());
-revoke all on table public."outbox_events" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."outbox_events" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant insert on table public."outbox_events" to app_user;
 grant select, insert, update, delete on table public."outbox_events" to app_system;
+create policy intake_append on public."outbox_events" for insert to app_intake
+  with check (agency_id = app_agency() and "type" in ('websites.lead.received'));
+grant insert on table public."outbox_events" to app_intake;
 create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
 grant insert on table public."outbox_events" to app_auth;
@@ -712,7 +716,7 @@ create policy own_rows on public."preferred_agencies" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."preferred_agencies" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (preferred_agency_id = app_agency() and exists (select 1 from public.agency_directory d where d.agency_id = preferred_agencies.agency_id and d.listed)));
-revoke all on table public."preferred_agencies" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."preferred_agencies" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."preferred_agencies" to app_user;
 grant select, insert, update, delete on table public."preferred_agencies" to app_system;
 
@@ -721,7 +725,7 @@ alter table public."preferred_agency_notes" enable row level security;
 alter table public."preferred_agency_notes" force row level security;
 create policy own_rows on public."preferred_agency_notes" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."preferred_agency_notes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_user;
 grant select, insert, update, delete on table public."preferred_agency_notes" to app_system;
 
@@ -730,7 +734,7 @@ alter table public."price_lists" enable row level security;
 alter table public."price_lists" force row level security;
 create policy own_rows on public."price_lists" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."price_lists" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."price_lists" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."price_lists" to app_user;
 grant select, insert, update, delete on table public."price_lists" to app_system;
 
@@ -741,7 +745,7 @@ create policy own_rows on public."properties" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."properties" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null and network_hidden_at is null and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed) and (share_scope = 'ALL' or agency_id in (select a from public.app_preferring_agencies() a))));
-revoke all on table public."properties" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."properties" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."properties" to app_user;
 grant select, insert, update, delete on table public."properties" to app_system;
 create policy definer_read on public."properties" for select to app_owner using (true);
@@ -753,7 +757,7 @@ create policy own_rows on public."property_features" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."property_features" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.properties p where p.id = property_features.property_id)));
-revoke all on table public."property_features" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_features" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_features" to app_user;
 grant select, insert, update, delete on table public."property_features" to app_system;
 
@@ -762,7 +766,7 @@ alter table public."property_import_seen" enable row level security;
 alter table public."property_import_seen" force row level security;
 create policy own_rows on public."property_import_seen" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_import_seen" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_import_seen" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_import_seen" to app_user;
 grant select, insert, update, delete on table public."property_import_seen" to app_system;
 
@@ -771,7 +775,7 @@ alter table public."property_import_staging" enable row level security;
 alter table public."property_import_staging" force row level security;
 create policy own_rows on public."property_import_staging" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_import_staging" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_import_staging" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_import_staging" to app_user;
 grant select, insert, update, delete on table public."property_import_staging" to app_system;
 
@@ -782,7 +786,7 @@ create policy own_rows on public."property_media" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."property_media" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (kind <> 'DOCUMENT' and exists (select 1 from public.properties p where p.id = property_media.property_id)));
-revoke all on table public."property_media" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_media" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_media" to app_user;
 grant select, insert, update, delete on table public."property_media" to app_system;
 create policy media_read on public."property_media" for select to app_media using (true);
@@ -793,7 +797,7 @@ alter table public."property_price_histories" enable row level security;
 alter table public."property_price_histories" force row level security;
 create policy own_rows on public."property_price_histories" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."property_price_histories" to app_user;
 grant select, insert on table public."property_price_histories" to app_system;
 
@@ -802,7 +806,7 @@ alter table public."property_privates" enable row level security;
 alter table public."property_privates" force row level security;
 create policy own_rows on public."property_privates" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_privates" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_privates" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_privates" to app_user;
 grant select, insert, update, delete on table public."property_privates" to app_system;
 
@@ -811,7 +815,7 @@ alter table public."property_status_histories" enable row level security;
 alter table public."property_status_histories" force row level security;
 create policy own_rows on public."property_status_histories" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_status_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_status_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."property_status_histories" to app_user;
 grant select, insert on table public."property_status_histories" to app_system;
 
@@ -820,7 +824,7 @@ alter table public."property_tags" enable row level security;
 alter table public."property_tags" force row level security;
 create policy own_rows on public."property_tags" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."property_tags" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_tags" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_tags" to app_user;
 grant select, insert, update, delete on table public."property_tags" to app_system;
 
@@ -831,7 +835,7 @@ create policy own_rows on public."property_translations" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."property_translations" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.properties p where p.id = property_translations.property_id)));
-revoke all on table public."property_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."property_translations" to app_user;
 grant select, insert, update, delete on table public."property_translations" to app_system;
 
@@ -839,7 +843,7 @@ grant select, insert, update, delete on table public."property_translations" to 
 alter table public."property_type_aliases" enable row level security;
 alter table public."property_type_aliases" force row level security;
 create policy global_read on public."property_type_aliases" for select to app_user, app_public using (true);
-revoke all on table public."property_type_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_type_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_aliases" to app_system;
 create policy staff_select on public."property_type_aliases" for select to app_staff using (app_is_staff());
@@ -852,7 +856,7 @@ grant select, insert, update, delete on table public."property_type_aliases" to 
 alter table public."property_type_group_translations" enable row level security;
 alter table public."property_type_group_translations" force row level security;
 create policy global_read on public."property_type_group_translations" for select to app_user, app_public using (true);
-revoke all on table public."property_type_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_type_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_group_translations" to app_system;
 create policy staff_select on public."property_type_group_translations" for select to app_staff using (app_is_staff());
@@ -865,7 +869,7 @@ grant select, insert, update, delete on table public."property_type_group_transl
 alter table public."property_type_groups" enable row level security;
 alter table public."property_type_groups" force row level security;
 create policy global_read on public."property_type_groups" for select to app_user, app_public using (true);
-revoke all on table public."property_type_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_type_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_groups" to app_system;
 create policy staff_select on public."property_type_groups" for select to app_staff using (app_is_staff());
@@ -878,7 +882,7 @@ grant select, insert, update, delete on table public."property_type_groups" to a
 alter table public."property_type_translations" enable row level security;
 alter table public."property_type_translations" force row level security;
 create policy global_read on public."property_type_translations" for select to app_user, app_public using (true);
-revoke all on table public."property_type_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_type_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_translations" to app_system;
 create policy staff_select on public."property_type_translations" for select to app_staff using (app_is_staff());
@@ -891,7 +895,7 @@ grant select, insert, update, delete on table public."property_type_translations
 alter table public."property_types" enable row level security;
 alter table public."property_types" force row level security;
 create policy global_read on public."property_types" for select to app_user, app_public using (true);
-revoke all on table public."property_types" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."property_types" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_types" to app_user, app_public;
 grant select, insert, update, delete on table public."property_types" to app_system;
 create policy staff_select on public."property_types" for select to app_staff using (app_is_staff());
@@ -903,19 +907,19 @@ grant select, insert, update, delete on table public."property_types" to app_sta
 -- quality_queue: GLOBAL
 alter table public."quality_queue" enable row level security;
 alter table public."quality_queue" force row level security;
-revoke all on table public."quality_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."quality_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."quality_queue" to app_system;
 
 -- read_model_queue: GLOBAL
 alter table public."read_model_queue" enable row level security;
 alter table public."read_model_queue" force row level security;
-revoke all on table public."read_model_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."read_model_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."read_model_queue" to app_system;
 
 -- search_index_queue: GLOBAL
 alter table public."search_index_queue" enable row level security;
 alter table public."search_index_queue" force row level security;
-revoke all on table public."search_index_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."search_index_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."search_index_queue" to app_system;
 
 -- staff_impersonations: STRICT
@@ -929,7 +933,7 @@ create policy own_delete on public."staff_impersonations" for delete to app_user
   using (agency_id = app_agency());
 create policy user_select on public."staff_impersonations" for select to app_user
   using (agency_id = app_agency() and (target_user_id = app_user_id() or exists (select 1 from public.agency_members m where m.agency_id = app_agency() and m.user_id = app_user_id() and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN') and m.deactivated_at is null)));
-revoke all on table public."staff_impersonations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."staff_impersonations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 do $$
 declare cols text;
 begin
@@ -955,14 +959,14 @@ alter table public."staff_users" enable row level security;
 alter table public."staff_users" force row level security;
 create policy auth_self on public."staff_users" for select to app_auth using (user_id = app_user_id());
 create policy staff_self on public."staff_users" for select to app_staff using (user_id = app_user_id());
-revoke all on table public."staff_users" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."staff_users" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."staff_users" to app_auth, app_staff;
 grant select, insert, update, delete on table public."staff_users" to app_system;
 
 -- taxonomy_unmatched: GLOBAL
 alter table public."taxonomy_unmatched" enable row level security;
 alter table public."taxonomy_unmatched" force row level security;
-revoke all on table public."taxonomy_unmatched" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."taxonomy_unmatched" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."taxonomy_unmatched" to app_system;
 create policy staff_select on public."taxonomy_unmatched" for select to app_staff using (app_is_staff());
 create policy staff_insert on public."taxonomy_unmatched" for insert to app_staff with check (app_is_staff());
@@ -975,7 +979,7 @@ alter table public."unit_price_histories" enable row level security;
 alter table public."unit_price_histories" force row level security;
 create policy own_rows on public."unit_price_histories" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."unit_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."unit_price_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."unit_price_histories" to app_user;
 grant select, insert on table public."unit_price_histories" to app_system;
 
@@ -984,7 +988,7 @@ alter table public."unit_status_histories" enable row level security;
 alter table public."unit_status_histories" force row level security;
 create policy own_rows on public."unit_status_histories" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-revoke all on table public."unit_status_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."unit_status_histories" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."unit_status_histories" to app_user;
 grant select, insert on table public."unit_status_histories" to app_system;
 
@@ -995,7 +999,7 @@ create policy own_rows on public."units" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy network_read on public."units" for select to app_user
   using (app_agency() is not null and (select public.app_agency_verified()) and (exists (select 1 from public.developments d where d.id = units.development_id)));
-revoke all on table public."units" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."units" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."units" to app_user;
 grant select, insert, update, delete on table public."units" to app_system;
 
@@ -1003,7 +1007,7 @@ grant select, insert, update, delete on table public."units" to app_system;
 alter table public."user_mfa" enable row level security;
 alter table public."user_mfa" force row level security;
 create policy auth_rows on public."user_mfa" to app_auth using (user_id = app_user_id()) with check (user_id = app_user_id());
-revoke all on table public."user_mfa" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."user_mfa" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update on table public."user_mfa" to app_auth;
 grant select, insert, update, delete on table public."user_mfa" to app_system;
 
@@ -1011,7 +1015,7 @@ grant select, insert, update, delete on table public."user_mfa" to app_system;
 alter table public."user_recovery_codes" enable row level security;
 alter table public."user_recovery_codes" force row level security;
 create policy auth_rows on public."user_recovery_codes" to app_auth using (user_id = app_user_id()) with check (user_id = app_user_id());
-revoke all on table public."user_recovery_codes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."user_recovery_codes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update on table public."user_recovery_codes" to app_auth;
 grant select, insert, update, delete on table public."user_recovery_codes" to app_system;
 
@@ -1019,9 +1023,24 @@ grant select, insert, update, delete on table public."user_recovery_codes" to ap
 alter table public."users" enable row level security;
 alter table public."users" force row level security;
 create policy auth_rows on public."users" to app_auth using (true) with check (true);
-revoke all on table public."users" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."users" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update on table public."users" to app_auth;
 grant select, insert, update, delete on table public."users" to app_system;
+
+-- website_leads: STRICT
+alter table public."website_leads" enable row level security;
+alter table public."website_leads" force row level security;
+create policy own_rows on public."website_leads" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."website_leads" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."website_leads" to app_user;
+grant select, insert, update, delete on table public."website_leads" to app_system;
+create policy intake_insert on public."website_leads" for insert to app_intake
+  with check (agency_id = app_agency());
+create policy intake_select on public."website_leads" for select to app_intake
+  using (agency_id = app_agency());
+grant insert on table public."website_leads" to app_intake;
+grant select ("id", "site_id", "idempotency_hash", "request_hash", "kind", "created_at") on table public."website_leads" to app_intake;
 
 -- website_sites: PUBLIC_READ
 alter table public."website_sites" enable row level security;
@@ -1030,7 +1049,7 @@ create policy own_rows on public."website_sites" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy public_read on public."website_sites" for select to app_public
   using (true);
-revoke all on table public."website_sites" from public, app_user, app_system, app_public, app_auth, app_staff, app_media;
+revoke all on table public."website_sites" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."website_sites" to app_user;
 grant select, insert, update, delete on table public."website_sites" to app_system;
 do $$

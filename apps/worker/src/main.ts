@@ -3,6 +3,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
@@ -35,13 +36,21 @@ try {
       DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER,
       DATABASE_URL_APP_SYSTEM: config.DATABASE_URL_APP_SYSTEM,
       DATABASE_URL_APP_MEDIA: config.DATABASE_URL_APP_MEDIA,
+      // S7-05: lead acknowledgements read the site's inventory as the website API does.
+      DATABASE_URL_APP_PUBLIC: config.DATABASE_URL_APP_PUBLIC,
     },
     { logger },
   );
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   // A media-only container has no cache (S3-F7): nothing it runs reads or writes cached bodies.
   if (config.REDIS_CACHE_URL) await configureCache({ url: config.REDIS_CACHE_URL, logger });
-  if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
+  if (config.WORKER_POOLS.includes('email')) {
+    await configureEmail(emailConfig(config));
+    // S7-05: lead acknowledgements serialize similar listings like the website API (media CDN, white-label).
+    if (config.HMAC_KEY && config.MEDIA_CDN_URL) {
+      websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+    }
+  }
   if (config.HMAC_KEY && config.WEB_URL)
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
   // Feed credentials (S6-01): decrypted by `imports.runFeed`. Encryption keys only reach non-media pools (S3-F7).

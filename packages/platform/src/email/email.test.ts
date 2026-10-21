@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeEmail, configureEmail, createMemoryMailer, createResendMailer, mailer } from './index';
+import { closeEmail, configureEmail, createMemoryMailer, createResendMailer, mailer, senderOf } from './index';
 
 const message = { to: 'ana@example.com', subject: 'Hello', text: 'Hi', html: '<p>Hi</p>', tag: 'identity.test' };
 
@@ -44,5 +44,24 @@ describe('email adapter', () => {
       fetch: async () => new Response('secret detail', { status: 422 }),
     });
     await expect(failing.send(message)).rejects.toThrow('resend send failed (422)');
+  });
+
+  it('[S7-05] a display name and a reply-to address brand the message; the sending address stays the platform one', async () => {
+    let sent: Record<string, unknown> = {};
+    const resend = createResendMailer({
+      from: 'Inmolink <no-reply@inmolink.test>',
+      resendApiKey: 're_test',
+      fetch: async (_url, init) => {
+        sent = JSON.parse(String((init as RequestInit).body));
+        return new Response(JSON.stringify({ id: 'em_2' }), { status: 200 });
+      },
+    });
+    await resend.send({ ...message, fromName: 'Costa Homes', replyTo: 'hello@costa.example' });
+    expect(sent).toMatchObject({ from: '"Costa Homes" <no-reply@inmolink.test>', reply_to: 'hello@costa.example' });
+    expect(senderOf('no-reply@inmolink.test', {})).toBe('no-reply@inmolink.test');
+    const memory = createMemoryMailer();
+    await expect(memory.send({ ...message, fromName: 'X" <evil@x.y>' })).rejects.toThrow(/sender name/);
+    await expect(memory.send({ ...message, fromName: 'A\r\nBcc: x@y.z' })).rejects.toThrow(/sender name/);
+    await expect(memory.send({ ...message, replyTo: 'a@b.c, d@e.f' })).rejects.toThrow(/reply-to/);
   });
 });

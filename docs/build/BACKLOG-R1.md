@@ -945,6 +945,8 @@ Ref §9.4 · Mod wp-plugin, feed-api · Dep S8-04 S7-05
 **Build:** lead/viewing forms (server-side post, Turnstile), health page (API status, cache age, version), update server endpoint + signed packages, release script.
 **Done when:** a test site auto-updates from version N to N+1; forms create leads for the right agency
 
+*Note (S7-05):* post with the secret key and an `Idempotency-Key` per form render (`createLead` / `createViewingRequest` in the SDK); forward the visitor's Turnstile token (`turnstileToken`, widget action `website-lead`) or, when the site runs its own check, send `serverVerified: true` (recorded as `SERVER_KEY`). A reference the site does not show answers 404 `LISTING_NOT_FOUND`.
+
 ### S8-06 · JS widget
 Ref §9.5 · Mod sdk · Dep S7-03
 **Build:** embeddable widget (search + results + detail modal) built on the SDK with publishable keys, SPW-AI natural-language search box when `/v2/search/ai` exists (R1: structured search only if AI not ready).
@@ -996,6 +998,8 @@ Ref §3 #12 §7 M8 · Mod crm · Dep S10-01 S7-05
 - Routing follows §3 #12 for each source (table-driven test)
 - Website lead lands in the right agency inbox in < 10 s p95
 - Listing owner sees introducer agency but never the client's PII before registration
+
+*Note (S7-05):* inbound leads are `websites.website_leads` (presenting agency = `agency_id`, network owner = `owner_agency_id`, `verification`, `ack_sent_at` for response-time KPIs), each announced by `websites.lead.received`; promote them from that event (idempotent per lead id). The speed-to-lead acknowledgement and the agency e-mail already exist (website-api jobs); assignment rules replace the e-mail's recipient choice.
 
 ### S10-03 · Pipeline
 Ref §7 M8 · Mod crm, web · Dep S10-02

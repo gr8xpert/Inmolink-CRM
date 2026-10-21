@@ -7,7 +7,14 @@ import type { Logger } from '../logger';
  * unexpected body counts as "not verified". The secret and the token are never logged.
  */
 export interface TurnstileVerifier {
-  verify(token: string, options: { action: string; remoteIp?: string }): Promise<boolean>;
+  /**
+   * `hostnames` (S7-05) replaces the configured hosts for this call — e.g. a website form's page origin, so a token
+   * solved on another site is refused.
+   */
+  verify(
+    token: string,
+    options: { action: string; remoteIp?: string; hostnames?: readonly string[] },
+  ): Promise<boolean>;
 }
 
 export interface TurnstileOptions {
@@ -34,7 +41,7 @@ interface SiteverifyBody {
 export function createTurnstileVerifier(options: TurnstileOptions): TurnstileVerifier {
   const doFetch = options.fetch ?? globalThis.fetch;
   return {
-    async verify(token, { action, remoteIp }) {
+    async verify(token, { action, remoteIp, hostnames }) {
       if (typeof token !== 'string' || token.length === 0 || token.length > MAX_TOKEN_LENGTH) return false;
       let body: SiteverifyBody;
       try {
@@ -59,9 +66,8 @@ export function createTurnstileVerifier(options: TurnstileOptions): TurnstileVer
         return false;
       }
       // A token solved on another form (another action) or another site is not accepted here.
-      const hostOk =
-        options.hostnames === undefined ||
-        (typeof body.hostname === 'string' && options.hostnames.includes(body.hostname));
+      const hosts = hostnames ?? options.hostnames;
+      const hostOk = hosts === undefined || (typeof body.hostname === 'string' && hosts.includes(body.hostname));
       if (body.success === true && body.action === action && hostOk) return true;
       const codes = Array.isArray(body['error-codes']) ? body['error-codes'].map(String) : [];
       options.logger?.info({ codes, action, hostOk }, 'turnstile token refused');

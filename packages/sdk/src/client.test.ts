@@ -26,6 +26,31 @@ describe('website API client (S7-03)', () => {
     expect(seen.url).toBe('https://feed.example/v2/listings/CH-7KQ2%20M9?lang=es');
   });
 
+  it('[S7-05] website forms post a JSON body with their Idempotency-Key', async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const accepted = {
+      id: '01900000-0000-7000-8000-000000000001',
+      kind: 'ENQUIRY',
+      status: 'RECEIVED',
+      replayed: false,
+    };
+    const client = createWebsiteClient({
+      baseUrl: 'https://feed.example',
+      apiKey: 'k',
+      fetch: fakeFetch(201, accepted, seen),
+    });
+    const body = { name: 'Ana', email: 'ana@example.com', privacyAccepted: true as const, turnstileToken: 't' };
+    expect(await client.createLead(body, { 'idempotency-key': 'form-0123456789abcdef' })).toEqual(accepted);
+    expect(seen.url).toBe('https://feed.example/v2/leads');
+    expect(seen.init?.method).toBe('POST');
+    expect(seen.init?.headers).toMatchObject({
+      'x-api-key': 'k',
+      'content-type': 'application/json',
+      'idempotency-key': 'form-0123456789abcdef',
+    });
+    expect(JSON.parse(String(seen.init?.body))).toEqual(body);
+  });
+
   it('[S7-03] error answers throw WebsiteApiError with the API code', async () => {
     const client = createWebsiteClient({
       baseUrl: 'https://feed.example',

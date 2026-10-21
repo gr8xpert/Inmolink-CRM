@@ -49,7 +49,8 @@ export const SITE_CACHE = { TTL_SECONDS: 45, LOCAL_TTL_SECONDS: 15 } as const;
 /** Cache key of one site's scope. No tags (one Redis key per site; changes `cache.delete` it). */
 export function siteCacheKey(siteId: string): CacheKey {
   // v2 (S7-02): the entry holds the presenting agency too. v3 (S7-F4): its filters hold the minimum commission.
-  return cacheKey({ v: 3, module: 'websites', entity: 'site', scope: 'global', id: siteId });
+  // v4 (S7-05): it holds the site's domains (forwarded Turnstile tokens are checked against them).
+  return cacheKey({ v: 4, module: 'websites', entity: 'site', scope: 'global', id: siteId });
 }
 
 function toSiteDto(row: repo.SiteRow): SiteDto {
@@ -239,6 +240,10 @@ export async function siteForNewKey(
 export interface SiteScope {
   siteId: string;
   agencyId: string;
+  /** The site's name in the dashboard (the agency's notifications name it, S7-05). */
+  name: string;
+  /** Host names the site runs on (S7-05: a forwarded Turnstile token must be solved on one of them). */
+  domains: string[];
   /** The site's version (cache keys and ETags of its answers). */
   version: number;
   mode: repo.WebsiteMode;
@@ -298,6 +303,8 @@ export async function siteScope(siteId: string): Promise<SiteScope> {
   return {
     siteId: row.id,
     agencyId: row.agencyId,
+    name: row.name,
+    domains: row.domains,
     version: row.version,
     mode: row.mode,
     inventoryPolicy: row.inventoryPolicy,

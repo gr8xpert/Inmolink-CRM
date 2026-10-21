@@ -22,13 +22,15 @@ export const ApiKeyScope = z.enum(API_KEY_SCOPES);
 export type ApiKeyScope = z.infer<typeof ApiKeyScope>;
 
 /**
- * Publishable keys sit in web pages, so they only read (S1-05 review). Website forms that write
- * (leads, viewing requests) through a publishable key would need Turnstile first (S7).
+ * Publishable keys sit in web pages: they read, and post website forms (leads, viewing requests) only with the form's
+ * Cloudflare Turnstile token (S7-05; S1-05 review kept them read-only until then).
  */
 export const PUBLISHABLE_KEY_SCOPES: readonly ApiKeyScope[] = [
   'listings:read',
   'developments:read',
   'taxonomy:read',
+  'leads:write',
+  'viewing-requests:write',
   'search:ai',
 ];
 

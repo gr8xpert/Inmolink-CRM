@@ -290,6 +290,24 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     }
   }
 
+  // S7-05: website form intake reads back exactly its listed columns (never a lead's client details).
+  for (const [name, def] of Object.entries(registry.tenant)) {
+    if (!seen.has(name) || !def.intake) continue;
+    const allowed = def.intake.selectColumns;
+    const cols = await client.query<{ column: string; granted: boolean }>(
+      `select a.attname as column, has_column_privilege('app_intake', c.oid, a.attnum, 'SELECT') as granted
+         from pg_attribute a join pg_class c on c.oid = a.attrelid
+        where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
+      [`public."${name}"`],
+    );
+    for (const c of cols.rows) {
+      if (!allowed.includes(c.column) && c.granted) problems.push(`${name}: app_intake can read ${c.column}`);
+      if (allowed.includes(c.column) && !c.granted) {
+        problems.push(`${name}: app_intake cannot read ${c.column} (run pnpm db:rls)`);
+      }
+    }
+  }
+
   const recorded = (await client.query<{ stamp: string | null }>(CATALOG_STAMP_SQL)).rows[0]?.stamp ?? null;
   if (recorded !== (await rlsCatalogStamp(client))) {
     problems.push(

@@ -101,7 +101,7 @@ export async function siteForKey(
 }
 
 /** `?lang=`: one of the site's languages (default its first). */
-function langOf(site: ApiSite, lang: string | undefined): string {
+export function langOf(site: ApiSite, lang: string | undefined): string {
   const chosen = lang ?? site.scope.defaultLocale;
   if (!site.scope.locales.includes(chosen)) {
     throw new AppError('VALIDATION_FAILED', { field: 'lang', reason: 'not a language of this site' });
@@ -248,7 +248,7 @@ export async function searchListings(
  * `WebsiteHoneytokenHit`; the answer is the same 404 as for a withdrawn listing. A code-style hit is confirmed to be no
  * real public code first (its check part is 20 bits) — one more statement on this 404 path only.
  */
-async function listingNotFound(tx: Tx, site: ApiSite, ref: string): Promise<AppError> {
+export async function listingNotFound(tx: Tx, site: ApiSite, ref: string): Promise<AppError> {
   const token = honeytokenKind(cursorSecret(), site.scope, ref);
   if (token && !(token.style === 'code' && (await search.publicCodeInUse(tx, token.code)))) {
     raiseWebsiteAlert({

@@ -18,6 +18,8 @@ interface Operation {
   summary?: string;
   tags?: string[];
   parameters?: Parameter[];
+  /** S7-05: website forms post JSON bodies. */
+  requestBody?: { required?: boolean; content?: Record<string, { schema: Schema }> };
   responses: Record<string, { content?: Record<string, { schema: Schema }> }>;
 }
 export interface OpenApiDoc {
@@ -151,15 +153,32 @@ export function renderTs(spec: OpenApiDoc): string {
         .map((p) => `  ${key(p.name)}${p.required ? '' : '?'}: ${typeOf(p.schema, '  ')};`)
         .join('\n')}\n}`;
     };
-    const response = op.responses['200']?.content?.['application/json']?.schema;
+    // A created resource answers 201 (S7-05), a read 200: the same body type either way.
+    const response = (op.responses['200'] ?? op.responses['201'])?.content?.['application/json']?.schema;
+    const body = op.requestBody?.content?.['application/json']?.schema;
     if (op.summary) out.push(`/** ${op.summary.replace(/\*\//g, '* /')} */`);
     out.push(`export type ${T}Params = ${group('path')};`);
     out.push(`export type ${T}Query = ${group('query')};`);
+    if (body) {
+      out.push(`export type ${T}Body = ${typeOf(body)};`);
+      out.push(`export type ${T}Headers = ${group('header')};`);
+    }
     out.push(`export type ${T}Response = ${response ? typeOf(response) : 'void'};`, '');
     table.push(`  ${name}: { method: ${JSON.stringify(method.toUpperCase())}, path: ${JSON.stringify(path)} },`);
-    types.push(`  ${name}: { params: ${T}Params; query: ${T}Query; response: ${T}Response };`);
+    types.push(
+      body
+        ? `  ${name}: { params: ${T}Params; query: ${T}Query; body: ${T}Body; headers: ${T}Headers; response: ${T}Response };`
+        : `  ${name}: { params: ${T}Params; query: ${T}Query; body?: never; headers?: never; response: ${T}Response };`,
+    );
     const pathParams = params.some((p) => p.in === 'path');
     const queryRequired = params.some((p) => p.in === 'query' && p.required);
+    if (body) {
+      const args = pathParams
+        ? `params: ${T}Params, body: ${T}Body, headers: ${T}Headers`
+        : `body: ${T}Body, headers: ${T}Headers`;
+      methods.push(`    ${name}: (${args}) => call('${name}', { ${pathParams ? 'params, ' : ''}body, headers }),`);
+      continue;
+    }
     const args = pathParams
       ? `params: ${T}Params, query${queryRequired ? '' : '?'}: ${T}Query`
       : `query${queryRequired ? '' : '?'}: ${T}Query`;
@@ -170,10 +189,12 @@ export function renderTs(spec: OpenApiDoc): string {
   out.push('export interface Operations {', ...types, '}', '');
   out.push('export type OperationName = keyof Operations;', '');
   out.push(
-    '/** A request: path parameters and query. */',
+    '/** A request: path parameters and query; a JSON body and its headers (e.g. `idempotency-key`) for writes. */',
     'export interface CallArgs<K extends OperationName> {',
     "  params?: Operations[K]['params'];",
     "  query?: Operations[K]['query'];",
+    "  body?: Operations[K]['body'];",
+    "  headers?: Operations[K]['headers'];",
     '}',
     '',
     '/** One method per operation over a generic `call`. */',

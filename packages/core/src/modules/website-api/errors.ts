@@ -10,4 +10,6 @@ export const websiteApiErrors = [
   'QUOTA_EXCEEDED',
   'RATE_LIMITED',
   'VALIDATION_FAILED',
+  'TURNSTILE_FAILED',
+  'IDEMPOTENCY_KEY_REUSED',
 ] as const satisfies readonly ErrorCode[];

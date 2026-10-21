@@ -12,6 +12,13 @@ export interface EmailMessage {
   html: string;
   /** Short tag for provider analytics, e.g. `identity.verify-email`. */
   tag?: string;
+  /**
+   * S7-05: the sender's display name (e.g. the website's name on a lead acknowledgement). The address stays the
+   * platform's own (`EMAIL_FROM`, SPF/DKIM aligned); only the name shown changes. One line, no quotes or brackets.
+   */
+  fromName?: string;
+  /** S7-05: where replies go (e.g. the website's contact e-mail). */
+  replyTo?: string;
 }
 
 export interface Mailer {
@@ -35,6 +42,22 @@ export function assertMessage(message: EmailMessage): void {
   if (!EMAIL.test(message.to) || message.to.length > 254) throw new TypeError('email: invalid recipient');
   if (/[\r\n]/.test(message.subject) || message.subject.length > 300) throw new TypeError('email: invalid subject');
   if (message.tag !== undefined && !/^[a-z0-9._-]{1,64}$/.test(message.tag)) throw new TypeError('email: invalid tag');
+  if (message.fromName !== undefined && !/^[^\r\n"<>\\]{1,100}$/.test(message.fromName)) {
+    throw new TypeError('email: invalid sender name');
+  }
+  if (message.replyTo !== undefined && (!EMAIL.test(message.replyTo) || message.replyTo.length > 254)) {
+    throw new TypeError('email: invalid reply-to');
+  }
+}
+
+/** The configured sender's address (`Name <addr>` or a bare address). */
+function addressOf(from: string): string {
+  return /<([^<>]+)>\s*$/.exec(from)?.[1] ?? from.trim();
+}
+
+/** The `From` header: the configured sender, or its address under the message's display name. */
+export function senderOf(from: string, message: Pick<EmailMessage, 'fromName'>): string {
+  return message.fromName ? `"${message.fromName}" <${addressOf(from)}>` : from;
 }
 
 export function createSmtpMailer(options: { from: string; smtpUrl: string }): Mailer {
@@ -44,7 +67,8 @@ export function createSmtpMailer(options: { from: string; smtpUrl: string }): Ma
       assertMessage(message);
       try {
         const info = await transport.sendMail({
-          from: options.from,
+          from: senderOf(options.from, message),
+          ...(message.replyTo ? { replyTo: message.replyTo } : {}),
           to: message.to,
           subject: message.subject,
           text: message.text,
@@ -78,7 +102,8 @@ export function createResendMailer(options: {
         method: 'POST',
         headers: { authorization: `Bearer ${options.resendApiKey}`, 'content-type': 'application/json' },
         body: JSON.stringify({
-          from: options.from,
+          from: senderOf(options.from, message),
+          ...(message.replyTo ? { reply_to: message.replyTo } : {}),
           to: [message.to],
           subject: message.subject,
           text: message.text,

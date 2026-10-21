@@ -7,6 +7,8 @@ import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
+import { websiteApiJobs } from '@inmolink/core/modules/website-api';
+import { websitesJobs } from '@inmolink/core/modules/websites';
 import type { JobDef } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
 
@@ -44,9 +46,13 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     identityJobs.sendInviteEmail,
     identityJobs.sendTwoFactorNotice,
     identityJobs.sendVerificationDecisionEmail,
+    websiteApiJobs.sendLeadAcknowledgement,
+    websiteApiJobs.notifyLeadAgency,
+    websiteApiJobs.notifyLeadRecipient,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,
+    websitesJobs.pruneLeadIdempotency,
     identityJobs.flushApiKeyUsage,
     identityJobs.syncApiKeyAgencyStatus,
     agenciesJobs.pruneOrphanVerificationDocuments,

@@ -7,6 +7,7 @@ import {
   type TenantTable,
   type Tx,
   withAuth,
+  withIntake,
   withMedia,
   withPublicRead,
   withStaff,
@@ -680,6 +681,81 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       );
     });
   }
+
+  // Website form intake (S7-05): every tenant table refuses app_intake, except an `intake` table (its pinned agency's
+  // rows: append, and read back the listed columns only) and an `intakeAppend` table (its own events, its own agency).
+  const intakeAs = <T>(agencyId: string, fn: (tx: Tx) => Promise<T>) => withIntake({ agencyId }, fn);
+  const rolledBackIntake = (agencyId: string, fn: (tx: Tx) => Promise<void>) =>
+    intakeAs(agencyId, async (tx) => {
+      await fn(tx);
+      throw new Rollback();
+    }).catch((err) => {
+      if (!(err instanceof Rollback)) throw err;
+    });
+  const intake = def.intake;
+  const intakeAppend = def.intakeAppend;
+  if (intake) {
+    const listed = intake.selectColumns;
+    it(`[S7-05] ${table}: app_intake pinned to tenant B appends B's rows and reads back only (${listed.join(', ')})`, async () => {
+      await rolledBackIntake(b, async (tx) => {
+        // In a savepoint, like the positive control above: the suite creates no parent rows (FK 23503 is raised
+        // only after RLS let the row through).
+        await tx
+          .transaction(async (sp) => sp.execute(insertSql(table, build({ agency_id: b }))))
+          .catch((err: unknown) => {
+            if (!PASSED_RLS.includes(sqlState(err) ?? '')) throw err;
+          });
+        const own = await tx.execute(sql`select ${sql.identifier(listed[0] as string)} from ${sql.identifier(table)}`);
+        expect(own.rows.length).toBeGreaterThan(0);
+      });
+      // Tenant A's rows: invisible (RLS), not insertable, never changed or removed.
+      const seenA = await intakeAs(b, (tx) =>
+        tx.execute(sql`select ${sql.identifier(listed[0] as string)} from ${sql.identifier(table)}`),
+      );
+      expect(seenA.rows.length).toBe(await adminCount(b));
+      await expectSqlState(() => intakeAs(b, (tx) => tx.execute(insertSql(table, build({ agency_id: a })))), DENIED);
+      await expectSqlState(() => intakeAs(b, updateA), DENIED);
+      await expectSqlState(() => intakeAs(b, deleteA), DENIED);
+      // A column it does not list (the client's details) cannot be read, even on its own agency's rows.
+      const columns = await columnsOf(admin, table);
+      const other = columns.find((c) => !listed.includes(c.name))?.name as string;
+      await expectSqlState(
+        () => intakeAs(b, (tx) => tx.execute(sql`select ${sql.identifier(other)} from ${sql.identifier(table)}`)),
+        DENIED,
+      );
+      await expectSqlState(() => intakeAs(b, (tx) => count(tx, table, b)), DENIED);
+    });
+  } else if (intakeAppend) {
+    const own = { agency_id: b, [intakeAppend.column]: intakeAppend.values[0] };
+    it(`[S7-05] ${table}: app_intake appends only its own kind of row for its pinned agency, and reads nothing`, async () => {
+      await rolledBackIntake(b, async (tx) => {
+        await tx
+          .transaction(async (sp) => sp.execute(insertSql(table, build(own))))
+          .catch((err: unknown) => {
+            if (!PASSED_RLS.includes(sqlState(err) ?? '')) throw err;
+          });
+      });
+      await expectSqlState(
+        () => intakeAs(b, (tx) => tx.execute(insertSql(table, build({ ...own, agency_id: a })))),
+        DENIED,
+      );
+      await expectSqlState(
+        () =>
+          intakeAs(b, (tx) => tx.execute(insertSql(table, build({ ...own, [intakeAppend.column]: 'x.isoFixture' })))),
+        DENIED,
+      );
+      await expectSqlState(() => intakeAs(b, (tx) => count(tx, table, b)), DENIED);
+      await expectSqlState(() => intakeAs(b, updateA), DENIED);
+      await expectSqlState(() => intakeAs(b, deleteA), DENIED);
+    });
+  } else {
+    it(`[S7-05] ${table}: the intake DB role cannot read, update, insert or delete it`, async () => {
+      await expectSqlState(() => intakeAs(b, (tx) => count(tx, table, a)), DENIED);
+      await expectSqlState(() => intakeAs(b, updateA), DENIED);
+      await expectSqlState(() => intakeAs(b, insertA), DENIED);
+      await expectSqlState(() => intakeAs(b, deleteA), DENIED);
+    });
+  }
 });
 
 describe.each(globalNames)('global table %s', (table) => {
@@ -822,6 +898,13 @@ describe.each(globalNames)('global table %s', (table) => {
       await expectSqlState(() => asMedia((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
     });
   }
+
+  it(`[S7-05] ${table}: the intake DB role cannot read or write it`, async () => {
+    const intake = <T>(fn: (tx: Tx) => Promise<T>) => withIntake({ agencyId: newId() }, fn);
+    await expectSqlState(() => intake(seen), DENIED);
+    await expectSqlState(() => intake((tx) => tx.execute(insertSql(table, build()))), DENIED);
+    await expectSqlState(() => intake((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+  });
 
   if (def?.staffWrite) {
     it(`[S2-04] ${table}: staffWrite — active staff read and change it; app_staff for a non-staff user gets nothing`, async () => {

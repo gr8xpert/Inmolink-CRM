@@ -46,7 +46,7 @@ export function sendSiteJson<S extends z.ZodType>(
 }
 
 /** Headers a browser may send to the website API, and read back. */
-const ALLOW_HEADERS = 'X-Api-Key, If-None-Match, Content-Type';
+const ALLOW_HEADERS = 'X-Api-Key, If-None-Match, Content-Type, Idempotency-Key';
 const EXPOSE_HEADERS = 'ETag, Retry-After';
 
 /**

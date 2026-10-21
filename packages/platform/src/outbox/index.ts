@@ -15,6 +15,7 @@ export {
 export {
   type EmitOptions,
   emit,
+  emitFrom,
   MAX_EVENT_PAYLOAD_BYTES,
   PLATFORM_AGENCY_ID,
   type SqlExecutor,

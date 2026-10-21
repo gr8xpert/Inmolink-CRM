@@ -12,11 +12,15 @@ import {
   redisEnv,
   searchEnv,
   telemetryEnv,
+  turnstileEnv,
   websiteApiEnv,
   websiteSearchEnv,
 } from '@inmolink/platform/config';
 
-/** Website API: `app_public` only (read models, PUBLIC_READ) — no `app_user`, no queue (PLAN §5.3 bulkheads). */
+/**
+ * Website API: `app_public` for reads (read models, PUBLIC_READ) and `app_intake` for website forms (S7-05: inbound
+ * leads and their outbox events only) — no `app_user`, no queue (PLAN §5.3 bulkheads).
+ */
 export const feedApiEnv = {
   ...coreEnv,
   ...httpEnv,
@@ -25,6 +29,10 @@ export const feedApiEnv = {
   FEED_API_METRICS_PORT: portVar(9465),
   ...telemetryEnv,
   DATABASE_URL_APP_PUBLIC: databaseEnv.DATABASE_URL_APP_PUBLIC,
+  /** Website form intake (S7-05): required — feed-api's only write path. */
+  DATABASE_URL_APP_INTAKE: databaseEnv.DATABASE_URL_APP_INTAKE.unwrap(),
+  /** Cloudflare Turnstile (S7-05, H3): without it, forms through publishable keys are refused (fail closed). */
+  ...turnstileEnv,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
   /** Rate-limit counters only (S1-F6); production's ACL user reaches no queue key. */
   ...rateLimitEnv,

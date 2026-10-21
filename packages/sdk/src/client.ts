@@ -52,7 +52,18 @@ export function createWebsiteClient(options: WebsiteClientOptions) {
   async function call<K extends OperationName>(op: K, args: CallArgs<K>): Promise<Operations[K]['response']> {
     const { method, path } = OPERATIONS[op];
     const url = `${base}${pathOf(path, args.params as Record<string, unknown>)}${queryString(args.query as Record<string, unknown>)}`;
-    const res = await doFetch(url, { method, headers: { 'x-api-key': options.apiKey, accept: 'application/json' } });
+    const headers: Record<string, string> = {
+      ...((args.headers as Record<string, string> | undefined) ?? {}),
+      'x-api-key': options.apiKey,
+      accept: 'application/json',
+    };
+    // Website forms (S7-05): a JSON body, with its `idempotency-key` header.
+    if (args.body !== undefined) headers['content-type'] = 'application/json';
+    const res = await doFetch(url, {
+      method,
+      headers,
+      ...(args.body !== undefined ? { body: JSON.stringify(args.body) } : {}),
+    });
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as {
         error?: { code?: string; details?: Record<string, unknown> };

@@ -38,6 +38,23 @@ export interface WebsiteLimits {
   honeytokenMinPage: number;
   /** Honeytokens on (default). Off: no page carries one; detail hits on old ones still alert. */
   honeytokens: boolean;
+  /**
+   * Website form posts (S7-05: leads and viewing requests), on top of the request limits: per browser (publishable
+   * keys: key × client IP /64) per `leadWindowSeconds` and per UTC day, and per secret key per hour (its server posts
+   * for every visitor). Form spam past them answers 429.
+   */
+  leadsPerBrowser: number;
+  leadWindowSeconds: number;
+  leadsPerBrowserDay: number;
+  leadsPerKeyHour: { STANDARD: number; HIGH: number };
+  /**
+   * Acknowledgement e-mails (S7-05): a form can name any address, so the automatic reply is capped per recipient (the
+   * HMAC of the normalized address) — per site and platform-wide — and per site, by the posting key's tier, over the
+   * last 24 h. Over a cap the lead is stored and the agency told; only the acknowledgement is skipped.
+   */
+  ackPerRecipientSiteDay: number;
+  ackPerRecipientDay: number;
+  ackPerSiteDay: { STANDARD: number; HIGH: number };
 }
 
 export const DEFAULT_WEBSITE_LIMITS: WebsiteLimits = {
@@ -56,4 +73,11 @@ export const DEFAULT_WEBSITE_LIMITS: WebsiteLimits = {
   pagingPenaltySeconds: 3_600,
   honeytokenMinPage: 10,
   honeytokens: true,
+  leadsPerBrowser: 5,
+  leadWindowSeconds: 600,
+  leadsPerBrowserDay: 20,
+  leadsPerKeyHour: { STANDARD: 300, HIGH: 1_500 },
+  ackPerRecipientSiteDay: 3,
+  ackPerRecipientDay: 10,
+  ackPerSiteDay: { STANDARD: 1_000, HIGH: 10_000 },
 };

@@ -12,8 +12,9 @@ import type { RuntimeRole } from './roles';
  */
 export const dbEnv = { ...coreEnv, ...databaseEnv };
 /**
- * Each app passes only the role URLs it may use — feed-api only `DATABASE_URL_APP_PUBLIC` (S0-08),
- * so its process cannot open an `app_user` pool at all. A missing URL fails on first use.
+ * Each app passes only the role URLs it may use — feed-api only `DATABASE_URL_APP_PUBLIC` (S0-08) and
+ * `DATABASE_URL_APP_INTAKE` (S7-05, website forms), so its process cannot open an `app_user` pool at all. A missing
+ * URL fails on first use.
  */
 export type DbConfig = Pick<Config<typeof dbEnv>, 'APP_ROLE'> &
   Partial<Pick<Config<typeof dbEnv>, keyof typeof databaseEnv>>;
@@ -32,6 +33,7 @@ const ROLE_URL: Record<RuntimeRole, keyof typeof databaseEnv> = {
   app_auth: 'DATABASE_URL_APP_AUTH',
   app_staff: 'DATABASE_URL_APP_STAFF',
   app_media: 'DATABASE_URL_APP_MEDIA',
+  app_intake: 'DATABASE_URL_APP_INTAKE',
 };
 
 export interface PoolOptions {

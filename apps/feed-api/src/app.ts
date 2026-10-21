@@ -4,9 +4,10 @@ import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@
 import { apiKeyPlugin } from './plugins/api-key';
 import { websiteCors } from './plugins/site-response';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
+import { websiteLeadRoutes } from './routes/website-api/leads';
 import { websiteApiRoutes } from './routes/website-api/routes';
 
-/** Website API (v1 shim, v2, XML feeds) — read-only, isolated. Transport only. */
+/** Website API (v1 shim, v2, XML feeds) — reads, plus website form intake (S7-05); isolated. Transport only. */
 export const APP_NAME = 'feed-api';
 
 /**
@@ -45,5 +46,6 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   healthRoutes(app, { checks: deps.checks });
   await app.register(taxonomyRoutes);
   await app.register(websiteApiRoutes);
+  await app.register(websiteLeadRoutes);
   return app;
 }

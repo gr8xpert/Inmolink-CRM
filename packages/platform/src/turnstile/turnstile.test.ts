@@ -27,6 +27,19 @@ describe('turnstile', () => {
     expect(await on('evil.example')).toBe(false);
   });
 
+  it('[S7-05] per-call hostnames (a website form page) replace the configured ones for that call', async () => {
+    const verifier = (hostname: string) =>
+      createTurnstileVerifier({
+        secretKey: 's',
+        hostnames: ['app.inmolink.es'],
+        fetch: reply(200, { success: true, action: 'website-lead', hostname }),
+      });
+    const onSite = { action: 'website-lead', hostnames: ['www.costa.example'] };
+    expect(await verifier('www.costa.example').verify('t', onSite)).toBe(true);
+    expect(await verifier('www.other.example').verify('t', onSite)).toBe(false);
+    expect(await verifier('app.inmolink.es').verify('t', onSite)).toBe(false);
+  });
+
   it('[S1-F5] refuses failures, other actions, bad tokens and outages (fails closed)', async () => {
     const secretKey = 's';
     const ok = { success: true, action: 'login' };

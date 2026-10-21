@@ -15,7 +15,7 @@ import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable 
  */
 
 const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
-const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff, app_media';
+const APP_ROLES = 'public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake';
 
 /** Functions the generator owns. The guard rejects any other function an app role can execute. */
 export const HELPER_FUNCTIONS = [
@@ -31,7 +31,7 @@ export const HELPER_FUNCTIONS = [
 ] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
-export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff' | 'app_media';
+export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff' | 'app_media' | 'app_intake';
 export const APP_ROLE_NAMES: readonly AppRole[] = [
   'app_user',
   'app_system',
@@ -39,6 +39,7 @@ export const APP_ROLE_NAMES: readonly AppRole[] = [
   'app_auth',
   'app_staff',
   'app_media',
+  'app_intake',
 ];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
@@ -65,6 +66,24 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
     }
     if (def.mediaRead && def.mediaRead.columns.length === 0) throw new Error(`${name}: mediaRead needs columns`);
+    if (def.intake) {
+      if (def.kind !== 'STRICT' || def.appendOnly || def.immutable) {
+        throw new Error(`${name}: intake is only valid for plain STRICT tables`);
+      }
+      if (def.intake.selectColumns.length === 0) throw new Error(`${name}: intake needs selectColumns`);
+      for (const c of def.intake.selectColumns) {
+        if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
+      }
+    }
+    if (def.intakeAppend) {
+      if (!def.appendOnly) throw new Error(`${name}: intakeAppend is only valid for appendOnly tables`);
+      if (!IDENT.test(def.intakeAppend.column) || def.intakeAppend.values.length === 0) {
+        throw new Error(`${name}: intakeAppend needs a column name and values`);
+      }
+      for (const v of def.intakeAppend.values) {
+        if (!/^[a-z][a-zA-Z0-9.]*$/.test(v)) throw new Error(`${name}: intakeAppend value "${v}" is not allowed`);
+      }
+    }
     if (def.userReadOnly && def.kind !== 'PUBLIC_READ') {
       throw new Error(`${name}: userReadOnly is only valid for PUBLIC_READ tables`);
     }
@@ -117,6 +136,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
         app_auth: ['SELECT', 'INSERT', 'UPDATE'],
         app_staff: [],
         app_media: [],
+        app_intake: [],
       };
     if (def.access === 'staff')
       return {
@@ -126,6 +146,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
         app_auth: ['SELECT'],
         app_staff: ['SELECT'],
         app_media: [],
+        app_intake: [],
       };
     return {
       app_user: def.noUserRead ? [] : ['SELECT'],
@@ -134,6 +155,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_auth: [],
       app_staff: def.staffWrite ? DML : [],
       app_media: def.mediaWrite ? DML : [],
+      app_intake: [],
     };
   }
   const user: Privilege[] = def.appendOnly
@@ -150,6 +172,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
     app_auth: def.authAppend ? ['INSERT'] : authPrivileges(def.auth),
     app_staff: authPrivileges(def.staff),
     app_media: def.mediaRead ? ['SELECT'] : [],
+    app_intake: def.intake ? ['SELECT', 'INSERT'] : def.intakeAppend ? ['INSERT'] : [],
   };
 }
 
@@ -211,6 +234,13 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : def.userReadOnly ? 'SELECT' : 'ALL', roles: ['app_user'] }];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   if (def.mediaRead) out.push({ name: 'media_read', cmd: 'SELECT', roles: ['app_media'] });
+  if (def.intake) {
+    out.push(
+      { name: 'intake_insert', cmd: 'INSERT', roles: ['app_intake'] },
+      { name: 'intake_select', cmd: 'SELECT', roles: ['app_intake'] },
+    );
+  }
+  if (def.intakeAppend) out.push({ name: 'intake_append', cmd: 'INSERT', roles: ['app_intake'] });
   for (const [key, cmd] of AUTH_COMMANDS) {
     if (def.auth?.[key] !== undefined) out.push({ name: `auth_${key}`, cmd, roles: ['app_auth'] });
   }
@@ -332,6 +362,7 @@ end $$;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
+    `grant execute on function app_agency() to app_intake;`,
     `grant execute on function app_is_staff() to app_staff;`,
     `grant execute on function app_agency_verified(), app_preferring_agencies() to app_user;`,
     `grant execute on function app_partition_maintenance() to app_system;`,
@@ -448,6 +479,28 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     out.push(
       `create policy media_read on ${t} for select to app_media using (true);`,
       `grant select (${cols}) on table ${t} to app_media;`,
+    );
+  }
+  if (def.intake) {
+    // Website form intake (S7-05): the pinned agency's rows only; reads back the listed columns, never the rest.
+    const cols = def.intake.selectColumns.map((c) => `"${c}"`).join(', ');
+    out.push(
+      `create policy intake_insert on ${t} for insert to app_intake
+  with check (agency_id = app_agency());`,
+      `create policy intake_select on ${t} for select to app_intake
+  using (agency_id = app_agency());`,
+      `grant insert on table ${t} to app_intake;`,
+      `grant select (${cols}) on table ${t} to app_intake;`,
+    );
+  }
+  if (def.intakeAppend) {
+    // The intake transaction's own events, for its pinned agency only.
+    const { column, values } = def.intakeAppend;
+    const list = values.map((v) => `'${v}'`).join(', ');
+    out.push(
+      `create policy intake_append on ${t} for insert to app_intake
+  with check (agency_id = app_agency() and "${column}" in (${list}));`,
+      `grant insert on table ${t} to app_intake;`,
     );
   }
   if (def.authAppend) {

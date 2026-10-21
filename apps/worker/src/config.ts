@@ -7,6 +7,7 @@ import {
   httpEnv,
   importsEnv,
   loadConfigOrExit,
+  mediaCdnEnv,
   mediaEnv,
   portVar,
   redisEnv,
@@ -85,6 +86,16 @@ const indexingEnv = {
 };
 
 /**
+ * The `email` pool's website lead acknowledgements (S7-05): similar listings come through the website search path as
+ * `app_public` (the site's public inventory, never more), with image URLs under the media CDN. Without a search engine
+ * key the search answers from its Postgres fallback.
+ */
+const leadEmailEnv = {
+  DATABASE_URL_APP_PUBLIC: databaseEnv.DATABASE_URL_APP_PUBLIC,
+  ...mediaCdnEnv,
+};
+
+/**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
  * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys, no cache (S3-F7).
  */
@@ -104,13 +115,13 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...baseEnv,
     ...(others ? systemEnv : {}),
     ...(pools.includes('media') ? mediaPoolEnv : {}),
-    ...(pools.includes('email') ? emailEnv : {}),
+    ...(pools.includes('email') ? { ...emailEnv, ...leadEmailEnv } : {}),
     ...(pools.includes('indexing') ? indexingEnv : {}),
   };
 }
 
 /** Every variable any pool reads (the deploy-config check lists them). */
-export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv, ...indexingEnv };
+export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv, ...leadEmailEnv, ...indexingEnv };
 type Full = Config<typeof workerEnv>;
 /** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */
 export type WorkerConfig = Config<typeof baseEnv> & Partial<Omit<Full, keyof Config<typeof baseEnv>>>;

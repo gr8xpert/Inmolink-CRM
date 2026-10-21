@@ -58,6 +58,11 @@ env:
     # redis-queue as the `limits` ACL user: rate-limit counters only, never evicted (S1-F6).
     - REDIS_LIMITS_URL
     - DATABASE_URL_APP_PUBLIC
+    # Website form intake (S7-05): leads and viewing requests only (website_leads + their outbox events).
+    - DATABASE_URL_APP_INTAKE
+    # Cloudflare Turnstile (H3): website lead forms through publishable keys need it.
+    - TURNSTILE_SITE_KEY
+    - TURNSTILE_SECRET_KEY
     # Search-only key; the master key stays with the meilisearch accessory and the worker (S1-F5).
     - MEILI_SEARCH_KEY
     - ENCRYPTION_KEYS

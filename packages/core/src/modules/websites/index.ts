@@ -2,6 +2,22 @@
 export { websitesErrors } from './errors';
 export { websitesEvents } from './events';
 export { websitesJobs } from './jobs';
+export {
+  type AckSkipReason,
+  ackUsage,
+  type InboundLead,
+  inboundLead,
+  LEAD_IDEMPOTENCY_HOURS,
+  type LeadKind,
+  type LeadReceipt,
+  type LeadRow,
+  type LeadVerification,
+  leadByIdempotency,
+  markAckSkipped,
+  markLeadSent,
+  pruneLeadIdempotency,
+  recordInboundLead,
+} from './leads';
 export { CLIENT_MODE_ALLOWED, can, WEBSITES_ACTIONS, WEBSITES_IMPERSONATION, type WebsitesAction } from './policy';
 export {
   DEFAULT_NETWORK_REF_PREFIX,

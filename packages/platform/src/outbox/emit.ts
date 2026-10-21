@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import { newId } from '../ids';
 import type { SqlExecutor } from '../sql';
 import { currentTraceparent } from '../telemetry/context';
@@ -59,4 +59,23 @@ export async function emit(
       sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values.slice(i, i + EMIT_CHUNK_ROWS), sql`, `)}`,
     );
   }
+}
+
+/**
+ * An event as an `insert … select … from <source>` statement (S7-05), for a writable CTE: the caller's row and its
+ * event are written by **one** statement, and the event exists only when `source` yields a row (e.g.
+ * `with ins as (insert … on conflict do nothing returning id) <this>`). `source` names a CTE of exactly one row or
+ * none; `agencyId` is explicit (RLS checks it like `emit`'s).
+ */
+export function emitFrom(message: OutboxMessage, source: SQL, options: { agencyId: string }): SQL {
+  const bytes = Buffer.byteLength(JSON.stringify(message.payload));
+  if (bytes > MAX_EVENT_PAYLOAD_BYTES) {
+    throw new TypeError(
+      `emitFrom ${message.type}: payload is ${bytes} bytes (max ${MAX_EVENT_PAYLOAD_BYTES}); carry IDs only`,
+    );
+  }
+  agencyOf(message, options);
+  return sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent)
+    select ${newId()}, ${options.agencyId}::uuid, ${message.type}, ${message.version},
+           ${JSON.stringify(message.payload)}::jsonb, ${currentTraceparent()} from ${source}`;
 }

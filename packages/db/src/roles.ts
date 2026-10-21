@@ -76,6 +76,20 @@ export const DB_ROLES = {
     dml: false,
     jit: true,
   },
+  /**
+   * Website form intake (S7-05): feed-api's only write path, via `withIntake()` — RLS on, no BYPASSRLS. Appends inbound
+   * leads of the agency the transaction is pinned to (`website_leads`, registry `intake`) and their
+   * `websites.lead.received` outbox events, and reads back only the lead's idempotency columns, never its PII. No
+   * sequences (`dml: false`); the 2 s timeout of the public paths.
+   */
+  app_intake: {
+    bypassRls: false,
+    readOnly: false,
+    statementTimeout: '2s',
+    idleInTransaction: '15s',
+    dml: false,
+    jit: false,
+  },
   /** Public read paths (feed-api, portal). Read-only; SELECT only on PUBLIC_READ tables, granted by `pnpm db:rls`. */
   app_public: {
     bypassRls: false,

@@ -1,0 +1,46 @@
+{
+  "ack": {
+    "subject": "We have received your enquiry – {agency}",
+    "subjectViewing": "We have received your viewing request – {agency}",
+    "greeting": "Dear {name},",
+    "greetingNeutral": "Hello,",
+    "bodyListing": "Thank you for your interest in property {ref}. We have received your enquiry and will be in touch shortly.",
+    "bodyGeneral": "Thank you for contacting us. We have received your enquiry and will be in touch shortly.",
+    "bodyViewing": "Thank you for your viewing request for property {ref}. We will contact you shortly to confirm a time.",
+    "similarTitle": "You may also like",
+    "bedrooms": "{count, plural, one {# bedroom} other {# bedrooms}}",
+    "priceOnRequest": "Price on request",
+    "reference": "Ref. {ref}",
+    "contactTitle": "Contact us",
+    "phone": "Phone: {phone}",
+    "email": "E-mail: {email}",
+    "whatsapp": "WhatsApp: {whatsapp}",
+    "signature": "Kind regards,",
+    "footer": "You are receiving this e-mail because you sent an enquiry on {site}. Your details are used only to answer it."
+  },
+  "notify": {
+    "subject": "New website enquiry – {ref}",
+    "subjectGeneral": "New website enquiry",
+    "subjectViewing": "New viewing request – {ref}",
+    "intro": "A visitor to {site} has sent an enquiry.",
+    "introViewing": "A visitor to {site} has asked for a viewing.",
+    "name": "Name",
+    "email": "E-mail",
+    "phone": "Phone",
+    "message": "Message",
+    "listing": "Property",
+    "slots": "Preferred times",
+    "language": "Language",
+    "marketing": "Accepts marketing e-mails",
+    "page": "Page",
+    "yes": "Yes",
+    "no": "No",
+    "timeOfDay": {
+      "MORNING": "morning",
+      "AFTERNOON": "afternoon",
+      "EVENING": "evening",
+      "ANY": "any time"
+    },
+    "footer": "The visitor has already received an automatic acknowledgement. Reply soon: response times are measured."
+  }
+}

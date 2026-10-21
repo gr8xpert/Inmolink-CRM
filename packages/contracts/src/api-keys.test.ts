@@ -44,11 +44,11 @@ describe('API key contracts', () => {
     expect(CreateApiKeyBody.safeParse({ ...base, scopes: ['listings:read'], extra: 1 }).success).toBe(false);
   });
 
-  it('[S1-05] publishable keys only get read scopes', () => {
+  it('[S1-05] publishable keys get read scopes and, since S7-05 (Turnstile), the website form scopes', () => {
     const base = { name: 'Widget', kind: 'PUBLISHABLE', allowedOrigins: ['https://example.com'] };
     expect(CreateApiKeyBody.safeParse({ ...base, scopes: ['listings:read', 'search:ai'] }).success).toBe(true);
     for (const scope of ['leads:write', 'viewing-requests:write']) {
-      expect(CreateApiKeyBody.safeParse({ ...base, scopes: ['listings:read', scope] }).success, scope).toBe(false);
+      expect(CreateApiKeyBody.safeParse({ ...base, scopes: ['listings:read', scope] }).success, scope).toBe(true);
     }
   });
 });

@@ -7,6 +7,7 @@ import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
+import { createTurnstileVerifier } from '@inmolink/platform/turnstile';
 import { buildApp } from './app';
 import { loadFeedApiConfig } from './config';
 
@@ -20,7 +21,14 @@ const telemetry = startObservability(config, {
 });
 
 try {
-  await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_PUBLIC: config.DATABASE_URL_APP_PUBLIC }, { logger });
+  await configureDb(
+    {
+      APP_ROLE: 'http',
+      DATABASE_URL_APP_PUBLIC: config.DATABASE_URL_APP_PUBLIC,
+      DATABASE_URL_APP_INTAKE: config.DATABASE_URL_APP_INTAKE,
+    },
+    { logger },
+  );
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
   // Website API keys (S1-05): HMAC-checked; only keys of this environment (`live` in production) work.
@@ -34,7 +42,13 @@ try {
     cursorKey: config.HMAC_KEY,
     // S7-04: quotas and paging limits are the defaults (website-api config.ts); honeytokens can be turned off.
     limits: { honeytokens: config.WEBSITE_HONEYTOKENS === 'true' },
+    // S7-05: website forms through publishable keys need Turnstile; without a secret they are refused (H3).
+    turnstile: config.TURNSTILE_SECRET_KEY
+      ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
+      : null,
   });
+  if (!config.TURNSTILE_SECRET_KEY)
+    logger.warn('no TURNSTILE_SECRET_KEY: website forms through publishable keys are refused');
   search.configureNetworkSearch({
     giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
     giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,
@@ -60,6 +74,7 @@ try {
     limiter: rateLimiter(),
     checks: {
       db: () => pingDb('app_public'),
+      dbIntake: () => pingDb('app_intake'),
       redisCache: redisCheck(cacheConnection),
       // A wrong REDIS_LIMITS_URL credential would otherwise surface only as refused logins.
       redisLimits: redisCheck(rateLimitConnection),

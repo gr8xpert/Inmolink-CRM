@@ -28,10 +28,14 @@ servers:
         EMAIL_DRIVER: "smtp"
         # The api host's Meilisearch accessory (S5-02): the indexing pool applies settings and writes documents.
         MEILI_URL: "http://inmolink-api-meilisearch:7700"
+        # Website lead acknowledgements (S7-05): similar listings' image URLs, like the website API's.
+        MEDIA_CDN_URL: "https://media.inmolink.es"
       # Only these pools: the outbox and cross-tenant jobs (app_system), email, stored credentials, tokens.
       secret:
         - DATABASE_URL_APP_USER
         - DATABASE_URL_APP_SYSTEM
+        # The email pool's lead acknowledgements read the site's inventory as the website API does (S7-05).
+        - DATABASE_URL_APP_PUBLIC
         # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
         - REDIS_CACHE_URL
         - REDIS_QUEUE_URL

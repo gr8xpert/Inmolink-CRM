@@ -49,4 +49,5 @@ export function registerSubscriptions(): void {
   search.registerSearchSubscriptions();
   imports.registerImportsSubscriptions();
   websites.registerWebsitesSubscriptions();
+  websiteApi.registerWebsiteApiSubscriptions();
 }

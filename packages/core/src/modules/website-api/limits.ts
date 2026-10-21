@@ -35,6 +35,8 @@ export interface WebsiteRequestFacts {
   paged: boolean;
   /** `/v2/listings` with a cursor: the cursor, whose signed depth the deep-paging rules read. */
   listingsCursor?: string;
+  /** A website form post (S7-05: lead or viewing request): the form-spam limits apply too. */
+  write?: boolean;
   requestId: string;
 }
 
@@ -80,7 +82,7 @@ export function depthOf(key: ApiKeyPrincipal, cursor: string | undefined): numbe
 /** The rules one request is checked against (in this order: the key's tier first). */
 export function websiteRequestChecks(
   key: ApiKeyPrincipal,
-  facts: Pick<WebsiteRequestFacts, 'ip' | 'paged'> & { depth?: number },
+  facts: Pick<WebsiteRequestFacts, 'ip' | 'paged' | 'write'> & { depth?: number },
 ): WebsiteCheck[] {
   const l = websiteLimits();
   const tier = tierName(key.rateTier);
@@ -140,6 +142,45 @@ export function websiteRequestChecks(
         role: 'quota',
       },
     );
+  }
+  if (facts.write) {
+    // Form spam (S7-05): a browser's posts (publishable keys), or a site server's (secret keys) per hour.
+    if (secret) {
+      checks.push({
+        rule: {
+          name: `feed.leads.key.${tier}`,
+          scope: 'key',
+          limit: l.leadsPerKeyHour[key.rateTier],
+          windowSeconds: HOUR_SECONDS,
+        },
+        identity: key.keyId,
+        role: 'enforce',
+      });
+    } else {
+      checks.push(
+        {
+          rule: {
+            name: 'feed.leads.browser',
+            scope: 'ip',
+            limit: l.leadsPerBrowser,
+            windowSeconds: l.leadWindowSeconds,
+          },
+          identity: browser,
+          role: 'enforce',
+        },
+        {
+          rule: {
+            name: 'feed.leads.browser.day',
+            scope: 'ip',
+            limit: l.leadsPerBrowserDay,
+            windowSeconds: DAY_SECONDS,
+            fixedWindow: true,
+          },
+          identity: browser,
+          role: 'enforce',
+        },
+      );
+    }
   }
   if (!facts.paged) return checks;
   const deepIdentity = secret ? key.keyId : browser;

@@ -11,6 +11,8 @@ export interface RequireApiKeyOptions {
   paged?: boolean;
   /** `/v2/listings`: its cursor carries a signed page depth (deep-paging rules). */
   listings?: boolean;
+  /** A website form post (S7-05: leads, viewing requests): the form-spam limits apply too. */
+  write?: boolean;
 }
 
 declare module 'fastify' {
@@ -71,6 +73,7 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
           ip: ipBucket(request.ip),
           paged: options.paged === true && cursorOf(request) !== undefined,
           listingsCursor: options.listings === true ? cursorOf(request) : undefined,
+          write: options.write === true,
           requestId: request.id,
         });
         if (!decision.allowed) {

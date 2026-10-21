@@ -1,0 +1,46 @@
+{
+  "ack": {
+    "subject": "Hemos recibido su consulta – {agency}",
+    "subjectViewing": "Hemos recibido su solicitud de visita – {agency}",
+    "greeting": "Estimado/a {name}:",
+    "greetingNeutral": "Hola:",
+    "bodyListing": "Gracias por su interés en la propiedad {ref}. Hemos recibido su consulta y nos pondremos en contacto con usted en breve.",
+    "bodyGeneral": "Gracias por contactar con nosotros. Hemos recibido su consulta y nos pondremos en contacto con usted en breve.",
+    "bodyViewing": "Gracias por su solicitud de visita a la propiedad {ref}. Nos pondremos en contacto con usted en breve para confirmar la hora.",
+    "similarTitle": "También le puede interesar",
+    "bedrooms": "{count, plural, one {# dormitorio} other {# dormitorios}}",
+    "priceOnRequest": "Precio a consultar",
+    "reference": "Ref. {ref}",
+    "contactTitle": "Contacto",
+    "phone": "Teléfono: {phone}",
+    "email": "Correo electrónico: {email}",
+    "whatsapp": "WhatsApp: {whatsapp}",
+    "signature": "Un cordial saludo,",
+    "footer": "Recibe este correo porque envió una consulta en {site}. Sus datos solo se utilizan para responderla."
+  },
+  "notify": {
+    "subject": "Nueva consulta web – {ref}",
+    "subjectGeneral": "Nueva consulta web",
+    "subjectViewing": "Nueva solicitud de visita – {ref}",
+    "intro": "Un visitante de {site} ha enviado una consulta.",
+    "introViewing": "Un visitante de {site} ha solicitado una visita.",
+    "name": "Nombre",
+    "email": "Correo electrónico",
+    "phone": "Teléfono",
+    "message": "Mensaje",
+    "listing": "Propiedad",
+    "slots": "Horarios preferidos",
+    "language": "Idioma",
+    "marketing": "Acepta correos comerciales",
+    "page": "Página",
+    "yes": "Sí",
+    "no": "No",
+    "timeOfDay": {
+      "MORNING": "por la mañana",
+      "AFTERNOON": "por la tarde",
+      "EVENING": "a última hora",
+      "ANY": "a cualquier hora"
+    },
+    "footer": "El visitante ya ha recibido un acuse de recibo automático. Responda pronto: se miden los tiempos de respuesta."
+  }
+}

@@ -36,6 +36,8 @@ export const databaseEnv = {
   DATABASE_URL_APP_STAFF: url(['postgres', 'postgresql']).optional(),
   // The media worker's narrow role (S3-F4): media_objects and property_media only.
   DATABASE_URL_APP_MEDIA: url(['postgres', 'postgresql']).optional(),
+  // Website form intake (S7-05): feed-api's leads and viewing requests, website_leads + their outbox events only.
+  DATABASE_URL_APP_INTAKE: url(['postgres', 'postgresql']).optional(),
 };
 
 /** Migrations and ops scripts only — never loaded by app runtimes. */
