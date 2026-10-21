@@ -1,0 +1,32 @@
+{
+  "$comment": "Cloudflare Cache Rules for the website API (S7-06, ADR 0012 #5; runbook docs/runbooks/cdn.md). Applied to the zone's http_request_cache_settings entrypoint by `pnpm ops:cdn-rules --env <staging|production> --apply`, which replaces only the rules whose ref starts with `inmolink_` and keeps every other rule. ${FEED_API_HOST} is the destination's proxy.host in infra/kamal/feed-api.<env>.yml. Every plan: Vary handling in Cache Rules and purge by tag are available on Free, Pro, Business and Enterprise (custom header cache keys are Enterprise-only, so the key goes into the cache key through the origin's Vary).",
+  "phase": "http_request_cache_settings",
+  "rules": [
+    {
+      "ref": "inmolink_website_api_v2",
+      "description": "Website API v2 reads: cache what the origin marks public (s-maxage, stale-while-revalidate, stale-if-error 24 h), keyed by URL (with the _k key token, sorted query) and by the X-Api-Key and Authorization values; any other Vary header (Origin included) bypasses the cache",
+      "expression": "(http.host eq \"${FEED_API_HOST}\" and starts_with(http.request.uri.path, \"/v2/\") and http.request.method eq \"GET\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": { "mode": "bypass_by_default" },
+        "browser_ttl": { "mode": "respect_origin" },
+        "respect_strong_etags": true,
+        "serve_stale": { "disable_stale_while_updating": false },
+        "cache_key": {
+          "cache_deception_armor": true,
+          "ignore_query_strings_order": true
+        },
+        "vary": {
+          "default": { "action": "bypass" },
+          "headers": {
+            "x-api-key": { "action": "passthrough" },
+            "authorization": { "action": "passthrough" },
+            "accept-encoding": { "action": "normalize" }
+          }
+        }
+      },
+      "enabled": true
+    }
+  ]
+}

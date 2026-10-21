@@ -13,6 +13,9 @@ const scraping = meter.createCounter('inmolink.website.scraping.detected', {
 const honeytokenHits = meter.createCounter('inmolink.website.honeytoken.hits', {
   description: 'Requests for a honeytoken listing (only a full-inventory scrape finds one)',
 });
+const edgePurgeFailed = meter.createCounter('inmolink.website.edge_purge.failed', {
+  description: 'Edge cache purges that failed their last attempt (S7-06): cached answers then live out their TTL',
+});
 const honeytokensServed = meter.createCounter('inmolink.website.honeytoken.served', {
   description: 'Honeytoken cards placed on deep search pages of suspected scrapers',
 });
@@ -29,6 +32,7 @@ for (const attrs of [
 }
 honeytokenHits.add(0);
 honeytokensServed.add(0);
+edgePurgeFailed.add(0);
 
 let log: Logger | undefined;
 
@@ -37,6 +41,9 @@ export function raiseWebsiteAlert(alert: WebsiteAlert): void {
   if (alert.kind === 'scraping') {
     scraping.add(1, { action: alert.action, scope: alert.scope, key_kind: alert.keyKind });
     log.warn({ alert: 'WebsiteScrapingDetected', ...alert }, 'website API: scripted paging detected');
+  } else if (alert.kind === 'edgePurge') {
+    edgePurgeFailed.add(1);
+    log.warn({ alert: 'WebsiteEdgePurgeFailing', ...alert }, 'website API: edge cache purge failed');
   } else {
     honeytokenHits.add(1);
     log.warn({ alert: 'WebsiteHoneytokenHit', ...alert }, 'website API: honeytoken listing requested');

@@ -3,6 +3,7 @@ import {
   coreEnv,
   cryptoEnv,
   databaseEnv,
+  edgeCacheEnv,
   httpEnv,
   loadConfigOrExit,
   mediaCdnEnv,
@@ -44,6 +45,8 @@ export const feedApiEnv = {
   ...websiteSearchEnv,
   /** Honeytokens on deep search pages of suspected scrapers (S7-04). */
   ...websiteApiEnv,
+  /** Edge caching of first pages and details (S7-06): on only once the Cloudflare cache rules are live. */
+  ...edgeCacheEnv,
   /** Image URLs in website documents (S7-03). */
   ...mediaCdnEnv,
   /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */

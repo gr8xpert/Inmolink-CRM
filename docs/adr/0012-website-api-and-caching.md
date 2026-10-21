@@ -21,6 +21,15 @@ Agency websites are the revenue engine and the highest-traffic surface: 1,000 rp
    - Every response sets `Cache-Control` and `ETag`, and conditional requests get 304.
    - Purging uses per-listing tags where the plan supports them, otherwise short TTLs plus versioned keys.
    - Target: an edit is visible through the CDN within 5 minutes.
+   - *Implemented in S7-06 (runbook `docs/runbooks/cdn.md`).* The site comes from the API key header, and custom
+     header cache keys are Enterprise-only. So the site scope enters the cache key twice. First, an answer is public
+     only when its URL carries `_k`, a token of the API key and browser origin. Second, the origin's
+     `Vary: X-Api-Key, Authorization` is passed through by a Cache Rule on every plan, and any other varying header,
+     `Origin` included, bypasses the cache. The key is one site with one inventory policy, so this is the site scope
+     at key granularity. Query normalization combines strict query schemas (unknown parameters are refused) with Cloudflare's
+     sorted query string. Tag purge is available on every plan, so it is used. Lists and details are tagged with the
+     keyed hashes of the listings they show, which purges every site's copies with one tag. Only first pages and
+     details are cached; cursor pages, the change feed, errors, 429s and answers to suspicious callers never are.
 6. **Defense in depth for "never dark":** the CDN serves stale content when the origin is down, the WordPress plugin keeps a local cache with stale fallback, and search has a Postgres fallback.
 7. **Versioning:** `/v1` is frozen. `/v2` follows the OpenAPI generated from Fastify, and the typed SDK in `packages/sdk` is regenerated (`pnpm sdk:generate`) whenever it changes. Deprecations get 12 months' notice.
 8. **Writes are narrow:** `POST /v2/leads` and `/v2/viewing-requests`, with Turnstile, idempotency keys, and the presenting agency as lead owner. A lead is stored and acknowledged, and everything else happens in jobs.

@@ -38,6 +38,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     searchJobs.checkIndexDrift,
     searchJobs.prunePublicChanges,
     searchJobs.repairIndex,
+    // S7-06: purges the website API's edge cache when public listings, sites or keys change.
+    websiteApiJobs.purgeEdgeCache,
   ],
   matching: [],
   exports: [],

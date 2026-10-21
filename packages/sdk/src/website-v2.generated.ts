@@ -62,6 +62,7 @@ export type GetDevelopmentParams = {
 };
 export type GetDevelopmentQuery = {
   lang?: string;
+  _k?: string;
 };
 export type GetDevelopmentResponse = {
   kind: "DEVELOPMENT";
@@ -135,6 +136,7 @@ export type GetListingParams = {
 };
 export type GetListingQuery = {
   lang?: string;
+  _k?: string;
 };
 export type GetListingResponse = ({
   kind: "LISTING";
@@ -328,6 +330,7 @@ export type GetListingResponse = ({
 /** The site's listing pages (reference, slug in `lang`, last change), one page per `cursor` */
 export type GetSitemapParams = Record<string, never>;
 export type GetSitemapQuery = {
+  _k?: string;
   lang?: string;
   cursor?: string;
   limit?: number;
@@ -476,6 +479,7 @@ export type GetTaxonomyTypesResponse = {
 /** The site's delta feed: every change exactly once, in commit order (`since`, then `cursor`) */
 export type ListChangesParams = Record<string, never>;
 export type ListChangesQuery = {
+  _k?: string;
   since?: string;
   cursor?: string;
   limit?: number;
@@ -495,6 +499,7 @@ export type ListChangesResponse = {
 /** The site's new-build developments (price range, unit counts), newest first, one page per `cursor` */
 export type ListDevelopmentsParams = Record<string, never>;
 export type ListDevelopmentsQuery = {
+  _k?: string;
   lang?: string;
   locations?: string[];
   cursor?: string;
@@ -561,6 +566,7 @@ export type ListDevelopmentUnitsParams = {
   ref: string;
 };
 export type ListDevelopmentUnitsQuery = {
+  _k?: string;
   lang?: string;
   cursor?: string;
   limit?: number;
@@ -633,6 +639,7 @@ export type ListDevelopmentUnitsResponse = {
 /** Search the site's listings and new-build units: filters, facets, map box, sort, cursor pages */
 export type ListListingsParams = Record<string, never>;
 export type ListListingsQuery = {
+  _k?: string;
   q?: string;
   lang?: string;
   kind?: "LISTING" | "UNIT";

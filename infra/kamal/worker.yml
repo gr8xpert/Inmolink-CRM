@@ -49,6 +49,9 @@ servers:
         - HMAC_KEY
         # Not the master key (it can mint keys): a key scoped to the listings indexes (docs/runbooks/deploy.md step 6).
         - MEILI_MASTER_KEY:MEILI_INDEXING_KEY
+        # Edge cache purge (S7-06, indexing pool): the zone id and an API token with "Cache Purge" on that zone only.
+        - CLOUDFLARE_ZONE_ID
+        - CLOUDFLARE_PURGE_TOKEN
   # Image decoding of untrusted uploads (S3-04) in its own container: a decoder crash or memory blow-up stays
   # here, away from the outbox, email and the other pools. Budget 512 MB RSS; the hard cap leaves headroom above it.
   # Least privilege (S3-F4): only the shared variables below plus the narrow `app_media` role — no app_system, SMTP,

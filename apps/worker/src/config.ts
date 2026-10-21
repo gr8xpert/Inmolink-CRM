@@ -1,5 +1,6 @@
 import {
   type Config,
+  cdnPurgeEnv,
   coreEnv,
   cryptoEnv,
   databaseEnv,
@@ -79,10 +80,14 @@ const systemEnv = {
   ...importsEnv,
 };
 
-/** The `indexing` pool (S5-02): the search engine's admin key applies index settings and writes documents. */
+/**
+ * The `indexing` pool (S5-02): the search engine's admin key applies index settings and writes documents. S7-06: it
+ * also purges the website API's edge cache when public listings change (Cloudflare zone and purge-only token).
+ */
 const indexingEnv = {
   MEILI_URL: searchEnv.MEILI_URL,
   MEILI_MASTER_KEY: searchEnv.MEILI_MASTER_KEY,
+  ...cdnPurgeEnv,
 };
 
 /**

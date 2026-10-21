@@ -21,20 +21,8 @@ import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
 import { sendSiteJson } from '../../plugins/site-response';
 
-/**
- * Lifetimes per endpoint once S7-06 caches site-scoped answers at the edge (ADR 0012 #5: 60–300 s; changes shorter,
- * the sitemap longer). Until then responses are private and revalidated with their ETag (`SITE_CACHE_POLICY`).
- */
-export const WEBSITE_API_TTL = {
-  listings: 60,
-  detail: 300,
-  changes: 30,
-  sitemap: 600,
-  // S7-F6: unit tables are live (status, price), so as short as search
-  developments: 60,
-  development: 300,
-  units: 60,
-} as const;
+/** Edge lifetimes per endpoint (S7-06): defined in core with the purge horizon they set. */
+export const WEBSITE_API_TTL = websiteApi.WEBSITE_API_TTL;
 
 /**
  * List endpoints: a request with a `cursor` counts against the paging rules (S7-04). Not `/v2/changes` — a plugin
@@ -68,13 +56,14 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       const suspicious = req.websitePaging?.suspicious === true;
+      const site = await siteOf(req);
       return sendSiteJson(
         req,
         reply,
         WebsiteListingPage,
-        await websiteApi.searchListings(await siteOf(req), req.query, { suspicious }),
+        await websiteApi.searchListings(site, req.query, { suspicious }),
         WEBSITE_API_TTL.listings,
-        { noStore: suspicious },
+        { noStore: suspicious, site },
       );
     },
   );
@@ -92,14 +81,17 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read')],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteDetail,
-        await websiteApi.listingDetail(await siteOf(req), req.params.ref, req.query.lang),
+        await websiteApi.listingDetail(site, req.params.ref, req.query.lang),
         WEBSITE_API_TTL.detail,
-      ),
+        { site },
+      );
+    },
   );
 
   app.get(
@@ -114,14 +106,17 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read')],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteChangesPage,
-        await websiteApi.changes(await siteOf(req), req.query),
+        await websiteApi.changes(site, req.query),
         WEBSITE_API_TTL.changes,
-      ),
+        { site, edge: false },
+      );
+    },
   );
 
   app.get(
@@ -136,14 +131,17 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteSitemapPage,
-        await websiteApi.sitemap(await siteOf(req), req.query),
+        await websiteApi.sitemap(site, req.query),
         WEBSITE_API_TTL.sitemap,
-      ),
+        { site },
+      );
+    },
   );
 
   app.get(
@@ -158,14 +156,17 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteDevelopmentPage,
-        await websiteApi.developments(await siteOf(req), req.query),
+        await websiteApi.developments(site, req.query),
         WEBSITE_API_TTL.developments,
-      ),
+        { site },
+      );
+    },
   );
 
   app.get(
@@ -181,14 +182,17 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read')],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteDevelopmentDetail,
-        await websiteApi.developmentDetail(await siteOf(req), req.params.ref, req.query.lang),
+        await websiteApi.developmentDetail(site, req.params.ref, req.query.lang),
         WEBSITE_API_TTL.development,
-      ),
+        { site },
+      );
+    },
   );
 
   app.get(
@@ -204,13 +208,16 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       },
       onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
-    async (req, reply) =>
-      sendSiteJson(
+    async (req, reply) => {
+      const site = await siteOf(req);
+      return sendSiteJson(
         req,
         reply,
         WebsiteUnitPage,
-        await websiteApi.developmentUnits(await siteOf(req), req.params.ref, req.query),
+        await websiteApi.developmentUnits(site, req.params.ref, req.query),
         WEBSITE_API_TTL.units,
-      ),
+        { site },
+      );
+    },
   );
 }

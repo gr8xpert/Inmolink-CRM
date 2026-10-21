@@ -342,7 +342,17 @@ export type WebsiteDevelopmentDetail = z.infer<typeof WebsiteDevelopmentDetail>;
 
 /** `?lang=`: a content locale of the site (default: the site's first). */
 export const WebsiteLang = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/);
-export const WebsiteLangQuery = z.strictObject({ lang: WebsiteLang.optional() });
+/**
+ * `_k` (S7-06): the edge-cache token of the calling key and browser origin — base64url(SHA-256(`<api key>
+<Origin or
+ * empty>`)), first 22 characters; the SDK adds it. The origin answers `public` (CDN-cacheable) only when it matches the
+ * request's key and origin, so cached URLs differ per key and origin even without the CDN's header rule. Optional and
+ * otherwise ignored.
+ */
+export const EdgeKeyToken = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
+const edgeKey = { _k: EdgeKeyToken.optional() };
+
+export const WebsiteLangQuery = z.strictObject({ lang: WebsiteLang.optional(), ...edgeKey });
 export type WebsiteLangQuery = z.infer<typeof WebsiteLangQuery>;
 
 /** A comma-separated query value (`?types=a,b`) → its trimmed, non-empty items. */
@@ -379,6 +389,7 @@ const BoundingBox = z.preprocess(
  * on top, server-side.
  */
 export const WebsiteListingsQuery = z.strictObject({
+  ...edgeKey,
   /** Free text in `lang`, or a reference as the site shows it (`CH-123`, `W-7KQ2M9XA`). */
   q: z.string().trim().min(1).max(100).optional(),
   lang: WebsiteLang.optional(),
@@ -436,6 +447,7 @@ export type WebsiteListingParams = z.infer<typeof WebsiteListingParams>;
  */
 export const WebsiteChangesQuery = z
   .strictObject({
+    ...edgeKey,
     since: z.iso.datetime({ offset: true }).optional(),
     cursor: Cursor.optional(),
     limit: z.coerce.number().int().min(1).max(1_000).default(200),
@@ -472,6 +484,7 @@ export type WebsiteChangesPage = z.infer<typeof WebsiteChangesPage>;
 
 /** `GET /v2/sitemap`: the site's listing pages, one page per `cursor`. */
 export const WebsiteSitemapQuery = z.strictObject({
+  ...edgeKey,
   lang: WebsiteLang.optional(),
   cursor: Cursor.optional(),
   limit: z.coerce.number().int().min(1).max(1_000).default(500),
@@ -494,6 +507,7 @@ export type WebsiteSitemapPage = z.infer<typeof WebsiteSitemapPage>;
 
 /** `GET /v2/developments`: the site's new-build developments, newest first, one page per `cursor`. */
 export const WebsiteDevelopmentsQuery = z.strictObject({
+  ...edgeKey,
   lang: WebsiteLang.optional(),
   /** Anywhere under any of these locations. */
   locations: csv(z.uuid(), 50).optional(),
@@ -514,6 +528,7 @@ export type WebsiteDevelopmentParams = z.infer<typeof WebsiteDevelopmentParams>;
 
 /** `GET /v2/developments/{ref}/units`: the live unit table, in the developer's unit order, one page per `cursor`. */
 export const WebsiteUnitsQuery = z.strictObject({
+  ...edgeKey,
   lang: WebsiteLang.optional(),
   cursor: Cursor.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(100),

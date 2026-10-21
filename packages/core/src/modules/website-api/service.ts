@@ -49,6 +49,7 @@ import * as search from '../search';
 import * as websites from '../websites';
 import { raiseWebsiteAlert } from './alerts';
 import { unwrapSearchCursor, wrapSearchCursor } from './cursor';
+import { type EdgeSeen, newEdgeSeen } from './edge';
 import { honeytokenKind, withHoneytoken } from './honeytokens';
 import { configured, cursorSecret, websiteLimits } from './settings';
 
@@ -65,6 +66,8 @@ export interface ApiSite {
   /** A short hash of the effective inventory rules: `/v2/changes` reports it (`scope`) so a plugin can resync. */
   tag: string;
   requestId: string;
+  /** What this request's answer showed (S7-06): its edge cache tags (`edgeTagsOf`). */
+  edge: EdgeSeen;
 }
 
 /**
@@ -97,7 +100,7 @@ export async function siteForKey(
     .digest('base64url')
     .slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
-  return { keyId: key.keyId ?? null, scope, inventory: shows ? inventory : null, tag, requestId };
+  return { keyId: key.keyId ?? null, scope, inventory: shows ? inventory : null, tag, requestId, edge: newEdgeSeen() };
 }
 
 /** `?lang=`: one of the site's languages (default its first). */
@@ -225,6 +228,7 @@ export async function searchListings(
           const byId = new Map(rows.map((r) => [r.targetId, r]));
           // The engine's order; a target whose read model went in between is left out.
           const ordered = found.ids.flatMap((id) => byId.get(id) ?? []);
+          for (const r of ordered) site.edge.targets.add(r.targetId);
           const view = await viewFor(tx, site, lang, ordered);
           return websites.serializeCards(view, ordered.map(owned<ListingCardDoc | UnitCardDoc>));
         });
@@ -271,6 +275,7 @@ export async function listingDetail(site: ApiSite, ref: string, lang?: string): 
   return withPublicRead(async (tx) => {
     const row = await search.publicDetailByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
     if (!row) throw await listingNotFound(tx, site, ref);
+    site.edge.targets.add(row.targetId);
     const view = await viewFor(tx, site, locale, [row]);
     return websites.serializeDetail(view, owned<ListingDetailDoc | UnitDetailDoc>(row));
   });
@@ -455,6 +460,7 @@ export async function developments(site: ApiSite, q: WebsiteDevelopmentsQuery): 
       locationIds: q.locations,
     });
     const page = rows.slice(0, q.limit);
+    for (const r of page) site.edge.developments.add(r.developmentId);
     const view = await viewFor(tx, site, lang, viewRows(page));
     const last = page[page.length - 1];
     return {
@@ -475,6 +481,7 @@ export async function developmentDetail(site: ApiSite, ref: string, lang?: strin
   return withPublicRead(async (tx) => {
     const row = await search.developmentByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
     if (!row) throw new AppError('DEVELOPMENT_NOT_FOUND');
+    site.edge.developments.add(row.developmentId);
     const view = await viewFor(tx, site, locale, viewRows([row]));
     return websites.serializeDevelopmentDetail(view, developmentItem<UnitDetailDoc>(row));
   });
@@ -491,7 +498,7 @@ export async function developmentUnits(site: ApiSite, ref: string, q: WebsiteUni
   if (!inventory) throw new AppError('DEVELOPMENT_NOT_FOUND');
   const after = q.cursor === undefined ? undefined : decodeCodeCursor(q.cursor, 'u');
   return withPublicRead(async (tx) => {
-    const { found, anchored, rows } = await search.developmentUnitsPage(tx, inventory, {
+    const { found, anchored, developmentId, rows } = await search.developmentUnitsPage(tx, inventory, {
       ref,
       after,
       limit: q.limit,
@@ -499,9 +506,11 @@ export async function developmentUnits(site: ApiSite, ref: string, q: WebsiteUni
       fallback: site.scope.defaultLocale,
     });
     if (!found) throw new AppError('DEVELOPMENT_NOT_FOUND');
+    if (developmentId) site.edge.developments.add(developmentId);
     // The cursor's unit left the development's public units: the position is gone (start again).
     if (!anchored) throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
     const page = rows.slice(0, q.limit);
+    for (const r of page) site.edge.targets.add(r.targetId);
     const view = await viewFor(tx, site, lang, page);
     const last = page[page.length - 1];
     return {

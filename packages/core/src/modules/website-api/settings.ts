@@ -25,6 +25,13 @@ export type WebsiteAlert =
       agencyId: string;
       keyId: string | null;
       requestId: string;
+    }
+  | {
+      /** S7-06: an edge cache purge failed its last attempt (its tags wait for the next run). */
+      kind: 'edgePurge';
+      agencyId: string;
+      tags: number;
+      error: string;
     };
 
 export interface WebsiteApiSettings {

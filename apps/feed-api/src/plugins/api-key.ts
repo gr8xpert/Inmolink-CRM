@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { ApiKeyScope } from '@inmolink/contracts';
 import * as identity from '@inmolink/core/modules/identity';
 import * as websiteApi from '@inmolink/core/modules/website-api';
@@ -21,6 +22,8 @@ declare module 'fastify' {
     apiKey: identity.ApiKeyPrincipal | null;
     /** What the paging rules said of the caller (S7-04), set by `requireApiKey`; null on routes without it. */
     websitePaging: { suspicious: boolean } | null;
+    /** The `_k` edge-cache token this key and origin must send for a CDN-cacheable answer (S7-06, `edgeKeyToken`). */
+    edgeKeyToken: string | null;
   }
   interface FastifyInstance {
     /**
@@ -51,6 +54,7 @@ function keyOf(request: FastifyRequest): string | undefined {
 export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): void {
   app.decorateRequest('apiKey', null);
   app.decorateRequest('websitePaging', null);
+  app.decorateRequest('edgeKeyToken', null);
   app.decorate(
     'requireApiKey',
     (scope: ApiKeyScope, options: RequireApiKeyOptions = {}) =>
@@ -67,6 +71,7 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
           throw err;
         }
         request.apiKey = principal;
+        request.edgeKeyToken = edgeKeyToken(keyOf(request) as string, request.headers.origin);
         // The key's tier, the agency's ceiling, burst, daily quota, per-browser limits (publishable keys) and the paging
         // rules (S7-04): one Redis round trip, decided in core.
         const decision = await websiteApi.checkWebsiteLimits(deps.limiter, principal, {
@@ -86,6 +91,20 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
         return undefined;
       },
   );
+}
+
+/**
+ * The edge-cache token (S7-06, contracts `EdgeKeyToken`): base64url(SHA-256(`<key>
+<Origin or empty>`)), 22
+ * characters. Only a request carrying it as `_k` gets a CDN-cacheable answer, so cached URLs differ per key and browser
+ * origin even if the CDN's header rule were missing. Not a secret proof (it is derived from the key the request sends).
+ */
+export function edgeKeyToken(key: string, origin?: string): string {
+  return createHash('sha256')
+    .update(`${key}
+${origin ?? ''}`)
+    .digest('base64url')
+    .slice(0, 22);
 }
 
 /** The `cursor` in the query string: the request continues a list (S7-04 paging rules). */

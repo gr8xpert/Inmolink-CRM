@@ -47,6 +47,8 @@ try {
       ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
       : null,
   });
+  // S7-06: Cache-Tags of site answers (keyed hashes; the worker purges the same tags).
+  websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
   if (!config.TURNSTILE_SECRET_KEY)
     logger.warn('no TURNSTILE_SECRET_KEY: website forms through publishable keys are refused');
   search.configureNetworkSearch({
@@ -72,6 +74,8 @@ try {
     edgeRequestIdHeader: config.EDGE_REQUEST_ID_HEADER,
     docsUi: config.NODE_ENV === 'development',
     limiter: rateLimiter(),
+    // S7-06: public first pages and details for the CDN, only once its cache rules are live (runbook cdn.md).
+    edgeCache: config.WEBSITE_EDGE_CACHE === 'true',
     checks: {
       db: () => pingDb('app_public'),
       dbIntake: () => pingDb('app_intake'),

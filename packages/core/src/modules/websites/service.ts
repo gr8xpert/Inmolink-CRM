@@ -24,7 +24,7 @@ import type {
   UpdateSiteInput,
   WebsitePresenter,
 } from '@inmolink/contracts';
-import { withPublicRead } from '@inmolink/db';
+import { type Tx, withPublicRead } from '@inmolink/db';
 import { CONTENT_LOCALES, FALLBACK_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
 import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
@@ -120,6 +120,11 @@ function assertNetworkAllowed(
 ): void {
   const network = policy === 'OWN_PLUS_NETWORK' || (policy === 'CUSTOM' && filters?.includeNetwork === true);
   if (network) agencies.assertVerified(ctx, 'website.network');
+}
+
+/** The ids of an agency's sites (at most `MAX_SITES`): edge cache purges (S7-06). One statement. */
+export async function agencySiteIds(tx: Tx, agencyId: string): Promise<string[]> {
+  return (await repo.listSites(tx, agencyId, { limit: MAX_SITES })).map((s) => s.id);
 }
 
 /** Adds a site (agency admins; at most `MAX_SITES`). */

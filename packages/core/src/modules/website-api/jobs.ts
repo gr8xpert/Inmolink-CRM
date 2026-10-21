@@ -18,6 +18,7 @@
  */
 import type { ListingCardDoc, UnitCardDoc, ViewingSlot, WebsiteCard, WebsiteListingsQuery } from '@inmolink/contracts';
 import { withPublicRead, withSystem } from '@inmolink/db';
+import { cdnPurger } from '@inmolink/platform/cdn';
 import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
 import { defineJob } from '@inmolink/platform/queue';
@@ -25,6 +26,9 @@ import { z } from 'zod';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
+import { raiseWebsiteAlert } from './alerts';
+import { EDGE_PURGE_HORIZON_MS, edgeTagsConfigured } from './edge';
+import { clearPendingPurges, EDGE_PURGE_THROTTLE_MS, returnPendingPurges, takePendingPurges } from './edge-purge';
 import { notifyLocale, renderLeadAck, renderLeadNotification } from './emails';
 import { type ApiSite, searchListings, siteForKey } from './service';
 import { websiteLimits } from './settings';
@@ -35,6 +39,10 @@ export const SIMILAR_LISTINGS = 3;
 const PRICE_BAND = 0.3;
 
 const payload = z.object({ eventId: z.uuid(), leadId: z.uuid(), agencyId: z.uuid() });
+
+/** One agency's pending edge purges (S7-06): the tags wait in redis-cache (`edge-purge.ts`), the job drains them. */
+const purgePayload = z.object({ agencyId: z.uuid() });
+const PURGE_ATTEMPTS = 5;
 
 /** The enquired target's card in the site's language (null: none, or no longer public). */
 async function targetCard(site: ApiSite, lead: websites.LeadRow): Promise<ListingCardDoc | UnitCardDoc | null> {
@@ -95,6 +103,61 @@ async function load(leadId: string, done: 'ackSentAt' | 'agencyNotifiedAt', requ
 }
 
 export const websiteApiJobs = {
+  /**
+   * S7-06: purges an agency's pending edge cache tags — listings and units (`t`), developments (`d`), sites (`s`),
+   * API keys (`k`) — through the CDN adapter, outside any transaction: up to 100 tags (one request) per run, oldest
+   * first; more left → another run after the agency's throttle window (`queueEdgePurge`). One run at a time across the
+   * pool (`globalConcurrency` 1) and the adapter holds the slot for its pacing interval after the request, so the
+   * account-wide purge rate holds across every worker process. Listing and development tags past
+   * `EDGE_PURGE_HORIZON_MS` are dropped (expired at the edge); site and key tags never are. A failed purge puts its tags
+   * back and retries with backoff; the last failed attempt raises `WebsiteEdgePurgeFailing`. Nothing to purge without
+   * a configured purger (local, CI, edge cache off): the pending tags are dropped.
+   */
+  purgeEdgeCache: defineJob({
+    name: 'websiteApi.purgeEdgeCache',
+    pool: 'indexing',
+    payload: purgePayload,
+    group: (p) => p.agencyId,
+    globalConcurrency: 1,
+    attempts: PURGE_ATTEMPTS,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p, { log, signal, attempt }) {
+      const purger = cdnPurger();
+      if (!purger || !edgeTagsConfigured()) {
+        await clearPendingPurges(p.agencyId);
+        return { purged: 0, skipped: 'no-edge-cache' };
+      }
+      const { tags, dropped, more } = await takePendingPurges(
+        p.agencyId,
+        clock.now().getTime() - EDGE_PURGE_HORIZON_MS,
+      );
+      if (tags.length > 0) {
+        try {
+          await purger.purgeTags(
+            tags.map((t) => t.tag),
+            { signal },
+          );
+        } catch (err) {
+          await returnPendingPurges(p.agencyId, tags);
+          if (attempt >= PURGE_ATTEMPTS) {
+            raiseWebsiteAlert({
+              kind: 'edgePurge',
+              agencyId: p.agencyId,
+              tags: tags.length,
+              error: err instanceof Error ? err.name : 'error',
+            });
+          }
+          throw err;
+        }
+      }
+      if (more) await queueEdgePurgeRun(p.agencyId);
+      if (tags.length > 0 || dropped > 0)
+        log.info({ agencyId: p.agencyId, tags: tags.length, dropped }, 'edge cache purged');
+      return { purged: tags.length, dropped };
+    },
+  }),
+
   sendLeadAcknowledgement: defineJob({
     name: 'websiteApi.sendLeadAcknowledgement',
     pool: 'email',
@@ -265,6 +328,14 @@ export const websiteApiJobs = {
     },
   }),
 };
+
+/** The agency's next purge run, at most one per throttle window (S7-06: per-tenant purge budget). */
+export async function queueEdgePurgeRun(agencyId: string): Promise<void> {
+  await websiteApiJobs.purgeEdgeCache.enqueue(
+    { agencyId },
+    { throttleMs: EDGE_PURGE_THROTTLE_MS, debounceKey: `edge-purge:${agencyId}` },
+  );
+}
 
 const DAY_MS = 86_400_000;
 

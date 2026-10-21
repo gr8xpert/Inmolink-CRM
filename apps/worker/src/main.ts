@@ -5,6 +5,7 @@ import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
 import { keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
@@ -50,6 +51,19 @@ try {
     if (config.HMAC_KEY && config.MEDIA_CDN_URL) {
       websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
     }
+  }
+  // S7-06: the indexing pool purges the website API's edge cache (same tag key as feed-api); without a zone and token
+  // there is nothing to purge and cached answers expire with their TTL.
+  if (config.HMAC_KEY) websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
+  if (config.CLOUDFLARE_ZONE_ID && config.CLOUDFLARE_PURGE_TOKEN) {
+    configureCdn(
+      createCloudflarePurger({
+        zoneId: config.CLOUDFLARE_ZONE_ID,
+        apiToken: config.CLOUDFLARE_PURGE_TOKEN,
+        minIntervalMs: config.CDN_PURGE_MIN_INTERVAL_MS,
+        logger,
+      }),
+    );
   }
   if (config.HMAC_KEY && config.WEB_URL)
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });

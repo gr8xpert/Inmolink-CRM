@@ -19,6 +19,11 @@
       "types": "./dist/cache/index.d.ts",
       "default": "./dist/cache/index.js"
     },
+    "./cdn": {
+      "@inmolink/source": "./src/cdn/index.ts",
+      "types": "./dist/cdn/index.d.ts",
+      "default": "./dist/cdn/index.js"
+    },
     "./clock": {
       "@inmolink/source": "./src/clock/index.ts",
       "types": "./dist/clock/index.d.ts",

@@ -11,6 +11,15 @@
         "parameters": [
           {
             "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "since",
             "required": false,
             "schema": {
@@ -102,6 +111,15 @@
       "get": {
         "operationId": "websiteV2.listDevelopments",
         "parameters": [
+          {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "lang",
@@ -412,6 +430,15 @@
             }
           },
           {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
+          {
             "in": "path",
             "name": "ref",
             "required": true,
@@ -716,6 +743,15 @@
       "get": {
         "operationId": "websiteV2.listDevelopmentUnits",
         "parameters": [
+          {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "lang",
@@ -1197,6 +1233,15 @@
       "get": {
         "operationId": "websiteV2.listListings",
         "parameters": [
+          {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "q",
@@ -2098,6 +2143,15 @@
             }
           },
           {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
+          {
             "in": "path",
             "name": "ref",
             "required": true,
@@ -2976,6 +3030,15 @@
       "get": {
         "operationId": "websiteV2.getSitemap",
         "parameters": [
+          {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
           {
             "in": "query",
             "name": "lang",

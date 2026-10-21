@@ -16,12 +16,24 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 /** Taxonomy changes rarely; the CDN keeps it 10 min and revalidates with the ETag. */
 const CDN_SECONDS = 600;
 
+/**
+ * Taxonomy query schemas strip unknown parameters instead of refusing them, so a URL with any other parameter would be
+ * another CDN entry for the same answer (cache-busting load on the origin): only `lang`, `cursor` and `_k` (S7-06)
+ * keep an answer public. Taxonomy is the same for every key and site, so it needs no `_k` (S7-06 Decision).
+ */
+const TAXONOMY_PARAMS = new Set(['lang', 'cursor', '_k']);
+function normalQuery(req: FastifyRequest): boolean {
+  const at = req.url.indexOf('?');
+  return at < 0 || [...new URLSearchParams(req.url.slice(at + 1)).keys()].every((k) => TAXONOMY_PARAMS.has(k));
+}
+
 /** The body is already JSON (serialized once per cached copy), so it skips the response serializer. */
 function send(req: FastifyRequest, reply: FastifyReply, doc: taxonomy.Serialized) {
   reply
-    .header('Cache-Control', cacheControl.feed({ sMaxAge: CDN_SECONDS }))
+    .header('Cache-Control', normalQuery(req) ? cacheControl.feed({ sMaxAge: CDN_SECONDS }) : cacheControl.private(0))
     .header('ETag', doc.etag)
-    .header('Vary', 'Accept-Encoding')
+    // S7-06: the edge cache keys by these (passthrough), so a cached copy only answers the key that fetched it.
+    .header('Vary', 'Accept-Encoding, X-Api-Key, Authorization')
     // Platform reference data, the same for every site and key: shareable by any widget origin (S7-03).
     .header('Access-Control-Allow-Origin', '*');
   if (weakCompareEtag(req.headers['if-none-match'], doc.etag)) return reply.code(304).send();

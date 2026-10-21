@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'cache/index': 'src/cache/index.ts',
+    'cdn/index': 'src/cdn/index.ts',
     'clock/index': 'src/clock/index.ts',
     'config/index': 'src/config/index.ts',
     'crypto/index': 'src/crypto/index.ts',

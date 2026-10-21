@@ -187,6 +187,31 @@ export const websiteApiEnv = {
 };
 
 /**
+ * Edge caching of website API answers (S7-06, ADR 0012 #5; runbook `cdn.md`). `true` makes first pages and details
+ * `public` with `s-maxage` and `Cache-Tag`s — only once the Cloudflare cache rules (`infra/cloudflare`) that key the
+ * cache by the API key header are live on the zone, else Cloudflare would share one site's answers with another.
+ */
+export const edgeCacheEnv = {
+  WEBSITE_EDGE_CACHE: z.enum(['true', 'false']).default('false'),
+};
+
+/**
+ * Edge cache purging (S7-06): the worker purges `Cache-Tag`s of changed listings, sites and keys through Cloudflare's
+ * API. Zone id and an API token with the zone's "Cache Purge" permission only; both or neither (unset: nothing to
+ * purge, answers expire with their TTL). `CDN_PURGE_MIN_INTERVAL_MS`: pacing per process (250: Pro and up; 12000 on
+ * the Free plan's 5 requests a minute).
+ */
+export const cdnPurgeEnv = {
+  CLOUDFLARE_ZONE_ID: z
+    .string()
+    .trim()
+    .regex(/^[a-f0-9]{32}$/, 'must be the 32-character zone id')
+    .optional(),
+  CLOUDFLARE_PURGE_TOKEN: nonEmpty.optional(),
+  CDN_PURGE_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
+};
+
+/**
  * Feed imports (S6-02): successful runs in a row a listing may be missing from its feed before the run withdraws it
  * (a connection's `withdrawAfterMissedRuns` setting overrides it).
  *
@@ -456,6 +481,10 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   if ((cfg.TURNSTILE_SITE_KEY === undefined) !== (cfg.TURNSTILE_SECRET_KEY === undefined)) {
     const key = cfg.TURNSTILE_SITE_KEY === undefined ? 'TURNSTILE_SITE_KEY' : 'TURNSTILE_SECRET_KEY';
     problems.push({ key, message: 'TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are set together or not at all' });
+  }
+  if ((cfg.CLOUDFLARE_ZONE_ID === undefined) !== (cfg.CLOUDFLARE_PURGE_TOKEN === undefined)) {
+    const key = cfg.CLOUDFLARE_ZONE_ID === undefined ? 'CLOUDFLARE_ZONE_ID' : 'CLOUDFLARE_PURGE_TOKEN';
+    problems.push({ key, message: 'CLOUDFLARE_ZONE_ID and CLOUDFLARE_PURGE_TOKEN are set together or not at all' });
   }
   for (const key of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY'] as const) {
     const value = cfg[key];

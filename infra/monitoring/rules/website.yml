@@ -5,6 +5,7 @@
 #                                             observed), `scope` (key | browser) and `key_kind` (SECRET | PUBLISHABLE)
 #   inmolink_website_honeytoken_hits_total    requests for a honeytoken listing's detail
 #   inmolink_website_honeytoken_served_total  honeytoken cards placed on deep pages of suspected scrapers
+#   inmolink_website_edge_purge_failed_total  edge cache purges that failed their last attempt (worker, S7-06)
 # The feed-api log line with the same alert name (`alert: WebsiteScrapingDetected | WebsiteHoneytokenHit`) names the
 # key, agency and site.
 groups:
@@ -29,3 +30,12 @@ groups:
         annotations:
           summary: "Website API: a honeytoken listing was requested — a site's inventory has been scraped"
           runbook: docs/runbooks/website-api.md#honeytoken-hit
+      # S7-06: an edge cache purge failed its last attempt (Cloudflare down, token revoked, rate limit): cached website
+      # answers then live out their TTL (≤ 5 min), and site/key purges (suspension, revocation) wait for the next run.
+      - alert: WebsiteEdgePurgeFailing
+        expr: sum(increase(inmolink_website_edge_purge_failed_total[30m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Website API: edge cache purges are failing"
+          runbook: docs/runbooks/cdn.md#purge-failing

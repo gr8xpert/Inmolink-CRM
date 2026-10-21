@@ -1,0 +1,133 @@
+# Website API edge cache — Cloudflare (S7-06)
+
+The website API (`feed-api`, `/v2`) is cached at Cloudflare's edge so websites keep serving when the origin is slow or
+down (ADR 0012 #5, PLAN §5.3 #4, §9.2). Four parts, all in the repository:
+
+| Part | Where | What it does |
+|---|---|---|
+| Origin headers | `apps/feed-api/src/plugins/site-response.ts` (`SITE_CACHE_POLICY`, `edgeCacheable`), `WEBSITE_EDGE_CACHE` | First pages and details requested with a valid `_k`: `public, max-age=0, s-maxage=<ttl>, stale-while-revalidate=<ttl>, stale-if-error=86400`, strong `ETag`, `Vary: Accept-Encoding, X-Api-Key, Authorization`, `Cache-Tag`. Everything else is `private` (with `Vary: …, Origin`) or `no-store`. |
+| Key token `_k` | SDK `createWebsiteClient` (automatic), `edgeKeyToken` | base64url(SHA-256(`<api key>\n<Origin or empty>`)), first 22 characters, in the query of every read. |
+| Cache rule | `infra/cloudflare/cache-rules.json`, applied by `pnpm ops:cdn-rules` | Caches `/v2/` GETs of the feed-api host only when the origin says so. The cache key is the URL (sorted query) plus the exact `X-Api-Key` and `Authorization` values. Any other `Vary` header (`Origin` included) bypasses the cache. |
+| Purge | worker `indexing` pool, `websiteApi.purgeEdgeCache` | Purges the tags of what changed: listings and units (`t…`), developments (`d…`), sites (`s…`), API keys (`k…`). |
+
+## How a cached answer stays with its key
+
+The site comes from the API key, so one URL answers differently per site. Two safeguards each prevent sharing:
+
+1. **The URL.** The origin answers `public` only when the query carries `_k` and it matches the request's key and
+   `Origin`. A missing or wrong token gets `private`. So the cached URLs differ per key and browser origin, and with no
+   `_k` nothing is cacheable, even if the rule were dropped or a zone-wide "cache everything" rule appeared.
+2. **The rule.** Cache Rules' `vary` setting (every plan) passes the exact `X-Api-Key` and `Authorization` values
+   into the cache key and bypasses any other varying header. `Origin` is not passed through; the token carries it, and
+   private answers list `Origin` in `Vary`, so the rule bypasses them.
+
+**The WordPress plugin** and any other client without the SDK must add `_k` itself:
+`_k = base64url(sha256(api_key + "\n" + origin))[0:22]`, where `origin` is the empty string server-side. In PHP:
+`substr(rtrim(strtr(base64_encode(hash('sha256', $key . "\n", true)), '+/', '-_'), '='), 0, 22)`. Without the token,
+the plugin still works; it just does not get edge-cached answers.
+
+**Taxonomy** (`/v2/taxonomy/*`) is the same for every key and site. It stays public without `_k`, keyed per key header.
+Its query schema strips unknown parameters, so a URL with any parameter other than `lang`, `cursor` or `_k` answers
+`private` (no cache-busting copies).
+
+**Never turn `WEBSITE_EDGE_CACHE` on before the rule is live and `--verify` passed for that environment.**
+
+## What is never edge-cached
+
+- Pages with a `cursor`, including an empty `cursor=` (deep pages must pass the origin's paging rules and
+  anti-scraping, S7-04).
+- `/v2/changes` (a cursor poll).
+- Answers to suspicious callers (`private, no-store`, no ETag; they may carry a honeytoken). Suspicion is decided on
+  paged requests. A flagged caller's first page carries no honeytoken and is the same answer every caller of the key
+  gets.
+- Errors, 401s and 429s (`private, no-store` from `edgeSafeErrors`; the rule's `bypass_by_default` caches nothing
+  without a `Cache-Control`).
+- Lead and viewing-request posts (POST, `no-store`).
+
+Requests the edge answers never reach the origin, so they do not count against quotas or the paging rules (S7-04). This
+is accepted: only first pages and details are cached, an entry is per key, and re-reading the same URL within its TTL
+extracts nothing new. Every deep page, every new query and every detail not cached for that key still reaches the
+origin and is counted.
+
+## Lifetimes, purging and the real worst case
+
+`WEBSITE_API_TTL` (core `website-api/edge.ts`): listings 60 s, detail 300 s, developments 60 s / 300 s, units 60 s,
+sitemap 240 s. The usual path takes seconds: read model rebuilt → `search.publicDocs.changed` (outbox, same
+transaction) → the agency's pending purge set → `websiteApi.purgeEdgeCache` → tag purge.
+
+**Worst case without a purge** (the purge failed or was dropped): an answer is fresh for its TTL. The first request
+after that gets the stale copy once while the edge revalidates (`stale-while-revalidate` = TTL), so an edit can take up
+to 2 × TTL, which is 10 minutes for a detail. **While the origin is down**, cached answers keep being served for up to
+24 h (`stale-if-error`); that is intended. A revoked key or a suspended agency is purged by tag (`k…` / `s…`, never
+dropped for its age). Without the purge, a revocation takes effect at the next revalidation: a 401 is not cacheable and
+replaces the entry (to be confirmed on staging, below).
+
+- Lists are tagged with the targets on them, so one tag purges every page showing a listing on every site, with no
+  fan-out per site. A listing new to a list's results appears within the list TTL (60 s).
+- The sitemap carries only the site and key tags and follows its 240 s TTL.
+- **Coalescing and per-tenant budget:** tags wait in the agency's pending set on redis-cache (`inl:edge-purge:{agency}`,
+  latest change time per tag). The agency's purge job is throttled to one run per 5 s (`EDGE_PURGE_THROTTLE_MS`). A run
+  sends at most 100 tags in one request, so one tenant is held to 12 requests a minute and cannot spend the account
+  budget alone.
+- **Horizon:** listing and development tags older than `EDGE_PURGE_HORIZON_MS` (2 × the longest TTL = 10 min) are
+  dropped, because every copy has expired by then. This bounds a full rebuild. Site and key tags are never dropped.
+- **Account-wide pace:** purge rate limits are per account (Free 5 / min, Pro 5 / s, Business 10 / s; 100 tags per
+  request). The job runs one at a time across the pool (`globalConcurrency: 1`, a Redis lease), and the adapter holds
+  that slot for `CDN_PURGE_MIN_INTERVAL_MS` (250 ms; set 12000 on Free) after each request. The pace therefore holds
+  for any number of worker processes. A 429 fails the attempt and its tags go back to the set; BullMQ retries with
+  backoff.
+
+### Purge failing
+
+`WebsiteEdgePurgeFailing` fires when a purge failed its last attempt (`inmolink_website_edge_purge_failed_total`, the
+worker log line `alert: WebsiteEdgePurgeFailing` names the agency). Cached answers then live out their TTL, and the
+tags wait for the agency's next run. Check the worker log for the status (401/403: the token was revoked or lost
+"Cache Purge"; 429: the account rate, see `CDN_PURGE_MIN_INTERVAL_MS`; 0: Cloudflare API unreachable). For a
+revocation that must take effect now, purge the key's site from the dashboard (Caching → Purge → by hostname, or
+everything).
+
+## Setup per environment (H3, H5)
+
+1. Zone settings: SSL Full (strict) as for the rest of the API, **Always Online off** (it disables
+   `stale-while-revalidate` and `stale-if-error`), and Rules → Settings → Normalize URLs to origin on.
+2. Create two API tokens scoped to the zone:
+   - `CLOUDFLARE_RULES_TOKEN`: Zone → Cache Rules: Edit. This one is for operators and never goes on a server.
+   - `CLOUDFLARE_PURGE_TOKEN`: Zone → Cache Purge. This one goes to the worker.
+3. Check the rule: `pnpm ops:cdn-rules --env staging` prints it (dry run).
+4. Apply it: `CLOUDFLARE_ZONE_ID=… CLOUDFLARE_RULES_TOKEN=… pnpm ops:cdn-rules --env staging --apply`.
+   - Other rules on the zone are kept in their order. Ours go last (later rules win).
+   - The script warns about any other rule that may match `/v2`.
+   - It reads the ruleset back and fails if our rule is not last or lacks its vary block.
+5. Add the Kamal secrets `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_PURGE_TOKEN` (`.kamal/secrets`) and deploy the worker.
+6. Set `WEBSITE_EDGE_CACHE: "true"` in `infra/kamal/feed-api.<env>.yml` (`env.clear`) and deploy feed-api.
+7. **Verify, per environment (production included):**
+   `CDN_VERIFY_KEY_A=… CDN_VERIFY_KEY_B=… pnpm ops:cdn-rules --env staging --verify`, using secret keys of two
+   different sites. The check passes when:
+   - key A twice gives a `HIT`;
+   - key B on A's URL is never a HIT;
+   - key A from another origin (its own token) is never a HIT;
+   - a request without `_k` is never a HIT.
+
+   If it fails, set the flag back to `false` at once.
+
+## Staging acceptance (S7-06, open until H3/H4/H5)
+
+1. Run `--verify` (setup step 7). Then fetch a first page twice with the SDK or with `_k` by hand; the second answer has
+   `cf-cache-status: HIT`.
+2. **Origin stopped:** `kamal app stop -c infra/kamal/feed-api.yml -d staging`.
+   - The same requests keep answering 200 with the cached body (`cf-cache-status: STALE` or `UPDATING`).
+   - Uncached URLs fail.
+   - Then run `kamal app boot`.
+3. **Edit visible within 5 min:** change a listing's price in the dashboard and note the time. Within 5 minutes the
+   detail and the first page show the new price through the CDN. It is normally seconds: check the worker log for
+   `edge cache purged`.
+4. **Revocation:** cache a detail with a test key, then stop the worker's purges by unsetting `CLOUDFLARE_PURGE_TOKEN`
+   for the test, and revoke the key. After the TTL, the next request answers 401 and the entry is gone: the request
+   after it is a `MISS` / 401, not a HIT. Restore the token afterwards.
+5. Record the results in STATUS (S7-06 row) and turn `WEBSITE_EDGE_CACHE` on for production the same way. Production
+   needs `--apply` and `--verify` too.
+
+## Rollback
+
+Set `WEBSITE_EDGE_CACHE: "false"` and deploy feed-api. Answers turn `private` at once. Cached entries expire within
+their TTL, or purge everything from the dashboard. The rule can stay: with no `public` answers it caches nothing.

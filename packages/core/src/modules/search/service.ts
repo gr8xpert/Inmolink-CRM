@@ -10,6 +10,7 @@
  */
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
+import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
 import {
   type EnsureIndexResult,
   type IndexDefinition,
@@ -24,6 +25,7 @@ import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { type BuiltDoc, buildListingDocs, buildUnitDocs, type DocOwner } from './build';
+import { PUBLIC_DOCS_EVENT_TARGETS, searchEvents } from './events';
 import {
   buildIndexDoc,
   commissionShareBp,
@@ -175,7 +177,9 @@ async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: 
  * The website change log (S7-03, `/v2/changes`): of these changed targets, the PUBLIC ones now (their new document,
  * sharing or commission may change what a site shows) and those that were PUBLIC (a fallback row: they leave every
  * site), each with who could have seen it before or after (shared with all, or the owner's preferred agencies — a
- * network site's feed reads only those). Targets public neither before nor after concern no website. Two statements.
+ * network site's feed reads only those). Targets public neither before nor after concern no website. S7-06: the same
+ * targets go out as `search.publicDocs.changed` (per owner agency, ≤ 100 per event) for the website edge cache purge.
+ * Three statements.
  */
 async function logPublicChanges(tx: Tx, changed: readonly string[], docs: readonly BuiltDoc[]): Promise<void> {
   if (changed.length === 0) return;
@@ -200,6 +204,33 @@ async function logPublicChanges(tx: Tx, changed: readonly string[], docs: readon
     });
   }
   await repo.logPublicChanges(tx, rows);
+  await emit(tx, publicDocsEvents(rows, before, after));
+}
+
+/** `search.publicDocs.changed` for these change-log rows: per owner agency, in chunks; the units' developments too. */
+function publicDocsEvents(
+  rows: readonly repo.PublicChangeRow[],
+  before: ReadonlyMap<string, repo.PublicRowBefore>,
+  after: ReadonlyMap<string, BuiltDoc>,
+): OutboxMessage[] {
+  const byOwner = new Map<string, string[]>();
+  for (const r of rows) byOwner.set(r.ownerAgencyId, [...(byOwner.get(r.ownerAgencyId) ?? []), r.targetId]);
+  const events: OutboxMessage[] = [];
+  for (const [agencyId, ids] of byOwner) {
+    for (let i = 0; i < ids.length; i += PUBLIC_DOCS_EVENT_TARGETS) {
+      const targetIds = ids.slice(i, i + PUBLIC_DOCS_EVENT_TARGETS);
+      // A unit's development before and after: a unit leaving the public set changes its development's card too.
+      const developmentIds = [
+        ...new Set(
+          targetIds.flatMap((id) =>
+            [after.get(id)?.developmentId, before.get(id)?.developmentId].filter((d): d is string => !!d),
+          ),
+        ),
+      ];
+      events.push(searchEvents.publicDocsChanged({ agencyId, targetIds, developmentIds }));
+    }
+  }
+  return events;
 }
 
 /** Collisions of fresh random codes are drawn again this many times (40 bits: practically never needed). */

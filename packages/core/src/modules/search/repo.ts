@@ -1162,6 +1162,8 @@ export interface PublicRowBefore {
   ref: string;
   shareScope: string | null;
   preferredAgencyIds: string[] | null;
+  /** S7-06: its development (a unit leaving the public set purges the development's edge copies). */
+  developmentId: string | null;
 }
 
 /** These targets' fallback rows (PUBLIC targets as of their last refresh), for the change log. PK probes. */
@@ -1175,6 +1177,7 @@ export async function publicRowsOf(tx: Tx, ids: readonly string[]): Promise<Publ
       ref: listingSearchDocs.ref,
       shareScope: listingSearchDocs.shareScope,
       preferredAgencyIds: listingSearchDocs.preferredAgencyIds,
+      developmentId: listingSearchDocs.developmentId,
     })
     .from(listingSearchDocs)
     .where(inArray(listingSearchDocs.targetId, [...new Set(ids)]));
@@ -1639,6 +1642,8 @@ export interface DevelopmentUnitsPage {
   found: boolean;
   /** The cursor's unit is (still) a unit of it; true without a cursor. */
   anchored: boolean;
+  /** The development's id (S7-06: its edge cache tag), null when not found. */
+  developmentId: string | null;
   rows: PublicDocRow[];
 }
 
@@ -1684,15 +1689,23 @@ export async function developmentUnitsPage(
          and m.locale = ${bestLocale(sql`u.target_id`, q.locale, q.fallback)}
         left join ${listingPublicCodes} dc on dc.target_id = (select id from dev))
     select exists (select 1 from dev) as found, ${q.after ? sql`exists (select 1 from anchor)` : sql`true`} as anchored,
-           p.*
+           (select id from dev) as dev_id, p.*
       from (select 1) one left join page p on true
      order by p.sort_ref, p."targetId"`);
-  const raw = res.rows as ({ found: boolean; anchored: boolean; targetId: string | null } & Record<string, unknown>)[];
+  const raw = res.rows as ({
+    found: boolean;
+    anchored: boolean;
+    dev_id: string | null;
+    targetId: string | null;
+  } & Record<string, unknown>)[];
   const first = raw[0];
   return {
     found: first?.found === true,
     anchored: first?.anchored === true,
-    rows: docRows(raw.filter((r) => r.targetId !== null).map(({ found: _f, anchored: _a, sort_ref: _s, ...r }) => r)),
+    developmentId: first?.dev_id ?? null,
+    rows: docRows(
+      raw.filter((r) => r.targetId !== null).map(({ found: _f, anchored: _a, dev_id: _d, sort_ref: _s, ...r }) => r),
+    ),
   };
 }
 

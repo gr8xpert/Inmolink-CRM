@@ -50,6 +50,10 @@ env:
     MEILI_URL: "http://inmolink-api-meilisearch:7700"
     # Public media host (R2 custom domain, docs/runbooks/media-public-host.md): image URLs in website documents (S7-03).
     MEDIA_CDN_URL: "https://media.inmolink.es"
+    # Edge caching of website API first pages and details (S7-06). Turn on per destination only after
+    # `pnpm ops:cdn-rules --env <env> --apply` and `--verify` passed for that zone (runbook docs/runbooks/cdn.md):
+    # without those rules Cloudflare ignores Vary and would share one site's answers with another.
+    WEBSITE_EDGE_CACHE: "false"
   secret:
     - RELEASE
     - SENTRY_DSN

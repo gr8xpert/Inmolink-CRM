@@ -11,7 +11,27 @@ export interface WebsiteClientOptions {
   apiKey: string;
   /** Defaults to the global `fetch`. */
   fetch?: typeof fetch;
+  /**
+   * The page's origin as the browser sends it in `Origin` (publishable keys). Defaults to `location.origin` in a
+   * browser and none on a server. It goes into the edge-cache token `_k` (S7-06).
+   */
+  origin?: string;
 }
+
+/**
+ * The edge-cache token (S7-06): base64url(SHA-256(`<api key>\n<origin or empty>`)), 22 characters, sent as `_k` on
+ * every read so the website API's answers can be served from the CDN — cached URLs differ per key and origin. Clients
+ * without the SDK (the WordPress plugin) compute the same value.
+ */
+export async function edgeKeyToken(apiKey: string, origin = ''): Promise<string> {
+  const data = new TextEncoder().encode(`${apiKey}\n${origin}`);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
+  let binary = '';
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 22);
+}
+
+const pageOrigin = (): string | undefined => (globalThis as { location?: { origin?: string } }).location?.origin;
 
 /** An error answer of the website API (`{ error: { code, message, details } }`). */
 export class WebsiteApiError extends Error {
@@ -49,9 +69,16 @@ function pathOf(template: string, params: Record<string, unknown> | undefined): 
 export function createWebsiteClient(options: WebsiteClientOptions) {
   const doFetch = options.fetch ?? fetch;
   const base = options.baseUrl.replace(/\/+$/, '');
+  let token: Promise<string> | undefined;
   async function call<K extends OperationName>(op: K, args: CallArgs<K>): Promise<Operations[K]['response']> {
     const { method, path } = OPERATIONS[op];
-    const url = `${base}${pathOf(path, args.params as Record<string, unknown>)}${queryString(args.query as Record<string, unknown>)}`;
+    // Reads carry the edge-cache token (S7-06); form posts do not need it.
+    const query = args.query as Record<string, unknown> | undefined;
+    if (method === 'GET') {
+      token ??= edgeKeyToken(options.apiKey, options.origin ?? pageOrigin() ?? '');
+    }
+    const withToken = method === 'GET' ? { ...query, _k: await token } : query;
+    const url = `${base}${pathOf(path, args.params as Record<string, unknown>)}${queryString(withToken)}`;
     const headers: Record<string, string> = {
       ...((args.headers as Record<string, string> | undefined) ?? {}),
       'x-api-key': options.apiKey,

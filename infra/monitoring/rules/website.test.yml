@@ -48,3 +48,23 @@ tests:
       - eval_time: 20m
         alertname: WebsiteHoneytokenHit
         exp_alerts: []
+
+  # S7-06: a purge fails its last attempt at 4m: the alert fires and clears 30 minutes after the last failure.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_website_edge_purge_failed_total{instance="worker-1"}'
+        values: "0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: WebsiteEdgePurgeFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: WebsiteEdgePurgeFailing
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "Website API: edge cache purges are failing"
+              runbook: docs/runbooks/cdn.md#purge-failing
+      - eval_time: 39m
+        alertname: WebsiteEdgePurgeFailing
+        exp_alerts: []

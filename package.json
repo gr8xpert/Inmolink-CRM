@@ -31,6 +31,7 @@
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
+    "ops:cdn-rules": "tsx scripts/ops/cdn-rules.ts",
     "staff:grant": "tsx --conditions=@inmolink/source scripts/ops/staff.ts grant",
     "staff:revoke": "tsx --conditions=@inmolink/source scripts/ops/staff.ts revoke",
     "db:generate": "pnpm --filter @inmolink/db db:generate",

@@ -2,7 +2,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { apiKeyPlugin } from './plugins/api-key';
-import { websiteCors } from './plugins/site-response';
+import { edgeSafeErrors, websiteCors } from './plugins/site-response';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { websiteLeadRoutes } from './routes/website-api/leads';
 import { websiteApiRoutes } from './routes/website-api/routes';
@@ -25,6 +25,8 @@ export interface FeedApiDeps {
   docsUi: boolean;
   checks: Record<string, HealthCheck>;
   limiter: RateLimiter;
+  /** `WEBSITE_EDGE_CACHE` (S7-06): site answers public for the CDN (first pages and details). Default off. */
+  edgeCache?: boolean;
 }
 
 export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
@@ -36,8 +38,10 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     docsUi: deps.docsUi,
     successLogLevel: 'debug',
   });
+  app.decorate('websiteEdgeCache', deps.edgeCache === true);
   apiKeyPlugin(app, { limiter: deps.limiter });
   websiteCors(app);
+  edgeSafeErrors(app);
   await app.register(rateLimitPlugin, {
     limiter: deps.limiter,
     defaults: DEFAULT_LIMITS,
