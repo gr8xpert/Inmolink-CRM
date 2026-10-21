@@ -7,6 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Tx } from '@inmolink/db';
 import {
+  listingPublicChanges,
   listingPublicCodes,
   listingReadModels,
   listingSearchCommissions,
@@ -1045,4 +1046,298 @@ export async function syncCommissions(
             returning target_id as id`)
         ).rows;
   return [...upserted, ...removed].map((r) => (r as { id: string }).id);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Website API v2 (S7-03): public change log, hydration and lookups. Public paths read as `app_public`.
+
+/** A change-log row: a target whose public website view may have changed, and who could have seen it. */
+export interface PublicChangeRow {
+  targetId: string;
+  kind: Kind;
+  ownerAgencyId: string;
+  ref: string;
+  /** Shared with every agency (or a unit) before or after the change. */
+  sharedAll: boolean;
+  /** Else: the agencies its owner prefers, before and after. */
+  preferredAgencyIds: string[] | null;
+}
+
+/** Appends change-log rows (the writing transaction's id is the column default). One statement. */
+export async function logPublicChanges(tx: Tx, rows: readonly PublicChangeRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await tx.insert(listingPublicChanges).values(
+    rows.map((r) => ({
+      targetId: r.targetId,
+      kind: r.kind,
+      ownerAgencyId: r.ownerAgencyId,
+      ref: r.ref,
+      sharedAll: r.sharedAll,
+      preferredAgencyIds: r.preferredAgencyIds,
+    })),
+  );
+}
+
+/** A fallback row as the change log needs it: the target was PUBLIC at its last refresh, with this sharing. */
+export interface PublicRowBefore {
+  targetId: string;
+  kind: Kind;
+  ownerAgencyId: string;
+  ref: string;
+  shareScope: string | null;
+  preferredAgencyIds: string[] | null;
+}
+
+/** These targets' fallback rows (PUBLIC targets as of their last refresh), for the change log. PK probes. */
+export async function publicRowsOf(tx: Tx, ids: readonly string[]): Promise<PublicRowBefore[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      targetId: listingSearchDocs.targetId,
+      kind: listingSearchDocs.kind,
+      ownerAgencyId: listingSearchDocs.ownerAgencyId,
+      ref: listingSearchDocs.ref,
+      shareScope: listingSearchDocs.shareScope,
+      preferredAgencyIds: listingSearchDocs.preferredAgencyIds,
+    })
+    .from(listingSearchDocs)
+    .where(inArray(listingSearchDocs.targetId, [...new Set(ids)]));
+}
+
+/** A position in the change log: after the row `(tx, seq)` (`tx` an xid8 as text). */
+export interface ChangePosition {
+  tx: string;
+  seq: number;
+}
+
+export interface ChangeLogRow {
+  tx: string;
+  seq: number;
+  targetId: string;
+  kind: Kind;
+  ownerAgencyId: string;
+  ref: string;
+  publicCode: string | null;
+  changedAt: Date;
+}
+
+/** Whose changes a site's feed reads: one owner's (own-only sites), or those a network site could have shown. */
+export type ChangeAudience = { ownerAgencyId: string } | { networkOf: string };
+
+/**
+ * One page of the change log after `after`, in `(tx_id, seq)` order, only rows of transactions below the snapshot's
+ * `xmin` (all finished: no row can still appear before the page's last one). An own-only site reads its agency's rows
+ * (`_owner_idx`); a network site reads its own and those of targets shared with it before or after the change
+ * (`_tx_idx`) — never other agencies' activity it could not show. Also answers the snapshot's `xmin` and how long
+ * the oldest committed row behind it has waited (`heldSeconds`: a long transaction holds every feed back). One
+ * statement.
+ */
+export async function publicChangesPage(
+  tx: Tx,
+  q: { after: ChangePosition; audience: ChangeAudience; limit: number },
+): Promise<{ rows: ChangeLogRow[]; horizon: string; heldSeconds: number }> {
+  const who =
+    'ownerAgencyId' in q.audience
+      ? sql`and c.owner_agency_id = ${q.audience.ownerAgencyId}::uuid`
+      : sql`and (c.owner_agency_id = ${q.audience.networkOf}::uuid or c.shared_all
+                 or c.preferred_agency_ids @> array[${q.audience.networkOf}::uuid])`;
+  const res = await tx.execute(sql`
+    with h as (select pg_snapshot_xmin(pg_current_snapshot()) as xmin),
+    held as (select coalesce(extract(epoch from now() - min(w.changed_at)), 0)::float8 as s
+               from ${listingPublicChanges} w, h where w.tx_id >= h.xmin)
+    select h.xmin::text as horizon, held.s as held, r.* from h cross join held
+      left join lateral (
+        select c.tx_id::text as tx, c.seq, c.target_id as "targetId", c.kind, c.owner_agency_id as "ownerAgencyId",
+               c.ref, c.changed_at as "changedAt", p.code as "publicCode"
+          from ${listingPublicChanges} c
+          left join ${listingPublicCodes} p on p.target_id = c.target_id
+         where c.tx_id < h.xmin and (c.tx_id, c.seq) > (${q.after.tx}::xid8, ${q.after.seq}::bigint) ${who}
+         order by c.tx_id, c.seq
+         limit ${q.limit}) r on true`);
+  const rows = res.rows as (Omit<ChangeLogRow, 'changedAt' | 'seq'> & {
+    horizon: string;
+    held: number | string;
+    seq: string | number | null;
+    changedAt: string | Date | null;
+  })[];
+  return {
+    horizon: rows[0]?.horizon ?? '0',
+    heldSeconds: Math.max(0, Number(rows[0]?.held ?? 0)),
+    rows: rows
+      .filter((r) => r.seq !== null)
+      .map((r) => ({
+        tx: r.tx,
+        seq: Number(r.seq),
+        targetId: r.targetId,
+        kind: r.kind,
+        ownerAgencyId: r.ownerAgencyId,
+        ref: r.ref,
+        publicCode: r.publicCode,
+        changedAt: new Date(r.changedAt as string),
+      })),
+  };
+}
+
+/**
+ * Where `?since=` starts (S7-03 review): `changed_at` is the writing transaction's start, but pages go by transaction
+ * id, and a transaction that started later may have taken its id earlier. So the start is the smallest `(tx_id, seq)`
+ * among rows changed within `margin` of the first change at or after `since` (from `since - margin`): a transaction
+ * would need to wait longer than the margin before its first write to fall before it. Changes up to `margin` before
+ * `since` may be included; the cursor is exact from there. Nothing changed since then: the snapshot's `xmin`. One
+ * statement (`listing_public_changes_changed_idx`, a window of `2 × margin` rows sorted).
+ */
+export async function publicChangesStart(tx: Tx, since: Date, marginSeconds: number): Promise<ChangePosition> {
+  const at = sql`${since.toISOString()}::timestamptz`;
+  const margin = sql`make_interval(secs => ${marginSeconds})`;
+  const res = await tx.execute(sql`
+    with f as (select c.changed_at from ${listingPublicChanges} c where c.changed_at >= ${at}
+                order by c.changed_at limit 1),
+    s as (select c.tx_id, c.seq from ${listingPublicChanges} c, f
+           where c.changed_at >= ${at} - ${margin} and c.changed_at < f.changed_at + ${margin}
+           order by c.tx_id, c.seq limit 1)
+    select coalesce((select tx_id::text from s), pg_snapshot_xmin(pg_current_snapshot())::text) as tx,
+           coalesce((select seq - 1 from s), -1) as seq`);
+  const row = res.rows[0] as { tx: string; seq: string | number };
+  return { tx: row.tx, seq: Number(row.seq) };
+}
+
+/** Of these targets, those the site's filter matches now. One statement by primary key. */
+export async function matchingTargets(tx: Tx, filter: Filter, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const res = await tx.execute(sql`
+    select target_id as "targetId" from ${listingSearchDocs}
+     where target_id = any(${uuidArray([...new Set(ids)])}) and ${fallbackCondition(filter)}`);
+  return new Set((res.rows as { targetId: string }[]).map((r) => r.targetId));
+}
+
+/** Drops change-log rows older than `before`, at most `limit` (the oldest). Answers how many went. */
+export async function prunePublicChanges(tx: Tx, before: Date, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    delete from ${listingPublicChanges} where seq in (
+      select seq from ${listingPublicChanges} where changed_at < ${before.toISOString()}::timestamptz
+       order by changed_at limit ${limit})`);
+  return res.rowCount ?? 0;
+}
+
+/** A public document read for a site: the read model in the best locale, its owner and public code. */
+export interface PublicDocRow {
+  targetId: string;
+  kind: Kind;
+  ownerAgencyId: string;
+  publicCode: string | null;
+  doc: unknown;
+  updatedAt: Date;
+}
+
+/**
+ * A target's best locale among its public read models: `locale`, then `fallback`, then the first. From the primary
+ * key only (no document is read to be dropped).
+ */
+const bestLocale = (target: SQL, locale: string, fallback: string) => sql`(
+  select b.locale from ${listingReadModels} b where b.target_id = ${target} and b.public
+   order by (b.locale = ${locale}) desc, (b.locale = ${fallback}) desc, b.locale limit 1)`;
+
+const docRows = (rows: unknown[]): PublicDocRow[] =>
+  (rows as (Omit<PublicDocRow, 'updatedAt'> & { updatedAt: string | Date })[]).map((r) => ({
+    ...r,
+    updatedAt: new Date(r.updatedAt),
+  }));
+
+/**
+ * Public documents of these targets (website search hydration, S7-03): `card` or `detail` in the best locale, with
+ * the owner and public code. One statement; targets without a public read model are absent.
+ */
+export async function publicDocs(
+  tx: Tx,
+  ids: readonly string[],
+  part: 'card' | 'detail',
+  locale: string,
+  fallback: string,
+): Promise<PublicDocRow[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute(sql`
+    select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.${sql.raw(part)} as doc,
+           m.updated_at as "updatedAt", c.code as "publicCode"
+      from unnest(${uuidArray([...new Set(ids)])}) as t(id)
+      join ${listingReadModels} m on m.target_id = t.id and m.locale = ${bestLocale(sql`t.id`, locale, fallback)}
+      left join ${listingPublicCodes} c on c.target_id = t.id`);
+  return docRows(res.rows);
+}
+
+/**
+ * The public detail a site's reference names (`/v2/listings/{ref}`): the first target the site's filter (with its
+ * reference condition) matches, in the best locale. One statement.
+ */
+export async function publicDetailWhere(
+  tx: Tx,
+  filter: Filter,
+  locale: string,
+  fallback: string,
+): Promise<PublicDocRow | null> {
+  const res = await tx.execute(sql`
+    with t as (select target_id, public_code from ${listingSearchDocs} where ${fallbackCondition(filter)}
+                order by kind, target_id limit 1)
+    select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.detail as doc,
+           m.updated_at as "updatedAt", t.public_code as "publicCode"
+      from t join ${listingReadModels} m on m.target_id = t.target_id
+       and m.locale = ${bestLocale(sql`t.target_id`, locale, fallback)}`);
+  return docRows(res.rows)[0] ?? null;
+}
+
+/**
+ * One sitemap page (S7-03): the site's matching targets in public-code order after the code `after` (codes are shown
+ * anyway; ids are not), each with its card in the best locale (the serializer makes the shown reference and slug);
+ * `limit + 1` rows (an extra one: a next page). Targets without a code yet (written before S7-02, until the deploy
+ * rebuild) are left out. One statement.
+ */
+export async function sitemapPage(
+  tx: Tx,
+  q: {
+    filter: Filter;
+    /** The site's own agencies: their branch walks `listing_search_docs_owner_code_idx`. */
+    own: readonly string[];
+    /** Other agencies' documents too (network sites): a branch of its own on `listing_search_docs_public_code_idx`. */
+    network: boolean;
+    after?: string;
+    limit: number;
+    locale: string;
+    fallback: string;
+  },
+): Promise<PublicDocRow[]> {
+  const after = q.after ? sql`and public_code > ${q.after}` : sql``;
+  const where = fallbackCondition(q.filter);
+  const take = q.limit + 1;
+  const branches: SQL[] = [];
+  if (q.own.length > 0) {
+    branches.push(sql`(select target_id, public_code from ${listingSearchDocs}
+       where owner_agency_id = any(${uuidArray(q.own)}) and ${where} and public_code is not null ${after}
+       order by public_code limit ${take})`);
+  }
+  if (q.network) {
+    const others = q.own.length > 0 ? sql`and owner_agency_id <> all(${uuidArray(q.own)})` : sql``;
+    branches.push(sql`(select target_id, public_code from ${listingSearchDocs}
+       where ${where} ${others} and public_code is not null ${after} order by public_code limit ${take})`);
+  }
+  if (branches.length === 0) return [];
+  const res = await tx.execute(sql`
+    with s as (select * from (${sql.join(branches, sql` union all `)}) u order by public_code limit ${take})
+    select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", s.public_code as "publicCode",
+           m.card as doc, m.updated_at as "updatedAt"
+      from s join ${listingReadModels} m on m.target_id = s.target_id
+       and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
+     order by s.public_code`);
+  return docRows(res.rows);
+}
+
+/** May the agency's websites show network listings (give-to-get, `website_network_open`)? One statement. */
+export async function websiteNetworkOpen(
+  tx: Tx,
+  agencyId: string,
+  minShared: number,
+  graceDays: number,
+): Promise<boolean> {
+  const res = await tx.execute(
+    sql`select public.website_network_open(${agencyId}::uuid, ${minShared}::int, ${graceDays}::int) as open`,
+  );
+  return (res.rows[0] as { open: boolean }).open === true;
 }

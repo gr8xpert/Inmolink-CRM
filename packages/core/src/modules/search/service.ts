@@ -154,10 +154,42 @@ async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: 
   const moved = await repo.syncCommissions(tx, ids, wanted);
   const changed = [...new Set([...deleted, ...written, ...coded, ...moved])];
   if (changed.length > 0) {
+    await logPublicChanges(tx, changed, docs);
     await repo.queueIndexSync(tx, changed);
     if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed);
   }
   return { written: written.length, deleted: deleted.length };
+}
+
+/**
+ * The website change log (S7-03, `/v2/changes`): of these changed targets, the PUBLIC ones now (their new document,
+ * sharing or commission may change what a site shows) and those that were PUBLIC (a fallback row: they leave every
+ * site), each with who could have seen it before or after (shared with all, or the owner's preferred agencies — a
+ * network site's feed reads only those). Targets public neither before nor after concern no website. Two statements.
+ */
+async function logPublicChanges(tx: Tx, changed: readonly string[], docs: readonly BuiltDoc[]): Promise<void> {
+  if (changed.length === 0) return;
+  const before = new Map((await repo.publicRowsOf(tx, changed)).map((r) => [r.targetId, r]));
+  const after = new Map<string, BuiltDoc>();
+  for (const d of docs) if (d.public && !after.has(d.targetId)) after.set(d.targetId, d);
+  const rows: repo.PublicChangeRow[] = [];
+  for (const id of new Set(changed)) {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (!was && !now) continue;
+    const preferred = [...new Set([...(was?.preferredAgencyIds ?? []), ...(now?.preferredAgencyIds ?? [])])].sort();
+    rows.push({
+      targetId: id,
+      kind: (now?.kind ?? was?.kind) as BuiltDoc['kind'],
+      ownerAgencyId: (now?.agencyId ?? was?.ownerAgencyId) as string,
+      ref: now ? now.card.ref : (was?.ref as string),
+      // Units and listings shared with ALL (null: a unit, or a row from before the sharing columns).
+      sharedAll:
+        (now !== undefined && now.shareScope !== 'PREFERRED') || (was !== undefined && was.shareScope !== 'PREFERRED'),
+      preferredAgencyIds: preferred.length > 0 ? preferred : null,
+    });
+  }
+  await repo.logPublicChanges(tx, rows);
 }
 
 /** Collisions of fresh random codes are drawn again this many times (40 bits: practically never needed). */
@@ -477,6 +509,7 @@ export async function rebuildAllReadModels(
             agencyId: options.agencyId,
           });
           await repo.queueIndexSync(tx, swept);
+          await logPublicChanges(tx, swept, []);
           // Every live target of the page, changed or not: the full rebuild also fills and repairs the fallback.
           await refreshSearchDocs(tx, [...ids, ...swept]);
           return { ...res, deleted: res.deleted + swept.length };

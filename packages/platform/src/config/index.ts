@@ -150,6 +150,15 @@ export const searchEnv = {
  * open `SEARCH_BREAKER_OPEN_MS`. At most `SEARCH_HEDGE_MAX_IN_FLIGHT` fallback statements run beside the engine at once
  * per process; past that a request waits for the engine up to its timeout. The slow threshold must be below the timeout (checked at boot by the search module).
  */
+/**
+ * Public media base URL (S7-03): website API documents serve image variants as `<MEDIA_CDN_URL>/<variant key>` — the
+ * media bucket's public custom domain (docs/runbooks/media-public-host.md). Locally MinIO's media bucket; production
+ * refuses a loopback or plain-http value.
+ */
+export const mediaCdnEnv = {
+  MEDIA_CDN_URL: url(['http', 'https']).default('http://localhost:9000/inmolink-media'),
+};
+
 export const websiteSearchEnv = {
   SEARCH_ENGINE_TIMEOUT_MS: z.coerce.number().int().min(20).max(5_000).default(100),
   SEARCH_SLOW_MS: z.coerce.number().int().min(10).max(5_000).default(80),
@@ -419,6 +428,13 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
     problems.push({ key: 'MEDIA_URL_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
   } else if (production && typeof cfg.MEDIA_URL_KEY === 'string' && isExampleSecret(cfg.MEDIA_URL_KEY)) {
     problems.push({ key: 'MEDIA_URL_KEY', message: 'is a committed example value; generate a new one' });
+  }
+  if (
+    production &&
+    typeof cfg.MEDIA_CDN_URL === 'string' &&
+    !/^https:\/\/(?!localhost|127\.)/.test(cfg.MEDIA_CDN_URL)
+  ) {
+    problems.push({ key: 'MEDIA_CDN_URL', message: 'must be the public https media host in production' });
   }
   // Read from the raw env: request apps do not declare the variable, so it would never reach `cfg`.
   if (production && cfg.APP_ROLE === 'http' && (env.MEILI_MASTER_KEY ?? '').trim() !== '') {

@@ -44,6 +44,7 @@ export {
   configureNetworkSearch,
   GIVE_TO_GET_DEFAULTS,
   giveToGetGate,
+  giveToGetSettings,
   NETWORK_ENGINE_TIMEOUT_MS,
   networkCommission,
   searchNetwork,
@@ -93,4 +94,22 @@ export {
   type WebsiteSearchSettings,
   websiteSearchSettings,
 } from './website';
+export {
+  type ChangeAudience,
+  type ChangeLogRow,
+  type ChangePosition,
+  NETWORK_GATE_CACHE,
+  PUBLIC_CHANGES_PRUNE_BATCH,
+  PUBLIC_CHANGES_RETENTION_DAYS,
+  PUBLIC_CHANGES_SINCE_MARGIN_SECONDS,
+  type PublicDocRow,
+  prunePublicChanges,
+  publicDetailByRef,
+  publicDocs,
+  type SiteChange,
+  siteChanges,
+  siteInventoryFilter,
+  sitemapPage,
+  websiteNetworkOpen,
+} from './website-feed';
 // Never export repo or schema.

@@ -34,6 +34,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     searchJobs.buildAgencyReadModels,
     searchJobs.syncIndex,
     searchJobs.checkIndexDrift,
+    searchJobs.prunePublicChanges,
     searchJobs.repairIndex,
   ],
   matching: [],

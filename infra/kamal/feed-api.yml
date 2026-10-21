@@ -48,6 +48,8 @@ env:
     FEED_API_METRICS_PORT: "0"
     # Accessories of infra/kamal/api.yml, reached over the `kamal` Docker network.
     MEILI_URL: "http://inmolink-api-meilisearch:7700"
+    # Public media host (R2 custom domain, docs/runbooks/media-public-host.md): image URLs in website documents (S7-03).
+    MEDIA_CDN_URL: "https://media.inmolink.es"
   secret:
     - RELEASE
     - SENTRY_DSN

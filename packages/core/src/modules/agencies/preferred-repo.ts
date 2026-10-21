@@ -7,7 +7,7 @@ import {
   preferredAgencies,
   preferredAgencyNotes,
 } from '@inmolink/db/schema/agencies';
-import { and, asc, count, eq, ilike, inArray, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, isNotNull, ne, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 /**
@@ -283,6 +283,19 @@ export async function ownerIdentityRows(
     phone: string | null;
     website: string | null;
   }[];
+}
+
+/** `ownerIdentityRows` as a scalar subquery (S7-03): a JSON array, selected by the website API with other reads. */
+export function ownerIdentityRowsJson(ids: readonly string[]): SQL {
+  if (ids.length === 0) return sql`'[]'::json`;
+  return sql`(select coalesce(json_agg(json_build_object('agencyId', t.id, 'name', d.name, 'email', p.contact_email,
+      'phone', p.contact_phone, 'website', p.website_url)), '[]'::json)
+    from unnest(array[${sql.join(
+      [...new Set(ids)].map((id) => sql`${id}`),
+      sql`, `,
+    )}]::uuid[]) as t(id)
+    left join ${agencyDirectory} d on d.agency_id = t.id
+    left join ${agencyProfiles} p on p.agency_id = t.id)`;
 }
 
 /** One agency's identity as the search index removes it from its documents' text (S7-F5). */

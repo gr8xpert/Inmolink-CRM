@@ -19,7 +19,9 @@ function send(req: FastifyRequest, reply: FastifyReply, doc: taxonomy.Serialized
   reply
     .header('Cache-Control', cacheControl.feed({ sMaxAge: CDN_SECONDS }))
     .header('ETag', doc.etag)
-    .header('Vary', 'Accept-Encoding');
+    .header('Vary', 'Accept-Encoding')
+    // Platform reference data, the same for every site and key: shareable by any widget origin (S7-03).
+    .header('Access-Control-Allow-Origin', '*');
   if (weakCompareEtag(req.headers['if-none-match'], doc.etag)) return reply.code(304).send();
   return reply.type('application/json; charset=utf-8').send(doc.json);
 }

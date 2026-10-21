@@ -531,8 +531,9 @@ describe('listing read models', () => {
     const single = await countQueries(() => build('LISTING', one));
     const batch = await countQueries(() => system((tx) => search.rebuildListingReadModels(tx, many)));
     // About ten, plus the index push queued with the documents (S5-03) and the fallback rows' refresh (S5-04:
-    // read, upsert, delete) and the commission rows (S7-F4: one delete here; read and upsert for public targets).
-    expect(single).toBeLessThanOrEqual(15);
+    // read, upsert, delete) and the commission rows (S7-F4: one delete here; read and upsert for public targets) and
+    // the website change log (S7-03: the fallback rows of targets no longer public, and the log insert).
+    expect(single).toBeLessThanOrEqual(17);
     expect(batch).toBe(single);
   });
 });

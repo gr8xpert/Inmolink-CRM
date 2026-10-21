@@ -17,6 +17,8 @@ export {
   type SiteView,
   serializeCards,
   serializeDetail,
+  siteRef,
+  siteScopedId,
   slugOf,
   type TextSanitizer,
 } from './serializer';

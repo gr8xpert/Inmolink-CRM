@@ -50,6 +50,11 @@ export const ErrorCodes = {
   SITE_NOT_FOUND: 404,
   /** The agency has as many sites as allowed. */
   SITE_LIMIT_REACHED: 409,
+  // websites: API v2 (S7-03)
+  /** A key created before websites existed (no site): website API v2 needs a key bound to a site — issue a new one. */
+  API_KEY_SITE_REQUIRED: 403,
+  /** A `/v2/changes` cursor or `since` older than the change log keeps: rebuild from `/v2/sitemap`, then poll again. */
+  CHANGES_EXPIRED: 410,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

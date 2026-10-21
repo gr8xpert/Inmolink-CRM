@@ -1,6 +1,7 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as search from '@inmolink/core/modules/search';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
@@ -27,7 +28,13 @@ try {
     hmacKey: config.HMAC_KEY,
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
-  // Website search timing from config (S6-F3); the routes come with S7-03.
+  // Website API v2 (S7-03): image URLs under the media CDN; network listings follow the give-to-get standing.
+  websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  search.configureNetworkSearch({
+    giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
+    giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,
+  });
+  // Website search timing from config (S6-F3).
   search.configureWebsiteSearch({
     engineTimeoutMs: config.SEARCH_ENGINE_TIMEOUT_MS,
     slowMs: config.SEARCH_SLOW_MS,

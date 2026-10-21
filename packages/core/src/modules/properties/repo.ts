@@ -1147,6 +1147,22 @@ export async function overridesOfTargets(
     );
 }
 
+/**
+ * `overridesOfTargets` as a scalar subquery (S7-03): a JSON array of the rows, so the website API reads the site's
+ * overrides and the owners' identities in one statement (`website-api`). Only this module's table.
+ */
+export function overridesOfTargetsJson(agencyId: string, targetIds: readonly string[], locale: string): SQL {
+  if (targetIds.length === 0) return sql`'[]'::json`;
+  return sql`(select coalesce(json_agg(json_build_object('targetKind', o.target_kind, 'targetId', o.target_id,
+      'title', o.title, 'description', o.description)), '[]'::json)
+    from ${listingOverrides} o
+   where o.agency_id = ${agencyId}::uuid and o.target_kind in ('LISTING', 'DEVELOPMENT', 'UNIT')
+     and o.target_id = any(array[${sql.join(
+       [...new Set(targetIds)].map((id) => sql`${id}`),
+       sql`, `,
+     )}]::uuid[]) and o.locale = ${locale})`;
+}
+
 /** Inserts or replaces the agency's override of a target in a locale. */
 export async function upsertOverride(
   tx: Tx,

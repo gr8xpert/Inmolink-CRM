@@ -11,6 +11,7 @@ import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
 import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
 
 /**
@@ -33,6 +34,7 @@ export const MODULES = {
   search,
   imports,
   websites,
+  'website-api': websiteApi,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */

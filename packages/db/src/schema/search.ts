@@ -14,6 +14,7 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   doublePrecision,
   index,
   integer,
@@ -236,6 +237,10 @@ export const listingSearchDocs = pgTable(
     index('listing_search_docs_ref_idx').on(sql`lower(${t.ref})`),
     // a network listing's site reference typed in the search box (S7-02; built CONCURRENTLY, concurrent-indexes.ts)
     index('listing_search_docs_public_code_idx').on(t.publicCode).where(sql`${t.publicCode} is not null`),
+    // `/v2/sitemap`: an agency's own documents in public-code order (S7-03; concurrent-indexes.ts)
+    index('listing_search_docs_owner_code_idx')
+      .on(t.ownerAgencyId, t.publicCode)
+      .where(sql`${t.publicCode} is not null`),
     // map view (a box: a lat range, lng checked in the index)
     index('listing_search_docs_geo_idx').on(t.lat, t.lng).where(sql`${t.lat} is not null`),
   ],
@@ -273,3 +278,46 @@ export const listingSearchCommissions = pgTable('listing_search_commissions', {
   targetId: uuid('target_id').primaryKey(),
   commissionBp: integer('commission_bp').notNull(),
 });
+
+/** `xid8`: a transaction id with epoch (PG13+), ordered; `pg_current_xact_id()` is the writing transaction's. */
+const xid8 = customType<{ data: string; driverData: string }>({ dataType: () => 'xid8' });
+
+/**
+ * Public change log (S7-03, PLAN §9.1 `/v2/changes`): one row per target whose public website view may have changed —
+ * a PUBLIC target's read model written (text, price, media, status, sharing), or a target that was PUBLIC losing its
+ * public row — written by the search worker in the same transaction as the read models (`withSystem`).
+ *
+ * Exactly-once paging over concurrent writers: rows are read in `(tx_id, seq)` order and only below the reading
+ * snapshot's `xmin` (`pg_snapshot_xmin(pg_current_snapshot())`): every transaction with a smaller id has finished, so
+ * no row can later appear before a cursor already handed out (a `seq` alone is allocated at insert, not at commit).
+ * Global and public: target ids, owner agency (a filter, as in `listing_search_docs`) and the owner's reference
+ * (shown by the owner's own sites only; network sites show `<prefix>-<code>`). Pruned after `PUBLIC_CHANGES_RETENTION_DAYS`.
+ */
+export const listingPublicChanges = pgTable(
+  'listing_public_changes',
+  {
+    seq: bigint('seq', { mode: 'number' }).primaryKey().generatedByDefaultAsIdentity(),
+    txId: xid8('tx_id').notNull().default(sql`pg_current_xact_id()`),
+    targetId: uuid('target_id').notNull(),
+    kind: readModelKindEnum('kind').notNull(),
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    /** The owner's own reference at the change (own sites show it; a removed target has no other row to read it from). */
+    ref: text('ref').notNull(),
+    /**
+     * Who could have seen the target on a network site before or after the change (S7-03 review): shared with every
+     * agency (`ALL`, units) on either side, or else the agencies its owner prefers on either side. A network site
+     * gets only the changes of targets it could show (or showed): no other agencies' activity, no noise.
+     */
+    sharedAll: boolean('shared_all').notNull(),
+    preferredAgencyIds: uuid('preferred_agency_ids').array(),
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // `/v2/changes` of a site showing network listings: every change in commit-safe order
+    index('listing_public_changes_tx_idx').on(t.txId, t.seq),
+    // `/v2/changes` of a site showing its own listings only (and the own side of a network site's feed)
+    index('listing_public_changes_owner_idx').on(t.ownerAgencyId, t.txId, t.seq),
+    // `?since=` (the first page's position) and the retention prune
+    index('listing_public_changes_changed_idx').on(t.changedAt),
+  ],
+);

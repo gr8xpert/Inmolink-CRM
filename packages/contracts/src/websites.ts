@@ -3,9 +3,21 @@
  * (inventory policy) and how it presents them (reference prefix, locales, contact overrides).
  */
 import { z } from 'zod';
-import { pageOf } from './common';
+import { Cursor, pageOf } from './common';
 import { ListingMediaKind, ListingRoomType, VideoProvider } from './media';
-import { ListingCardDoc, ListingDetailDoc, READ_MODEL_IMAGE_SIZES, UnitCardDoc, UnitDetailDoc } from './search';
+import { TransactionType } from './properties';
+import {
+  ListingCardDoc,
+  ListingDetailDoc,
+  PUBLIC_SEARCH_FACETS,
+  PUBLIC_SEARCH_STATUSES,
+  PublicSearchFacet,
+  PublicSearchSort,
+  PublicSearchStatus,
+  READ_MODEL_IMAGE_SIZES,
+  UnitCardDoc,
+  UnitDetailDoc,
+} from './search';
 
 export const WebsiteMode = z.enum(['WP_PLUGIN', 'WIDGET', 'HOSTED']);
 export type WebsiteMode = z.infer<typeof WebsiteMode>;
@@ -253,3 +265,156 @@ export const WebsiteCard = z.discriminatedUnion('kind', [WebsiteListingCard, Web
 export type WebsiteCard = z.infer<typeof WebsiteCard>;
 export const WebsiteDetail = z.discriminatedUnion('kind', [WebsiteListingDetail, WebsiteUnitDetail]);
 export type WebsiteDetail = z.infer<typeof WebsiteDetail>;
+
+// ── Website API v2 read endpoints (S7-03) ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Website API v2 (S7-03, PLAN §9.1): what a site's key reads — its inventory only (the site's policy, never a visitor
+ * choice), white-labelled by the serializer. Lists page by opaque cursors; responses carry a strong ETag and answer
+ * `If-None-Match` with 304.
+ */
+
+/** `?lang=`: a content locale of the site (default: the site's first). */
+export const WebsiteLang = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/);
+export const WebsiteLangQuery = z.strictObject({ lang: WebsiteLang.optional() });
+export type WebsiteLangQuery = z.infer<typeof WebsiteLangQuery>;
+
+/** A comma-separated query value (`?types=a,b`) → its trimmed, non-empty items. */
+const csv = <T extends z.ZodType>(item: T, max: number) =>
+  z.preprocess(
+    (v) =>
+      typeof v === 'string'
+        ? v
+            .split(',')
+            .map((x) => x.trim())
+            .filter((x) => x !== '')
+        : v,
+    z.array(item).min(1).max(max),
+  );
+const QueryAmount = z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const QueryCount = z.coerce.number().int().min(0).max(50);
+const QueryArea = z.coerce.number().min(0).max(1_000_000);
+
+/** `?bbox=north,west,south,east` (map view). */
+const BoundingBox = z.preprocess(
+  (v) => (typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())) : v),
+  z
+    .tuple([
+      z.number().min(-90).max(90),
+      z.number().min(-180).max(180),
+      z.number().min(-90).max(90),
+      z.number().min(-180).max(180),
+    ])
+    .refine(([north, , south]) => south <= north, { message: 'south must not be above north' }),
+);
+
+/**
+ * `GET /v2/listings`: a visitor's filters as a query string (lists comma-separated). The site's inventory is applied
+ * on top, server-side.
+ */
+export const WebsiteListingsQuery = z.strictObject({
+  /** Free text in `lang`, or a reference as the site shows it (`CH-123`, `W-7KQ2M9XA`). */
+  q: z.string().trim().min(1).max(100).optional(),
+  lang: WebsiteLang.optional(),
+  kind: z.enum(['LISTING', 'UNIT']).optional(),
+  /** A development's units (the id as this site shows it; own developments only until R2). */
+  developmentId: z.uuid().optional(),
+  status: csv(PublicSearchStatus, PUBLIC_SEARCH_STATUSES.length).optional(),
+  transaction: TransactionType.optional(),
+  /** Any of these property types. */
+  types: csv(z.uuid(), 50).optional(),
+  /** Anywhere under any of these locations. */
+  locations: csv(z.uuid(), 50).optional(),
+  /** Every one of these features. */
+  features: csv(z.uuid(), 20).optional(),
+  priceMin: QueryAmount.optional(),
+  priceMax: QueryAmount.optional(),
+  bedsMin: QueryCount.optional(),
+  bathsMin: QueryCount.optional(),
+  areaMin: QueryArea.optional(),
+  areaMax: QueryArea.optional(),
+  bbox: BoundingBox.optional(),
+  facets: csv(PublicSearchFacet, PUBLIC_SEARCH_FACETS.length).optional(),
+  sort: PublicSearchSort.default('newest'),
+  limit: z.coerce.number().int().min(1).max(100).default(24),
+  cursor: Cursor.optional(),
+});
+export type WebsiteListingsQuery = z.infer<typeof WebsiteListingsQuery>;
+
+export const WebsiteListingPage = z.strictObject({
+  items: z.array(WebsiteCard),
+  /** Matching listings: exact up to 10,000, or up to 1,000 while search runs degraded (`degraded`). */
+  total: z.number().int(),
+  /** Value → count per requested facet; empty while degraded. */
+  facets: z.record(z.string(), z.record(z.string(), z.number().int())),
+  nextCursor: Cursor.nullable(),
+  /** Answered by the Postgres fallback (simpler ranking, no facets, totals capped at 1,000). */
+  degraded: z.boolean(),
+  /** The results changed under pagination (show them as fresh results, not as the next page). */
+  resultsChanged: z.literal(true).optional(),
+});
+export type WebsiteListingPage = z.infer<typeof WebsiteListingPage>;
+
+/** `GET /v2/listings/{ref}`: a reference as the site shows it. */
+export const WebsiteListingParams = z.strictObject({ ref: z.string().min(1).max(64).regex(/^\S+$/) });
+export type WebsiteListingParams = z.infer<typeof WebsiteListingParams>;
+
+/**
+ * `GET /v2/changes`: the site's delta feed. Start with `since` (an ISO time; a starting point — changes shortly before
+ * it may be included) or continue with `cursor` (exact: every change exactly once, in commit order).
+ */
+export const WebsiteChangesQuery = z
+  .strictObject({
+    since: z.iso.datetime({ offset: true }).optional(),
+    cursor: Cursor.optional(),
+    limit: z.coerce.number().int().min(1).max(1_000).default(200),
+  })
+  .refine((q) => (q.since === undefined) !== (q.cursor === undefined), {
+    message: 'either since or cursor',
+    path: ['since'],
+  });
+export type WebsiteChangesQuery = z.infer<typeof WebsiteChangesQuery>;
+
+export const WebsiteChange = z.strictObject({
+  /** The reference as the site shows it (`/v2/listings/{ref}`). */
+  ref: z.string(),
+  kind: z.enum(['LISTING', 'UNIT']),
+  /** UPSERT: shown now — fetch it again; REMOVE: no longer on this site (also sent for listings it never showed). */
+  change: z.enum(['UPSERT', 'REMOVE']),
+  changedAt: z.iso.datetime(),
+});
+export type WebsiteChange = z.infer<typeof WebsiteChange>;
+
+export const WebsiteChangesPage = z.strictObject({
+  items: z.array(WebsiteChange),
+  /** Always present: poll with it later (it stays put when nothing changed). */
+  nextCursor: Cursor,
+  /** More changes are ready now: ask again with `nextCursor` at once. */
+  hasMore: z.boolean(),
+  /**
+   * The site's inventory rules (policy, network standing). When it differs from the last page's, the site's selection
+   * changed as a whole: rebuild the cache from `/v2/sitemap`.
+   */
+  scope: z.string(),
+});
+export type WebsiteChangesPage = z.infer<typeof WebsiteChangesPage>;
+
+/** `GET /v2/sitemap`: the site's listing pages, one page per `cursor`. */
+export const WebsiteSitemapQuery = z.strictObject({
+  lang: WebsiteLang.optional(),
+  cursor: Cursor.optional(),
+  limit: z.coerce.number().int().min(1).max(1_000).default(500),
+});
+export type WebsiteSitemapQuery = z.infer<typeof WebsiteSitemapQuery>;
+
+export const WebsiteSitemapEntry = z.strictObject({
+  ref: z.string(),
+  kind: z.enum(['LISTING', 'UNIT']),
+  /** The page's slug in `lang` (network listings: from the title the site shows). */
+  slug: z.string(),
+  updatedAt: z.iso.datetime(),
+});
+export type WebsiteSitemapEntry = z.infer<typeof WebsiteSitemapEntry>;
+
+export const WebsiteSitemapPage = pageOf(WebsiteSitemapEntry);
+export type WebsiteSitemapPage = z.infer<typeof WebsiteSitemapPage>;

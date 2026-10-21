@@ -17,6 +17,7 @@ import {
   type SiteView,
   serializeCards,
   serializeDetail,
+  siteScopedId,
   slugOf,
 } from '../serializer';
 
@@ -385,9 +386,11 @@ describe('website serializer (S7-02)', () => {
       mediaBaseUrl: 'https://cdn.example',
     };
     const items = [a, b].map((doc) => ({ ownerAgencyId: o.agencyId, publicCode: null, doc }));
-    expect(serializeCards(view, items).map((c) => c.id)).toEqual([a.id, b.id]);
+    // Network documents carry ids scoped to the site's agency (S7-03).
+    const shown = (id: string) => siteScopedId(SITE_AGENCY, id);
+    expect(serializeCards(view, items).map((c) => c.id)).toEqual([shown(a.id), shown(b.id)]);
     const clustered = { ...view, canonicalOf: (id: string) => (id === b.id ? a.id : null) };
-    expect(serializeCards(clustered, items).map((c) => c.id)).toEqual([a.id]);
+    expect(serializeCards(clustered, items).map((c) => c.id)).toEqual([shown(a.id)]);
   });
 
   it('[S7-02] the deterministic sanitizer keeps facts: prices, areas, years', () => {

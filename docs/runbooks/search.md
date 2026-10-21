@@ -95,3 +95,13 @@ An agency's documents are re-pushed when its identity changes: `agencies.profile
 `agencies.details.updated` with `identityChanged` (contacts; name, tax id or address), `agencies.settings.changed`
 with `whiteLabel` (sender name), and `agencies.verification.decided` APPROVED. Team changes are caught by the drift
 check. If you change the sanitizer rules, raise `SANITIZER_VERSION` and repeat the reindex steps.
+
+## Website changes held
+
+`WebsiteChangesHeld` (S7-03): `/v2/changes` hands out a change only once every transaction that started before it
+has finished (the cluster's oldest running transaction, `pg_snapshot_xmin`), so no site ever skips a change that
+commits late. A transaction left open for minutes holds every site's feed back — nothing is lost, sites see edits
+late. Find it on the primary: `select pid, usename, application_name, state, now() - xact_start as open_for, query
+from pg_stat_activity where backend_xid is not null or backend_xmin is not null order by xact_start limit 5;` — a
+stuck job or a forgotten `psql` session; end it (`select pg_terminate_backend(<pid>)`) if it is not a migration or a
+backup. The feeds catch up on their next poll. The gauge is `inmolink_website_changes_held_seconds` (feed-api).

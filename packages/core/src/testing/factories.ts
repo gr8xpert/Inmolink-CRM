@@ -6,8 +6,8 @@ import { sql } from 'drizzle-orm';
 import { authCtx, type Ctx } from '../context';
 import * as identity from '../modules/identity';
 
-/** Query budget checks (PATTERNS §20): statements sent through Drizzle while `fn` runs. */
-export { countQueries } from '@inmolink/db';
+/** Query budget checks (PATTERNS §20); `withSystem` for app tests' fixtures (worker-built read models, S7-03). */
+export { countQueries, withSystem } from '@inmolink/db';
 
 /**
  * `ctx` as if staff member `staffUserId` impersonated its user (S1-09), without a session row: sets

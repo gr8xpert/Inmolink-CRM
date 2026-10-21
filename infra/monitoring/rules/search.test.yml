@@ -59,3 +59,23 @@ tests:
       - eval_time: 20m
         alertname: SearchFallbackActive
         exp_alerts: []
+
+  # A transaction stays open: the oldest held change waits 0 → 20 min, then the transaction ends (S7-03).
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_website_changes_held_seconds{instance="feed-api-1"}'
+        values: "0 60 120 180 240 300 360 420 480 540 600 660 720 780 840 900 960 1020 1080 1140 1200 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: WebsiteChangesHeld
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: WebsiteChangesHeld
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "Website change feeds are held back 17m 0s by a long-running transaction"
+              runbook: docs/runbooks/search.md#website-changes-held
+      - eval_time: 30m
+        alertname: WebsiteChangesHeld
+        exp_alerts: []

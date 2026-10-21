@@ -5,6 +5,7 @@
  * `agency_directory` and `agency_profiles`.
  */
 import type { Tx } from '@inmolink/db';
+import type { SQL } from 'drizzle-orm';
 import type { OwnerIdentity } from '../../white-label';
 import * as repo from './preferred-repo';
 
@@ -37,6 +38,34 @@ function hostOf(url: string | null): string | null {
 export async function ownerIdentities(tx: Tx, ids: readonly string[]): Promise<Map<string, OwnerIdentity>> {
   const rows = await repo.ownerIdentityRows(tx, [...new Set(ids)]);
   return new Map(rows.map((r) => [r.agencyId, identityOf([r.name], [r.email], [r.phone], r.website)]));
+}
+
+type IdentityRow = {
+  agencyId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+};
+
+/**
+ * `ownerIdentities` as a part of another statement (S7-03): `sql` is a scalar subquery the caller selects (as
+ * `app_public`), `read` turns its JSON value into the identities.
+ */
+export function ownerIdentitiesQuery(ids: readonly string[]): {
+  sql: SQL;
+  read: (value: unknown) => Map<string, OwnerIdentity>;
+} {
+  return {
+    sql: repo.ownerIdentityRowsJson(ids),
+    read: (value) =>
+      new Map(
+        ((value ?? []) as IdentityRow[]).map((r) => [
+          r.agencyId,
+          identityOf([r.name], [r.email], [r.phone], r.website),
+        ]),
+      ),
+  };
 }
 
 /** A name and, when it differs and is long enough, the name without its legal form. */

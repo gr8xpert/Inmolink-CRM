@@ -1,3 +1,4 @@
+import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
@@ -10,6 +11,7 @@ import {
   rebuildAllReadModels,
   rebuildDevelopmentReadModels,
 } from './service';
+import { prunePublicChanges } from './website-feed';
 
 /** Bursts of changes to one target (autosave, a batch of photos) collapse into one rebuild this long after the last. */
 export const READ_MODEL_DEBOUNCE_MS = 2_000;
@@ -46,6 +48,8 @@ const READ_MODEL_OVERDUE_MS = 30_000;
  *
  * `search.syncIndex` (after rebuilds, and schedule: every minute — the safety net after the engine was down):
  * pushes queued targets to the index. Global (batches across agencies), no group.
+ *
+ * `search.prunePublicChanges` (schedule: every hour, S7-03): drops website change-log rows past retention.
  *
  * `search.checkIndexDrift` (schedule: every 24 h): count and sample check of the index against read models;
  * queues mismatched samples and starts `search.repairIndex` on drift.
@@ -152,6 +156,21 @@ export const searchJobs = {
         log.error({ ...summary, refused: result.rejected.slice(0, 20) }, 'search index refused documents');
       else if (result.done > 0) log.debug(summary, 'search index synced');
       return summary;
+    },
+  }),
+
+  prunePublicChanges: defineJob({
+    name: 'search.prunePublicChanges',
+    pool: 'indexing',
+    payload: z.object({}),
+    every: 3_600_000,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 300_000,
+    async run(_p, { log }) {
+      const deleted = await prunePublicChanges(clock.now());
+      if (deleted > 0) log.info({ deleted }, 'website change log pruned');
+      return { deleted };
     },
   }),
 

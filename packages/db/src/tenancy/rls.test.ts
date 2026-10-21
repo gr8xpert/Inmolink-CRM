@@ -155,8 +155,8 @@ describe('RLS generator', () => {
     expect(out).not.toMatch(/app_preferring_agencies\(\) returns setof uuid[^;]*security definer/i);
   });
 
-  it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other one: [S7-F4])', () => {
-    expect(out.match(/security definer/gi)).toHaveLength(2);
+  it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the others: [S7-F4], [S7-03])', () => {
+    expect(out.match(/security definer/gi)).toHaveLength(3);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -178,6 +178,21 @@ describe('RLS generator', () => {
       'create policy definer_read on public."listing_search_commissions" for select to app_owner',
     );
     expect(table).not.toMatch(/grant select[^;]*to [^;]*app_(?:user|public)/);
+  });
+
+  it('[S7-03] the website network gate is SECURITY DEFINER, executable by app_public only; its tables open to the owner only', () => {
+    expect(out).toContain(
+      'create or replace function website_network_open(a_id uuid, min_shared integer, grace_days integer) returns boolean',
+    );
+    expect(out).toMatch(/website_network_open[^;]*security definer set search_path = pg_catalog, pg_temp/);
+    expect(out).toContain('grant execute on function website_network_open(uuid, integer, integer) to app_public;');
+    expect(out).not.toMatch(/website_network_open\(uuid, integer, integer\) to [^;]*app_(?:user|system|auth|staff)/);
+    const tables = tablesSql(registry);
+    for (const name of ['agencies', 'properties']) {
+      expect(tables).toContain(`create policy definer_read on public."${name}" for select to app_owner using (true);`);
+    }
+    // No other role gains a policy or grant from it.
+    expect(tables).not.toMatch(/definer_read[^;]*to [^;]*app_(?:user|public|system|auth|staff)/);
   });
 
   it('[S1-F10] userSelect: app_user reads through a user predicate and a column list without the hidden columns', () => {

@@ -61,6 +61,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "feed_runs" USING btree ("finished_at") WHERE "feed_runs"."state" = 'FAILED'`,
     declaredBy: '0085_s6_08_health_indexes',
   },
+  {
+    // `/v2/sitemap` (S7-03): an agency's own documents in public-code order
+    name: 'listing_search_docs_owner_code_idx',
+    table: 'listing_search_docs',
+    definition: `ON "listing_search_docs" USING btree ("owner_agency_id","public_code") WHERE "listing_search_docs"."public_code" is not null`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

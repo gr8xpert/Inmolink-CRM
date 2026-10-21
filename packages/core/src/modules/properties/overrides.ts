@@ -17,6 +17,7 @@ import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
+import type { SQL } from 'drizzle-orm';
 import type { Ctx } from '../../context';
 import * as developments from '../developments';
 import { propertiesEvents } from './events';
@@ -171,6 +172,35 @@ export interface SiteOverrides {
   developments: Map<string, ListingText>;
 }
 
+type OverrideRow = { targetKind: string; targetId: string; title: string | null; description: string | null };
+
+const overridesFrom = (rows: readonly OverrideRow[]): SiteOverrides => {
+  const out: SiteOverrides = { targets: new Map(), developments: new Map() };
+  for (const r of rows) {
+    (r.targetKind === 'DEVELOPMENT' ? out.developments : out.targets).set(r.targetId, {
+      title: r.title,
+      description: r.description,
+    });
+  }
+  return out;
+};
+
+/**
+ * `siteOverrides` as a part of another statement (S7-03): `sql` is a scalar subquery the caller selects (as
+ * `app_public`), `read` turns its JSON value into the overrides. Lets the website API read overrides and owner
+ * identities in one round trip.
+ */
+export function siteOverridesQuery(
+  agencyId: string,
+  targetIds: readonly string[],
+  locale: string,
+): { sql: SQL; read: (value: unknown) => SiteOverrides } {
+  return {
+    sql: repo.overridesOfTargetsJson(agencyId, targetIds, locale),
+    read: (value) => overridesFrom((value ?? []) as OverrideRow[]),
+  };
+}
+
 /**
  * The website API's overrides (S7-02, PLAN §3 #54): the site's agency's overrides of these targets (listing and unit
  * ids, and the developments of the units) in one locale — one statement. `tx` is the caller's public read
@@ -183,13 +213,5 @@ export async function siteOverrides(
   targetIds: readonly string[],
   locale: string,
 ): Promise<SiteOverrides> {
-  const rows = await repo.overridesOfTargets(tx, agencyId, targetIds, locale);
-  const out: SiteOverrides = { targets: new Map(), developments: new Map() };
-  for (const r of rows) {
-    (r.targetKind === 'DEVELOPMENT' ? out.developments : out.targets).set(r.targetId, {
-      title: r.title,
-      description: r.description,
-    });
-  }
-  return out;
+  return overridesFrom(await repo.overridesOfTargets(tx, agencyId, targetIds, locale));
 }

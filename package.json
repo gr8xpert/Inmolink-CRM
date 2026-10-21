@@ -51,7 +51,7 @@
     "i18n:check": "tsx --conditions=@inmolink/source scripts/i18n/check.ts",
     "i18n:draft": "tsx --conditions=@inmolink/source scripts/i18n/draft.ts",
     "ai:eval": "node scripts/stub.mjs ai:eval S12-01",
-    "sdk:generate": "node scripts/stub.mjs sdk:generate"
+    "sdk:generate": "tsx --conditions=@inmolink/source scripts/sdk/generate.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"

@@ -40,6 +40,7 @@ import {
   deterministicSanitizer,
   NO_OWNER,
   type OwnerIdentity,
+  type OwnerMatcher,
   plainText,
   type SanitizeContext,
   type TextSanitizer,
@@ -82,6 +83,11 @@ export interface SiteView {
   siteContent?: ReadonlyMap<string, SiteText>;
   /** Owner agencies' identities (`agencies.ownerIdentities`), removed from network documents' text. */
   owners?: ReadonlyMap<string, OwnerIdentity>;
+  /**
+   * The same identities compiled once (`compileOwner`, S7-03: per owner per process, not per text): used by the
+   * deterministic pass instead of `owners` when no other `sanitize` is given.
+   */
+  matchers?: ReadonlyMap<string, OwnerMatcher>;
   sanitize?: TextSanitizer;
   /** R2 duplicate clusters: a target's canonical target, or null when it is its own (no-op until R2 dedupe). */
   canonicalOf?: (targetId: string) => string | null;
@@ -136,8 +142,14 @@ interface TextRules {
 
 function rulesFor(view: SiteView, item: Owned<{ ref: string }>): TextRules {
   const network = item.ownerAgencyId !== view.site.agencyId;
-  const sanitize = view.sanitize ?? deterministicSanitizer;
-  const context: SanitizeContext = { ...(view.owners?.get(item.ownerAgencyId) ?? NO_OWNER), ownerRefs: [item.doc.ref] };
+  const matcher = view.sanitize ? undefined : view.matchers?.get(item.ownerAgencyId);
+  const sanitize: TextSanitizer = matcher
+    ? (text, c) => matcher.clean(text, c.ownerRefs)
+    : (view.sanitize ?? deterministicSanitizer);
+  const context: SanitizeContext = {
+    ...(matcher?.identity ?? view.owners?.get(item.ownerAgencyId) ?? NO_OWNER),
+    ownerRefs: [item.doc.ref],
+  };
   const clean = (text: string) => (network ? sanitize(plainText(text), context) : plainText(text));
   return {
     network,
@@ -163,6 +175,36 @@ function interimCode(targetId: string): string {
 /** The reference a site shows: its own documents' as they are, network ones `<prefix>-<public code>`. */
 const refOn = (view: SiteView, item: Owned<{ id: string; ref: string }>, network: boolean) =>
   network ? `${networkRefPrefix(view.site)}-${item.publicCode ?? interimCode(item.doc.id)}` : item.doc.ref;
+
+/**
+ * The reference a site shows for a target (S7-03: changes, sitemap): the owner's own on the owner's sites, else
+ * `<prefix>-<public code>` — the serializer's rule, for rows that are not documents.
+ */
+export function siteRef(
+  site: SiteView['site'],
+  item: { targetId: string; ownerAgencyId: string; ref: string; publicCode: string | null },
+): string {
+  return item.ownerAgencyId === site.agencyId
+    ? item.ref
+    : `${networkRefPrefix(site)}-${item.publicCode ?? interimCode(item.targetId)}`;
+}
+
+/**
+ * The id a site shows for another agency's listing, unit or development (S7-03): a UUID derived from the site's agency
+ * and the real id, so two sites presenting the same network listing cannot be matched by its id (references are
+ * per-site codes already). Stable for one agency; not reversible. Own documents keep their ids.
+ */
+export function siteScopedId(siteAgencyId: string, id: string): string {
+  const h = createHash('sha256').update(`site-id:${siteAgencyId}:${id}`).digest();
+  // RFC 9562 version 8 (custom) with the RFC variant bits.
+  h[6] = ((h[6] as number) & 0x0f) | 0x80;
+  h[8] = ((h[8] as number) & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString('hex');
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+}
+
+/** The id shown: own documents' as they are, network ones scoped to the site's agency. */
+const idOn = (view: SiteView, id: string, network: boolean) => (network ? siteScopedId(view.site.agencyId, id) : id);
 
 function imageOf(view: SiteView, image: ReadModelImage, rules: TextRules): WebsiteImage {
   const base = view.mediaBaseUrl.replace(/\/+$/, '');
@@ -215,9 +257,10 @@ function listingCard(view: SiteView, item: Owned<ListingCardDoc>): WebsiteListin
   const texts = textsFor(view, d.id, null, rules.network);
   const title = rules.pick('title', texts, d.title) ?? '';
   const shownRef = refOn(view, item, rules.network);
+  const shownId = idOn(view, d.id, rules.network);
   return {
     kind: 'LISTING',
-    id: d.id,
+    id: shownId,
     ref: shownRef,
     status: d.status,
     transactionType: d.transactionType,
@@ -231,9 +274,9 @@ function listingCard(view: SiteView, item: Owned<ListingCardDoc>): WebsiteListin
     geo: d.geo,
     cover: d.cover ? imageOf(view, d.cover, rules) : null,
     imageCount: d.imageCount,
-    developmentId: d.developmentId,
+    developmentId: d.developmentId === null ? null : idOn(view, d.developmentId, rules.network),
     title: title || shownRef,
-    slug: rules.network ? slugOf(title, d.id) : d.slug,
+    slug: rules.network ? slugOf(title, shownId) : d.slug,
     textLocale: overriddenTitle(texts) ? null : d.textLocale,
   };
 }
@@ -244,9 +287,10 @@ function unitCard(view: SiteView, item: Owned<UnitCardDoc>): WebsiteUnitCard {
   const texts = textsFor(view, d.id, d.development.id, rules.network);
   const developmentName = rules.owner(d.development.name) ?? '';
   const title = rules.pick('title', texts, d.title) ?? '';
+  const developmentId = idOn(view, d.development.id, rules.network);
   return {
     kind: 'UNIT',
-    id: d.id,
+    id: idOn(view, d.id, rules.network),
     ref: refOn(view, item, rules.network),
     status: d.status,
     price: d.price,
@@ -261,13 +305,13 @@ function unitCard(view: SiteView, item: Owned<UnitCardDoc>): WebsiteUnitCard {
     orientation: d.orientation,
     geo: d.geo,
     development: {
-      id: d.development.id,
+      id: developmentId,
       name: developmentName,
       status: d.development.status,
       completionDate: d.development.completionDate,
     },
     title: title || developmentName,
-    slug: rules.network ? slugOf(title || developmentName, d.development.id) : d.slug,
+    slug: rules.network ? slugOf(title || developmentName, developmentId) : d.slug,
     textLocale: overriddenTitle(texts) ? null : d.textLocale,
   };
 }

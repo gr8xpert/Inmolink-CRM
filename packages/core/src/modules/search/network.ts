@@ -58,6 +58,9 @@ export function configureNetworkSearch(options: { giveToGetMinShared?: number; g
   };
 }
 
+/** The give-to-get threshold and grace period in force in this process (website API gate, S7-03). */
+export const giveToGetSettings = (): Readonly<{ minShared: number; graceDays: number }> => giveToGet;
+
 let log: Logger | undefined;
 const logger = () => {
   log ??= createLogger({ service: 'search' });

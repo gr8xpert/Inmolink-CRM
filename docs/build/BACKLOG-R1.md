@@ -802,6 +802,8 @@ Ref §9.2 §12 · Mod websites · Dep S7-03 · 🔒
 - Exceeding the daily quota returns 429 with reset time
 - Scripted full-inventory paging triggers an alert and throttling
 
+*Note (S7-03 review):* publishable keys answer browsers with their allowlisted origin echoed (CORS); add per-IP limits for publishable-key traffic here (a page's visitors share the key).
+
 ### S7-05 · Lead intake and speed-to-lead
 Ref §3 #12 #60 §7 M8 · Mod websites, crm · Dep S7-03 · 🔒
 **Build:** `POST /v2/leads`, `POST /v2/viewing-requests` (Turnstile, validation, idempotency); store as inbound leads (completed into CRM in S10-02); auto-acknowledgement email in the buyer's language within 60 s with 3 similar listings from the same site's inventory; agent notification.
@@ -816,6 +818,8 @@ Ref §9.2 §5.3 (4) · Mod websites, infra · Dep S7-03
 **Done when:**
 - *(staging)* origin stopped → website API keeps serving cached responses
 - Listing edit visible through the CDN within 5 min
+
+*Note (S7-03):* site-scoped `/v2` answers are `private, max-age=0, must-revalidate` (+ strong ETag, `Vary: X-Api-Key, Authorization, Origin`) because the site comes from the key header and Cloudflare ignores `Vary`. Switch `SITE_CACHE_POLICY` (`apps/feed-api/src/plugins/site-response.ts`) to `public` with the TTLs of `WEBSITE_API_TTL` only together with cache keys that include the site (e.g. a site-scoped hostname or a key-derived cache key).
 
 ### S7-07 · Per-site XML feed and iFrame embed
 Ref §9.5 · Mod websites, public · Dep S7-03
@@ -886,6 +890,13 @@ Ref §3 #6 §9.1 · Mod search, websites · Dep S7-02
 **Done when:**
 - On an OWN_PLUS_NETWORK site, searching an owner's name, phone, e-mail or website host returns none of its network listings (engine test; the fallback matches references only)
 - Titles and descriptions without owner details rank as before (existing search tests green)
+
+### S7-F6 · Website API v2: developments and taxonomy endpoints (split from S7-03)
+Ref §9.1 · Mod websites, search, feed-api · Dep S7-03 · ⚡
+**Build:** the rest of S7-03's read endpoints. `GET /v2/developments` (new-build cards of the site's inventory: name, place, status, completion, price range and unit counts from the public unit read models — a development read model or an aggregate over `listing_search_docs`, no per-request joins over raw tables), `/v2/developments/{ref}` (detail, white-labelled like listings: network developments by a site code, never the owner's id — S7-03 shows network ids scoped per site agency), `/v2/developments/{ref}/units` (live unit table, cursor pages). `GET /v2/taxonomy/types` and `/v2/taxonomy/features` (S2-03 serves both in `/v2/taxonomy/catalog`; split or alias, and decide whether options are narrowed to the site's inventory with counts). The `developmentId` search filter for network developments: S7-03 shows network development ids scoped per site agency (`siteScopedId`, not reversible), so the filter matches own developments only — map scoped ids back (a lookup by the site's agency) or accept the development's site reference instead. OpenAPI + `pnpm sdk:generate`.
+**Done when:**
+- Each endpoint ≤ 3 queries, p95 < 150 ms origin on the scale seed; ETag + 304 and Cache-Control as S7-03
+- A network development and its units are white-labelled (no owner id, reference, name or contact; property test like S7-02)
 
 ---
 

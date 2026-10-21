@@ -27,6 +27,7 @@ export const HELPER_FUNCTIONS = [
   'app_preferring_agencies',
   'app_partition_maintenance',
   'search_commission_at_least',
+  'website_network_open',
 ] as const;
 
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
@@ -220,6 +221,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     out.push({ name: 'network_read', cmd: 'SELECT', roles: ['app_user'] });
   }
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
+  if (def.definerRead) out.push({ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] });
   return out;
 }
 
@@ -314,8 +316,20 @@ end $$;`,
     `create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
   security definer set search_path = pg_catalog, pg_temp
   as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), search_commission_at_least(uuid, integer) from public;`,
+    // S7-03: may this agency's websites show network listings (PLAN §3 #5 give-to-get)? Exempt, within its grace period,
+    // or sharing at least `min_shared` listings with the whole network (the network search's count, capped). feed-api
+    // runs as app_public, which reads neither table; it gets this one boolean per agency.
+    `create or replace function website_network_open(a_id uuid, min_shared integer, grace_days integer) returns boolean
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select coalesce((select g.give_to_get_exempt or g.created_at > now() - make_interval(days => grace_days)
+                           from public.agencies g where g.agency_id = a_id), false)
+            or (select count(*) from (select 1 from public.properties p
+                  where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
+                    and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
+                  limit greatest(min_shared, 0)) s) >= min_shared $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), search_commission_at_least(uuid, integer), website_network_open(uuid, integer, integer) from public;`,
     `grant execute on function search_commission_at_least(uuid, integer) to app_public;`,
+    `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_is_staff() to app_staff;`,
@@ -479,6 +493,10 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   using (${gated(update)}) with check (${gated(update)});`);
     }
     out.push(...staffGrantSql(t, def.staff));
+  }
+  if (def.definerRead) {
+    // S7-03: read by a SECURITY DEFINER function only (owned by app_owner); no application role gains a row.
+    out.push(`create policy definer_read on ${t} for select to app_owner using (true);`);
   }
   return out;
 }

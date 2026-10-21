@@ -5,6 +5,8 @@ import {
   databaseEnv,
   httpEnv,
   loadConfigOrExit,
+  mediaCdnEnv,
+  networkEnv,
   portVar,
   rateLimitEnv,
   redisEnv,
@@ -31,6 +33,11 @@ export const feedApiEnv = {
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
   /** Website search timing: engine timeout, slow threshold, circuit breaker (S6-F3). */
   ...websiteSearchEnv,
+  /** Image URLs in website documents (S7-03). */
+  ...mediaCdnEnv,
+  /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */
+  NETWORK_GIVE_TO_GET_MIN_SHARED: networkEnv.NETWORK_GIVE_TO_GET_MIN_SHARED,
+  NETWORK_GIVE_TO_GET_GRACE_DAYS: networkEnv.NETWORK_GIVE_TO_GET_GRACE_DAYS,
   ...cryptoEnv,
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;

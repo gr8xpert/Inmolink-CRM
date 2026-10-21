@@ -1,0 +1,368 @@
+/**
+ * Website API v2 reads (S7-03, PLAN §9.1, ADR 0012): the site-facing use cases feed-api routes call — search, a
+ * reference's detail, the delta feed and the sitemap. The composition point of `websites` (site scope, serializer),
+ * `search` (inventory, read models, change log), `properties` (the site agency's overrides) and `agencies` (owner
+ * identities for the white-label sanitizer): `websites` cannot import `search` or `properties` (identity → websites
+ * cycle), so the hydration lives here, not in a route.
+ *
+ * Every read runs as `app_public` (`withPublicRead`), never in a tenant session. The inventory is the site's policy
+ * (`websites.siteSearchScope`), with network listings dropped while the agency's give-to-get standing is locked
+ * (S7-01 Decision 2). Query budget per request with the site scope and network gate cached (Redis + 15 s local; a
+ * miss costs 2 + 1 statements once a minute per site): search 1–2 statements (+1 when the Postgres fallback answers),
+ * detail 1–2, changes 2 (3 from `since`), sitemap 1–2. Overrides and owner identities are one statement.
+ */
+import { createHash } from 'node:crypto';
+import type {
+  ListingCardDoc,
+  ListingDetailDoc,
+  PublicListingSearch,
+  UnitCardDoc,
+  UnitDetailDoc,
+  WebsiteChangesPage,
+  WebsiteChangesQuery,
+  WebsiteDetail,
+  WebsiteListingPage,
+  WebsiteListingsQuery,
+  WebsiteSitemapPage,
+  WebsiteSitemapQuery,
+} from '@inmolink/contracts';
+import { type Tx, withPublicRead } from '@inmolink/db';
+import { LocalLru } from '@inmolink/platform/cache';
+import { clock } from '@inmolink/platform/clock';
+import { hmacSha256, safeEqual } from '@inmolink/platform/crypto';
+import { AppError } from '@inmolink/platform/errors';
+import { sql } from 'drizzle-orm';
+import { compileOwner, NO_OWNER, type OwnerIdentity, type OwnerMatcher } from '../../white-label';
+import * as agencies from '../agencies';
+import * as properties from '../properties';
+import * as search from '../search';
+import * as websites from '../websites';
+
+export interface WebsiteApiSettings {
+  /** Media CDN base URL (`MEDIA_CDN_URL`): image variant keys are served under it. */
+  mediaBaseUrl: string;
+  /** Signs `/v2/changes` cursors (`HMAC_KEY`, purpose-separated): a client cannot forge a position or its age. */
+  cursorKey: string;
+}
+
+let settings: WebsiteApiSettings | undefined;
+
+/** Boot: the media CDN base and the cursor key from config. Every use case refuses to run before it. */
+export function configureWebsiteApi(next: WebsiteApiSettings): void {
+  if (!next.mediaBaseUrl || !next.cursorKey) throw new Error('website-api: mediaBaseUrl and cursorKey are required');
+  settings = { ...next };
+}
+
+function configured(): WebsiteApiSettings {
+  if (!settings) throw new Error('website-api: configureWebsiteApi() was not called');
+  return settings;
+}
+
+/** A site as one request serves it. */
+export interface ApiSite {
+  scope: websites.SiteScope;
+  /**
+   * The site's inventory (`search.PublicSearchSite`); null: the site shows nothing now (a network-only CUSTOM site of
+   * an agency whose give-to-get standing is locked).
+   */
+  inventory: websites.SiteSearchScope | null;
+  /** A short hash of the effective inventory rules: `/v2/changes` reports it (`scope`) so a plugin can resync. */
+  tag: string;
+}
+
+/**
+ * The site a website API key serves (S7-01: keys are bound to a site). Keys created before sites existed have none
+ * and are refused (`API_KEY_SITE_REQUIRED`). Network listings are dropped while the agency's give-to-get standing is
+ * locked (`search.websiteNetworkOpen`, cached). Cached reads only on a warm path: no statement.
+ */
+export async function siteForKey(
+  key: { agencyId: string; siteId: string | null },
+  requestId: string,
+): Promise<ApiSite> {
+  if (key.siteId === null) throw new AppError('API_KEY_SITE_REQUIRED');
+  const scope = await websites.siteScope(key.siteId);
+  // The key's site is its agency's (composite foreign key); anything else is refused, never served.
+  if (scope.agencyId !== key.agencyId) throw new AppError('SITE_NOT_FOUND');
+  let inventory: websites.SiteSearchScope = websites.siteSearchScope(scope, requestId);
+  if (inventory.networkOf !== undefined && !(await search.websiteNetworkOpen(scope.agencyId))) {
+    const { networkOf: _network, networkRefPrefix: _prefix, ...own } = inventory;
+    inventory = own;
+  }
+  const tag = createHash('sha256')
+    .update(
+      JSON.stringify([
+        inventory.ownerAgencyIds,
+        inventory.networkOf ?? null,
+        inventory.networkRefPrefix ?? null,
+        inventory.restrict ?? null,
+      ]),
+    )
+    .digest('base64url')
+    .slice(0, 16);
+  const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
+  return { scope, inventory: shows ? inventory : null, tag };
+}
+
+/** `?lang=`: one of the site's languages (default its first). */
+function langOf(site: ApiSite, lang: string | undefined): string {
+  const chosen = lang ?? site.scope.defaultLocale;
+  if (!site.scope.locales.includes(chosen)) {
+    throw new AppError('VALIDATION_FAILED', { field: 'lang', reason: 'not a language of this site' });
+  }
+  return chosen;
+}
+
+// ── Owner identities (white-label sanitizer) ────────────────────────────────────────────────────────────────────
+
+/** Compiled matchers by identity content (not by owner): an edited identity is a new key, never a stale matcher. */
+const ownerMatchers = new LocalLru<OwnerMatcher>(5_000);
+const MATCHER_TTL_MS = 10 * 60_000;
+
+/** Tests: forget compiled owner identities. */
+export function resetWebsiteApiCaches(): void {
+  ownerMatchers.clear();
+}
+
+function matcherOf(identity: OwnerIdentity): OwnerMatcher {
+  const key = JSON.stringify(identity);
+  const hit = ownerMatchers.get(key);
+  if (hit) return hit;
+  const matcher = compileOwner(identity);
+  ownerMatchers.set(key, matcher, MATCHER_TTL_MS);
+  return matcher;
+}
+
+type Doc = ListingCardDoc | UnitCardDoc | ListingDetailDoc | UnitDetailDoc;
+
+/**
+ * How this site presents these documents: its presenter and media base, and — only when some are other agencies' —
+ * the site agency's overrides and the owners' identities, read together in one statement (each module builds its
+ * own part, `properties.siteOverridesQuery` / `agencies.ownerIdentitiesQuery`) and compiled once per identity.
+ */
+async function viewFor(tx: Tx, site: ApiSite, lang: string, rows: readonly search.PublicDocRow[]) {
+  const view: websites.SiteView = {
+    site: { agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix },
+    presenter: site.scope.presenter,
+    mediaBaseUrl: configured().mediaBaseUrl,
+  };
+  const network = rows.filter((r) => r.ownerAgencyId !== site.scope.agencyId);
+  if (network.length === 0) return view;
+  const targets = network.flatMap((r) => {
+    const doc = r.doc as Doc;
+    return doc.kind === 'UNIT' ? [r.targetId, doc.development.id] : [r.targetId];
+  });
+  const overrides = properties.siteOverridesQuery(site.scope.agencyId, targets, lang);
+  const owners = agencies.ownerIdentitiesQuery(network.map((r) => r.ownerAgencyId));
+  const res = await tx.execute(sql`select ${overrides.sql} as overrides, ${owners.sql} as owners`);
+  const row = res.rows[0] as { overrides: unknown; owners: unknown };
+  const identities = owners.read(row.owners);
+  const matchers = new Map<string, OwnerMatcher>();
+  for (const id of new Set(network.map((r) => r.ownerAgencyId))) {
+    matchers.set(id, matcherOf(identities.get(id) ?? NO_OWNER));
+  }
+  return { ...view, overrides: overrides.read(row.overrides), matchers };
+}
+
+const owned = <D>(r: search.PublicDocRow) => ({
+  ownerAgencyId: r.ownerAgencyId,
+  publicCode: r.publicCode,
+  doc: r.doc as D,
+});
+
+// ── Search ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** `GET /v2/listings`: one page of the site's inventory matching a visitor's filters, as the site shows it. */
+export async function searchListings(site: ApiSite, q: WebsiteListingsQuery): Promise<WebsiteListingPage> {
+  const lang = langOf(site, q.lang);
+  if (!site.inventory) return { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
+  const input: PublicListingSearch = {
+    text: q.q,
+    locale: lang,
+    kind: q.kind,
+    developmentId: q.developmentId,
+    ...(q.status ? { statuses: q.status } : {}),
+    transactionType: q.transaction,
+    propertyTypeIds: q.types,
+    locationIds: q.locations,
+    featureIds: q.features,
+    priceMinCents: q.priceMin,
+    priceMaxCents: q.priceMax,
+    bedsMin: q.bedsMin,
+    bathsMin: q.bathsMin,
+    areaMinM2: q.areaMin,
+    areaMaxM2: q.areaMax,
+    geoBox: q.bbox ? { north: q.bbox[0], west: q.bbox[1], south: q.bbox[2], east: q.bbox[3] } : undefined,
+    facets: q.facets ?? [],
+    sort: q.sort,
+    limit: q.limit,
+    cursor: q.cursor,
+  };
+  const found = await search.searchPublicListings(site.inventory, input);
+  const items =
+    found.ids.length === 0
+      ? []
+      : await withPublicRead(async (tx) => {
+          const rows = await search.publicDocs(tx, found.ids, 'card', lang, site.scope.defaultLocale);
+          const byId = new Map(rows.map((r) => [r.targetId, r]));
+          // The engine's order; a target whose read model went in between is left out.
+          const ordered = found.ids.flatMap((id) => byId.get(id) ?? []);
+          const view = await viewFor(tx, site, lang, ordered);
+          return websites.serializeCards(view, ordered.map(owned<ListingCardDoc | UnitCardDoc>));
+        });
+  return {
+    items,
+    total: found.total,
+    facets: found.facets,
+    nextCursor: found.nextCursor,
+    degraded: found.backend === 'fallback',
+    ...(found.resultsChanged ? { resultsChanged: true as const } : {}),
+  };
+}
+
+/** `GET /v2/listings/{ref}`: the detail a reference names on this site (own reference, or `<prefix>-<code>`). */
+export async function listingDetail(site: ApiSite, ref: string, lang?: string): Promise<WebsiteDetail> {
+  const locale = langOf(site, lang);
+  const inventory = site.inventory;
+  if (!inventory) throw new AppError('LISTING_NOT_FOUND');
+  return withPublicRead(async (tx) => {
+    const row = await search.publicDetailByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
+    if (!row) throw new AppError('LISTING_NOT_FOUND');
+    const view = await viewFor(tx, site, locale, [row]);
+    return websites.serializeDetail(view, owned<ListingDetailDoc | UnitDetailDoc>(row));
+  });
+}
+
+// ── Delta feed ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A changes cursor: the log position (`x` xid8, `s` seq) and the hour it was handed out (`h`, epoch hours). */
+interface ChangesCursor {
+  x: string;
+  s: number;
+  h: number;
+}
+
+const CURSOR_PURPOSE = 'website-api.changes-cursor';
+const encodeCursor = (c: unknown) => Buffer.from(JSON.stringify(c)).toString('base64url');
+
+const macOf = (c: ChangesCursor) => hmacSha256(configured().cursorKey, CURSOR_PURPOSE, `${c.x}:${c.s}:${c.h}`);
+
+/** Signed (`m`): the client cannot move the position or make an expired cursor look fresh. */
+function signChangesCursor(c: ChangesCursor): string {
+  return encodeCursor({ ...c, m: macOf(c) });
+}
+
+function decodeChangesCursor(cursor: string): ChangesCursor {
+  try {
+    const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<string, unknown>;
+    if (
+      typeof c.x === 'string' &&
+      /^\d{1,20}$/.test(c.x) &&
+      Number.isSafeInteger(c.s) &&
+      (c.s as number) >= -1 &&
+      Number.isSafeInteger(c.h) &&
+      typeof c.m === 'string'
+    ) {
+      const parsed = { x: c.x, s: c.s as number, h: c.h as number };
+      if (safeEqual(c.m, macOf(parsed))) return parsed;
+    }
+  } catch {
+    // falls through
+  }
+  throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * `GET /v2/changes`: the site's delta feed (S7-03). Every change of a public listing or unit the site could show
+ * exactly once across pages, in commit-safe order (`search.siteChanges`): UPSERT when the target is on the site now,
+ * REMOVE when it is not. A network site reads its own changes and those of targets shared with its agency before or
+ * after the change — never the rest of the platform's activity. Cursors are signed and carry the hour they were
+ * handed out (so a page's body stays the same within the hour); a cursor or `since` older than the log's retention
+ * answers `CHANGES_EXPIRED` (rebuild from the sitemap). Two statements (three from `since`).
+ */
+export async function changes(site: ApiSite, q: WebsiteChangesQuery): Promise<WebsiteChangesPage> {
+  const now = clock.now();
+  const oldest = now.getTime() - search.PUBLIC_CHANGES_RETENTION_DAYS * 86_400_000;
+  let after: search.ChangePosition | undefined;
+  let since: Date | undefined;
+  if (q.cursor !== undefined) {
+    const c = decodeChangesCursor(q.cursor);
+    // The hour it was handed out, rounded down: at most an hour older than the client's last poll.
+    if (c.h * HOUR_MS < oldest) throw new AppError('CHANGES_EXPIRED');
+    after = { tx: c.x, seq: c.s };
+  } else {
+    since = new Date(q.since as string);
+    if (since.getTime() < oldest) throw new AppError('CHANGES_EXPIRED');
+  }
+  // A site showing nothing still pages its agency's changes (all REMOVE), so its cursor keeps moving.
+  const inventory = site.inventory ?? { ownerAgencyIds: [site.scope.agencyId], requestId: '' };
+  const audience: search.ChangeAudience =
+    inventory.networkOf === undefined ? { ownerAgencyId: site.scope.agencyId } : { networkOf: inventory.networkOf };
+  const page = await withPublicRead((tx) =>
+    search.siteChanges(tx, inventory, { after, since, audience, limit: q.limit }),
+  );
+  const shown = { agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix };
+  return {
+    items: page.rows.map((r) => ({
+      ref: websites.siteRef(shown, r),
+      kind: r.kind,
+      change: site.inventory && r.present ? ('UPSERT' as const) : ('REMOVE' as const),
+      changedAt: r.changedAt.toISOString(),
+    })),
+    nextCursor: signChangesCursor({
+      x: page.position.tx,
+      s: page.position.seq,
+      h: Math.floor(now.getTime() / HOUR_MS),
+    }),
+    hasMore: page.rows.length === q.limit,
+    scope: site.tag,
+  };
+}
+
+// ── Sitemap ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const PUBLIC_CODE = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+
+function decodeSitemapCursor(cursor: string): string {
+  try {
+    const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<string, unknown>;
+    if (typeof c.c === 'string' && PUBLIC_CODE.test(c.c)) return c.c;
+  } catch {
+    // falls through
+  }
+  throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
+}
+
+/**
+ * `GET /v2/sitemap`: the site's listing pages (shown reference, slug in `lang`, last change), one page per cursor in
+ * a stable order (public codes: never an internal id). One statement, plus the overrides when network listings are
+ * on the page.
+ */
+export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<WebsiteSitemapPage> {
+  const lang = langOf(site, q.lang);
+  const inventory = site.inventory;
+  if (!inventory) return { items: [], nextCursor: null };
+  const after = q.cursor === undefined ? undefined : decodeSitemapCursor(q.cursor);
+  return withPublicRead(async (tx) => {
+    const rows = await search.sitemapPage(tx, inventory, {
+      after,
+      limit: q.limit,
+      locale: lang,
+      fallback: site.scope.defaultLocale,
+    });
+    const page = rows.slice(0, q.limit);
+    const view = await viewFor(tx, site, lang, page);
+    const cards = websites.serializeCards(view, page.map(owned<ListingCardDoc | UnitCardDoc>));
+    const last = page[page.length - 1];
+    return {
+      items: cards.map((card, i) => ({
+        ref: card.ref,
+        kind: card.kind,
+        slug: card.slug,
+        updatedAt: (page[i] as search.PublicDocRow).updatedAt.toISOString(),
+      })),
+      nextCursor: rows.length > q.limit && last?.publicCode ? encodeCursor({ c: last.publicCode }) : null,
+    };
+  });
+}

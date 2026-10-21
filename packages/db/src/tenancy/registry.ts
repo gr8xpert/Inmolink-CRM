@@ -123,6 +123,12 @@ interface TenantBase {
    * policy — so no request path can plant or change what public paths serve.
    */
   userReadOnly?: true;
+  /**
+   * `app_owner` (the owner of SECURITY DEFINER functions) may read every row (S7-03): a definer function reads the table
+   * for a public path and answers less than a row (`website_network_open`: one boolean per agency). No application
+   * role gains anything; forced RLS binds the owner too, hence the explicit policy.
+   */
+  definerRead?: true;
 }
 
 export interface AuthAccess {
@@ -261,6 +267,8 @@ export const tenantTables: Record<string, TenantTable> = {
     hiddenColumns: ['give_to_get_reason'],
     triggers: ['agencies_guard', 'agencies_guard_insert', 'agencies_directory_sync'],
     staff: { select: 'true', update: 'true' },
+    // S7-03: `website_network_open` (SECURITY DEFINER) reads the give-to-get exemption and age for the website API.
+    definerRead: true,
     auth: {
       select: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
       insert: `agency_id = app_agency() and status = 'PENDING' and onboarded_at is null`,
@@ -455,6 +463,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // the network (S3-08: `network_hidden_at`, set by the freshness sweep, cleared by a confirmation).
   properties: {
     kind: 'NETWORK_READ',
+    // S7-03: `website_network_open` (SECURITY DEFINER) counts the agency's network-shared listings for the website API.
+    definerRead: true,
     networkReadSql: `visibility in ('SHARED', 'PUBLIC') and status = 'ACTIVE' and deleted_at is null
       and network_hidden_at is null
       and exists (select 1 from public.agency_directory d where d.agency_id = properties.agency_id and d.listed)
@@ -778,6 +788,13 @@ export const globalTables: Record<string, GlobalTable> = {
   },
   // Commission of PUBLIC targets (S7-F4): worker-written; no role reads it (the website fallback asks a boolean through
   // `search_commission_at_least`, SECURITY DEFINER), so no public path can select a commission.
+  // Public change log (S7-03): written with read models by the search worker (withSystem); `/v2/changes` reads it.
+  listing_public_changes: {
+    reason: 'changes of PUBLIC listings and units of every agency (website API delta feed, `/v2/changes`)',
+    publicRead: true,
+    noUserRead: true,
+    base: { kind: 'LISTING', ref: 'INL-TEST' },
+  },
   listing_search_commissions: {
     reason:
       'total commission of PUBLIC listings and units of every agency (website minimum-commission filter, worker-only)',
