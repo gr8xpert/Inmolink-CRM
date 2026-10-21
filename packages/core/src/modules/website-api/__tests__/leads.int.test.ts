@@ -535,4 +535,46 @@ describe('website lead intake (S7-05)', () => {
     expect(websiteApi.ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'STANDARD')).toBe('SITE_DAILY');
     expect(websiteApi.ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'HIGH')).toBeNull();
   });
+
+  it('[S7-05] concurrent acknowledgement jobs for one recipient (aliases included) send at most the cap', async () => {
+    const user = `victim${newId().slice(-6)}`;
+    // Five spellings of one Gmail mailbox: the cap counts the mailbox, each ack goes to the address as given.
+    const spellings = [
+      `${user}@gmail.com`,
+      `${user}+a@gmail.com`,
+      `${user.slice(0, 3)}.${user.slice(3)}@googlemail.com`,
+      ` ${user.toUpperCase()}+b@Gmail.com `.trim(),
+      `${user}+c@googlemail.com`,
+    ];
+    const ids: string[] = [];
+    for (const email of spellings) {
+      const { accepted } = await websiteApi.submitLead(
+        await site(),
+        { kind: 'ENQUIRY', body: enquiry({ email }) },
+        secret(),
+      );
+      ids.push(accepted.id);
+    }
+    await Promise.all(
+      ids.map((leadId, i) =>
+        websiteApi.websiteApiJobs.sendLeadAcknowledgement.spec.run(
+          { eventId: newId(), leadId, agencyId: a.agencyId },
+          jobCtx(`race-${i}`),
+        ),
+      ),
+    );
+    // Three per recipient per site per day, however the jobs interleave.
+    const sent = mail.sent.filter((m) => spellings.includes(m.to as string));
+    expect(sent).toHaveLength(3);
+    const rows = await system((tx) =>
+      tx.execute<{ sent: string; skipped: string }>(
+        sql`select count(ack_sent_at) as sent, count(ack_skipped_reason) as skipped
+              from website_leads where id in (${sql.join(
+                ids.map((id) => sql`${id}`),
+                sql`, `,
+              )})`,
+      ),
+    );
+    expect(rows.rows[0]).toEqual({ sent: '3', skipped: '2' });
+  });
 });

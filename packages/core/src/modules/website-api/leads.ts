@@ -66,9 +66,32 @@ function requestHashOf(kind: LeadKind, body: WebsiteLeadBody | WebsiteViewingReq
 const idempotencyHashOf = (siteId: string, key: string) =>
   hmacSha256(leadSecret(), 'website-api.lead-idempotency', `${siteId}:${key}`);
 
-/** The recipient of the acknowledgement, without the address: HMAC of the normalized e-mail (limits per recipient). */
+/** Gmail ignores dots in the local part, and googlemail.com is the same mailbox. */
+const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+
+/**
+ * The mailbox an address reaches, for the per-recipient caps only (S7-05 review: aliases must not multiply the caps):
+ * lowercased and trimmed, `+tag` dropped from the local part, Gmail dots removed and googlemail.com → gmail.com. The
+ * acknowledgement still goes to the address as given.
+ */
+export function canonicalRecipient(email: string): string {
+  const lower = email.trim().toLowerCase();
+  const at = lower.lastIndexOf('@');
+  if (at <= 0) return lower;
+  let local = lower.slice(0, at);
+  let domain = lower.slice(at + 1);
+  const plus = local.indexOf('+');
+  if (plus > 0) local = local.slice(0, plus);
+  if (GMAIL_DOMAINS.has(domain)) {
+    local = local.replaceAll('.', '');
+    domain = 'gmail.com';
+  }
+  return `${local}@${domain}`;
+}
+
+/** The recipient of the acknowledgement, without the address: HMAC of the canonical mailbox (limits per recipient). */
 export const recipientHashOf = (email: string) =>
-  hmacSha256(leadSecret(), 'website-api.lead-recipient', email.trim().toLowerCase());
+  hmacSha256(leadSecret(), 'website-api.lead-recipient', canonicalRecipient(email));
 
 function accepted(receipt: websites.LeadReceipt, replayed: boolean): WebsiteLeadAccepted {
   return { id: receipt.id, kind: receipt.kind, status: 'RECEIVED', replayed };

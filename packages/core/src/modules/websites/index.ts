@@ -13,10 +13,13 @@ export {
   type LeadRow,
   type LeadVerification,
   leadByIdempotency,
+  lockAckSlots,
   markAckSkipped,
   markLeadSent,
   pruneLeadIdempotency,
   recordInboundLead,
+  releaseAck,
+  reserveAck,
 } from './leads';
 export { CLIENT_MODE_ALLOWED, can, WEBSITES_ACTIONS, WEBSITES_IMPERSONATION, type WebsitesAction } from './policy';
 export {

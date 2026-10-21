@@ -9,8 +9,11 @@
  * `websiteApi.notifyLeadAgency` (same event): the presenting agency's notification — to the site's contact e-mail, or
  * the agency's active admins when the site and profile publish none.
  *
- * Both idempotent per lead (`jobId`, and `ack_sent_at` / `agency_notified_at` checked before sending; a crash between
- * the send and the mark sends at most once more), fair-shared per agency, retried 5× with backoff. The 60 s budget:
+ * Both idempotent per lead (`jobId`, and `ack_sent_at` / `agency_notified_at` checked before sending), fair-shared per
+ * agency, retried 5× with backoff. The acknowledgement's slot is reserved atomically before the send (caps hold under
+ * concurrency) and given back if the send fails; a worker crash between the reservation and the send loses that one
+ * acknowledgement rather than risk exceeding a cap. The agency notification: a crash between the send and the mark
+ * sends at most once more. The 60 s budget:
  * outbox poll (≤ 250 ms) + queue pickup + the search (≤ engine timeout, else the Postgres fallback) + one SMTP send.
  */
 import type { ListingCardDoc, UnitCardDoc, ViewingSlot, WebsiteCard, WebsiteListingsQuery } from '@inmolink/contracts';
@@ -108,22 +111,33 @@ export const websiteApiJobs = {
         return { sent: false };
       }
       const { lead, site } = loaded;
-      // A form can name anyone's address: cap the automatic replies per recipient and per site (S7-05 review).
-      const skip = await withSystem('websiteApi.sendLeadAcknowledgement limits', async (tx) => {
+      // A form can name anyone's address: cap the automatic replies per recipient and per site (S7-05 review). The
+      // decision and the slot are taken atomically — under advisory locks on the recipient and the site, the slot
+      // counted at once (`ack_sent_at`) — so concurrent jobs for one recipient never all pass the cap.
+      const reservedAt = clock.now();
+      const decision = await withSystem('websiteApi.sendLeadAcknowledgement limits', async (tx) => {
+        await websites.lockAckSlots(tx, { siteId: lead.siteId, emailHash: lead.emailHash });
         const reason = ackCapReached(
           await websites.ackUsage(tx, {
             siteId: lead.siteId,
             emailHash: lead.emailHash,
-            since: new Date(clock.now().getTime() - DAY_MS),
+            since: new Date(reservedAt.getTime() - DAY_MS),
           }),
           lead.keyTier === 'HIGH' ? 'HIGH' : 'STANDARD',
         );
-        if (reason) await websites.markAckSkipped(tx, lead.id, reason, clock.now());
-        return reason;
+        if (reason) {
+          await websites.markAckSkipped(tx, lead.id, reason, reservedAt);
+          return { skip: reason } as const;
+        }
+        return { reserved: await websites.reserveAck(tx, lead.id, reservedAt) } as const;
       });
-      if (skip) {
-        log.warn({ leadId: lead.id, siteId: lead.siteId, reason: skip }, 'lead acknowledgement capped');
-        return { sent: false, skipped: skip };
+      if ('skip' in decision) {
+        log.warn({ leadId: lead.id, siteId: lead.siteId, reason: decision.skip }, 'lead acknowledgement capped');
+        return { sent: false, skipped: decision.skip };
+      }
+      if (!decision.reserved) {
+        log.info({ leadId: lead.id }, 'lead acknowledgement skipped (taken by another run)');
+        return { sent: false };
       }
       let similar: WebsiteCard[] = [];
       try {
@@ -141,8 +155,16 @@ export const websiteApiJobs = {
         presenter: site.scope.presenter,
         similar,
       });
-      // Outside any transaction (CLAUDE.md rule 6). Never log the message or the address.
-      await mailer().send(message);
+      // Outside any transaction (CLAUDE.md rule 6). Never log the message or the address. A failed send gives the slot
+      // back, so the retry reserves (and re-checks the caps) again.
+      try {
+        await mailer().send(message);
+      } catch (err) {
+        await withSystem('websiteApi.sendLeadAcknowledgement release', (tx) =>
+          websites.releaseAck(tx, lead.id, reservedAt),
+        );
+        throw err;
+      }
       const sentAt = clock.now();
       await withSystem('websiteApi.sendLeadAcknowledgement', (tx) => websites.markLeadSent(tx, lead.id, 'ack', sentAt));
       log.info(

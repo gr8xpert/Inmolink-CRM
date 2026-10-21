@@ -104,6 +104,21 @@ export function ackUsage(tx: Tx, q: { siteId: string; emailHash: string; since: 
   return repo.ackUsage(tx, q);
 }
 
+/** Serializes acknowledgement cap decisions per recipient and site until the transaction ends (`app_system`). */
+export function lockAckSlots(tx: Tx, q: { siteId: string; emailHash: string }): Promise<void> {
+  return repo.lockAckSlots(tx, q);
+}
+
+/** Takes the lead's acknowledgement slot before the send (counted by the caps at once); false: already taken. */
+export function reserveAck(tx: Tx, id: string, at: Date): Promise<boolean> {
+  return repo.reserveAck(tx, id, at);
+}
+
+/** Gives a reserved acknowledgement slot back after a failed send. */
+export function releaseAck(tx: Tx, id: string, at: Date): Promise<void> {
+  return repo.releaseAck(tx, id, at);
+}
+
 /** Records that a lead gets no acknowledgement (a daily cap), and why. */
 export function markAckSkipped(tx: Tx, id: string, reason: repo.AckSkipReason, at: Date): Promise<void> {
   return repo.markAckSkipped(tx, id, reason, at);

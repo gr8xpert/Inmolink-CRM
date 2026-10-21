@@ -139,6 +139,32 @@ export async function markAckSkipped(tx: Tx, id: string, reason: AckSkipReason, 
 export type AckSkipReason = 'RECIPIENT_SITE_DAILY' | 'RECIPIENT_DAILY' | 'SITE_DAILY';
 
 /**
+ * Serializes acknowledgement cap decisions for one recipient and one site until the transaction ends (S7-05 review):
+ * transaction-scoped advisory locks, always recipient first, then site, so two deciders never wait on each other in a
+ * cycle.
+ */
+export async function lockAckSlots(tx: Tx, q: { siteId: string; emailHash: string }): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`lead-ack-recipient:${q.emailHash}`}, 0))`);
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`lead-ack-site:${q.siteId}`}, 0))`);
+}
+
+/**
+ * Takes the lead's acknowledgement slot (`ack_sent_at` = `at`, so the caps count it at once) unless it is already
+ * taken or skipped. Returns whether this call took it.
+ */
+export async function reserveAck(tx: Tx, id: string, at: Date): Promise<boolean> {
+  const res = await tx.execute(sql`
+    update ${websiteLeads} set ack_sent_at = ${at}, updated_at = ${at}
+     where id = ${id} and ack_sent_at is null and ack_skipped_reason is null`);
+  return (res.rowCount ?? 0) === 1;
+}
+
+/** Gives a reserved acknowledgement slot back (the send failed; the retry reserves again). */
+export async function releaseAck(tx: Tx, id: string, at: Date): Promise<void> {
+  await tx.execute(sql`update ${websiteLeads} set ack_sent_at = null where id = ${id} and ack_sent_at = ${at}`);
+}
+
+/**
  * Acknowledgements sent since `since`: to this recipient by this site, to this recipient by any site (cross-tenant:
  * `app_system` only), and by this site at all. One statement (`website_leads_recipient_ack_idx`, `…_site_ack_idx`).
  */
