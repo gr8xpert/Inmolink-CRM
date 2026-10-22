@@ -133,7 +133,7 @@ async function commandCalls(): Promise<Record<string, number>> {
   return out;
 }
 
-it('[S7-04] exactly one Redis call and no database statement per request; Redis memory per browser', async () => {
+it('[S7-04] one Redis call per limit slot and no database statement per request (publishable: two, the per-IP rule in its own slot since S7-F9; secret: one); Redis memory per browser', async () => {
   const N = 200;
   const widget = key('PUBLISHABLE', 7);
   // Its own key prefix, so only this test's browsers are counted.
@@ -153,7 +153,17 @@ it('[S7-04] exactly one Redis call and no database statement per request; Redis 
   const after = await commandCalls();
   const scriptCalls = (after.evalsha ?? 0) - (before.evalsha ?? 0) + ((after.eval ?? 0) - (before.eval ?? 0));
   expect(statements).toBe(0);
-  expect(scriptCalls).toBe(N);
+  // Publishable keys: the key/browser rules and the `feed.pk.ip` rule (its own slot) are two script calls.
+  expect(scriptCalls).toBe(2 * N);
+  // A secret key has no per-IP slot: exactly one call.
+  const secret = key('SECRET', 7);
+  await websiteApi.checkWebsiteLimits(own, secret, facts(0));
+  const beforeSecret = await commandCalls();
+  await websiteApi.checkWebsiteLimits(own, secret, facts(1));
+  const afterSecret = await commandCalls();
+  expect(
+    (afterSecret.evalsha ?? 0) - (beforeSecret.evalsha ?? 0) + ((afterSecret.eval ?? 0) - (beforeSecret.eval ?? 0)),
+  ).toBe(1);
   // What one browser (key × IP) leaves in the limits Redis: its per-browser rules' keys.
   const redis = rateLimitConnection();
   const browserKeys = (await redis.keys(`${prefix}:mem:*`)).filter((k) =>
@@ -169,13 +179,13 @@ it('[S7-04] exactly one Redis call and no database statement per request; Redis 
     bytes: Math.round((bytes / sample.length) * (browserKeys.length / (N + 1))),
   };
   console.info(
-    `[S7-04] per request: ${scriptCalls / N} Redis call(s), ${statements} DB statements; per browser: ${JSON.stringify(perBrowser)}`,
+    `[S7-04] per publishable request: ${scriptCalls / N} Redis call(s), ${statements} DB statements; per browser: ${JSON.stringify(perBrowser)}`,
   );
   expect(perBrowser.keys).toBeLessThanOrEqual(5);
   expect(perBrowser.bytes).toBeLessThan(1_000);
 });
 
-it('[S7-F7] extraction budgets stay in the one call: filtered first pages and details, no statement; memory per browser and key', async () => {
+it('[S7-F7] extraction budgets add no call (two per publishable request, one per limit slot): filtered first pages and details, no statement; memory per browser and key', async () => {
   const N = 200;
   const own = new RateLimiter({
     redis: rateLimitConnection(),
@@ -234,7 +244,7 @@ it('[S7-F7] extraction budgets stay in the one call: filtered first pages and de
   const after = await commandCalls();
   const scriptCalls = (after.evalsha ?? 0) - (before.evalsha ?? 0) + ((after.eval ?? 0) - (before.eval ?? 0));
   expect(statements).toBe(0);
-  expect(scriptCalls).toBe(N * 30);
+  expect(scriptCalls).toBe(N * 30 * 2); // two slots per publishable request
 
   // What one browser adds for slicing and sync, and one busy key's slicing HyperLogLog.
   const redis = rateLimitConnection();
