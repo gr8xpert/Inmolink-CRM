@@ -4,7 +4,7 @@ import { CurrencyCode, PageQuery, pageOf } from './common';
 import { MEDIA_PER_LISTING_MAX } from './media';
 import { CeeRating, ContentLocaleCode, LocationPrecision, PricePeriod, TransactionType } from './properties';
 import { StaffReason } from './staff';
-import { MAPPER_SAMPLE, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from './values';
+import { MAPPER_SAMPLE, MAX_DEVELOPMENT_NAME, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from './values';
 
 export { SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR };
 
@@ -363,7 +363,10 @@ const FeedImageUrl = z
 /** A new development a feed lists with its units (S7-F14). Created once per reference; commission is never part of it. */
 export const FeedDevelopment = z
   .object({
-    name: FeedTaxonText,
+    /** Clipped to what a development name holds (the dashboard's limit), not refused: the listing still imports. */
+    name: FeedText(200)
+      .transform((v) => v.trim().slice(0, MAX_DEVELOPMENT_NAME).trim())
+      .pipe(z.string().min(1)),
     keyReady: z.boolean().nullable().default(null),
     units: z
       .array(

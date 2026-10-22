@@ -1094,6 +1094,17 @@ Ref PATTERNS §1 §12 · Mod website-api, platform, search, taxonomy, imports, m
 
 ---
 
+### S8-F5 · Field locks for feed developments (S8-F3 review)
+Ref §3 #17 §7 M5 · Mod developments, imports · Dep S8-F3
+**Build:**
+- A development's name and location (and later fields a feed sets) can be locked by the owner, like a listing's field locks (S6): `importFeedDevelopments` (`developments/feed.ts`) leaves a locked field as the owner set it, in the same batched statements (no per-development reads).
+- Editing a feed development's name or location by hand in the dashboard locks that field (or offers to), so the next run does not undo the edit; the development page shows which fields the feed owns.
+**Done when:**
+- A renamed feed development keeps the owner's name after the next run while an unlocked one follows the feed (test)
+- The batch still runs a fixed number of statements with locks present (test)
+
+---
+
 ## S9 — Portal exports
 
 ### S9-01 · Portal connections and selection rules

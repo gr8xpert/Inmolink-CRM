@@ -557,6 +557,87 @@ describe('website API v2 developments (S7-F6)', () => {
     expect(back.price).toEqual({ fromCents: 40_000_000, toCents: 40_000_000, currency: 'EUR' });
   });
 
+  it('[S8-F3] a unit dropped from the price list is withdrawn and gone from the website API; a renamed development shows the new name', async () => {
+    const own = await site(S.own as string);
+    const ref = code('RO-FEED');
+    const feedUnit = (u: string, priceCents: number) => ({
+      ref: `${u}-${RUN}`,
+      propertyTypeId: ids.flat,
+      priceCents,
+      internalM2: 90,
+      terraceM2: null,
+      bedrooms: 2,
+      bathrooms: 1,
+      status: 'AVAILABLE' as const,
+    });
+    const feed = (name: string, units: ReturnType<typeof feedUnit>[]) =>
+      as(a, (ctx) =>
+        developmentsModule.importFeedDevelopments(ctx, [
+          { ref, name, keyReady: false, locationId: ids.city, currency: 'EUR', units },
+        ]),
+      );
+    const unitIds = async () =>
+      (
+        await system((tx) =>
+          tx.execute(sql`select u.id, u.ref from units u join developments d on d.id = u.development_id
+                          where d.agency_id = ${a.agencyId} and d.ref = ${ref}`),
+        )
+      ).rows as { id: string; ref: string }[];
+    await feed('Feed Heights', [feedUnit('F1', 21_000_000), feedUnit('F2', 23_000_000)]);
+    const [dev] = (
+      await system((tx) =>
+        tx.execute(sql`select id, version from developments where agency_id = ${a.agencyId} and ref = ${ref}`),
+      )
+    ).rows as { id: string; version: number }[];
+    // A feed development is private to the agency; the owner opens it to put it on the website.
+    await as(a, (ctx) =>
+      developmentsModule.setDevelopmentAccess(
+        ctx,
+        dev?.id as string,
+        SetDevelopmentAccessBody.parse({ version: dev?.version, kind: 'OPEN', allowedAgencyIds: [] }),
+      ),
+    );
+    const first = await unitIds();
+    for (const u of first) U[`feed-${u.ref}`] = u.id;
+    // What the read-model subscriptions do for the events of each import (unit created/deleted, development renamed).
+    const rebuild = () =>
+      system((tx) =>
+        search.rebuildReadModels(
+          tx,
+          'UNIT',
+          first.map((u) => u.id),
+        ),
+      );
+    await rebuild();
+    const shown = async () =>
+      WebsiteUnitPage.parse(await websiteApi.developmentUnits(own, ref, WebsiteUnitsQuery.parse({}))).items.map(
+        (u) => u.price.amountCents,
+      );
+    expect(await shown()).toEqual([21_000_000, 23_000_000]);
+    expect(WebsiteDevelopmentDetail.parse(await websiteApi.developmentDetail(own, ref)).name).toBe('Feed Heights');
+
+    const r = await feed('Feed Heights Bay', [feedUnit('F1', 21_000_000)]);
+    expect(r).toMatchObject({
+      developments: { created: 0, updated: 1, unchanged: 0 },
+      units: { created: 0, updated: 0, unchanged: 1, withdrawn: 1 },
+    });
+    expect((await unitIds()).map((u) => u.ref)).toEqual([`F1-${RUN}`]);
+    const events = (
+      await system((tx) =>
+        tx.execute(sql`select type, payload from outbox_events
+                        where payload->>'developmentId' = ${dev?.id as string}
+                          and type in ('developments.unit.deleted', 'developments.development.updated')`),
+      )
+    ).rows as { type: string; payload: { unitId?: string; changed?: string[] } }[];
+    expect(events.find((e) => e.type === 'developments.unit.deleted')?.payload.unitId).toBe(
+      first.find((u) => u.ref === `F2-${RUN}`)?.id,
+    );
+    expect(events.some((e) => e.payload.changed?.includes('name'))).toBe(true);
+    await rebuild();
+    expect(await shown()).toEqual([21_000_000]);
+    expect(WebsiteDevelopmentDetail.parse(await websiteApi.developmentDetail(own, ref)).name).toBe('Feed Heights Bay');
+  });
+
   it('[S7-F6] each development endpoint answers within 3 queries, warm and cold', async () => {
     const net = await site(S.net as string);
     const ref = `CH-${await devCode(D.bOpen)}`;

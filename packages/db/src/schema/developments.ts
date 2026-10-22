@@ -243,6 +243,11 @@ export const units = pgTable(
     commissionBp: integer('commission_bp'),
     commissionFixedCents: bigint('commission_fixed_cents', { mode: 'number' }),
     commissionIncludesVat: boolean('commission_includes_vat').notNull().default(false),
+    /**
+     * Created by a feed import (S8-F3): only such units are withdrawn when the feed's price list stops naming them —
+     * never the ones the owner added by hand.
+     */
+    fromFeed: boolean('from_feed').notNull().default(false),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

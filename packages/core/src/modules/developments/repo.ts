@@ -306,15 +306,18 @@ export async function setUnitPrices(
     .where(and(eq(units.developmentId, developmentId), sql`${units.id} = ${v}.id`));
 }
 
-/** The history rows of an approved price list (S5-F3): two statements, each one parameter per column. */
+/**
+ * The history rows of an approved price list (S5-F3), or of a feed's changes (`priceListId` null, S8-F3): two
+ * statements, each one parameter per column.
+ */
 export async function insertPriceListHistories(
   tx: Tx,
   h: {
     agencyId: string;
-    priceListId: string;
+    priceListId: string | null;
     changedByUserId: string | null;
     prices: readonly { id: string; unitId: string; from: number | null; to: number | null; currency: string }[];
-    statuses: readonly { id: string; unitId: string; from: UnitRow['status']; to: UnitRow['status'] }[];
+    statuses: readonly { id: string; unitId: string; from: UnitRow['status'] | null; to: UnitRow['status'] }[];
   },
 ): Promise<void> {
   const { agencyId, priceListId, changedByUserId: by } = h;
@@ -790,26 +793,115 @@ export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
     .where(inArray(units.id, [...ids]));
 }
 
-// ── Feed imports (S7-F14) ────────────────────────────────────────────────────────────────────────────────────
+// ── Feed imports (S7-F14, batched in S8-F3) ──────────────────────────────────────────────────────────────────
 
-/** The agency's development with this reference (deleted ones included: the reference stays taken), row-locked. */
-export async function getOwnByRefForUpdate(tx: Tx, agencyId: string, ref: string): Promise<DevelopmentRow | null> {
-  const [row] = await tx
+/**
+ * The agency's developments with these references (deleted ones included: a reference stays taken), row-locked in
+ * reference order (two imports of one agency lock in the same order). One statement (`developments_agency_ref_uq`).
+ */
+export async function ownByRefsForUpdate(tx: Tx, agencyId: string, refs: readonly string[]): Promise<DevelopmentRow[]> {
+  if (refs.length === 0) return [];
+  return tx
     .select(developmentColumns)
     .from(developments)
-    .where(and(eq(developments.agencyId, agencyId), eq(developments.ref, ref)))
+    .where(and(eq(developments.agencyId, agencyId), sql`${developments.ref} = any(${array(refs, 'text')})`))
+    .orderBy(asc(developments.ref))
     .for('update');
-  return row ?? null;
 }
 
-/** Every unit of a development (at most `MAX_UNITS_PER_DEVELOPMENT`) as the DTO reads it, by reference. */
-export async function allUnits(tx: Tx, developmentId: string): Promise<UnitListRow[]> {
-  return tx.select(unitListColumns).from(units).where(eq(units.developmentId, developmentId)).orderBy(asc(units.ref));
+/** A development a feed creates (S8-F3): PRIVATE_NETWORK, no commission, the column defaults otherwise. */
+export interface FeedDevelopmentInsert {
+  id: string;
+  ref: string;
+  name: string;
+  status: DevelopmentRow['status'];
+  locationId: string;
+  currency: string;
+}
+
+/** Many developments of one agency in one statement (one parameter per column). Returns their ids and versions. */
+export async function insertFeedDevelopments(
+  tx: Tx,
+  agencyId: string,
+  rows: readonly FeedDevelopmentInsert[],
+): Promise<{ id: string; version: number }[]> {
+  if (rows.length === 0) return [];
+  const col = <K extends keyof FeedDevelopmentInsert>(k: K, type: string) =>
+    array(
+      rows.map((r) => r[k]),
+      type,
+    );
+  const result =
+    await tx.execute(sql`insert into ${developments} (id, agency_id, ref, name, status, location_id, currency)
+    select v.id, ${agencyId}::uuid, v.ref, v.name, v.status, v.location_id, v.currency
+      from unnest(${col('id', 'uuid')}, ${col('ref', 'text')}, ${col('name', 'text')}, ${col('status', 'development_status')},
+                  ${col('locationId', 'uuid')}, ${col('currency', 'text')}) as v(id, ref, name, status, location_id, currency)
+    returning id, version`);
+  return result.rows as { id: string; version: number }[];
+}
+
+/** What a feed owns of a development after creating it (S8-F3): its name, place and status. */
+export interface FeedDevelopmentValues {
+  id: string;
+  name: string;
+  locationId: string;
+  status: DevelopmentRow['status'];
+}
+
+/** The feed-owned columns of many developments, one statement (one bind parameter per column). */
+export async function setFeedDevelopments(
+  tx: Tx,
+  agencyId: string,
+  values: readonly FeedDevelopmentValues[],
+): Promise<DevelopmentRow[]> {
+  if (values.length === 0) return [];
+  const v = sql`v`;
+  return tx
+    .update(developments)
+    .set({
+      name: sql`${v}.name`,
+      locationId: sql`${v}.location_id`,
+      status: sql`${v}.status`,
+      version: sql`${developments.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .from(
+      sql`unnest(${array(
+        values.map((r) => r.id),
+        'uuid',
+      )}, ${array(
+        values.map((r) => r.name),
+        'text',
+      )}, ${array(
+        values.map((r) => r.locationId),
+        'uuid',
+      )}, ${array(
+        values.map((r) => r.status),
+        'development_status',
+      )}) as v(id, name, location_id, status)`,
+    )
+    .where(and(eq(developments.agencyId, agencyId), sql`${developments.id} = ${v}.id`))
+    .returning(developmentColumns);
+}
+
+/** Every unit of these developments (each at most `MAX_UNITS_PER_DEVELOPMENT`), one statement. */
+export async function unitsOfDevelopments(
+  tx: Tx,
+  agencyId: string,
+  developmentIds: readonly string[],
+): Promise<UnitListRow[]> {
+  if (developmentIds.length === 0) return [];
+  // The agency too: units are NETWORK_READ, a shared development's id must not bring another agency's units.
+  return tx
+    .select(unitListColumns)
+    .from(units)
+    .where(and(eq(units.agencyId, agencyId), sql`${units.developmentId} = any(${array(developmentIds, 'uuid')})`));
 }
 
 /** What a feed owns of a unit: set together for every unit it changed (S7-F14). */
 export interface FeedUnitValues {
   id: string;
+  developmentId: string;
   propertyTypeId: string;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -819,19 +911,49 @@ export interface FeedUnitValues {
   status: UnitRow['status'];
 }
 
-/** The feed-owned columns of many units of one development, one statement (one bind parameter per column). */
-export async function setFeedUnits(
-  tx: Tx,
-  developmentId: string,
-  values: readonly FeedUnitValues[],
-): Promise<UnitRow[]> {
-  if (values.length === 0) return [];
-  const v = sql`v`;
+/** A unit a feed creates: its feed-owned columns, a reference and the development's currency. */
+export interface FeedUnitInsert extends FeedUnitValues {
+  ref: string;
+  currency: string;
+}
+
+const feedUnitColumns = (values: readonly FeedUnitValues[]) => {
   const col = <K extends keyof FeedUnitValues>(k: K, type: string) =>
     array(
       values.map((r) => r[k]),
       type,
     );
+  return sql`${col('id', 'uuid')}, ${col('developmentId', 'uuid')}, ${col('propertyTypeId', 'uuid')}, ${col('bedrooms', 'integer')}, ${col('bathrooms', 'integer')}, ${col('internalM2', 'numeric')}, ${col('terraceM2', 'numeric')}, ${col('priceCents', 'bigint')}, ${col('status', 'unit_status')}`;
+};
+const FEED_UNIT_NAMES = sql.raw(
+  'id, development_id, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, price_cents, status',
+);
+
+/**
+ * Many units of many developments of one agency, one statement whatever the count (one parameter per column).
+ * Returns how many were written; the caller has their values.
+ */
+export async function insertFeedUnits(tx: Tx, agencyId: string, values: readonly FeedUnitInsert[]): Promise<number> {
+  if (values.length === 0) return 0;
+  const result = await tx.execute(sql`insert into ${units}
+      (id, development_id, agency_id, ref, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, price_cents,
+       status, currency, from_feed)
+    select v.id, v.development_id, ${agencyId}::uuid, v.ref, v.property_type_id, v.bedrooms, v.bathrooms, v.internal_m2,
+           v.terrace_m2, v.price_cents, v.status, v.currency, true
+      from unnest(${feedUnitColumns(values)}, ${array(
+        values.map((r) => r.ref),
+        'text',
+      )}, ${array(
+        values.map((r) => r.currency),
+        'text',
+      )}) as v(${FEED_UNIT_NAMES}, ref, currency)`);
+  return result.rowCount ?? values.length;
+}
+
+/** The feed-owned columns of many units of many developments, one statement (one bind parameter per column). */
+export async function setFeedUnits(tx: Tx, agencyId: string, values: readonly FeedUnitValues[]): Promise<UnitRow[]> {
+  if (values.length === 0) return [];
+  const v = sql`v`;
   return tx
     .update(units)
     .set({
@@ -845,9 +967,39 @@ export async function setFeedUnits(
       version: sql`${units.version} + 1`,
       updatedAt: sql`now()`,
     })
-    .from(
-      sql`unnest(${col('id', 'uuid')}, ${col('propertyTypeId', 'uuid')}, ${col('bedrooms', 'integer')}, ${col('bathrooms', 'integer')}, ${col('internalM2', 'numeric')}, ${col('terraceM2', 'numeric')}, ${col('priceCents', 'bigint')}, ${col('status', 'unit_status')}) as v(id, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, price_cents, status)`,
+    .from(sql`unnest(${feedUnitColumns(values)}) as v(${FEED_UNIT_NAMES})`)
+    .where(
+      and(
+        eq(units.agencyId, agencyId),
+        // The developments too (as `setUnitPrices`): keeps the plan on `units_development_ref_uq` under RLS.
+        sql`${units.developmentId} = any(${array([...new Set(values.map((r) => r.developmentId))], 'uuid')})`,
+        sql`${units.id} = ${v}.id`,
+        sql`${units.developmentId} = ${v}.development_id`,
+      ),
     )
-    .where(and(eq(units.developmentId, developmentId), sql`${units.id} = ${v}.id`))
     .returning();
+}
+
+/** Feed units its price list no longer names (S8-F3), with their history (cascade), one statement. Returns the ids removed. */
+export async function withdrawFeedUnits(
+  tx: Tx,
+  agencyId: string,
+  developmentIds: readonly string[],
+  ids: readonly string[],
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  // Only what the feed created and nobody reserved or bought: a hand unit, a RESERVED or SOLD one is never removed.
+  const rows = await tx
+    .delete(units)
+    .where(
+      and(
+        eq(units.agencyId, agencyId),
+        sql`${units.developmentId} = any(${array(developmentIds, 'uuid')})`,
+        sql`${units.id} = any(${array(ids, 'uuid')})`,
+        eq(units.fromFeed, true),
+        eq(units.status, 'AVAILABLE'),
+      ),
+    )
+    .returning({ id: units.id });
+  return rows.map((r) => r.id);
 }

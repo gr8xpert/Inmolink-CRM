@@ -1,0 +1,1 @@
+ALTER TABLE "units" ADD COLUMN "from_feed" boolean DEFAULT false NOT NULL;

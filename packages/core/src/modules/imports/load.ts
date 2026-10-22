@@ -579,12 +579,14 @@ export const listingSink: FeedSink = {
     let missingRefs: string[] | undefined;
 
     /**
-     * S7-F14: the developments of the batch's listings, through the developments module, in one owner-member
-     * transaction for the batch with a savepoint per development (one that fails rolls back alone). Idempotent per
-     * reference. A development the owner may not create is skipped and reported as a `DEVELOPMENT_SKIPPED` item
-     * warning (the listing itself still imports; the run does not count it as failed and does not store its source
-     * hash, so the next run tries again). A development whose location is unmatched is skipped silently: its
-     * listing is rejected for that already.
+     * S7-F14, S8-F3: the developments of the batch's listings, through the developments module, in one owner-member
+     * transaction for the whole batch — a fixed number of statements whatever its size (a savepoint per development
+     * only when the batch write fails). Idempotent per reference. A development that cannot be stored (the owner may
+     * not create it, over the unit limit, bad data) is skipped and reported as a `DEVELOPMENT_SKIPPED` item warning
+     * (the listing itself still imports; the run does not count it as failed and does not store its source hash, so
+     * the next run tries again). A development whose price list drops more than half of its feed units is stored
+     * without withdrawing any (`DEVELOPMENT_UNITS_HELD` warning: a truncated answer). A development whose location is
+     * unmatched is skipped silently: its listing is rejected for that already.
      */
     const importDevelopments = async (
       parsed: readonly Parsed[],
@@ -593,52 +595,66 @@ export const listingSink: FeedSink = {
     ): Promise<ItemError[]> => {
       const todo = parsed.flatMap((p, i) => {
         const r = resolved[i] as Resolved;
-        return p.listing.development && r.locationId && r.propertyTypeId
-          ? [{ p, dev: p.listing.development, locationId: r.locationId, fallbackType: r.propertyTypeId }]
-          : [];
+        const dev = p.listing.development;
+        if (!dev || !r.locationId || !r.propertyTypeId) return [];
+        const types = unitTypes.get(p.listing.ref) ?? [];
+        const fallbackType = r.propertyTypeId;
+        const input: developments.FeedDevelopmentInput = {
+          ref: feedDevelopmentRef(p.listing.ref),
+          name: dev.name,
+          keyReady: dev.keyReady,
+          locationId: r.locationId,
+          currency: p.listing.currency,
+          units: dev.units.map((u, j) => ({
+            ref: u.ref,
+            propertyTypeId: types[j] ?? fallbackType,
+            priceCents: u.priceCents,
+            internalM2: u.builtM2,
+            terraceM2: u.terraceM2,
+            bedrooms: u.bedrooms,
+            bathrooms: u.bathrooms,
+            status: u.status,
+          })),
+        };
+        return [{ p, input }];
       });
       if (todo.length === 0) return [];
-      const warnings: ItemError[] = [];
-      await withMemberCtx({ userId: ownerUserId, agencyId: run.agencyId, requestId: run.runId }, async (ctx) => {
-        for (const { p, dev, locationId, fallbackType } of todo) {
-          const types = unitTypes.get(p.listing.ref) ?? [];
-          try {
-            await ctx.tx.transaction((sp) =>
-              developments.importFeedDevelopment(
-                { ...ctx, tx: sp },
-                {
-                  ref: feedDevelopmentRef(p.listing.ref),
-                  name: dev.name,
-                  keyReady: dev.keyReady,
-                  locationId,
-                  currency: p.listing.currency,
-                  units: dev.units.map((u, j) => ({
-                    ref: u.ref,
-                    propertyTypeId: types[j] ?? fallbackType,
-                    priceCents: u.priceCents,
-                    internalM2: u.builtM2,
-                    terraceM2: u.terraceM2,
-                    bedrooms: u.bedrooms,
-                    bathrooms: u.bathrooms,
-                    status: u.status,
-                  })),
-                },
-              ),
-            );
-          } catch (err) {
-            if (!(err instanceof AppError)) throw err;
-            // The error code only: no feed content, no payload.
-            warnings.push({
+      const { skipped, held } = await withMemberCtx(
+        { userId: ownerUserId, agencyId: run.agencyId, requestId: run.runId },
+        (ctx) =>
+          developments.importFeedDevelopments(
+            ctx,
+            todo.map((t) => t.input),
+          ),
+      );
+      // The error code or the counts only: no feed content, no payload.
+      return todo.flatMap(({ p, input }): ItemError[] => {
+        const itemRef = clip(p.listing.ref, 200);
+        const code = skipped.get(input.ref);
+        if (code !== undefined) {
+          return [
+            {
               position: p.position,
-              itemRef: clip(p.listing.ref, 200),
+              itemRef,
               code: 'DEVELOPMENT_SKIPPED',
               field: 'development',
-              message: clip(err.code, 120),
-            });
-          }
+              message: clip(code, 120),
+            },
+          ];
         }
+        const h = held.get(input.ref);
+        return h
+          ? [
+              {
+                position: p.position,
+                itemRef,
+                code: 'DEVELOPMENT_UNITS_HELD',
+                field: 'development.units',
+                message: `${h.dropped} of ${h.feedUnits} units missing from the price list; none withdrawn`,
+              },
+            ]
+          : [];
       });
-      return warnings;
     };
 
     const loader: RunLoader<Prepared> = {

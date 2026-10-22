@@ -1,5 +1,5 @@
 import type { FeedListingInput } from '@inmolink/contracts';
-import { MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
+import { MAX_DEVELOPMENT_NAME, MEDIA_PER_LISTING_MAX } from '@inmolink/contracts';
 import { CONTENT_LOCALES, isContentLocale } from '@inmolink/i18n';
 import { formatDefaults } from '../config';
 import type { FeedItemProblem, MapResult } from '../connectors';
@@ -220,7 +220,11 @@ export function resalesDevelopment(p: ResalesRecord): FeedDevelopmentInput | nul
     });
   }
   const key = str(p.KeyReady);
-  return { name: name.slice(0, 200), keyReady: key === undefined ? null : truthy(key), units: units.slice(0, 500) };
+  return {
+    name: name.slice(0, MAX_DEVELOPMENT_NAME),
+    keyReady: key === undefined ? null : truthy(key),
+    units: units.slice(0, 500),
+  };
 }
 
 type Transaction = FeedListingInput['transactionType'];

@@ -17,8 +17,11 @@ export interface EmitOptions {
 /** Payloads carry IDs and small parameters (workers.md); data is loaded by the consumer. */
 export const MAX_EVENT_PAYLOAD_BYTES = 10_240;
 
-/** Rows per insert statement (6 bind parameters each): far below Postgres's 65,535-parameter limit (S5-F3). */
-export const EMIT_CHUNK_ROWS = 1_000;
+/**
+ * Rows per insert statement. Each statement binds one array per column (S8-F3), so the count is not bound by
+ * Postgres's parameter limit, but by the statement's size: at most ~10k × 10 KB of payload, typically ~2 MB.
+ */
+export const EMIT_CHUNK_ROWS = 10_000;
 
 function agencyOf(message: OutboxMessage, options: EmitOptions): string | null {
   const p = message.payload as { agencyId?: unknown } | null;
@@ -49,14 +52,31 @@ export async function emit(
     }
   }
   const traceParent = currentTraceparent();
-  const values = messages.map(
-    (m) =>
-      sql`(${newId()}, coalesce(${agencyOf(m, options)}::uuid, nullif(current_setting('app.agency_id', true), '')::uuid, ${PLATFORM_AGENCY_ID}::uuid),
-           ${m.type}, ${m.version}, ${JSON.stringify(m.payload)}::jsonb, ${traceParent})`,
-  );
-  for (let i = 0; i < values.length; i += EMIT_CHUNK_ROWS) {
+  // One bind parameter per column (`unnest` of arrays, S8-F3): a statement per 10,000 events, not per 1,000 rows of
+  // six parameters each — a feed batch's events (thousands) are one statement.
+  const array = (values: readonly unknown[], type: string) => sql`${sql.param(values)}::${sql.raw(type)}[]`;
+  for (let i = 0; i < messages.length; i += EMIT_CHUNK_ROWS) {
+    const chunk = messages.slice(i, i + EMIT_CHUNK_ROWS);
     await tx.execute(
-      sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent) values ${sql.join(values.slice(i, i + EMIT_CHUNK_ROWS), sql`, `)}`,
+      sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent)
+          select v.id, coalesce(v.agency_id, nullif(current_setting('app.agency_id', true), '')::uuid, ${PLATFORM_AGENCY_ID}::uuid),
+                 v.type, v.version, v.payload, ${traceParent}::text
+            from unnest(${array(
+              chunk.map(() => newId()),
+              'uuid',
+            )}, ${array(
+              chunk.map((m) => agencyOf(m, options)),
+              'uuid',
+            )}, ${array(
+              chunk.map((m) => m.type),
+              'text',
+            )}, ${array(
+              chunk.map((m) => m.version),
+              'integer',
+            )}, ${array(
+              chunk.map((m) => JSON.stringify(m.payload)),
+              'jsonb',
+            )}) as v(id, agency_id, type, version, payload)`,
     );
   }
 }

@@ -2,7 +2,12 @@
 import { z } from 'zod';
 import { Commission } from './agency-profile';
 import { CurrencyCode, Money, PageQuery, pageOf } from './common';
-import { DEVELOPMENT_DOCUMENT_KINDS, MAX_UNITS_PER_BULK, MAX_UNITS_PER_DEVELOPMENT } from './values';
+import {
+  DEVELOPMENT_DOCUMENT_KINDS,
+  MAX_DEVELOPMENT_NAME,
+  MAX_UNITS_PER_BULK,
+  MAX_UNITS_PER_DEVELOPMENT,
+} from './values';
 
 export const DevelopmentStatus = z.enum(['OFF_PLAN', 'UNDER_CONSTRUCTION', 'KEY_READY', 'SOLD_OUT']);
 export type DevelopmentStatus = z.infer<typeof DevelopmentStatus>;
@@ -57,7 +62,7 @@ export type ListDevelopmentsQuery = z.infer<typeof ListDevelopmentsQuery>;
 export const CreateDevelopmentBody = z
   .object({
     ref: Ref,
-    name: z.string().trim().min(1).max(160),
+    name: z.string().trim().min(1).max(MAX_DEVELOPMENT_NAME),
     status: DevelopmentStatus.optional(),
     completionDate: z.iso.date().nullable().optional(),
     locationId: z.uuid(),

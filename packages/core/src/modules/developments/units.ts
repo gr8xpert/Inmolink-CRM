@@ -107,14 +107,20 @@ function unitPatch(input: UnitPatchInput): Partial<repo.UnitInsert> {
   return patch;
 }
 
-/** History rows and events for units edited by hand from `before` to `after` (same order, same ids). */
-async function recordUnitChanges(
+type StatusHistoryRow = Parameters<typeof repo.insertStatusHistories>[1][number];
+type PriceHistoryRow = Parameters<typeof repo.insertPriceHistories>[1][number];
+
+/**
+ * History rows and events for units changed from `before` to `after` (same ids), by hand or by a feed (S8-F3): the
+ * caller writes them.
+ */
+export function unitChangeRecords(
   ctx: Ctx,
   pairs: readonly { before: repo.UnitListRow; after: repo.UnitRow }[],
-): Promise<void> {
+): { statuses: StatusHistoryRow[]; prices: PriceHistoryRow[]; events: OutboxMessage[] } {
   const userId = actorId(ctx);
-  const prices: Parameters<typeof repo.insertPriceHistories>[1] = [];
-  const statuses: Parameters<typeof repo.insertStatusHistories>[1] = [];
+  const prices: PriceHistoryRow[] = [];
+  const statuses: StatusHistoryRow[] = [];
   const events: OutboxMessage[] = [];
   for (const { before, after } of pairs) {
     const ids = { unitId: after.id, developmentId: after.developmentId, agencyId: after.agencyId };
@@ -153,6 +159,15 @@ async function recordUnitChanges(
       events.push(developmentsEvents.unitPriceChanged({ ...ids, version: after.version, priceListId: null }));
     }
   }
+  return { statuses, prices, events };
+}
+
+/** History rows and events for units edited by hand from `before` to `after` (same order, same ids). */
+async function recordUnitChanges(
+  ctx: Ctx,
+  pairs: readonly { before: repo.UnitListRow; after: repo.UnitRow }[],
+): Promise<void> {
+  const { statuses, prices, events } = unitChangeRecords(ctx, pairs);
   await repo.insertStatusHistories(ctx.tx, statuses);
   await repo.insertPriceHistories(ctx.tx, prices);
   await emit(ctx.tx, events);
@@ -286,30 +301,4 @@ export async function listUnits(ctx: Ctx, developmentId: string, q: ListUnitsQue
     items: page.items.map((r) => toUnitDto(ctx, r)),
     nextCursor: page.hasMore && last ? encodeRefCursor(last.ref) : null,
   };
-}
-
-/**
- * A feed's changes to many units of one development (S7-F14), as three statements whatever the count: the units
- * locked, one `UPDATE … FROM unnest`, then history rows and events for what really changed. Returns the units written.
- */
-export async function updateFeedUnits(
-  ctx: Ctx,
-  developmentId: string,
-  changes: readonly repo.FeedUnitValues[],
-): Promise<number> {
-  if (changes.length === 0) return 0;
-  await ownForChange(ctx, developmentId, 'development.update');
-  const before = await repo.unitsForUpdate(
-    ctx.tx,
-    developmentId,
-    changes.map((c) => c.id),
-  );
-  const after = await withDbErrors(() => repo.setFeedUnits(ctx.tx, developmentId, changes));
-  const beforeOf = new Map(before.map((b) => [b.id, b]));
-  const pairs = after.flatMap((a) => {
-    const b = beforeOf.get(a.id);
-    return b ? [{ before: b, after: a }] : [];
-  });
-  await recordUnitChanges(ctx, pairs);
-  return after.length;
 }

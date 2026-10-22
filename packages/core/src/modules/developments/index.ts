@@ -12,9 +12,9 @@ export { developmentsErrors } from './errors';
 export { developmentsEvents } from './events';
 export {
   type FeedDevelopmentInput,
-  type FeedDevelopmentResult,
+  type FeedDevelopmentsResult,
   type FeedUnitInput,
-  importFeedDevelopment,
+  importFeedDevelopments,
 } from './feed';
 export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs, PURGE_UNIT_BUDGET } from './jobs';
 export { type NetworkUnitTerms, networkUnitTerms } from './network';

@@ -86,6 +86,8 @@ export const DEVELOPMENT_DOCUMENT_KINDS = [
 export const DEVELOPMENT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 
 /** Units per development (S4-02): bounds every whole-development query (price list diffs, unit table). */
+/** A development's brand name, at most (dashboard and feeds alike, S8-F3). */
+export const MAX_DEVELOPMENT_NAME = 160;
 export const MAX_UNITS_PER_DEVELOPMENT = 2_000;
 /** Units per bulk create or bulk edit. */
 export const MAX_UNITS_PER_BULK = 500;
