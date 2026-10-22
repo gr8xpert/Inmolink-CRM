@@ -1044,6 +1044,54 @@ Ref §9.5 · Mod sdk · Dep S7-03
 **Build:** embeddable widget (search + results + detail modal) built on the SDK with publishable keys, SPW-AI natural-language search box when `/v2/search/ai` exists (R1: structured search only if AI not ready).
 **Done when:** widget bundle ≤ 60 KB gzip; works on a plain HTML page with an allowlisted origin
 
+### S8-F1 · Partner XML feeds follow visibility at once; feed tokens out of logs (S7 review) 🔒 ⚡
+Ref §9.5 §12 · Mod website-api, infra · Dep S7-07
+**Build:**
+- On `publicDocsChanged` and `preferredRemoved`, queue the live feeds of every site that showed those targets, not only the owner's (`website-api/subscriptions.ts`), so a listing made PRIVATE or dropped by a give-to-get lock leaves partner `kyero.xml` / `inmolink.xml` within minutes, not at the next 6-hourly refresh. At minimum, filter the stored feed against current visibility before serving it.
+- The feed token sits in the URL path: turn off or redact kamal-proxy request logging for `/v2/feeds/` (`infra/kamal/feed-api.yml`) and record Cloudflare log retention for that path in `docs/runbooks/cdn.md`.
+- Feed size: with `WEBSITE_EDGE_CACHE` off, a feed poll streams the whole file (up to `SITE_FEED_MAX_GZIP_BYTES`, 64 MiB) through feed-api. Serve polls from a short-lived signed R2 URL (redirect) or only behind the edge cache. Record the feed as exempt from the 150 KB JSON budget.
+- `refreshSiteFeeds` enqueues in bulk (`addBulk`), not one job per round trip.
+- `website-api.int.test.ts` covers `/v2/feeds/:token/:file` in the ≤ 3-query check.
+**Done when:**
+- A network listing made PRIVATE is gone from a partner site's feed after the next feed job, without waiting for the 6-hour refresh (test)
+- The feed route stays ≤ 3 queries warm and cold (test)
+
+### S8-F2 · Embed page caching and one cache-policy table (S7 review) ⚡
+Ref §9.5 §12 ADR 0013 · Mod public, feed-api · Dep S7-F8 S7-06
+**Build:**
+- Embed pages (`apps/public/src/embed/handlers.tsx`): `stale-if-error` with the feed cache shape, a strong ETag from the body with `If-None-Match` → 304.
+- Only canonical embed URLs (known parameters, no free-text `q`) are public; anything else answers `private`, so cache-busting URLs cannot all reach the origin.
+- A stale or forged cursor redirects to the first-page URL instead of running a second search.
+- The edge-cache rules for `/v2/*` site answers (`plugins/site-response.ts`) and taxonomy (`routes/taxonomy/routes.ts`) move into one exported table, with a test that pins each route's policy.
+- The ≤ 3-query check covers the embed search and detail pages.
+**Done when:**
+- An unchanged embed page answers 304 to its ETag; a URL with an unknown parameter is `private` (test)
+- A forged cursor redirects without a search (test)
+
+### S8-F3 · Resales developments: batched, and units the feed drops are withdrawn (S7 review) ⚡
+Ref §3 #17 §7 M5 · Mod imports, developments · Dep S7-F14
+**Build:**
+- `importDevelopments` (`imports/load.ts`) reads the batch's developments by reference and their units in one statement each, diffs in memory and writes inserts / updates together; a per-development savepoint only as the fallback when the batch write fails. No statements per development in a loop.
+- `importFeedDevelopment` (`developments/feed.ts`): units the feed no longer sends are withdrawn (as listings are after missed runs); a changed development name or location is applied.
+**Done when:**
+- A 500-development batch runs a fixed number of statements, independent of the batch size (test)
+- A unit dropped from the price list is withdrawn and gone from the website API; a renamed development shows the new name (test)
+
+### S8-F4 · Hardening and cleanups (S7 review) 🔒
+Ref PATTERNS §1 §12 · Mod website-api, platform, search, taxonomy, imports, media, db, web · Dep S7-F15
+**Build:**
+- `site.tag` (`website-api/service.ts`) is an HMAC (`hmacSha256(HMAC_KEY, 'website-api.site-tag', …)`), not a plain SHA-256 of the site's settings, so a visitor cannot brute-force the minimum commission from `/v2/changes`' `scope`.
+- `REDACT_KEYS` gains `whatsapp`, `turnstileToken`, `cf-turnstile-response`, `idempotency-key` / `idempotencyKey`, `pageUrl`, `viewingSlots`.
+- Lead and viewing-request writes keep an in-process cap per key while the limits Redis is down (like `LocalFailedChecks`), so a leaked secret key with `serverVerified: true` cannot spam leads and acknowledgement e-mails during an outage.
+- `deleteAgencySheets` has no caller: note it as a dependency of the offboarding / erasure task so tenant erasure covers uploaded sheets.
+- Dead code and surface: delete `search/repo.ts` `targetOfCode`; trim `website-api/index.ts` to what apps, workers and other modules import; drop `export` from file-local `publishableIpRule`, `catalogAliases`, `maskAddresses`, `NO_DEVELOPMENT`, `newPublicCode`.
+- Rename the recursive CTE `agencies` in `media/feed-images-repo.ts` (shadows the real table); update the registry reason of `listing_search_commissions` (read by `app_public` through `search_commission_floor` since S7-F10).
+- The connection form's URL and API-key placeholders move to `packages/i18n` (EN, ES).
+**Done when:**
+- Two sites with different minimum commissions and the same settings otherwise get unrelated tags, and the tag is not a SHA-256 of the settings (test)
+- With the limiter failing, lead writes on one key stop at the local cap (test)
+- A log line with a `whatsapp` or `turnstileToken` field is redacted (test)
+
 ---
 
 ## S9 — Portal exports
