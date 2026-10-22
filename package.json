@@ -28,6 +28,8 @@
     "infra:health": "tsx scripts/ops/health.ts",
     "infra:health:test": "tsx scripts/ops/health.ts --test",
     "legacy:taxonomy": "tsx --conditions=@inmolink/source scripts/legacy-migration/taxonomy.ts",
+    "legacy:traffic": "tsx scripts/legacy-api/traffic.ts",
+    "legacy:record": "tsx scripts/legacy-api/record.ts",
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",

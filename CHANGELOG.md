@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Legacy API capture tooling (S8-01, waiting on H2 for real logs): `pnpm legacy:traffic` turns access logs into an anonymous traffic report (endpoints, parameters, frequencies per site, representative requests, the endpoints carrying 99% of traffic) and `pnpm legacy:record` replays those requests against the legacy API into normalized golden files under `tests/golden/`, with `--check` for the 99% coverage. No new dependency.
 - Sprint S7 review (`docs/build/reviews/S7.md`): no code must-fix; review follow-ups S8-F1 … S8-F4 added to the backlog (partner XML feeds follow visibility at once, embed page caching, batched Resales developments, hardening and cleanups).
 - Listing costs check validated (S7-F15): migration 0109 validates `properties_costs_ck` (added `NOT VALID` by S7-F14's 0108) without blocking reads or writes; negative price-range ends, community fees, IBI or basura stay refused. No new dependency.
 - Resales Online follow-ups (S7-F14): a listing now carries the community fee per month, IBI, the refuse tax and the end of a price range from Resales' property details (shown in the dashboard and on website listing pages); a new development with its price list is created once as a private development with its units and later runs only update unit prices, status and sizes; the dashboard has a Resales Online connection form (Client ID, API key, filter alias, languages; EN and ES). Migration 0108 adds four nullable columns. No new dependency.
