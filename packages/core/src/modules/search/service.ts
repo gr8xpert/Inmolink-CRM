@@ -8,6 +8,7 @@
  * the other, the later one reading at least what the earlier one read. The upsert never lowers `version`, so
  * events delivered late, twice or out of order cannot move a read model backwards.
  */
+import { PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
@@ -25,7 +26,7 @@ import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { type BuiltDoc, buildListingDocs, buildUnitDocs, type DocOwner } from './build';
-import { PUBLIC_DOCS_EVENT_TARGETS, searchEvents } from './events';
+import { NETWORK_LOST_AGENCIES, PUBLIC_DOCS_EVENT_TARGETS, searchEvents } from './events';
 import {
   buildIndexDoc,
   commissionShareBp,
@@ -227,10 +228,64 @@ function publicDocsEvents(
           ),
         ),
       ];
-      events.push(searchEvents.publicDocsChanged({ agencyId, targetIds, developmentIds }));
+      const networkLost = lostByNetwork(targetIds, before, after);
+      events.push(
+        searchEvents.publicDocsChanged({
+          agencyId,
+          targetIds,
+          developmentIds,
+          ...(networkLost ? { networkLost } : {}),
+        }),
+      );
     }
   }
   return events;
+}
+
+const SHOWN_STATUSES: ReadonlySet<string> = new Set(PUBLIC_SEARCH_STATUSES);
+
+/**
+ * Who could see a target on network sites: nobody unless it is public, in a status sites show and not hidden from
+ * the network (S6-F2 freshness); then every agency (shared with ALL, or a unit) or the preferred ones.
+ */
+function networkAudience(
+  doc:
+    | {
+        /** Absent on fallback rows (public by definition). */
+        public?: boolean;
+        status: string;
+        networkHidden: boolean;
+        shareScope: string | null;
+        preferredAgencyIds: string[] | null;
+      }
+    | undefined,
+): 'ALL' | ReadonlySet<string> {
+  if (!doc || doc.public === false || doc.networkHidden || !SHOWN_STATUSES.has(doc.status)) return new Set();
+  return doc.shareScope === 'PREFERRED' ? new Set(doc.preferredAgencyIds ?? []) : 'ALL';
+}
+
+/**
+ * S8-F1: the agencies that may have lost sight of some of these targets on their network sites — no longer public, no
+ * longer in a status sites show (sold, withdrawn), hidden from the network, or shared more narrowly (ALL → PREFERRED,
+ * fewer preferred agencies). Undefined when none did (a change that keeps or
+ * widens who sees a target reaches partner feeds through their periodic refresh).
+ */
+function lostByNetwork(
+  ids: readonly string[],
+  before: ReadonlyMap<string, repo.PublicRowBefore>,
+  after: ReadonlyMap<string, BuiltDoc>,
+): { all: boolean; agencyIds: string[] } | undefined {
+  const lost = new Set<string>();
+  for (const id of ids) {
+    const was = networkAudience(before.get(id));
+    const now = networkAudience(after.get(id));
+    if (now === 'ALL') continue;
+    if (was === 'ALL') return { all: true, agencyIds: [] };
+    for (const agency of was) if (!now.has(agency)) lost.add(agency);
+  }
+  if (lost.size === 0) return undefined;
+  if (lost.size > NETWORK_LOST_AGENCIES) return { all: true, agencyIds: [] };
+  return { all: false, agencyIds: [...lost].sort() };
 }
 
 /** Collisions of fresh random codes are drawn again this many times (40 bits: practically never needed). */

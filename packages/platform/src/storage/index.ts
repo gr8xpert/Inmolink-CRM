@@ -49,6 +49,11 @@ export interface SignedUrlOptions {
    * to the type checked at upload so a browser never renders the object as something else (S1-06 logos).
    */
   responseContentType?: string;
+  /**
+   * Served with this `Content-Encoding` (`response-content-encoding`, S8-F1): a gzip object (a site feed) that clients
+   * decompress as they read it, like any gzip answer.
+   */
+  responseContentEncoding?: 'gzip';
 }
 
 export interface SignedPutOptions {
@@ -604,6 +609,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         if (!CONTENT_TYPE_RE.test(options.responseContentType)) throw new TypeError('storage: invalid content type');
         url.searchParams.set('response-content-type', options.responseContentType);
       }
+      if (options.responseContentEncoding === 'gzip') url.searchParams.set('response-content-encoding', 'gzip');
       const signed = await aws.sign(url.href, { method: 'GET', aws: { signQuery: true } });
       return signed.url;
     },
@@ -713,7 +719,8 @@ export function createMemoryStore(): MemoryStore {
     },
     async signedGetUrl(bucket, key, options) {
       const type = options.responseContentType ? `&type=${encodeURIComponent(options.responseContentType)}` : '';
-      return `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}${type}`;
+      const encoding = options.responseContentEncoding ? `&encoding=${options.responseContentEncoding}` : '';
+      return `memory://${id(bucket, key)}?expires=${options.expiresInSeconds}${type}${encoding}`;
     },
     async signedPutUrl(bucket, key, options) {
       assertSignedSeconds(options.expiresInSeconds);

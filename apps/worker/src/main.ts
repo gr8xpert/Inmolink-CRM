@@ -58,6 +58,10 @@ try {
   // S7-06: the indexing pool purges the website API's edge cache (same tag key as feed-api); without a zone and token
   // there is nothing to purge and cached answers expire with their TTL.
   if (config.HMAC_KEY) websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
+  // S8-F1: the network feed sweep's window (the outbox subscriber throttles one sweep per window).
+  if (config.SITE_FEED_NETWORK_WINDOW_MINUTES) {
+    websiteApi.configureSiteFeedFanout({ networkWindowMs: config.SITE_FEED_NETWORK_WINDOW_MINUTES * 60_000 });
+  }
   if (config.CLOUDFLARE_ZONE_ID && config.CLOUDFLARE_PURGE_TOKEN) {
     configureCdn(
       createCloudflarePurger({

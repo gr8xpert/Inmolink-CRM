@@ -81,11 +81,20 @@ function errSerializer(err: unknown): unknown {
  * trace or an error report.
  */
 const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/];
+/** The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). */
+const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [/(\/v2\/feeds\/)[^/?#\s"'<>]+/g];
 
 /** A path with its credential segments replaced by `[REDACTED]`. */
 export function redactPath(path: string): string {
   let out = path;
   for (const re of SECRET_PATHS) out = out.replace(re, `$1${REDACTED}`);
+  return out;
+}
+
+/** Credential path segments redacted wherever they appear in a text (full URLs included), like `redactPath`. */
+export function redactPathsInText(text: string): string {
+  let out = text;
+  for (const re of SECRET_PATHS_IN_TEXT) out = out.replace(re, `$1${REDACTED}`);
   return out;
 }
 

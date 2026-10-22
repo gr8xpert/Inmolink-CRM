@@ -12,11 +12,12 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withPublicRead, withSystem } from '@inmolink/db';
 import { adminQuery, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
-import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
+import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
@@ -127,6 +128,8 @@ beforeAll(async () => {
     mediaBaseUrl: 'https://media.example',
     cursorKey: 'test-cursor-key-0123456789abcdef0123',
   });
+  websites.configureSiteFeeds({ tokenKey: 'test-hmac-key-0123456789abcdef0123456789' });
+  configureStorage(createMemoryStore());
   [a, b, e] = [await createFounder(), await createFounder(), await createFounder()];
   for (const m of [a, b, e]) await setAgencyStatus(m.agencyId, 'VERIFIED');
   ids = await system(async (tx) => {
@@ -316,6 +319,20 @@ describe('website API v2 reads (S7-03)', () => {
     // A site whose scope is not cached yet: its row and presenter (two statements, then cached for a minute).
     const fresh = (await as(a, (ctx) => websites.createSite(ctx, { ...SITE, name: 'Cold' }))).id;
     expect(await countQueries(() => site(a, fresh))).toBe(2);
+  });
+});
+
+describe('per-site XML feed reads (S8-F1)', () => {
+  it('[S8-F1] the feed route (/v2/feeds/:token/:file) stays within 3 queries, warm and cold', async () => {
+    const token = (await as(a, (ctx) => websites.rotateSiteFeed(ctx, { siteId: S.a as string }))).secret.token;
+    expect(await websiteApi.generateSiteFeed(S.a as string)).toMatchObject({ runId: expect.any(String) });
+    // Cold: the site's scope in no cache — the token lookup, then the site row and its presenter.
+    await cache.delete(websites.siteCacheKey(S.a as string));
+    cache.clearLocal();
+    expect(await countQueries(() => websiteApi.siteFeedFile(token, 'kyero.xml'))).toBeLessThanOrEqual(3);
+    // Warm: the token lookup alone.
+    expect(await countQueries(() => websiteApi.siteFeedFile(token, 'inmolink.xml'))).toBe(1);
+    await as(a, (ctx) => websites.revokeSiteFeed(ctx, { siteId: S.a as string }));
   });
 });
 

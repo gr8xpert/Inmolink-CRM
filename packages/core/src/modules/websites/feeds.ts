@@ -182,4 +182,9 @@ export const recordFeedFailure = (tx: Tx, siteId: string, code: string) =>
   feedsRepo.recordFeedFailure(tx, siteId, code, clock.now());
 export const agencyFeedSiteIds = (tx: Tx, agencyId: string) => feedsRepo.agencyFeedSiteIds(tx, agencyId);
 export const dueSiteFeeds = (tx: Tx, before: Date, limit: number) => feedsRepo.dueFeeds(tx, before, limit);
+/** S8-F1: a page of the live feeds of network sites (of these agencies or all, never the `except` agency's), keyset by site id. */
+export const networkFeedSites = (
+  tx: Tx,
+  q: { except?: string; agencyIds?: readonly string[]; after?: string; limit: number },
+) => feedsRepo.networkFeedSites(tx, q);
 export type { FeedRun } from './feeds-repo';

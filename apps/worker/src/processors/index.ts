@@ -43,7 +43,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   ],
   matching: [],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep.
-  exports: [websiteApiJobs.generateSiteFeed, websiteApiJobs.refreshSiteFeeds, websiteApiJobs.deleteSiteFeedFiles],
+  exports: [
+    websiteApiJobs.generateSiteFeed,
+    websiteApiJobs.refreshSiteFeeds,
+    websiteApiJobs.deleteSiteFeedFiles,
+    websiteApiJobs.sweepNetworkFeeds,
+  ],
   email: [
     identityJobs.sendAuthEmail,
     identityJobs.sendInviteEmail,

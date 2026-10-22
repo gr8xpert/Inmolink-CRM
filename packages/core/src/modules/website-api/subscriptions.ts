@@ -4,7 +4,16 @@ import * as agencies from '../agencies';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
-import { queueEdgePurge, queueSiteFeed, SITE_FEED_SOON_MS, websiteApiJobs } from './jobs';
+import {
+  queueEdgePurge,
+  queueNetworkFeedSweep,
+  queueNetworkFeeds,
+  queueSiteFeed,
+  queueSiteFeeds,
+  SITE_FEED_PARTNER_THROTTLE_MS,
+  SITE_FEED_SOON_MS,
+  websiteApiJobs,
+} from './jobs';
 
 export { queueEdgePurge };
 
@@ -31,8 +40,13 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
  *
  * Outbox → per-site XML feeds (S7-07): a new token generates the feed at once and purges the old URL's edge copies
  * (`f`), a revoked one purges them and deletes the stored files; a site's setup or its agency's public documents changing queues the agency's
- * live feeds (throttled per site: `queueSiteFeed`). Network listings and overrides reach feeds through the 6-hourly
- * refresh (`websiteApi.refreshSiteFeeds`).
+ * live feeds (throttled per site: `queueSiteFeed`). S8-F1: a target that left the network (`networkLost`: no longer
+ * public, hidden from the network, or shared more narrowly) also reaches the partner feeds that may have shown it —
+ * shared with every agency: one coalesced sweep of every network feed per window (`websiteApi.sweepNetworkFeeds`);
+ * shared with some: those agencies' network feeds directly — and a removed preferred agency queues that agency's
+ * feeds, so it leaves partner feeds within minutes. Other network
+ * changes (new listings, prices) and overrides reach partner feeds through the 6-hourly refresh
+ * (`websiteApi.refreshSiteFeeds`).
  *
  * Called once by the worker; idempotent.
  */
@@ -102,11 +116,22 @@ export function registerWebsiteApiSubscriptions(): void {
     ),
     subscribe(
       search.searchEvents.publicDocsChanged,
-      async (_payload, meta) => {
+      async (payload, meta) => {
         const siteIds = await withSystem('websiteApi.feed publicDocsChanged', (tx) =>
           websites.agencyFeedSiteIds(tx, meta.agencyId),
         );
-        for (const siteId of siteIds) await queueSiteFeed(siteId, meta.agencyId);
+        await queueSiteFeeds(siteIds.map((siteId) => ({ siteId, agencyId: meta.agencyId })));
+        const lost = payload.networkLost;
+        // Shared with every agency: one coalesced sweep per window (never a platform-wide fan-out per event);
+        // shared with some: those agencies' network feeds directly.
+        if (lost?.all) await queueNetworkFeedSweep();
+        else if (lost) {
+          await queueNetworkFeeds({
+            except: meta.agencyId,
+            agencyIds: lost.agencyIds,
+            throttleMs: SITE_FEED_PARTNER_THROTTLE_MS,
+          });
+        }
       },
       { name: 'websiteApi.feed.publicDocsChanged' },
     ),
@@ -120,6 +145,18 @@ export function registerWebsiteApiSubscriptions(): void {
       { name: 'websiteApi.edge.agencyStatus' },
     ),
     subscribe(agencies.agenciesEvents.preferredAdded, preferredChanged, { name: 'websiteApi.edge.preferredAdded' }),
+    subscribe(
+      agencies.agenciesEvents.preferredRemoved,
+      async (payload) => {
+        // The removed agency's network sites no longer show the owner's PREFERRED listings (S8-F1).
+        await queueNetworkFeeds({
+          except: payload.agencyId,
+          agencyIds: [payload.preferredAgencyId],
+          throttleMs: SITE_FEED_PARTNER_THROTTLE_MS,
+        });
+      },
+      { name: 'websiteApi.feed.preferredRemoved' },
+    ),
     subscribe(agencies.agenciesEvents.preferredRemoved, preferredChanged, {
       name: 'websiteApi.edge.preferredRemoved',
     }),

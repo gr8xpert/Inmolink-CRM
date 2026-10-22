@@ -34,8 +34,28 @@ Its query schema strips unknown parameters, so a URL with any parameter other th
 in the path, so the URL alone is the cache key. They answer `public, s-maxage=900` with `Vary: Accept-Encoding` only,
 `Cache-Tag` `s` (site) and `f` (feed). A new run, a token rotation or revocation purges `f`; an agency or site change
 purges `s`. A rotated token's URL answers 404 at the origin (never cached), so after the purge it stops at the edge too.
+With `WEBSITE_EDGE_CACHE` off, a feed poll that accepts gzip is answered `302` to a signed storage URL of the stored
+file (2 minutes, `Content-Encoding: gzip`, `Content-Type: application/xml`; S8-F1), so a feed (up to 64 MiB gzip)
+never streams through feed-api on every poll; clients without gzip get the decompressed stream (rate-limited per
+token). Feeds are exempt from the 150 KB JSON budget of website answers: a whole inventory by design.
 
 **Never turn `WEBSITE_EDGE_CACHE` on before the rule is live and `--verify` passed for that environment.**
+
+## Feed token URLs and logs (S8-F1)
+
+The per-site feed token is a credential in the URL **path**, so every log that records paths must leave it out:
+
+| Where | Retention / handling |
+|---|---|
+| feed-api request logs (pino) | Credential path segments redacted (`redactPath` in `packages/platform/src/logger`); query strings dropped. |
+| kamal-proxy | Its access log always records the path and cannot leave one out, so the proxy container's log is off: `proxy.run` in every `infra/kamal/<app>.yml` (one proxy per host) sets `options.log-driver: none` and `log_max_size: ""` — Kamal 2.12 skips `--log-opt max-size=…` for a blank value, and a log option next to the `none` driver must not reach `docker run`. Apply per host with `kamal proxy reboot -c infra/kamal/api.yml -d <env>` (a few seconds without traffic: quiet window; **staging first**). Check on the host: `docker inspect kamal-proxy --format '{{.HostConfig.LogConfig.Type}} {{.HostConfig.LogConfig.Config}}'` prints `none map[]`, `docker logs kamal-proxy` prints nothing, and `kamal proxy details -c infra/kamal/api.yml -d <env>` shows the proxy running. If the reboot fails, remove the `run` block from all five configs and `kamal proxy reboot` again (logs back on, tokens in them: rotate feed tokens after the fix). |
+| Sentry | Request URLs, breadcrumb URLs and messages, exception messages and transaction names are scrubbed before sending: query strings dropped and `/v2/feeds/<token>` redacted wherever it appears (`scrubErrorEvent` in `packages/platform/src/telemetry/errors.ts`, same segments as `redactPath`). |
+| Cloudflare analytics (dashboard, GraphQL) | Top paths are kept, sampled, for the zone plan's analytics retention window (record the actual window per zone in the H5 setup notes), visible to account members only. Accepted: zone access is restricted to ops staff. |
+| Cloudflare Logpush / Log Explorer | **Not enabled** for the feed-api hostname. If it ever is, the job must filter out `ClientRequestPath` starting with `/v2/feeds/` (Logpush filter) or omit `ClientRequestPath`/`ClientRequestURI`; retention then follows the destination bucket's lifecycle rule. |
+| Cloudflare Instant Logs | Live stream only, nothing stored; ops staff only. |
+
+A token that may have leaked (a log shared outside ops, a screenshot): rotate it from the dashboard (Website → XML
+feed → Rotate). The old URL answers 404 at once and its edge copies are purged.
 
 ## What is never edge-cached
 

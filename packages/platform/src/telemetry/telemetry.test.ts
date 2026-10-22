@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppError } from '../errors';
 import { createLogger } from '../logger';
 import { createServer, type FastifyZod } from '../server';
-import { flushErrors, initErrorReporting } from './errors';
+import { flushErrors, initErrorReporting, scrubErrorEvent } from './errors';
 import { redactSpan } from './redact';
 import { samplerFor, startTelemetry, type Telemetry } from './sdk';
 
@@ -89,6 +89,10 @@ describe('telemetry', () => {
     app.get('/boom', async (request) => {
       throw new Error(`kaboom ${request.id}`);
     });
+    // A feed URL: its token is a credential in the path (S8-F1); the message quotes the URL.
+    app.get('/v2/feeds/:token/:file', async (request) => {
+      throw new Error(`feed failed ${request.id} at ${request.url}`);
+    });
     app.get('/conflict', async () => {
       throw new AppError('VERSION_CONFLICT');
     });
@@ -163,6 +167,34 @@ describe('telemetry', () => {
       expect(Object.keys(upstreamHeaders ?? {})).not.toContain('sentry-trace');
       expect(Object.keys(upstreamHeaders ?? {})).not.toContain('baggage');
       expect(JSON.stringify(event)).not.toContain(SECRET);
+    },
+    SENTRY_EVENT_MS,
+  );
+
+  it(
+    '[S8-F1] a feed token in the request path never reaches Sentry (URL, message, breadcrumbs)',
+    async () => {
+      events.length = 0;
+      const token = ['Feed', 'Token', 'abcdefghijklmnopqrstuvwxyz0123'].join('_');
+      const res = await app.inject({ url: `/v2/feeds/${token}/kyero.xml` });
+      expect(res.statusCode).toBe(500);
+      const event = await eventFor(res.headers['x-request-id']);
+      expect(event.exception?.values?.[0]?.value).toContain('/v2/feeds/[REDACTED]/kyero.xml');
+      expect(JSON.stringify(event)).not.toContain(token);
+      // Whatever Sentry attaches: the request URL (full or not) and breadcrumb URLs and messages.
+      const scrubbed = scrubErrorEvent({
+        type: undefined,
+        request: { url: `https://feeds.example/v2/feeds/${token}/inmolink.xml?x=1` },
+        breadcrumbs: [
+          {
+            data: { url: `https://feeds.example/v2/feeds/${token}/kyero.xml` },
+            message: `GET /v2/feeds/${token}/kyero.xml`,
+          },
+        ],
+        transaction: `GET /v2/feeds/${token}/kyero.xml`,
+      });
+      expect(scrubbed.request?.url).toBe('https://feeds.example/v2/feeds/[REDACTED]/inmolink.xml');
+      expect(JSON.stringify(scrubbed)).not.toContain(token);
     },
     SENTRY_EVENT_MS,
   );

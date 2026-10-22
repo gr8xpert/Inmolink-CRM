@@ -94,6 +94,42 @@ describe('queue', () => {
     expect(runs.get('deb:T1') ?? 0).toBeLessThanOrEqual(6);
   });
 
+  it('[S8-F1] enqueueMany adds in bulk with the same stable-ID, throttle and debounce semantics as enqueue', async () => {
+    const ids = await once.enqueueMany([
+      { payload: { key: 'm1' } },
+      { payload: { key: 'm2' } },
+      { payload: { key: 'm1' } },
+    ]);
+    expect(ids.map((i) => i.id)).toEqual(['test.once.once%3Am1', 'test.once.once%3Am2', 'test.once.once%3Am1']);
+    // Throttled entries: one run per key and window, however many entries name it (in one bulk or the next).
+    const throttled = (entity: string, version: number) => ({
+      payload: { entity, version },
+      options: { throttleMs: 200, debounceKey: entity },
+    });
+    await debounced.enqueueMany([throttled('B1', 1), throttled('B2', 1), throttled('B1', 2)]);
+    await debounced.enqueueMany([throttled('B1', 3)]);
+    await waitFor(
+      () => runs.get('m1') === 1 && runs.get('m2') === 1 && runs.get('deb:B1') === 1 && runs.get('deb:B2') === 1,
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    expect([runs.get('m1'), runs.get('m2'), runs.get('deb:B1'), runs.get('deb:B2')]).toEqual([1, 1, 1, 1]);
+    // Debounced entries in one bulk: one run, with the latest payload.
+    await debounced.enqueueMany(
+      [101, 102, 103, 104, 105].map((version) => ({
+        payload: { entity: 'D1', version },
+        options: { debounceMs: 200, debounceKey: 'D1' },
+      })),
+    );
+    await waitFor(() => runs.get('deb:D1') === 1);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(runs.get('deb:D1')).toBe(1);
+    expect(seen.filter((v) => v > 100)).toEqual([105]);
+    // A bad entry adds none.
+    await expect(once.enqueueMany([{ payload: { key: 'm3' } }, { payload: { key: 1 } as never }])).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(runs.get('m3')).toBeUndefined();
+  });
+
   it('[S0-06] transient failures retry with backoff, then land in the dead-letter queue', async () => {
     const { id } = await flaky.enqueue({ key: 'f1', permanent: false });
     await waitFor(async () => (await deadLetterOf(id)) !== undefined, 10_000);

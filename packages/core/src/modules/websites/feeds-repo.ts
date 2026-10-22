@@ -1,11 +1,11 @@
 /**
  * Site XML feed queries (S7-07). `app_user` (dashboard: the agency's own feed), `app_public` (feed-api: a token's
  * lookup — revoked feeds are invisible, `created_by` and `last_error` not granted) and `app_system` (the generator's
- * runs and the refresh sweep). Queries only `website_feeds`.
+ * runs and the refresh sweep). Queries `website_feeds` (and `website_sites` for the network fan-out, S8-F1).
  */
 import type { Tx } from '@inmolink/db';
-import { websiteFeeds } from '@inmolink/db/schema/websites';
-import { and, asc, eq, isNull, lt, or, sql } from 'drizzle-orm';
+import { websiteFeeds, websiteSites } from '@inmolink/db/schema/websites';
+import { and, asc, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 export interface FeedRow {
   siteId: string;
@@ -233,4 +233,39 @@ export async function dueFeeds(tx: Tx, before: Date, limit: number): Promise<{ s
     )
     .orderBy(asc(websiteFeeds.generatedAt))
     .limit(limit);
+}
+
+/**
+ * Worker (S8-F1): one page of the live feeds of sites that show network listings (`OWN_PLUS_NETWORK`, or `CUSTOM` with
+ * `includeNetwork`) — of `agencyIds`, or of every agency when omitted — never the `except` agency's when given (its own
+ * feeds are queued by its own changes). Keyset by site id (the primary key; the agencies' index with `agencyIds`).
+ */
+export async function networkFeedSites(
+  tx: Tx,
+  q: { except?: string; agencyIds?: readonly string[]; after?: string; limit: number },
+): Promise<{ siteId: string; agencyId: string }[]> {
+  return tx
+    .select({ siteId: websiteFeeds.siteId, agencyId: websiteFeeds.agencyId })
+    .from(websiteFeeds)
+    .innerJoin(websiteSites, eq(websiteSites.id, websiteFeeds.siteId))
+    .where(
+      and(
+        isNull(websiteFeeds.revokedAt),
+        q.except ? ne(websiteFeeds.agencyId, q.except) : undefined,
+        q.agencyIds ? inArray(websiteFeeds.agencyId, [...q.agencyIds]) : undefined,
+        q.after ? gt(websiteFeeds.siteId, q.after) : undefined,
+        // The same bound on the joined side: the merge join then starts both primary-key scans at the page (S8-F1
+        // plan check: without it, every later page re-read the sites before the bound).
+        q.after ? gt(websiteSites.id, q.after) : undefined,
+        or(
+          eq(websiteSites.inventoryPolicy, 'OWN_PLUS_NETWORK'),
+          and(
+            eq(websiteSites.inventoryPolicy, 'CUSTOM'),
+            sql`coalesce((${websiteSites.inventoryFilters} ->> 'includeNetwork')::boolean, false)`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(websiteFeeds.siteId))
+    .limit(q.limit);
 }

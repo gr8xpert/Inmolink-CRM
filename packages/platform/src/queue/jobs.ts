@@ -3,7 +3,7 @@ import type { JobsOptions } from 'bullmq';
 import type { z } from 'zod';
 import { newId } from '../ids';
 import type { Logger } from '../logger';
-import { addBatched } from './batcher';
+import { addBatched, addBulkFair } from './batcher';
 import { fairnessFor, queueFor, queuePrefix, traceMetadata } from './connection';
 import type { BacklogEntry } from './fairness';
 
@@ -79,6 +79,12 @@ export interface JobDef<S extends z.ZodType = z.ZodType>
   extends Readonly<Required<Pick<JobSpec<S>, 'name' | 'pool' | 'attempts' | 'timeoutMs'>>> {
   readonly spec: JobSpec<S>;
   enqueue(payload: z.input<S>, options?: EnqueueOptions): Promise<EnqueueResult>;
+  /**
+   * Enqueues many jobs in bulk (S8-F1): the same semantics per entry as `enqueue` (stable IDs, debounce, throttle,
+   * fair share), but one fair-share pipeline and one BullMQ `addBulk` per 500 entries (`addBulkFair`) instead of
+   * round trips per job — for fan-outs and sweeps. Results in entry order.
+   */
+  enqueueMany(entries: readonly { payload: z.input<S>; options?: EnqueueOptions }[]): Promise<EnqueueResult[]>;
 }
 
 /** Job data in Redis: the payload plus the fairness backlog member. */
@@ -133,7 +139,8 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     }
   }
 
-  async function enqueue(input: z.input<S>, options: EnqueueOptions = {}): Promise<EnqueueResult> {
+  /** A job as BullMQ adds it: payload checked, IDs, deduplication and the fair-share entry (priority set later). */
+  function prepare(input: z.input<S>, options: EnqueueOptions) {
     const payload = spec.payload.parse(input) as z.output<S>;
     const bytes = Buffer.byteLength(JSON.stringify(payload));
     if (bytes > MAX_PAYLOAD_BYTES) {
@@ -182,6 +189,11 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     } else if (options.delayMs) {
       opts.delay = options.delayMs;
     }
+    return { jobId, opts, data, fair, debounced };
+  }
+
+  async function enqueue(input: z.input<S>, options: EnqueueOptions = {}): Promise<EnqueueResult> {
+    const { jobId, opts, data, fair, debounced } = prepare(input, options);
     if (debounced) {
       if (fair) opts.priority = await fairnessFor().priorityFor(spec.pool, fair);
       const job = await queueFor(spec.pool).add(spec.name, data, opts);
@@ -190,5 +202,17 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     return { id: await addBatched(spec.pool, spec.name, data, opts, fair) };
   }
 
-  return { name: spec.name, pool: spec.pool, attempts, timeoutMs, spec, enqueue };
+  async function enqueueMany(
+    entries: readonly { payload: z.input<S>; options?: EnqueueOptions }[],
+  ): Promise<EnqueueResult[]> {
+    // Every payload is checked before anything is added: one bad entry adds none.
+    const prepared = entries.map((e) => prepare(e.payload, e.options ?? {}));
+    const ids = await addBulkFair(
+      spec.pool,
+      prepared.map((p) => ({ name: spec.name, data: p.data, opts: p.opts, fair: p.fair })),
+    );
+    return ids.map((id) => ({ id }));
+  }
+
+  return { name: spec.name, pool: spec.pool, attempts, timeoutMs, spec, enqueue, enqueueMany };
 }

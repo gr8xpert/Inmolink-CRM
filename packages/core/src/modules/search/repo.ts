@@ -1272,6 +1272,9 @@ export interface PublicRowBefore {
   preferredAgencyIds: string[] | null;
   /** S7-06: its development (a unit leaving the public set purges the development's edge copies). */
   developmentId: string | null;
+  /** S8-F1: whether network sites could show it (a shown status, not hidden from the network). */
+  status: string;
+  networkHidden: boolean;
 }
 
 /** These targets' fallback rows (PUBLIC targets as of their last refresh), for the change log. PK probes. */
@@ -1286,6 +1289,9 @@ export async function publicRowsOf(tx: Tx, ids: readonly string[]): Promise<Publ
       shareScope: listingSearchDocs.shareScope,
       preferredAgencyIds: listingSearchDocs.preferredAgencyIds,
       developmentId: listingSearchDocs.developmentId,
+      status: listingSearchDocs.status,
+      // Null on rows from before the column: not hidden.
+      networkHidden: sql<boolean>`coalesce(${listingSearchDocs.networkHidden}, false)`,
     })
     .from(listingSearchDocs)
     .where(inArray(listingSearchDocs.targetId, [...new Set(ids)]));

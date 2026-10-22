@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { redactPath } from '@inmolink/platform/logger';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { groupHosts, loadInventory } from '../../scripts/ops/inventory';
@@ -21,7 +22,12 @@ interface Kamal {
   registry: { server: string };
   servers: Record<string, KamalRole>;
   primary_role?: string;
-  proxy?: { app_port: number; healthcheck: { path: string }; host?: string };
+  proxy?: {
+    app_port: number;
+    healthcheck: { path: string };
+    host?: string;
+    run?: { log_max_size?: string; options?: Record<string, unknown> };
+  };
   drain_timeout?: number;
   env: { clear: Record<string, string>; secret: string[] };
   accessories?: Record<string, { host?: string; image?: string }>;
@@ -43,6 +49,17 @@ const ciImages = yaml<{ jobs: { images: { strategy: { matrix: { app: string[] } 
 );
 
 describe('Kamal deploy config', () => {
+  it('[S8-F1] kamal-proxy keeps no access log (feed tokens sit in URL paths), the same run config on every app', () => {
+    const proxied = APPS.filter((app) => kamal(app).proxy);
+    expect(proxied).toContain('feed-api');
+    for (const app of proxied) {
+      expect(kamal(app).proxy?.run, app).toEqual({ log_max_size: '', options: { 'log-driver': 'none' } });
+      for (const d of DESTS) expect(dest(app, d).proxy?.run, `${app}.${d}`).toBeUndefined();
+    }
+    // The apps' own request logs redact the token path segment instead.
+    expect(redactPath('/v2/feeds/Secret-Token_123/kyero.xml')).not.toContain('Secret-Token_123');
+  });
+
   it('[S0-15] every image CI builds has a Kamal config with staging and production destinations', () => {
     expect(ciImages.jobs.images.strategy.matrix.app.sort()).toEqual([...APPS].sort());
     for (const app of APPS) {

@@ -14,7 +14,8 @@
  *
  * **Serving** (`siteFeedFile`): the token's live feed (one statement), the site's cached scope (its agency must be
  * verified, like API keys), the strong ETag (the file's SHA-256) — a 304 needs no storage read; otherwise the stored
- * object is streamed, never buffered.
+ * object is streamed, never buffered — or, with the edge cache off, the poll is redirected to a short-lived signed
+ * storage URL (S8-F1). Feeds are exempt from the 150 KB JSON budget of website answers: a whole inventory, gzip.
  */
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
@@ -56,6 +57,11 @@ export const SITE_FEED_TTL = 900;
 export const SITE_FEED_STALE_IF_ERROR = 300;
 /** A live feed is regenerated at least this often (network listings, overrides: no per-site event names them). */
 export const SITE_FEED_MAX_AGE_MS = 6 * 3_600_000;
+/**
+ * Lifetime of the signed storage URL a feed poll is redirected to while the edge cache is off (S8-F1, seconds): long
+ * enough to follow the redirect, short enough that a copied URL is useless soon.
+ */
+export const SITE_FEED_REDIRECT_TTL = 120;
 /** Runs of `websiteApi.generateSiteFeed` before it gives up (the last failure is recorded on the feed). */
 export const SITE_FEED_ATTEMPTS = 3;
 
@@ -350,6 +356,11 @@ export interface SiteFeedFile {
   tags: string[] | null;
   /** The gzip bytes as a stream (a storage read): only when the client has no current copy. */
   open(): Promise<Readable>;
+  /**
+   * S8-F1: a short-lived signed storage URL serving the stored file as gzip-encoded XML — feed-api redirects polls to
+   * it while the edge cache is off, so a feed (up to 64 MiB) never streams through the origin on every poll.
+   */
+  signedUrl(): Promise<string>;
 }
 
 /**
@@ -374,6 +385,13 @@ export async function siteFeedFile(token: string, file: SiteFeedFileName): Promi
       // Replaced by a newer run between the lookup and the read: the client asks again.
       if (!body) throw new AppError('SITE_FEED_NOT_FOUND');
       return body;
+    },
+    signedUrl() {
+      return storage().signedGetUrl('feeds', key, {
+        expiresInSeconds: SITE_FEED_REDIRECT_TTL,
+        responseContentType: 'application/xml',
+        responseContentEncoding: 'gzip',
+      });
     },
   };
 }

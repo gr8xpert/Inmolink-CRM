@@ -13,6 +13,7 @@ import {
   portVar,
   redisEnv,
   searchEnv,
+  siteFeedNetworkEnv,
   storageEnv,
   telemetryEnv,
   webUrlEnv,
@@ -78,6 +79,8 @@ const systemEnv = {
   ...webUrlEnv,
   // Feed runs (S6-02): when a listing missing from its feed is withdrawn.
   ...importsEnv,
+  // S8-F1: how often network sites' XML feeds are swept after listings left the network.
+  ...siteFeedNetworkEnv,
 };
 
 /**

@@ -24,6 +24,16 @@ proxy:
     certificate_pem: CLOUDFLARE_ORIGIN_CERT_PEM
     private_key_pem: CLOUDFLARE_ORIGIN_KEY_PEM
   forward_headers: true
+  # One kamal-proxy per host, shared by every app: the same `run` in every config (S8-F1). Its access log cannot leave
+  # out a path, and the per-site XML feed token sits in the URL path (`/v2/feeds/<token>/…`): the proxy's container
+  # log is off. Requests are logged by the apps (pino, credential path segments redacted: platform/logger
+  # `redactPath`). `log_max_size: ""` stops Kamal 2.12 adding `--log-opt max-size=10m` (it skips a blank value), which
+  # the `none` driver would not take. Applied with `kamal proxy reboot` (runbook docs/runbooks/cdn.md, "Feed token
+  # URLs and logs", with the staging check).
+  run:
+    log_max_size: ""
+    options:
+      log-driver: none
   # Zero downtime: traffic moves to the new container only once this passes; the old one then drains.
   healthcheck:
     path: /readyz

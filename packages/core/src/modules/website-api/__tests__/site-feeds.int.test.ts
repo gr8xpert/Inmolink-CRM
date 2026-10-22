@@ -135,6 +135,7 @@ async function publish(type: string, payload: unknown, agencyId: string): Promis
 
 const feedEnqueues: { siteId: string; throttleMs?: number; debounceKey?: string }[] = [];
 const purgeEnqueues: string[] = [];
+const sweepEnqueues: { throttleMs?: number; debounceKey?: string }[] = [];
 
 beforeAll(async () => {
   await setupTestDb('worker');
@@ -228,6 +229,20 @@ beforeAll(async () => {
     });
     return { id: newId() };
   });
+  vi.spyOn(websiteApi.websiteApiJobs.sweepNetworkFeeds, 'enqueue').mockImplementation(async (_payload, options) => {
+    sweepEnqueues.push({ throttleMs: options?.throttleMs, debounceKey: options?.debounceKey });
+    return { id: newId() };
+  });
+  vi.spyOn(websiteApi.websiteApiJobs.generateSiteFeed, 'enqueueMany').mockImplementation(async (entries) => {
+    for (const { payload, options } of entries) {
+      feedEnqueues.push({
+        siteId: (payload as { siteId: string }).siteId,
+        throttleMs: options?.throttleMs,
+        debounceKey: options?.debounceKey,
+      });
+    }
+    return entries.map(() => ({ id: newId() }));
+  });
   vi.spyOn(websiteApi.websiteApiJobs.purgeEdgeCache, 'enqueue').mockImplementation(async (payload) => {
     purgeEnqueues.push((payload as { agencyId: string }).agencyId);
     return { id: newId() };
@@ -237,6 +252,7 @@ beforeAll(async () => {
 beforeEach(() => {
   feedEnqueues.length = 0;
   purgeEnqueues.length = 0;
+  sweepEnqueues.length = 0;
 });
 
 afterAll(async () => {
@@ -473,5 +489,92 @@ describe('per-site XML feeds (S7-07)', () => {
       await setAgencyStatus(a.agencyId, 'VERIFIED');
       await cache.delete(websites.siteCacheKey(site));
     }
+  });
+  it('[S8-F1] a network listing made PRIVATE is gone from a partner site feed after the next feed job', async () => {
+    await runFeed(S.network);
+    const before = await fetchFeed(tokens[S.network] as string, 'inmolink.xml');
+    expect(before).toContain('ref="CF-');
+    // b (the owner) makes its listing private: the read models rebuild and emit `search.publicDocs.changed`.
+    await update(b, L.bVilla, { visibility: 'PRIVATE' });
+    const event = (
+      await system((tx) =>
+        tx.execute<{ payload: { networkLost?: { all: boolean; agencyIds: string[] } } }>(
+          sql`select payload from outbox_events
+               where agency_id = ${b.agencyId} and type = 'search.publicDocs.changed'
+                 and payload -> 'targetIds' ? ${L.bVilla}
+               order by id desc limit 1`,
+        ),
+      )
+    ).rows[0]?.payload;
+    // It was shared with every agency: every network site may have shown it.
+    expect(event?.networkLost).toEqual({ all: true, agencyIds: [] });
+    await publish('search.publicDocs.changed', event, b.agencyId);
+    await publish('search.publicDocs.changed', event, b.agencyId);
+    // Not a platform-wide fan-out per event: one coalesced sweep, throttled by its window (stable key).
+    expect(sweepEnqueues).toEqual([
+      { throttleMs: websiteApi.siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
+      { throttleMs: websiteApi.siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
+    ]);
+    expect(websiteApi.siteFeedNetworkWindowMs()).toBe(websiteApi.SITE_FEED_NETWORK_WINDOW_MS);
+    expect(websiteApi.SITE_FEED_NETWORK_WINDOW_MS).toBeLessThan(websiteApi.SITE_FEED_MAX_AGE_MS);
+    expect(feedEnqueues.map((e) => e.siteId)).not.toContain(S.network);
+    // The sweep (once per window) queues the partner's (a's) live network feed — not only the owner's.
+    await websiteApi.websiteApiJobs.sweepNetworkFeeds.spec.run({}, jobCtx(newId()));
+    expect(feedEnqueues).toContainEqual({
+      siteId: S.network,
+      throttleMs: websiteApi.SITE_FEED_SOON_MS,
+      debounceKey: `site-feed:${S.network}`,
+    });
+    // The next feed job: the listing is gone, a's own listings stay.
+    expect(await runFeed(S.network)).toMatchObject({ items: 2 });
+    const after = await fetchFeed(tokens[S.network] as string, 'inmolink.xml');
+    expect(after).not.toContain('ref="CF-');
+    expect(after.match(/<item /g)).toHaveLength(2);
+  });
+
+  it("[S8-F1] a removed preferred agency's network feeds are queued; a change that keeps the audience queues no partner", async () => {
+    await publish(
+      'agencies.preferred.removed',
+      { agencyId: b.agencyId, preferredAgencyId: a.agencyId, actorUserId: b.userId, impersonatedBy: null },
+      b.agencyId,
+    );
+    expect(feedEnqueues).toEqual([
+      {
+        siteId: S.network,
+        throttleMs: websiteApi.SITE_FEED_PARTNER_THROTTLE_MS,
+        debounceKey: `site-feed:${S.network}`,
+      },
+    ]);
+    feedEnqueues.length = 0;
+    // An edit of a's own listing that keeps it shared with everyone: a's own feeds only.
+    await update(a, L.aVilla, { priceCents: 31_000_000 });
+    const event = (
+      await system((tx) =>
+        tx.execute<{ payload: Record<string, unknown> }>(
+          sql`select payload from outbox_events
+               where agency_id = ${a.agencyId} and type = 'search.publicDocs.changed'
+                 and payload -> 'targetIds' ? ${L.aVilla}
+               order by id desc limit 1`,
+        ),
+      )
+    ).rows[0]?.payload;
+    expect(event).not.toHaveProperty('networkLost');
+    await publish('search.publicDocs.changed', event, a.agencyId);
+    expect(feedEnqueues.map((e) => e.siteId)).toEqual([S.network]);
+    expect(feedEnqueues[0]?.throttleMs).toBe(websiteApi.SITE_FEED_THROTTLE_MS);
+    expect(sweepEnqueues).toEqual([]);
+    // Sold: still a public row, but in no status a site shows — it left every network site.
+    await update(a, L.aVilla, { status: 'SOLD' });
+    const sold = (
+      await system((tx) =>
+        tx.execute<{ payload: Record<string, unknown> }>(
+          sql`select payload from outbox_events
+               where agency_id = ${a.agencyId} and type = 'search.publicDocs.changed'
+                 and payload -> 'targetIds' ? ${L.aVilla}
+               order by id desc limit 1`,
+        ),
+      )
+    ).rows[0]?.payload;
+    expect(sold).toMatchObject({ networkLost: { all: true, agencyIds: [] } });
   });
 });

@@ -9,7 +9,7 @@ import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
 import { countQueries, createFounder, type Founder, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
-import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
@@ -223,6 +223,48 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     expect(perToken[0]?.identity).toMatch(/^feed:[A-Za-z0-9_-]{22}$/);
     expect(JSON.stringify(limited)).not.toContain(token);
     expect(limited.some((l) => l.rule === 'feed.xml.ip')).toBe(true);
+  });
+
+  it('[S8-F1] with the edge cache off, gzip polls are redirected to a short-lived signed storage URL', async () => {
+    const res = await origin.inject({
+      method: 'GET',
+      url: `/v2/feeds/${token}/kyero.xml`,
+      headers: { 'accept-encoding': 'gzip' },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(res.headers['cache-tag']).toBeUndefined();
+    // The memory store's signed URL: the stored gzip object, served as gzip-encoded XML, expiring in two minutes.
+    const location = String(res.headers.location);
+    expect(location.startsWith(`memory://feeds/site-feeds/${siteId}/`)).toBe(true);
+    expect(location).toContain('/kyero.xml.gz?');
+    expect(location).toContain(`expires=${websiteApi.SITE_FEED_REDIRECT_TTL}`);
+    expect(location).toContain('type=application%2Fxml');
+    expect(location).toContain('encoding=gzip');
+    expect(location).not.toContain(token);
+    expect(res.rawPayload.byteLength).toBe(0);
+    // A current copy still answers 304 without a redirect; a client without gzip still gets the plain document.
+    const again = await origin.inject({
+      method: 'GET',
+      url: `/v2/feeds/${token}/kyero.xml`,
+      headers: { 'accept-encoding': 'gzip', 'if-none-match': String(res.headers.etag) },
+    });
+    expect(again.statusCode).toBe(304);
+    const plain = await origin.inject({ method: 'GET', url: `/v2/feeds/${token}/kyero.xml` });
+    expect(plain.statusCode).toBe(200);
+    expect(plain.body).toContain('<feed_version>3</feed_version>');
+  });
+
+  it('[S8-F1] the feed route stays within 3 queries, warm and cold', async () => {
+    const get = async () => {
+      const res = await edge.inject({ method: 'GET', url: `/v2/feeds/${token}/kyero.xml` });
+      expect(res.statusCode).toBe(200);
+    };
+    // Cold: the site's scope in no cache.
+    await cache.delete(websites.siteCacheKey(siteId));
+    cache.clearLocal();
+    expect(await countQueries(get)).toBeLessThanOrEqual(3);
+    expect(await countQueries(get)).toBeLessThanOrEqual(1);
   });
 
   it('[S7-07] a feed request costs at most 3 statements (token lookup + the site scope on a cache miss)', async () => {

@@ -20,7 +20,8 @@
  * (`site-feeds.ts`) — throttled per site (`queueSiteFeed`: a burst of listing changes is one run 5 minutes after the
  * first), fair-shared per agency (one run per agency at a time, two per process: memory), idempotent (a run that
  * loses to a later one deletes its own files). Triggers: a new token (at once), the site's setup, its agency's public
- * documents (`search.publicDocs.changed`), and **schedule** `websiteApi.refreshSiteFeeds` every 15 minutes (stable
+ * documents (`search.publicDocs.changed`), partner feeds when a network listing left the network (S8-F1:
+ * `search.publicDocs.changed` with `networkLost`, `agencies.preferred.removed`), and **schedule** `websiteApi.refreshSiteFeeds` every 15 minutes (stable
  * scheduler id = the job name): live feeds older than 6 hours (network listings and overrides name no site), at most
  * 500 per sweep, the stalest first.
  */
@@ -395,6 +396,26 @@ export const websiteApiJobs = {
     },
   }),
 
+  /**
+   * S8-F1: one sweep of every network site's live feed after listings shared with every agency left the network. One
+   * stable throttled job (`queueNetworkFeedSweep`): however many listings, owners and events, the network feeds are
+   * queued at most once per window (`SITE_FEED_NETWORK_WINDOW_MINUTES`, default 30) — never per event. Pages of 500,
+   * one bulk enqueue each; idempotent (a feed already queued is throttled per site).
+   */
+  sweepNetworkFeeds: defineJob({
+    name: 'websiteApi.sweepNetworkFeeds',
+    pool: 'exports',
+    payload: z.object({}),
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 5 * 60_000,
+    async run(_p, { log }) {
+      const queued = await queueNetworkFeeds({ throttleMs: SITE_FEED_SOON_MS });
+      log.info({ feeds: queued }, 'network site feeds queued after listings left the network');
+      return { queued };
+    },
+  }),
+
   /** S7-07, every 15 minutes: live feeds older than `SITE_FEED_MAX_AGE_MS` (or never generated) get a run soon. */
   refreshSiteFeeds: defineJob({
     name: 'websiteApi.refreshSiteFeeds',
@@ -407,7 +428,8 @@ export const websiteApiJobs = {
       const due = await withSystem('websiteApi.refreshSiteFeeds', (tx) =>
         websites.dueSiteFeeds(tx, new Date(clock.now().getTime() - SITE_FEED_MAX_AGE_MS), SITE_FEED_SWEEP),
       );
-      for (const f of due) await queueSiteFeed(f.siteId, f.agencyId, SITE_FEED_SOON_MS);
+      // One bulk add (S8-F1), not a round trip per feed.
+      await queueSiteFeeds(due, SITE_FEED_SOON_MS);
       if (due.length > 0) log.info({ feeds: due.length }, 'site feeds queued for refresh');
       return { queued: due.length };
     },
@@ -420,6 +442,12 @@ const SITE_FEED_SWEEP = 500;
 export const SITE_FEED_THROTTLE_MS = 5 * 60_000;
 /** A new token or a due refresh: a run within seconds. */
 export const SITE_FEED_SOON_MS = 5_000;
+/**
+ * S8-F1: a named partner's feed (preferred agencies that lost a PREFERRED listing, a preferred agency removed). Listings
+ * shared with every agency go through the coalesced sweep instead (`queueNetworkFeedSweep`). Longer than the owner's
+ * window — still minutes, not the 6-hour refresh.
+ */
+export const SITE_FEED_PARTNER_THROTTLE_MS = 15 * 60_000;
 
 /** Queues a run of the site's feed (S7-07), at most one per throttle window per site. */
 export async function queueSiteFeed(
@@ -430,6 +458,68 @@ export async function queueSiteFeed(
   await websiteApiJobs.generateSiteFeed.enqueue(
     { siteId, agencyId },
     { throttleMs, debounceKey: `site-feed:${siteId}` },
+  );
+}
+
+/** Network feeds read per page (S8-F1): one bulk enqueue each (one `addBulk` per 500). */
+const NETWORK_FEED_PAGE = 500;
+/** Default window of the network feed sweep (S8-F1; `SITE_FEED_NETWORK_WINDOW_MINUTES`). */
+export const SITE_FEED_NETWORK_WINDOW_MS = 30 * 60_000;
+let networkWindowMs = SITE_FEED_NETWORK_WINDOW_MS;
+
+/** Boot (worker, S8-F1): the network feed sweep's window. */
+export function configureSiteFeedFanout(next: { networkWindowMs: number }): void {
+  if (!Number.isInteger(next.networkWindowMs) || next.networkWindowMs < 60_000) {
+    throw new RangeError('website-api: networkWindowMs must be an integer >= 60000');
+  }
+  networkWindowMs = next.networkWindowMs;
+}
+
+/** The current network feed sweep window (ms). */
+export const siteFeedNetworkWindowMs = (): number => networkWindowMs;
+
+/**
+ * S8-F1: marks every network site's feed stale — one `websiteApi.sweepNetworkFeeds` per window, however often this is
+ * called (stable throttle key, no tenant group: the sweep is platform-wide and no tenant can multiply it).
+ */
+export async function queueNetworkFeedSweep(): Promise<void> {
+  await websiteApiJobs.sweepNetworkFeeds.enqueue({}, { throttleMs: networkWindowMs, debounceKey: 'network-feeds' });
+}
+
+/**
+ * S8-F1: queues the live feeds of network sites — of these agencies, or of every agency (`agencyIds` omitted) — never
+ * the `except` agency's, page by page (keyset by site id), one bulk enqueue per page, throttled per site.
+ */
+export async function queueNetworkFeeds(q: {
+  throttleMs: number;
+  except?: string;
+  agencyIds?: readonly string[];
+}): Promise<number> {
+  if (q.agencyIds?.length === 0) return 0;
+  let queued = 0;
+  let after: string | undefined;
+  for (;;) {
+    const page = await withSystem('websiteApi.feed network sites', (tx) =>
+      websites.networkFeedSites(tx, { except: q.except, agencyIds: q.agencyIds, after, limit: NETWORK_FEED_PAGE }),
+    );
+    await queueSiteFeeds(page, q.throttleMs);
+    queued += page.length;
+    if (page.length < NETWORK_FEED_PAGE) return queued;
+    after = page[page.length - 1]?.siteId;
+  }
+}
+
+/** Queues runs of these feeds in bulk (S8-F1: one `addBulk` per 500), each throttled per site like `queueSiteFeed`. */
+export async function queueSiteFeeds(
+  feeds: readonly { siteId: string; agencyId: string }[],
+  throttleMs = SITE_FEED_THROTTLE_MS,
+): Promise<void> {
+  if (feeds.length === 0) return;
+  await websiteApiJobs.generateSiteFeed.enqueueMany(
+    feeds.map((f) => ({
+      payload: { siteId: f.siteId, agencyId: f.agencyId },
+      options: { throttleMs, debounceKey: `site-feed:${f.siteId}` },
+    })),
   );
 }
 

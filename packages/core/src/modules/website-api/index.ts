@@ -55,12 +55,19 @@ export { type FeedItem, KYERO_LANGUAGES, writeGenericItem, writeKyeroProperty } 
 export { honeytokenKind, honeytokenSiteOf, isHoneytokenRef } from './honeytokens';
 export {
   ackCapReached,
+  configureSiteFeedFanout,
   queueEdgePurgeRun,
+  queueNetworkFeedSweep,
+  queueNetworkFeeds,
   queueSiteFeed,
+  queueSiteFeeds,
   SIMILAR_LISTINGS,
+  SITE_FEED_NETWORK_WINDOW_MS,
+  SITE_FEED_PARTNER_THROTTLE_MS,
   SITE_FEED_SOON_MS,
   SITE_FEED_THROTTLE_MS,
   similarListings,
+  siteFeedNetworkWindowMs,
   websiteApiJobs,
 } from './jobs';
 export { LEAD_TURNSTILE_ACTION, type LeadInput, type LeadRequestFacts, submitLead } from './leads';
@@ -94,6 +101,7 @@ export {
   SITE_FEED_BATCH,
   SITE_FEED_MAX_AGE_MS,
   SITE_FEED_MAX_GZIP_BYTES,
+  SITE_FEED_REDIRECT_TTL,
   SITE_FEED_STALE_IF_ERROR,
   SITE_FEED_TTL,
   type SiteFeedFile,

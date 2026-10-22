@@ -203,6 +203,16 @@ export const edgeCacheEnv = {
 };
 
 /**
+ * Per-site XML feeds (S8-F1): a listing that leaves the network (made private, shared more narrowly) while it was shared
+ * with every agency marks every network site's feed stale; one sweep per `SITE_FEED_NETWORK_WINDOW_MINUTES` queues
+ * them all (however many listings left meanwhile) — the exports-pool load is at most one run per network feed per
+ * window from these changes.
+ */
+export const siteFeedNetworkEnv = {
+  SITE_FEED_NETWORK_WINDOW_MINUTES: z.coerce.number().int().min(5).max(360).default(30),
+};
+
+/**
  * Edge cache purging (S7-06): the worker purges `Cache-Tag`s of changed listings, sites and keys through Cloudflare's
  * API. Zone id and an API token with the zone's "Cache Purge" permission only; both or neither (unset: nothing to
  * purge, answers expire with their TTL). `CDN_PURGE_MIN_INTERVAL_MS`: pacing per process (250: Pro and up; 12000 on

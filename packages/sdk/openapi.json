@@ -1118,6 +1118,19 @@
             },
             "description": "The feed document, `application/xml; charset=utf-8` (gzip when accepted)"
           },
+          "302": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Edge cache off: a short-lived signed storage URL serving the gzip feed (`Location`)",
+                  "enum": [null],
+                  "nullable": true,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Edge cache off: a short-lived signed storage URL serving the gzip feed (`Location`)"
+          },
           "304": {
             "content": {
               "application/json": {

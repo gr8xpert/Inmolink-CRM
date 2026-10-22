@@ -52,7 +52,8 @@ const FeedXml = z.string().describe('The feed document, `application/xml; charse
  * core call, then the stored file streamed — gzip as stored for clients that take it (the CDN does), else
  * decompressed on the fly. Public for the CDN when the edge cache is on (`Vary: Accept-Encoding` only: the URL is the
  * key), with the site and feed `Cache-Tag`s (purged on a new run, a rotation or revocation, a site or agency change)
- * and a short `stale-if-error`; never indexed by search engines.
+ * and a short `stale-if-error`; never indexed by search engines. With the edge cache off, gzip clients are redirected
+ * to a short-lived signed storage URL instead (S8-F1). Exempt from the 150 KB JSON budget (a whole inventory).
  */
 export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
   app.get(
@@ -66,6 +67,7 @@ export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
         params: WebsiteFeedParams,
         response: {
           200: FeedXml,
+          302: z.null().describe('Edge cache off: a short-lived signed storage URL serving the gzip feed (`Location`)'),
           304: z.null().describe('Not modified (`If-None-Match`)'),
           404: ErrorBody.describe('SITE_FEED_NOT_FOUND: unknown, rotated or revoked token, or no feed yet'),
         },
@@ -95,6 +97,11 @@ export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
         .header('X-Content-Type-Options', 'nosniff');
       if (shared && file.tags) reply.header('Cache-Tag', file.tags.join(','));
       if (weakCompareEtag(req.headers['if-none-match'], etag)) return reply.code(304).send(null);
+      // Edge cache off (S8-F1): a gzip client is sent to a short-lived signed storage URL — the file (up to 64 MiB)
+      // never streams through the origin on every poll. Never cached: the URL expires.
+      if (!shared && gzip) {
+        return reply.header('Cache-Control', 'private, no-store').redirect(await file.signedUrl(), 302);
+      }
       const body = await file.open();
       reply.type('application/xml; charset=utf-8');
       // Streams are sent as they are (the response schema documents the XML; it never serializes a stream).

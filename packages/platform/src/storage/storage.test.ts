@@ -116,6 +116,19 @@ describe('storage', () => {
     ).rejects.toThrow(TypeError);
   });
 
+  it('[S8-F1] signed GET URLs can serve a gzip object as XML with Content-Encoding gzip', async () => {
+    const url = new URL(
+      await store.signedGetUrl('private', 'site-feeds/s/r/kyero.xml.gz', {
+        expiresInSeconds: 120,
+        responseContentType: 'application/xml',
+        responseContentEncoding: 'gzip',
+      }),
+    );
+    expect(url.searchParams.get('response-content-type')).toBe('application/xml');
+    expect(url.searchParams.get('response-content-encoding')).toBe('gzip');
+    expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('[S3-03] signed PUT URLs bind the content type, exact length and SHA-256 into the signature', async () => {
     const sha256Hex = 'ab'.repeat(32);
     const put = await store.signedPutUrl('media', `originals/${sha256Hex}`, {

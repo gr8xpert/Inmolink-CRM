@@ -1,5 +1,6 @@
 import type { Breadcrumb, ErrorEvent, EventHint, NodeOptions } from '@sentry/node';
 import * as Sentry from '@sentry/node';
+import { redactPathsInText } from '../logger';
 import { activeTraceIds } from './context';
 import { scrubText } from './redact';
 import { type ErrorTags, setErrorReporter } from './report';
@@ -29,23 +30,27 @@ const SELF_REPORTING = new Set(['Fastify', 'Express', 'Hapi', 'Koa', 'Hono']);
  */
 const DUPLICATE_HTTP = new Set(['Http', 'NodeFetch']);
 
-const stripQuery = (url: string) => url.split('?', 1)[0] as string;
+/** No query string, and no credential path segment (S8-F1: feed tokens in `/v2/feeds/<token>/…`). */
+const stripQuery = (url: string) => redactPathsInText(url.split('?', 1)[0] as string);
+/** PII and credential path segments out of a free text (messages can quote a URL). */
+const scrubMessage = (text: string) => redactPathsInText(scrubText(text));
 
-/** HTTP/fetch breadcrumbs: no query strings (reset links, API keys on outgoing calls). */
+/** HTTP/fetch breadcrumbs: no query strings (reset links, API keys on outgoing calls), no credential path segments. */
 function scrubBreadcrumb(crumb: Breadcrumb): Breadcrumb {
   const data = crumb.data;
-  if (!data) return crumb.message ? { ...crumb, message: scrubText(crumb.message) } : crumb;
+  if (!data) return crumb.message ? { ...crumb, message: scrubMessage(crumb.message) } : crumb;
   const { 'http.query': _q, 'http.fragment': _f, ...rest } = data;
   if (typeof rest.url === 'string') rest.url = stripQuery(rest.url);
-  return { ...crumb, ...(crumb.message ? { message: scrubText(crumb.message) } : {}), data: rest };
+  return { ...crumb, ...(crumb.message ? { message: scrubMessage(crumb.message) } : {}), data: rest };
 }
 
-/** Request data Sentry may attach that can hold credentials or PII. */
-function scrub(event: ErrorEvent): ErrorEvent {
+/** Request data Sentry may attach that can hold credentials or PII. Exported for tests. */
+export function scrubErrorEvent(event: ErrorEvent): ErrorEvent {
   if (event.breadcrumbs) event.breadcrumbs = event.breadcrumbs.map(scrubBreadcrumb);
-  // SMTP and pg messages can quote addresses or row values.
-  for (const ex of event.exception?.values ?? []) if (ex.value) ex.value = scrubText(ex.value);
-  if (event.message) event.message = scrubText(event.message);
+  // SMTP and pg messages can quote addresses or row values; any message can quote a request URL.
+  for (const ex of event.exception?.values ?? []) if (ex.value) ex.value = scrubMessage(ex.value);
+  if (event.message) event.message = scrubMessage(event.message);
+  if (event.transaction) event.transaction = redactPathsInText(event.transaction);
   if (event.request) {
     delete event.request.cookies;
     delete event.request.data;
@@ -98,7 +103,7 @@ export function initErrorReporting(options: ErrorReportingOptions): void {
     initialScope: { tags: { service: options.service } },
     beforeBreadcrumb: scrubBreadcrumb,
     beforeSend(event, hint) {
-      const clean = scrub(event);
+      const clean = scrubErrorEvent(event);
       return options.beforeSend ? options.beforeSend(clean, hint) : clean;
     },
   });

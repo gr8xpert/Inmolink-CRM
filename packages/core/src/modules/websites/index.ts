@@ -9,6 +9,7 @@ export {
   feedByToken,
   getSiteFeed,
   liveSiteFeed,
+  networkFeedSites,
   recordFeedFailure,
   recordFeedRun,
   revokeSiteFeed,
