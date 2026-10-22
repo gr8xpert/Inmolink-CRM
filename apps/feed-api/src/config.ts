@@ -1,11 +1,12 @@
 import {
   type Config,
+  ConfigError,
   coreEnv,
   cryptoEnv,
   databaseEnv,
   edgeCacheEnv,
   httpEnv,
-  loadConfigOrExit,
+  loadConfig,
   mediaCdnEnv,
   networkEnv,
   portVar,
@@ -61,5 +62,38 @@ export const feedApiEnv = {
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;
 
-export const loadFeedApiConfig = (env: Record<string, string | undefined> = process.env) =>
-  loadConfigOrExit(feedApiEnv, { ...env, APP_ROLE: 'http' });
+/**
+ * S7-F9 security review: in production feed-api must name the proxies in front of it as an IP / CIDR allowlist
+ * (`TRUST_PROXY`, Kamal: the `kamal` network and Cloudflare's ranges). Its keyed routes have no per-IP request limit
+ * any more, so the client address must be the one the edge saw: `false` puts every visitor behind one proxy address,
+ * and a hop count trusts whatever `X-Forwarded-For` a client sent to an address in front of the counted hops (a fresh
+ * rate-limit bucket per request). Development and test keep the platform defaults.
+ */
+export function assertFeedApiTrustProxy(config: Pick<FeedApiConfig, 'NODE_ENV' | 'TRUST_PROXY'>): void {
+  if (config.NODE_ENV !== 'production' || Array.isArray(config.TRUST_PROXY)) return;
+  throw new ConfigError([
+    {
+      key: 'TRUST_PROXY',
+      message: 'must list the proxy IPs / CIDRs in front of feed-api in production (no false, no hop count)',
+    },
+  ]);
+}
+
+/** feed-api's configuration, checked (`assertFeedApiTrustProxy`); throws `ConfigError`. */
+export function feedApiConfig(env: Record<string, string | undefined>): FeedApiConfig {
+  const config = loadConfig(feedApiEnv, { ...env, APP_ROLE: 'http' });
+  assertFeedApiTrustProxy(config);
+  return config;
+}
+
+/** For `main.ts`: prints the problems and exits with code 1. */
+export function loadFeedApiConfig(env: Record<string, string | undefined> = process.env): FeedApiConfig {
+  try {
+    return feedApiConfig(env);
+  } catch (err) {
+    if (!(err instanceof ConfigError)) throw err;
+    process.stderr.write(`${err.message}
+`);
+    return process.exit(1);
+  }
+}

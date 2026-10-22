@@ -78,8 +78,9 @@ describe('website API limits (S7-04)', () => {
     expect(names(secret, true, 49)).toEqual(names(secret, false));
     expect(names(secret, true, 50)).toEqual([...names(secret, false), 'feed.deep.flag:flag', 'feed.deep:throttle']);
     expect(names(widget, true)).toEqual([
-      'feed.key.standard:enforce',
-      'feed.agency:enforce',
+      // S7-F9 security review: browser traffic has its own key-wide and agency pools, alert only.
+      'feed.key.pk.standard:observe',
+      'feed.agency.pk:observe',
       'feed.burst.standard:observe',
       'feed.quota.standard:observe',
       'feed.agency.pk.day:observe',
@@ -103,8 +104,13 @@ describe('website API limits (S7-04)', () => {
   it('[S7-04] one call in the agency slot; quotas count last; alert-only rules never refuse', async () => {
     const seen: { checks: RateLimitCheck[]; slot?: string }[] = [];
     await checkWebsiteLimits(scripted({}, seen), widget, facts);
-    expect(seen).toHaveLength(1);
+    // S7-F9: a publishable request also counts in its IP's own slot (`feed.pk.ip`, over every publishable key).
+    expect(seen).toHaveLength(2);
     expect(seen[0]?.slot).toBe(widget.agencyId);
+    expect(seen[1]).toMatchObject({ slot: facts.ip, checks: [{ rule: { name: 'feed.pk.ip' }, identity: facts.ip }] });
+    const secretSeen: { checks: RateLimitCheck[]; slot?: string }[] = [];
+    await checkWebsiteLimits(scripted({}, secretSeen), secret, facts);
+    expect(secretSeen).toHaveLength(1);
     const sent = Object.fromEntries((seen[0]?.checks ?? []).map((c) => [c.rule.name, c]));
     expect(sent['feed.browser.day']).toMatchObject({ countLast: true, observe: false });
     expect(sent['feed.quota.standard']).toMatchObject({ countLast: false, observe: true });

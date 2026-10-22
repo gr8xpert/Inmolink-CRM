@@ -168,9 +168,22 @@ export function websiteRequestChecks(
   const keyWide: Role = secret ? 'enforce' : 'observe';
   // Alert-only key-wide rules box themselves for an hour once over, so they alert once, not on every request.
   const alertBox = secret ? {} : { penaltySeconds: l.pagingPenaltySeconds };
+  // S7-F9 security review: the key tier and the agency's per-minute ceiling are enforced for secret keys only. Browser
+  // traffic counts in pools of its own (`.pk` names) and only alerts — S7-04's rule for publishable key-wide limits — so
+  // browsers from many IPs can neither shut out a site's other visitors nor use up the ceiling the agency's servers
+  // (secret keys) run under. Browsers are held per browser, and per IP over all publishable keys (`publishableIpCheck`).
+  const tierRule = identity.apiKeyRateRule(key.rateTier);
   const checks: WebsiteCheck[] = [
-    { rule: identity.apiKeyRateRule(key.rateTier), identity: key.keyId, role: 'enforce' },
-    { rule: identity.API_KEY_AGENCY_RULE, identity: key.agencyId, role: 'enforce' },
+    secret
+      ? { rule: tierRule, identity: key.keyId, role: 'enforce' }
+      : { rule: { ...tierRule, name: `feed.key.pk.${tier}`, ...alertBox }, identity: key.keyId, role: 'observe' },
+    secret
+      ? { rule: identity.API_KEY_AGENCY_RULE, identity: key.agencyId, role: 'enforce' }
+      : {
+          rule: { ...identity.API_KEY_AGENCY_RULE, name: 'feed.agency.pk', ...alertBox },
+          identity: key.agencyId,
+          role: 'observe',
+        },
     {
       rule: {
         name: `feed.burst.${tier}`,
@@ -455,6 +468,14 @@ export async function creditChangeFeed(
 const ALERT_ACTION = { throttle: 'throttled', flag: 'flagged', observe: 'observed' } as const;
 
 /**
+ * Publishable requests per client IP over every publishable key (S7-F9 security review), enforced. In the IP's own
+ * Redis slot — not the agency's: copies of different agencies' widget keys must share it — so a second script call.
+ */
+export function publishableIpRule(): RateLimitRule {
+  return { name: 'feed.pk.ip', scope: 'ip', limit: websiteLimits().publishablePerIpMinute, windowSeconds: 60 };
+}
+
+/**
  * Checks one website API request against its quotas and limits (one Redis round trip) and raises
  * `WebsiteScrapingDetected` when a rule trips. Fails open like every website limit (Redis down must not take every
  * website offline): the limiter answers allowed.
@@ -476,7 +497,23 @@ export async function checkWebsiteLimits(
     ...(c.creditPool !== undefined ? { creditPool: c.creditPool } : {}),
     ...(c.peek === true ? { peek: true } : {}),
   }));
-  const results = await limiter.consumeMany(calls, { slot: key.agencyId });
+  const [results, ipResults] = await Promise.all([
+    limiter.consumeMany(calls, { slot: key.agencyId }),
+    key.kind === 'SECRET'
+      ? Promise.resolve([] as RateLimitResult[])
+      : limiter.consumeMany([{ rule: publishableIpRule(), identity: facts.ip }], { slot: facts.ip }),
+  ]);
+  const ipResult = ipResults[0];
+  if (ipResult && !ipResult.allowed) {
+    return {
+      allowed: false,
+      kind: 'rate',
+      scope: 'ip',
+      limit: ipResult.limit,
+      resetAtMs: ipResult.resetAtMs,
+      retryAfterSeconds: ipResult.retryAfterSeconds,
+    };
+  }
   let suspicious = facts.paged && depth >= l.deepPage;
   let worst: { check: WebsiteCheck; result: RateLimitResult } | undefined;
   checks.forEach((check, i) => {

@@ -67,6 +67,13 @@ export interface WebsiteLimits {
    * servers).
    */
   agencyDailyQuota: number;
+  /**
+   * Publishable-key requests per client IP (/64) per minute over **every** publishable key (S7-F9 security review):
+   * enforced, so an IP holding copies of many sites' widget keys cannot multiply `browserPerMinute` by the number of
+   * keys. Sized for an office or carrier-NAT address (the per-key browser limit stays the tighter one). Counted in the
+   * IP's own Redis slot (a second script call, publishable requests only).
+   */
+  publishablePerIpMinute: number;
   /** Honeytokens only on search pages at this depth or deeper (and only for flagged callers). */
   honeytokenMinPage: number;
   /** Honeytokens on (default). Off: no page carries one; detail hits on old ones still alert. */
@@ -115,6 +122,7 @@ export const DEFAULT_WEBSITE_LIMITS: WebsiteLimits = {
   syncCreditCap: 20_000,
   syncCreditSeenSeconds: 86_400,
   agencyDailyQuota: 2_000_000,
+  publishablePerIpMinute: 1_200,
   honeytokenMinPage: 10,
   honeytokens: true,
   leadsPerBrowser: 5,

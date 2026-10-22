@@ -1,8 +1,10 @@
+import { coreEnv, httpEnv, loadConfig } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
-import type { RateLimiter } from '@inmolink/platform/rate-limit';
+import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
-import { feedApiEnv } from './config';
+import { assertFeedApiTrustProxy, feedApiEnv } from './config';
+import { LocalFailedChecks } from './plugins/api-key';
 
 const allowAll = {
   consume: async () => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 }),
@@ -38,5 +40,75 @@ describe('feed-api app', () => {
       'DATABASE_URL_APP_INTAKE',
     ]);
     expect(Object.keys(feedApiEnv)).not.toContain('REDIS_QUEUE_URL');
+  });
+
+  it('[S7-F9] TRUST_PROXY: production requires a proxy IP / CIDR allowlist (no false, no hop count); dev keeps defaults', () => {
+    const parse = (env: Record<string, string>) =>
+      loadConfig({ NODE_ENV: coreEnv.NODE_ENV, TRUST_PROXY: httpEnv.TRUST_PROXY }, env);
+    const prod = (TRUST_PROXY: string) => assertFeedApiTrustProxy(parse({ NODE_ENV: 'production', TRUST_PROXY }));
+    expect(() => prod('false')).toThrow(/TRUST_PROXY/);
+    expect(() => prod('1')).toThrow(/TRUST_PROXY/);
+    expect(() => parse({ NODE_ENV: 'production', TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);
+    expect(() => prod('10.200.0.0/24,173.245.48.0/20,2400:cb00::/32')).not.toThrow();
+    for (const NODE_ENV of ['development', 'test']) {
+      expect(() => assertFeedApiTrustProxy(parse({ NODE_ENV }))).not.toThrow();
+      expect(() => assertFeedApiTrustProxy(parse({ NODE_ENV, TRUST_PROXY: '1' }))).not.toThrow();
+    }
+  });
+
+  it('[S7-F9] an OPTIONS /v2/* preflight is rate limited per IP (the plugin default)', async () => {
+    const seen: RateLimitRule[] = [];
+    let denyIp = false;
+    const consume = async (rule: RateLimitRule) => {
+      seen.push(rule);
+      const allowed = !(denyIp && rule.scope === 'ip');
+      return {
+        allowed,
+        limit: rule.limit,
+        remaining: allowed ? 1 : 0,
+        retryAfterSeconds: allowed ? 0 : 9,
+        resetAtMs: 0,
+      };
+    };
+    const limiter = {
+      consume,
+      credit: async () => undefined,
+      consumeMany: (checks: readonly { rule: RateLimitRule }[]) => Promise.all(checks.map((c) => consume(c.rule))),
+    } as unknown as RateLimiter;
+    const app = await buildApp({
+      logger: createLogger({ level: 'silent' }),
+      trustProxy: false,
+      docsUi: false,
+      limiter,
+      checks: {},
+    });
+    try {
+      const preflight = () =>
+        app.inject({ method: 'OPTIONS', url: '/v2/listings', headers: { origin: 'https://www.site.example' } });
+      expect((await preflight()).statusCode).toBe(204);
+      expect(seen.map((r) => r.name)).toContain('feed.ip');
+      denyIp = true;
+      const refused = await preflight();
+      expect(refused.statusCode).toBe(429);
+      expect(refused.json().error.details.scope).toBe('ip');
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+
+  it('[S7-F9] the in-process failed-check count: the rule limit per IP per window, bounded memory', () => {
+    let now = 0;
+    const local = new LocalFailedChecks(3, 60_000, () => now);
+    for (let i = 0; i < 2; i++) local.record('a');
+    expect(local.blockedFor('a')).toBe(0);
+    local.record('a');
+    expect(local.blockedFor('a')).toBe(60);
+    expect(local.blockedFor('b')).toBe(0);
+    now = 45_000;
+    expect(local.blockedFor('a')).toBe(15);
+    now = 60_000;
+    expect(local.blockedFor('a')).toBe(0);
+    for (let i = 0; i < LocalFailedChecks.MAX_TRACKED + 5; i++) local.record(`ip${i}`);
+    expect((local as unknown as { windows: Map<string, unknown> }).windows.size).toBe(LocalFailedChecks.MAX_TRACKED);
   });
 });

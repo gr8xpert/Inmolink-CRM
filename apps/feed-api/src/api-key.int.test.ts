@@ -94,7 +94,12 @@ afterAll(async () => {
   await closeDb();
 });
 
-const get = (headers: Record<string, string>) => app.inject({ method: 'GET', url: '/v2/test-listings', headers });
+const get = (headers: Record<string, string>, remoteAddress?: string) =>
+  app.inject({ method: 'GET', url: '/v2/test-listings', headers, ...(remoteAddress ? { remoteAddress } : {}) });
+/** A well-formed key nobody issued (its prefix costs a database lookup unless refused first). */
+const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+const guessed = (i: number) =>
+  `inl_test_sk${Array.from({ length: 10 }, (_, k) => B32[Math.floor(i / 32 ** k) % 32]).join('')}_${'a'.repeat(52)}`;
 
 describe('requireApiKey', () => {
   it('[S1-05] publishable key from a non-allowlisted origin is rejected', async () => {
@@ -138,7 +143,7 @@ describe('requireApiKey', () => {
 
   it('[S1-05] each key is rate limited by its tier, and the agency over all its keys', async () => {
     consumed.length = 0;
-    await get({ 'x-api-key': publishableKey, origin: 'https://www.costa-homes.example' });
+    await get({ 'x-api-key': secretKey });
     expect(consumed.find((r) => r.scope === 'key')).toMatchObject({
       name: 'feed.key.standard',
       limit: identity.API_KEYS.RATE_TIERS.STANDARD.limit,
@@ -179,5 +184,61 @@ describe('requireApiKey', () => {
     } finally {
       deny.clear();
     }
+  });
+
+  it('[S7-F9] publishable traffic counts in its own key and agency pools, alert only: never the secret key pools', async () => {
+    consumed.length = 0;
+    deny.add('feed.key.pk.standard');
+    deny.add('feed.agency.pk');
+    try {
+      // Over both publishable pools: still answered (alert only), and they are not the pools secret keys run under.
+      const res = await get({ 'x-api-key': publishableKey, origin: 'https://www.costa-homes.example' });
+      expect(res.statusCode).toBe(200);
+      expect(consumed.map((r) => r.name)).toEqual(expect.arrayContaining(['feed.key.pk.standard', 'feed.agency.pk']));
+      expect(consumed.map((r) => r.name)).not.toContain('feed.key.standard');
+      expect(consumed.map((r) => r.name)).not.toContain('feed.agency');
+    } finally {
+      deny.clear();
+    }
+    // Per IP over every publishable key (`feed.pk.ip`), enforced.
+    deny.add('feed.pk.ip');
+    try {
+      const res = await get({ 'x-api-key': publishableKey, origin: 'https://www.costa-homes.example' });
+      expect(res.statusCode).toBe(429);
+      expect(res.json().error.details.scope).toBe('ip');
+      expect((await get({ 'x-api-key': secretKey })).statusCode).toBe(200);
+    } finally {
+      deny.clear();
+    }
+  });
+
+  it('[S7-F9] a wrong origin or scope counts as a failed check; the penalty refuses only uncached lookups', async () => {
+    consumed.length = 0;
+    await get({ 'x-api-key': publishableKey, origin: 'https://evil.example' });
+    await app.inject({ method: 'POST', url: '/v2/test-leads', headers: { 'x-api-key': secretKey } });
+    expect(consumed.filter((r) => r.name === 'feed.keyfail.ip')).toHaveLength(2);
+    deny.add('feed.keyfail.ip');
+    try {
+      // A key the cache knows keeps working for everyone on the address (shared IPs); an unknown one is refused
+      // before its database lookup.
+      expect((await get({ 'x-api-key': secretKey })).statusCode).toBe(200);
+      const refused = await get({ 'x-api-key': guessed(4_242) });
+      expect(refused.statusCode).toBe(429);
+      expect(refused.json().error.details.scope).toBe('ip');
+    } finally {
+      deny.clear();
+    }
+  });
+
+  it('[S7-F9] with Redis not answering (the limiter allows), the in-process count still stops guessed-key lookups', async () => {
+    const ip = '198.51.100.77';
+    const statuses: number[] = [];
+    for (let i = 0; i < identity.API_KEY_FAILURE_RULE.limit + 3; i++) {
+      statuses.push((await get({ 'x-api-key': guessed(10_000 + i) }, ip)).statusCode);
+    }
+    expect(statuses.slice(0, identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 401)).toBe(true);
+    expect(statuses.slice(identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 429)).toBe(true);
+    // Another address is not affected.
+    expect((await get({ 'x-api-key': guessed(20_000) }, '198.51.100.78')).statusCode).toBe(401);
   });
 });

@@ -48,6 +48,14 @@ function limits(next: Partial<websiteApi.WebsiteLimits>) {
   });
 }
 
+/** Revokes the agency's active keys (S7-F9: later tests would pass the agency's active-key limit). */
+async function revokeAllKeys(): Promise<void> {
+  const page = await as((ctx) => identity.listApiKeys(ctx, { limit: 100 }));
+  for (const k of page.items) {
+    if (!k.revokedAt) await as((ctx) => identity.revokeApiKey(ctx, { keyId: k.id }));
+  }
+}
+
 async function newKey(kind: 'SECRET' | 'PUBLISHABLE'): Promise<string> {
   const issued = await as((ctx) =>
     identity.createApiKey(ctx, {
@@ -626,5 +634,74 @@ describe('website API per-IP limits (S7-F9)', () => {
     expect(penalized.json().error).toMatchObject({ code: 'RATE_LIMITED', details: { scope: 'ip' } });
     // Another address is not affected.
     expect((await get('/v2/listings?limit=1', guessed(1_000), { ip: '203.0.113.67' })).statusCode).toBe(401);
+  });
+
+  it('[S7-F9] saturating a site’s publishable key from many IPs leaves its secret key and the agency’s other sites unaffected', async () => {
+    await revokeAllKeys();
+    clock.advance(3_600_000);
+    const origin = 'https://www.scrape-site.example';
+    const widget = await newKey('PUBLISHABLE');
+    const server = await newKey('SECRET');
+    const other = await as((ctx) =>
+      websites.createSite(ctx, {
+        name: 'Other site',
+        domains: ['www.other-site.example'],
+        mode: 'WP_PLUGIN',
+        inventoryPolicy: 'OWN_ONLY',
+        inventoryFilters: null,
+        referencePrefix: 'OS',
+        locales: ['en'],
+        contact: null,
+      }),
+    );
+    const otherWidget = (
+      await as((ctx) =>
+        identity.createApiKey(ctx, {
+          name: 'Other widget',
+          kind: 'PUBLISHABLE',
+          scopes: ['listings:read'],
+          allowedOrigins: ['https://www.other-site.example'],
+          siteId: other.id,
+        }),
+      )
+    ).secret;
+    // 700 browser requests in 35 s from 10 addresses: over the STANDARD key tier (600 / min) the widget key used to be
+    // refused for every visitor; now its key-wide and agency pools only alert, each browser stays within its own limits.
+    const statuses = new Map<number, number>();
+    for (let i = 0; i < 700; i++) {
+      const res = await get('/v2/listings?limit=1', widget, { ip: `198.51.100.${100 + (i % 10)}`, origin });
+      statuses.set(res.statusCode, (statuses.get(res.statusCode) ?? 0) + 1);
+      clock.advance(50);
+    }
+    expect(Object.fromEntries(statuses)).toEqual({ 200: 700 });
+    expect(alerts.some((a) => a.kind === 'scraping' && a.rule === 'feed.key.pk.standard')).toBe(true);
+    // A new visitor of the same site, the site's server and the agency's other site are all served.
+    expect((await get('/v2/listings?limit=1', widget, { ip: '198.51.100.250', origin })).statusCode).toBe(200);
+    expect((await get('/v2/listings?limit=1', server)).statusCode).toBe(200);
+    expect(
+      (
+        await get('/v2/listings?limit=1', otherWidget, {
+          ip: '198.51.100.251',
+          origin: 'https://www.other-site.example',
+        })
+      ).statusCode,
+    ).toBe(200);
+  }, 300_000);
+
+  it('[S7-F9] one IP holding several publishable keys is limited across them (feed.pk.ip); secret keys are not', async () => {
+    await revokeAllKeys();
+    clock.advance(3_600_000);
+    limits({ publishablePerIpMinute: 5 });
+    const origin = 'https://www.scrape-site.example';
+    const [a, b] = [await newKey('PUBLISHABLE'), await newKey('PUBLISHABLE')];
+    const ip = '198.51.100.40';
+    const statuses: number[] = [];
+    for (let i = 0; i < 7; i++)
+      statuses.push((await get('/v2/listings?limit=1', i % 2 ? a : b, { ip, origin })).statusCode);
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429, 429]);
+    const refused = await get('/v2/listings?limit=1', a, { ip, origin });
+    expect(refused.json().error).toMatchObject({ code: 'RATE_LIMITED', details: { scope: 'ip' } });
+    expect((await get('/v2/listings?limit=1', a, { ip: '198.51.100.41', origin })).statusCode).toBe(200);
+    expect((await get('/v2/listings?limit=1', await newKey('SECRET'), { ip })).statusCode).toBe(200);
   });
 });

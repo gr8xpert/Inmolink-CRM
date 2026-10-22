@@ -81,7 +81,58 @@ class FailedChecksPenalty extends Error {
   }
 }
 
-export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): void {
+/** Key errors that count as a failed check against the client IP (S7-F9 security review: probing origins and scopes too). */
+const FAILED_CHECK_CODES: ReadonlySet<string> = new Set([
+  'API_KEY_INVALID',
+  'API_KEY_ORIGIN_DENIED',
+  'API_KEY_SCOPE_DENIED',
+]);
+
+/**
+ * Failed key checks per client IP in this process (S7-F9 security review): the fallback when Redis cannot answer —
+ * the shared limiter fails open, so without it a Redis outage would leave guessed-key lookups unbounded. Same limit
+ * and window as `API_KEY_FAILURE_RULE`, fixed windows, at most `MAX_TRACKED` addresses (the oldest dropped first).
+ */
+export class LocalFailedChecks {
+  static readonly MAX_TRACKED = 10_000;
+  private readonly windows = new Map<string, { startMs: number; count: number }>();
+
+  constructor(
+    private readonly limit = identity.API_KEY_FAILURE_RULE.limit,
+    private readonly windowMs = identity.API_KEY_FAILURE_RULE.windowSeconds * 1_000,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  private current(ip: string): { startMs: number; count: number } | undefined {
+    const w = this.windows.get(ip);
+    if (w && this.now() - w.startMs < this.windowMs) return w;
+    if (w) this.windows.delete(ip);
+    return undefined;
+  }
+
+  record(ip: string): void {
+    const w = this.current(ip);
+    if (w) {
+      w.count += 1;
+      return;
+    }
+    if (this.windows.size >= LocalFailedChecks.MAX_TRACKED) {
+      const oldest = this.windows.keys().next().value;
+      if (oldest !== undefined) this.windows.delete(oldest);
+    }
+    this.windows.set(ip, { startMs: this.now(), count: 1 });
+  }
+
+  /** Seconds until this IP may look keys up again, or 0. */
+  blockedFor(ip: string): number {
+    const w = this.current(ip);
+    if (!w || w.count < this.limit) return 0;
+    return Math.max(1, Math.ceil((w.startMs + this.windowMs - this.now()) / 1_000));
+  }
+}
+
+export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; localFailures?: LocalFailedChecks }): void {
+  const local = deps.localFailures ?? new LocalFailedChecks();
   app.decorateRequest('apiKey', null);
   app.decorateRequest('websitePaging', null);
   app.decorateRequest('edgeKeyToken', null);
@@ -96,8 +147,12 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
             key: keyOf(request),
             origin: request.headers.origin,
             scope,
-            // S7-F9: an IP in the failed-checks penalty box gets no database lookup for a key no cache knows.
+            // S7-F9: an IP in the failed-checks penalty box gets no database lookup for a key no cache knows. Only on a
+            // cache miss: keys served from the key cache keep working for everyone else on a shared address. The
+            // in-process count stands in when Redis cannot answer (the limiter then allows).
             beforeLookup: async () => {
+              const localWait = local.blockedFor(ip);
+              if (localWait > 0) throw new FailedChecksPenalty(localWait);
               const [peeked] = await deps.limiter.consumeMany([
                 { rule: identity.API_KEY_FAILURE_RULE, identity: ip, peek: true },
               ]);
@@ -106,8 +161,10 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
           });
         } catch (err) {
           if (err instanceof FailedChecksPenalty) return replyRateLimited(reply, 'ip', err.retryAfterSeconds);
-          // Unknown keys are never cached, so guessing costs a query: cap failed checks per client IP.
-          if (isAppError(err) && err.code === 'API_KEY_INVALID') {
+          // Unknown keys are never cached, so guessing costs a query: cap failed checks per client IP — a wrong key, and
+          // (S7-F9) a real key tried from other origins or for other scopes.
+          if (isAppError(err) && FAILED_CHECK_CODES.has(err.code)) {
+            local.record(ip);
             const failed = await deps.limiter.consume(identity.API_KEY_FAILURE_RULE, ip);
             if (!failed.allowed) return replyRateLimited(reply, 'ip', failed.retryAfterSeconds);
           }
