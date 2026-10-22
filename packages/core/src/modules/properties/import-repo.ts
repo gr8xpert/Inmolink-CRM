@@ -31,6 +31,10 @@ export interface StagingRow {
   currency: string;
   price_period: string | null;
   price_on_request: boolean;
+  price_to_cents: number | null;
+  community_fee_month_cents: number | null;
+  ibi_year_cents: number | null;
+  garbage_tax_year_cents: number | null;
   built_m2: string | null;
   plot_m2: string | null;
   terrace_m2: string | null;
@@ -72,14 +76,16 @@ const STAGE_CHUNK_BYTES = 8 * 1024 * 1024;
 /** The recordset's column definitions: the staging table's types (enums included). */
 const RECORDSET = `r(ref text, hash char(64), images_hash char(64), held text[], status listing_status,
   transaction_type transaction_type, price_cents bigint, currency char(3), price_period price_period,
-  price_on_request boolean, built_m2 numeric(10,2), plot_m2 numeric(10,2), terrace_m2 numeric(10,2), bedrooms integer,
+  price_on_request boolean, price_to_cents bigint, community_fee_month_cents bigint, ibi_year_cents bigint,
+  garbage_tax_year_cents bigint, built_m2 numeric(10,2), plot_m2 numeric(10,2), terrace_m2 numeric(10,2), bedrooms integer,
   bathrooms integer, year_built integer, energy_rating cee_rating, energy_emissions_rating cee_rating,
   lat numeric(9,6), lng numeric(9,6), exact_lat numeric(9,6), exact_lng numeric(9,6),
   location_precision location_precision, property_type_id uuid, location_id uuid, country_id uuid, region_id uuid,
   city_id uuid, feature_ids uuid[], translations jsonb, new_id uuid, new_ref text, existing_id uuid, live boolean,
   old_hash char(64), old_images_hash char(64), old_missed smallint, old_withdrawn boolean, old_conn uuid)`;
 const COLUMNS = `ref, hash, images_hash, held, status, transaction_type, price_cents, currency, price_period,
-  price_on_request, built_m2, plot_m2, terrace_m2, bedrooms, bathrooms, year_built, energy_rating,
+  price_on_request, price_to_cents, community_fee_month_cents, ibi_year_cents, garbage_tax_year_cents, built_m2,
+  plot_m2, terrace_m2, bedrooms, bathrooms, year_built, energy_rating,
   energy_emissions_rating, lat, lng, exact_lat, exact_lng, location_precision, property_type_id, location_id,
   country_id, region_id, city_id, feature_ids, translations, new_id, new_ref, existing_id, live, old_hash,
   old_images_hash, old_missed, old_withdrawn, old_conn`;
@@ -252,8 +258,17 @@ export async function mergeListings(
     commissionFixedCents: number | null;
     includesVat: boolean;
     splitBp: number;
+    /** The connector sends running costs: absent means removed (else a stored value is kept). */
+    sendsCosts: boolean;
   },
 ): Promise<MergedRow[]> {
+  // S7-F14: connectors that never send costs (Kyero, …) must not wipe what an agent entered or Resales once sent.
+  const cost = (column: string, lock: 'price' | 'specs' = 'specs') => {
+    const c = sql.raw(column);
+    return owner.sendsCosts
+      ? sql`case when ${locked(lock)} then p.${c} else s.${c} end`
+      : sql`case when ${locked(lock)} then p.${c} else coalesce(s.${c}, p.${c}) end`;
+  };
   // A held location keeps the listing's own place (its unmatched level is not known yet); a new listing gets the
   // deepest level that matched.
   const keepLocation = sql`(${locked('location')} or s.location_id is null or 'location' = any(s.held))`;
@@ -269,6 +284,10 @@ export async function mergeListings(
       currency = case when ${locked('price')} then p.currency else s.currency end,
       price_period = case when ${locked('price')} then p.price_period else s.price_period end,
       price_on_request = case when ${locked('price')} then p.price_on_request else s.price_on_request end,
+      price_to_cents = ${cost('price_to_cents', 'price')},
+      community_fee_month_cents = ${cost('community_fee_month_cents')},
+      ibi_year_cents = ${cost('ibi_year_cents')},
+      garbage_tax_year_cents = ${cost('garbage_tax_year_cents')},
       built_m2 = case when ${locked('specs')} then p.built_m2 else s.built_m2 end,
       plot_m2 = case when ${locked('specs')} then p.plot_m2 else s.plot_m2 end,
       terrace_m2 = case when ${locked('specs')} then p.terrace_m2 else s.terrace_m2 end,
@@ -294,12 +313,13 @@ export async function mergeListings(
       updated_at = now()
     when not matched and s.existing_id is null then insert (
       id, agency_id, owner_user_id, ref, source, status, transaction_type, price_cents, currency, price_period,
-      price_on_request, commission_bp, commission_fixed_cents, commission_includes_vat, split_bp, built_m2, plot_m2,
+      price_on_request, price_to_cents, community_fee_month_cents, ibi_year_cents, garbage_tax_year_cents, commission_bp, commission_fixed_cents, commission_includes_vat, split_bp, built_m2, plot_m2,
       terrace_m2, bedrooms, bathrooms, year_built, energy_rating, energy_emissions_rating, lat, lng,
       location_precision, property_type_id, location_id, country_id, region_id, city_id
     ) values (
       s.new_id, ${scope.agencyId}, ${owner.userId}, s.new_ref, ${scope.source}, ${heldStatus}, s.transaction_type,
-      s.price_cents, s.currency, s.price_period, s.price_on_request, ${owner.commissionBp}::integer,
+      s.price_cents, s.currency, s.price_period, s.price_on_request, s.price_to_cents, s.community_fee_month_cents,
+      s.ibi_year_cents, s.garbage_tax_year_cents, ${owner.commissionBp}::integer,
       ${owner.commissionFixedCents}::bigint, ${owner.includesVat}, ${owner.splitBp}, s.built_m2, s.plot_m2,
       s.terrace_m2, s.bedrooms, s.bathrooms, s.year_built, s.energy_rating, s.energy_emissions_rating, s.lat, s.lng,
       s.location_precision, s.property_type_id, s.location_id, s.country_id, s.region_id, s.city_id

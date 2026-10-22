@@ -31,6 +31,10 @@ export interface ReadModelListing {
   currency: string;
   pricePeriod: repo.ReadModelRow['pricePeriod'];
   priceOnRequest: boolean;
+  priceToCents: number | null;
+  communityFeeMonthCents: number | null;
+  ibiYearCents: number | null;
+  garbageTaxYearCents: number | null;
   builtM2: number | null;
   plotM2: number | null;
   terraceM2: number | null;

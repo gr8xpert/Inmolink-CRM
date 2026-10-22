@@ -93,7 +93,8 @@
     "FEED_MAPPING_INVALID": "Este perfil de mapeo no es válido para este formato de feed.",
     "FEED_MAPPING_PROFILE_NOT_FOUND": "Este perfil de mapeo ya no existe.",
     "FEED_CONNECTION_PAUSED": "Este feed está en pausa. Reanúdalo primero.",
-    "FEED_SETTINGS_INVALID": "Un ajuste no es válido para este formato de feed (en Resales Online, el alias de filtro debe ser 1, 2, 3 o 4)."
+    "FEED_SETTINGS_INVALID": "Un ajuste no es válido para este formato de feed (en Resales Online, el alias de filtro debe ser 1, 2, 3 o 4).",
+    "RESALES_CREDENTIALS_BOTH": "Vuelve a introducir el ID de cliente y la clave API, o deja ambos vacíos para conservar los guardados."
   },
   "form": {
     "connect": "Conectar un feed",
@@ -133,12 +134,31 @@
     "format": "Formato",
     "formats": {
       "kyero": "Kyero (XML v3)",
-      "xml-mapped": "Cualquier feed XML (mapeado)"
+      "xml-mapped": "Cualquier feed XML (mapeado)",
+      "resales-online": "Resales Online (anuncios propios)"
     },
     "profile": "Perfil de mapeo",
     "noProfile": "Sin perfil (feeds de Kyero)",
     "profileHint": "Los feeds XML genéricos necesitan el perfil que guardaste en el mapeador.",
-    "openMapper": "Abrir el mapeador"
+    "openMapper": "Abrir el mapeador",
+    "resales": {
+      "clientId": "ID de cliente",
+      "clientIdHint": "El número P1 de tu cuenta de la WebAPI de Resales Online.",
+      "apiKey": "Clave API",
+      "apiKeyHint": "La clave P2 de tu cuenta de la WebAPI. Se guarda cifrada y no se vuelve a mostrar; al editar, déjala vacía para conservar la guardada.",
+      "filterAlias": "Alias de filtro",
+      "filterAliasHint": "El alias del filtro del portal que se importa (no el id numérico del filtro): 1 Venta, 2 Alquiler vacacional, 3 Alquiler larga duración, 4 Destacados. Usa una conexión por alias.",
+      "aliases": {
+        "1": "1 - Venta",
+        "2": "2 - Alquiler vacacional",
+        "3": "3 - Alquiler larga duración",
+        "4": "4 - Destacados"
+      },
+      "languages": "Idiomas",
+      "languagesHint": "Lista de códigos de idioma separados por comas que se piden además del inglés (por ejemplo es,de,fr,nl). Vacío: solo inglés.",
+      "intro": "Solo se importan los anuncios de tu agencia; las propiedades compartidas por otras agencias se omiten.",
+      "editHint": "Deja ambos vacíos para conservar el ID de cliente y la clave API guardados (rellena ambos para sustituirlos)."
+    }
   },
   "mapper": {
     "open": "Mapear un feed o una hoja de cálculo",

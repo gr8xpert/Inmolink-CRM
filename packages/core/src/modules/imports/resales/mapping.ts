@@ -164,6 +164,65 @@ export function resalesPriceCents(v: unknown): { cents: number | null; onRequest
   return cents === 0 ? { cents: null, onRequest: true, invalid: false } : { cents, onRequest: false, invalid: false };
 }
 
+/** The high end of a price range ("96091 - 234530"), when it is above the low end; null for a single price. */
+export function resalesPriceToCents(v: unknown): number | null {
+  const s = str(v);
+  if (s === undefined) return null;
+  const parts = s.split(/\s+-\s+|\s*-\s*(?=\d)/);
+  if (parts.length !== 2) return null;
+  const low = resalesPriceCents(parts[0]).cents;
+  const high = resalesPriceCents(parts[1]).cents;
+  return low !== null && high !== null && high > low ? high : null;
+}
+
+/** A yearly amount as cents ("3,912"); zero and anything unreadable: null. */
+export function resalesYearCents(v: unknown): number | null {
+  return resalesPriceCents(v).cents;
+}
+
+/** A yearly amount as cents per month, rounded to the cent ("3,912" → 32600). */
+export function resalesMonthCents(v: unknown): number | null {
+  const year = resalesYearCents(v);
+  return year === null ? null : Math.round(year / 12);
+}
+
+type FeedDevelopmentInput = NonNullable<FeedListingInput['development']>;
+
+/** A unit's status in the price list ("Available", "Reserved", "Sold"). */
+function unitStatus(u: ResalesRecord): 'AVAILABLE' | 'RESERVED' | 'SOLD' {
+  const t = (str(u.StatusCode) ?? str(u.StatusText) ?? '').toLowerCase();
+  if (/sold|vendid/.test(t)) return 'SOLD';
+  if (/reserv/.test(t)) return 'RESERVED';
+  return 'AVAILABLE';
+}
+
+/** The development of a new-development record: `NewDevName`, key-ready and the `PriceList` units; null without a name. */
+export function resalesDevelopment(p: ResalesRecord): FeedDevelopmentInput | null {
+  if (!isNewDevelopment(p)) return null;
+  const name = str(p.NewDevName);
+  if (!name) return null;
+  const seen = new Set<string>();
+  const units: FeedDevelopmentInput['units'] = [];
+  for (const raw of list(p.PriceList)) {
+    const u = obj(raw);
+    const ref = str(u?.Name);
+    if (!u || !ref || seen.has(ref) || ref.length > 40) continue;
+    seen.add(ref);
+    units.push({
+      ref,
+      type: str(u.Type)?.slice(0, 200) ?? null,
+      priceCents: resalesPriceCents(u.Price).cents,
+      builtM2: area(u.BuiltSize),
+      terraceM2: area(u.Terrace),
+      bedrooms: roomCount(u.Beds),
+      bathrooms: roomCount(u.Baths),
+      status: unitStatus(u),
+    });
+  }
+  const key = str(p.KeyReady);
+  return { name: name.slice(0, 200), keyReady: key === undefined ? null : truthy(key), units: units.slice(0, 500) };
+}
+
 type Transaction = FeedListingInput['transactionType'];
 const ALIAS_TRANSACTION: Record<ResalesFilterAlias, Transaction> = {
   '1': 'SALE',
@@ -279,6 +338,7 @@ export function mapResalesProperty(item: ResalesItem, settings: ResalesSettings)
   if (rental && price.cents === null && str(p.RentalPrice2) !== undefined) price = resalesPriceCents(p.RentalPrice2);
   if (price.invalid) problems.push(problem('INVALID_PRICE', rental ? 'RentalPrice1' : 'Price', 'not a price'));
   const onRequest = price.onRequest || /^yes$/i.test(str(p.PriceOnApplication) ?? '');
+  const priceTo = price.cents === null ? null : resalesPriceToCents(rental ? p.RentalPrice2 : p.Price);
   const pricePeriod = transactionType === 'SALE' ? null : rentalPeriod(p.RentalPeriod);
 
   const pt = obj(p.PropertyType);
@@ -346,6 +406,11 @@ export function mapResalesProperty(item: ResalesItem, settings: ResalesSettings)
       pricePeriod,
       priceCents: price.cents,
       priceOnRequest: onRequest,
+      priceToCents: onRequest ? null : priceTo,
+      communityFeeMonthCents: resalesMonthCents(p.Community_Fees_Year ?? p.CommunityFees),
+      ibiYearCents: resalesYearCents(p.IBI_Fees_Year ?? p.IBI),
+      garbageTaxYearCents: resalesYearCents(p.Basura_Tax_Year ?? p.Basura),
+      development: resalesDevelopment(p),
       currency: (str(p.Currency) ?? settings.defaultCurrency).toUpperCase(),
       builtM2: area(p.Built ?? p.BuiltArea),
       plotM2: area(p.GardenPlot ?? p.Plot),

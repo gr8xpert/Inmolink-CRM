@@ -18,6 +18,7 @@ import {
   sessionRef,
   updateFeedConnection,
 } from '@/server/api';
+import { resalesFormInput } from './resales-input';
 
 /**
  * Feed imports form actions (transport only, S6-01): validate with the contracts, call the API, and come back to
@@ -46,7 +47,7 @@ const text = (form: FormData, name: string) => {
 };
 
 /** The formats a connection can be created with from this form. */
-const CONNECTORS = new Set(['kyero', 'xml-mapped']);
+const CONNECTORS = new Set(['kyero', 'xml-mapped', 'resales-online']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const SCHEDULES = new Set(['60', '360', '1440']);
@@ -125,21 +126,24 @@ export async function createConnectionAction(form: FormData): Promise<void> {
     redirect(`${getPathname({ href, locale })}?${new URLSearchParams(query)}`);
   const connector = CONNECTORS.has(text(form, 'connector')) ? text(form, 'connector') : 'kyero';
   const profile = UUID.test(text(form, 'mappingProfileId')) ? text(form, 'mappingProfileId') : undefined;
+  const resalesIn = connector === 'resales-online' ? resalesFormInput(form, false) : null;
+  const resales = resalesIn?.ok ? resalesIn : null;
   const parsed = CreateFeedConnectionBody.safeParse({
     name: text(form, 'name'),
     connector,
-    url: text(form, 'url'),
-    credentials: credentialsOf(form),
-    settings: connector === 'kyero' ? kyeroSettings(form) : {},
+    url: resales ? resales.url : text(form, 'url'),
+    credentials: resales ? resales.credentials : credentialsOf(form),
+    settings: resales ? resales.settings : connector === 'kyero' ? kyeroSettings(form) : {},
     ...(profile ? { mappingProfileId: profile } : {}),
     scheduleMinutes: scheduleOf(form),
     enabled: form.get('enabled') === 'on',
   });
-  if (!parsed.success) return to('/imports/new', { error: 'VALIDATION_FAILED' });
+  const again: Record<string, string> = resales ? { connector } : {};
+  if (!parsed.success) return to('/imports/new', { error: 'VALIDATION_FAILED', ...again });
   const res = await createFeedConnection(sessionRef(s.user), parsed.data);
   if (res === 'revoked') redirect('/session/expired');
   if (res.ok) return to('/imports', { done: 'created' });
-  return to('/imports/new', { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
+  return to('/imports/new', { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic', ...again });
 }
 
 /** Change a feed (admins). Stored settings are kept; only the Kyero ones are replaced. */
@@ -157,12 +161,20 @@ export async function updateConnectionAction(form: FormData): Promise<void> {
   if (current === 'revoked') redirect('/session/expired');
   if (!current.ok) return to('/imports', { error: KNOWN_ERRORS.find((c) => c === current.error?.code) ?? 'generic' });
   const { defaultCountry: _replaced, ...otherSettings } = current.data.settings;
+  const resalesIn = current.data.connector === 'resales-online' ? resalesFormInput(form, true) : null;
+  if (resalesIn && !resalesIn.ok)
+    return to(`/imports/${id}/edit`, { error: 'VALIDATION_FAILED', detail: 'credentials' });
+  const resales = resalesIn?.ok ? resalesIn : null;
   const parsed = UpdateFeedConnectionBody.safeParse({
     version: Number(text(form, 'version')),
     name: text(form, 'name'),
-    url: text(form, 'url'),
-    credentials: credentialsOf(form),
-    settings: current.data.connector === 'kyero' ? { ...otherSettings, ...kyeroSettings(form) } : current.data.settings,
+    url: resales ? resales.url : text(form, 'url'),
+    credentials: resales ? resales.credentials : credentialsOf(form),
+    settings: resales
+      ? { ...current.data.settings, ...resales.settings }
+      : current.data.connector === 'kyero'
+        ? { ...otherSettings, ...kyeroSettings(form) }
+        : current.data.settings,
     ...(current.data.connector === 'xml-mapped' && UUID.test(text(form, 'mappingProfileId'))
       ? { mappingProfileId: text(form, 'mappingProfileId') }
       : {}),

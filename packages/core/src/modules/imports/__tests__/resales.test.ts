@@ -348,6 +348,37 @@ describe('Resales Online connector', () => {
     });
   });
 
+  it('[S7-F14] the details fields map: fees per month, IBI and basura per year, the range end, and the development with its units', async () => {
+    const { byRef } = await run(fakeApi(fixtureRoute).connector);
+    expect(byRef('R3000001')).toMatchObject({
+      communityFeeMonthCents: 32_600, // 3,912 a year / 12
+      ibiYearCents: 210_000,
+      garbageTaxYearCents: 31_000,
+      priceToCents: null,
+      development: null,
+    });
+    expect(byRef('R3000002')).toMatchObject({
+      priceCents: 9_609_100,
+      priceToCents: 23_453_000,
+      communityFeeMonthCents: null,
+      development: {
+        name: 'Seaside Residences',
+        keyReady: false,
+        units: [
+          {
+            ref: 'A-1',
+            type: 'Ground Floor Apartment',
+            priceCents: 9_609_100,
+            builtM2: 39,
+            bedrooms: 1,
+            status: 'AVAILABLE',
+          },
+          { ref: 'B-4', type: 'Penthouse', priceCents: null, terraceM2: 35, bathrooms: 2, status: 'SOLD' },
+        ],
+      },
+    });
+  });
+
   it('[S6-F4] prices: POA and zero are on request, rentals read RentalPrice1 and RentalPeriod, the alias sets the transaction type', async () => {
     const page = (Property: unknown[], SearchType?: string) => (u: URL) =>
       isDetails(u)

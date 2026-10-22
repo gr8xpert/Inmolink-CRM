@@ -125,9 +125,18 @@ export function toRunDto(row: repo.RunView): FeedRunDto {
 }
 
 /** Early answer when a URL is saved (no DNS here; the fetch checks again, with DNS, on every hop). */
-function checkedUrl(url: string): string {
+function checkedUrl(url: string, fixedHost?: string): string {
   try {
-    return checkUrl(url).href;
+    const checked = checkUrl(url);
+    // S7-F14: a connector with one API host (Resales Online) takes no other, however the URL was typed.
+    if (
+      fixedHost &&
+      (checked.hostname.toLowerCase() !== fixedHost ||
+        checked.protocol !== 'https:' ||
+        (checked.port !== '' && checked.port !== '443'))
+    )
+      throw new AppError('FEED_URL_NOT_ALLOWED', { reason: 'HOST_NOT_ALLOWED' });
+    return checked.href;
   } catch (err) {
     if (isSafeFetchError(err)) throw new AppError('FEED_URL_NOT_ALLOWED', { reason: err.details.reason ?? err.code });
     throw err;
@@ -169,7 +178,7 @@ export async function createFeedConnection(ctx: Ctx, input: CreateFeedConnection
   assertCan(ctx, 'imports.manage');
   if (!getConnector(input.connector)) throw new AppError('FEED_CONNECTOR_UNKNOWN');
   assertSettings(input.connector, input.settings ?? {});
-  const url = checkedUrl(input.url);
+  const url = checkedUrl(input.url, getConnector(input.connector)?.fixedHost);
   assertSecretsOverTls(url, Boolean(input.credentials));
   if (getConnector(input.connector)?.requiresMapping && !input.mappingProfileId) {
     throw new AppError('FEED_MAPPING_REQUIRED');
@@ -243,7 +252,7 @@ export async function updateFeedConnection(
   const enabled = input.enabled ?? current.enabled;
   const scheduleMinutes = input.scheduleMinutes === undefined ? current.scheduleMinutes : input.scheduleMinutes;
   const replan = enabled !== current.enabled || scheduleMinutes !== current.scheduleMinutes;
-  const url = input.url !== undefined ? checkedUrl(input.url) : undefined;
+  const url = input.url !== undefined ? checkedUrl(input.url, getConnector(current.connector)?.fixedHost) : undefined;
   // Credentials belong to the feed's origin: pointing the connection elsewhere drops them unless new ones come
   // with the change (an admin cannot send credentials another admin entered to a host of their choosing).
   const originMoved = url !== undefined && new URL(url).origin !== new URL(current.url).origin;

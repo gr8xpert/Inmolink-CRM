@@ -1,6 +1,6 @@
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
-import { redirect as localeRedirect } from '@/i18n/navigation';
+import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchMappingProfiles, sessionRef } from '@/server/api';
 import { ConnectionForm } from '../connection-form';
 import { ImportNotice } from '../shared';
@@ -17,7 +17,21 @@ export default async function NewFeedPage({ searchParams }: { searchParams: Prom
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('createTitle')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
-      <ImportNotice error={q.error} />
+      <nav aria-label={t('format')} className="flex gap-4 text-sm">
+        <Link
+          href="/imports/new"
+          className={q.connector === 'resales-online' ? 'underline-offset-4 hover:underline' : 'font-medium'}
+        >
+          {t('formats.kyero')} / {t('formats.xml-mapped')}
+        </Link>
+        <Link
+          href={{ pathname: '/imports/new', query: { connector: 'resales-online' } }}
+          className={q.connector === 'resales-online' ? 'font-medium' : 'underline-offset-4 hover:underline'}
+        >
+          {t('formats.resales-online')}
+        </Link>
+      </nav>
+      <ImportNotice error={q.error} detail={q.detail} />
       <ConnectionForm
         profiles={
           profiles !== 'revoked' && profiles.ok ? profiles.data.items.map((p) => ({ id: p.id, name: p.name })) : []

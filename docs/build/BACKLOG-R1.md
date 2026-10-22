@@ -1003,6 +1003,13 @@ Ref §3 #17 · Mod imports, properties, developments, web · Dep S7-F12
 - A development with a 2-unit price list creates one development with 2 units, and a re-run changes nothing (test)
 - The form creates a working Resales connection; a bad filter alias shows `FEED_SETTINGS_INVALID` (test)
 
+### S7-F15 · Contract: validate `properties_costs_ck` (split from S7-F14)
+Ref §3 #17 · Mod db · Dep S7-F14
+**Build:**
+- One migration that only runs `ALTER TABLE properties VALIDATE CONSTRAINT properties_costs_ck` (migration 0108 added the check `NOT VALID` so it did not scan `properties` under an exclusive lock; `VALIDATE` takes only a `SHARE UPDATE EXCLUSIVE` lock and reads and writes go on). Nothing else in the migration.
+**Done when:**
+- `properties_costs_ck` is validated (`pg_constraint.convalidated`) after `pnpm db:migrate`, and a negative fee is still refused (test)
+
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]
 **Build:** log analysis script (endpoints, params, frequencies per site); recorder that replays representative requests against the legacy API and stores normalized responses in `tests/golden/`.

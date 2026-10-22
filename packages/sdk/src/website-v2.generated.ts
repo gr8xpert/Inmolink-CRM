@@ -204,6 +204,10 @@ export type GetListingResponse = ({
   metaDescription: string | null;
   terraceM2: number | null;
   yearBuilt: number | null;
+  priceToCents: number | null;
+  communityFeeMonthCents: number | null;
+  ibiYearCents: number | null;
+  garbageTaxYearCents: number | null;
   energyRating: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "EXEMPT" | "PENDING" | null;
   energyEmissionsRating: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "EXEMPT" | "PENDING" | null;
   features: Array<{

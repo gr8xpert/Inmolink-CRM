@@ -211,6 +211,12 @@ export const ListingDto = z.object({
   price: Money.nullable(),
   pricePeriod: PricePeriod.nullable(),
   priceOnRequest: z.boolean(),
+  /** The end of a price range (S7-F14); null for a single price. */
+  priceToCents: z.number().int().nullable(),
+  /** Running costs from a feed (S7-F14): community fee per month, IBI and refuse tax per year. */
+  communityFeeMonthCents: z.number().int().nullable(),
+  ibiYearCents: z.number().int().nullable(),
+  garbageTaxYearCents: z.number().int().nullable(),
   /** Null in Client Mode (PLAN §3 #56): a client never sees commission or split. */
   commission: z.object({ total: Commission.nullable(), splitBp: z.number().int().nullable() }).nullable(),
   builtM2: z.number().nullable(),

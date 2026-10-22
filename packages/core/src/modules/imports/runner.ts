@@ -535,8 +535,13 @@ async function runOnce(
       const checkpoint =
         batch.checkpoint === undefined || fingerprint === null ? undefined : { fp: fingerprint, at: batch.checkpoint };
       // Outside the fenced transaction: item checks and taxonomy resolution (their own short transactions).
-      const { prepared, errors: prepErrors } =
-        batch.total > 0 ? await runLoader.prepare(batch.valid) : { prepared: null, errors: [] as ItemError[] };
+      const {
+        prepared,
+        errors: prepErrors,
+        warnings = [],
+      } = batch.total > 0
+        ? await runLoader.prepare(batch.valid)
+        : { prepared: null, errors: [] as ItemError[], warnings: [] as ItemError[] };
       await withTenant({ agencyId }, async (tx) => {
         const logged = await repo.lockRunForBatch(tx, runId, token);
         if (logged === null) throw new LeaseLostError();
@@ -552,7 +557,7 @@ async function runOnce(
         if (hashes && batch.total > 0) {
           // Only items the loader stored (written or unchanged) get their hash; failed ones keep the old one.
           const failedRefs = new Set(writeErrors.flatMap((e) => (e.itemRef ? [e.itemRef] : [])));
-          for (const e of prepErrors) if (e.itemRef) failedRefs.add(e.itemRef);
+          for (const e of [...prepErrors, ...warnings]) if (e.itemRef) failedRefs.add(e.itemRef);
           const stored = batch.valid.flatMap((v) =>
             v.sourceHash && !failedRefs.has(v.ref) ? [{ ref: v.ref, hash: v.sourceHash }] : [],
           );
@@ -560,9 +565,11 @@ async function runOnce(
         }
         const errors: ItemError[] = [...failedBefore, ...writeErrors].sort((a, b) => a.position - b.position);
         const keep = errors.slice(0, Math.max(0, FEED_ERRORS_KEPT - logged));
+        // S7-F14: warnings are rows beside the errors (same cap), not failed items and not in `logged`.
+        const room = Math.max(0, FEED_ERRORS_KEPT - logged - keep.length);
         await repo.insertItemErrors(
           tx,
-          keep.map((e) => ({ id: newId(), agencyId, runId, ...e })),
+          [...keep, ...warnings.slice(0, room)].map((e) => ({ id: newId(), agencyId, runId, ...e })),
         );
         const failed = errors.length;
         const held = await repo.addBatchCounts(tx, runId, token, RUNS.LEASE_MS, {

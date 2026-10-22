@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type FeedListingInput, ResalesFeedSettings } from '@inmolink/contracts';
+import { type FeedListingInput, RESALES_API_HOST, ResalesFeedSettings } from '@inmolink/contracts';
 import { isSafeFetchError, safeFetch } from '@inmolink/platform/safe-fetch';
 import { z } from 'zod';
 import { FEED_FETCH } from '../config';
@@ -55,7 +55,7 @@ import {
  * before it is kept.
  */
 
-export const RESALES_HOST = 'webapi.resales-online.com';
+export const RESALES_HOST: string = RESALES_API_HOST;
 export const RESALES_PAGE_SIZE = 40;
 export const RESALES_MAX_PAGES = 1_000;
 /** Calls in flight per Resales account (SPW: 5 is safe). */
@@ -70,7 +70,7 @@ export const RESALES_DETAILS_TIMEOUT_MS = 15_000;
 /** The run's deadline: a base plus a share per listing of `PropertyCount` (set once page 1 answered). */
 export const RESALES_DEADLINE = { BASE_MS: 15 * 60_000, PER_LISTING_MS: 1_000 } as const;
 /** A change here re-fetches every listing once (the hash covers the mapping's inputs). */
-const HASH_VERSION = 's6-f4.1';
+const HASH_VERSION = 's7-f14.1';
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
 const BUSY_TEXT = /P1 or P2 not valid/i;
 
@@ -421,6 +421,8 @@ export function createResalesConnector(
     key: options.key ?? 'resales-online',
     sourceHashes: true,
     resumable: true,
+    fixedHost: RESALES_HOST,
+    sendsCosts: true,
     acceptsCheckpoint: (checkpoint) => ResalesCheckpoint.safeParse(checkpoint).success,
     settingsProblem(settings) {
       const parsed = ResalesFeedSettings.safeParse(settings);

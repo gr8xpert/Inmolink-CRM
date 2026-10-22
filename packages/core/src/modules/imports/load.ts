@@ -20,11 +20,13 @@ import { type Tx, withSystem, withTenant } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { withMemberCtx } from '../../member';
 import * as agencies from '../agencies';
+import * as developments from '../developments';
 import * as identity from '../identity';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { defaultWithdrawAfterMissedRuns, RUNS } from './config';
+import { getConnector } from './connectors';
 import type { ItemError, ValidItem } from './pipeline';
 import * as repo from './repo';
 
@@ -60,7 +62,15 @@ export interface SinkCounts {
 /** One run's loader: holds run-level state (owner, defaults, the taxonomy cache). */
 export interface RunLoader<Prepared = unknown> {
   /** Outside any transaction of the run (may open its own short ones). Never writes listings. */
-  prepare(items: ValidItem[]): Promise<{ prepared: Prepared; errors: ItemError[] }>;
+  prepare(items: ValidItem[]): Promise<{
+    prepared: Prepared;
+    errors: ItemError[];
+    /**
+     * S7-F14: problems of items that are still stored (a development that could not be): logged beside the run's item
+     * errors without counting as failed; the item keeps no source hash, so the next run tries again.
+     */
+    warnings?: ItemError[];
+  }>;
   /**
    * Inside the fenced batch transaction. `seenRefs`: references of the batch's failed items (still in the feed).
    * `errors`: items the write could not store (counted as failed).
@@ -402,6 +412,46 @@ export async function resolveTaxonomy(
   return out;
 }
 
+/**
+ * The development reference of a feed listing: the feed's reference under the `RO-` namespace (the column holds 40
+ * characters). The namespace is the only mark of a feed development (the table has no source column): a development
+ * typed by hand under an `RO-` reference would be adopted by the feed.
+ */
+const FEED_DEVELOPMENT_REF_MAX = 40;
+export const feedDevelopmentRef = (listingRef: string): string => {
+  const ref = `RO-${listingRef}`;
+  if (ref.length <= FEED_DEVELOPMENT_REF_MAX) return ref;
+  // Too long to keep whole: a prefix and a hash of the whole reference, never a bare cut (two long references would meet).
+  return `RO-${listingRef.slice(0, 22)}~${sha256(listingRef).slice(0, 12)}`;
+};
+
+/**
+ * The property type of each unit of the batch's developments (S7-F14), by listing reference: the unit's own type when
+ * the resolver knows it, else null (the listing's type stands in). A unit type nobody mapped does not hold the listing.
+ */
+async function resolveUnitTypes(
+  tx: Tx,
+  resolver: TaxonomyResolver,
+  items: readonly Parsed[],
+): Promise<Map<string, (string | null)[]>> {
+  const flat = items.flatMap((p) =>
+    (p.listing.development?.units ?? []).flatMap((u, j) => (u.type ? [{ ref: p.listing.ref, j, text: u.type }] : [])),
+  );
+  const out = new Map<string, (string | null)[]>();
+  if (flat.length === 0) return out;
+  const ids = await resolver.resolve(
+    tx,
+    'propertyType',
+    flat.map((f) => ({ text: f.text, example: f.ref })),
+  );
+  flat.forEach((f, k) => {
+    const list = out.get(f.ref) ?? [];
+    list[f.j] = ids[k] ?? null;
+    out.set(f.ref, list);
+  });
+  return out;
+}
+
 /** The listing the MERGE writes, with the hash that decides whether it is written at all. */
 function toImport(listing: FeedListing, r: Resolved): properties.ImportListing {
   const featureIds = [...r.featureIds].sort();
@@ -413,6 +463,11 @@ function toImport(listing: FeedListing, r: Resolved): properties.ImportListing {
     currency: listing.currency,
     pricePeriod: listing.transactionType === 'SALE' ? null : listing.pricePeriod,
     priceOnRequest: listing.priceOnRequest,
+    // Only when the feed gives them: a listing from a connector without them keeps the hash it had (S7-F14).
+    ...(listing.priceToCents !== null ? { priceToCents: listing.priceToCents } : {}),
+    ...(listing.communityFeeMonthCents !== null ? { communityFeeMonthCents: listing.communityFeeMonthCents } : {}),
+    ...(listing.ibiYearCents !== null ? { ibiYearCents: listing.ibiYearCents } : {}),
+    ...(listing.garbageTaxYearCents !== null ? { garbageTaxYearCents: listing.garbageTaxYearCents } : {}),
     builtM2: listing.builtM2,
     plotM2: listing.plotM2,
     terraceM2: listing.terraceM2,
@@ -516,11 +571,75 @@ export const listingSink: FeedSink = {
       ownerUserId,
       commission: defaults.commission,
       splitBp: defaults.splitBp,
+      sendsCosts: getConnector(run.connector)?.sendsCosts === true,
     };
     const withdrawAfter = settings.withdrawAfterMissedRuns ?? defaultWithdrawAfterMissedRuns();
     const resolver = new RunResolver();
     /** The run's missing references, from `dropStats` (same transaction as `finish`). */
     let missingRefs: string[] | undefined;
+
+    /**
+     * S7-F14: the developments of the batch's listings, through the developments module, in one owner-member
+     * transaction for the batch with a savepoint per development (one that fails rolls back alone). Idempotent per
+     * reference. A development the owner may not create is skipped and reported as a `DEVELOPMENT_SKIPPED` item
+     * warning (the listing itself still imports; the run does not count it as failed and does not store its source
+     * hash, so the next run tries again). A development whose location is unmatched is skipped silently: its
+     * listing is rejected for that already.
+     */
+    const importDevelopments = async (
+      parsed: readonly Parsed[],
+      resolved: readonly Resolved[],
+      unitTypes: ReadonlyMap<string, (string | null)[]>,
+    ): Promise<ItemError[]> => {
+      const todo = parsed.flatMap((p, i) => {
+        const r = resolved[i] as Resolved;
+        return p.listing.development && r.locationId && r.propertyTypeId
+          ? [{ p, dev: p.listing.development, locationId: r.locationId, fallbackType: r.propertyTypeId }]
+          : [];
+      });
+      if (todo.length === 0) return [];
+      const warnings: ItemError[] = [];
+      await withMemberCtx({ userId: ownerUserId, agencyId: run.agencyId, requestId: run.runId }, async (ctx) => {
+        for (const { p, dev, locationId, fallbackType } of todo) {
+          const types = unitTypes.get(p.listing.ref) ?? [];
+          try {
+            await ctx.tx.transaction((sp) =>
+              developments.importFeedDevelopment(
+                { ...ctx, tx: sp },
+                {
+                  ref: feedDevelopmentRef(p.listing.ref),
+                  name: dev.name,
+                  keyReady: dev.keyReady,
+                  locationId,
+                  currency: p.listing.currency,
+                  units: dev.units.map((u, j) => ({
+                    ref: u.ref,
+                    propertyTypeId: types[j] ?? fallbackType,
+                    priceCents: u.priceCents,
+                    internalM2: u.builtM2,
+                    terraceM2: u.terraceM2,
+                    bedrooms: u.bedrooms,
+                    bathrooms: u.bathrooms,
+                    status: u.status,
+                  })),
+                },
+              ),
+            );
+          } catch (err) {
+            if (!(err instanceof AppError)) throw err;
+            // The error code only: no feed content, no payload.
+            warnings.push({
+              position: p.position,
+              itemRef: clip(p.listing.ref, 200),
+              code: 'DEVELOPMENT_SKIPPED',
+              field: 'development',
+              message: clip(err.code, 120),
+            });
+          }
+        }
+      });
+      return warnings;
+    };
 
     const loader: RunLoader<Prepared> = {
       async prepare(valid) {
@@ -559,12 +678,13 @@ export const listingSink: FeedSink = {
             parsed.push({ position: v.position, listing: result.data });
           }
         }
-        const resolved =
+        const { resolved, unitTypes } =
           parsed.length === 0
-            ? []
-            : await withSystem('imports.loader: resolve feed taxonomy', (tx) =>
-                resolveTaxonomy(tx, resolver, parsed),
-              ).then(
+            ? { resolved: [] as Resolved[], unitTypes: new Map<string, (string | null)[]>() }
+            : await withSystem('imports.loader: resolve feed taxonomy', async (tx) => ({
+                resolved: await resolveTaxonomy(tx, resolver, parsed),
+                unitTypes: await resolveUnitTypes(tx, resolver, parsed),
+              })).then(
                 (r) => {
                   resolver.commit();
                   return r;
@@ -574,6 +694,7 @@ export const listingSink: FeedSink = {
                   throw err;
                 },
               );
+        const warnings = await importDevelopments(parsed, resolved, unitTypes);
         const items = parsed.map((p, i) => toImport(p.listing, resolved[i] as Resolved));
         return {
           prepared: {
@@ -584,6 +705,7 @@ export const listingSink: FeedSink = {
             ),
           },
           errors,
+          warnings,
         };
       },
 

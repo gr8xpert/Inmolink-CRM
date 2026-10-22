@@ -287,3 +287,29 @@ export async function listUnits(ctx: Ctx, developmentId: string, q: ListUnitsQue
     nextCursor: page.hasMore && last ? encodeRefCursor(last.ref) : null,
   };
 }
+
+/**
+ * A feed's changes to many units of one development (S7-F14), as three statements whatever the count: the units
+ * locked, one `UPDATE … FROM unnest`, then history rows and events for what really changed. Returns the units written.
+ */
+export async function updateFeedUnits(
+  ctx: Ctx,
+  developmentId: string,
+  changes: readonly repo.FeedUnitValues[],
+): Promise<number> {
+  if (changes.length === 0) return 0;
+  await ownForChange(ctx, developmentId, 'development.update');
+  const before = await repo.unitsForUpdate(
+    ctx.tx,
+    developmentId,
+    changes.map((c) => c.id),
+  );
+  const after = await withDbErrors(() => repo.setFeedUnits(ctx.tx, developmentId, changes));
+  const beforeOf = new Map(before.map((b) => [b.id, b]));
+  const pairs = after.flatMap((a) => {
+    const b = beforeOf.get(a.id);
+    return b ? [{ before: b, after: a }] : [];
+  });
+  await recordUnitChanges(ctx, pairs);
+  return after.length;
+}

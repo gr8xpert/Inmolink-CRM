@@ -97,6 +97,46 @@ export const ResalesFeedSettings = z
   .loose();
 export type ResalesFeedSettings = z.infer<typeof ResalesFeedSettings>;
 
+/** The only host a Resales Online connection talks to (S7-F14: the form fixes it, the service refuses any other). */
+export const RESALES_API_HOST = 'webapi.resales-online.com';
+export const RESALES_API_URL = `https://${RESALES_API_HOST}/V6`;
+/** The API key's maximum length: the credentials contract's password limit. */
+export const RESALES_API_KEY_MAX = 500;
+
+/**
+ * The Resales Online connection form's fields as the connection body wants them (S7-F14), shared by the dashboard
+ * form and the tests. The filter alias is sent as typed: the service refuses a bad one with `FEED_SETTINGS_INVALID`.
+ * On edit both credential fields blank keep the saved credentials; only one filled is `CREDENTIALS_INCOMPLETE`.
+ */
+export function resalesConnectionInput(
+  fields: { clientId: string; apiKey: string; filterAlias: string; languages: string },
+  editing: boolean,
+):
+  | {
+      ok: true;
+      url: string;
+      credentials: FeedCredentials | undefined;
+      settings: { filterAlias: string; languages: string };
+    }
+  | { ok: false; error: 'CREDENTIALS_INCOMPLETE' } {
+  const clientId = fields.clientId.trim();
+  const apiKey = fields.apiKey.trim();
+  if (editing && (clientId === '') !== (apiKey === '')) return { ok: false, error: 'CREDENTIALS_INCOMPLETE' };
+  return {
+    ok: true,
+    url: RESALES_API_URL,
+    credentials: editing && apiKey === '' ? undefined : { type: 'basic', username: clientId, password: apiKey },
+    settings: {
+      filterAlias: fields.filterAlias.trim(),
+      languages: fields.languages
+        .split(',')
+        .map((l) => l.trim().toLowerCase())
+        .filter(Boolean)
+        .join(','),
+    },
+  };
+}
+
 /** Connector options; each connector validates its own keys. Small (≤ 4 KB as JSON). */
 export const FeedSettings = z
   .record(z.string().max(64), z.union([z.string().max(500), z.number(), z.boolean(), z.null()]))
@@ -300,6 +340,7 @@ export const FEED_LISTING_STATUSES = ['ACTIVE', 'UNDER_OFFER', 'SOLD', 'RENTED']
 /** `numeric(10,2)`: below 100,000,000 m². */
 const FeedArea = z.number().min(0).max(99_999_999.99);
 const FeedCount = z.number().int().min(0).max(1000);
+const FeedCents = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 /** No NUL or other control characters (Postgres text refuses NUL; a bad item fails alone, not its batch). */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to refuse them
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
@@ -319,6 +360,35 @@ const FeedImageUrl = z
   .max(2_048)
   .refine((v) => /^https?:\/\/[^\s]+$/i.test(v), 'an http or https URL');
 
+/** A new development a feed lists with its units (S7-F14). Created once per reference; commission is never part of it. */
+export const FeedDevelopment = z
+  .object({
+    name: FeedTaxonText,
+    keyReady: z.boolean().nullable().default(null),
+    units: z
+      .array(
+        z
+          .object({
+            ref: FeedText(40)
+              .transform((v) => v.trim())
+              .pipe(z.string().min(1)),
+            /** The unit type as the feed writes it (resolved like a listing's property type). */
+            type: FeedTaxonText.nullable().default(null),
+            priceCents: FeedCents.nullable().default(null),
+            builtM2: FeedArea.nullable().default(null),
+            terraceM2: FeedArea.nullable().default(null),
+            bedrooms: FeedCount.nullable().default(null),
+            bathrooms: FeedCount.nullable().default(null),
+            status: z.enum(['AVAILABLE', 'RESERVED', 'SOLD']).default('AVAILABLE'),
+          })
+          .strict(),
+      )
+      .max(500)
+      .refine((us) => new Set(us.map((u) => u.ref)).size === us.length, 'one line per unit reference'),
+  })
+  .strict();
+export type FeedDevelopment = z.infer<typeof FeedDevelopment>;
+
 /**
  * One listing as a connector maps it (S6-02 loader input; S6-03+ connectors produce it). Taxonomy values are the
  * feed's text, resolved by the loader per location level with the parent as hint; an unmatched value holds the
@@ -336,6 +406,14 @@ export const FeedListing = z
     currency: CurrencyCode.default('EUR'),
     pricePeriod: PricePeriod.nullable().default(null),
     priceOnRequest: z.boolean().default(false),
+    /** The end of a price range ("from" is `priceCents`); null for a single price (S7-F14). */
+    priceToCents: FeedCents.nullable().default(null),
+    /** Running costs: the community fee per month, IBI and the refuse tax per year (S7-F14). */
+    communityFeeMonthCents: FeedCents.nullable().default(null),
+    ibiYearCents: FeedCents.nullable().default(null),
+    garbageTaxYearCents: FeedCents.nullable().default(null),
+    /** The new development this listing belongs to, with its units, when the feed has one (S7-F14). */
+    development: FeedDevelopment.nullable().default(null),
     builtM2: FeedArea.nullable().default(null),
     plotM2: FeedArea.nullable().default(null),
     terraceM2: FeedArea.nullable().default(null),

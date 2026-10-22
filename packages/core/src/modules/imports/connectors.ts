@@ -102,6 +102,13 @@ export interface FeedConnector<Raw = unknown, Item = unknown> {
    * The run checks them again (settings may predate the check).
    */
   settingsProblem?(settings: Record<string, unknown>): string | null;
+  /** S7-F14: the one host this connector talks to; a connection saved with another URL is refused (FEED_URL_NOT_ALLOWED). */
+  fixedHost?: string;
+  /**
+   * S7-F14: the connector sends running costs and the price range end whenever the listing has them, so an absent
+   * value is a removed one and clears the stored one. Other connectors never send them and keep what is stored.
+   */
+  sendsCosts?: boolean;
   /** Opens the feed. Most connectors use `httpSource(ctx, { contentTypes })`. */
   fetch(ctx: ConnectorContext): Promise<FeedSource>;
   /** Streams records out of the source. Must not buffer the whole document. */

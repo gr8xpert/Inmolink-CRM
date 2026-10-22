@@ -114,6 +114,12 @@ export const properties = pgTable(
     /** Rentals only: what the price is per. */
     pricePeriod: pricePeriodEnum('price_period'),
     priceOnRequest: boolean('price_on_request').notNull().default(false),
+    /** The end of a price range (new developments: `priceCents` is the low end); null for a single price (S7-F14). */
+    priceToCents: bigint('price_to_cents', { mode: 'number' }),
+    /** Running costs the listing shows (S7-F14): the community fee per month, IBI and the refuse tax per year. */
+    communityFeeMonthCents: bigint('community_fee_month_cents', { mode: 'number' }),
+    ibiYearCents: bigint('ibi_year_cents', { mode: 'number' }),
+    garbageTaxYearCents: bigint('garbage_tax_year_cents', { mode: 'number' }),
     /** Total commission in basis points of the sale price (agency default 500 = 5 %, PLAN §3 #7). */
     commissionBp: integer('commission_bp'),
     /** A fixed commission instead of a percentage. */
@@ -238,6 +244,13 @@ export const properties = pgTable(
     index('properties_duplicate_cluster_idx').on(t.duplicateClusterId).where(sql`${t.duplicateClusterId} is not null`),
     check('properties_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check('properties_price_ck', sql`${t.priceCents} is null or ${t.priceCents} >= 0`),
+    check(
+      'properties_costs_ck',
+      sql`(${t.priceToCents} is null or ${t.priceToCents} >= 0)
+        and (${t.communityFeeMonthCents} is null or ${t.communityFeeMonthCents} >= 0)
+        and (${t.ibiYearCents} is null or ${t.ibiYearCents} >= 0)
+        and (${t.garbageTaxYearCents} is null or ${t.garbageTaxYearCents} >= 0)`,
+    ),
     check('properties_price_period_ck', sql`${t.pricePeriod} is null or ${t.transactionType} <> 'SALE'`),
     check(
       'properties_commission_ck',
@@ -386,6 +399,10 @@ export const propertyImportStaging = pgTable(
     currency: char('currency', { length: 3 }).notNull(),
     pricePeriod: pricePeriodEnum('price_period'),
     priceOnRequest: boolean('price_on_request').notNull(),
+    priceToCents: bigint('price_to_cents', { mode: 'number' }),
+    communityFeeMonthCents: bigint('community_fee_month_cents', { mode: 'number' }),
+    ibiYearCents: bigint('ibi_year_cents', { mode: 'number' }),
+    garbageTaxYearCents: bigint('garbage_tax_year_cents', { mode: 'number' }),
     builtM2: numeric('built_m2', { precision: 10, scale: 2 }),
     plotM2: numeric('plot_m2', { precision: 10, scale: 2 }),
     terraceM2: numeric('terrace_m2', { precision: 10, scale: 2 }),

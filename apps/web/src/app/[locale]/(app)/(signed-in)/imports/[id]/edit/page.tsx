@@ -40,7 +40,7 @@ export default async function EditFeedPage({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('form.editTitle', { name: res.data.name })}</h1>
-      <ImportNotice error={q.error} />
+      <ImportNotice error={q.error} detail={q.detail} />
       <ConnectionForm
         connection={res.data}
         profiles={

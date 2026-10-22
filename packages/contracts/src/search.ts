@@ -110,6 +110,11 @@ export const ListingDetailDoc = z.strictObject({
   metaDescription: z.string().nullable(),
   terraceM2: z.number().nullable(),
   yearBuilt: z.number().int().nullable(),
+  /** Running costs and the end of the price range (S7-F14); absent in documents built before it. */
+  priceToCents: z.number().int().nullable().default(null),
+  communityFeeMonthCents: z.number().int().nullable().default(null),
+  ibiYearCents: z.number().int().nullable().default(null),
+  garbageTaxYearCents: z.number().int().nullable().default(null),
   energyRating: CeeRating.nullable(),
   energyEmissionsRating: CeeRating.nullable(),
   features: z.array(ReadModelTaxon),

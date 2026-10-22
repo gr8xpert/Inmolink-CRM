@@ -2414,6 +2414,13 @@
                           "nullable": true,
                           "type": "number"
                         },
+                        "communityFeeMonthCents": {
+                          "default": null,
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        },
                         "cover": {
                           "additionalProperties": false,
                           "nullable": true,
@@ -2535,6 +2542,13 @@
                           },
                           "type": "array"
                         },
+                        "garbageTaxYearCents": {
+                          "default": null,
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        },
                         "geo": {
                           "additionalProperties": false,
                           "nullable": true,
@@ -2552,6 +2566,13 @@
                           },
                           "required": ["lat", "lng", "precision"],
                           "type": "object"
+                        },
+                        "ibiYearCents": {
+                          "default": null,
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
                         },
                         "id": {
                           "format": "uuid",
@@ -2788,6 +2809,13 @@
                           "required": ["amountCents", "currency", "period", "onRequest"],
                           "type": "object"
                         },
+                        "priceToCents": {
+                          "default": null,
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "nullable": true,
+                          "type": "integer"
+                        },
                         "propertyType": {
                           "additionalProperties": false,
                           "properties": {
@@ -2862,6 +2890,10 @@
                         "metaDescription",
                         "terraceM2",
                         "yearBuilt",
+                        "priceToCents",
+                        "communityFeeMonthCents",
+                        "ibiYearCents",
+                        "garbageTaxYearCents",
                         "energyRating",
                         "energyEmissionsRating",
                         "features",

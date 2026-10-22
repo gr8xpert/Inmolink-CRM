@@ -3,6 +3,7 @@ import { Button, Input, Label } from '@inmolink/ui';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { createConnectionAction, updateConnectionAction } from './actions';
+import { RESALES_ALIASES, RESALES_API_KEY_MAX } from './resales-input';
 
 /**
  * The create / edit form of a Kyero connection (S6-03). A plain server-rendered form (works without JavaScript):
@@ -29,7 +30,12 @@ export async function ConnectionForm({
 }) {
   const t = await getTranslations('imports.form');
   const editing = Boolean(connection);
-  const connector = connection?.connector ?? (prefill.connector === 'xml-mapped' ? 'xml-mapped' : 'kyero');
+  const connector =
+    connection?.connector ??
+    (prefill.connector === 'xml-mapped' || prefill.connector === 'resales-online' ? prefill.connector : 'kyero');
+  const resales = connector === 'resales-online';
+  const alias = typeof connection?.settings.filterAlias === 'string' ? connection.settings.filterAlias : '1';
+  const languages = typeof connection?.settings.languages === 'string' ? connection.settings.languages : 'es';
   const profile = connection?.mappingProfileId ?? prefill.profile ?? '';
   const schedule = connection?.scheduleMinutes ? String(connection.scheduleMinutes) : connection ? '' : '1440';
   const country = typeof connection?.settings.defaultCountry === 'string' ? connection.settings.defaultCountry : '';
@@ -43,11 +49,11 @@ export async function ConnectionForm({
       ) : null}
       <div className="flex flex-col gap-2">
         <Label htmlFor="feed-format">{t('format')}</Label>
-        {editing ? (
+        {editing || resales ? (
           <>
             <input type="hidden" name="connector" value={connector} />
             <p id="feed-format" className="text-sm">
-              {t(`formats.${connector === 'xml-mapped' ? 'xml-mapped' : 'kyero'}`)}
+              {t(`formats.${connector === 'xml-mapped' || resales ? connector : 'kyero'}`)}
             </p>
           </>
         ) : (
@@ -59,6 +65,7 @@ export async function ConnectionForm({
           >
             <option value="kyero">{t('formats.kyero')}</option>
             <option value="xml-mapped">{t('formats.xml-mapped')}</option>
+            <option value="resales-online">{t('formats.resales-online')}</option>
           </select>
         )}
       </div>
@@ -66,53 +73,125 @@ export async function ConnectionForm({
         <Label htmlFor="feed-name">{t('name')}</Label>
         <Input id="feed-name" name="name" maxLength={120} required defaultValue={connection?.name ?? ''} />
       </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="feed-url">{t('url')}</Label>
-        <Input
-          id="feed-url"
-          name="url"
-          type="url"
-          maxLength={2048}
-          required
-          placeholder="https://feeds.example.com/kyero.xml"
-          defaultValue={connection?.url ?? prefill.url ?? ''}
-          aria-describedby="feed-url-hint"
-        />
-        <p id="feed-url-hint" className="text-xs text-muted-foreground">
-          {t('urlHint')}
-        </p>
-      </div>
-      <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium">{t('credentials')}</legend>
-        {editing ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" name="credType" value="keep" defaultChecked />
-            {connection?.hasCredentials ? t('credTypes.keep') : t('credTypes.keepNone')}
-          </label>
-        ) : null}
-        {CRED_TYPES.map((k) => (
-          <label key={k} className="flex items-center gap-2 text-sm">
-            <input type="radio" name="credType" value={k} defaultChecked={!editing && k === 'none'} />
-            {t(`credTypes.${k}`)}
-          </label>
-        ))}
-        <p className="text-xs text-muted-foreground">{t('credentialsHint')}</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="cred-name">{t('credName')}</Label>
-            <Input id="cred-name" name="credName" maxLength={64} autoComplete="off" placeholder="api_key" />
+      {resales ? (
+        <fieldset className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">{t('resales.intro')}</p>
+          {editing ? <p className="text-sm text-muted-foreground">{t('resales.editHint')}</p> : null}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resales-client">{t('resales.clientId')}</Label>
+            <Input
+              id="resales-client"
+              name="clientId"
+              maxLength={200}
+              required={!editing}
+              autoComplete="off"
+              inputMode="numeric"
+              aria-describedby="resales-client-hint"
+            />
+            <p id="resales-client-hint" className="text-xs text-muted-foreground">
+              {t('resales.clientIdHint')}
+            </p>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="cred-user">{t('credUser')}</Label>
-            <Input id="cred-user" name="credUser" maxLength={200} autoComplete="off" />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resales-key">{t('resales.apiKey')}</Label>
+            <Input
+              id="resales-key"
+              name="apiKey"
+              type="password"
+              maxLength={RESALES_API_KEY_MAX}
+              required={!editing}
+              autoComplete="new-password"
+              aria-describedby="resales-key-hint"
+            />
+            <p id="resales-key-hint" className="text-xs text-muted-foreground">
+              {t('resales.apiKeyHint')}
+            </p>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="cred-value">{t('credValue')}</Label>
-            <Input id="cred-value" name="credValue" type="password" maxLength={2000} autoComplete="new-password" />
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resales-alias">{t('resales.filterAlias')}</Label>
+            <select
+              id="resales-alias"
+              name="filterAlias"
+              defaultValue={alias}
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+              aria-describedby="resales-alias-hint"
+            >
+              {RESALES_ALIASES.map((a) => (
+                <option key={a} value={a}>
+                  {t(`resales.aliases.${a}`)}
+                </option>
+              ))}
+            </select>
+            <p id="resales-alias-hint" className="text-xs text-muted-foreground">
+              {t('resales.filterAliasHint')}
+            </p>
           </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="resales-languages">{t('resales.languages')}</Label>
+            <Input
+              id="resales-languages"
+              name="languages"
+              maxLength={200}
+              defaultValue={languages}
+              aria-describedby="resales-languages-hint"
+            />
+            <p id="resales-languages-hint" className="text-xs text-muted-foreground">
+              {t('resales.languagesHint')}
+            </p>
+          </div>
+        </fieldset>
+      ) : null}
+      {resales ? null : (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="feed-url">{t('url')}</Label>
+          <Input
+            id="feed-url"
+            name="url"
+            type="url"
+            maxLength={2048}
+            required
+            placeholder="https://feeds.example.com/kyero.xml"
+            defaultValue={connection?.url ?? prefill.url ?? ''}
+            aria-describedby="feed-url-hint"
+          />
+          <p id="feed-url-hint" className="text-xs text-muted-foreground">
+            {t('urlHint')}
+          </p>
         </div>
-      </fieldset>
-      {connector === 'xml-mapped' || !editing ? (
+      )}
+      {resales ? null : (
+        <fieldset className="flex flex-col gap-2">
+          <legend className="text-sm font-medium">{t('credentials')}</legend>
+          {editing ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="credType" value="keep" defaultChecked />
+              {connection?.hasCredentials ? t('credTypes.keep') : t('credTypes.keepNone')}
+            </label>
+          ) : null}
+          {CRED_TYPES.map((k) => (
+            <label key={k} className="flex items-center gap-2 text-sm">
+              <input type="radio" name="credType" value={k} defaultChecked={!editing && k === 'none'} />
+              {t(`credTypes.${k}`)}
+            </label>
+          ))}
+          <p className="text-xs text-muted-foreground">{t('credentialsHint')}</p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="cred-name">{t('credName')}</Label>
+              <Input id="cred-name" name="credName" maxLength={64} autoComplete="off" placeholder="api_key" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="cred-user">{t('credUser')}</Label>
+              <Input id="cred-user" name="credUser" maxLength={200} autoComplete="off" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="cred-value">{t('credValue')}</Label>
+              <Input id="cred-value" name="credValue" type="password" maxLength={2000} autoComplete="new-password" />
+            </div>
+          </div>
+        </fieldset>
+      )}
+      {connector === 'xml-mapped' || (!editing && !resales) ? (
         <div className="flex flex-col gap-2">
           <Label htmlFor="feed-profile">{t('profile')}</Label>
           <select
@@ -137,7 +216,7 @@ export async function ConnectionForm({
           </p>
         </div>
       ) : null}
-      {connector === 'kyero' || !editing ? (
+      {connector === 'kyero' || (!editing && !resales) ? (
         <div className="flex flex-col gap-2">
           <Label htmlFor="feed-country">{t('country')}</Label>
           <Input

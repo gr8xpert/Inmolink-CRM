@@ -38,6 +38,10 @@ export interface ImportListing {
   currency: string;
   pricePeriod: 'NIGHT' | 'WEEK' | 'MONTH' | null;
   priceOnRequest: boolean;
+  priceToCents?: number | null;
+  communityFeeMonthCents?: number | null;
+  ibiYearCents?: number | null;
+  garbageTaxYearCents?: number | null;
   builtM2: number | null;
   plotM2: number | null;
   terraceM2: number | null;
@@ -69,6 +73,8 @@ export interface ImportRun {
   source: string;
   /** The member new listings belong to. */
   ownerUserId: string;
+  /** S7-F14: the connector sends running costs and the price range end, so an absent one clears the stored one. */
+  sendsCosts?: boolean;
   /** The agency's default commission and split (PLAN §3 #7), for new listings only. */
   commission: Commission;
   splitBp: number;
@@ -111,6 +117,10 @@ function stagingRow(
     currency: item.currency,
     price_period: item.transactionType === 'SALE' ? null : item.pricePeriod,
     price_on_request: item.priceOnRequest,
+    price_to_cents: item.priceToCents ?? null,
+    community_fee_month_cents: item.communityFeeMonthCents ?? null,
+    ibi_year_cents: item.ibiYearCents ?? null,
+    garbage_tax_year_cents: item.garbageTaxYearCents ?? null,
     built_m2: decimal(item.builtM2),
     plot_m2: decimal(item.plotM2),
     terrace_m2: decimal(item.terraceM2),
@@ -251,6 +261,7 @@ export async function importListingBatch(
     ...commission,
     includesVat: run.commission.includesVat,
     splitBp: run.splitBp,
+    sendsCosts: run.sendsCosts === true,
   });
   await repo.writePrivates(tx, scope);
   const changedIds = merged.map((m) => m.id);

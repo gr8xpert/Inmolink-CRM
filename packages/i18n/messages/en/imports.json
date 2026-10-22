@@ -93,7 +93,8 @@
     "FEED_MAPPING_INVALID": "This mapping profile is not valid for this feed format.",
     "FEED_MAPPING_PROFILE_NOT_FOUND": "This mapping profile no longer exists.",
     "FEED_CONNECTION_PAUSED": "This feed is paused. Resume it first.",
-    "FEED_SETTINGS_INVALID": "A setting is not valid for this feed format (for Resales Online, the filter alias must be 1, 2, 3 or 4)."
+    "FEED_SETTINGS_INVALID": "A setting is not valid for this feed format (for Resales Online, the filter alias must be 1, 2, 3 or 4).",
+    "RESALES_CREDENTIALS_BOTH": "Re-enter both the Client ID and the API key, or leave both empty to keep the saved ones."
   },
   "form": {
     "connect": "Connect a feed",
@@ -133,12 +134,31 @@
     "format": "Format",
     "formats": {
       "kyero": "Kyero (v3 XML)",
-      "xml-mapped": "Any XML feed (mapped)"
+      "xml-mapped": "Any XML feed (mapped)",
+      "resales-online": "Resales Online (own listings)"
     },
     "profile": "Mapping profile",
     "noProfile": "No profile (Kyero feeds)",
     "profileHint": "Generic XML feeds need the profile you saved in the mapper.",
-    "openMapper": "Open the mapper"
+    "openMapper": "Open the mapper",
+    "resales": {
+      "clientId": "Client ID",
+      "clientIdHint": "The P1 number of your Resales Online WebAPI account.",
+      "apiKey": "API key",
+      "apiKeyHint": "The P2 key of your WebAPI account. It is stored encrypted and never shown again; on edit, leave empty to keep the saved one.",
+      "filterAlias": "Filter alias",
+      "filterAliasHint": "The alias of the portal filter to import (not the numeric filter id): 1 Sale, 2 Short term rent, 3 Long term rent, 4 Featured. Use one connection per alias.",
+      "aliases": {
+        "1": "1 - Sale",
+        "2": "2 - Short term rent",
+        "3": "3 - Long term rent",
+        "4": "4 - Featured"
+      },
+      "languages": "Languages",
+      "languagesHint": "Comma list of language codes fetched besides English (for example es,de,fr,nl). Empty: English only.",
+      "intro": "Only the listings that belong to your agency are imported; properties shared by other agencies are skipped.",
+      "editHint": "Leave both empty to keep the saved Client ID and API key (fill both to replace them)."
+    }
   },
   "mapper": {
     "open": "Map a feed or a spreadsheet",

@@ -10,9 +10,6 @@ export interface ResalesFieldRule {
   note: string;
 }
 
-/** Follow-up S7-F12: fields with no `FeedListing` field yet (fees, IBI, development name, key-ready, price list). */
-const NO_FIELD_YET = 'Details only; no FeedListing field yet (S7-F12).';
-
 export const RESALES_V6_FIELDS: readonly ResalesFieldRule[] = [
   { path: 'Reference', maps: 'ref', note: 'The Resales Online reference: the re-import key.' },
   { path: 'AgencyRef', maps: null, note: 'The agent own reference; not stored.' },
@@ -67,7 +64,7 @@ export const RESALES_V6_FIELDS: readonly ResalesFieldRule[] = [
   {
     path: 'Price',
     maps: 'priceCents',
-    note: 'Thousands commas stripped; a range gives its low end; POA or zero means price on request.',
+    note: 'Thousands commas stripped; a range gives its low end (priceCents) and its high end (priceToCents); POA or zero means price on request.',
   },
   { path: 'OriginalPrice', maps: null, note: 'Previous price; history is kept by the listing itself.' },
   { path: 'Built', maps: 'builtM2', note: 'Range: the low end.' },
@@ -115,16 +112,33 @@ export const RESALES_V6_FIELDS: readonly ResalesFieldRule[] = [
   { path: 'Pictures.Picture[].PictureCaption', maps: null, note: 'No caption field in the draft.' },
   { path: 'BuiltYear', maps: 'yearBuilt', note: 'Details only.' },
   { path: 'EnergyRating', maps: 'energyRating', note: 'Details; A-G, "InProgress" ignored.' },
-  { path: 'Community_Fees_Year', maps: null, note: `Yearly. ${NO_FIELD_YET}` },
-  { path: 'IBI_Fees_Year', maps: null, note: `Yearly. ${NO_FIELD_YET}` },
-  { path: 'Basura_Tax_Year', maps: null, note: `Yearly. ${NO_FIELD_YET}` },
-  { path: 'NewDevName', maps: null, note: NO_FIELD_YET },
-  { path: 'KeyReady', maps: null, note: `Non-empty marks a development. ${NO_FIELD_YET}` },
-  { path: 'PriceList', maps: null, note: `Development units (p_pricelist). ${NO_FIELD_YET}` },
-  { path: 'PriceList[]', maps: null, note: NO_FIELD_YET },
-  ...['Name', 'Type', 'Price', 'BuiltSize', 'Terrace', 'Beds', 'Baths', 'KeyReady', 'StatusText', 'StatusCode'].map(
-    (f) => ({ path: `PriceList[].${f}`, maps: null, note: NO_FIELD_YET }),
-  ),
+  {
+    path: 'Community_Fees_Year',
+    maps: 'communityFeeMonthCents',
+    note: 'Details; yearly amount divided by 12, rounded to the cent.',
+  },
+  { path: 'IBI_Fees_Year', maps: 'ibiYearCents', note: 'Details; yearly.' },
+  { path: 'Basura_Tax_Year', maps: 'garbageTaxYearCents', note: 'Details; yearly.' },
+  {
+    path: 'NewDevName',
+    maps: 'development.name',
+    note: 'Details; names the development (a development without a name is a plain listing).',
+  },
+  { path: 'KeyReady', maps: 'development.keyReady', note: 'Non-empty marks a development; 1 = key ready.' },
+  { path: 'PriceList', maps: 'development.units', note: 'Details (p_pricelist): the development units.' },
+  { path: 'PriceList[]', maps: 'development.units', note: 'One unit.' },
+  ...[
+    ['Name', 'development.units[].ref'],
+    ['Type', 'development.units[].type'],
+    ['Price', 'development.units[].priceCents'],
+    ['BuiltSize', 'development.units[].builtM2'],
+    ['Terrace', 'development.units[].terraceM2'],
+    ['Beds', 'development.units[].bedrooms'],
+    ['Baths', 'development.units[].bathrooms'],
+    ['StatusCode', 'development.units[].status'],
+    ['StatusText', 'development.units[].status'],
+  ].map(([f, maps]) => ({ path: `PriceList[].${f}`, maps: maps as string, note: 'Development unit.' })),
+  { path: 'PriceList[].KeyReady', maps: null, note: 'Per unit; the development key-ready flag is the record own.' },
 ];
 
 /** Containers Resales sends as a list or, with one entry, as a single object. */

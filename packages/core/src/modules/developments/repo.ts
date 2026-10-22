@@ -789,3 +789,65 @@ export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
     .innerJoin(developments, eq(developments.id, units.developmentId))
     .where(inArray(units.id, [...ids]));
 }
+
+// ── Feed imports (S7-F14) ────────────────────────────────────────────────────────────────────────────────────
+
+/** The agency's development with this reference (deleted ones included: the reference stays taken), row-locked. */
+export async function getOwnByRefForUpdate(tx: Tx, agencyId: string, ref: string): Promise<DevelopmentRow | null> {
+  const [row] = await tx
+    .select(developmentColumns)
+    .from(developments)
+    .where(and(eq(developments.agencyId, agencyId), eq(developments.ref, ref)))
+    .for('update');
+  return row ?? null;
+}
+
+/** Every unit of a development (at most `MAX_UNITS_PER_DEVELOPMENT`) as the DTO reads it, by reference. */
+export async function allUnits(tx: Tx, developmentId: string): Promise<UnitListRow[]> {
+  return tx.select(unitListColumns).from(units).where(eq(units.developmentId, developmentId)).orderBy(asc(units.ref));
+}
+
+/** What a feed owns of a unit: set together for every unit it changed (S7-F14). */
+export interface FeedUnitValues {
+  id: string;
+  propertyTypeId: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  internalM2: number | null;
+  terraceM2: number | null;
+  priceCents: number | null;
+  status: UnitRow['status'];
+}
+
+/** The feed-owned columns of many units of one development, one statement (one bind parameter per column). */
+export async function setFeedUnits(
+  tx: Tx,
+  developmentId: string,
+  values: readonly FeedUnitValues[],
+): Promise<UnitRow[]> {
+  if (values.length === 0) return [];
+  const v = sql`v`;
+  const col = <K extends keyof FeedUnitValues>(k: K, type: string) =>
+    array(
+      values.map((r) => r[k]),
+      type,
+    );
+  return tx
+    .update(units)
+    .set({
+      propertyTypeId: sql`${v}.property_type_id`,
+      bedrooms: sql`${v}.bedrooms`,
+      bathrooms: sql`${v}.bathrooms`,
+      internalM2: sql`${v}.internal_m2`,
+      terraceM2: sql`${v}.terrace_m2`,
+      priceCents: sql`${v}.price_cents`,
+      status: sql`${v}.status`,
+      version: sql`${units.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .from(
+      sql`unnest(${col('id', 'uuid')}, ${col('propertyTypeId', 'uuid')}, ${col('bedrooms', 'integer')}, ${col('bathrooms', 'integer')}, ${col('internalM2', 'numeric')}, ${col('terraceM2', 'numeric')}, ${col('priceCents', 'bigint')}, ${col('status', 'unit_status')}) as v(id, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, price_cents, status)`,
+    )
+    .where(and(eq(units.developmentId, developmentId), sql`${units.id} = ${v}.id`))
+    .returning();
+}

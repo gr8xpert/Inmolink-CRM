@@ -84,8 +84,15 @@ export async function PauseNotice({ connectionId, pause }: { connectionId: strin
 }
 
 /** The notice or error a "run now" form came back with (`?done=` / `?error=`). */
-export async function ImportNotice({ done, error }: { done?: string; error?: string }) {
+export async function ImportNotice({ done, error, detail }: { done?: string; error?: string; detail?: string }) {
   const t = await getTranslations('imports');
+  if (error === 'VALIDATION_FAILED' && detail === 'credentials') {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {t('errors.RESALES_CREDENTIALS_BOTH')}
+      </p>
+    );
+  }
   if (done === 'queued') {
     return (
       <p role="status" className="rounded-md border bg-muted p-3 text-sm">
