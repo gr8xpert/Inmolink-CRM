@@ -835,8 +835,8 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   ref: { column: 'ref', type: 'ci' },
   // A network listing's site reference (`<prefix>-<code>`, S7-02): codes are upper case, compared as stored.
   publicCode: { column: 'public_code', type: 'text' },
-  // A CUSTOM site's minimum commission on network listings (S7-F4): a boolean per target from a SECURITY DEFINER
-  // function; the value itself is in a table no public role can read.
+  // A CUSTOM site's minimum commission on network listings (S7-F4): whether the target is in the generated view of
+  // those paying at least the transaction's minimum (S7-F10); the value itself is in a table no public role can read.
   commissionBp: { commissionAtLeast: true },
   // A development by its public code (S7-F6: sites name developments `<prefix>-<code>`): its id from the code table
   // in the same statement. The engine has no such field: website search resolves the code first (`website.ts`).
@@ -954,9 +954,15 @@ export function fallbackCondition(filter: Filter): SQL {
     case 'range': {
       const f = fieldOf(filter.field);
       if ('commissionAtLeast' in f) {
-        // Only a minimum, asked per target through the definer function (a missing commission answers false).
+        // Only a minimum (a missing commission matches none). S7-F10: an index probe per candidate into the generated
+        // view of the targets paying at least the transaction's minimum (`withPublicRead({ minCommissionBp })`), not a
+        // SECURITY DEFINER call per row (~10 µs each: shape 13 and `/v2/developments` on a commission site). `floor_bp`
+        // must be this filter's minimum: a transaction set for another one (or none) answers no row, never wrong ones.
+        // `offset 0` keeps it a per-row probe: never a semi-join or a hashed subplan over every paying target. The
+        // unqualified `target_id` is the row's (the view's columns are named `floor_*`).
         if (filter.gte === undefined || filter.lte !== undefined) throw new SearchError('commission: a minimum only');
-        return sql`public.search_commission_at_least(target_id, ${Math.trunc(finite(filter.gte))}::int)`;
+        return sql`exists (select 1 from public.search_commission_floor cf
+          where cf.floor_target_id = target_id and cf.floor_bp = ${Math.trunc(finite(filter.gte))}::int offset 0)`;
       }
       if ('constant' in f || 'developmentCode' in f || 'developmentOwnRef' in f || !NUMERIC.includes(f.type))
         throw new SearchError(`field is not comparable: ${filter.field}`);
@@ -1470,8 +1476,12 @@ export async function sitemapPage(
     limit: number;
     locale: string;
     fallback: string;
-    /** `none` (S7-07, the XML feed reads details per locale itself): codes and ids only, no document. */
-    part?: 'card' | 'none';
+    /**
+     * `none` (S7-07, the XML feed reads details per locale itself): codes and ids only, no document. `sitemap`
+     * (S7-F10 review): the card's fields a sitemap entry shows (kind, id, ref, slug, title, development) — a fraction of
+     * the card's JSON to send and parse for 500 entries.
+     */
+    part?: 'card' | 'none' | 'sitemap';
   },
 ): Promise<PublicDocRow[]> {
   const after = q.after ? sql`and public_code > ${q.after}` : sql``;
@@ -1493,7 +1503,14 @@ export async function sitemapPage(
     with s as (select * from (${sql.join(branches, sql` union all `)}) u order by public_code limit ${take})
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", s.public_code as "publicCode",
            null::text as "developmentCode", null::text as "developmentOwnRef",
-           ${q.part === 'none' ? sql`null::jsonb` : sql`m.card`} as doc, m.updated_at as "updatedAt"
+           ${
+             q.part === 'none'
+               ? sql`null::jsonb`
+               : q.part === 'sitemap'
+                 ? sql`jsonb_build_object('kind', m.card -> 'kind', 'id', m.card -> 'id', 'ref', m.card -> 'ref',
+                     'slug', m.card -> 'slug', 'title', m.card -> 'title', 'development', m.card -> 'development')`
+                 : sql`m.card`
+           } as doc, m.updated_at as "updatedAt"
       from s join ${listingReadModels} m on m.target_id = s.target_id
        and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
      order by s.public_code`);
@@ -1614,9 +1631,16 @@ function scopeSql(scope: DevelopmentScope): SQL {
 /**
  * One unit of the development matches the site's unit filter. Unqualified columns inside resolve to the units' rows
  * (the innermost table), so the filter compiled for `listing_search_docs` applies as it is.
+ *
+ * S7-F10: `offset 0` keeps it a probe of each candidate development's units (`listing_search_docs_development_idx`,
+ * stopping at the first match) under the development walk, never a semi-join that first evaluates the filter on every
+ * unit in the site's places. The planner cannot price the unit filter — `listing_search_docs` is under RLS, so its
+ * non-leakproof comparisons (`&&`, `@>`, `kind::text`) get no statistics — and estimated 7 of 505 developments
+ * matching a 3 % minimum commission network-wide: it hashed all 17k candidate units (17k commission probes, 60 ms)
+ * where 26 development probes answer the page (1 ms).
  */
 const memberSql = (where: SQL) =>
-  sql`exists (select 1 from ${listingSearchDocs} where development_id = g.development_id and ${where})`;
+  sql`exists (select 1 from ${listingSearchDocs} where development_id = g.development_id and ${where} offset 0)`;
 
 function refMatchSql(scope: DevelopmentScope, ref: DevelopmentRefMatch): SQL {
   const own = scope.own ?? [];

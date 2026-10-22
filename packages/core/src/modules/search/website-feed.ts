@@ -66,7 +66,7 @@ export async function publicDetailByRef(
 export function sitemapPage(
   tx: Tx,
   site: PublicSearchSite,
-  q: { after?: string; limit: number; locale: string; fallback: string; part?: 'card' | 'none' },
+  q: { after?: string; limit: number; locale: string; fallback: string; part?: 'card' | 'none' | 'sitemap' },
 ): Promise<repo.PublicDocRow[]> {
   return repo.sitemapPage(tx, {
     filter: siteInventoryFilter(site),

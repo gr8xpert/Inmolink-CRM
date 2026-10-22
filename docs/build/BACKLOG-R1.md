@@ -958,6 +958,15 @@ Ref §5.3 (7) §15 · Mod imports, taxonomy, search, web · Dep S7-F3 S7-F9 · p
 - The degraded-engine path answers p95 < 150 ms on staging [H4]; both dashboard routes within their first-load budget
 - Shape 13 and the selective network shape meet the 20 ms SQL budget warm at 500k rows, `developmentsCommission` p95 < 100 ms locally; at 2M on staging every fallback shape is index-driven with clustered data and its cold `m` read is recorded [H4]
 
+### S7-F11 · Fallback planner statistics under RLS, and the S7-F4 commission function's removal (split from S7-F10)
+Ref §4.2 §15 · Mod search, db · Dep S7-F10 · ⚡
+**Build:**
+- `listing_search_docs` is under RLS (`global_read using (true)` for `app_public`, S6-F1), so Postgres uses no column statistics for comparisons whose operator is not leakproof: `numeric` (`area_m2`, `plot_m2`), enums (`kind::text`), array `@>`. An area band is estimated at 1 row (148k real at 500k): an area band sorted by price reads the band through `area_idx` then sorts (467 ms at 500k, S7-F9). Measured in S7-F10: expression statistics on `(area_m2::float8)` with `float8` comparisons (leakproof) give the right estimate (152k), but lose `area_idx` as an index condition. Pick one, without weakening RLS (an ADR if the registry rule changes): (a) `area_m2` / `plot_m2` as `double precision` in this derived table (a table rewrite: expand → backfill → switch), (b) expression statistics + `float8` filters + expression indexes, (c) another leakproof form. Add the area band × price sort shapes to `[S7-F9]`.
+- Drop `search_commission_at_least(uuid, integer)` — SECURITY DEFINER, still granted to `app_public` and unused by any code since S7-F10 (kept one release for the app version running during a deploy): out of `HELPER_FUNCTIONS`, `drop function if exists public.search_commission_at_least(uuid, integer)` in the generated SQL, the `[S7-F4]` generator test turned into a "no app role can execute it" check (guard + generator).
+**Done when:**
+- Every `[S7-F9]` shape plus area band × price sort and plot band × area sort is index-driven at 500k rows, p95 < 150 ms, estimates within 10× of the rows read
+- No application role can execute `search_commission_at_least` (guard + generator test)
+
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]
 **Build:** log analysis script (endpoints, params, frequencies per site); recorder that replays representative requests against the legacy API and stores normalized responses in `tests/golden/`.

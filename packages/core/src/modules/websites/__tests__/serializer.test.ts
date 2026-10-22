@@ -24,6 +24,7 @@ import {
   serializeDetail,
   serializeDevelopmentCards,
   serializeDevelopmentDetail,
+  serializeSitemapEntries,
   serializeUnitCards,
   siteScopedId,
   slugOf,
@@ -302,6 +303,9 @@ describe('website serializer (S7-02)', () => {
       if (publicCode) expect(served.ref).toBe(`${networkRefPrefix(view.site)}-${publicCode}`);
       else expect(served.ref).toMatch(new RegExp(`^${networkRefPrefix(view.site)}-[0-9A-Z]{8}$`));
       expect(cards[0]?.ref).toBe(served.ref);
+      // S7-F10 review: sitemap entries show exactly the card's reference, kind and slug.
+      const entries = serializeSitemapEntries(view, [{ ownerAgencyId: o.agencyId, publicCode, doc: cardOf(detail) }]);
+      expect(entries, label).toEqual(cards.map((c) => ({ ref: c.ref, kind: c.kind, slug: c.slug })));
       if (served.kind === 'LISTING') expect(served.media.some((m) => m.kind === 'VIDEO')).toBe(false);
     }
   });
@@ -318,6 +322,11 @@ describe('website serializer (S7-02)', () => {
     detail.title = 'Villa <script>alert(1)</script> with pool';
     detail.description = `Call ${o.phone}`;
     const served = serializeDetail(view, { ownerAgencyId: o.agencyId, publicCode: 'AB12CD34', doc: detail });
+    // S7-F10 review: an own listing's sitemap entry is its card's reference, kind and slug too.
+    const ownItems = [{ ownerAgencyId: o.agencyId, publicCode: 'AB12CD34', doc: cardOf(detail) }];
+    expect(serializeSitemapEntries(view, ownItems)).toEqual(
+      serializeCards(view, ownItems).map((c) => ({ ref: c.ref, kind: c.kind, slug: c.slug })),
+    );
     expect(served.ref).toBe(detail.ref);
     expect(served.title).toBe('Villa alert(1) with pool');
     expect(served.description).toBe(`Call ${o.phone}`);

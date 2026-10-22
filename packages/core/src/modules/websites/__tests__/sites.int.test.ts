@@ -725,11 +725,38 @@ describe('minimum commission on network listings (S7-F4)', () => {
     expect(
       await denied(() => withPublicRead((tx) => tx.execute(sql`select commission_bp from listing_search_docs`))),
     ).toBe(false);
-    // The public role can ask a yes/no per target through the definer function, nothing more.
-    const asked = await withPublicRead((tx) =>
-      tx.execute<{ yes: boolean }>(sql`select public.search_commission_at_least(${L.bFlat as string}::uuid, 1) as yes`),
+    // S7-F10: the public role sees which targets pay at least its transaction's minimum (ids through the generated
+    // view), nothing more: no commission column, no answer without a minimum set.
+    const floor = (minCommissionBp?: number) =>
+      withPublicRead(
+        (tx) =>
+          tx.execute<{ id: string; bp: number }>(
+            sql`select floor_target_id as id, floor_bp as bp from public.search_commission_floor
+                 where floor_target_id = ${L.bFlat as string}::uuid`,
+          ),
+        minCommissionBp === undefined ? undefined : { minCommissionBp },
+      );
+    const asked = await floor(1);
+    expect(asked.rows).toEqual([{ id: L.bFlat, bp: 1 }]);
+    expect((await floor(10_000)).rows).toEqual([]);
+    expect(await denied(() => floor())).toBe(false); // not a privilege error: the unset minimum fails its cast
+    await expect(floor()).rejects.toThrow();
+    expect(
+      await denied(() =>
+        withPublicRead((tx) => tx.execute(sql`select commission_bp from public.search_commission_floor`), {
+          minCommissionBp: 1,
+        }),
+      ),
+    ).toBe(false);
+    await expect(
+      withPublicRead((tx) => tx.execute(sql`select commission_bp from public.search_commission_floor`), {
+        minCommissionBp: 1,
+      }),
+    ).rejects.toThrow();
+    // No other role reads the view.
+    expect(await denied(() => as(a, (ctx) => ctx.tx.execute(sql`select 1 from public.search_commission_floor`)))).toBe(
+      true,
     );
-    expect(typeof asked.rows[0]?.yes).toBe('boolean');
     // The index shows ids only; the filter field is not displayed.
     expect(search.listingsIndex().displayed).toEqual(['id']);
     // A search answer is ids, a total, facets and a cursor — nothing else.

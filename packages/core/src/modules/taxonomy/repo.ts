@@ -609,7 +609,6 @@ export async function catalogDetail(tx: Tx, kind: CatalogKind, scope: 'group' | 
 // ---- Alias resolver and unmatched queue (S2-05) ---------------------------------------------------------------
 
 export type ResolveKind = 'location' | 'propertyType' | 'feature';
-export type LocationHints = { parentId?: string | null; level?: string };
 
 /** Per kind: the alias table and the translation table (with their owner columns) the resolver reads. */
 const MATCH = {
@@ -642,8 +641,6 @@ const MATCH = {
   },
 } as const;
 
-export type KeyMatch = { key: string; id: string; score: number };
-
 const textArray = (keys: string[]) =>
   sql`array[${sql.join(
     keys.map((k) => sql`${k}`),
@@ -654,25 +651,39 @@ function rowsOf<T>(res: unknown): T[] {
   return (Array.isArray(res) ? res : (res as { rows: unknown[] }).rows) as T[];
 }
 
+/** A value to match: its normalised key, and (locations) the parent it must sit under — null: none given. */
+export type KeyQuery = { key: string; parentId: string | null };
+/** Matches of a `KeyQuery` (the same key under two parents is two queries). */
+export type KeyMatch = { key: string; parentId: string | null; id: string; score: number };
+
+/** The keys and the parents as two array parameters (S7-F10 review: a constant parameter count, whatever the batch). */
+const keysParam = (queries: readonly KeyQuery[]) => sql`${sql.param(queries.map((q) => q.key))}::text[]`;
+const parentsParam = (queries: readonly KeyQuery[]) => sql`${sql.param(queries.map((q) => q.parentId))}::uuid[]`;
+
 /**
- * Locations only: keep candidates that are children of a parent and/or on one level (the hint a feed gives).
- * A correlated primary-key probe per candidate: `owner in (select … where level = …)` read every location.
+ * The queries as a relation `q(k, p)`: one row per (key, parent) pair, so a whole level of a batch — every parent its
+ * values sit under — is matched in one statement (S7-F10), not one per parent. Two parameters, never one per pair
+ * (65,535 binds would cap a batch at ~32k pairs).
  */
+const queriesSql = (queries: readonly KeyQuery[]) =>
+  sql`unnest(${keysParam(queries)}, ${parentsParam(queries)}) as q(k, p)`;
+
 /**
- * Location hints. A parent: `exists`, which the planner drives from the parent's children (`locations_parent_idx`,
- * a few rows) — fast whatever the candidates. A level alone (hundreds of thousands of rows match it): a correlated
- * scalar subquery, one primary-key probe per candidate. As `exists` the planner may hash-join a Seq Scan of
- * `locations` filtered by level when its statistics drift (S4-F2, seen on a long-lived test database); a scalar
- * subquery is never pulled up into a join.
+ * Locations only: keep candidates on the query's level and, when its row names one (`q.p`), under its parent — the
+ * hint a feed gives. A correlated scalar subquery, one primary-key probe per candidate: as `exists` the planner may
+ * hash-join a Seq Scan of `locations` filtered by level when its statistics drift (S4-F2, seen on a long-lived test
+ * database), and `owner in (select … where level = …)` read every location; a scalar subquery is never pulled up into a
+ * join. `scoped`: some query has a parent, or a level is given.
  */
-function ownerScope(kind: ResolveKind, owner: SQLWrapper, hints: LocationHints) {
-  if (kind !== 'location' || (hints.parentId == null && !hints.level)) return sql``;
-  const level = hints.level ? sql` and ${locations.level} = ${hints.level}` : sql``;
-  if (hints.parentId == null) {
-    return sql` and (select true from ${locations} where ${locations.id} = ${owner}${level})`;
-  }
-  return sql` and exists (select 1 from ${locations} where ${locations.id} = ${owner} and ${locations.parentId} = ${hints.parentId}${level})`;
+function ownerScope(kind: ResolveKind, owner: SQLWrapper, scoped: boolean, level: string | undefined) {
+  if (kind !== 'location' || !scoped) return sql``;
+  const onLevel = level ? sql` and ${locations.level} = ${level}` : sql``;
+  return sql` and (select true from ${locations} where ${locations.id} = ${owner}
+    and (q.p is null or ${locations.parentId} = q.p)${onLevel})`;
 }
+
+const isScoped = (queries: readonly KeyQuery[], level: string | undefined) =>
+  level !== undefined || queries.some((q) => q.parentId !== null);
 
 /** Trigram candidates read per key, most similar first, before they are grouped per owner. */
 const FUZZY_ALIASES_PER_KEY = 10;
@@ -687,68 +698,81 @@ export const FUZZY_FLOOR = 0.3;
 
 /**
  * Exact matches of normalised spellings (`aliasKey` form): feed aliases and canonical names in any locale.
- * One statement for the whole batch (alias unique btree, name-key btree). An alias is globally unique; a name
- * may be shared (two cities called the same), so the caller treats a key with several name matches as ambiguous.
+ * One statement for the whole batch, every (key, parent) query at once; `= any($keys)` keeps both lookups on their
+ * btrees (alias unique, name key) — joined to `q` alone the planner hash-joined a Seq Scan of the aliases. An alias
+ * is globally unique; a name may be shared (two cities called the same), so the caller treats a query with several
+ * name matches as ambiguous.
  */
-export function exactMatchesSql(kind: ResolveKind, keys: string[], hints: LocationHints) {
+export function exactMatchesSql(kind: ResolveKind, queries: readonly KeyQuery[], level?: string) {
   const m = MATCH[kind];
+  const scoped = isScoped(queries, level);
   return sql`
-    select ${m.aliases.aliasKey} as key, ${m.aliasOwner} as id, true as "viaAlias"
-      from ${m.aliases}
-     where ${m.aliases.aliasKey} = any(${textArray(keys)}) ${ownerScope(kind, m.aliasOwner, hints)}
+    select q.k as key, q.p as "parentId", ${m.aliasOwner} as id, true as "viaAlias"
+      from ${queriesSql(queries)}
+      join ${m.aliases} on ${m.aliases.aliasKey} = q.k
+     where ${m.aliases.aliasKey} = any(${keysParam(queries)}) ${ownerScope(kind, m.aliasOwner, scoped, level)}
     union all
-    select ${m.trKey} as key, ${m.trOwner} as id, false as "viaAlias"
-      from ${m.tr}
-     where ${m.trKey} = any(${textArray(keys)}) ${ownerScope(kind, m.trOwner, hints)}
-     group by 1, 2`;
+    select q.k as key, q.p as "parentId", ${m.trOwner} as id, false as "viaAlias"
+      from ${queriesSql(queries)}
+      join ${m.tr} on ${m.trKey} = q.k
+     where ${m.trKey} = any(${keysParam(queries)}) ${ownerScope(kind, m.trOwner, scoped, level)}
+     group by 1, 2, 3`;
 }
 
-export async function exactMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
-  if (keys.length === 0) return [] as { key: string; id: string; viaAlias: boolean }[];
-  return rowsOf<{ key: string; id: string; viaAlias: boolean }>(await tx.execute(exactMatchesSql(kind, keys, hints)));
+export async function exactMatches(tx: Tx, kind: ResolveKind, queries: readonly KeyQuery[], level?: string) {
+  type Row = { key: string; parentId: string | null; id: string; viaAlias: boolean };
+  if (queries.length === 0) return [] as Row[];
+  return rowsOf<Row>(await tx.execute(exactMatchesSql(kind, queries, level)));
 }
 
 /**
- * Trigram candidates for keys with no exact match: per key (LATERAL, so each key is its own GIN `%` probe; a
+ * Trigram candidates for queries with no exact match: per query (LATERAL, so each key is its own GIN `%` probe; a
  * plain join seq-scanned the names), the most similar aliases and names, then the best similarity per
- * (key, owner), at most 3 per key, best first. One statement for the whole batch, after `fuzzyThresholdSql`.
+ * (query, owner), at most 3 per query, best first. One statement for the whole batch, after `fuzzyThresholdSql`.
  */
-export function fuzzyMatchesSql(kind: ResolveKind, keys: string[], hints: LocationHints) {
+export function fuzzyMatchesSql(kind: ResolveKind, queries: readonly KeyQuery[], level?: string) {
   const m = MATCH[kind];
+  const scoped = isScoped(queries, level);
   return sql`
-    select key, id, score from (
-      select key, id, score, row_number() over (partition by key order by score desc, id) as rn from (
-        select key, id, max(score) as score from (
-          select q.k as key, a.id, a.score
-            from unnest(${textArray(keys)}) as q(k)
+    select key, "parentId", id, score from (
+      select key, "parentId", id, score,
+             row_number() over (partition by key, "parentId" order by score desc, id) as rn from (
+        select key, "parentId", id, max(score) as score from (
+          select q.k as key, q.p as "parentId", a.id, a.score
+            from ${queriesSql(queries)}
             cross join lateral (
               select ${m.aliasOwner} as id, similarity(${m.aliases.aliasKey}, q.k) as score
                 from ${m.aliases}
-               where ${m.aliases.aliasKey} % q.k ${ownerScope(kind, m.aliasOwner, hints)}
+               where ${m.aliases.aliasKey} % q.k ${ownerScope(kind, m.aliasOwner, scoped, level)}
                order by score desc
                limit ${FUZZY_ALIASES_PER_KEY}) a
           union all
-          select q.k, n.id, n.score
-            from unnest(${textArray(keys)}) as q(k)
+          select q.k, q.p, n.id, n.score
+            from ${queriesSql(queries)}
             cross join lateral (
               select ${m.trOwner} as id, similarity(${m.trKey}, q.k) as score
                 from ${m.tr}
-               where ${m.trKey} % q.k ${ownerScope(kind, m.trOwner, hints)}
+               where ${m.trKey} % q.k ${ownerScope(kind, m.trOwner, scoped, level)}
                order by score desc
                limit ${FUZZY_NAMES_PER_KEY}) n) c
-         group by key, id) best) ranked
-     where rn <= 3 order by key, score desc`;
+         group by key, "parentId", id) best) ranked
+     where rn <= 3 order by key, "parentId", score desc`;
 }
 
 /** Transaction-local: `%` keeps candidates at or above `FUZZY_FLOOR` for the rest of this transaction. */
 export const fuzzyThresholdSql = () =>
   sql`select set_config('pg_trgm.similarity_threshold', ${String(FUZZY_FLOOR)}, true)`;
 
-export async function fuzzyMatches(tx: Tx, kind: ResolveKind, keys: string[], hints: LocationHints) {
-  if (keys.length === 0) return [] as KeyMatch[];
+export async function fuzzyMatches(
+  tx: Tx,
+  kind: ResolveKind,
+  queries: readonly KeyQuery[],
+  level?: string,
+): Promise<KeyMatch[]> {
+  if (queries.length === 0) return [];
   await tx.execute(fuzzyThresholdSql());
-  const res = await tx.execute(fuzzyMatchesSql(kind, keys, hints));
-  return rowsOf<{ key: string; id: string; score: number }>(res).map((r) => ({ ...r, score: Number(r.score) }));
+  const res = await tx.execute(fuzzyMatchesSql(kind, queries, level));
+  return rowsOf<KeyMatch>(res).map((r) => ({ ...r, score: Number(r.score) }));
 }
 
 export type UnmatchedUpsert = {

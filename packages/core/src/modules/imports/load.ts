@@ -3,8 +3,8 @@
  *
  * 1. **prepare** (outside the fenced transaction): parse each item as a `FeedListing`, then resolve its taxonomy
  *    through the S2-05 resolver in one short `withSystem` transaction — location level by level with the level above
- *    as hint, the property type, the features — queueing unmatched values for staff (`resolveAndQueue`). Known
- *    values are remembered for the rest of the run. An unmatched value holds the listing as DRAFT; once staff map it,
+ *    as hint (one statement per level for all its parents), the property type, the features — queueing unmatched
+ *    values for staff once per run (`RunResolver`). Known and unmatched values are remembered for the rest of the run. An unmatched value holds the listing as DRAFT; once staff map it,
  *    the next run resolves it, the listing's import hash changes and the MERGE promotes it.
  * 2. **write** (inside the run's fenced batch transaction, `withTenant`): `properties.importListingBatch` — COPY →
  *    staging → MERGE, field locks honoured, unchanged items skipped by hash, events bulk-inserted — then the
@@ -78,6 +78,11 @@ export interface RunLoader<Prepared = unknown> {
    * confirmed, in short transactions of their own. Answers how many.
    */
   confirmFresh(before: Date): Promise<number>;
+  /**
+   * After the run ended, whatever its outcome (succeeded, failed, paused, lost), outside its transactions: run-level
+   * bookkeeping of its own (S7-F10: the taxonomy sightings counted at the run's end). Best effort.
+   */
+  afterRun?(): Promise<void>;
   /** Inside the transaction that ends a failed run. */
   abandon(tx: Tx): Promise<void>;
 }
@@ -155,55 +160,139 @@ const LEVELS: readonly { key: 'country' | 'region' | 'city' | 'area'; level: Loc
 
 export type Kind = 'location' | 'propertyType' | 'feature';
 
-/**
- * Taxonomy resolution for a run: `resolveAndQueue` per (kind, hints) group of distinct values, one call per group;
- * matches are remembered for the run (bounded), unmatched values are resolved — and counted for staff — again in
- * every batch that has them.
- */
+/** A value to resolve: its text, an example (the feed reference) and, for locations, the parent it sits under. */
+export type ResolveValue = { text: string; example: string; parentId?: string | null };
+
 /** What taxonomy resolution needs: the id each value resolves to (null: unmatched). The dry run swaps in a read-only one. */
 export interface TaxonomyResolver {
   resolve(
     tx: Tx,
     kind: Kind,
-    values: readonly { text: string; example: string }[],
-    hints?: taxonomy.ResolveHints,
+    values: readonly ResolveValue[],
+    hints?: { level?: LocationLevel },
   ): Promise<(string | null)[]>;
 }
 
-class RunResolver implements TaxonomyResolver {
-  private readonly known = new Map<string, string>();
+/** Examples kept per value counted later in a run (the staff queue keeps the 5 newest of all its examples). */
+const UNCOUNTED_EXAMPLES = 3;
 
-  private key(kind: Kind, hints: taxonomy.ResolveHints, text: string): string {
-    return `${kind}|${hints.parentId ?? ''}|${hints.level ?? ''}|${taxonomy.aliasKey(text)}`;
+/**
+ * Taxonomy resolution for a run (S7-F10): one `resolveMany` per call — a whole location level of a batch at once,
+ * every parent its values sit under — for the values the run has not seen. Matches and misses are remembered for the
+ * run (bounded): a value unmatched in one batch is not resolved again in the next ones, and is queued for staff once,
+ * with that batch's count; the later batches' sightings (count and up to 3 newest examples) are added with the run's
+ * next queue write, or by `flush` when the run ends. A batch's queue writes count only once its transaction committed
+ * (`commit`); after a rollback (`rollback`) its misses are resolved and queued again by the next batch.
+ */
+export class RunResolver implements TaxonomyResolver {
+  private readonly known = new Map<string, string>();
+  private readonly missed = new Map<string, taxonomy.Resolution>();
+  /** Misses queued in the open transaction: remembered by `commit`, forgotten by `rollback`. */
+  private readonly staged = new Map<string, taxonomy.Resolution>();
+  /** Sightings of values already queued this run, not yet counted (by kind and alias key). */
+  private uncounted = new Map<string, taxonomy.QueueEntry>();
+  /** Sightings written in the open transaction: back to `uncounted` on `rollback`. */
+  private written: taxonomy.QueueEntry[] = [];
+
+  private key(kind: Kind, level: LocationLevel | undefined, parentId: string | null | undefined, text: string) {
+    return `${kind}|${parentId ?? ''}|${level ?? ''}|${taxonomy.aliasKey(text)}`;
   }
 
-  /** The id each value resolves to (null: unmatched). `values`: text and an example (the feed reference). */
+  private remember(map: Map<string, unknown>) {
+    return map.size < RUNS.MAX_CACHED_RESOLUTIONS;
+  }
+
+  private count(entry: taxonomy.QueueEntry) {
+    const k = `${entry.kind}|${taxonomy.aliasKey(entry.input.text)}`;
+    const seen = this.uncounted.get(k);
+    const examples = [...(entry.input.examples ?? []), ...(seen?.input.examples ?? [])]
+      .filter((e, i, all) => e && all.indexOf(e) === i)
+      .slice(0, UNCOUNTED_EXAMPLES);
+    const count = (seen?.input.count ?? 0) + (entry.input.count ?? 1);
+    this.uncounted.set(k, { ...entry, input: { text: entry.input.text, count, examples } });
+  }
+
+  /** The id each value resolves to (null: unmatched). */
   async resolve(
     tx: Tx,
     kind: Kind,
-    values: readonly { text: string; example: string }[],
-    hints: taxonomy.ResolveHints = {},
+    values: readonly ResolveValue[],
+    hints: { level?: LocationLevel } = {},
   ): Promise<(string | null)[]> {
-    const out: (string | null)[] = values.map((v) => this.known.get(this.key(kind, hints, v.text)) ?? null);
-    const pending = new Map<string, { text: string; count: number; example: string }>();
+    const keys = values.map((v) => this.key(kind, hints.level, v.parentId, v.text));
+    const out: (string | null)[] = keys.map((k) => this.known.get(k) ?? null);
+    const pending = new Map<string, { value: ResolveValue; count: number }>();
     values.forEach((v, i) => {
       if (out[i] !== null) return;
-      const k = this.key(kind, hints, v.text);
-      const p = pending.get(k);
-      if (p) p.count += 1;
-      else pending.set(k, { text: v.text, count: 1, example: v.example });
+      const k = keys[i] as string;
+      const miss = this.missed.get(k) ?? this.staged.get(k);
+      if (miss) this.count({ kind, input: { text: v.text, count: 1, examples: [v.example] }, resolution: miss });
+      else {
+        const p = pending.get(k);
+        if (p) p.count += 1;
+        else pending.set(k, { value: v, count: 1 });
+      }
     });
     if (pending.size === 0) return out;
     const inputs = [...pending.values()];
-    const results = await taxonomy.resolveAndQueue(tx, kind, inputs, hints);
+    const results = await taxonomy.resolveMany(
+      tx,
+      kind,
+      inputs.map((p) => ({ text: p.value.text, parentId: p.value.parentId ?? null })),
+      hints,
+    );
+    const queue: taxonomy.QueueEntry[] = [];
+    const misses = new Map<string, taxonomy.Resolution>();
     const resolved = new Map<string, string | null>();
-    inputs.forEach((input, i) => {
-      const id = results[i]?.status === 'unmatched' ? null : (results[i]?.id ?? null);
-      const k = this.key(kind, hints, input.text);
-      resolved.set(k, id);
-      if (id && this.known.size < RUNS.MAX_CACHED_RESOLUTIONS) this.known.set(k, id);
+    inputs.forEach(({ value, count }, i) => {
+      const r = results[i] as taxonomy.Resolution;
+      const k = this.key(kind, hints.level, value.parentId, value.text);
+      resolved.set(k, r.id);
+      if (r.id) {
+        if (this.remember(this.known)) this.known.set(k, r.id);
+        return;
+      }
+      queue.push({ kind, input: { text: value.text, count, example: value.example }, resolution: r });
+      misses.set(k, r);
     });
-    return values.map((v, i) => out[i] ?? resolved.get(this.key(kind, hints, v.text)) ?? null);
+    // New misses are queued now, with any sightings counted since the last write (no statement of their own); they
+    // count as queued only once the write succeeded, and stay so only if its transaction commits (`commit`).
+    if (queue.length > 0) {
+      const carried = [...this.uncounted.values()];
+      await taxonomy.queueUnmatched(tx, [...queue, ...carried]);
+      this.uncounted = new Map();
+      this.written.push(...carried);
+      for (const [k, r] of misses) this.staged.set(k, r);
+    }
+    return keys.map((k, i) => out[i] ?? resolved.get(k) ?? null);
+  }
+
+  /** The transaction of the last `resolve` calls committed: their queued misses are remembered for the run. */
+  commit(): void {
+    for (const [k, r] of this.staged) if (this.remember(this.missed)) this.missed.set(k, r);
+    this.staged.clear();
+    this.written = [];
+  }
+
+  /** …or rolled back: their misses are resolved and queued again later, their carried sightings counted again. */
+  rollback(): void {
+    this.staged.clear();
+    const written = this.written;
+    this.written = [];
+    for (const e of written) this.count(e);
+  }
+
+  /** Adds the sightings not counted yet to the staff queue (one statement, none when there are none). */
+  async flush(tx: Tx): Promise<void> {
+    if (this.uncounted.size === 0) return;
+    const entries = [...this.uncounted.values()];
+    this.uncounted = new Map();
+    try {
+      await taxonomy.queueUnmatched(tx, entries);
+    } catch (err) {
+      for (const e of entries) this.count(e);
+      throw err;
+    }
   }
 }
 
@@ -220,7 +309,11 @@ export interface Resolved {
   held: properties.ImportHold[];
 }
 
-/** Location level by level: each value under the level above it when that one was given and matched. */
+/**
+ * Location level by level: each value under the level above it when that one was given and matched. One resolver call
+ * per level for every item, whatever their parents (S7-F10: was one per parent — a 20k-listing run's area level asked
+ * once per city).
+ */
 async function resolveLocations(
   tx: Tx,
   resolver: TaxonomyResolver,
@@ -232,18 +325,20 @@ async function resolveLocations(
   const above: (string | undefined)[] = items.map(() => undefined);
   const blocked = items.map(() => false);
   for (const { key, level } of LEVELS) {
-    const groups = new Map<string, number[]>();
+    const members: number[] = [];
     items.forEach((p, i) => {
-      if (blocked[i] || !p.listing.location[key]) return;
-      const group = levelOnly ? '' : (above[i] ?? '');
-      groups.set(group, [...(groups.get(group) ?? []), i]);
+      if (!blocked[i] && p.listing.location[key]) members.push(i);
     });
-    for (const [parentId, members] of groups) {
+    if (members.length > 0) {
       const ids = await resolver.resolve(
         tx,
         'location',
-        members.map((i) => ({ text: items[i]?.listing.location[key] as string, example: items[i]?.listing.ref ?? '' })),
-        parentId ? { parentId, level } : { level },
+        members.map((i) => ({
+          text: items[i]?.listing.location[key] as string,
+          example: items[i]?.listing.ref ?? '',
+          parentId: levelOnly ? null : (above[i] ?? null),
+        })),
+        { level },
       );
       members.forEach((i, j) => {
         const id = ids[j] ?? null;
@@ -451,7 +546,18 @@ export const listingSink: FeedSink = {
         const resolved =
           parsed.length === 0
             ? []
-            : await withSystem('imports.loader: resolve feed taxonomy', (tx) => resolveTaxonomy(tx, resolver, parsed));
+            : await withSystem('imports.loader: resolve feed taxonomy', (tx) =>
+                resolveTaxonomy(tx, resolver, parsed),
+              ).then(
+                (r) => {
+                  resolver.commit();
+                  return r;
+                },
+                (err: unknown) => {
+                  resolver.rollback();
+                  throw err;
+                },
+              );
         const items = parsed.map((p, i) => toImport(p.listing, resolved[i] as Resolved));
         return {
           prepared: {
@@ -526,6 +632,12 @@ export const listingSink: FeedSink = {
 
       async abandon(tx) {
         await properties.discardImportSeen(tx, run.runId);
+      },
+
+      // S7-F10: sightings of values already queued this run, counted once at its end — after the run's transaction
+      // committed (one connection at a time), on every outcome.
+      async afterRun() {
+        await withSystem('imports.loader: count unmatched feed taxonomy', (sys) => resolver.flush(sys));
       },
     };
     return loader as RunLoader;

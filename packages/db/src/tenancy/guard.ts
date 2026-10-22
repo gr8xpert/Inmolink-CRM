@@ -4,6 +4,7 @@ import type { GlobalTable, TenantRegistry, TenantTable } from './registry';
 import {
   APP_ROLE_NAMES,
   type AppRole,
+  DEFINER_VIEWS,
   expectedPolicies,
   expectedPrivileges,
   HELPER_FUNCTIONS,
@@ -34,6 +35,8 @@ interface RelationRow {
   rls: boolean;
   forced: boolean;
   security_invoker: boolean;
+  /** The relation's owner role. */
+  owner: string;
   agency_type: string | null;
   agency_not_null: boolean | null;
   /** "role:PRIV" for every privilege an app role holds. */
@@ -44,6 +47,7 @@ const RELATIONS_SQL = `
 select n.nspname as schema, c.relname as name, c.relkind as kind, c.relispartition as partition,
        c.relrowsecurity as rls, c.relforcerowsecurity as forced,
        coalesce('security_invoker=true' = any (c.reloptions), false) as security_invoker,
+       pg_get_userbyid(c.relowner) as owner,
        format_type(a.atttypid, a.atttypmod) as agency_type, a.attnotnull as agency_not_null,
        array(select r || ':' || p
                from unnest(${ROLES_SQL}) r,
@@ -87,6 +91,10 @@ select coalesce(string_agg(x, E'\\n' order by x), '') as catalog from (
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = any($1::text[])
   union all
+  select format('view %s %s %s', c.relname, coalesce(c.reloptions::text, ''), pg_get_viewdef(c.oid))
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relkind = 'v' and c.relname = any($2::text[])
+  union all
   select format('trigger %s %s %s', pg_get_triggerdef(t.oid), t.tgenabled, pg_get_functiondef(t.tgfoid))
     from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public' and not t.tgisinternal and t.tgparentid = 0
@@ -108,7 +116,7 @@ const CATALOG_STAMP_SQL = `select obj_description(to_regprocedure('${CATALOG_STA
 
 /** Fingerprint of every public policy's predicates and the generated helpers' definitions. */
 export async function rlsCatalogStamp(client: pg.ClientBase): Promise<string> {
-  const { rows } = await client.query<{ catalog: string }>(CATALOG_SQL, [[...HELPER_FUNCTIONS]]);
+  const { rows } = await client.query<{ catalog: string }>(CATALOG_SQL, [[...HELPER_FUNCTIONS], [...DEFINER_VIEWS]]);
   return `rls catalog sha256:${createHash('sha256')
     .update(rows[0]?.catalog ?? '')
     .digest('hex')}`;
@@ -150,10 +158,22 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
 
   const problems: string[] = [];
   const seen = new Set<string>();
+  const seenViews = new Set<string>();
   for (const t of relations.rows) {
     const label = t.schema === 'public' ? t.name : `${t.schema}.${t.name}`;
     const accessible = t.grants.length > 0;
     if (t.schema !== 'public' || !['r', 'p'].includes(t.kind)) {
+      // S7-F10: a generated definer view (its body is in the catalog stamp) is read by app_public alone.
+      if (t.schema === 'public' && t.kind === 'v' && (DEFINER_VIEWS as readonly string[]).includes(t.name)) {
+        seenViews.add(t.name);
+        if (t.grants.join(',') !== 'app_public:SELECT') {
+          problems.push(`${t.name}: a definer view must grant SELECT to app_public only (run pnpm db:rls)`);
+        }
+        // It reads as its owner: only app_owner's `definer_read` policy may be what it reads through.
+        if (t.owner !== 'app_owner')
+          problems.push(`${t.name}: a definer view must be owned by app_owner (run pnpm db:rls)`);
+        continue;
+      }
       // Views run as their owner unless security_invoker; materialized views and foreign tables have no RLS.
       const safeView = t.kind === 'v' && t.security_invoker && t.schema === 'public';
       if (accessible && !safeView) problems.push(`${label}: accessible to an app role outside the tenant registry`);
@@ -211,6 +231,9 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
   }
   for (const name of [...Object.keys(registry.tenant), ...Object.keys(registry.global)]) {
     if (!seen.has(name)) problems.push(`${name}: registered but the table does not exist`);
+  }
+  for (const name of DEFINER_VIEWS) {
+    if (!seenViews.has(name)) problems.push(`${name}: generated view is missing (run pnpm db:rls)`);
   }
 
   const helpers = new Set<string>(HELPER_FUNCTIONS);

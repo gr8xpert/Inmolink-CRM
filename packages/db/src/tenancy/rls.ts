@@ -30,6 +30,22 @@ export const HELPER_FUNCTIONS = [
   'website_network_open',
 ] as const;
 
+/**
+ * Views the generator owns that run as their owner (`app_owner`), not as the caller (S7-F10). The guard rejects any
+ * other view an app role can read unless it is `security_invoker`.
+ */
+export const DEFINER_VIEWS = ['search_commission_floor'] as const;
+
+/**
+ * The transaction's minimum commission (S7-F10). Unset: the cast fails with the setting's name in the message, so a
+ * read that forgot `withPublicRead({ minCommissionBp })` errors instead of silently matching nothing.
+ */
+const COMMISSION_FLOOR =
+  "coalesce(nullif(pg_catalog.current_setting('app.search_min_commission_bp', true), ''), 'app.search_min_commission_bp is not set')::integer";
+
+/** Every staff policy's gate (S7-F10): an init plan, once per statement, never a call per row. */
+const STAFF_GATE = '(select public.app_is_staff())';
+
 export type Privilege = 'SELECT' | 'INSERT' | 'UPDATE' | 'DELETE';
 export type AppRole = 'app_user' | 'app_system' | 'app_public' | 'app_auth' | 'app_staff' | 'app_media' | 'app_intake';
 export const APP_ROLE_NAMES: readonly AppRole[] = [
@@ -340,9 +356,26 @@ begin
     end if;
   end loop;
 end $$;`,
-    // S7-F4: does this PUBLIC target pay at least `bp` basis points of its price? The website fallback's minimum
-    // commission asks a boolean per target; the value sits in `listing_search_commissions`, which no application role
-    // can read. SECURITY DEFINER with a fixed search_path; a target without a known commission answers false.
+    // S7-F10 (was S7-F4's `search_commission_at_least(target, bp)`, a SECURITY DEFINER call per candidate row, ~10 µs
+    // each): the targets that pay at least the transaction's `app.search_min_commission_bp` basis points of their price
+    // (`withPublicRead({ minCommissionBp })`, folded into BEGIN) — ids only, never the value. Without the setting a
+    // probe fails loudly (a caller that forgot it, rather than a site silently showing no network listing). Owned
+    // by app_owner and read with its `definer_read` policy, as the function was; a security barrier, so a caller's
+    // non-leakproof condition never sees a row the threshold drops. The website fallback probes it per candidate with
+    // the primary key (an index probe, ~3 µs) and compares `floor_bp` with its own threshold, so a transaction set for
+    // another minimum answers nothing rather than the wrong rows. Same answer for every role (BYPASSRLS included).
+    `drop view if exists public.search_commission_floor;`,
+    `create view public.search_commission_floor with (security_barrier = true) as
+  select c.target_id as floor_target_id, ${COMMISSION_FLOOR} as floor_bp
+    from public.listing_search_commissions c
+   where c.commission_bp >= ${COMMISSION_FLOOR};`,
+    // Owned by app_owner explicitly (whoever applies the file): the view reads the table with its owner's policy, and
+    // the guard requires this owner for every definer view.
+    `alter view public.search_commission_floor owner to app_owner;`,
+    `revoke all on table public.search_commission_floor from ${APP_ROLES};`,
+    `grant select on table public.search_commission_floor to app_public;`,
+    // S7-F4's per-row lookup, unused since S7-F10 and kept for one release (expand/contract): the app version still
+    // running during a deploy calls it after `pnpm db:rls`. Dropped by S7-F11 once every app reads the view.
     `create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
   security definer set search_path = pg_catalog, pg_temp
   as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;`,
@@ -530,9 +563,11 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     out.push(`grant ${authPrivileges(def.auth).join(', ').toLowerCase()} on table ${t} to app_auth;`);
   }
   if (def.staff) {
-    // Staff work across tenants, but only as an active staff member (`app_is_staff()`), never DELETE.
+    // Staff work across tenants, but only as an active staff member (`app_is_staff()`), never DELETE. S7-F10: as an
+    // init plan `(select …)`, evaluated once per statement like `app_agency_verified()` — called bare it was a filter
+    // on every row (the staff import health read 120k runs in 24 h: 520 ms per aggregate, a function call per run).
     const { select, insert, update } = def.staff;
-    const gated = (p: string) => `app_is_staff() and (${predicate(name, p)})`;
+    const gated = (p: string) => `${STAFF_GATE} and (${predicate(name, p)})`;
     if (select !== undefined) {
       out.push(`create policy staff_select on ${t} for select to app_staff
   using (${gated(select)});`);
@@ -583,10 +618,10 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
     ? [
         // Reference data edited by the staff console (S2-04): any active staff member at the database level;
         // which staff role may write is the service's policy (`staff.taxonomy.write`).
-        `create policy staff_select on ${t} for select to app_staff using (app_is_staff());`,
-        `create policy staff_insert on ${t} for insert to app_staff with check (app_is_staff());`,
-        `create policy staff_update on ${t} for update to app_staff using (app_is_staff()) with check (app_is_staff());`,
-        `create policy staff_delete on ${t} for delete to app_staff using (app_is_staff());`,
+        `create policy staff_select on ${t} for select to app_staff using (${STAFF_GATE});`,
+        `create policy staff_insert on ${t} for insert to app_staff with check (${STAFF_GATE});`,
+        `create policy staff_update on ${t} for update to app_staff using (${STAFF_GATE}) with check (${STAFF_GATE});`,
+        `create policy staff_delete on ${t} for delete to app_staff using (${STAFF_GATE});`,
         `grant select, insert, update, delete on table ${t} to app_staff;`,
       ]
     : [];

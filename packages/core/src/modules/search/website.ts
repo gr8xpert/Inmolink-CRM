@@ -4,7 +4,7 @@
  * match; the fallback ranks more simply (the sort only), matches text against references only and has no facets.
  *
  * Timing comes from config (`websiteSearchEnv`, set at boot by `configureWebsiteSearch`; S6-F3): an engine call is
- * cut at `SEARCH_ENGINE_TIMEOUT_MS` (~100 ms); at `SEARCH_SLOW_MS` (~80 ms) without an answer the fallback starts
+ * cut at `SEARCH_ENGINE_TIMEOUT_MS` (~100 ms); at `SEARCH_SLOW_MS` (~50 ms) without an answer the fallback starts
  * beside it and the first answer wins, so a slow engine never costs a request more than about the slow threshold plus
  * one fallback statement. A circuit breaker per process counts an engine call that fails, times out or answers slower
  * than `SEARCH_SLOW_MS`: `SEARCH_BREAKER_FAILURES` in a row, or a failed-or-slow share ≥ `SEARCH_BREAKER_FAILURE_RATIO`
@@ -22,7 +22,7 @@ import {
   type PublicListingSearchResult,
   type PublicSearchSort,
 } from '@inmolink/contracts';
-import { withPublicRead } from '@inmolink/db';
+import { type Tx, withPublicRead } from '@inmolink/db';
 import { LocalLru } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
@@ -76,10 +76,10 @@ export interface WebsiteSearchSettings {
 
 export const WEBSITE_SEARCH_DEFAULTS: Readonly<WebsiteSearchSettings> = {
   engineTimeoutMs: 100,
-  slowMs: 80,
+  slowMs: 50,
   breakerFailures: 5,
   breakerFailureRatio: 0.5,
-  breakerMinCalls: 20,
+  breakerMinCalls: 10,
   breakerWindowMs: 10_000,
   breakerOpenMs: 30_000,
   hedgeMaxInFlight: 16,
@@ -699,6 +699,20 @@ function fallbackQuery(
   };
 }
 
+/**
+ * A public read for this site's inventory (S7-F10): `app_public`, read-only, with the site's minimum commission set on
+ * the transaction (folded into BEGIN) when its filter has one — the commission view answers for that minimum only.
+ * Every statement that compiles the site's filter (search fallback, details, sitemap, changes, developments) runs in
+ * one of these.
+ */
+export function withSiteRead<T>(
+  site: Pick<PublicSearchSite, 'restrict'> | null | undefined,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  const minCommissionBp = site?.restrict?.minCommissionBp;
+  return withPublicRead(fn, minCommissionBp === undefined ? undefined : { minCommissionBp });
+}
+
 /** The fallback's statement for a site's search: perf tests EXPLAIN it on scale data (not for request paths). */
 export function publicFallbackSql(
   site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
@@ -756,7 +770,9 @@ async function fallbackPage(
   // request while the fallback carries all traffic (S6-F2).
   const restarted = cursor !== undefined && 'o' in cursor;
   const query = fallbackQuery(site, q, filter, cursor);
-  const page = query ? await withPublicRead((tx) => repo.fallbackSearch(tx, query)) : { ids: [], total: 0, next: null };
+  const page = query
+    ? await withSiteRead(site, (tx) => repo.fallbackSearch(tx, query))
+    : { ids: [], total: 0, next: null };
   return {
     ids: page.ids,
     total: page.total,

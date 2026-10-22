@@ -163,10 +163,17 @@ export const mediaCdnEnv = {
 
 export const websiteSearchEnv = {
   SEARCH_ENGINE_TIMEOUT_MS: z.coerce.number().int().min(20).max(5_000).default(100),
-  SEARCH_SLOW_MS: z.coerce.number().int().min(10).max(5_000).default(80),
+  // S7-F10: 50 (was 80): a slow engine costs a request at most ~50 ms plus one fallback statement while the breaker
+  // is still closed (S6-F3 measured 151–254 ms with 80). Rechecked on staging with the degraded k6 profile (H4).
+  SEARCH_SLOW_MS: z.coerce.number().int().min(10).max(5_000).default(50),
   SEARCH_BREAKER_FAILURES: z.coerce.number().int().min(1).max(1_000).default(5),
   SEARCH_BREAKER_FAILURE_RATIO: z.coerce.number().gt(0).max(1).default(0.5),
-  SEARCH_BREAKER_MIN_CALLS: z.coerce.number().int().min(1).max(100_000).default(20),
+  /**
+   * Calls the failure-share rule needs within its window (S7-F10: 10, was 20). Size it per environment to about one
+   * second of one process's search traffic at the quiet hour (at least 5): below it the share rule never runs and an
+   * intermittently slow engine keeps the breaker closed (runbook `search.md`).
+   */
+  SEARCH_BREAKER_MIN_CALLS: z.coerce.number().int().min(1).max(100_000).default(10),
   SEARCH_BREAKER_WINDOW_MS: z.coerce.number().int().min(1_000).max(600_000).default(10_000),
   SEARCH_BREAKER_OPEN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
   /** Fallback statements started beside a slow engine at once, per process (the losing one is not cancelled). */

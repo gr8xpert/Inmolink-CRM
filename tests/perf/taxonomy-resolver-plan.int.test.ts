@@ -67,14 +67,26 @@ it('[S2-F5] EXPLAIN on scale: exact and fuzzy resolver statements use their inde
     const threshold = render(fuzzyThresholdSql());
     await q(threshold.sql, threshold.params); // as `fuzzyMatches` does
     const plans: Record<string, { plan: string; ms: number }> = {};
+    // S7-F10: (key, parent) queries — a whole level of a batch, every parent at once.
+    const none = (keys: string[]) => keys.map((key) => ({ key, parentId: null }));
+    const cities = (await q(`select md5('plan-ci' || g)::uuid as id from generate_series(1, 50) g`)) as {
+      id: string;
+    }[];
+    const underCities = (keys: string[]) =>
+      keys.map((key, i) => ({ key, parentId: (cities[i % cities.length] as { id: string }).id }));
     const statements = {
-      exact: render(exactMatchesSql('location', [...exactKeys, ...fuzzyKeys.slice(250)], {})),
-      'exact, level hint': render(exactMatchesSql('location', exactKeys, { level: 'CITY' })),
-      fuzzy: render(fuzzyMatchesSql('location', fuzzyKeys, {})),
-      'fuzzy, level hint': render(fuzzyMatchesSql('location', fuzzyKeys, { level: 'CITY' })),
+      exact: render(exactMatchesSql('location', none([...exactKeys, ...fuzzyKeys.slice(250)]))),
+      'exact, level hint': render(exactMatchesSql('location', none(exactKeys), 'CITY')),
+      'exact, parents and level': render(exactMatchesSql('location', underCities(exactKeys), 'AREA')),
+      fuzzy: render(fuzzyMatchesSql('location', none(fuzzyKeys))),
+      'fuzzy, level hint': render(fuzzyMatchesSql('location', none(fuzzyKeys), 'CITY')),
       'fuzzy, parent hint': render(
-        fuzzyMatchesSql('location', fuzzyKeys, { parentId: '00000000-0000-0000-0000-000000000000' }),
+        fuzzyMatchesSql(
+          'location',
+          fuzzyKeys.map((key) => ({ key, parentId: '00000000-0000-0000-0000-000000000000' })),
+        ),
       ),
+      'fuzzy, parents and level': render(fuzzyMatchesSql('location', underCities(fuzzyKeys), 'AREA')),
     };
     for (const [name, st] of Object.entries(statements)) {
       await q(st.sql, st.params); // warm the cache, as a running import's would be
@@ -96,14 +108,28 @@ it('[S2-F5] EXPLAIN on scale: exact and fuzzy resolver statements use their inde
   expect(out.fuzzy?.plan).toMatch(/location_translations_name_key_idx/);
   expect(out.fuzzy?.plan).toMatch(/location_aliases_key_trgm_idx/);
   // S4-F2: a level hint is a per-candidate probe (a scalar subquery, `SubPlan`), never a hash join over `locations`
-  for (const name of ['exact, level hint', 'fuzzy, level hint']) {
+  for (const name of [
+    'exact, level hint',
+    'fuzzy, level hint',
+    'exact, parents and level',
+    'fuzzy, parents and level',
+  ]) {
     expect(out[name]?.plan, name).toMatch(/SubPlan/);
-    expect(out[name]?.plan, name).not.toMatch(/Hash (Semi |Right Semi )?Join/);
+    // S7-F10 review: the (key, parent) relation may hash-join the few index-found aliases (`= any($keys)` on
+    // `location_aliases_key_uq`), never `locations` and never a semi-join over them.
+    expect(out[name]?.plan, name).not.toMatch(/Hash (Right )?Semi Join/);
+    expect(out[name]?.plan, name).not.toMatch(/Hash Cond: \([^\n]*\blocations\.(id|parent_id)\b/);
+  }
+  // …and the exact statements read the aliases through their index, never whole (S7-F10 review: `= any($keys)`).
+  for (const name of ['exact', 'exact, level hint', 'exact, parents and level']) {
+    expect(out[name]?.plan, name).not.toMatch(/Seq Scan on location_aliases/);
+    expect(out[name]?.plan, name).toMatch(/location_aliases_key_uq/);
   }
   // Per key of a worker batch (timings vary with machine load; the plan checks above are the strict part):
   // exact ≈ 0.01 ms (one btree probe), fuzzy ≈ 2–6 ms (one GIN `%` probe), against the 20 ms SQL budget.
   expect((out.exact?.ms ?? Infinity) / 500).toBeLessThan(2);
-  for (const name of ['fuzzy', 'fuzzy, level hint', 'fuzzy, parent hint']) {
+  expect((out['exact, parents and level']?.ms ?? Infinity) / 500).toBeLessThan(2);
+  for (const name of ['fuzzy', 'fuzzy, level hint', 'fuzzy, parent hint', 'fuzzy, parents and level']) {
     expect((out[name]?.ms ?? Infinity) / 500, name).toBeLessThan(20);
   }
 }, 300_000);

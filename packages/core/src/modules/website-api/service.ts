@@ -280,7 +280,7 @@ export async function listingDetail(site: ApiSite, ref: string, lang?: string): 
   const locale = langOf(site, lang);
   const inventory = site.inventory;
   if (!inventory) throw await withPublicRead((tx) => listingNotFound(tx, site, ref));
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const row = await search.publicDetailByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
     if (!row) throw await listingNotFound(tx, site, ref);
     site.edge.targets.add(row.targetId);
@@ -376,7 +376,7 @@ export async function changes(site: ApiSite, q: WebsiteChangesQuery): Promise<We
   const inventory = site.inventory ?? { ownerAgencyIds: [site.scope.agencyId], requestId: '' };
   const audience: search.ChangeAudience =
     inventory.networkOf === undefined ? { ownerAgencyId: site.scope.agencyId } : { networkOf: inventory.networkOf };
-  const page = await withPublicRead((tx) =>
+  const page = await search.withSiteRead(inventory, (tx) =>
     search.siteChanges(tx, inventory, { after, since, audience, limit: q.limit }),
   );
   const shown = shownSite(site);
@@ -419,22 +419,24 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
   const inventory = site.inventory;
   if (!inventory) return { items: [], nextCursor: null };
   const after = q.cursor === undefined ? undefined : decodeSitemapCursor(q.cursor);
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const rows = await search.sitemapPage(tx, inventory, {
       after,
       limit: q.limit,
       locale: lang,
       fallback: site.scope.defaultLocale,
+      part: 'sitemap',
     });
     const page = rows.slice(0, q.limit);
     const view = await viewFor(tx, site, lang, page);
-    const cards = websites.serializeCards(view, page.map(owned<ListingCardDoc | UnitCardDoc>));
+    // S7-F10 review: the three shown fields, not whole cards (the statement is ~5 ms of a ~45 ms page).
+    const entries = websites.serializeSitemapEntries(view, page.map(owned<ListingCardDoc | UnitCardDoc>));
     const last = page[page.length - 1];
     return {
-      items: cards.map((card, i) => ({
-        ref: card.ref,
-        kind: card.kind,
-        slug: card.slug,
+      items: entries.map((entry, i) => ({
+        ref: entry.ref,
+        kind: entry.kind,
+        slug: entry.slug,
         updatedAt: (page[i] as search.PublicDocRow).updatedAt.toISOString(),
       })),
       nextCursor: rows.length > q.limit && last?.publicCode ? encodeCursor({ c: last.publicCode }) : null,
@@ -479,7 +481,7 @@ export async function developments(site: ApiSite, q: WebsiteDevelopmentsQuery): 
   const inventory = newBuildsOf(site);
   if (!inventory) return { items: [], nextCursor: null };
   const after = q.cursor === undefined ? undefined : decodeCodeCursor(q.cursor, 'd');
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const rows = await search.developmentPage(tx, inventory, {
       after,
       limit: q.limit,
@@ -506,7 +508,7 @@ export async function developmentDetail(site: ApiSite, ref: string, lang?: strin
   const locale = langOf(site, lang);
   const inventory = newBuildsOf(site);
   if (!inventory) throw new AppError('DEVELOPMENT_NOT_FOUND');
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const row = await search.developmentByRef(tx, inventory, ref, locale, site.scope.defaultLocale);
     if (!row) throw new AppError('DEVELOPMENT_NOT_FOUND');
     site.edge.developments.add(row.developmentId);
@@ -525,7 +527,7 @@ export async function developmentUnits(site: ApiSite, ref: string, q: WebsiteUni
   const inventory = newBuildsOf(site);
   if (!inventory) throw new AppError('DEVELOPMENT_NOT_FOUND');
   const after = q.cursor === undefined ? undefined : decodeCodeCursor(q.cursor, 'u');
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const { found, anchored, developmentId, rows } = await search.developmentUnitsPage(tx, inventory, {
       ref,
       after,

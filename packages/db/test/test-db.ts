@@ -40,11 +40,42 @@ export async function setupTestDb(appRole: 'http' | 'worker' | 'script' = 'http'
     });
   }
   await runMigrations(cfg, silent);
+  await productionPlannerCosts(cfg.DATABASE_URL_ADMIN as string);
   await runRls(cfg, silent, undefined, { ifStale: true });
   await pruneStaleTestAgencies(cfg.DATABASE_URL_ADMIN as string);
   const db = loadConfig(dbEnv);
   await configureDb({ ...db, APP_ROLE: appRole });
   return cfg;
+}
+
+/**
+ * Production's planner costs on the test database (S7-F10 review; Ansible `postgresql.conf.j2`, SSD), so local and CI
+ * plans are the ones production picks: per database (`ALTER DATABASE … SET`, new sessions), the container's own
+ * settings untouched. Set once; a no-op when already there. Not `effective_io_concurrency` 200: it changes no plan
+ * (PG 17 does not cost prefetching), and on Docker Desktop's virtualised disk its per-block `posix_fadvise` made a
+ * warm 7k-block bitmap heap scan 5× slower (70 vs 13 ms) — a test-box artefact, not production's behaviour.
+ */
+export const PRODUCTION_PLANNER_COSTS = { random_page_cost: '1.1' } as const;
+
+async function productionPlannerCosts(adminUrl: string): Promise<void> {
+  const admin = new pg.Client({ connectionString: adminUrl });
+  await admin.connect();
+  try {
+    const { rows } = await admin.query<{ db: string; config: string[] | null }>(
+      `select current_database() as db,
+              (select s.setconfig from pg_db_role_setting s
+                where s.setdatabase = (select oid from pg_database where datname = current_database())
+                  and s.setrole = 0) as config`,
+    );
+    const row = rows[0];
+    if (!row) return;
+    for (const [name, value] of Object.entries(PRODUCTION_PLANNER_COSTS)) {
+      if (row.config?.includes(`${name}=${value}`)) continue;
+      await admin.query(`alter database ${pg.escapeIdentifier(row.db)} set ${name} = ${value}`);
+    }
+  } finally {
+    await admin.end();
+  }
 }
 
 /** Test agencies untouched for this long are left over from earlier runs (S5-F3). */

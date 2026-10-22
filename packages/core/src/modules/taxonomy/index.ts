@@ -33,9 +33,12 @@ export {
 export {
   FUZZY_ACCEPT,
   FUZZY_MARGIN,
+  type QueueEntry,
+  queueUnmatched,
   type Resolution,
   type ResolveHints,
   type ResolveInput,
+  type ResolveValue,
   resolveAndQueue,
   resolveFeature,
   resolveLocation,

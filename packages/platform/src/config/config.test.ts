@@ -281,14 +281,14 @@ describe('loadConfig', () => {
 });
 
 describe('website search timing (S6-F3)', () => {
-  it('[S6-F3] engine timeout and slow threshold come from config, ~100 ms and ~80 ms by default', () => {
+  it('[S6-F3] [S7-F10] engine timeout and slow threshold come from config, ~100 ms and ~50 ms by default', () => {
     const defaults = loadConfig(websiteSearchEnv, {});
     expect(defaults).toMatchObject({
       SEARCH_ENGINE_TIMEOUT_MS: 100,
-      SEARCH_SLOW_MS: 80,
+      SEARCH_SLOW_MS: 50,
       SEARCH_BREAKER_FAILURES: 5,
       SEARCH_BREAKER_FAILURE_RATIO: 0.5,
-      SEARCH_BREAKER_MIN_CALLS: 20,
+      SEARCH_BREAKER_MIN_CALLS: 10,
       SEARCH_BREAKER_WINDOW_MS: 10_000,
       SEARCH_BREAKER_OPEN_MS: 30_000,
       SEARCH_HEDGE_MAX_IN_FLIGHT: 16,

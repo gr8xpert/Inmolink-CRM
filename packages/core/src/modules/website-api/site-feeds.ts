@@ -22,7 +22,7 @@ import type { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { WebsiteDetail } from '@inmolink/contracts';
-import { withPublicRead, withSystem } from '@inmolink/db';
+import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -150,7 +150,7 @@ async function batch(
   invalid: (targetId: string, locale: string) => void,
 ): Promise<{ items: FeedItem[]; next: string | null }> {
   const { defaultLocale, locales } = site.scope;
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     // Codes and ids only: the documents come per locale below.
     const rows = await search.sitemapPage(tx, inventory, {
       after,

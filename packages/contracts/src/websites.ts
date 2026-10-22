@@ -538,12 +538,16 @@ export const WebsiteChangesPage = z.strictObject({
 });
 export type WebsiteChangesPage = z.infer<typeof WebsiteChangesPage>;
 
-/** `GET /v2/sitemap`: the site's listing pages, one page per `cursor`. */
+/**
+ * `GET /v2/sitemap`: the site's listing pages, one page per `cursor`. S7-F10 review: 250 per page by default, at most
+ * 500 (was 500 / 1,000) — a network page's cost is serving its entries white-labelled (~25 ms of a 500-entry page against
+ * ~5 ms of SQL), and a sitemap is read by following cursors anyway.
+ */
 export const WebsiteSitemapQuery = z.strictObject({
   ...edgeKey,
   lang: WebsiteLang.optional(),
   cursor: Cursor.optional(),
-  limit: z.coerce.number().int().min(1).max(1_000).default(500),
+  limit: z.coerce.number().int().min(1).max(500).default(250),
 });
 export type WebsiteSitemapQuery = z.infer<typeof WebsiteSitemapQuery>;
 

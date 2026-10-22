@@ -37,6 +37,7 @@ export {
   tablesSql,
 } from './tenancy/rls';
 export {
+  type PublicReadOptions,
   type StaffScope,
   type SystemOptions,
   setAuthScope,

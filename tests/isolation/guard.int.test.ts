@@ -7,10 +7,12 @@ import { isolationRegistry, setupIsolation, teardownIsolation } from './fixtures
 
 let owner: pg.Client;
 let ownerUrl = '';
+let adminUrl = '';
 
 beforeAll(async () => {
   const cfg = await setupIsolation();
   ownerUrl = cfg.DATABASE_URL_APP_OWNER;
+  adminUrl = cfg.DATABASE_URL_ADMIN as string;
   owner = new pg.Client({ connectionString: ownerUrl });
   await owner.connect();
 });
@@ -122,6 +124,39 @@ describe('RLS guard', () => {
       'planted_schema.t: accessible to an app role outside the tenant registry',
       'planted_view: accessible to an app role outside the tenant registry',
     ]);
+  });
+
+  it('[S7-F10] a generated definer view: another owner, another reader or a missing view fails the guard', async () => {
+    const viewProblems = (all: string[]) => all.filter((p) => p.startsWith('search_commission_floor'));
+    expect(viewProblems(await checkRls(owner, isolationRegistry))).toEqual([]);
+    const admin = new pg.Client({ connectionString: adminUrl });
+    await admin.connect();
+    try {
+      for (const [plant, want] of [
+        [
+          'alter view public.search_commission_floor owner to postgres',
+          'search_commission_floor: a definer view must be owned by app_owner (run pnpm db:rls)',
+        ],
+        [
+          'grant select on public.search_commission_floor to app_user',
+          'search_commission_floor: a definer view must grant SELECT to app_public only (run pnpm db:rls)',
+        ],
+        [
+          'drop view public.search_commission_floor',
+          'search_commission_floor: generated view is missing (run pnpm db:rls)',
+        ],
+      ] as const) {
+        await admin.query('begin');
+        try {
+          await admin.query(plant);
+          expect(viewProblems(await checkRls(admin, isolationRegistry)), plant).toEqual([want]);
+        } finally {
+          await admin.query('rollback');
+        }
+      }
+    } finally {
+      await admin.end();
+    }
   });
 
   it('[S0-09] an auth table readable by app_user, or a tenant table reachable by app_auth, fails the guard', async () => {

@@ -10,7 +10,7 @@ import { bootstrapRoles, credentialFromUrl } from './bootstrap';
 import { buildConcurrentIndexes } from './concurrent-indexes';
 import { CATALOG_STAMP_FUNCTION, checkRls, rlsCatalogStamp } from './tenancy/guard';
 import { registry, type TenantRegistry } from './tenancy/registry';
-import { applyRls, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
+import { applyRls, DEFINER_VIEWS, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
 
 export const migrateEnv = { ...databaseEnv, ...databaseOwnerEnv, ...databaseAdminEnv };
 export type MigrateConfig = Config<typeof migrateEnv>;
@@ -99,6 +99,7 @@ export function fixableProblems(problems: string[], reg: TenantRegistry): string
     ...Object.keys(reg.tenant),
     ...Object.keys(reg.global),
     ...HELPER_FUNCTIONS.map((f) => `${f}()`),
+    ...DEFINER_VIEWS,
   ]);
   return problems.filter((p) => p.includes(':') && subjects.has(p.slice(0, p.indexOf(':'))));
 }

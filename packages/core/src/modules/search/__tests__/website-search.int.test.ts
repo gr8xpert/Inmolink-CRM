@@ -119,7 +119,7 @@ const ours = (owners: string[] = [a.agencyId]): search.PublicSearchSite => ({
 
 /**
  * Equivalence tests compare the engine's answer with the fallback's, not timing: the local Meilisearch on the Docker
- * Desktop VM is sometimes slower than the production slow threshold (80 ms), which would let the fallback win. The
+ * Desktop VM is sometimes slower than the production slow threshold (50 ms), which would let the fallback win. The
  * timing tests set the production defaults themselves (`withDefaultTiming`).
  */
 const RELAXED = { engineTimeoutMs: 5_000, slowMs: 4_000 };
@@ -492,7 +492,7 @@ describe('website search', () => {
   it('[S6-F3] with the engine answering in 200 ms, the fallback answers from the slow threshold and the breaker opens', () =>
     withDefaultTiming(async () => {
       // The timing is config (feed-api boot); a slow threshold at or past the timeout is refused.
-      expect(search.websiteSearchSettings()).toMatchObject({ engineTimeoutMs: 100, slowMs: 80 });
+      expect(search.websiteSearchSettings()).toMatchObject({ engineTimeoutMs: 100, slowMs: 50 });
       expect(() => search.configureWebsiteSearch({ engineTimeoutMs: 100, slowMs: 100 })).toThrow(RangeError);
       const slowEngine = fakeEngine(async (q) => {
         await new Promise((res) => setTimeout(res, 200));

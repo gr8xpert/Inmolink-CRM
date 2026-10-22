@@ -3,8 +3,10 @@
  * plus the taxonomy values feeds sent that wait for a staff mapping. Runs as `app_staff` (`withStaffCtx`): the
  * registry lets staff read every agency's connections and runs and resume a paused connection.
  *
- * Cost: a fixed handful of statements whatever the platform's size — the window's runs are aggregated off
- * `feed_runs_finished_at_idx`, the queue off `feed_runs_active_idx`, the paused list off `feed_connections_paused_idx`.
+ * Cost: a fixed handful of statements whatever the platform's size — the window's runs are aggregated in one
+ * index-only pass over `feed_runs_finished_at_idx`, the queue off `feed_runs_active_idx`, the paused list off
+ * `feed_connections_paused_idx`. S7-F10: at 120k runs in the window (5,000 hourly feeds) p95 167 ms (STATUS); the
+ * staff policies' gate is an init plan (it was a function call per run).
  */
 import {
   AppError,
@@ -33,8 +35,7 @@ const KNOWN_CODES = new Set<string>(FEED_RUN_ERROR_CODES);
 export async function getImportHealth(ctx: StaffCtx): Promise<ImportHealthDto> {
   assertStaffCan(ctx, 'staff.imports.read');
   const since = new Date(clock.now().getTime() - IMPORT_HEALTH_WINDOW_HOURS * 3_600_000);
-  const outcomes = await repo.finishedByOutcome(ctx.tx, since);
-  const waits = await repo.finishedWaits(ctx.tx, since);
+  const { outcomes, ...waits } = await repo.finishedStats(ctx.tx, since);
   const queue = await repo.queueSnapshot(ctx.tx);
   const paused = await repo.pausedConnections(ctx.tx, IMPORT_HEALTH_LIST_LIMIT);
   const failures = await repo.recentFailures(ctx.tx, since, IMPORT_HEALTH_LIST_LIMIT);

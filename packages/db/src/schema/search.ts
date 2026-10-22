@@ -318,13 +318,23 @@ export const listingPublicCodes = pgTable(
 /**
  * Total commission of a PUBLIC target in basis points of its price (S7-F4: a CUSTOM site's minimum commission on
  * network listings). Worker-written (`withSystem`); no role but `app_system` reads it. The website fallback reaches
- * it only through `public.search_commission_at_least(target_id, bp)` (SECURITY DEFINER, answers a boolean for one
- * target), so no public path can select the value. A target without a known commission has no row.
+ * it only through the generated view `public.search_commission_floor` (S7-F10: the ids of the targets paying at least
+ * the transaction's minimum, run as its owner), so no public path can select the value. A target without a known
+ * commission has no row.
  */
-export const listingSearchCommissions = pgTable('listing_search_commissions', {
-  targetId: uuid('target_id').primaryKey(),
-  commissionBp: integer('commission_bp').notNull(),
-});
+export const listingSearchCommissions = pgTable(
+  'listing_search_commissions',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    commissionBp: integer('commission_bp').notNull(),
+  },
+  (t) => [
+    // S7-F10: the fallback's per-candidate probe through `search_commission_floor` (target = $1 and commission ≥ the
+    // minimum) as an index-only scan. With the primary key's heap fetch the planner priced each probe at 8.5 and took a
+    // BitmapAnd with the 85 %-status index to save probes (shape 13: 21 → 7 ms for the count's candidates at 500k rows).
+    index('listing_search_commissions_floor_idx').on(t.targetId, t.commissionBp),
+  ],
+);
 
 /** `xid8`: a transaction id with epoch (PG13+), ordered; `pg_current_xact_id()` is the writing transaction's. */
 const xid8 = customType<{ data: string; driverData: string }>({ dataType: () => 'xid8' });

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { TenantRegistry, TenantTable } from './registry';
 import { mergeRegistries, registry } from './registry';
-import { expectedPolicies, expectedPrivileges, generateRlsSql, tablesSql } from './rls';
+import {
+  DEFINER_VIEWS,
+  expectedPolicies,
+  expectedPrivileges,
+  generateRlsSql,
+  HELPER_FUNCTIONS,
+  tablesSql,
+} from './rls';
 
 const reg: TenantRegistry = {
   tenant: {
@@ -43,7 +50,10 @@ describe('RLS generator', () => {
     expect(out).toContain(`create policy public_read on public."listing_read_models" for select to app_public`);
     expect(out).toContain(`grant select on table public."listing_read_models" to app_public;`);
     expect(out).toContain(`grant select on table public."locations" to app_user, app_public;`);
-    expect(out.match(/^grant select on table .*app_public;$/gm)).toHaveLength(2);
+    // S7-F10: and the generated commission floor view (ids only; its own test below).
+    expect(out.match(/^grant select on table .*app_public;$/gm)).toHaveLength(3);
+    expect(out).toContain('grant select on table public.search_commission_floor to app_public;');
+    expect(out).toContain('alter view public.search_commission_floor owner to app_owner;');
   });
 
   it('[S5-05] a PUBLIC_READ table with a network predicate also gets the guarded network_read policy', () => {
@@ -172,7 +182,24 @@ describe('RLS generator', () => {
     expect(out).toMatch(/search_commission_at_least[^;]*security definer set search_path = pg_catalog, pg_temp/);
     expect(out).toContain('grant execute on function search_commission_at_least(uuid, integer) to app_public;');
     expect(out).not.toMatch(/search_commission_at_least\(uuid, integer\) to [^;]*app_(?:user|system|auth|staff)/);
-    // The table behind it: no application role but app_system has a grant; the definer's owner reads through a policy.
+  });
+
+  it('[S7-F10] the commission floor is a generated security-barrier view of ids only, readable by app_public alone', () => {
+    // The S7-F4 definer function (a call per candidate row) stays one release for the app version still running during
+    // a deploy (its own test above); nothing calls it any more.
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('search_commission_at_least');
+    expect(DEFINER_VIEWS).toEqual(['search_commission_floor']);
+    const view = /create view public\.search_commission_floor[^;]*;/.exec(out)?.[0] ?? '';
+    expect(view).toContain('with (security_barrier = true)');
+    // Ids and the transaction's own minimum out, never the commission; an unset minimum fails the cast loudly.
+    expect(view).toMatch(
+      /select c\.target_id as floor_target_id, [^;]* as floor_bp\s+from public\.listing_search_commissions c/,
+    );
+    expect(view).not.toMatch(/commission_bp as|c\.commission_bp,/);
+    expect(view).toContain("'app.search_min_commission_bp is not set')::integer");
+    expect(out).toContain('grant select on table public.search_commission_floor to app_public;');
+    expect(out).not.toMatch(/search_commission_floor to [^;]*app_(?:user|system|auth|staff|media|intake)/);
+    // The table behind it: no application role but app_system has a grant; the view's owner reads through a policy.
     const table = tablesSql(registry).split('-- listing_search_commissions: GLOBAL')[1]?.split('\n\n')[0] ?? '';
     expect(table).toContain(
       'create policy definer_read on public."listing_search_commissions" for select to app_owner',
@@ -381,10 +408,12 @@ describe('RLS generator', () => {
       tenant: { requests: def },
       global: { staff_users: { reason: 'staff', access: 'staff' } },
     });
+    // S7-F10: the gate is an init plan (once per statement), never a function call per row.
     expect(sql).toContain(`create policy staff_select on public."requests" for select to app_staff
-  using (app_is_staff() and (true));`);
+  using ((select public.app_is_staff()) and (true));`);
     expect(sql).toContain(`create policy staff_update on public."requests" for update to app_staff
-  using (app_is_staff() and (status = 'SUBMITTED')) with check (app_is_staff() and (status = 'SUBMITTED'));`);
+  using ((select public.app_is_staff()) and (status = 'SUBMITTED')) with check ((select public.app_is_staff()) and (status = 'SUBMITTED'));`);
+    expect(sql).not.toMatch(/using \(app_is_staff\(\)/);
     expect(sql).toContain(`grant select, update on table public."requests" to app_staff;`);
     expect(sql).not.toContain('staff_insert');
     expect(sql).toContain(
@@ -422,7 +451,7 @@ describe('RLS generator', () => {
     expect(sql).not.toContain('create policy global_read on public."queue"');
     expect(sql).not.toMatch(/grant select on table public\."queue" to app_user/);
     expect(sql).toContain(
-      'create policy staff_select on public."queue" for select to app_staff using (app_is_staff());',
+      'create policy staff_select on public."queue" for select to app_staff using ((select public.app_is_staff()));',
     );
     const def = r.global.queue as NonNullable<(typeof r.global)['queue']>;
     expect(expectedPrivileges(def).app_user).toEqual([]);

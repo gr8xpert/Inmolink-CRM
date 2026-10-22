@@ -73,6 +73,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'listing_search_docs',
     definition: `ON "listing_search_docs" USING btree ("development_id","ref","target_id") WHERE "listing_search_docs"."development_id" is not null`,
   },
+  {
+    // The website fallback's minimum-commission probe (S7-F10, `search_commission_floor`): index-only
+    name: 'listing_search_commissions_floor_idx',
+    table: 'listing_search_commissions',
+    definition: `ON "listing_search_commissions" USING btree ("target_id","commission_bp")`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

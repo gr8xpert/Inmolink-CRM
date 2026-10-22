@@ -435,6 +435,40 @@ export function serializeCards(view: SiteView, items: readonly Owned<ListingCard
   );
 }
 
+/** A sitemap entry's shown parts (S7-F10 review): the reference, kind and slug a card would show. */
+export interface SitemapEntryParts {
+  ref: string;
+  kind: 'LISTING' | 'UNIT';
+  slug: string;
+}
+
+/**
+ * Sitemap entries as the site serves them, in order (`/v2/sitemap`, S7-F10 review): the same reference and slug as
+ * `serializeCards`, computed from the same rules — without the rest of each card (cover image, development block, the
+ * owner sanitizer over every text). A 500-entry page spent ~40 ms serializing full cards for three fields each.
+ */
+export function serializeSitemapEntries(
+  view: SiteView,
+  items: readonly Owned<ListingCardDoc | UnitCardDoc>[],
+): SitemapEntryParts[] {
+  return canonicalOnly(view, items).map((item) => {
+    const rules = rulesFor(view, item);
+    if (item.doc.kind === 'LISTING') {
+      const d = item.doc as ListingCardDoc;
+      const ref = refOn(view, item, rules.network);
+      if (!rules.network) return { ref, kind: 'LISTING', slug: d.slug };
+      const title = rules.pick('title', textsFor(view, d.id, null, true), d.title) ?? '';
+      return { ref, kind: 'LISTING', slug: slugOf(title, idOn(view, d.id, true)) };
+    }
+    const d = item.doc as UnitCardDoc;
+    const ref = refOn(view, item, rules.network);
+    if (!rules.network) return { ref, kind: 'UNIT', slug: d.slug };
+    const developmentName = rules.owner(d.development.name) ?? '';
+    const title = rules.pick('title', textsFor(view, d.id, d.development.id, true), d.title) ?? '';
+    return { ref, kind: 'UNIT', slug: slugOf(title || developmentName, idOn(view, d.development.id, true)) };
+  });
+}
+
 /** A development's unit table as the site serves it (S7-F6), in order. */
 export function serializeUnitCards(view: SiteView, items: readonly Owned<UnitCardDoc>[]): WebsiteUnitCard[] {
   return canonicalOnly(view, items).map((item) => unitCard(view, item));

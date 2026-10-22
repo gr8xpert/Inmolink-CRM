@@ -810,27 +810,92 @@ export async function queueSnapshot(tx: Tx): Promise<{ queued: number; running: 
   };
 }
 
-/** Runs finished since `since` by state and error code (`feed_runs_finished_at_idx`). */
-export async function finishedByOutcome(
-  tx: Tx,
-  since: Date,
-): Promise<{ state: string; errorCode: string | null; count: number }[]> {
-  const r = await tx.execute<{ state: string; error_code: string | null; n: number }>(sql`
-    select state, error_code, count(*)::int as n from feed_runs
-     where finished_at >= ${since.toISOString()}::timestamptz
-     group by state, error_code`);
-  return r.rows.map((x) => ({ state: x.state, errorCode: x.error_code, count: Number(x.n) }));
+/** `percentile_cont(q)` of a histogram of whole values (value → count): linear between the two nearest ranks. */
+export function histogramPercentile(histogram: readonly { value: number; count: number }[], q: number): number {
+  const sorted = [...histogram].filter((h) => h.count > 0).sort((a, b) => a.value - b.value);
+  const total = sorted.reduce((n, h) => n + h.count, 0);
+  if (total === 0) return 0;
+  const rank = (total - 1) * q;
+  const valueAt = (i: number) => {
+    let seen = 0;
+    for (const h of sorted) {
+      seen += h.count;
+      if (i < seen) return h.value;
+    }
+    return (sorted[sorted.length - 1] as { value: number }).value;
+  };
+  const lo = valueAt(Math.floor(rank));
+  const hi = valueAt(Math.ceil(rank));
+  return lo + (hi - lo) * (rank - Math.floor(rank));
 }
 
-/** Queue wait (start − queued) of the runs finished since `since`: p95 and max, in seconds. */
-export async function finishedWaits(tx: Tx, since: Date): Promise<{ p95: number; max: number }> {
-  const r = await tx.execute<{ p95: number | null; max: number | null }>(sql`
-    select percentile_cont(0.95) within group (order by extract(epoch from (started_at - created_at))) as p95,
-           max(extract(epoch from (started_at - created_at))) as max
-      from feed_runs
-     where finished_at >= ${since.toISOString()}::timestamptz and started_at is not null`);
-  const row = r.rows[0];
-  return { p95: Math.round(Number(row?.p95 ?? 0)), max: Math.round(Number(row?.max ?? 0)) };
+/**
+ * The queue-wait histogram's buckets (S7-F10 perf review), in whole seconds: by the second up to 10 min, by 10 s up to
+ * 1 h, by the minute up to a day, by the hour up to a week, then one bucket — a bucket's value is its lower bound. At most
+ * `WAIT_HISTOGRAM_MAX_ROWS` rows whatever the backlog (by the second, a lagging queue returned one row per distinct
+ * wait). `waitBucketSql` is the same rule in SQL.
+ */
+export function waitBucket(seconds: number): number {
+  const w = Math.max(0, Math.floor(seconds));
+  if (w < 600) return w;
+  if (w < 3_600) return w - (w % 10);
+  if (w < 86_400) return w - (w % 60);
+  if (w < WEEK) return w - (w % 3_600);
+  return WEEK;
+}
+const WEEK = 7 * 86_400;
+export const WAIT_HISTOGRAM_MAX_ROWS = 600 + (3_600 - 600) / 10 + (86_400 - 3_600) / 60 + (WEEK - 86_400) / 3_600 + 1;
+const waitBucketSql = (w: SQL) => sql`case when ${w} < 600 then ${w} when ${w} < 3600 then ${w} - ${w} % 10
+  when ${w} < 86400 then ${w} - ${w} % 60 when ${w} < ${sql.raw(String(WEEK))} then ${w} - ${w} % 3600
+  else ${sql.raw(String(WEEK))} end`;
+
+/**
+ * The window's statement (exported for the bounded-rows test): counts by state and error code with their longest wait,
+ * and the wait histogram, from one index-only pass over `feed_runs_finished_at_idx` hashed into two grouping sets.
+ */
+export function finishedStatsSql(since: Date): SQL {
+  // The wait once per run (the bucket reads the column; inlined, the expression ran once per CASE arm).
+  return sql`
+    select grouping(state, error_code) = 3 as waits, state, error_code, bucket, count(*)::int as n,
+           max(wait) as max_wait
+      from (select state, error_code, wait, ${waitBucketSql(sql.raw('wait'))} as bucket
+              from (select state, error_code,
+                           greatest(floor(date_part('epoch', started_at - created_at)), 0)::int as wait
+                      from feed_runs
+                     where finished_at >= ${since.toISOString()}::timestamptz
+                    offset 0) w) r
+     group by grouping sets ((state, error_code), (bucket))`;
+}
+
+/**
+ * Runs finished since `since`: counts by state and error code, and the queue wait (start − queued) of those that
+ * started — p95 and max, in seconds. S7-F10: one pass, no sort (it was two passes, the p95 one sorting every run of the
+ * window: 94 ms at 120k runs, spilling to disk). The max is exact; the p95 is `percentile_cont` over the histogram's
+ * buckets (`waitBucket`: exact to the second up to 10 min, then to 10 s, the minute, the hour). `date_part` (float8), not
+ * `extract` (numeric: 3× the per-row cost).
+ */
+export async function finishedStats(
+  tx: Tx,
+  since: Date,
+): Promise<{ outcomes: { state: string; errorCode: string | null; count: number }[]; p95: number; max: number }> {
+  const r = await tx.execute<{
+    waits: boolean;
+    state: string | null;
+    error_code: string | null;
+    bucket: number | null;
+    n: number;
+    max_wait: number | null;
+  }>(finishedStatsSql(since));
+  const histogram = r.rows
+    .filter((x) => x.waits && x.bucket !== null)
+    .map((x) => ({ value: Number(x.bucket), count: Number(x.n) }));
+  return {
+    outcomes: r.rows
+      .filter((x) => !x.waits)
+      .map((x) => ({ state: x.state as string, errorCode: x.error_code, count: Number(x.n) })),
+    p95: Math.round(histogramPercentile(histogram, 0.95)),
+    max: r.rows.reduce((m, x) => (x.waits ? m : Math.max(m, Number(x.max_wait ?? 0))), 0),
+  };
 }
 
 /**

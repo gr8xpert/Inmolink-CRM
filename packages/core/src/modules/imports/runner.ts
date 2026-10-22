@@ -205,6 +205,13 @@ async function finish(
     return { state, errorCode, pause, confirmBefore };
   });
   if (result?.pause) recordPause(result.pause.reason); // after the commit: counts only real pauses
+  if (loader?.afterRun) {
+    try {
+      await loader.afterRun();
+    } catch (err) {
+      log.warn({ err, runId }, 'feed run end-of-run bookkeeping failed');
+    }
+  }
   if (result?.confirmBefore && loader) {
     try {
       await loader.confirmFresh(result.confirmBefore);

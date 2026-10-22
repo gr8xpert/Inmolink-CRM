@@ -51,62 +51,84 @@ export type ResolveInput = {
   count?: number;
   /** A source reference shown to staff (listing reference, feed name). */
   example?: string;
+  /** More of them, newest first (S7-F10: sightings counted later in a run); `example` is the newest when both are set. */
+  examples?: readonly string[];
+  /** Locations: the parent this value sits under, overriding `hints.parentId` (S7-F10: a level's values at once). */
+  parentId?: string | null;
 };
+
+/** A value to resolve: its text and, for locations, the parent it sits under (absent: `hints.parentId`). */
+export type ResolveValue = { text: string; parentId?: string | null };
 
 const UNMATCHED: Resolution = { status: 'unmatched', id: null, confidence: 0, candidate: null };
 
-/** Resolves distinct normalised keys; every key has an entry in the result. */
+/** One (parent, key) query's identity in the maps below. */
+const queryId = (q: repo.KeyQuery) => `${q.parentId ?? ''}|${q.key}`;
+
+/** Resolves distinct (key, parent) queries; every query has an entry in the result, by `queryId`. */
 async function resolveKeys(
   tx: Tx,
   kind: TaxonomyKind,
-  keys: string[],
-  hints: ResolveHints,
+  queries: readonly repo.KeyQuery[],
+  level: LocationLevel | undefined,
 ): Promise<Map<string, Resolution>> {
   const out = new Map<string, Resolution>();
-  for (let i = 0; i < keys.length; i += CHUNK) {
-    const chunk = keys.slice(i, i + CHUNK);
+  for (let i = 0; i < queries.length; i += CHUNK) {
+    const chunk = queries.slice(i, i + CHUNK);
     const exact = new Map<string, { alias?: string; names: Set<string> }>();
-    for (const r of await repo.exactMatches(tx, kind, chunk, hints)) {
-      const e = exact.get(r.key) ?? { names: new Set<string>() };
+    for (const r of await repo.exactMatches(tx, kind, chunk, level)) {
+      const id = queryId({ key: r.key, parentId: r.parentId ?? null });
+      const e = exact.get(id) ?? { names: new Set<string>() };
       if (r.viaAlias) e.alias = r.id;
       else e.names.add(r.id);
-      exact.set(r.key, e);
+      exact.set(id, e);
     }
-    const fuzzyKeys: string[] = [];
-    for (const key of chunk) {
-      const e = exact.get(key);
+    const fuzzy: repo.KeyQuery[] = [];
+    for (const q of chunk) {
+      const e = exact.get(queryId(q));
       const id = e?.alias ?? (e?.names.size === 1 ? [...e.names][0] : undefined);
-      if (id) out.set(key, { status: 'exact', id, confidence: 1, candidate: null });
+      if (id) out.set(queryId(q), { status: 'exact', id, confidence: 1, candidate: null });
       else if (e && e.names.size > 1) {
         // The same name twice (two towns called alike): only staff or a parent hint can tell.
-        out.set(key, { ...UNMATCHED, candidate: { id: [...e.names].sort()[0] as string, confidence: 1 } });
-      } else fuzzyKeys.push(key);
+        out.set(queryId(q), { ...UNMATCHED, candidate: { id: [...e.names].sort()[0] as string, confidence: 1 } });
+      } else fuzzy.push(q);
     }
-    const byKey = new Map<string, repo.KeyMatch[]>();
-    for (const m of await repo.fuzzyMatches(tx, kind, fuzzyKeys, hints)) {
-      byKey.set(m.key, [...(byKey.get(m.key) ?? []), m]);
+    const byQuery = new Map<string, repo.KeyMatch[]>();
+    for (const m of await repo.fuzzyMatches(tx, kind, fuzzy, level)) {
+      const id = queryId({ key: m.key, parentId: m.parentId ?? null });
+      byQuery.set(id, [...(byQuery.get(id) ?? []), m]);
     }
-    for (const key of fuzzyKeys) {
-      const [top, second] = byKey.get(key) ?? [];
-      if (!top) out.set(key, UNMATCHED);
+    for (const q of fuzzy) {
+      const [top, second] = byQuery.get(queryId(q)) ?? [];
+      if (!top) out.set(queryId(q), UNMATCHED);
       else if (top.score >= FUZZY_ACCEPT && (!second || top.score - second.score >= FUZZY_MARGIN)) {
-        out.set(key, { status: 'fuzzy', id: top.id, confidence: top.score, candidate: null });
-      } else out.set(key, { ...UNMATCHED, candidate: { id: top.id, confidence: top.score } });
+        out.set(queryId(q), { status: 'fuzzy', id: top.id, confidence: top.score, candidate: null });
+      } else out.set(queryId(q), { ...UNMATCHED, candidate: { id: top.id, confidence: top.score } });
     }
   }
   return out;
 }
 
-/** Resolves the values in order. Read-only: a tenant `ctx` or a system transaction both work. */
+/**
+ * Resolves the values in order. Read-only: a tenant `ctx` or a system transaction both work. Each value may name its
+ * own parent (locations): one statement per step for all of them, whatever the parents (S7-F10).
+ */
 export async function resolveMany(
   tx: Tx,
   kind: TaxonomyKind,
-  values: readonly string[],
+  values: readonly (string | ResolveValue)[],
   hints: ResolveHints = {},
 ): Promise<Resolution[]> {
-  const keys = values.map(valueKey);
-  const resolved = await resolveKeys(tx, kind, [...new Set(keys.filter(Boolean))], hints);
-  return keys.map((k) => (k ? (resolved.get(k) ?? UNMATCHED) : UNMATCHED));
+  const queries = values.map((v): repo.KeyQuery => {
+    const text = typeof v === 'string' ? v : v.text;
+    const own = typeof v === 'string' ? undefined : v.parentId;
+    const parentId = kind === 'location' ? ((own === undefined ? hints.parentId : own) ?? null) : null;
+    return { key: valueKey(text), parentId };
+  });
+  const distinct = new Map<string, repo.KeyQuery>();
+  for (const q of queries) if (q.key) distinct.set(queryId(q), q);
+  const resolved = await resolveKeys(tx, kind, [...distinct.values()], hints.level);
+  return queries.map((q) => (q.key ? (resolved.get(queryId(q)) ?? UNMATCHED) : UNMATCHED));
 }
 
 async function resolveOne(ctx: Ctx, kind: TaxonomyKind, text: string, hints: ResolveHints): Promise<Resolution> {
@@ -132,18 +154,27 @@ export async function resolveAndQueue(
   values: readonly ResolveInput[],
   hints: ResolveHints = {},
 ): Promise<Resolution[]> {
-  const results = await resolveMany(
+  const results = await resolveMany(tx, kind, values, hints);
+  await queueUnmatched(
     tx,
-    kind,
-    values.map((v) => v.text),
-    hints,
+    values.map((input, i) => ({ kind, input, resolution: results[i] as Resolution })),
   );
+  return results;
+}
+
+/** A value resolved earlier and to count in the staff queue (its resolution: unmatched ones are queued). */
+export type QueueEntry = { kind: TaxonomyKind; input: ResolveInput; resolution: Resolution };
+
+/**
+ * Counts the unmatched values of `entries` in the staff queue with their examples and closest candidate, every kind in
+ * one statement (nothing to count: no statement). Import runs call it once per value per run (S7-F10, `RunResolver`).
+ */
+export async function queueUnmatched(tx: Tx, entries: readonly QueueEntry[]): Promise<void> {
   const queue = new Map<string, repo.UnmatchedUpsert>();
-  values.forEach((v, i) => {
+  for (const { kind, input: v, resolution: r } of entries) {
     const key = valueKey(v.text);
-    const r = results[i] as Resolution;
-    if (!key || r.status !== 'unmatched') return;
-    const row = queue.get(key) ?? {
+    if (!key || r.status !== 'unmatched') continue;
+    const row = queue.get(`${kind}|${key}`) ?? {
       id: newId(),
       kind,
       valueKey: key,
@@ -155,12 +186,12 @@ export async function resolveAndQueue(
     };
     row.count += Math.max(1, v.count ?? 1);
     // newest first: a later value of the batch is the more recent example (S3-F1)
-    if (v.example) {
-      const example = v.example.slice(0, VALUE_MAX);
+    for (const raw of [...(v.examples ?? [])].reverse().concat(v.example ? [v.example] : [])) {
+      if (!raw) continue;
+      const example = raw.slice(0, VALUE_MAX);
       row.examples = [example, ...row.examples.filter((e) => e !== example)].slice(0, EXAMPLES_MAX);
     }
-    queue.set(key, row);
-  });
-  await repo.upsertUnmatched(tx, [...queue.values()]);
-  return results;
+    queue.set(`${kind}|${key}`, row);
+  }
+  if (queue.size > 0) await repo.upsertUnmatched(tx, [...queue.values()]);
 }

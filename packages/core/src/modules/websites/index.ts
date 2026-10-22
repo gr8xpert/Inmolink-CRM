@@ -55,6 +55,7 @@ export {
   serializeDetail,
   serializeDevelopmentCards,
   serializeDevelopmentDetail,
+  serializeSitemapEntries,
   serializeUnitCards,
   siteRef,
   siteScopedId,

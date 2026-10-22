@@ -45,6 +45,33 @@ tests:
               summary: "10% of website searches answered by the Postgres fallback"
               runbook: docs/runbooks/search.md#fallback-active
 
+  # S7-F10: the breaker opens 12 times in an hour on one process: flapping fires; 2 opens an hour on another: nothing.
+  - interval: 5m
+    input_series:
+      - series: 'inmolink_search_breaker_transitions_total{to="open", instance="feed-api-1"}'
+        values: "0+1x24"
+      - series: 'inmolink_search_breaker_transitions_total{to="closed", instance="feed-api-1"}'
+        values: "0+1x24"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SearchBreakerFlapping
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: SearchBreakerFlapping
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "The website search breaker opened 12 times in the last hour"
+              runbook: docs/runbooks/search.md#fallback-active
+  - interval: 30m
+    input_series:
+      - series: 'inmolink_search_breaker_transitions_total{to="open", instance="feed-api-2"}'
+        values: "0+1x6"
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: SearchBreakerFlapping
+        exp_alerts: []
+
   # A healthy engine (no fallback series yet): nothing fires.
   - interval: 1m
     input_series:

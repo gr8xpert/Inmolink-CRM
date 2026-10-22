@@ -21,7 +21,7 @@
  * Nothing about the visitor is logged (name, e-mail, phone, message, IP): log lines carry the site, key and request.
  */
 import type { WebsiteLeadAccepted, WebsiteLeadBody, WebsiteViewingRequestBody } from '@inmolink/contracts';
-import { withIntake, withPublicRead } from '@inmolink/db';
+import { withIntake } from '@inmolink/db';
 import { hmacSha256 } from '@inmolink/platform/crypto';
 import { AppError, isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -158,7 +158,7 @@ async function targetOf(
   lang: string,
 ): Promise<NonNullable<websites.InboundLead['target']>> {
   const inventory = site.inventory;
-  return withPublicRead(async (tx) => {
+  return search.withSiteRead(inventory, async (tx) => {
     const row = inventory ? await search.publicDetailByRef(tx, inventory, ref, lang, site.scope.defaultLocale) : null;
     if (!row) throw await listingNotFound(tx, site, ref);
     const doc = row.doc as { kind: 'LISTING' | 'UNIT'; ref: string };

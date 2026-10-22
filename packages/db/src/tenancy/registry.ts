@@ -234,8 +234,9 @@ export interface GlobalTable {
    */
   noUserRead?: true;
   /**
-   * `app_owner` (the owner of SECURITY DEFINER functions) may read every row: the table is read through such a function
-   * only (S7-F4), no application role has a grant. Forced RLS binds the owner too, hence the explicit policy.
+   * `app_owner` (the owner of SECURITY DEFINER functions and of the generated definer views, `rls.ts` `DEFINER_VIEWS`)
+   * may read every row: the table is read through one of those only (S7-F4, S7-F10), no application role has a grant.
+   * Forced RLS binds the owner too, hence the explicit policy.
    */
   definerRead?: true;
   /** `app_media` (the media worker, S3-F4) reads and writes every row; it reaches nothing else. */
@@ -836,8 +837,9 @@ export const globalTables: Record<string, GlobalTable> = {
     noUserRead: true,
     base: { code: 'AB12CD34' },
   },
-  // Commission of PUBLIC targets (S7-F4): worker-written; no role reads it (the website fallback asks a boolean through
-  // `search_commission_at_least`, SECURITY DEFINER), so no public path can select a commission.
+  // Commission of PUBLIC targets (S7-F4): worker-written; no role reads it (the website fallback probes the generated
+  // view `search_commission_floor` — ids paying at least the transaction's minimum, run as its owner, S7-F10), so no
+  // public path can select a commission.
   // Public change log (S7-03): written with read models by the search worker (withSystem); `/v2/changes` reads it.
   listing_public_changes: {
     reason: 'changes of PUBLIC listings and units of every agency (website API delta feed, `/v2/changes`)',

@@ -1,4 +1,5 @@
 import { gzipSync } from 'node:zlib';
+import { WebsiteSitemapQuery } from '@inmolink/contracts';
 import { withMemberCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as search from '@inmolink/core/modules/search';
@@ -7,7 +8,7 @@ import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
 import { createFounder, type Founder } from '@inmolink/core/test';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
-import { adminQuery, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, setAgencyStatus, setupTestDb, withAdminRollback } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
@@ -70,6 +71,7 @@ type SiteName = 'own' | 'network' | 'narrow' | 'commission';
 let a: Founder;
 let app: Awaited<ReturnType<typeof buildApp>>;
 const keys: Record<SiteName, string> = { own: '', network: '', narrow: '', commission: '' };
+const siteIds: Record<SiteName, string> = { own: '', network: '', narrow: '', commission: '' };
 /** This run's country and a city in it (CUSTOM sites select them; the test database holds other suites' rows). */
 let country = '';
 let city = '';
@@ -315,6 +317,7 @@ beforeAll(async () => {
         contact: null,
       }),
     );
+    siteIds[name] = site.id;
     keys[name] = (
       await as((ctx) =>
         identity.createApiKey(ctx, {
@@ -353,6 +356,12 @@ const unitsCursor = (u: number) =>
 /** A developments cursor at development d (the API's own encoding: its public code). */
 const developmentsCursor = (d: number) => Buffer.from(JSON.stringify({ d: devCode(d) })).toString('base64url');
 
+/** Each endpoint's measurements, from the `[S7-03]` run (the `[S7-F10]` check reads them). */
+const report: Record<
+  string,
+  { p95Ms: number; coldP95Ms?: number; queries: number; coldQueries: number; items: number; bytes: number }
+> = {};
+
 it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 ms at origin (scale seed)', async () => {
   const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
   // Row g belongs to the sites' agency when g is a multiple of AGENCIES; to the network otherwise.
@@ -382,14 +391,14 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
     detailNetwork: { key: 'network', url: (i) => `/v2/listings/PS-${code(networkRow(i))}` },
     changesOwn: { key: 'own', url: () => `/v2/changes?since=${encodeURIComponent(since)}&limit=200` },
     changesNetwork: { key: 'network', url: () => `/v2/changes?since=${encodeURIComponent(since)}&limit=200` },
-    sitemapOwn: { key: 'own', url: () => '/v2/sitemap?limit=500' },
-    sitemapNetwork: { key: 'network', url: () => '/v2/sitemap?limit=500' },
-    sitemapNarrow: { key: 'narrow', url: () => '/v2/sitemap?limit=500' },
+    sitemapOwn: { key: 'own', url: () => '/v2/sitemap' },
+    sitemapNetwork: { key: 'network', url: () => '/v2/sitemap' },
+    sitemapNarrow: { key: 'narrow', url: () => '/v2/sitemap' },
     sitemapDeep: {
       key: 'network',
       // Five pages half-way down: warm after their first read, like the shared buffers of a staging-sized box (locally
       // the read models outgrow the 128 MB of shared buffers; a never-read page is logged as `sitemapColdPageMs`).
-      url: (i) => `/v2/sitemap?limit=500&cursor=${sitemapCursor(code(Math.floor(ROWS * (0.5 + (i % 5) / 100))))}`,
+      url: (i) => `/v2/sitemap?cursor=${sitemapCursor(code(Math.floor(ROWS * (0.5 + (i % 5) / 100))))}`,
     },
     // S7-F6: developments (grouped matches for own and narrow sites, the development-index walk network-wide).
     developmentsOwn: { key: 'own', url: () => '/v2/developments' },
@@ -422,10 +431,6 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
   // Warm: pools, the site scopes and the network gate (cached in production too).
   for (const { key, url } of Object.values(endpoints)) for (let i = 0; i < 3; i++) await get(key, url(i));
 
-  const report: Record<
-    string,
-    { p95Ms: number; coldP95Ms?: number; queries: number; coldQueries: number; items: number; bytes: number }
-  > = {};
   for (const [name, { key, url }] of Object.entries(endpoints)) {
     const times: number[] = [];
     let bytes = 0;
@@ -466,10 +471,48 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
   const unitsPageGzipBytes = gzipSync(full.body).length;
   expect(unitsPageGzipBytes).toBeLessThanOrEqual(150 * 1024);
   const coldStart = performance.now();
-  expect(
-    (await get('network', `/v2/sitemap?limit=500&cursor=${sitemapCursor(code(Math.floor(ROWS * 0.9)))}`)).statusCode,
-  ).toBe(200);
+  expect((await get('network', `/v2/sitemap?cursor=${sitemapCursor(code(Math.floor(ROWS * 0.9)))}`)).statusCode).toBe(
+    200,
+  );
   const sitemapColdPageMs = Math.round(performance.now() - coldStart);
+  // S7-F10 review: a deep sitemap page's time split into its statements (EXPLAIN ANALYZE as app_public, warm) and the
+  // rest (pool, transaction, serializing 500 entries, JSON) — the median of 5 requests of one warm page.
+  const deepUrl = endpoints.sitemapDeep?.url(100) as string;
+  const deepRuns: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const t = performance.now();
+    await get('network', deepUrl);
+    deepRuns.push(performance.now() - t);
+  }
+  const captured: { query: string; params: unknown[] }[] = [];
+  await countQueries(() => get('network', deepUrl), { onQuery: (query, params) => captured.push({ query, params }) });
+  const statementMs: { statement: string; ms: number }[] = [];
+  for (const s of captured.filter((x) => /listing_search_docs|listing_read_models|listing_overrides/.test(x.query))) {
+    const plan = await withAdminRollback([], async (q) => {
+      await q('set local role app_public');
+      const r = await q(`explain (analyze, costs off) ${s.query}`, s.params);
+      return r.map((x) => String(Object.values(x)[0])).join('\n');
+    });
+    statementMs.push({
+      statement: s.query.replace(/\s+/g, ' ').trim().slice(0, 60),
+      ms: Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]),
+    });
+  }
+  // The service alone (no HTTP, key check or response contract): the site resolved once, the same deep page.
+  const apiSite = await websiteApi.siteForKey({ agencyId: a.agencyId, siteId: siteIds.network }, 'perf');
+  const deepQuery = WebsiteSitemapQuery.parse({ cursor: sitemapCursor(code(Math.floor(ROWS * 0.5))) });
+  const serviceRuns: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const t = performance.now();
+    await websiteApi.sitemap(apiSite, deepQuery);
+    serviceRuns.push(performance.now() - t);
+  }
+  const sitemapDeepBreakdown = {
+    requestMedianMs: Math.round([...deepRuns].sort((x, y) => x - y)[2] as number),
+    serviceMedianMs: Math.round([...serviceRuns].sort((x, y) => x - y)[2] as number),
+    statementsMs: Math.round(statementMs.reduce((n, s) => n + s.ms, 0)),
+    statements: statementMs,
+  };
   // Paging the change log from a cursor: the next page at a fixed cost.
   const first = (await get('network', endpoints.changesNetwork?.url(0) as string)).json() as { nextCursor: string };
   const started = performance.now();
@@ -477,7 +520,15 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
   const changesPage2Ms = Math.round((performance.now() - started) * 10) / 10;
   expect(next.statusCode).toBe(200);
   log.info(
-    { rows: ROWS, agencies: AGENCIES, report, changesPage2Ms, sitemapColdPageMs, unitsPageGzipBytes },
+    {
+      rows: ROWS,
+      agencies: AGENCIES,
+      report,
+      changesPage2Ms,
+      sitemapColdPageMs,
+      sitemapDeepBreakdown,
+      unitsPageGzipBytes,
+    },
     'website API v2 at scale',
   );
   for (const [name, r] of Object.entries(report)) {
@@ -492,3 +543,22 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
   const map = (await get('network', '/v2/sitemap?limit=1')).json() as { items: { ref: string }[] };
   expect((await get('network', `/v2/listings/${map.items[0]?.ref}`)).statusCode).toBe(200);
 }, 900_000);
+
+/**
+ * S7-F10: a CUSTOM site with a 3 % minimum commission lists its developments like any network site. It took 120–300 ms
+ * (a SECURITY DEFINER commission call per unit, and a semi-join that evaluated the unit filter on every unit in the
+ * site's places before the development walk); now an index-only commission probe per candidate unit, under a probe of
+ * each candidate development's units.
+ */
+it('[S7-F10] /v2/developments on a minimum-commission site: p95 < 100 ms warm and cold', () => {
+  const r = report.developmentsCommission;
+  expect(r, 'the [S7-03] run measured it').toBeDefined();
+  expect(r?.p95Ms).toBeLessThan(100);
+  expect(r?.coldP95Ms).toBeLessThan(100);
+  expect(r?.items).toBeGreaterThan(0);
+});
+
+it('[S7-F10] a sitemap page is 250 entries by default (white-labelling 500 per request was what the deep page cost)', () => {
+  expect(report.sitemapNetwork?.items).toBe(250);
+  expect(report.sitemapDeep?.items).toBe(250);
+});

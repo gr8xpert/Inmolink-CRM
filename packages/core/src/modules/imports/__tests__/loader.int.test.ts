@@ -232,6 +232,25 @@ afterAll(async () => {
 });
 
 describe('bulk loader', () => {
+  it('[S7-F10] a run over several batches queues an unknown value once and counts every sighting at its end (runner)', async () => {
+    const c = await connection();
+    const unseen = `Qzx Unseen ${RUN}`;
+    // 1,200 items: three batches of 500; every 50th names an area no location has (24 sightings, 10 + 10 + 4).
+    const items = Array.from({ length: 1_200 }, (_, i) =>
+      listing(`UQ-${i}`, i % 50 === 7 ? { location: { ...listing('x').location, area: unseen } } : {}),
+    );
+    const queueWrites = await countQueries(() => runFeed(c, items), { match: /insert into "taxonomy_unmatched"/ });
+    // The first batch queues it; the other batches' sightings ride on no write of their own; the runner's end-of-run
+    // hook (after the run's transaction committed) adds them in one write.
+    expect(queueWrites).toBe(2);
+    const [row] = await rows<{ count: number; examples: string[] }>(
+      sql`select count, examples from taxonomy_unmatched where kind = 'location' and value_key = ${taxonomy.aliasKey(unseen)}`,
+    );
+    expect(row?.count).toBe(24);
+    expect(row?.examples.length).toBeGreaterThan(1);
+    expect(row?.examples[0]).toBe('UQ-1157'); // the newest sighting first
+  });
+
   it('[S6-02] a feed becomes listings: taxonomy resolved per level, owner, agency commission, children, one event per 250', async () => {
     const c = await connection();
     const items = Array.from({ length: 260 }, (_, i) => listing(`A-${i}`));

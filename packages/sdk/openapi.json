@@ -3254,8 +3254,8 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 500,
-              "maximum": 1000,
+              "default": 250,
+              "maximum": 500,
               "minimum": 1,
               "type": "integer"
             }

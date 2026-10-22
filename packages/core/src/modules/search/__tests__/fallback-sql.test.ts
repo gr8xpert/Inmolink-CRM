@@ -145,7 +145,12 @@ describe('fallback filter → SQL', () => {
     expect(JSON.stringify(ownBranch)).not.toContain('commissionBp');
     expect(JSON.stringify(networkBranch)).toContain('commissionBp');
     const rendered = render(fallbackCondition({ op: 'range', field: 'commissionBp', gte: 300 }));
-    expect(rendered.sql).toBe('public.search_commission_at_least(target_id, $1::int)');
+    // S7-F10: a per-row probe of the generated view (ids of the targets paying at least the transaction's minimum),
+    // checked against this filter's own minimum; never the value.
+    expect(rendered.sql.replace(/\s+/g, ' ')).toBe(
+      'exists (select 1 from public.search_commission_floor cf where cf.floor_target_id = target_id and cf.floor_bp = $1::int offset 0)',
+    );
+    expect(rendered.params).toEqual([300]);
     expect(rendered.sql).not.toContain('commission_bp');
     // Only a minimum can be asked: the value is not comparable any other way.
     expect(() => fallbackCondition({ op: 'range', field: 'commissionBp', lte: 900 })).toThrow(SearchError);

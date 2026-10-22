@@ -10,19 +10,23 @@ interface Counter {
   all: number;
   statements: number;
   match?: RegExp;
+  onQuery?: (query: string, params: unknown[]) => void;
 }
 
 const TX_CONTROL = /^\s*(begin|commit|rollback|savepoint|release)\b/i;
 const counters = new Set<Counter>();
 
 const logger: DrizzleLogger = {
-  logQuery(query: string): void {
+  logQuery(query: string, params: unknown[]): void {
     if (counters.size === 0) return;
     const control = TX_CONTROL.test(query);
     for (const c of counters) {
       if (c.match && !c.match.test(query)) continue;
       c.all++;
-      if (!control) c.statements++;
+      if (!control) {
+        c.statements++;
+        c.onQuery?.(query, params);
+      }
     }
   },
 };
@@ -40,6 +44,8 @@ export interface CountQueriesOptions {
   includeTransactionControl?: boolean;
   /** Count only statements whose SQL matches (S6-F3: e.g. the writes of one table). */
   match?: RegExp;
+  /** Each counted statement's SQL and parameters (S7-F10: perf tests EXPLAIN the statements a call ran). */
+  onQuery?: (query: string, params: unknown[]) => void;
 }
 
 /**
@@ -47,7 +53,7 @@ export interface CountQueriesOptions {
  * concurrent use: two overlapping calls see each other's queries, so count one scenario at a time.
  */
 export async function countQueries(fn: () => Promise<unknown>, options: CountQueriesOptions = {}): Promise<number> {
-  const counter: Counter = { all: 0, statements: 0, match: options.match };
+  const counter: Counter = { all: 0, statements: 0, match: options.match, onQuery: options.onQuery };
   counters.add(counter);
   try {
     await fn();

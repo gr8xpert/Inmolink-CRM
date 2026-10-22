@@ -1,6 +1,6 @@
 import type { PublicListingSearch } from '@inmolink/contracts';
 import * as search from '@inmolink/core/modules/search';
-import { closeDb, withPublicRead, withSystem } from '@inmolink/db';
+import { closeDb, withSystem } from '@inmolink/db';
 import { adminQuery, setupTestDb } from '@inmolink/db/testing';
 import { createLogger } from '@inmolink/platform/logger';
 import { createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
@@ -164,7 +164,7 @@ afterAll(async () => {
 });
 
 type Shape = { site: search.PublicSearchSite; q: PublicListingSearch };
-const SHAPES = 14;
+const SHAPES = 15;
 const network = (q: PublicListingSearch): Shape => ({ site: { ownerAgencyIds: null, requestId: 'perf' }, q });
 const owned = (owners: string[], q: PublicListingSearch): Shape => ({
   site: { ownerAgencyIds: owners, requestId: 'perf' },
@@ -253,6 +253,22 @@ function query(i: number): Shape {
         },
         q: { locale: 'en' },
       };
+    case 14: // S7-F10 CUSTOM, network only: a type, 3+ baths, a price band, a 3 % minimum commission (< 1,000 matches)
+      return {
+        site: {
+          ownerAgencyIds: [],
+          networkOf: site[0] as string,
+          restrict: { minCommissionBp: 300 },
+          requestId: 'perf',
+        },
+        q: {
+          locale: 'en',
+          propertyTypeIds: [type(Math.floor(r() * TYPES))],
+          bathsMin: 3,
+          priceMinCents: minPrice,
+          priceMaxCents: Math.round(minPrice * 1.5),
+        },
+      };
     default: // a rare combination network-wide (none in the seed): an index answers, not a whole-table scan
       return network({ locale: 'en', transactionType: 'RENT_SHORT_TERM', statuses: ['RESERVED'] });
   }
@@ -295,13 +311,15 @@ it('[S5-04] with Meilisearch stopped, website search answers within budget at sc
 
 it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or a capped scan, never a table scan, within 20 ms', async () => {
   for (let shape = 0; shape < SHAPES; shape++) {
-    const { site, q } = query(5_012 + shape); // 5,012 = 14 × 358: query(5_012 + n) is shape n
+    const { site, q } = query(5_010 + shape); // 5,010 = 15 × 334: query(5_010 + n) is shape n
     const statement = search.publicFallbackSql(site, q);
     if (!statement) throw new Error(`shape ${shape}: no statement`);
     // 5 runs: one EXPLAIN on a shared Docker Desktop VM varies 2× from run to run (median logged, fastest asserted).
     const runs: { plan: string; ms: number }[] = [];
     for (let k = 0; k < 5; k++) {
-      const { rows } = await withPublicRead((tx) =>
+      // The site's public read (S7-F10: a minimum-commission site's transaction carries its minimum). Planner costs
+      // are production's, set on the test database (`setupTestDb`, S7-F10 review).
+      const { rows } = await search.withSiteRead(site, (tx) =>
         tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
       );
       const text = rows.map((r) => String(Object.values(r)[0])).join('\n');
@@ -393,16 +411,15 @@ it('[S7-F9] network site + price band + price sort (and every nullable sort with
       await run(page);
       times.push(performance.now() - started);
     }
-    // The plan under production's planner costs (Ansible `random_page_cost = 1.1`; the container default is 4).
+    // The plan under production's planner costs (set on the test database by `setupTestDb`, S7-F10 review).
     let widest = { rows: 0, line: '' };
     let ms = 0;
     for (const page of pages) {
       const statement = search.publicFallbackSql(page.site, page.q);
       if (!statement) throw new Error(`${name}: no statement`);
-      const { rows } = await withPublicRead(async (tx) => {
-        await tx.execute(sql`set local random_page_cost = 1.1`);
-        return tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`);
-      });
+      const { rows } = await search.withSiteRead(page.site, (tx) =>
+        tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
+      );
       const plan = rows.map((r) => String(Object.values(r)[0])).join('\n');
       const w = widestScan(plan);
       if (w.rows > widest.rows) widest = w;
@@ -423,8 +440,47 @@ it('[S7-F9] network site + price band + price sort (and every nullable sort with
   log.info({ rows: ROWS, summary }, '[S7-F9] network band shapes (p95 ms, widest scan rows, slowest EXPLAIN ms)');
 }, 600_000);
 
+/**
+ * S7-F10: a CUSTOM site's minimum commission cost a SECURITY DEFINER call per candidate row (~10 µs each: shape 13 ran
+ * 20–31 ms warm). It is now an index-only probe per candidate into the generated `search_commission_floor` view (the
+ * targets paying at least the transaction's minimum, ids only). Shape 13 (own + network + a city + 3 %, newest) and the
+ * selective network shape 14 (type + baths + band + 3 %, < 1,000 matches) within the SQL budget under production's
+ * planner costs (`random_page_cost` 1.1, `effective_io_concurrency` 200 — on the test database since the S7-F10 review),
+ * with no BitmapAnd over the status index to save probes (the container default 4 priced each probe at 4.5 and
+ * sometimes added it: 24 ms).
+ */
+it('[S7-F10] minimum-commission shapes: an index-only probe per candidate, within 20 ms warm at 500k rows', async () => {
+  const summary: Record<string, { fastest: number; probes: number }> = {};
+  const costs = await search.withSiteRead(null, async (tx) => (await tx.execute(sql`show random_page_cost`)).rows);
+  expect(Object.values(costs[0] ?? {})[0], 'production planner costs on the test database').toBe('1.1');
+  for (const shape of [13, 14]) {
+    const { site, q } = query(5_010 + shape);
+    const statement = search.publicFallbackSql(site, q);
+    if (!statement) throw new Error(`shape ${shape}: no statement`);
+    const runs: { plan: string; ms: number }[] = [];
+    for (let k = 0; k < 9; k++) {
+      // 9 runs, the fastest asserted: its own cost on a shared Docker Desktop VM (5 left a 14–22 ms spread here).
+      const { rows } = await search.withSiteRead(site, (tx) =>
+        tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
+      );
+      const plan = rows.map((r) => String(Object.values(r)[0])).join('\n');
+      runs.push({ plan, ms: Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]) });
+    }
+    runs.sort((x, y) => x.ms - y.ms);
+    const { plan, ms } = runs[0] as { plan: string; ms: number };
+    const name = `shape ${shape}`;
+    const probes = [...plan.matchAll(/Index Only Scan using listing_search_commissions_floor_idx.*loops=(\d+)/g)];
+    summary[name] = { fastest: ms, probes: probes.reduce((n, m) => n + Number(m[1]), 0) };
+    expect(plan, name).toMatch(/Index Only Scan using listing_search_commissions_floor_idx/);
+    expect(plan, name).not.toMatch(/search_commission_at_least|Seq Scan on listing_search_commissions/);
+    expect(plan, name).not.toMatch(/Bitmap Index Scan on listing_search_docs_transaction_idx/);
+    expect(ms, name).toBeLessThan(SQL_BUDGET_MS);
+  }
+  log.info({ rows: ROWS, summary }, '[S7-F10] minimum-commission shapes (fastest EXPLAIN ms, commission probes)');
+}, 600_000);
+
 it('[S6-F3] with the engine answering in 200 ms, website search stays within feed-api p95 150 ms at scale', async () => {
-  // An engine that answers every query, 200 ms late (configured timing: slow 80 ms, timeout 100 ms).
+  // An engine that answers every query, 200 ms late (configured timing: slow 50 ms since S7-F10, timeout 100 ms).
   search.configureWebsiteSearch({});
   const slow = { n: 0 };
   let engineWins = 0;
@@ -449,7 +505,7 @@ it('[S6-F3] with the engine answering in 200 ms, website search stays within fee
     return ms;
   };
   try {
-    // The hedge alone (breaker never opens): every request is answered by the fallback started at 80 ms.
+    // The hedge alone (breaker never opens): every request is answered by the fallback started at 50 ms.
     search.resetSearchBreaker({ failureThreshold: 1_000_000, window: undefined });
     const hedged = await timed(5_000, 100);
     // The configured breaker: the slow share opens it and the fallback answers at once.

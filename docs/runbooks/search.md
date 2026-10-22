@@ -14,11 +14,13 @@ references, and facet counts are missing. Detail pages and cached pages are not 
 
 1. Is the engine up? `curl -s $MEILI_URL/health` from the app host should print `{"status":"available"}`.
    `docker ps` on the search host shows whether the `meilisearch` container is up and healthy.
-2. Is it slow? Any query slower than `SEARCH_SLOW_MS` (default 80 ms) counts as a failure, and from then on the
+2. Is it slow? Any query slower than `SEARCH_SLOW_MS` (default 50 ms, S7-F10) counts as a failure, and from then on the
    fallback runs beside it — the first answer wins (`reason="engine_slow"` on `inmolink_search_queries_total`); the
    engine call is cut at `SEARCH_ENGINE_TIMEOUT_MS` (100 ms). The breaker opens on 5 failures in a row
-   (`SEARCH_BREAKER_FAILURES`) or on half of ≥ 20 calls within 10 s (`SEARCH_BREAKER_FAILURE_RATIO`,
-   `SEARCH_BREAKER_MIN_CALLS`, `SEARCH_BREAKER_WINDOW_MS`; S6-F3). Check the host's CPU, memory and disk (the index
+   (`SEARCH_BREAKER_FAILURES`) or on half of ≥ 10 calls within 10 s (`SEARCH_BREAKER_FAILURE_RATIO`,
+   `SEARCH_BREAKER_MIN_CALLS`, `SEARCH_BREAKER_WINDOW_MS`; S6-F3). Size `SEARCH_BREAKER_MIN_CALLS` per environment to
+   about one second of one feed-api process's search traffic at the quiet hour, at least 5 (S7-F10): below it the
+   share rule never runs and an engine slow on some queries keeps the breaker closed. Check the host's CPU, memory and disk (the index
    must fit in the page cache). Also check for a large indexing backlog: `GET /tasks?statuses=enqueued,processing`.
    While the engine is slow but the breaker still closed, each slow request also runs one fallback statement (the
    loser is not cancelled): at most `SEARCH_HEDGE_MAX_IN_FLIGHT` (16) at once per process, then requests wait for

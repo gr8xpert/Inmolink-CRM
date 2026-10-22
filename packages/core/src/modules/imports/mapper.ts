@@ -34,7 +34,7 @@ import * as compliance from '../compliance';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { FeedHttpStatusError, feedListingProblems, getConnector } from './connectors';
-import { type Kind, type Parsed, resolveTaxonomy, sourceOf, type TaxonomyResolver } from './load';
+import { type Kind, type Parsed, type ResolveValue, resolveTaxonomy, sourceOf, type TaxonomyResolver } from './load';
 import { assertCan } from './policy';
 import * as repo from './repo';
 import { assertSecretsOverTls } from './service';
@@ -137,13 +137,13 @@ class ReadOnlyResolver implements TaxonomyResolver {
   async resolve(
     tx: Parameters<TaxonomyResolver['resolve']>[0],
     kind: Kind,
-    values: readonly { text: string; example: string }[],
+    values: readonly ResolveValue[],
     hints: taxonomy.ResolveHints = {},
   ) {
     const results = await taxonomy.resolveMany(
       tx,
       kind,
-      values.map((v) => v.text),
+      values.map((v) => ({ text: v.text, parentId: v.parentId ?? null })),
       hints,
     );
     return results.map((r, i) => {

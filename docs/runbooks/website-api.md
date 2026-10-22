@@ -204,7 +204,7 @@ hop, feed-api under tsx, leftover rows of other suites): the acceptance numbers 
 4. Record the printed summary (rps held, error rate, p50 / p95 / p99 per scenario and endpoint, statements per
    request) in the STATUS row of S7-08 and mark it DONE when every threshold held and the budget is ≤ 3.
    **Cold sitemap page (S7-F9):** on the same box, `WEBSITE_PERF_ROWS=2000000 pnpm test:perf:root` logs
-   `sitemapColdPageMs` (a never-read network sitemap page of 500, half-way down) — it must be **< 400 ms** (the origin
+   `sitemapColdPageMs` (a never-read network sitemap page of 250 — the default since S7-F10 — half-way down) — it must be **< 400 ms** (the origin
    SLO, PLAN §4.2; locally 377–463 ms with 128 MB of shared buffers). Record it with the summary; over it, the deep
    sitemap needs the code-index walk on cold data (S7-F10). A failed threshold: the summary names it; fix and re-run.
 5. Edge spike (optional, needs S7-06 live): `-e PROFILE=spike -e BASE_URL=https://feed.inmolink.es` (adds `_k`, reports

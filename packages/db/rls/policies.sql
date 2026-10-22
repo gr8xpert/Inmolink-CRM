@@ -36,6 +36,14 @@ begin
     end if;
   end loop;
 end $$;
+drop view if exists public.search_commission_floor;
+create view public.search_commission_floor with (security_barrier = true) as
+  select c.target_id as floor_target_id, coalesce(nullif(pg_catalog.current_setting('app.search_min_commission_bp', true), ''), 'app.search_min_commission_bp is not set')::integer as floor_bp
+    from public.listing_search_commissions c
+   where c.commission_bp >= coalesce(nullif(pg_catalog.current_setting('app.search_min_commission_bp', true), ''), 'app.search_min_commission_bp is not set')::integer;
+alter view public.search_commission_floor owner to app_owner;
+revoke all on table public.search_commission_floor from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public.search_commission_floor to app_public;
 create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
   security definer set search_path = pg_catalog, pg_temp
   as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;
@@ -90,9 +98,9 @@ create policy auth_update on public."agencies" for update to app_auth
   using (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null) with check (agency_id = app_agency() and status = 'PENDING' and onboarded_at is null);
 grant select, insert, update on table public."agencies" to app_auth;
 create policy staff_select on public."agencies" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 create policy staff_update on public."agencies" for update to app_staff
-  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true)) with check ((select public.app_is_staff()) and (true));
 grant select, update on table public."agencies" to app_staff;
 create policy definer_read on public."agencies" for select to app_owner using (true);
 
@@ -110,11 +118,11 @@ grant select, insert, update, delete on table public."agency_directory" to app_u
 grant select, insert, update, delete on table public."agency_directory" to app_system;
 grant select on table public."agency_directory" to app_public;
 create policy staff_select on public."agency_directory" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 create policy staff_insert on public."agency_directory" for insert to app_staff
-  with check (app_is_staff() and (true));
+  with check ((select public.app_is_staff()) and (true));
 create policy staff_update on public."agency_directory" for update to app_staff
-  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true)) with check ((select public.app_is_staff()) and (true));
 grant select, insert, update on table public."agency_directory" to app_staff;
 
 -- agency_invites: STRICT
@@ -147,7 +155,7 @@ create policy auth_update on public."agency_members" for update to app_auth
   using (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency())) with check (agency_id = app_agency() and user_id = app_user_id() and exists (select 1 from agencies a where a.agency_id = app_agency()));
 grant select, insert, update on table public."agency_members" to app_auth;
 create policy staff_select on public."agency_members" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 grant select on table public."agency_members" to app_staff;
 
 -- agency_profiles: PUBLIC_READ
@@ -198,7 +206,7 @@ revoke all on table public."agency_verification_documents" from public, app_user
 grant select, insert, update, delete on table public."agency_verification_documents" to app_user;
 grant select, insert, update, delete on table public."agency_verification_documents" to app_system;
 create policy staff_select on public."agency_verification_documents" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 grant select on table public."agency_verification_documents" to app_staff;
 
 -- agency_verification_requests: STRICT
@@ -210,9 +218,9 @@ revoke all on table public."agency_verification_requests" from public, app_user,
 grant select, insert, update, delete on table public."agency_verification_requests" to app_user;
 grant select, insert, update, delete on table public."agency_verification_requests" to app_system;
 create policy staff_select on public."agency_verification_requests" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 create policy staff_update on public."agency_verification_requests" for update to app_staff
-  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true)) with check ((select public.app_is_staff()) and (true));
 grant select, update on table public."agency_verification_requests" to app_staff;
 
 -- api_keys: PUBLIC_READ
@@ -239,9 +247,9 @@ create policy auth_insert on public."audit_logs" for insert to app_auth
   with check (agency_id = app_agency() and agency_id = coalesce((select m.agency_id from public.agency_members m where m.user_id = app_user_id()), '00000000-0000-0000-0000-000000000000'::uuid) and target_type = 'user' and target_id = app_user_id() and starts_with(type, 'identity.') and impersonated_by is null and actor_kind in ('user', 'anonymous') and coalesce(actor_user_id, app_user_id()) = app_user_id());
 grant insert on table public."audit_logs" to app_auth;
 create policy staff_select on public."audit_logs" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 create policy staff_insert on public."audit_logs" for insert to app_staff
-  with check (app_is_staff() and (actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')));
+  with check ((select public.app_is_staff()) and (actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')));
 grant select, insert on table public."audit_logs" to app_staff;
 
 -- auth_tokens: GLOBAL
@@ -343,10 +351,10 @@ create policy global_read on public."feature_aliases" for select to app_user, ap
 revoke all on table public."feature_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_aliases" to app_system;
-create policy staff_select on public."feature_aliases" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."feature_aliases" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."feature_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."feature_aliases" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."feature_aliases" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."feature_aliases" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."feature_aliases" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."feature_aliases" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."feature_aliases" to app_staff;
 
 -- feature_flags: GLOBAL
@@ -364,10 +372,10 @@ create policy global_read on public."feature_group_translations" for select to a
 revoke all on table public."feature_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_group_translations" to app_system;
-create policy staff_select on public."feature_group_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."feature_group_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."feature_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."feature_group_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."feature_group_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."feature_group_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."feature_group_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."feature_group_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."feature_group_translations" to app_staff;
 
 -- feature_groups: GLOBAL
@@ -377,10 +385,10 @@ create policy global_read on public."feature_groups" for select to app_user, app
 revoke all on table public."feature_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_groups" to app_system;
-create policy staff_select on public."feature_groups" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."feature_groups" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."feature_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."feature_groups" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."feature_groups" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."feature_groups" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."feature_groups" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."feature_groups" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."feature_groups" to app_staff;
 
 -- feature_translations: GLOBAL
@@ -390,10 +398,10 @@ create policy global_read on public."feature_translations" for select to app_use
 revoke all on table public."feature_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."feature_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."feature_translations" to app_system;
-create policy staff_select on public."feature_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."feature_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."feature_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."feature_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."feature_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."feature_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."feature_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."feature_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."feature_translations" to app_staff;
 
 -- features: GLOBAL
@@ -403,10 +411,10 @@ create policy global_read on public."features" for select to app_user, app_publi
 revoke all on table public."features" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."features" to app_user, app_public;
 grant select, insert, update, delete on table public."features" to app_system;
-create policy staff_select on public."features" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."features" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."features" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."features" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."features" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."features" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."features" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."features" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."features" to app_staff;
 
 -- feed_connections: STRICT
@@ -425,9 +433,9 @@ end $$;
 grant insert, update, delete on table public."feed_connections" to app_user;
 grant select, insert, update, delete on table public."feed_connections" to app_system;
 create policy staff_select on public."feed_connections" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 create policy staff_update on public."feed_connections" for update to app_staff
-  using (app_is_staff() and (true)) with check (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true)) with check ((select public.app_is_staff()) and (true));
 grant select ("id", "agency_id", "name", "connector", "enabled", "schedule_minutes", "next_run_at", "last_run_at", "last_run_state", "paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "staff_resume_reason", "content_changed_at", "version", "created_at", "updated_at") on table public."feed_connections" to app_staff;
 grant update ("paused_at", "pause_reason", "pause_details", "paused_run_id", "accept_anomaly_once", "staff_resume_reason", "next_run_at", "version", "updated_at") on table public."feed_connections" to app_staff;
 
@@ -476,7 +484,7 @@ revoke all on table public."feed_runs" from public, app_user, app_system, app_pu
 grant select, insert, update, delete on table public."feed_runs" to app_user;
 grant select, insert, update, delete on table public."feed_runs" to app_system;
 create policy staff_select on public."feed_runs" for select to app_staff
-  using (app_is_staff() and (true));
+  using ((select public.app_is_staff()) and (true));
 grant select on table public."feed_runs" to app_staff;
 
 -- feed_sheet_releases: STRICT
@@ -626,10 +634,10 @@ create policy global_read on public."location_aliases" for select to app_user, a
 revoke all on table public."location_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."location_aliases" to app_system;
-create policy staff_select on public."location_aliases" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."location_aliases" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."location_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."location_aliases" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."location_aliases" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."location_aliases" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."location_aliases" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."location_aliases" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."location_aliases" to app_staff;
 
 -- location_group_members: GLOBAL
@@ -639,10 +647,10 @@ create policy global_read on public."location_group_members" for select to app_u
 revoke all on table public."location_group_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_group_members" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_members" to app_system;
-create policy staff_select on public."location_group_members" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."location_group_members" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."location_group_members" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."location_group_members" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."location_group_members" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."location_group_members" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."location_group_members" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."location_group_members" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."location_group_members" to app_staff;
 
 -- location_group_translations: GLOBAL
@@ -652,10 +660,10 @@ create policy global_read on public."location_group_translations" for select to 
 revoke all on table public."location_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_group_translations" to app_system;
-create policy staff_select on public."location_group_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."location_group_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."location_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."location_group_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."location_group_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."location_group_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."location_group_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."location_group_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."location_group_translations" to app_staff;
 
 -- location_groups: GLOBAL
@@ -665,10 +673,10 @@ create policy global_read on public."location_groups" for select to app_user, ap
 revoke all on table public."location_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."location_groups" to app_system;
-create policy staff_select on public."location_groups" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."location_groups" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."location_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."location_groups" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."location_groups" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."location_groups" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."location_groups" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."location_groups" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."location_groups" to app_staff;
 
 -- location_translations: GLOBAL
@@ -678,10 +686,10 @@ create policy global_read on public."location_translations" for select to app_us
 revoke all on table public."location_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."location_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."location_translations" to app_system;
-create policy staff_select on public."location_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."location_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."location_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."location_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."location_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."location_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."location_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."location_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."location_translations" to app_staff;
 
 -- locations: GLOBAL
@@ -691,10 +699,10 @@ create policy global_read on public."locations" for select to app_user, app_publ
 revoke all on table public."locations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."locations" to app_user, app_public;
 grant select, insert, update, delete on table public."locations" to app_system;
-create policy staff_select on public."locations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."locations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."locations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."locations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."locations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."locations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."locations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."locations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."locations" to app_staff;
 
 -- media_objects: GLOBAL
@@ -722,7 +730,7 @@ create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
 grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
-  with check (app_is_staff() and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid)));
+  with check ((select public.app_is_staff()) and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid)));
 grant insert on table public."outbox_events" to app_staff;
 
 -- preferred_agencies: NETWORK_READ
@@ -862,10 +870,10 @@ create policy global_read on public."property_type_aliases" for select to app_us
 revoke all on table public."property_type_aliases" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_aliases" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_aliases" to app_system;
-create policy staff_select on public."property_type_aliases" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."property_type_aliases" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."property_type_aliases" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."property_type_aliases" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."property_type_aliases" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."property_type_aliases" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."property_type_aliases" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."property_type_aliases" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."property_type_aliases" to app_staff;
 
 -- property_type_group_translations: GLOBAL
@@ -875,10 +883,10 @@ create policy global_read on public."property_type_group_translations" for selec
 revoke all on table public."property_type_group_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_group_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_group_translations" to app_system;
-create policy staff_select on public."property_type_group_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."property_type_group_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."property_type_group_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."property_type_group_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."property_type_group_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."property_type_group_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."property_type_group_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."property_type_group_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."property_type_group_translations" to app_staff;
 
 -- property_type_groups: GLOBAL
@@ -888,10 +896,10 @@ create policy global_read on public."property_type_groups" for select to app_use
 revoke all on table public."property_type_groups" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_groups" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_groups" to app_system;
-create policy staff_select on public."property_type_groups" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."property_type_groups" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."property_type_groups" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."property_type_groups" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."property_type_groups" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."property_type_groups" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."property_type_groups" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."property_type_groups" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."property_type_groups" to app_staff;
 
 -- property_type_translations: GLOBAL
@@ -901,10 +909,10 @@ create policy global_read on public."property_type_translations" for select to a
 revoke all on table public."property_type_translations" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_type_translations" to app_user, app_public;
 grant select, insert, update, delete on table public."property_type_translations" to app_system;
-create policy staff_select on public."property_type_translations" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."property_type_translations" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."property_type_translations" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."property_type_translations" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."property_type_translations" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."property_type_translations" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."property_type_translations" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."property_type_translations" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."property_type_translations" to app_staff;
 
 -- property_types: GLOBAL
@@ -914,10 +922,10 @@ create policy global_read on public."property_types" for select to app_user, app
 revoke all on table public."property_types" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public."property_types" to app_user, app_public;
 grant select, insert, update, delete on table public."property_types" to app_system;
-create policy staff_select on public."property_types" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."property_types" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."property_types" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."property_types" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."property_types" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."property_types" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."property_types" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."property_types" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."property_types" to app_staff;
 
 -- quality_queue: GLOBAL
@@ -963,11 +971,11 @@ create policy auth_select on public."staff_impersonations" for select to app_aut
   using (staff_user_id = app_user_id());
 grant select on table public."staff_impersonations" to app_auth;
 create policy staff_select on public."staff_impersonations" for select to app_staff
-  using (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+  using ((select public.app_is_staff()) and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
 create policy staff_insert on public."staff_impersonations" for insert to app_staff
-  with check (app_is_staff() and (staff_user_id = app_user_id()));
+  with check ((select public.app_is_staff()) and (staff_user_id = app_user_id()));
 create policy staff_update on public."staff_impersonations" for update to app_staff
-  using (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null))) with check (app_is_staff() and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+  using ((select public.app_is_staff()) and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null))) with check ((select public.app_is_staff()) and (staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
 grant select, insert, update on table public."staff_impersonations" to app_staff;
 
 -- staff_users: GLOBAL
@@ -984,10 +992,10 @@ alter table public."taxonomy_unmatched" enable row level security;
 alter table public."taxonomy_unmatched" force row level security;
 revoke all on table public."taxonomy_unmatched" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."taxonomy_unmatched" to app_system;
-create policy staff_select on public."taxonomy_unmatched" for select to app_staff using (app_is_staff());
-create policy staff_insert on public."taxonomy_unmatched" for insert to app_staff with check (app_is_staff());
-create policy staff_update on public."taxonomy_unmatched" for update to app_staff using (app_is_staff()) with check (app_is_staff());
-create policy staff_delete on public."taxonomy_unmatched" for delete to app_staff using (app_is_staff());
+create policy staff_select on public."taxonomy_unmatched" for select to app_staff using ((select public.app_is_staff()));
+create policy staff_insert on public."taxonomy_unmatched" for insert to app_staff with check ((select public.app_is_staff()));
+create policy staff_update on public."taxonomy_unmatched" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
+create policy staff_delete on public."taxonomy_unmatched" for delete to app_staff using ((select public.app_is_staff()));
 grant select, insert, update, delete on table public."taxonomy_unmatched" to app_staff;
 
 -- unit_price_histories: STRICT

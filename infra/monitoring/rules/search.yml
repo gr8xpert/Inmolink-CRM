@@ -3,12 +3,13 @@
 # Metrics: feed-api / api processes (OpenTelemetry → Prometheus exporter), from packages/core/src/modules/search/website.ts:
 #   inmolink_search_breaker_open   1 while a process skips the search engine (breaker open or probing), else 0
 #   inmolink_search_queries_total  website search queries by `backend` (engine | fallback) and `reason`
+#   inmolink_search_breaker_transitions_total  breaker state changes by `to` (open | half_open | closed)
 #   inmolink_website_changes_held_seconds  how long the oldest committed `/v2/changes` row has waited behind an open
 #                                  transaction (S7-03: feeds page below the cluster's oldest running transaction)
 groups:
   - name: search
     rules:
-      # The breaker opened (the engine failed or answered slower than SEARCH_SLOW_MS — 80 ms — five times in a row, or
+      # The breaker opened (the engine failed or answered slower than SEARCH_SLOW_MS — 50 ms — five times in a row, or
       # for half of the calls in a 10 s window; S6-F3) and has not closed since: websites are served by the Postgres
       # fallback (no facets, references-only text search).
       - alert: SearchFallbackActive
@@ -30,6 +31,17 @@ groups:
           severity: warning
         annotations:
           summary: "{{ $value | humanizePercentage }} of website searches answered by the Postgres fallback"
+          runbook: docs/runbooks/search.md#fallback-active
+      # The breaker keeps opening (S7-F10: `SEARCH_SLOW_MS` 50, `SEARCH_BREAKER_MIN_CALLS` 10): more than 6 opens an hour
+      # across feed-api processes means the thresholds sit inside the engine's normal latency (its p95 near 50 ms) or
+      # the engine flaps — check Meilisearch's own p95 before raising `SEARCH_SLOW_MS` (runbook).
+      - alert: SearchBreakerFlapping
+        expr: sum(increase(inmolink_search_breaker_transitions_total{to="open"}[1h])) > 6
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The website search breaker opened {{ $value | humanize }} times in the last hour"
           runbook: docs/runbooks/search.md#fallback-active
       # Website delta feeds (S7-03) hand out only changes below the oldest running transaction, so one transaction open
       # for minutes (a stuck job, an open psql session) holds every site's `/v2/changes` back. Nothing is lost; sites
