@@ -37,7 +37,7 @@
     "@inmolink/platform": "workspace:*",
     "@opentelemetry/api": "1.9.1",
     "drizzle-orm": "0.45.4",
-    "heic-decode": "2.1.0",
+    "libheif-js": "1.23.2",
     "sharp": "0.35.5",
     "zod": "4.6.5"
   },

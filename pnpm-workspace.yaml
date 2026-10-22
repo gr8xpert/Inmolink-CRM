@@ -10,5 +10,6 @@ allowBuilds:
 
 # Pinned transitive versions (each at least two weeks old when pinned).
 overrides:
-  # heic-decode 2.1.0 asks for ^1.19.8; 1.23.2 (2026-09-05) is the newest release older than two weeks (S3-04).
+  # A direct dependency of core since S8-F7 (was through heic-decode 2.1.0); 1.23.2 (2026-09-05) was the newest
+  # release older than two weeks (S3-04).
   libheif-js: 1.23.2

@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import sharp, { type Sharp } from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
   freeImageSlots,
   HEAVY_INPUT_PIXELS,
+  HEIC_MAX_RSS_GROWTH,
   hammingDistance,
+  heicMaster,
   IMAGE_SLOTS,
   ImageInputError,
   isHeavyInput,
@@ -14,6 +17,39 @@ import {
   withImageSlot,
 } from '../processing';
 import { ALL_VARIANTS_MASK, MEDIA_PIPELINE_VERSION, VARIANT_NAMES, variantsIn, variantsMask } from '../variants';
+
+/** The parts of libheif-js the HEIC reference decode uses (its whole-image RGBA path, as before S8-F7). */
+interface LibheifForTest {
+  HeifDecoder: new () => {
+    decode(bytes: Uint8Array): {
+      get_width(): number;
+      get_height(): number;
+      display(
+        target: { data: Uint8ClampedArray; width: number; height: number },
+        done: (d: { data: Uint8ClampedArray }) => void,
+      ): void;
+      free(): void;
+    }[];
+    decoder: { delete(): void };
+  };
+}
+
+/** A copy of a HEIC whose every `ispe` box (declared image size) says `width` × `height`. */
+function withIspe(file: Uint8Array, width: number, height: number): Uint8Array {
+  const out = file.slice();
+  const view = new DataView(out.buffer);
+  let patched = 0;
+  for (let i = 4; i + 16 <= out.length; i++) {
+    // size 20: 4 size + 4 type + 4 version/flags + 4 width + 4 height
+    if (view.getUint32(i - 4) === 20 && String.fromCharCode(...out.subarray(i, i + 4)) === 'ispe') {
+      view.setUint32(i + 8, width);
+      view.setUint32(i + 12, height);
+      patched++;
+    }
+  }
+  if (patched === 0) throw new Error('no ispe box');
+  return out;
+}
 
 /** A scene: a gradient with shapes, so the perceptual hash has structure to see. */
 const scene = (width: number, height: number, shapes: string) =>
@@ -90,6 +126,60 @@ describe('media processing (S3-04)', () => {
       .png({ compressionLevel: 9 })
       .toBuffer();
     await expect(normalizeOriginal(huge, 'image/png')).rejects.toBeInstanceOf(ImageInputError);
+  });
+
+  it('[S8-F7] a 24 MP HEIC leaves its decoder thread as the master: RGB without alpha, longest side 2560', async () => {
+    const heic = new Uint8Array(readFileSync(new URL('./fixtures/large-24mp.heic', import.meta.url)));
+    const { master, width, height } = await normalizeOriginal(heic, 'image/heic');
+    const meta = await sharp(master).metadata();
+    expect({ format: meta.format, width: meta.width, height: meta.height }).toEqual({ format: 'webp', width, height });
+    expect(Math.max(width, height)).toBe(2_560);
+    expect({ channels: meta.channels, hasAlpha: meta.hasAlpha }).toEqual({ channels: 3, hasAlpha: false });
+  });
+
+  it('[S8-F7] the HEIC master has the decoder pixels: padded rows packed right (reference: whole RGBA decode)', async () => {
+    // 5000 px wide RGB: libheif pads each 15,000-byte row to 15,008, so a packing slip would shear the image.
+    const heic = readFileSync(new URL('./fixtures/large-24mp.heic', import.meta.url));
+    const { master, width, height } = await normalizeOriginal(new Uint8Array(heic), 'image/heic');
+    const libheif = createRequire(import.meta.url)('libheif-js/wasm-bundle') as LibheifForTest;
+    const decoder = new libheif.HeifDecoder();
+    const [image] = decoder.decode(heic);
+    if (!image) throw new Error('fixture has no image');
+    const w = image.get_width();
+    const h = image.get_height();
+    const rgba = await new Promise<{ data: Uint8ClampedArray }>((done) =>
+      image.display({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }, done),
+    );
+    image.free();
+    decoder.decoder.delete();
+    const raw = { raw: { width: w, height: h, channels: 4 as const } };
+    const reference = await sharp(Buffer.from(rgba.data.buffer), raw)
+      .removeAlpha()
+      .resize({ width, height, fit: 'fill' })
+      .raw()
+      .toBuffer();
+    const got = await sharp(master).raw().toBuffer();
+    expect(got.length).toBe(reference.length);
+    let diff = 0;
+    for (let i = 0; i < got.length; i++) diff += Math.abs((got[i] ?? 0) - (reference[i] ?? 0));
+    // WebP at quality 90 only: a sheared or shifted row would be tens of levels off on average.
+    expect(diff / got.length).toBeLessThan(2);
+  });
+
+  it('[S8-F7] a truncated HEIC, one that declares less than it holds and one past the cap behind a small ispe are refused', async () => {
+    const large = new Uint8Array(readFileSync(new URL('./fixtures/large-24mp.heic', import.meta.url)));
+    const oversized = new Uint8Array(readFileSync(new URL('./fixtures/oversized-30mp.heic', import.meta.url)));
+    await expect(heicMaster(large.slice(0, Math.floor(large.byteLength / 2)))).rejects.toBeInstanceOf(ImageInputError);
+    // The declared size (ispe) says 100 × 100; the coded stream is 5000 × 4800.
+    await expect(heicMaster(withIspe(large, 100, 100))).rejects.toBeInstanceOf(ImageInputError);
+    // Declared 12 MP, coded 30 MP: past MAX_HEIC_PIXELS whatever the header says.
+    await expect(heicMaster(withIspe(oversized, 4_000, 3_000))).rejects.toBeInstanceOf(ImageInputError);
+  });
+
+  it('[S8-F7] a HEIC decode past its memory cap is ended', async () => {
+    const heic = new Uint8Array(readFileSync(new URL('./fixtures/large-24mp.heic', import.meta.url)));
+    await expect(heicMaster(heic, 1)).rejects.toThrow(/memory cap/);
+    expect(HEIC_MAX_RSS_GROWTH).toBeLessThan(512 * 1024 * 1024);
   });
 
   it('[S3-04] the encoder stack is pinned: an upgrade must come with a MEDIA_PIPELINE_VERSION bump', () => {

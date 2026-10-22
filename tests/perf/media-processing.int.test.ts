@@ -19,14 +19,16 @@ import { containerMemoryEnv } from './container-env';
  * MinIO, re-hashed, normalized to the master, five variants rendered and stored, recorded — in < 1.5 s, and the
  * worker process stays under 512 MB RSS with a burst of photos in flight (the pool runs 10 jobs at once; image
  * work is capped by the image slots), including the heaviest inputs it accepts: a 48 MP JPEG with an EXIF
- * rotation (decoded whole), a 24 MP HEIC (WASM decoder) and a noisy PNG. In the `perf` project: it runs alone,
- * so the timing is not shared with parallel suites.
+ * rotation (decoded whole), a 24 MP HEIC (WASM decoder, made into its master inside the decoder thread: S8-F7)
+ * and a noisy PNG. In the `perf` project: it runs alone, so the timing is not shared with parallel suites.
  */
 
 const RUN = newId().slice(-8);
 const log = createLogger({ service: 'perf', level: 'silent' });
 const BUDGET_MS = 1_500;
 const RSS_BUDGET = 512 * 1024 * 1024;
+/** S8-F7: where the burst's peak should sit on CI — headroom under the budget, not a second budget. */
+const HEADROOM_TARGET = 470 * 1024 * 1024;
 /** Off Linux only: idle RSS assumed for a compiled media worker when only the burst's growth can be checked. */
 const NON_LINUX_IDLE_ALLOWANCE = 160 * 1024 * 1024;
 const BURST = 10;
@@ -168,7 +170,11 @@ it("[S4-F2] the compiled media worker's total RSS stays < 512 MB under a burst o
     made: number;
   };
   expect(made).toBe(BURST);
-  console.info(`[S3-04] burst child: idle ${(base / 1048576).toFixed(0)} MB, peak ${(peak / 1048576).toFixed(0)} MB`);
+  // S8-F7: the peak is the HEIC's (its decoder's WASM heap); CI should show it ≤ HEADROOM_TARGET, well inside the budget.
+  console.info(
+    `[S3-04] burst child: idle ${(base / 1048576).toFixed(0)} MB, peak ${(peak / 1048576).toFixed(0)} MB ` +
+      `[S8-F7] (target ≤ ${HEADROOM_TARGET / 1048576} MB, budget ${RSS_BUDGET / 1048576} MB)`,
+  );
   const perImage = (performance.now() - started) / BURST;
   console.info(
     `[S3-04] burst of ${BURST} (48 MP rotated JPEG, 24 MP HEIC, ${(noisyPng.byteLength / 1e6).toFixed(0)} MB PNG, 12 MP JPEGs): ` +
