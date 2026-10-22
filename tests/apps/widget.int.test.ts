@@ -210,7 +210,7 @@ beforeAll(async () => {
   browser = await chromium.launch();
 }, 240_000);
 
-/** A page whose console output, page errors and failed requests are added to the message of a failing test. */
+/** A page whose console output, page errors and requests are written to stderr when the test fails. */
 async function newWatchedPage() {
   const page = await browser.newPage();
   const logs: string[] = [];
@@ -218,10 +218,20 @@ async function newWatchedPage() {
   page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
   page.on('requestfailed', (r) => logs.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
   page.on('response', (r) => logs.push(`response: ${r.status()} ${r.url().replace(publishableKey, '<key>')}`));
-  onTestFailed((result) => {
-    for (const e of result.errors ?? []) e.message += `\n--- browser log ---\n${logs.join('\n')}`;
-  });
-  return page;
+  onTestFailed(() => process.stderr.write(`\n--- browser log ---\n${logs.join('\n')}\n--- end ---\n`));
+  /** `goto`, then what the page looks like a second later (kept for the failure output). */
+  const open = async (url: string) => {
+    await page.goto(url);
+    await page.waitForTimeout(1000);
+    const state = await page.evaluate(() => ({
+      scripts: [...document.scripts].map((x) => x.src || 'inline'),
+      host: document.querySelector('[data-inmolink-widget]') ? 'present' : 'missing',
+      shadow: document.querySelector('[data-inmolink-widget]')?.shadowRoot?.innerHTML.length ?? null,
+      global: typeof (window as unknown as { InmolinkWidget?: unknown }).InmolinkWidget,
+    }));
+    logs.push(`state: ${JSON.stringify(state)}; script bytes served: ${script.length}`);
+  };
+  return Object.assign(page, { open });
 }
 
 afterAll(async () => {
@@ -237,7 +247,7 @@ describe('JS widget in a browser (S8-06)', () => {
   it('[S8-06] works on a plain HTML page with an allowlisted origin', async () => {
     const page = await newWatchedPage();
     try {
-      await page.goto(allowed);
+      await page.open(allowed);
       const widget = page.locator('[data-inmolink-widget]');
       const status = widget.locator('[role=status]').first();
       const card = widget.locator('.card', { hasText: `Ref. ${ref}` });
@@ -292,7 +302,7 @@ describe('JS widget in a browser (S8-06)', () => {
 
     const page = await newWatchedPage();
     try {
-      await page.goto(allowed);
+      await page.open(allowed);
       const widget = page.locator('[data-inmolink-widget]');
       const card = widget.locator('.card', { hasText: `Ref. ${networkRef}` });
       await widget.locator('input[name=q]').fill(networkRef);
@@ -325,7 +335,7 @@ describe('JS widget in a browser (S8-06)', () => {
           (window as unknown as { widgetErrors: string[] }).widgetErrors.push((e as CustomEvent).detail.code),
         );
       });
-      await page.goto(other);
+      await page.open(other);
       const widget = page.locator('[data-inmolink-widget]');
       await widget.locator('.error').waitFor({ timeout: 20_000 });
       expect(await widget.locator('.card').count()).toBe(0);
