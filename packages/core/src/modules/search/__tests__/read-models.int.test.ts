@@ -602,7 +602,22 @@ describe('unit read models', () => {
       price: { amountCents: 30_000_000 },
       place: { city: { name: `Docton ${RUN}` } },
     });
-    expect(JSON.stringify(en?.detail)).not.toContain('600');
+    // No commission in the public document: no commission or owner-contact field, and no value equal to the unit's
+    // 600 bp anywhere (field by field: a substring of the whole JSON matched random slugs such as "…422600cd").
+    const keys: string[] = [];
+    const values: unknown[] = [];
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === 'object') {
+        for (const [k, x] of Object.entries(v)) {
+          keys.push(k);
+          walk(x);
+        }
+      } else values.push(v);
+    };
+    walk(en?.detail);
+    expect(keys.filter((k) => /commission|basisPoints|split|owner(Email|Phone|Contact)/i.test(k))).toEqual([]);
+    expect(values.filter((v) => v === 600 || v === '600')).toEqual([]);
     expect(en?.public).toBe(false); // PRIVATE_NETWORK by default
 
     // Opened: the development's events rebuild its units, now public; version grows with the development's.
