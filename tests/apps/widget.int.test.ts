@@ -20,7 +20,7 @@ import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import { type Browser, chromium } from '@playwright/test';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { buildApp } from '../../apps/feed-api/src/app';
 import { buildWidget } from '../../packages/sdk/widget-build';
 
@@ -189,7 +189,9 @@ beforeAll(async () => {
     limiter: allow,
     checks: {},
   });
-  await app.listen({ port: 0, host: 'localhost' });
+  // IPv4 loopback only: Fastify listens on every address `localhost` resolves to (::1 and 127.0.0.1 on Linux), each
+  // on its own random port when the port is 0, so `address()` would name just one of them.
+  await app.listen({ port: 0, host: '127.0.0.1' });
   // The widget accepts http only for the name `localhost`.
   apiOrigin = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   allowed = await pageServer(pageHtml);
@@ -208,6 +210,20 @@ beforeAll(async () => {
   browser = await chromium.launch();
 }, 240_000);
 
+/** A page whose console output, page errors and failed requests are added to the message of a failing test. */
+async function newWatchedPage() {
+  const page = await browser.newPage();
+  const logs: string[] = [];
+  page.on('console', (m) => logs.push(`console.${m.type()}: ${m.text()}`));
+  page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
+  page.on('requestfailed', (r) => logs.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
+  page.on('response', (r) => logs.push(`response: ${r.status()} ${r.url().replace(publishableKey, '<key>')}`));
+  onTestFailed((result) => {
+    for (const e of result.errors ?? []) e.message += `\n--- browser log ---\n${logs.join('\n')}`;
+  });
+  return page;
+}
+
 afterAll(async () => {
   await browser?.close();
   for (const s of servers) s.close();
@@ -219,7 +235,7 @@ afterAll(async () => {
 
 describe('JS widget in a browser (S8-06)', () => {
   it('[S8-06] works on a plain HTML page with an allowlisted origin', async () => {
-    const page = await browser.newPage();
+    const page = await newWatchedPage();
     try {
       await page.goto(allowed);
       const widget = page.locator('[data-inmolink-widget]');
@@ -274,7 +290,7 @@ describe('JS widget in a browser (S8-06)', () => {
       expect(json.toLowerCase().includes(leak.toLowerCase()), leak).toBe(false);
     }
 
-    const page = await browser.newPage();
+    const page = await newWatchedPage();
     try {
       await page.goto(allowed);
       const widget = page.locator('[data-inmolink-widget]');
@@ -300,7 +316,7 @@ describe('JS widget in a browser (S8-06)', () => {
     expect(direct.status).toBe(403);
     expect(((await direct.json()) as { error: { code: string } }).error.code).toBe('API_KEY_ORIGIN_DENIED');
 
-    const page = await browser.newPage();
+    const page = await newWatchedPage();
     try {
       // The widget reports failures as a bubbling `inmolink:error` event; listen before the script runs.
       await page.addInitScript(() => {
