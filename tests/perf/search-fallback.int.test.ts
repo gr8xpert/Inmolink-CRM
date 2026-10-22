@@ -119,6 +119,29 @@ const insertCommissions = (from: number, to: number) => `
     from generate_series(${from}, ${to}) g
    where abs(hashint8(g * 17)) % 20 <> 9`;
 
+/**
+ * VACUUMs `table` until its visibility map covers every page (S7-F11, CI run 39750556960). A VACUUM cannot mark a page
+ * all-visible while another transaction's snapshot predates the page's inserts — an autovacuum ANALYZE of the table
+ * just loaded holds one — and then `relallvisible` stays low: the planner prices the commission probe's index-only
+ * scan with a heap fetch per row, takes the primary key and a BitmapAnd over the status index instead (the shape 13
+ * plan seen on CI, reproduced locally with `relallvisible = 0`). Production keeps the map through autovacuum; the
+ * plan checks below assume a settled table, as there.
+ */
+async function vacuumUntilAllVisible(table: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    await adminQuery(`vacuum analyze ${table}`);
+    const [row] = await adminQuery<{ pages: number; visible: number }>(
+      'select relpages as pages, relallvisible as visible from pg_class where oid = $1::regclass',
+      [table],
+    );
+    if (row && row.visible >= row.pages * 0.99) return;
+    if (attempt === 10)
+      throw new Error(`${table}: ${row?.visible} of ${row?.pages} pages all-visible after 10 VACUUMs`);
+    log.info({ table, attempt, ...row }, 'visibility map incomplete (an older snapshot was open): vacuum again');
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+}
+
 beforeAll(async () => {
   await setupTestDb('worker');
   const first = id(DOC_SPACE, 1);
@@ -144,11 +167,13 @@ beforeAll(async () => {
       await runSql(insertCommissions(from, Math.min(ROWS, from + BATCH - 1)));
     }
     // Outside a transaction, as the superuser: drops a trim's dead rows and sets the visibility map.
-    await adminQuery('vacuum analyze listing_search_docs');
-    await adminQuery('vacuum analyze listing_search_commissions');
+    await vacuumUntilAllVisible('listing_search_docs');
+    await vacuumUntilAllVisible('listing_search_commissions');
     log.info({ rows: ROWS, seconds: Math.round((Date.now() - started) / 1000) }, 'search fallback rows loaded');
   } else {
     await runSql('analyze listing_search_docs');
+    // Other files' writes since the load may have cleared pages of the map.
+    await vacuumUntilAllVisible('listing_search_commissions');
   }
   // The engine is stopped: the first failure opens the breaker, every query below uses the fallback.
   search.resetSearchBreaker({ failureThreshold: 1, openMs: 3_600_000 });
