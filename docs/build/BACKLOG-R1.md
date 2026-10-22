@@ -1112,6 +1112,13 @@ Ref §12 · Mod platform, website-api, feed-api · Dep S8-F4
 - Both callers use `LocalFixedWindows` and keep their S7-F9 / S8-F4 tests green (test)
 - A flood of new IP identities does not evict a tracked failed-check or key window (test)
 
+### S8-F7 · Media worker burst RSS back under budget (S8 CI)
+Ref §13 · Mod media, worker · Dep S6-F5
+**Build:**
+- `[S4-F2]` / `[S3-04]` in `tests/perf/media-processing.int.test.ts` now peak at 460–530 MB on CI (370–500 MB on 2026-10-17…20; idle RSS flat at ~146 MB), so a normal run crosses 512 MB about one time in four (failed on 8f1d11e, 622b1c8, 5622153, 3288d64 twice). Find what raised the burst peak — first suspect e9d6d86 (S6-F5: large originals decoded alone, V8 sizing), then a9a40cb, fcaefaf, 5d2904c — by comparing peaks on Linux (`node:24.15.0-bookworm`, `--cpuset-cpus=0-3`), and restore real headroom under 512 MB without raising the budget.
+**Done when:**
+- The burst peak is ≤ 470 MB on 5 consecutive CI runs (test)
+
 ### S8-F8 · Widget: natural-language search and lead form (S8-06)
 Ref §9.5 · Mod sdk, website-api · Dep S8-06
 **Build:**
