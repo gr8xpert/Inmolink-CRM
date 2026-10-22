@@ -64,6 +64,23 @@ function keyOf(request: FastifyRequest): string | undefined {
   return auth ? BEARER.exec(auth)?.[1] : undefined;
 }
 
+/**
+ * Rate-limit plugin rules for the keyed website routes (S7-F9): none — `requireApiKey` (in `onRequest`) governs them,
+ * with the key's tier, the agency's ceiling, burst, daily quota, the per-browser rules of publishable keys and the paging,
+ * slicing and sync budgets (S7-04, S7-F7), in one Redis call. The plugin's per-IP default (`feed.ip`, 1,200 / min) is
+ * wrong for them: a site's server calls from one IP (shared hosting serves many sites from one), and a HIGH-tier key
+ * alone may send 3,000 / min. Calls without a usable key — missing, malformed, unknown — count against
+ * `API_KEY_FAILURE_RULE` per client IP (429 past 60 / min) before any other work; browsers stay limited per browser.
+ */
+export const KEYED_ROUTE_LIMITS = false as const;
+
+/** The client IP's failed key checks are in the penalty box (S7-F9): 429 without a database lookup. */
+class FailedChecksPenalty extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super('failed key checks: penalty');
+  }
+}
+
 export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): void {
   app.decorateRequest('apiKey', null);
   app.decorateRequest('websitePaging', null);
@@ -73,12 +90,25 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter }): v
     (scope: ApiKeyScope, options: RequireApiKeyOptions = {}) =>
       async (request: FastifyRequest, reply: FastifyReply) => {
         let principal: identity.ApiKeyPrincipal;
+        const ip = ipBucket(request.ip);
         try {
-          principal = await identity.authenticateApiKey({ key: keyOf(request), origin: request.headers.origin, scope });
+          principal = await identity.authenticateApiKey({
+            key: keyOf(request),
+            origin: request.headers.origin,
+            scope,
+            // S7-F9: an IP in the failed-checks penalty box gets no database lookup for a key no cache knows.
+            beforeLookup: async () => {
+              const [peeked] = await deps.limiter.consumeMany([
+                { rule: identity.API_KEY_FAILURE_RULE, identity: ip, peek: true },
+              ]);
+              if (peeked && !peeked.allowed) throw new FailedChecksPenalty(peeked.retryAfterSeconds);
+            },
+          });
         } catch (err) {
+          if (err instanceof FailedChecksPenalty) return replyRateLimited(reply, 'ip', err.retryAfterSeconds);
           // Unknown keys are never cached, so guessing costs a query: cap failed checks per client IP.
           if (isAppError(err) && err.code === 'API_KEY_INVALID') {
-            const failed = await deps.limiter.consume(identity.API_KEY_FAILURE_RULE, ipBucket(request.ip));
+            const failed = await deps.limiter.consume(identity.API_KEY_FAILURE_RULE, ip);
             if (!failed.allowed) return replyRateLimited(reply, 'ip', failed.retryAfterSeconds);
           }
           throw err;

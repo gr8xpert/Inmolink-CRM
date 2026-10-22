@@ -1,9 +1,9 @@
 import { PUBLIC_SEARCH_FACETS, PUBLIC_SEARCH_SORTS, PublicListingSearch } from '@inmolink/contracts';
-import { SearchError } from '@inmolink/platform/search';
+import { type Filter, SearchError } from '@inmolink/platform/search';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { listingsIndex } from '../index-doc';
-import { fallbackCondition, fallbackSearchSql } from '../repo';
+import { fallbackCondition, fallbackSearchSql, requiresValue } from '../repo';
 import { developmentRefMatch, publicSearchFilter, refFilter } from '../website';
 
 /** The fallback's filter compiler (S5-04): the engine's semantics in SQL, values always parameters. */
@@ -37,6 +37,23 @@ describe('fallback filter → SQL', () => {
     expect(render(fallbackCondition({ op: 'not', filter: { op: 'range', field: 'priceCents', gte: 5 } })).sql).toBe(
       '(not coalesce((price_cents is not null and price_cents >= $1), false))',
     );
+  });
+
+  it('[S7-F9] the network rule negations are planner-estimable forms with the same meaning', () => {
+    const not = (filter: Parameters<typeof fallbackCondition>[0]) =>
+      render(fallbackCondition({ op: 'not', filter })).sql;
+    // Never-null columns: a plain inequality (`not coalesce(x = v, false)` is `x <> v` when x is never null).
+    expect(not({ op: 'eq', field: 'ownerAgencyId', value: ID })).toBe('owner_agency_id <> $1');
+    expect(not({ op: 'in', field: 'ownerAgencyId', values: [ID, ID] })).toBe(
+      'owner_agency_id <> all(array[$1, $2]::uuid[])',
+    );
+    // A nullable boolean: `is not true` matches false and null, like `not coalesce(x = true, false)`.
+    expect(not({ op: 'eq', field: 'networkHidden', value: true })).toBe('network_hidden is not true');
+    expect(not({ op: 'eq', field: 'networkHidden', value: false })).toBe('network_hidden is not false');
+    // Nullable scalars, arrays and case-insensitive text keep the general form.
+    expect(not({ op: 'eq', field: 'developmentId', value: ID })).toMatch(/^\(not coalesce\(/);
+    expect(not({ op: 'eq', field: 'locationIds', value: ID })).toMatch(/^\(not coalesce\(/);
+    expect(not({ op: 'eq', field: 'ref', value: 'A1' })).toMatch(/^\(not coalesce\(/);
   });
 
   it('[S5-04] visibility is constant PUBLIC; unknown fields are refused, as are bad values', () => {
@@ -108,7 +125,7 @@ describe('fallback filter → SQL', () => {
     );
     expect(
       render(fallbackCondition({ op: 'not', filter: { op: 'eq', field: 'networkHidden', value: true } })).sql,
-    ).toContain('network_hidden =');
+    ).toBe('network_hidden is not true'); // S7-F9: an estimable form, null not hidden
   });
 
   it('[S7-F4] a minimum commission narrows the network branch only; the fallback compares the hidden column and skips unknown ones', () => {
@@ -189,6 +206,60 @@ describe('fallback filter → SQL', () => {
     // S6-F2: no page of the fallback is an SQL OFFSET (an engine cursor restarts at the first page instead).
     expect(first).not.toMatch(/\boffset\b/i);
     expect(nulls).not.toMatch(/\boffset\b/i);
+  });
+
+  it('[S7-F9] a filter that bounds the sort column has no null phase to scan (a price band sorted by price)', () => {
+    const band: Filter = { op: 'range', field: 'priceCents', gte: 1, lte: 2 };
+    const network: Filter = {
+      op: 'or',
+      filters: [
+        { op: 'eq', field: 'shareScope', value: 'ALL' },
+        { op: 'eq', field: 'preferredAgencyIds', value: ID },
+      ],
+    };
+    const base = { limit: 2, countCap: 1_000, sort: { field: 'priceCents', dir: 'asc' } } as const;
+    const bounded = render(fallbackSearchSql({ ...base, filter: { op: 'and', filters: [network, band] } })).sql;
+    expect(bounded).not.toContain('price_cents is null');
+    expect(bounded).toMatch(/1 as phase from "listing_search_docs"\s+where false/);
+    // A phase-1 cursor on such a filter (forged: none is ever issued) ends the results instead of failing.
+    const after = render(fallbackSearchSql({ ...base, filter: band, after: { phase: 1, value: null, id: ID } })).sql;
+    expect(after).toMatch(/where false/);
+    // Bounds that leave nulls possible keep the null phase: another field, an `or` with an unbounded branch, a `not`.
+    const unbounded: Filter[] = [
+      { op: 'range', field: 'beds', gte: 2 },
+      { op: 'or', filters: [band, network] },
+      { op: 'not', filter: band },
+    ];
+    for (const filter of unbounded) {
+      expect(render(fallbackSearchSql({ ...base, filter })).sql, JSON.stringify(filter)).toContain(
+        'price_cents is null',
+      );
+    }
+    expect(
+      requiresValue({ op: 'or', filters: [band, { op: 'in', field: 'priceCents', values: [5] }] }, 'priceCents'),
+    ).toBe(true);
+    expect(requiresValue({ op: 'geoBox', north: 1, south: 0, west: 0, east: 1 }, 'priceCents')).toBe(false);
+  });
+
+  it('[S7-F9] requiresValue holds because the compiler never matches a null on a range, eq or in', () => {
+    // `requiresValue` treats these three as "the column has a value"; the SQL they compile to must say so.
+    expect(render(fallbackCondition({ op: 'range', field: 'priceCents', gte: 1 })).sql).toMatch(
+      /^\(price_cents is not null and /,
+    );
+    expect(render(fallbackCondition({ op: 'range', field: 'areaM2', lte: 9 })).sql).toMatch(
+      /^\(area_m2 is not null and /,
+    );
+    expect(render(fallbackCondition({ op: 'eq', field: 'beds', value: 2 })).sql).toBe('beds = $1');
+    expect(render(fallbackCondition({ op: 'in', field: 'beds', values: [2, 3] })).sql).toBe(
+      'beds = any(array[$1, $2]::int[])',
+    );
+    for (const filter of [
+      { op: 'range', field: 'priceCents', gte: 1 },
+      { op: 'eq', field: 'priceCents', value: 1 },
+      { op: 'in', field: 'priceCents', values: [1] },
+    ] as Filter[]) {
+      expect(requiresValue(filter, 'priceCents')).toBe(true);
+    }
   });
 
   it('[S6-F2] gt (keyset walks of the engine) is refused by the fallback', () => {

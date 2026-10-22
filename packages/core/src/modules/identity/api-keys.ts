@@ -264,6 +264,11 @@ export interface ApiKeyRequest {
   origin: string | undefined;
   /** What the endpoint needs. */
   scope: ApiKeyScope;
+  /**
+   * Runs before a database lookup (the key is in no cache), and may throw to refuse it (S7-F9: `requireApiKey` refuses
+   * an IP whose failed checks are in the penalty box, so guessed keys cost no query).
+   */
+  beforeLookup?: () => Promise<void>;
 }
 
 /**
@@ -284,7 +289,10 @@ export async function authenticateApiKey(req: ApiKeyRequest): Promise<ApiKeyPrin
     apiKeyCacheKey(prefix),
     { ttlSeconds: API_KEYS.CACHE_TTL_SECONDS, localTtlSeconds: API_KEYS.CACHE_LOCAL_TTL_SECONDS, local: true },
     // `undefined` is never cached: misses always go to the database.
-    async () => (await withPublicRead((tx) => keysRepo.findUsableApiKeyByPrefix(tx, prefix))) ?? undefined,
+    async () => {
+      await req.beforeLookup?.();
+      return (await withPublicRead((tx) => keysRepo.findUsableApiKeyByPrefix(tx, prefix))) ?? undefined;
+    },
   );
   if (!row || !safeEqual(hashApiKey(req.key as string), row.keyHash)) throw new AppError('API_KEY_INVALID');
   const origin = req.origin?.trim().toLowerCase();

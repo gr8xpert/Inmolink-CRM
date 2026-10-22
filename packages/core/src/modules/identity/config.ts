@@ -89,6 +89,10 @@ export const API_KEYS = {
   },
   /** All keys of one agency together, per minute: extra keys do not multiply the ceiling. */
   AGENCY_RATE: { limit: 3_000, windowSeconds: 60 },
-  /** Failed key checks per client IP per minute before `requireApiKey` answers 429. */
-  FAILED_CHECKS_PER_IP: { limit: 60, windowSeconds: 60 },
+  /**
+   * Failed key checks per client IP per minute before `requireApiKey` answers 429. Past it the IP is in the penalty box
+   * for `penaltySeconds` (S7-F9): a key the cache does not know is then refused before the database lookup, so a flood
+   * of guessed keys costs no query (keyed website routes have no per-IP request limit any more).
+   */
+  FAILED_CHECKS_PER_IP: { limit: 60, windowSeconds: 60, penaltySeconds: 60 },
 } as const;

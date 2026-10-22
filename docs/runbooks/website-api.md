@@ -153,7 +153,8 @@ endpoint), **failed requests < 0.1 %** (anything but 200 / 304), **≥ 99 % of t
 900 s) and ≤ 1 % dropped. k6 exits 99 when a threshold fails. Profiles: `smoke` (local, 20 rps, 60 s), `staging`
 (1,000 rps, 15 min, origin — the acceptance profile: it refuses `RATE` / `DURATION` / `WARMUP` / `EDGE` / `P95_MS`
 overrides, and every other run's summary says "NOT the acceptance profile"), `spike` (2,000 rps through the CDN with
-`_k`; PLAN §15, not the acceptance check).
+`_k`; PLAN §15, not the acceptance check), `degraded` (S7-F9: the acceptance numbers with the search engine stopped —
+step 5b; it refuses overrides too).
 
 **No bypass.** The run goes through the real key check and limiter. `pnpm perf:load:setup` provisions one site and one
 **SECRET key on the HIGH tier** per scale-seed agency (members `…@s<seed>.scale.inmolink.test` only; never a real
@@ -201,8 +202,25 @@ hop, feed-api under tsx, leftover rows of other suites): the acceptance numbers 
    Watch Grafana while it runs: feed-api CPU and event-loop lag, PgBouncer waiting clients, Postgres CPU / connections,
    Meilisearch latency, the limits Redis, `WebsiteScrapingDetected` (must stay silent).
 4. Record the printed summary (rps held, error rate, p50 / p95 / p99 per scenario and endpoint, statements per
-   request) in the STATUS row of S7-08 and mark it DONE when every threshold held and the budget is ≤ 3. A failed threshold: the summary names it; fix and re-run.
+   request) in the STATUS row of S7-08 and mark it DONE when every threshold held and the budget is ≤ 3.
+   **Cold sitemap page (S7-F9):** on the same box, `WEBSITE_PERF_ROWS=2000000 pnpm test:perf:root` logs
+   `sitemapColdPageMs` (a never-read network sitemap page of 500, half-way down) — it must be **< 400 ms** (the origin
+   SLO, PLAN §4.2; locally 377–463 ms with 128 MB of shared buffers). Record it with the summary; over it, the deep
+   sitemap needs the code-index walk on cold data (S7-F10). A failed threshold: the summary names it; fix and re-run.
 5. Edge spike (optional, needs S7-06 live): `-e PROFILE=spike -e BASE_URL=https://feed.inmolink.es` (adds `_k`, reports
-   the edge hit rate). Degraded engine (S7-F9): the same run with Meilisearch stopped measures the Postgres fallback.
+   the edge hit rate).
+5b. **Degraded engine (S7-F9, PLAN §15 chaos drill "kill search → Postgres fallback serves"):** the acceptance run with
+   Meilisearch stopped, so every website search comes from the Postgres fallback (search runbook › *Fallback active*).
+   Keys from step 2 (still valid), the same data. Stop the engine on the search host (`docker stop` the `meilisearch`
+   container — stop, never remove: the index volume stays), wait until `SearchFallbackActive` fires (every feed-api
+   process's breaker open), reset `pg_stat_statements` (step 2b), then run step 3's command with
+   `-e PROFILE=degraded -e SUMMARY_FILE=/data/summary-degraded.json` (no other override: the profile refuses them).
+   Thresholds: S7-08's, unchanged, plus `search_degraded` > 99.9 % — every search answered `degraded: true`, so a run
+   where the engine still answered fails. Watch Postgres CPU, `listing_search_docs` statement times
+   (`pg_stat_statements`, none near the 2 s timeout) and PgBouncer waiting clients. **Start the engine again** right
+   after (`docker start`), check `/health` and that `SearchFallbackActive` resolves (each breaker closes within 30 s of
+   its next probe). Record the summary and statements per request in the STATUS row of S7-F9 and mark it DONE with
+   the 2M fallback check (`FALLBACK_PERF_ROWS=2000000 pnpm test:perf:root`, S5-04). Locally `pnpm perf:smoke` is this
+   run at a low rate (the fallback unless `--engine`; it passes `DEGRADED=1`).
 6. Clean up: `NODE_ENV=production DEPLOY_ENV=staging pnpm perf:load:setup --teardown --staging`, delete
    `/secure/website-keys.json`.

@@ -566,3 +566,65 @@ describe('website API extraction budgets (S7-F7)', () => {
     expect((await get('/v2/listings?limit=1', added)).statusCode).toBe(200);
   });
 });
+
+describe('website API per-IP limits (S7-F9)', () => {
+  it('[S7-F9] a HIGH-tier secret key at 50 rps from one server IP is not IP-throttled', async () => {
+    // A fresh hour and day: earlier tests' counters stay behind.
+    clock.advance(26 * 3_600_000);
+    const issued = await as((ctx) =>
+      identity.createApiKey(ctx, {
+        name: 'Busy server',
+        kind: 'SECRET',
+        scopes: ['listings:read', 'taxonomy:read'],
+        allowedOrigins: [],
+        siteId,
+      }),
+    );
+    await withSystem('feed-api.scrape.test', (tx) =>
+      identity.setApiKeyRateTier(
+        {
+          tx,
+          tenant: { agencyId: founder.agencyId, verified: true, plan: 'none', locales: ['en'] },
+          actor: { kind: 'system', reason: 'feed-api.test' },
+          locale: 'en',
+          requestId: newId(),
+          clientMode: false,
+        },
+        { keyIds: [issued.key.id], tier: 'HIGH', reason: 'feed-api.test' },
+      ),
+    );
+    // 1,500 requests in 30 s from one IP — over the old per-IP default (`feed.ip`, 1,200 / min) — all answered: the
+    // key's own limits govern it (HIGH tier 3,000 / min, burst 500 / 5 s), not the address.
+    const statuses = new Map<number, number>();
+    for (let i = 0; i < 1_500; i++) {
+      const res = await get(i % 10 === 9 ? '/v2/taxonomy/locations' : '/v2/listings?limit=1', issued.secret, {
+        ip: '203.0.113.50',
+      });
+      statuses.set(res.statusCode, (statuses.get(res.statusCode) ?? 0) + 1);
+      clock.advance(20);
+    }
+    expect(Object.fromEntries(statuses)).toEqual({ 200: 1_500 });
+  }, 300_000);
+
+  it('[S7-F9] an unauthenticated flood from one IP is still throttled, and then costs no key lookup', async () => {
+    clock.advance(3_600_000);
+    const ip = '203.0.113.66';
+    const b32 = 'abcdefghijklmnopqrstuvwxyz234567';
+    const guessed = (i: number) =>
+      `inl_test_sk${Array.from({ length: 10 }, (_, k) => b32[Math.floor(i / 32 ** k) % 32]).join('')}_${'a'.repeat(52)}`;
+    const statuses: number[] = [];
+    for (let i = 0; i < 80; i++) {
+      // No key, a malformed one, or a well-formed key nobody issued (a database lookup each, until the penalty).
+      const key = i % 3 === 0 ? '' : i % 3 === 1 ? 'inl_test_nope' : guessed(i);
+      statuses.push((await get('/v2/listings?limit=1', key, { ip })).statusCode);
+    }
+    expect(statuses.slice(0, 60).every((s) => s === 401)).toBe(true);
+    expect(statuses.slice(60).every((s) => s === 429)).toBe(true);
+    // In the penalty box a guessed key is refused before the lookup (429, scope ip), even under the count.
+    const penalized = await get('/v2/listings?limit=1', guessed(999), { ip });
+    expect(penalized.statusCode).toBe(429);
+    expect(penalized.json().error).toMatchObject({ code: 'RATE_LIMITED', details: { scope: 'ip' } });
+    // Another address is not affected.
+    expect((await get('/v2/listings?limit=1', guessed(1_000), { ip: '203.0.113.67' })).statusCode).toBe(401);
+  });
+});

@@ -335,6 +335,94 @@ it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or
   }
 }, 600_000);
 
+/**
+ * S7-F9: the shapes a network site sends with a price band and a price sort (the S7-08 perf audit's Seq Scan), and the
+ * other nullable sorts with a minimum — network only (CUSTOM), own + network (OWN_PLUS_NETWORK) and network-wide, both
+ * directions, first and next pages. Each matches far more than the count's cap, so the index-ordered branches run.
+ */
+function networkBandShapes(): { name: string; shape: Shape }[] {
+  const self = agency(17);
+  const sites: [string, search.PublicSearchSite][] = [
+    ['network', { ownerAgencyIds: [], networkOf: self, requestId: 'perf' }],
+    ['own+network', { ownerAgencyIds: [self], networkOf: self, requestId: 'perf' }],
+    ['network-wide', { ownerAgencyIds: null, requestId: 'perf' }],
+  ];
+  const queries: [string, PublicListingSearch][] = [
+    ['band price_asc', { locale: 'en', priceMinCents: 30_000_000, priceMaxCents: 60_000_000, sort: 'price_asc' }],
+    ['band price_desc', { locale: 'en', priceMinCents: 30_000_000, priceMaxCents: 60_000_000, sort: 'price_desc' }],
+    ['floor price_asc', { locale: 'en', priceMinCents: 50_000_000, sort: 'price_asc' }],
+    ['ceiling price_desc', { locale: 'en', priceMaxCents: 20_000_000, sort: 'price_desc' }],
+    ['price_asc', { locale: 'en', sort: 'price_asc' }],
+    ['beds 3+ beds_desc', { locale: 'en', bedsMin: 3, sort: 'beds_desc' }],
+    ['area band area_desc', { locale: 'en', areaMinM2: 100, areaMaxM2: 200, sort: 'area_desc' }],
+    // A bound on another column than the sort: the null phase stays (rows without a price, 3+ bedrooms), walked on
+    // `price_idx`'s null entries in id order. (An area band sorted by price is S7-F10: `numeric` comparisons are not
+    // leakproof, so under the table's `global_read` policy the planner has no statistics for them.)
+    ['beds 3+ price_asc', { locale: 'en', bedsMin: 3, sort: 'price_asc' }],
+  ];
+  return sites.flatMap(([s, site]) => queries.map(([n, q]) => ({ name: `${s} · ${n}`, shape: { site, q } })));
+}
+
+/** Rows any one scan node of `listing_search_docs` read (returned + removed by its filter), the largest. */
+function widestScan(plan: string): { rows: number; line: string } {
+  const lines = plan.split('\n');
+  let widest = { rows: 0, line: '' };
+  lines.forEach((line, n) => {
+    if (!/Scan.* on listing_search_docs/.test(line) || /Bitmap Index Scan/.test(line)) return;
+    const rows = Number(/rows=([\d.]+)/.exec(line)?.[1] ?? 0);
+    const removedLine = lines.slice(n + 1, n + 4).find((l) => /Rows Removed by Filter/.test(l)) ?? '';
+    const removed = Number(/Rows Removed by Filter: (\d+)/.exec(removedLine)?.[1] ?? 0);
+    if (rows + removed > widest.rows) widest = { rows: rows + removed, line: line.trim() };
+  });
+  return widest;
+}
+
+it('[S7-F9] network site + price band + price sort (and every nullable sort with a bound): index-driven, no table scan, p95 < 150 ms', async () => {
+  const shapes = networkBandShapes();
+  const summary: Record<string, { p95: number; widest: number; ms: number }> = {};
+  for (const { name, shape } of shapes) {
+    // Page 1 and the page after it: the keyset continues on the index.
+    const first = await run(shape);
+    expect(first.backend, name).toBe('fallback');
+    expect(first.ids.length, name).toBeGreaterThan(0);
+    const pages: Shape[] = [shape, { ...shape, q: { ...shape.q, cursor: first.nextCursor ?? undefined } }];
+    const times: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const page = pages[i % 2] as Shape;
+      const started = performance.now();
+      await run(page);
+      times.push(performance.now() - started);
+    }
+    // The plan under production's planner costs (Ansible `random_page_cost = 1.1`; the container default is 4).
+    let widest = { rows: 0, line: '' };
+    let ms = 0;
+    for (const page of pages) {
+      const statement = search.publicFallbackSql(page.site, page.q);
+      if (!statement) throw new Error(`${name}: no statement`);
+      const { rows } = await withPublicRead(async (tx) => {
+        await tx.execute(sql`set local random_page_cost = 1.1`);
+        return tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`);
+      });
+      const plan = rows.map((r) => String(Object.values(r)[0])).join('\n');
+      const w = widestScan(plan);
+      if (w.rows > widest.rows) widest = w;
+      ms = Math.max(ms, Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]));
+      // The null phase of a sort the filter bounds is a constant false: never a scan (the audit's 502k-row id walk);
+      // a sort the filter does not bound keeps it (and the widest-scan bound below still holds for it).
+      if (search.publicFallbackBoundsSort(page.site, page.q)) {
+        expect(plan, `${name}: null phase`).toMatch(/One-Time Filter: false/);
+      } else {
+        expect(plan, `${name}: null phase kept`).not.toMatch(/One-Time Filter: false/);
+      }
+    }
+    summary[name] = { p95: Math.round(p95(times) * 10) / 10, widest: widest.rows, ms };
+    // Every scan stops early: an index walk to `limit + 1` matches or the count's cap, never the table.
+    expect(widest.rows, `${name}: ${widest.line}`).toBeLessThanOrEqual(SEQ_SCAN_MAX_ROWS);
+    expect(p95(times), name).toBeLessThan(SHAPE_P95_BUDGET_MS);
+  }
+  log.info({ rows: ROWS, summary }, '[S7-F9] network band shapes (p95 ms, widest scan rows, slowest EXPLAIN ms)');
+}, 600_000);
+
 it('[S6-F3] with the engine answering in 200 ms, website search stays within feed-api p95 150 ms at scale', async () => {
   // An engine that answers every query, 200 ms late (configured timing: slow 80 ms, timeout 100 ms).
   search.configureWebsiteSearch({});

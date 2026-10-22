@@ -943,17 +943,20 @@ Ref §4.2 §15 · Mod search · Dep S5-04, S7-08 · ⚡
 - Every fallback shape is index-driven (no Seq Scan) with p95 < 150 ms at 2M rows (staging, with S5-04)
 - The degraded-engine load run holds the S7-08 thresholds
 
-### S7-F10 · Import query shapes, staff health rollup and search tuning (split from S7-F3)
-Ref §5.3 (7) §15 · Mod imports, taxonomy, search, web · Dep S7-F3 · part [H4] · ⚡
+### S7-F10 · Import query shapes, staff health rollup and search tuning (split from S7-F3; fallback tails from the S7-F9 perf review)
+Ref §5.3 (7) §15 · Mod imports, taxonomy, search, web · Dep S7-F3 S7-F9 · part [H4] · ⚡
 **Build:**
 - Taxonomy resolution in the loader: one statement per level for all (parent, text) pairs (`unnest`), plus a per-run negative cache so unmatched values are resolved and queued once per run, not once per batch (`imports/load.ts` `RunResolver`, `taxonomy.resolveAndQueue`).
 - The staff import health window aggregates (`imports/health.ts`) read an hourly rollup, or the scheduler tick's metrics. EXPLAIN on a 300k-run seed.
 - S6-F3 degraded path (engine slow, breaker closed: 151–254 ms): lower `SEARCH_SLOW_MS` to about 50, scale `SEARCH_BREAKER_MIN_CALLS` with traffic, and recheck on the staging box (H4).
 - `pnpm perf:bundle` for `/imports/mapper` and `/staff/imports` after a fresh build.
+- **Fallback tails (S7-F9 perf review):** (1) `[S5-04]` shape 13 (own + network + city + minimum commission 3 %, newest) runs 24–31 ms warm against the 20 ms SQL budget (≈ 60–120 ms at 2M): `search_commission_at_least` is called per candidate row — pre-filter by commission (e.g. the commission in a narrow definer-readable table joined first, or a composite index) so the SECURITY DEFINER call is not per row; (2) add a selective network shape (network + type + baths + price band, < 1,000 matches: a BitmapAnd at 20–25 ms warm) to `tests/perf/search-fallback.int.test.ts` and fix it with (1); (3) `developmentsCommission` in `tests/perf/website-api.int.test.ts` (120–165 ms p95, a per-row definer call per development): re-measure and fix with (1).
+- **Staging notes (H4, with S7-F9):** confirm "no unbounded scan" for every fallback shape at 2M on a seed with realistic agency clustering (listings grouped by agency and area, not hashed), and measure cold `m` reads (~520 ms cold at `random_page_cost` 1.1 locally).
 **Done when:**
 - A 20k-listing run resolves each level of its locations in one statement per batch, and an unmatched value is queued once per run (query-count test)
 - The staff health endpoint stays ≤ 10 queries and p95 < 300 ms on a 300k-run seed (EXPLAIN in STATUS, no Seq Scan)
 - The degraded-engine path answers p95 < 150 ms on staging [H4]; both dashboard routes within their first-load budget
+- Shape 13 and the selective network shape meet the 20 ms SQL budget warm at 500k rows, `developmentsCommission` p95 < 100 ms locally; at 2M on staging every fallback shape is index-driven with clustered data and its cold `m` read is recorded [H4]
 
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]

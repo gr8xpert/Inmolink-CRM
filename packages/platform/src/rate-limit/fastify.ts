@@ -4,7 +4,10 @@ import { assertRule, type RateLimiter, type RateLimitResult, type RateLimitRule,
 
 declare module 'fastify' {
   interface FastifyContextConfig {
-    /** Rules for this route; replaces the plugin defaults. `false` turns limits off (health checks only). */
+    /**
+     * Rules for this route; replaces the plugin defaults. `false` turns the plugin's limits off: health checks, and
+     * routes whose auth hook applies its own limits (feed-api's keyed website routes, `KEYED_ROUTE_LIMITS`).
+     */
     rateLimit?: readonly RateLimitRule[] | false;
   }
 }

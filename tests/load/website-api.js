@@ -3,8 +3,9 @@
 //   k6 run -e BASE_URL=https://feed-origin.staging.example -e PROFILE=staging -e KEYS_FILE=keys.json website-api.js
 //
 // Env: BASE_URL (origin, or the CDN host with EDGE=1), KEYS_FILE (written by `pnpm perf:load:setup`), PROFILE
-// (smoke | staging | spike), RATE, DURATION (s), WARMUP (s), EDGE (1: `_k` on every request, report edge hits),
-// P95_MS, SUMMARY_FILE (k6's summary as JSON). Runbook: docs/runbooks/website-api.md › Load test.
+// (smoke | staging | spike | degraded), RATE, DURATION (s), WARMUP (s), EDGE (1: `_k` on every request, report edge
+// hits), P95_MS, DEGRADED (1: the search engine is stopped — every search must come from the Postgres fallback),
+// SUMMARY_FILE (k6's summary as JSON). Runbook: docs/runbooks/website-api.md › Load test.
 import { check } from 'k6';
 import crypto from 'k6/crypto';
 import exec from 'k6/execution';
@@ -12,6 +13,7 @@ import http from 'k6/http';
 import { Rate } from 'k6/metrics';
 import {
   cumulative,
+  DEGRADED_METRIC,
   detailRequest,
   edgeToken,
   keysNeeded,
@@ -49,6 +51,8 @@ export const options = {
 };
 
 const edgeHits = new Rate('edge_hits');
+/** Searches answered by the Postgres fallback (`degraded: true`, S7-F9); a threshold in the degraded profile. */
+const searchDegraded = new Rate(DEGRADED_METRIC);
 const rng = Math.random;
 let failuresLogged = 0;
 
@@ -65,9 +69,19 @@ function get(site, path, endpoint, body = false) {
   const cache = res.headers['Cf-Cache-Status'];
   if (profile.edge) edgeHits.add(cache === 'HIT' || cache === 'STALE' || cache === 'REVALIDATED');
   if (res.status !== 200 && res.status !== 304 && failuresLogged < 5) {
-    // A few per VU, so a failing run says which endpoint and status without flooding the output.
+    // A few per VU, so a failing run says which endpoint and status without flooding the output; a 429 names the
+    // limit's scope (S7-F9: ip, key, tenant, browser) and its code (RATE_LIMITED or QUOTA_EXCEEDED).
     failuresLogged++;
-    console.warn(`${endpoint} ${res.status} ${res.headers['X-Request-Id'] ?? ''} ${path.slice(0, 160)}`);
+    let limit = '';
+    if (res.status === 429) {
+      try {
+        const err = JSON.parse(String(res.body ?? '{}')).error ?? {};
+        limit = ` ${err.code ?? ''} scope=${err.details?.scope ?? '?'}`;
+      } catch {
+        limit = ' (no JSON body)';
+      }
+    }
+    console.warn(`${endpoint} ${res.status}${limit} ${res.headers['X-Request-Id'] ?? ''} ${path.slice(0, 160)}`);
   }
   check(res, {
     'status 200 or 304': (r) => r.status === 200 || r.status === 304,
@@ -173,6 +187,15 @@ export function search(d) {
   const own = session && session.siteId === site.siteId ? session : undefined;
   const r = searchRequest(rng, pool, own);
   const res = get(site, r.path, r.endpoint, true);
+  if (res.status === 200) {
+    let degraded = false;
+    try {
+      degraded = res.json('degraded') === true;
+    } catch {
+      // not JSON: counted as not degraded
+    }
+    searchDegraded.add(degraded);
+  }
   const next = nextCursorOf(res);
   if (r.query) {
     const started = startSession(rng, r.query, next);

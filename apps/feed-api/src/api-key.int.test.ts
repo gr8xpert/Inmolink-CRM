@@ -23,7 +23,19 @@ function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
   return {
     consume,
     credit: async () => undefined,
-    consumeMany: (checks: readonly { rule: RateLimitRule }[]) => Promise.all(checks.map((c) => consume(c.rule))),
+    // S7-F9: a peek (the failed-checks penalty, before a key lookup) reads the rule without counting it.
+    consumeMany: (checks: readonly { rule: RateLimitRule; peek?: boolean }[]) =>
+      Promise.all(
+        checks.map((c) =>
+          c.peek
+            ? Promise.resolve(
+                deny.has(c.rule.name)
+                  ? { allowed: false, limit: c.rule.limit, remaining: 0, retryAfterSeconds: 7, resetAtMs: 0 }
+                  : { allowed: true, limit: c.rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 },
+              )
+            : consume(c.rule),
+        ),
+      ),
   } as unknown as RateLimiter;
 }
 

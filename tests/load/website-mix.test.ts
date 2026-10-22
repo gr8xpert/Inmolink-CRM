@@ -8,11 +8,12 @@ import {
 } from '@inmolink/contracts';
 import * as search from '@inmolink/core/modules/search';
 import { describe, expect, it } from 'vitest';
-import { edgeKeyToken } from '../../apps/feed-api/src/plugins/api-key';
+import { edgeKeyToken, KEYED_ROUTE_LIMITS } from '../../apps/feed-api/src/plugins/api-key';
 import { assertLoadTarget, loadKeyLimits } from '../../scripts/perf/load-sites';
 import {
   CHANGE_LOG_RETENTION_DAYS,
   cumulative,
+  DEGRADED_METRIC,
   detailRequest,
   edgeToken,
   KEY_HEADROOM,
@@ -103,6 +104,30 @@ describe('website API load test (S7-08)', () => {
     expect(summaryText(empty, smoke)).toContain('NOT the acceptance profile');
   });
 
+  it('[S7-F9] degraded-engine profile: the S7-08 rate, length and thresholds, and every search from the fallback', () => {
+    const d = resolveProfile({ PROFILE: 'degraded' });
+    const { degraded: _, ...staging } = PROFILES.staging;
+    expect(d).toMatchObject({ ...staging, degraded: true, name: 'degraded' });
+    const t = thresholds(d);
+    // The S7-08 acceptance thresholds, unchanged, plus the proof that the engine was stopped.
+    expect(t).toEqual({ ...thresholds(PROFILES.staging), [`${DEGRADED_METRIC}{phase:steady}`]: ['rate>0.999'] });
+    expect(thresholds(PROFILES.staging)[`${DEGRADED_METRIC}{phase:steady}`]).toBeUndefined();
+    // Its numbers are an acceptance check too: no overrides; a local smoke on the fallback opts in with DEGRADED=1.
+    expect(() => resolveProfile({ PROFILE: 'degraded', RATE: '20' })).toThrow(/acceptance check: no RATE/);
+    expect(() => resolveProfile({ PROFILE: 'staging', DEGRADED: '1' })).toThrow(/DEGRADED/);
+    expect(resolveProfile({ PROFILE: 'smoke', DEGRADED: '1' }).degraded).toBe(true);
+    expect(resolveProfile({ PROFILE: 'smoke' }).degraded).toBe(false);
+    const run: SummaryData = {
+      metrics: {
+        [`${DEGRADED_METRIC}{phase:steady}`]: { values: { rate: 1 }, thresholds: { 'rate>0.999': { ok: true } } },
+      },
+    };
+    expect(summaryReport(run, d)).toMatchObject({ degradedRate: 1, pass: true });
+    expect(summaryText(run, d)).toContain('search engine stopped');
+    expect(summaryText(run, d)).toContain('(the degraded-engine acceptance profile, S7-F9)');
+    expect(summaryText(run, PROFILES.staging)).toContain('(the acceptance profile)');
+  });
+
   it('[S7-08] load-test keys are enough that no limit trips at the target rate (no bypass)', () => {
     const limits = loadKeyLimits();
     expect(limits).toMatchObject({ perKeyPerMinute: 3_000, agencyPerMinute: 3_000, burst: 500, dailyQuota: 1_000_000 });
@@ -116,6 +141,20 @@ describe('website API load test (S7-08)', () => {
     expect(perKey * seconds).toBeLessThanOrEqual(KEY_HEADROOM * limits.dailyQuota);
     // A day-long soak at half the rate is bound by the daily quota instead.
     expect(keysNeeded(500, 86_400, limits)).toBe(Math.ceil((500 * 86_400) / (0.8 * 1_000_000)));
+  });
+
+  it('[S7-F9] the per-IP limit is in the key sizing: none on keyed routes, and one IP cannot carry what it would refuse', () => {
+    // feed-api's keyed website routes take no per-IP plugin rule; the sizing says so, and would refuse a rate the
+    // generator's one IP could not send if they ever got one back.
+    expect(KEYED_ROUTE_LIMITS).toBe(false);
+    const limits = loadKeyLimits();
+    expect(limits.ipPerMinute).toBeNull();
+    expect(keysNeeded(SLO.rps, 900, limits)).toBe(25);
+    const capped = { ...limits, ipPerMinute: 1_200 };
+    // 1,200 / min: 16 rps at 80 % — the S7-08 smoke's 20 rps already passes it, whatever the number of keys.
+    expect(() => keysNeeded(16, 60, capped)).not.toThrow();
+    expect(() => keysNeeded(20, 60, capped)).toThrow(/per-IP limit/);
+    expect(() => maxKeyShare(100, 60, capped)).toThrow(/more keys do not help/);
   });
 
   it('[S7-08] load-test keys are never created in production', () => {

@@ -200,6 +200,9 @@ try {
     `RATE=${rate}`,
     '-e',
     `DURATION=${duration}`,
+    // S7-F9: on the fallback (no --engine) every search must say `degraded` — the degraded-engine run, locally.
+    '-e',
+    `DEGRADED=${values.engine ? '0' : '1'}`,
     '-e',
     'KEYS_FILE=/load/.data/website-keys.json',
     '-e',
@@ -211,7 +214,7 @@ try {
   ]);
   if (!existsSync(join(DATA_DIR, summaryFile))) throw new Error(`k6 exited ${code} without a summary`);
   const summary = JSON.parse(readFileSync(join(DATA_DIR, summaryFile), 'utf8')) as SummaryData;
-  const report = summaryReport(summary, { ...PROFILES.smoke, rate, seconds: duration });
+  const report = summaryReport(summary, { ...PROFILES.smoke, rate, seconds: duration, degraded: !values.engine });
   // Query budget (feed-api ≤ 3 statements per request): every statement feed-api ran (role app_public, transaction
   // control and settings left out) over every request k6 sent, setup and warm-up included.
   const statements = (await appPublicStatements()) - before;

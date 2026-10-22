@@ -430,6 +430,10 @@ it('[S7-03] each website API v2 endpoint answers within 3 queries and p95 < 150 
     const times: number[] = [];
     let bytes = 0;
     let items = 0;
+    // S7-F9: the five deep sitemap pages are measured warm, as their comment says. The warm-up above read only three of
+    // them, and the endpoints measured in between evict them from the 128 MB of shared buffers, so 5 of the 50 reads
+    // (10 %) were first reads and the p95 was a cold page (316–487 ms; `sitemapColdPageMs` 407–463 ms) — not the plan.
+    if (name === 'sitemapDeep') for (let i = 0; i < 5; i++) await get(key, url(100 + i));
     for (let i = 0; i < REQUESTS; i++) {
       const started = performance.now();
       const res = await get(key, url(100 + i));

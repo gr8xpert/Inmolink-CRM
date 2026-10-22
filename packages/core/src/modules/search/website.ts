@@ -709,6 +709,19 @@ export function publicFallbackSql(
   return query ? repo.fallbackSearchSql(query) : null;
 }
 
+/**
+ * Whether this search's filter bounds its sort column (S7-F9, `repo.requiresValue`): the fallback then has no null
+ * phase to read. Perf tests pick their plan expectation with it (not for request paths).
+ */
+export function publicFallbackBoundsSort(
+  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
+  input: PublicListingSearch,
+): boolean {
+  const q = PublicListingSearch.parse(input);
+  const query = fallbackQuery(site, q, publicSearchFilter(site, q), decode(q.cursor, q.sort));
+  return query !== null && repo.requiresValue(query.filter, query.sort.field);
+}
+
 /** The engine's answer, or a timeout error after `ms` (`SEARCH_ENGINE_TIMEOUT_MS`, whatever the adapter does). */
 function deadline<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;

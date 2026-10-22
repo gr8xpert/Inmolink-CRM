@@ -20,6 +20,11 @@ export interface Profile {
   warmupSeconds: number;
   /** Through the CDN with the `_k` edge token (S7-06), instead of origin only. */
   edge: boolean;
+  /**
+   * Search engine stopped (S7-F9): every website search must be answered by the Postgres fallback (`degraded: true`
+   * in `/v2/listings`) — a threshold, so a run where the engine still answered cannot pass as a degraded-engine run.
+   */
+  degraded: boolean;
   p95Ms: number;
   errorRate: number;
   preAllocatedVUs: number;
@@ -30,6 +35,8 @@ export interface Profile {
  * - `smoke`: `pnpm perf:smoke` — a 60-second local run at a low rate against the local scale seed.
  * - `staging`: the acceptance run (H4) — 1,000 rps at origin for 15 minutes.
  * - `spike`: PLAN §15's 2,000 rps through the edge (CDN in front, `_k` on every request); not the acceptance check.
+ * - `degraded`: S7-F9 — the acceptance run's rate, length and thresholds with Meilisearch stopped (circuit open): website
+ *   search from the Postgres fallback (PLAN §15 chaos drill "kill search → Postgres fallback serves").
  */
 export const PROFILES = {
   smoke: {
@@ -37,6 +44,7 @@ export const PROFILES = {
     seconds: 60,
     warmupSeconds: 10,
     edge: false,
+    degraded: false,
     p95Ms: SLO.p95Ms,
     errorRate: SLO.errorRate,
     preAllocatedVUs: 10,
@@ -47,6 +55,18 @@ export const PROFILES = {
     seconds: SLO.seconds,
     warmupSeconds: 120,
     edge: false,
+    degraded: false,
+    p95Ms: SLO.p95Ms,
+    errorRate: SLO.errorRate,
+    preAllocatedVUs: 400,
+    maxVUs: 2_000,
+  },
+  degraded: {
+    rate: SLO.rps,
+    seconds: SLO.seconds,
+    warmupSeconds: 120,
+    edge: false,
+    degraded: true,
     p95Ms: SLO.p95Ms,
     errorRate: SLO.errorRate,
     preAllocatedVUs: 400,
@@ -57,6 +77,7 @@ export const PROFILES = {
     seconds: 5 * 60,
     warmupSeconds: 60,
     edge: true,
+    degraded: false,
     p95Ms: SLO.p95Ms,
     errorRate: SLO.errorRate,
     preAllocatedVUs: 400,
@@ -74,18 +95,21 @@ const positive = (name: string, v: string | undefined): number | undefined => {
 
 /** The profile that is the acceptance check (S7-08): it takes no overrides. */
 export const ACCEPTANCE_PROFILE: ProfileName = 'staging';
-const OVERRIDES = ['RATE', 'DURATION', 'WARMUP', 'EDGE', 'P95_MS'] as const;
+/** Profiles whose numbers are an acceptance check (S7-08; S7-F9's degraded-engine run): no overrides. */
+const FIXED_PROFILES: ReadonlySet<ProfileName> = new Set([ACCEPTANCE_PROFILE, 'degraded']);
+const OVERRIDES = ['RATE', 'DURATION', 'WARMUP', 'EDGE', 'P95_MS', 'DEGRADED'] as const;
 
 /**
- * The profile named by `PROFILE` (default smoke), with `RATE`, `DURATION` (s), `WARMUP` (s), `EDGE`, `P95_MS` overrides
- * — except the acceptance profile, which refuses them (its numbers are the acceptance check).
+ * The profile named by `PROFILE` (default smoke), with `RATE`, `DURATION` (s), `WARMUP` (s), `EDGE`, `P95_MS` and
+ * `DEGRADED` (1: expect the engine stopped, e.g. `pnpm perf:smoke` on the fallback) overrides — except the acceptance
+ * profiles, which refuse them (their numbers are the acceptance check).
  */
 export function resolveProfile(env: Record<string, string | undefined>): Profile & { name: ProfileName } {
   const name = (env.PROFILE ?? 'smoke') as ProfileName;
   const base: Profile | undefined = PROFILES[name];
   if (!base) throw new Error(`PROFILE must be one of ${Object.keys(PROFILES).join(', ')}`);
   const overridden = OVERRIDES.filter((k) => env[k] !== undefined && env[k] !== '');
-  if (name === ACCEPTANCE_PROFILE && overridden.length > 0) {
+  if (FIXED_PROFILES.has(name) && overridden.length > 0) {
     throw new Error(`PROFILE=${name} is the acceptance check: no ${overridden.join(', ')} override`);
   }
   const rate = positive('RATE', env.RATE) ?? base.rate;
@@ -96,6 +120,7 @@ export function resolveProfile(env: Record<string, string | undefined>): Profile
     seconds: positive('DURATION', env.DURATION) ?? base.seconds,
     warmupSeconds: env.WARMUP === '0' ? 0 : (positive('WARMUP', env.WARMUP) ?? base.warmupSeconds),
     edge: env.EDGE === undefined || env.EDGE === '' ? base.edge : env.EDGE === '1',
+    degraded: env.DEGRADED === undefined || env.DEGRADED === '' ? base.degraded : env.DEGRADED === '1',
     p95Ms: positive('P95_MS', env.P95_MS) ?? base.p95Ms,
     // Little's law with headroom: rate × 0.2 s in flight, at least the profile's own.
     preAllocatedVUs: Math.max(base.preAllocatedVUs, Math.ceil(rate * 0.2)),
@@ -142,6 +167,9 @@ export function scenarios(p: Profile): Record<string, Record<string, unknown>> {
   return out;
 }
 
+/** Share of steady-phase searches answered `degraded: true` (the Postgres fallback), recorded in every run (S7-F9). */
+export const DEGRADED_METRIC = 'search_degraded';
+
 /** Endpoint tags of the mix (per-endpoint p95 in the summary). */
 export const ENDPOINTS = [
   'search_first',
@@ -171,6 +199,8 @@ export function thresholds(p: Profile): Record<string, string[]> {
   };
   for (const s of Object.keys(MIX)) t[`http_req_duration{scenario:${s}}`] = [`p(95)<${p.p95Ms}`];
   for (const e of ENDPOINTS) t[`http_req_duration{phase:steady,endpoint:${e}}`] = [`p(95)<${p.p95Ms}`];
+  // S7-F9: a degraded-engine run proves the fallback answered (a search answered by the engine fails it).
+  if (p.degraded) t[`${DEGRADED_METRIC}${steady}`] = ['rate>0.999'];
   return t;
 }
 
@@ -185,13 +215,29 @@ export interface KeyLimits {
   burstWindowSeconds: number;
   /** Per key per UTC day. */
   dailyQuota: number;
+  /**
+   * Per client IP per minute on the keyed website routes (S7-F9): the load generator sends everything from one IP, so
+   * the whole rate counts against it and more keys do not help. Null: none — feed-api's keyed routes are limited by key,
+   * agency and browser only (`KEYED_ROUTE_LIMITS`); the per-IP rule left counts failed key checks only.
+   */
+  ipPerMinute: number | null;
 }
 
 /** Headroom under every limit: a key never runs above 80 % of one (random picks still cluster a little). */
 export const KEY_HEADROOM = 0.8;
 
-/** The largest share of the rate one key may carry without passing 80 % of a limit. */
+/** The rate one client IP can send within 80 % of the per-IP limit (S7-F9); throws when the whole rate cannot. */
+export function assertIpHeadroom(rate: number, l: KeyLimits): void {
+  if (l.ipPerMinute !== null && rate > (KEY_HEADROOM * l.ipPerMinute) / 60) {
+    throw new Error(
+      `${rate} rps from one load-generator IP is over 80 % of the per-IP limit (${l.ipPerMinute} / min): more keys do not help`,
+    );
+  }
+}
+
+/** The largest share of the rate one key may carry without passing 80 % of a limit (the per-IP limit checked first). */
 export function maxKeyShare(rate: number, seconds: number, l: KeyLimits): number {
+  assertIpHeadroom(rate, l);
   const perSecond = Math.min(Math.min(l.perKeyPerMinute, l.agencyPerMinute) / 60, l.burst / l.burstWindowSeconds);
   return Math.min(1, (KEY_HEADROOM * perSecond) / rate, (KEY_HEADROOM * l.dailyQuota) / (rate * seconds));
 }
@@ -243,6 +289,7 @@ export function pickWeighted(rng: Rng, cum: readonly number[]): number {
  * runs through the real limiter, as production traffic does.
  */
 export function keysNeeded(rate: number, seconds: number, l: KeyLimits): number {
+  assertIpHeadroom(rate, l);
   const perMinute = Math.min(l.perKeyPerMinute, l.agencyPerMinute) / 60;
   const perSecondBurst = l.burst / l.burstWindowSeconds;
   const byRate = rate / (KEY_HEADROOM * Math.min(perMinute, perSecondBurst));
@@ -468,12 +515,20 @@ export function summaryReport(data: SummaryData, p: Profile) {
       .map(([expr]) => `${name} ${expr}`),
   );
   return {
-    target: { rps: p.rate, seconds: p.seconds, edge: p.edge, p95Ms: p.p95Ms, errorRate: p.errorRate },
+    target: {
+      rps: p.rate,
+      seconds: p.seconds,
+      edge: p.edge,
+      degraded: p.degraded,
+      p95Ms: p.p95Ms,
+      errorRate: p.errorRate,
+    },
     requests,
     rps: Math.round((requests / p.seconds) * 10) / 10,
     errorRate: failed,
     dropped: m['dropped_iterations{phase:steady}']?.values.count ?? 0,
     edgeHitRate: m.edge_hits?.values.rate ?? null,
+    degradedRate: m[`${DEGRADED_METRIC}{phase:steady}`]?.values.rate ?? null,
     rows,
     failedThresholds,
     pass: failedThresholds.length === 0,
@@ -484,18 +539,23 @@ export function summaryReport(data: SummaryData, p: Profile) {
 export function summaryText(data: SummaryData, p: Profile): string {
   const r = summaryReport(data, p);
   const n = (v: number | null) => (v === null ? '     -' : v.toFixed(1).padStart(6));
-  const a = PROFILES[ACCEPTANCE_PROFILE];
-  const acceptance =
+  const same = (a: Profile) =>
     p.rate === a.rate &&
     p.seconds === a.seconds &&
     p.edge === a.edge &&
+    p.degraded === a.degraded &&
     p.p95Ms === a.p95Ms &&
     p.errorRate === a.errorRate;
+  const label = same(PROFILES[ACCEPTANCE_PROFILE])
+    ? ' (the acceptance profile)'
+    : same(PROFILES.degraded)
+      ? ' (the degraded-engine acceptance profile, S7-F9)'
+      : ' — NOT the acceptance profile';
   const lines = [
-    `website API load test — ${r.target.edge ? 'edge' : 'origin'}, target ${r.target.rps} rps for ${r.target.seconds} s` +
-      (acceptance ? ' (the acceptance profile)' : ' — NOT the acceptance profile'),
+    `website API load test — ${r.target.edge ? 'edge' : 'origin'}${r.target.degraded ? ', search engine stopped' : ''}, target ${r.target.rps} rps for ${r.target.seconds} s${label}`,
     `  sent ${r.requests} requests in the steady phase = ${r.rps} rps; errors ${(r.errorRate * 100).toFixed(3)} %; dropped ${r.dropped}` +
-      (r.edgeHitRate === null ? '' : `; edge hits ${(r.edgeHitRate * 100).toFixed(1)} %`),
+      (r.edgeHitRate === null ? '' : `; edge hits ${(r.edgeHitRate * 100).toFixed(1)} %`) +
+      (r.degradedRate === null ? '' : `; searches from the fallback ${(r.degradedRate * 100).toFixed(1)} %`),
     '  latency ms              p50     p95     p99',
     ...r.rows.map((x) => `  ${x.name.padEnd(20)} ${n(x.p50)}  ${n(x.p95)}  ${n(x.p99)}`),
     r.pass ? '  PASS: every threshold held' : `  FAIL: ${r.failedThresholds.join('; ')}`,

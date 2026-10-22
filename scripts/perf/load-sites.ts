@@ -30,6 +30,9 @@ export function loadKeyLimits(): KeyLimits {
     burst: l.burst[LOAD_TIER],
     burstWindowSeconds: l.burstWindowSeconds,
     dailyQuota: l.dailyQuota[LOAD_TIER],
+    // S7-F9: feed-api's keyed website routes have no per-IP request limit (`KEYED_ROUTE_LIMITS`; a site's server calls
+    // from one IP); only failed key checks count per IP. Pinned by `tests/load/website-mix.test.ts`.
+    ipPerMinute: null,
   };
 }
 

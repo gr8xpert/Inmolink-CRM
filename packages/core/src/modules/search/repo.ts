@@ -18,7 +18,7 @@ import {
 } from '@inmolink/db/schema/search';
 import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
-import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
 import type { BuiltDoc } from './build';
 import type { ListingIndexDoc } from './index-doc';
 
@@ -876,6 +876,36 @@ function typedArray(values: readonly FieldValue[], type: ColumnType): SQL {
   )}]::${sql.raw(element)}[]`;
 }
 
+/** Columns the schema declares `not null` (a negated equality on them needs no `coalesce`), from Drizzle. */
+const NOT_NULL_COLUMNS: ReadonlySet<string> = new Set(
+  Object.values(getTableColumns(listingSearchDocs))
+    .filter((c) => c.notNull)
+    .map((c) => c.name),
+);
+/** A field's column name without its cast (`kind::text` → `kind`). */
+const bareColumn = (column: string) => column.replace(/::[a-z_]+$/, '');
+
+/**
+ * S7-F9: the network rule's negations (`not ownerAgencyId = self`, `not networkHidden = true`) in forms the planner
+ * estimates from the column statistics — `owner_agency_id <> $1`, `network_hidden is not true` — with the same
+ * meaning as `not coalesce(…, false)`. The opaque form got a default selectivity, so a network filter was estimated
+ * at ~1 % of its real rows and a sitemap page took a bitmap over half the network then a sort (56 ms at 100k rows,
+ * growing with the network) instead of the code index walked to `limit + 1` (3 ms). Null: no such form.
+ */
+function negation(filter: Filter): SQL | null {
+  if (filter.op !== 'eq' && filter.op !== 'in') return null;
+  const f = FALLBACK_FIELDS[filter.field];
+  if (!f || !('column' in f) || f.type === 'uuid[]') return null;
+  const col = sql.raw(f.column);
+  if (f.type === 'bool' && filter.op === 'eq' && typeof filter.value === 'boolean') {
+    return filter.value ? sql`${col} is not true` : sql`${col} is not false`;
+  }
+  if (!NOT_NULL_COLUMNS.has(bareColumn(f.column)) || f.type === 'ci') return null;
+  if (filter.op === 'eq') return sql`${col} <> ${paramOf(f.type, filter.value)}`;
+  if (filter.values.length === 0) throw new SearchError('empty in');
+  return sql`${col} <> all(${typedArray(filter.values, f.type)})`;
+}
+
 /**
  * The engine-neutral filter → a SQL condition on `listing_search_docs`, with the engine's semantics: an array field
  * equals a value when it holds it (`@>`) and is `in` values when it shares one (`&&`); a range never matches a null.
@@ -889,7 +919,7 @@ export function fallbackCondition(filter: Filter): SQL {
       return sql`(${sql.join(filter.filters.map(fallbackCondition), sql.raw(filter.op === 'and' ? ' and ' : ' or '))})`;
     }
     case 'not':
-      return sql`(not coalesce(${fallbackCondition(filter.filter)}, false))`;
+      return negation(filter.filter) ?? sql`(not coalesce(${fallbackCondition(filter.filter)}, false))`;
     case 'eq': {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
@@ -930,6 +960,7 @@ export function fallbackCondition(filter: Filter): SQL {
       }
       if ('constant' in f || 'developmentCode' in f || 'developmentOwnRef' in f || !NUMERIC.includes(f.type))
         throw new SearchError(`field is not comparable: ${filter.field}`);
+      // `is not null` first: a range never matches a null — `requiresValue` relies on it (S7-F9, unit-tested).
       const parts: SQL[] = [sql`${sql.raw(f.column)} is not null`];
       if (filter.gte !== undefined) parts.push(sql`${sql.raw(f.column)} >= ${finite(filter.gte)}`);
       if (filter.lte !== undefined) parts.push(sql`${sql.raw(f.column)} <= ${finite(filter.lte)}`);
@@ -1002,6 +1033,28 @@ export async function fallbackSearch(
   };
 }
 
+/**
+ * Whether every row matching `filter` has a value in `field` (S7-F9): a range, an `eq` or an `in` on it is never true
+ * for a null (`fallbackCondition`: a range starts with `col is not null`, `=` / `= any` are null on a null), so an
+ * `and` holding one, or an `or` whose every branch does, rules nulls out. Relies on that compiler; the unit test
+ * `[S7-F9] requiresValue holds because…` pins it. Conservative: `not`, geo and anything else answer false (the null
+ * phase is kept).
+ */
+export function requiresValue(filter: Filter, field: string): boolean {
+  switch (filter.op) {
+    case 'and':
+      return filter.filters.some((f) => requiresValue(f, field));
+    case 'or':
+      return filter.filters.length > 0 && filter.filters.every((f) => requiresValue(f, field));
+    case 'range':
+    case 'eq':
+    case 'in':
+      return filter.field === field;
+    default:
+      return false;
+  }
+}
+
 /** The fallback's one statement (`fallbackSearch`; perf tests EXPLAIN it). */
 export function fallbackSearchSql(q: FallbackQuery): SQL {
   const sort = FALLBACK_SORTS[q.sort.field];
@@ -1020,9 +1073,17 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
   }
   if (sort.nullable) {
     const keyset = q.after?.phase === 1 ? sql`and target_id ${cmp} ${q.after.id}::uuid` : sql``;
+    // S7-F9: a filter that needs a value in the sort column (a price band sorted by price) has no rows without one.
+    // The planner does not see `price_cents is not null and price_cents is null` as a contradiction: it walked the
+    // whole table in id order for the 25 rows that cannot exist (13–1,055 ms at ~800k rows). A constant false
+    // instead is a one-time filter — no scan.
+    const nulls = requiresValue(q.filter, q.sort.field) ? sql`false` : sql`${where} and ${col} is null ${keyset}`;
+    // Ordered by the sort column too (all null here, so the order is the id's): the planner then walks the sort index's
+    // null entries in id order and stops at `limit + 1` (S7-F9 review: ordered by id alone, it read a whole area band
+    // through `area_idx` and sorted — 109k rows, 205 ms — for the null-price rows of a network site).
     branches.push(sql`(select target_id, null::float8 as k, 1 as phase from ${listingSearchDocs}
-       where ${where} and ${col} is null ${keyset}
-       order by target_id ${dir} limit ${take})`);
+       where ${nulls}
+       order by ${col} ${dir}, target_id ${dir} limit ${take})`);
   }
   if (branches.length === 0) throw new SearchError(`no rows without a value when sorting by ${q.sort.field}`);
   // The filter is matched once (S5-F4): `m` holds at most `countCap + 1` matches with their sort value. Within the cap
