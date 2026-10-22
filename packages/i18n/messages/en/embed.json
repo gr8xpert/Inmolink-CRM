@@ -80,7 +80,8 @@
       "RATE_LIMITED": "Too many enquiries from this connection. Please try again later.",
       "LISTING_NOT_FOUND": "This property is no longer available.",
       "generic": "Your enquiry could not be sent. Please try again."
-    }
+    },
+    "needsJavaScript": "JavaScript is required to send an enquiry. Please turn it on, or use the contact details above."
   },
   "poweredBy": "Listings by {agency}"
 }

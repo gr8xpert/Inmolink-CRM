@@ -8,7 +8,6 @@ import * as websites from '@inmolink/core/modules/websites';
 import { createFounder, type Founder, whiteLabelLeaks, withSystem } from '@inmolink/core/test';
 import { adminQuery, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
-import { hmacSha256 } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
@@ -16,6 +15,7 @@ import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { EMBED_SCRIPT_PATH } from './client';
 import { EMBED_GATE_HEADER } from './csp';
+import { gateMarker, minuteOf } from './gate';
 import { detailResponse, EMBED_PAGE_CACHE, leadResponse, searchResponse } from './handlers';
 
 /**
@@ -30,11 +30,10 @@ const { KEY } = vi.hoisted(() => ({ KEY: 'test-embed-gate-key-0123456789abcdef' 
 vi.mock('@/server/embed', async () => {
   const core = await import('@inmolink/core/modules/website-api');
   const { isAppError } = await import('@inmolink/platform/errors');
-  const crypto = await import('@inmolink/platform/crypto');
+  const gate = await import('./gate');
   return {
     clientAddress: async () => ({ ip: '203.0.113.9', bucket: `203.0.113.9-${Math.random()}` }),
-    passedGate: async (siteId: string, marker: string | null) =>
-      marker !== null && crypto.safeEqual(marker, crypto.hmacSha256(KEY, 'public.embed-gate', siteId)),
+    passedGate: async (siteId: string, marker: string | null) => gate.gateMarkerValid(KEY, siteId, marker, Date.now()),
     embedSiteFor: async (siteId: string) => {
       try {
         return await core.embedSite(siteId, 'test');
@@ -50,7 +49,7 @@ vi.mock('@/server/embed', async () => {
   };
 });
 
-const marker = (siteId: string) => hmacSha256(KEY, 'public.embed-gate', siteId);
+const marker = (siteId: string) => gateMarker(KEY, siteId, minuteOf(Date.now()));
 const get = (path: string, siteId: string, headers: Record<string, string> = {}) =>
   new Request(`https://sites.test${path}`, { headers: { [EMBED_GATE_HEADER]: marker(siteId), ...headers } });
 const turnstile: TurnstileVerifier = {
@@ -310,6 +309,32 @@ describe('iFrame embed routes (S7-F8)', () => {
     // A plain post (no JavaScript): redirected back with a notice; a failed challenge is explained.
     const plain = await leadResponse(post(siteId, form('bad-token'), 'text/html'), { site: siteId, lang: 'en', ref });
     expect(plain.status).toBe(303);
+    // The notice page answers one visitor: never edge-cached.
+    const noticePage = await detailResponse(get(`/embed/${siteId}/en/listing/${ref}?lead=TURNSTILE_FAILED`, siteId), {
+      site: siteId,
+      lang: 'en',
+      ref,
+    });
+    expect(noticePage.status).toBe(200);
+    expect(noticePage.headers.get('cache-control')).toBe('no-store');
+    expect(noticePage.headers.get('cache-tag')).toBeNull();
+    // Only urlencoded bodies: multipart is refused before anything is read.
+    const multipart = new FormData();
+    multipart.set('name', 'Ana');
+    const refused = await leadResponse(
+      new Request(`https://sites.test/embed/${siteId}/en/listing/${ref}`, {
+        method: 'POST',
+        headers: { [EMBED_GATE_HEADER]: marker(siteId) },
+        body: multipart,
+      }),
+      { site: siteId, lang: 'en', ref },
+    );
+    expect(refused.status).toBe(415);
+    // A marker from two minutes ago no longer opens the route.
+    const stale = new Request(`https://sites.test/embed/${siteId}/en`, {
+      headers: { [EMBED_GATE_HEADER]: gateMarker(KEY, siteId, minuteOf(Date.now()) - 2) },
+    });
+    expect((await searchResponse(stale, { site: siteId, lang: 'en' })).status).toBe(404);
     expect(plain.headers.get('location')).toBe(`/embed/${siteId}/en/listing/${ref}?lead=TURNSTILE_FAILED`);
     // The same post against a WordPress site's id (tampered URL, even with that id's marker): refused, nothing stored.
     const tampered = await leadResponse(post(wpSiteId, form(`good-${newId()}`), 'application/json'), {

@@ -7,6 +7,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { clientAddress, embedPageConfig, embedSiteFor, passedGate } from '@/server/embed';
 import { EMBED_GATE_HEADER, embedCsp } from './csp';
+import { readFormBody } from './form-body';
 import {
   EMBED_LEAD_ERRORS,
   type EmbedFilters,
@@ -26,6 +27,13 @@ import type { ViewText } from './views';
  */
 
 export const EMBED_PAGE_CACHE = 'public, max-age=0, s-maxage=60, stale-while-revalidate=300';
+
+/** Edge-cacheable only with purge tags; without them (`null`) `no-store` (see `html`). */
+export function pageCacheHeaders(tags: readonly string[] | null): Record<string, string> {
+  return tags === null || tags.length === 0
+    ? { 'Cache-Control': 'no-store' }
+    : { 'Cache-Control': EMBED_PAGE_CACHE, 'Cache-Tag': tags.join(',') };
+}
 /** A lead post's body cap (the website API's form cap). */
 const MAX_FORM_BYTES = 16 * 1024;
 const PAGE_SIZE = 12;
@@ -44,15 +52,18 @@ function plain(status: number, extra: Record<string, string> = {}): Response {
   });
 }
 
-function html(body: string, site: websiteApi.EmbedSite, mediaOrigin: string | null, cache: boolean): Response {
-  const tags = cache ? websiteApi.edgeTagsOf(site.api) : null;
+/**
+ * An embed page. Cached at the edge only with its purge tags: a page without them (tags not configured, or more than
+ * `EDGE_MAX_TAGS`) could not be purged when the site changes — its old `frame-ancestors` would outlive a mode or
+ * domain change — so it is `no-store` (security review).
+ */
+function html(body: string, site: websiteApi.EmbedSite, mediaOrigin: string | null, cacheable: boolean): Response {
   return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy': embedCsp({ frameAncestors: site.frameAncestors, mediaOrigin }),
-      'Cache-Control': cache ? EMBED_PAGE_CACHE : 'no-store',
-      ...(tags ? { 'Cache-Tag': tags.join(',') } : {}),
+      ...pageCacheHeaders(cacheable ? websiteApi.edgeTagsOf(site.api) : null),
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'X-Content-Type-Options': 'nosniff',
     },
@@ -164,6 +175,8 @@ export async function detailResponse(request: Request, params: Params & { ref: s
   const { mediaOrigin, turnstileSiteKey } = await embedPageConfig();
   const leadParam = new URL(request.url).searchParams.get('lead') ?? '';
   const notice = NOTICES.has(leadParam) ? (leadParam as EmbedLeadNotice) : undefined;
+  // A notice page answers one visitor's post: never stored at the edge (security review).
+  const cacheable = leadParam === '';
   const b = base(site.siteId, lang);
   const form = turnstileSiteKey ? (
     <EmbedLeadForm
@@ -188,7 +201,7 @@ export async function detailResponse(request: Request, params: Params & { ref: s
     form,
     withScript: turnstileSiteKey !== null && notice !== 'sent',
   });
-  return html(body, site, mediaOrigin, true);
+  return html(body, site, mediaOrigin, cacheable);
 }
 
 const known = (code: string | undefined): EmbedLeadError => EMBED_LEAD_ERRORS.find((c) => c === code) ?? 'generic';
@@ -219,19 +232,11 @@ export async function leadResponse(request: Request, params: Params & { ref: str
           headers: { Location: `${back}?lead=${result}`, 'Cache-Control': 'no-store' },
         });
 
-  const length = Number(request.headers.get('content-length') ?? '0');
-  if (!Number.isFinite(length) || length > MAX_FORM_BYTES) return answer('VALIDATION_FAILED');
-  let form: FormData;
-  try {
-    form = await request.formData();
-  } catch (err) {
-    if (err instanceof TypeError) return answer('VALIDATION_FAILED');
-    throw err;
-  }
-  const text = (name: string) => {
-    const v = form.get(name);
-    return typeof v === 'string' ? v.trim() : '';
-  };
+  // Urlencoded only, at most MAX_FORM_BYTES read whatever Content-Length says (security review).
+  const read = await readFormBody(request, MAX_FORM_BYTES);
+  if (!read.ok) return plain(read.status);
+  const form = read.fields;
+  const text = (name: string) => (form.get(name) ?? '').trim();
   // Made in the browser (`client.ts`); a plain post without JavaScript has none: a fresh one (no replay protection
   // needed — it cannot pass Turnstile without JavaScript anyway).
   const key = IdempotencyKey.safeParse(text('idempotencyKey') || `embed-${crypto.randomUUID()}`);

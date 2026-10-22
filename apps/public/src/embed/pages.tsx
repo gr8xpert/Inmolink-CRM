@@ -237,6 +237,10 @@ export function EmbedLeadForm(props: {
       <p role="status" className="embed-notice" data-embed-status="" hidden={!notice}>
         {notice}
       </p>
+      {/* The challenge needs JavaScript: without it the form is still posted but refused, so say so first. */}
+      <noscript>
+        <p className="embed-error">{t('lead.needsJavaScript')}</p>
+      </noscript>
       <input type="hidden" name="idempotencyKey" defaultValue="" />
       <label className="embed-field">
         <span>{t('lead.name')}</span>

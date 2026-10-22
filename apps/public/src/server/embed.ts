@@ -1,11 +1,11 @@
 import * as websiteApi from '@inmolink/core/modules/website-api';
-import { hmacSha256, safeEqual } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
 import { clientIpFromForwarded } from '@inmolink/platform/http';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { ipBucket, rateLimiter } from '@inmolink/platform/rate-limit';
 import { originOf } from '../embed/csp';
+import { gateMarker, gateMarkerValid, minuteOf } from '../embed/gate';
 import { publicConfig } from './env';
 
 /**
@@ -43,14 +43,14 @@ export async function clientAddress(forwardedFor: string | null): Promise<{ ip?:
   return { bucket: UNKNOWN_IP };
 }
 
-/** The gate marker of a site: a keyed MAC only this app can make (`HMAC_KEY`), so a client cannot forge one. */
+/** The gate marker of a site for now (`embed/gate.ts`: keyed MAC of the site id and the minute). */
 export async function embedGateMarker(siteId: string): Promise<string> {
-  return hmacSha256((await publicConfig()).HMAC_KEY, 'public.embed-gate', siteId);
+  return gateMarker((await publicConfig()).HMAC_KEY, siteId, minuteOf(Date.now()));
 }
 
-/** Whether a request carries the proxy's marker for this site (`EMBED_GATE_HEADER`). */
+/** Whether a request carries the proxy's marker for this site, of this or the previous minute. */
 export async function passedGate(siteId: string, marker: string | null): Promise<boolean> {
-  return marker !== null && safeEqual(marker, await embedGateMarker(siteId));
+  return gateMarkerValid((await publicConfig()).HMAC_KEY, siteId, marker, Date.now());
 }
 
 export type EmbedGateResult =

@@ -66,6 +66,8 @@ describe('embed CSP and framing headers (S7-F8)', () => {
     // The idempotency key is made in the browser; Turnstile loads on first use of the form.
     expect(EMBED_SCRIPT).toContain('randomUUID');
     expect(EMBED_SCRIPT).toContain('focusin');
+    // It posts urlencoded (the only body the route reads), never multipart.
+    expect(EMBED_SCRIPT).toContain('new URLSearchParams(new FormData(');
     expect(EMBED_SCRIPT.length).toBeLessThan(4_000);
   });
 });

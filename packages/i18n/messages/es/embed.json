@@ -80,7 +80,8 @@
       "RATE_LIMITED": "Demasiadas consultas desde esta conexión. Inténtelo más tarde.",
       "LISTING_NOT_FOUND": "Este inmueble ya no está disponible.",
       "generic": "No se ha podido enviar su consulta. Inténtelo de nuevo."
-    }
+    },
+    "needsJavaScript": "Para enviar una consulta hace falta JavaScript. Actívelo o utilice los datos de contacto de arriba."
   },
   "poweredBy": "Inmuebles de {agency}"
 }
