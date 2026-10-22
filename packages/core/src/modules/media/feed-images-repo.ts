@@ -144,18 +144,19 @@ export async function summaries(tx: Tx, propertyIds: readonly string[]): Promise
  * takes them — is overdue when untouched that long. A claim touches only the rows it claims, so rows still waiting
  * behind a long-running job keep their queue time and can flag the agency too: harmless, as `requestFeedImages` is
  * throttled per agency (enqueues within `THROTTLE_MS` are deduplicated) and the job runs one per agency, so the extra
- * run finds the rows claimed or takes them next. A lost job's rows (lease lapsed) are flagged the same way.
+ * run finds the rows claimed or takes them next. A lost job's rows (lease lapsed) are flagged the same way. The CTE is
+ * `queued_agencies`, not `agencies` (S8-F4): it would shadow the real table.
  */
 export async function overdueAgencies(tx: Tx, olderThanMs: number, limit: number): Promise<string[]> {
   const res = await tx.execute(sql`
-    with recursive agencies as (
+    with recursive queued_agencies as (
       (select agency_id from feed_image_queue order by agency_id limit 1)
       union all
       select (select q.agency_id from feed_image_queue q where q.agency_id > a.agency_id order by q.agency_id limit 1)
-        from agencies a where a.agency_id is not null
+        from queued_agencies a where a.agency_id is not null
     )
     select a.agency_id as "agencyId"
-      from agencies a
+      from queued_agencies a
       cross join lateral (
         select q.updated_at from feed_image_queue q
          where q.agency_id = a.agency_id and (q.claimed_until is null or q.claimed_until < now())

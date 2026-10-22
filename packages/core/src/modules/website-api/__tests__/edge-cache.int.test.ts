@@ -18,7 +18,9 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
+import { EDGE_PURGE_THROTTLE_MS } from '../edge-purge';
 import * as websiteApi from '../index';
+import { queueEdgePurge } from '../subscriptions';
 
 /**
  * Edge cache purge (S7-06): what a cached website answer showed names its `Cache-Tag`s; a listing edit, a site change,
@@ -237,12 +239,12 @@ describe('edge cache purge (S7-06)', () => {
     await updateListing({ priceCents: 31_000_000 });
     expect(await deliver(new Date(editedAt - 1_000))).toContain('search.publicDocs.changed');
     // The agency's purge run is queued behind its throttle window (one run per window per tenant).
-    expect(enqueued.at(-1)).toEqual({ agencyId: a.agencyId, throttleMs: websiteApi.EDGE_PURGE_THROTTLE_MS });
+    expect(enqueued.at(-1)).toEqual({ agencyId: a.agencyId, throttleMs: EDGE_PURGE_THROTTLE_MS });
     await drain(a.agencyId);
     expect(cdn.tags().has(listingTag)).toBe(true);
     // The site's other answers stay cached: only what showed the listing is purged.
     expect(cdn.tags().has(websiteApi.edgeTag('s', siteId))).toBe(false);
-    expect(Date.now() - editedAt + websiteApi.EDGE_PURGE_THROTTLE_MS).toBeLessThan(5 * 60_000);
+    expect(Date.now() - editedAt + EDGE_PURGE_THROTTLE_MS).toBeLessThan(5 * 60_000);
     const after = await websiteApi.listingDetail(await site(), ref);
     expect(after.price).toMatchObject({ amountCents: 31_000_000 });
   });
@@ -301,23 +303,23 @@ describe('edge cache purge (S7-06)', () => {
     const fresh = new Date(at.getTime() - 60_000);
     const targets = Array.from({ length: 150 }, () => newId());
     // No purger configured (local, CI, edge cache off): nothing to do, the pending tags are dropped.
-    await websiteApi.queueEdgePurge(agency, [{ kind: 't', id: targets[0] as string }], fresh);
+    await queueEdgePurge(agency, [{ kind: 't', id: targets[0] as string }], fresh);
     expect(await purgeJob().run({ agencyId: agency }, jobCtx('off'))).toEqual({ purged: 0, skipped: 'no-edge-cache' });
     cdn = createMemoryCdn();
     configureCdn(cdn);
     expect(await purgeJob().run({ agencyId: agency }, jobCtx('empty'))).toEqual({ purged: 0, dropped: 0 });
     // 150 fresh listing tags, 10 expired ones, and an expired site and key purge (they end access: never dropped).
-    await websiteApi.queueEdgePurge(
+    await queueEdgePurge(
       agency,
       targets.map((id) => ({ kind: 't' as const, id })),
       fresh,
     );
-    await websiteApi.queueEdgePurge(
+    await queueEdgePurge(
       agency,
       Array.from({ length: 10 }, () => ({ kind: 't' as const, id: newId() })),
       old,
     );
-    await websiteApi.queueEdgePurge(
+    await queueEdgePurge(
       agency,
       [
         { kind: 's', id: siteId },
@@ -341,7 +343,7 @@ describe('edge cache purge (S7-06)', () => {
         await memory.purgeTags(tags);
       },
     });
-    await websiteApi.queueEdgePurge(agency, [{ kind: 'k', id: keyId }], fresh);
+    await queueEdgePurge(agency, [{ kind: 'k', id: keyId }], fresh);
     await expect(purgeJob().run({ agencyId: agency }, { ...jobCtx('try-1'), attempt: 1 })).rejects.toThrow(
       'rate limited',
     );

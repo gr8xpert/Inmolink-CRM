@@ -22,6 +22,7 @@
  */
 
 import { WebsiteDevelopmentsQuery, WebsiteListingsQuery } from '@inmolink/contracts';
+import { clock } from '@inmolink/platform/clock';
 import type {
   RateLimitCheck,
   RateLimiter,
@@ -33,6 +34,7 @@ import type { ApiKeyPrincipal } from '../identity';
 import * as identity from '../identity';
 import { raiseWebsiteAlert } from './alerts';
 import { readSearchCursor } from './cursor';
+import { type LocalCap, LocalWriteCaps } from './local-caps';
 import { websiteLimits } from './settings';
 
 export interface WebsiteRequestFacts {
@@ -471,16 +473,77 @@ const ALERT_ACTION = { throttle: 'throttled', flag: 'flagged', observe: 'observe
  * Publishable requests per client IP over every publishable key (S7-F9 security review), enforced. In the IP's own
  * Redis slot — not the agency's: copies of different agencies' widget keys must share it — so a second script call.
  */
-export function publishableIpRule(): RateLimitRule {
+function publishableIpRule(): RateLimitRule {
   return { name: 'feed.pk.ip', scope: 'ip', limit: websiteLimits().publishablePerIpMinute, windowSeconds: 60 };
+}
+
+/** Form posts this process let through (S8-F4): the caps that hold while the limits Redis fails open. */
+const localWrites = new LocalWriteCaps();
+
+/** Tests: forget the in-process form-post counts. */
+export function resetLocalWriteCaps(): void {
+  localWrites.clear();
+}
+
+/**
+ * The in-process caps of a form post (S8-F4): per key per hour (`feed.leads.key.*`'s limit — publishable keys too),
+ * and for publishable keys per browser per `leadWindowSeconds` (`feed.leads.browser`).
+ */
+function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalCap[] {
+  const l = websiteLimits();
+  const perKey: LocalCap = {
+    identity: `${key.kind === 'SECRET' ? 'k' : 'pk'}|${key.keyId}`,
+    limit: l.leadsPerKeyHour[key.rateTier],
+    windowMs: HOUR_SECONDS * 1_000,
+    pool: 'key',
+  };
+  if (key.kind === 'SECRET') return [perKey];
+  return [
+    perKey,
+    {
+      identity: `b|${key.keyId}|${ip}`,
+      limit: l.leadsPerBrowser,
+      windowMs: l.leadWindowSeconds * 1_000,
+      pool: 'browser',
+    },
+  ];
 }
 
 /**
  * Checks one website API request against its quotas and limits (one Redis round trip) and raises
  * `WebsiteScrapingDetected` when a rule trips. Fails open like every website limit (Redis down must not take every
- * website offline): the limiter answers allowed.
+ * website offline): the limiter answers allowed. Form posts first take a post from their in-process caps (S8-F4,
+ * `LocalWriteCaps`, synchronously, before the round trip), given back when the shared limits refuse, so an outage does
+ * not leave lead writes unbounded.
  */
 export async function checkWebsiteLimits(
+  limiter: RateLimiter,
+  key: ApiKeyPrincipal,
+  facts: WebsiteRequestFacts,
+): Promise<WebsiteLimitDecision> {
+  if (!facts.write) return sharedLimits(limiter, key, facts);
+  const reservation = localWrites.reserve(localWriteCaps(key, facts.ip));
+  if (!reservation.allowed) {
+    return {
+      allowed: false,
+      kind: 'rate',
+      scope: reservation.cap.pool === 'key' ? 'key' : 'ip',
+      limit: reservation.cap.limit,
+      resetAtMs: clock.nowMs() + reservation.retryAfterSeconds * 1_000,
+      retryAfterSeconds: reservation.retryAfterSeconds,
+    };
+  }
+  let decision: WebsiteLimitDecision | undefined;
+  try {
+    decision = await sharedLimits(limiter, key, facts);
+    return decision;
+  } finally {
+    if (!decision?.allowed) reservation.release();
+  }
+}
+
+/** The shared (Redis) limits of one request. */
+async function sharedLimits(
   limiter: RateLimiter,
   key: ApiKeyPrincipal,
   facts: WebsiteRequestFacts,

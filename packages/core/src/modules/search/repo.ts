@@ -109,7 +109,7 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 /** A random public code: 8 Crockford base32 characters (40 bits). */
-export const newPublicCode = () => Array.from(randomBytes(8), (b) => CROCKFORD[b & 31]).join('');
+const newPublicCode = () => Array.from(randomBytes(8), (b) => CROCKFORD[b & 31]).join('');
 
 /**
  * Gives these targets a public code if they have none (S7-02): one statement — inserts a random code per target,
@@ -1854,12 +1854,6 @@ export async function developmentUnitsPage(
       raw.filter((r) => r.targetId !== null).map(({ found: _f, anchored: _a, dev_id: _d, sort_ref: _s, ...r }) => r),
     ),
   };
-}
-
-/** The target a public code names (a listing, unit or development), or null. One statement by the unique index. */
-export async function targetOfCode(tx: Tx, code: string): Promise<string | null> {
-  const res = await tx.execute(sql`select target_id as id from ${listingPublicCodes} where code = ${code}`);
-  return (res.rows[0] as { id: string } | undefined)?.id ?? null;
 }
 
 /**

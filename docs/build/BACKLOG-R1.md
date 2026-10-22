@@ -1103,6 +1103,15 @@ Ref §3 #17 §7 M5 · Mod developments, imports · Dep S8-F3
 - A renamed feed development keeps the owner's name after the next run while an unlocked one follows the feed (test)
 - The batch still runs a fixed number of statements with locks present (test)
 
+### S8-F6 · One in-process fixed-window limiter (S8-F4 review)
+Ref §12 · Mod platform, website-api, feed-api · Dep S8-F4
+**Build:**
+- `LocalWriteCaps` (`website-api/local-caps.ts`, S8-F4) and feed-api's `LocalFailedChecks` (`apps/feed-api/src/plugins/api-key.ts`, S7-F9) become one `platform/rate-limit` `LocalFixedWindows`: synchronous reserve/release, pools tracked apart (identities an attacker can multiply never evict others), expired windows swept first, a full pool refuses new identities instead of forgetting live windows.
+- Optional: an in-process per-site cap on embed lead posts in `checkEmbedLimits` (today Turnstile, failing closed, and the per-site daily acknowledgement cap bound them).
+**Done when:**
+- Both callers use `LocalFixedWindows` and keep their S7-F9 / S8-F4 tests green (test)
+- A flood of new IP identities does not evict a tracked failed-check or key window (test)
+
 ---
 
 ## S9 — Portal exports
@@ -1399,9 +1408,9 @@ Ref §12 · Mod all · Dep S16-01 · [H8] · 🔒
 **Done when:** no Critical/High findings open
 
 ### S16-04 · GDPR flows and legal pages
-Ref §13 · Mod compliance, public · Dep S10-08 · [H7]
+Ref §13 · Mod compliance, public, imports · Dep S10-08, S7-F1 · [H7]
 **Build:** data subject export (GDPR_SUBJECT job), erasure (anonymize PII, keep deal/audit with anonymized actor; agency offboarding/erasure also calls `imports.deleteAgencySheets(agencyId)` after its commit — S7-F1), consent records, retention jobs, sub-processor list page, privacy/cookie/terms pages, cookie consent.
-**Done when:** erasure of a contact removes PII from all tables, search and read models (verified by a scan test)
+**Done when:** erasure of a contact removes PII from all tables, search and read models (verified by a scan test); agency erasure leaves no object under `imports/sheets/<agency>/` (`imports.deleteAgencySheets`, which has no caller until then — S8-F4) (test)
 
 ### S16-05 · Operations readiness
 Ref §17 · Mod ops · Dep S16-02

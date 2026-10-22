@@ -168,7 +168,7 @@ const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 /** Hex groups joined by colons: an IPv6 address when compressed (`::`) or of at least 5 colons (not a clock time). */
 const IPV6_CANDIDATE = /(?<![0-9a-f:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![0-9a-f:])/gi;
 /** IP addresses (the worker's, the API's, a proxy's) never reach the run's detail. */
-export const maskAddresses = (s: string) =>
+const maskAddresses = (s: string) =>
   s
     .replace(IPV6_CANDIDATE, (m) => (m.includes('::') || (m.match(/:/g)?.length ?? 0) >= 5 ? '[address]' : m))
     .replace(IPV4, '[address]');

@@ -1,4 +1,5 @@
 import { type WebsiteCard, WebsiteListingCard } from '@inmolink/contracts';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import type { RateLimitCheck, RateLimiter, RateLimitResult, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ApiKeyPrincipal } from '../../identity';
@@ -15,10 +16,12 @@ import {
 import {
   checkWebsiteLimits,
   creditChangeFeed,
+  resetLocalWriteCaps,
   SYNC_CREDIT_POOL,
   sliceSignature,
   websiteRequestChecks,
 } from '../limits';
+import { LocalWriteCaps } from '../local-caps';
 import { configureWebsiteApi, type WebsiteAlert } from '../settings';
 
 /** Quotas, paging rules and honeytokens (S7-04) without Redis: a scripted limiter. */
@@ -28,6 +31,7 @@ const alerts: WebsiteAlert[] = [];
 
 beforeEach(() => {
   alerts.length = 0;
+  resetLocalWriteCaps();
   configureWebsiteApi({ mediaBaseUrl: 'https://media.example', cursorKey: KEY, onAlert: (a) => alerts.push(a) });
 });
 
@@ -228,6 +232,114 @@ describe('website API limits (S7-04)', () => {
       facts,
     );
     expect(observed).toEqual({ allowed: true, suspicious: false });
+  });
+});
+
+describe('website form posts while the limits Redis is down (S8-F4)', () => {
+  it('[S8-F4] with the limiter failing open, lead writes on one key stop at the local cap', async () => {
+    const clock = useFakeClock('2026-10-22T10:00:00Z');
+    try {
+      configureWebsiteApi({
+        mediaBaseUrl: 'https://media.example',
+        cursorKey: KEY,
+        limits: { leadsPerKeyHour: { STANDARD: 3, HIGH: 10 }, leadsPerBrowser: 2 },
+      });
+      // What the limiter answers when its Redis call fails (fail open): every rule allowed.
+      const failingOpen = scripted({});
+      const post = (k: ApiKeyPrincipal, ip = facts.ip) =>
+        checkWebsiteLimits(failingOpen, k, { ip, paged: false, write: true, requestId: 'req-lead' });
+
+      for (let i = 0; i < 3; i++) expect(await post(secret)).toMatchObject({ allowed: true });
+      const refused = await post(secret);
+      expect(refused).toMatchObject({ allowed: false, kind: 'rate', scope: 'key', limit: 3 });
+      expect(refused.allowed === false && refused.retryAfterSeconds).toBe(3_600);
+      // Per key: another secret key of the agency still posts; reads on the capped key are not affected.
+      expect(await post({ ...secret, keyId: '01900000-0000-7000-8000-000000000003' })).toMatchObject({ allowed: true });
+      expect(await checkWebsiteLimits(failingOpen, secret, { ...facts, paged: false })).toMatchObject({
+        allowed: true,
+      });
+      // Publishable keys: per browser (key × IP) at the browser's form limit.
+      for (let i = 0; i < 2; i++) expect(await post(widget)).toMatchObject({ allowed: true });
+      expect(await post(widget)).toMatchObject({ allowed: false, scope: 'ip', limit: 2 });
+      expect(await post(widget, '198.51.100.9')).toMatchObject({ allowed: true });
+      // …and per key (`leadsPerKeyHour`, 3 here): a fourth browser of the same widget key is refused key-wide.
+      expect(await post(widget, '198.51.100.10')).toMatchObject({ allowed: false, scope: 'key', limit: 3 });
+      // A post the shared limiter refused is not counted locally.
+      const denying = scripted({ 'feed.leads.key.standard': { allowed: false, retryAfterSeconds: 60 } });
+      const other = { ...secret, keyId: '01900000-0000-7000-8000-000000000004' };
+      for (let i = 0; i < 5; i++) {
+        await checkWebsiteLimits(denying, other, { ip: facts.ip, paged: false, write: true, requestId: 'r' });
+      }
+      expect(await post(other)).toMatchObject({ allowed: true });
+      // The window ends: the key posts again.
+      clock.advance(3_600_000);
+      expect(await post(secret)).toMatchObject({ allowed: true });
+    } finally {
+      restoreClock();
+    }
+  });
+
+  it('[S8-F4] concurrent posts while the limits Redis hangs: only the local cap passes', async () => {
+    configureWebsiteApi({
+      mediaBaseUrl: 'https://media.example',
+      cursorKey: KEY,
+      limits: { leadsPerKeyHour: { STANDARD: 3, HIGH: 10 } },
+    });
+    // A limiter whose round trip hangs until released, then fails open.
+    let wake: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      wake = resolve;
+    });
+    const hanging = {
+      consumeMany: async (checks: readonly RateLimitCheck[]) => {
+        await gate;
+        return checks.map((c) => ({
+          allowed: true,
+          limit: c.rule.limit,
+          remaining: 1,
+          retryAfterSeconds: 0,
+          resetAtMs: 0,
+        }));
+      },
+    } as unknown as RateLimiter;
+    const posts = Array.from({ length: 20 }, () =>
+      checkWebsiteLimits(hanging, secret, { ip: facts.ip, paged: false, write: true, requestId: 'req-burst' }),
+    );
+    wake();
+    const decisions = await Promise.all(posts);
+    expect(decisions.filter((d) => d.allowed)).toHaveLength(3);
+    expect(decisions.filter((d) => !d.allowed && d.scope === 'key')).toHaveLength(17);
+  });
+
+  it('[S8-F4] tracks at most MAX_TRACKED identities; browser floods never evict a key window', () => {
+    const clock = useFakeClock('2026-10-22T10:00:00Z');
+    try {
+      const caps = new LocalWriteCaps(5);
+      const keyCap = { identity: 'k|secret', limit: 2, windowMs: 3_600_000, pool: 'key' as const };
+      const browser = (ip: string) => ({
+        identity: `b|widget|${ip}`,
+        limit: 2,
+        windowMs: 600_000,
+        pool: 'browser' as const,
+      });
+      expect(caps.reserve([keyCap])).toMatchObject({ allowed: true });
+      expect(caps.reserve([keyCap])).toMatchObject({ allowed: true });
+      for (let i = 0; i < 5; i++) expect(caps.reserve([browser(`ip${i}`)])).toMatchObject({ allowed: true });
+      // Full: a new browser is refused until the oldest browser window ends; live windows are not forgotten.
+      expect(caps.reserve([browser('ip-new')])).toMatchObject({ allowed: false, retryAfterSeconds: 600 });
+      expect(caps.size).toEqual({ keys: 1, browsers: 5 });
+      // The key's window survived the flood: still used up.
+      expect(caps.reserve([keyCap])).toMatchObject({ allowed: false, retryAfterSeconds: 3_600 });
+      // Expired browser windows are swept before a new browser is refused.
+      clock.advance(600_000);
+      expect(caps.reserve([browser('ip-new')])).toMatchObject({ allowed: true });
+      expect(caps.size).toEqual({ keys: 1, browsers: 1 });
+      // The key map is bounded too: past MAX_TRACKED keys its oldest window goes.
+      for (let i = 0; i < 6; i++) caps.reserve([{ ...keyCap, identity: `k|${i}` }]);
+      expect(caps.size.keys).toBe(5);
+    } finally {
+      restoreClock();
+    }
   });
 });
 

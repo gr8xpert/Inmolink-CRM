@@ -15,7 +15,6 @@
  * (`listing_search_developments`, precomputed aggregates) and units' fallback rows with their read models in one
  * statement each, plus the overrides and owner identities when another agency's development is on the page: 1–2.
  */
-import { createHash } from 'node:crypto';
 import type {
   ListingCardDoc,
   ListingDetailDoc,
@@ -63,7 +62,10 @@ export interface ApiSite {
    * an agency whose give-to-get standing is locked).
    */
   inventory: websites.SiteSearchScope | null;
-  /** A short hash of the effective inventory rules: `/v2/changes` reports it (`scope`) so a plugin can resync. */
+  /**
+   * A short keyed hash (HMAC, `HMAC_KEY`) of the effective inventory rules: `/v2/changes` reports it (`scope`) so a
+   * plugin can resync.
+   */
   tag: string;
   requestId: string;
   /** What this request's answer showed (S7-06): its edge cache tags (`edgeTagsOf`). */
@@ -86,6 +88,8 @@ export async function siteForKey(
   return apiSiteOf(scope, key.keyId ?? null, requestId);
 }
 
+const SITE_TAG_PURPOSE = 'website-api.site-tag';
+
 /**
  * A site's scope as one request serves it (website API keys, S7-F8 embed pages): its inventory with network listings
  * dropped while the agency's give-to-get standing is locked. Cached reads only on a warm path.
@@ -96,17 +100,18 @@ export async function apiSiteOf(scope: websites.SiteScope, keyId: string | null,
     const { networkOf: _network, networkRefPrefix: _prefix, ...own } = inventory;
     inventory = own;
   }
-  const tag = createHash('sha256')
-    .update(
-      JSON.stringify([
-        inventory.ownerAgencyIds,
-        inventory.networkOf ?? null,
-        inventory.networkRefPrefix ?? null,
-        inventory.restrict ?? null,
-      ]),
-    )
-    .digest('base64url')
-    .slice(0, 16);
+  // S8-F4: an HMAC, not a plain hash — the rules include the minimum commission, which a visitor could otherwise
+  // brute-force from `/v2/changes`' `scope` (few candidate values, the rest of the rules guessable).
+  const tag = hmacSha256(
+    cursorSecret(),
+    SITE_TAG_PURPOSE,
+    JSON.stringify([
+      inventory.ownerAgencyIds,
+      inventory.networkOf ?? null,
+      inventory.networkRefPrefix ?? null,
+      inventory.restrict ?? null,
+    ]),
+  ).slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
   return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, edge: newEdgeSeen() };
 }

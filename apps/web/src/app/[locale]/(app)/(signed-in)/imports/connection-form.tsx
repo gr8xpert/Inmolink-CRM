@@ -150,7 +150,7 @@ export async function ConnectionForm({
             type="url"
             maxLength={2048}
             required
-            placeholder="https://feeds.example.com/kyero.xml"
+            placeholder={t('urlPlaceholder')}
             defaultValue={connection?.url ?? prefill.url ?? ''}
             aria-describedby="feed-url-hint"
           />
@@ -178,7 +178,13 @@ export async function ConnectionForm({
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="flex flex-col gap-1">
               <Label htmlFor="cred-name">{t('credName')}</Label>
-              <Input id="cred-name" name="credName" maxLength={64} autoComplete="off" placeholder="api_key" />
+              <Input
+                id="cred-name"
+                name="credName"
+                maxLength={64}
+                autoComplete="off"
+                placeholder={t('credNamePlaceholder')}
+              />
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="cred-user">{t('credUser')}</Label>

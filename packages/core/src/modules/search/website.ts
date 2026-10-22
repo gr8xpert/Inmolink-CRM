@@ -525,7 +525,7 @@ const DEVELOPMENT_CODE_TTL_MS = 24 * 3_600_000;
 const OWN_REF_TTL_MS = 60_000;
 const UNKNOWN_REFERENCE_TTL_MS = 60_000;
 /** Matches no development: an unknown reference finds nothing (not the platform agency's nil id). */
-export const NO_DEVELOPMENT = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const NO_DEVELOPMENT = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
 /** Tests: forget resolved development references. */
 export function resetDevelopmentCodes(): void {

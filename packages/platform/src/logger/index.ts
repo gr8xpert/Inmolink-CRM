@@ -64,6 +64,20 @@ export const REDACT_KEYS = [
   'proxy-authorization',
   'stripe-signature',
   'x-hub-signature-256',
+  // Website forms (S8-F4): a lead's WhatsApp number, the page it was sent from and its viewing slots (`slots` in the
+  // viewing-request body) are the visitor's; Turnstile tokens and idempotency keys are single-use credentials. Paths
+  // are case-sensitive: Node lower-cases incoming headers, the capitalised spellings cover headers built by hand.
+  // `message` stays logged: redacting it would hide every error's message.
+  'whatsapp',
+  'pageUrl',
+  'viewingSlots',
+  'slots',
+  'turnstileToken',
+  'cf-turnstile-response',
+  'CF-Turnstile-Response',
+  'idempotencyKey',
+  'idempotency-key',
+  'Idempotency-Key',
 ] as const;
 
 /** Error fields that may echo row values (pg `detail`, query parameters) — dropped from logs. */

@@ -587,7 +587,7 @@ export async function deleteCatalogAlias(
   return rows.length > 0;
 }
 
-export async function catalogAliases(tx: Tx, kind: CatalogKind, ownerId: string) {
+async function catalogAliases(tx: Tx, kind: CatalogKind, ownerId: string) {
   const a = FAMILIES[kind].aliases;
   return tx.select({ id: a.id, alias: a.alias }).from(a).where(eq(a.ownerId, ownerId)).orderBy(a.alias);
 }

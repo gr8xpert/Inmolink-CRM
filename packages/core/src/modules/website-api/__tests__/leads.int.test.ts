@@ -27,6 +27,7 @@ import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
 import { honeytokenRef } from '../honeytokens';
 import * as websiteApi from '../index';
+import { ackCapReached } from '../jobs';
 
 /**
  * Website lead intake (S7-05): leads belong to the presenting agency (the site's), duplicates with one idempotency key
@@ -531,9 +532,9 @@ describe('website lead intake (S7-05)', () => {
     );
     expect(last.rows[0]).toEqual({ ack_sent_at: null, ack_skipped_reason: 'RECIPIENT_SITE_DAILY' });
     // The other caps, by the same rule: ten per recipient platform-wide, the site's daily cap by key tier.
-    expect(websiteApi.ackCapReached({ recipientSite: 0, recipient: 10, site: 0 }, 'STANDARD')).toBe('RECIPIENT_DAILY');
-    expect(websiteApi.ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'STANDARD')).toBe('SITE_DAILY');
-    expect(websiteApi.ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'HIGH')).toBeNull();
+    expect(ackCapReached({ recipientSite: 0, recipient: 10, site: 0 }, 'STANDARD')).toBe('RECIPIENT_DAILY');
+    expect(ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'STANDARD')).toBe('SITE_DAILY');
+    expect(ackCapReached({ recipientSite: 0, recipient: 0, site: 1_000 }, 'HIGH')).toBeNull();
   });
 
   it('[S7-05] concurrent acknowledgement jobs for one recipient (aliases included) send at most the cap', async () => {

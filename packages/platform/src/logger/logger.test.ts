@@ -134,6 +134,43 @@ describe('logger', () => {
     expect(stripQuery('/v2/listings')).toBe('/v2/listings');
   });
 
+  it('[S8-F4] redacts website form fields: WhatsApp, Turnstile tokens, idempotency keys, page URL, viewing slots', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info(
+      {
+        whatsapp: '+34600777666',
+        turnstileToken: 'ts-token-abc',
+        body: {
+          'cf-turnstile-response': 'cf-response-def',
+          idempotencyKey: 'idem-key-ghi',
+          pageUrl: 'https://agency.example/villa?ref=buyer-jkl',
+          viewingSlots: ['2026-11-02T10:00-slot-mno'],
+          slots: [{ date: '2026-11-03', timeOfDay: 'slot-stu' }],
+        },
+        req: { headers: { 'idempotency-key': 'idem-header-pqr' } },
+        outgoing: { headers: { 'Idempotency-Key': 'idem-caps-vwx', 'CF-Turnstile-Response': 'cf-caps-yz' } },
+        leadId: 'keep-me',
+      },
+      'lead received',
+    );
+    const text = out.raw.join('');
+    for (const secret of [
+      '+34600777666',
+      'ts-token-abc',
+      'cf-response-def',
+      'idem-key-ghi',
+      'buyer-jkl',
+      'slot-mno',
+      'slot-stu',
+      'idem-caps-vwx',
+      'cf-caps-yz',
+      'idem-header-pqr',
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(out.lines[0]).toMatchObject({ whatsapp: REDACTED, turnstileToken: REDACTED, leadId: 'keep-me' });
+  });
+
   it('[S0-03] bindings cannot overwrite the request id', () => {
     const out = capture();
     withRequestId(createLogger({ destination: out.destination }), 'req-1', { requestId: 'spoofed' }).info('x');

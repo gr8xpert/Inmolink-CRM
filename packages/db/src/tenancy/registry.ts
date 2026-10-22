@@ -858,7 +858,7 @@ export const globalTables: Record<string, GlobalTable> = {
   },
   listing_search_commissions: {
     reason:
-      'total commission of PUBLIC listings and units of every agency (website minimum-commission filter, worker-only)',
+      'total commission of PUBLIC listings and units of every agency (website minimum-commission filter): written by the search worker; read by app_public only through the owner-run view search_commission_floor, which answers target ids, never the value (S7-F10)',
     noUserRead: true,
     definerRead: true,
     base: { commission_bp: 300 },

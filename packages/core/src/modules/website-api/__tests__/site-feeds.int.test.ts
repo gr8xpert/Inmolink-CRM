@@ -19,6 +19,14 @@ import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
 import * as websiteApi from '../index';
+import {
+  SITE_FEED_NETWORK_WINDOW_MS,
+  SITE_FEED_PARTNER_THROTTLE_MS,
+  SITE_FEED_SOON_MS,
+  SITE_FEED_THROTTLE_MS,
+  siteFeedNetworkWindowMs,
+} from '../jobs';
+import { SITE_FEED_MAX_AGE_MS, type SiteFeedFileName } from '../site-feeds';
 import { GENERIC_XSD, KYERO_XSD, schemaErrors } from './feed-schema';
 
 /**
@@ -111,7 +119,7 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
 }
 
 /** A served file as a consumer gets it: the stored gzip, decompressed. */
-async function fetchFeed(token: string, file: websiteApi.SiteFeedFileName): Promise<string> {
+async function fetchFeed(token: string, file: SiteFeedFileName): Promise<string> {
   const served = await websiteApi.siteFeedFile(token, file);
   return gunzipSync(Buffer.concat(await (await served.open()).toArray())).toString('utf8');
 }
@@ -349,9 +357,7 @@ describe('per-site XML feeds (S7-07)', () => {
     // The CDN copies of the old URL are purged (`f`) and the feed is regenerated within seconds.
     await publish('websites.feed.changed', { siteId: site, agencyId: a.agencyId, action: 'ROTATED' }, a.agencyId);
     expect(purgeEnqueues).toEqual([a.agencyId]);
-    expect(feedEnqueues).toEqual([
-      { siteId: site, throttleMs: websiteApi.SITE_FEED_SOON_MS, debounceKey: `site-feed:${site}` },
-    ]);
+    expect(feedEnqueues).toEqual([{ siteId: site, throttleMs: SITE_FEED_SOON_MS, debounceKey: `site-feed:${site}` }]);
     tokens[site] = rotated.token;
 
     // Members may look, never manage.
@@ -420,7 +426,7 @@ describe('per-site XML feeds (S7-07)', () => {
     expect(feedEnqueues).toEqual([
       {
         siteId: S.network,
-        throttleMs: websiteApi.SITE_FEED_THROTTLE_MS,
+        throttleMs: SITE_FEED_THROTTLE_MS,
         debounceKey: `site-feed:${S.network}`,
       },
     ]);
@@ -512,17 +518,17 @@ describe('per-site XML feeds (S7-07)', () => {
     await publish('search.publicDocs.changed', event, b.agencyId);
     // Not a platform-wide fan-out per event: one coalesced sweep, throttled by its window (stable key).
     expect(sweepEnqueues).toEqual([
-      { throttleMs: websiteApi.siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
-      { throttleMs: websiteApi.siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
+      { throttleMs: siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
+      { throttleMs: siteFeedNetworkWindowMs(), debounceKey: 'network-feeds' },
     ]);
-    expect(websiteApi.siteFeedNetworkWindowMs()).toBe(websiteApi.SITE_FEED_NETWORK_WINDOW_MS);
-    expect(websiteApi.SITE_FEED_NETWORK_WINDOW_MS).toBeLessThan(websiteApi.SITE_FEED_MAX_AGE_MS);
+    expect(siteFeedNetworkWindowMs()).toBe(SITE_FEED_NETWORK_WINDOW_MS);
+    expect(SITE_FEED_NETWORK_WINDOW_MS).toBeLessThan(SITE_FEED_MAX_AGE_MS);
     expect(feedEnqueues.map((e) => e.siteId)).not.toContain(S.network);
     // The sweep (once per window) queues the partner's (a's) live network feed — not only the owner's.
     await websiteApi.websiteApiJobs.sweepNetworkFeeds.spec.run({}, jobCtx(newId()));
     expect(feedEnqueues).toContainEqual({
       siteId: S.network,
-      throttleMs: websiteApi.SITE_FEED_SOON_MS,
+      throttleMs: SITE_FEED_SOON_MS,
       debounceKey: `site-feed:${S.network}`,
     });
     // The next feed job: the listing is gone, a's own listings stay.
@@ -541,7 +547,7 @@ describe('per-site XML feeds (S7-07)', () => {
     expect(feedEnqueues).toEqual([
       {
         siteId: S.network,
-        throttleMs: websiteApi.SITE_FEED_PARTNER_THROTTLE_MS,
+        throttleMs: SITE_FEED_PARTNER_THROTTLE_MS,
         debounceKey: `site-feed:${S.network}`,
       },
     ]);
@@ -561,7 +567,7 @@ describe('per-site XML feeds (S7-07)', () => {
     expect(event).not.toHaveProperty('networkLost');
     await publish('search.publicDocs.changed', event, a.agencyId);
     expect(feedEnqueues.map((e) => e.siteId)).toEqual([S.network]);
-    expect(feedEnqueues[0]?.throttleMs).toBe(websiteApi.SITE_FEED_THROTTLE_MS);
+    expect(feedEnqueues[0]?.throttleMs).toBe(SITE_FEED_THROTTLE_MS);
     expect(sweepEnqueues).toEqual([]);
     // Sold: still a public row, but in no status a site shows — it left every network site.
     await update(a, L.aVilla, { status: 'SOLD' });

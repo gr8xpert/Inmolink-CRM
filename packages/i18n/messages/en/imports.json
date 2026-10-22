@@ -105,6 +105,7 @@
     "name": "Name",
     "url": "Feed address (URL)",
     "urlHint": "An http or https address. Feeds on private or internal networks are refused.",
+    "urlPlaceholder": "https://feeds.example.com/kyero.xml",
     "credentials": "How is the feed protected?",
     "credTypes": {
       "none": "Not protected",
@@ -116,6 +117,7 @@
     },
     "credentialsHint": "Access details are stored encrypted and never shown again. Fill the fields that fit your choice.",
     "credName": "Parameter or header name",
+    "credNamePlaceholder": "api_key",
     "credUser": "Username",
     "credValue": "Key or password",
     "country": "Country of the listings",

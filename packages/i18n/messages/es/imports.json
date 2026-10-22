@@ -105,6 +105,7 @@
     "name": "Nombre",
     "url": "Dirección del feed (URL)",
     "urlHint": "Una dirección http o https. Se rechazan los feeds en redes privadas o internas.",
+    "urlPlaceholder": "https://feeds.example.com/kyero.xml",
     "credentials": "¿Cómo está protegido el feed?",
     "credTypes": {
       "none": "Sin protección",
@@ -116,6 +117,7 @@
     },
     "credentialsHint": "Los datos de acceso se guardan cifrados y no se vuelven a mostrar. Rellena los campos que correspondan a tu elección.",
     "credName": "Nombre del parámetro o de la cabecera",
+    "credNamePlaceholder": "api_key",
     "credUser": "Usuario",
     "credValue": "Clave o contraseña",
     "country": "País de los anuncios",

@@ -23,6 +23,7 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
+import { EMBED_MISS_TTL_MS, EMBED_PAGE_LIMITS, resetEmbedMisses } from '../embed';
 import * as websiteApi from '../index';
 
 /**
@@ -305,13 +306,13 @@ describe('iFrame embed pages — service side (S7-F8)', () => {
   });
 
   it('[S7-F8] unknown site ids are cached as missing for 60 s: a flood of one made-up id reaches the database once', async () => {
-    websiteApi.resetEmbedMisses();
+    resetEmbedMisses();
     const unknown = newId();
     expect(await countQueries(() => refusal(websiteApi.embedSiteScope(unknown)))).toBeGreaterThan(0);
     for (let i = 0; i < 20; i++) {
       expect(await countQueries(() => refusal(websiteApi.embedSiteScope(unknown)))).toBe(0);
     }
-    expect(websiteApi.EMBED_MISS_TTL_MS).toBe(60_000);
+    expect(EMBED_MISS_TTL_MS).toBe(60_000);
     // An existing embeddable site is not affected.
     expect((await websiteApi.embedSiteScope(S.embed)).scope.siteId).toBe(S.embed);
   });
@@ -319,7 +320,7 @@ describe('iFrame embed pages — service side (S7-F8)', () => {
   it('[S7-F8] embed page views and lead posts are limited per client IP', async () => {
     const ip = `198.51.100.${Math.floor(Math.random() * 250)}-${RUN}`;
     const limiter = rateLimiter();
-    for (let i = 0; i < websiteApi.EMBED_PAGE_LIMITS.perMinute; i++) {
+    for (let i = 0; i < EMBED_PAGE_LIMITS.perMinute; i++) {
       expect((await websiteApi.checkEmbedLimits(limiter, { ip })).allowed).toBe(true);
     }
     const over = await websiteApi.checkEmbedLimits(limiter, { ip });
