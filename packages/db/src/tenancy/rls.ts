@@ -26,7 +26,6 @@ export const HELPER_FUNCTIONS = [
   'app_agency_verified',
   'app_preferring_agencies',
   'app_partition_maintenance',
-  'search_commission_at_least',
   'website_network_open',
 ] as const;
 
@@ -374,11 +373,10 @@ end $$;`,
     `alter view public.search_commission_floor owner to app_owner;`,
     `revoke all on table public.search_commission_floor from ${APP_ROLES};`,
     `grant select on table public.search_commission_floor to app_public;`,
-    // S7-F4's per-row lookup, unused since S7-F10 and kept for one release (expand/contract): the app version still
-    // running during a deploy calls it after `pnpm db:rls`. Dropped by S7-F11 once every app reads the view.
-    `create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
-  security definer set search_path = pg_catalog, pg_temp
-  as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;`,
+    // S7-F4's per-row lookup (SECURITY DEFINER, granted to app_public), unused since S7-F10 and kept one release for
+    // the app version running during that deploy: dropped (S7-F11). Not a helper any more, so the guard rejects it
+    // wherever it is still executable.
+    `drop function if exists public.search_commission_at_least(uuid, integer);`,
     // S7-03: may this agency's websites show network listings (PLAN §3 #5 give-to-get)? Exempt, within its grace period,
     // or sharing at least `min_shared` listings with the whole network (the network search's count, capped). feed-api
     // runs as app_public, which reads neither table; it gets this one boolean per agency.
@@ -390,8 +388,7 @@ end $$;`,
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), search_commission_at_least(uuid, integer), website_network_open(uuid, integer, integer) from public;`,
-    `grant execute on function search_commission_at_least(uuid, integer) to app_public;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer) from public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,

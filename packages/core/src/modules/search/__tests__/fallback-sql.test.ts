@@ -252,7 +252,7 @@ describe('fallback filter → SQL', () => {
       /^\(price_cents is not null and /,
     );
     expect(render(fallbackCondition({ op: 'range', field: 'areaM2', lte: 9 })).sql).toMatch(
-      /^\(area_m2 is not null and /,
+      /^\(\(area_m2::float8\) is not null and /,
     );
     expect(render(fallbackCondition({ op: 'eq', field: 'beds', value: 2 })).sql).toBe('beds = $1');
     expect(render(fallbackCondition({ op: 'in', field: 'beds', values: [2, 3] })).sql).toBe(
@@ -265,6 +265,45 @@ describe('fallback filter → SQL', () => {
     ] as Filter[]) {
       expect(requiresValue(filter, 'priceCents')).toBe(true);
     }
+  });
+
+  it('[S7-F11] areas compare and sort as float8 (leakproof: the planner has statistics for them under RLS)', () => {
+    const band = render(fallbackCondition({ op: 'range', field: 'areaM2', gte: 100.5, lte: 200 }));
+    expect(band.sql).toBe('((area_m2::float8) is not null and (area_m2::float8) >= $1 and (area_m2::float8) <= $2)');
+    expect(band.params).toEqual([100.5, 200]);
+    expect(render(fallbackCondition({ op: 'range', field: 'plotM2', gte: 500 })).sql).toBe(
+      '((plot_m2::float8) is not null and (plot_m2::float8) >= $1)',
+    );
+    expect(render(fallbackCondition({ op: 'in', field: 'areaM2', values: [90, 100] })).sql).toBe(
+      '(area_m2::float8) = any(array[$1, $2]::float8[])',
+    );
+    // Never a `numeric` comparison (no statistics under the table's policy), and never a bad value.
+    expect(() => fallbackCondition({ op: 'range', field: 'areaM2', gte: Number.NaN })).toThrow(SearchError);
+    // The sort walks the expression index (`area_f8_idx`): order, keyset and null phase on the same expression.
+    const page = render(
+      fallbackSearchSql({
+        filter: { op: 'range', field: 'plotM2', gte: 500, lte: 1500 },
+        sort: { field: 'areaM2', dir: 'desc' },
+        limit: 24,
+        after: { phase: 0, value: 120.25, id: ID },
+        countCap: 1000,
+      }),
+    ).sql;
+    expect(page).toContain('order by (area_m2::float8) desc, target_id desc');
+    expect(page).toMatch(/and \(\(area_m2::float8\), target_id\) < \(\$\d+::float8, \$\d+::uuid\)/);
+    // The keyset value takes the sort column's own type (a price keyset stays an index condition on `price_idx`).
+    const byPrice = render(
+      fallbackSearchSql({
+        filter: { op: 'range', field: 'beds', gte: 1 },
+        sort: { field: 'priceCents', dir: 'asc' },
+        limit: 24,
+        after: { phase: 0, value: 30_000_000, id: ID },
+        countCap: 1000,
+      }),
+    ).sql;
+    expect(byPrice).toMatch(/and \(price_cents, target_id\) > \(\$\d+::bigint, \$\d+::uuid\)/);
+    expect(page).toContain('(area_m2::float8) is null');
+    expect(page).not.toMatch(/\b(?:area|plot)_m2 (?:is|>=|<=|<|>|=)/);
   });
 
   it('[S6-F2] gt (keyset walks of the engine) is refused by the fallback', () => {

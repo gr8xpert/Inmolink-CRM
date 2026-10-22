@@ -36,7 +36,6 @@ import {
   searchEngine,
 } from '@inmolink/platform/search';
 import { metrics } from '@opentelemetry/api';
-import type { SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { attributeFilters, othersInNetwork, sharesWith } from './filters';
 import { listingsIndex } from './index-doc';
@@ -713,27 +712,18 @@ export function withSiteRead<T>(
   return withPublicRead(fn, minCommissionBp === undefined ? undefined : { minCommissionBp });
 }
 
-/** The fallback's statement for a site's search: perf tests EXPLAIN it on scale data (not for request paths). */
-export function publicFallbackSql(
-  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
-  input: PublicListingSearch,
-): SQL | null {
-  const q = PublicListingSearch.parse(input);
-  const query = fallbackQuery(site, q, publicSearchFilter(site, q), decode(q.cursor, q.sort));
-  return query ? repo.fallbackSearchSql(query) : null;
-}
-
 /**
- * Whether this search's filter bounds its sort column (S7-F9, `repo.requiresValue`): the fallback then has no null
- * phase to read. Perf tests pick their plan expectation with it (not for request paths).
+ * The fallback query a site's search compiles to, with `extra` ANDed to its filter. Module-internal: perf tests reach
+ * it through `testing.ts` (`@inmolink/core/modules/search/testing`), never request paths.
  */
-export function publicFallbackBoundsSort(
+export function siteFallbackQuery(
   site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
   input: PublicListingSearch,
-): boolean {
+  extra?: Filter,
+): repo.FallbackQuery | null {
   const q = PublicListingSearch.parse(input);
-  const query = fallbackQuery(site, q, publicSearchFilter(site, q), decode(q.cursor, q.sort));
-  return query !== null && repo.requiresValue(query.filter, query.sort.field);
+  const filter = publicSearchFilter(site, q);
+  return fallbackQuery(site, q, extra ? { op: 'and', filters: [filter, extra] } : filter, decode(q.cursor, q.sort));
 }
 
 /** The engine's answer, or a timeout error after `ms` (`SEARCH_ENGINE_TIMEOUT_MS`, whatever the adapter does). */

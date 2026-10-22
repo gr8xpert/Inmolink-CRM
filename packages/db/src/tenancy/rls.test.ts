@@ -165,8 +165,8 @@ describe('RLS generator', () => {
     expect(out).not.toMatch(/app_preferring_agencies\(\) returns setof uuid[^;]*security definer/i);
   });
 
-  it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the others: [S7-F4], [S7-03])', () => {
-    expect(out.match(/security definer/gi)).toHaveLength(3);
+  it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
+    expect(out.match(/security definer/gi)).toHaveLength(2);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -175,19 +175,15 @@ describe('RLS generator', () => {
     expect(out).not.toMatch(/app_partition_maintenance\(\) to [^;]*app_(?:user|public|auth|staff)/);
   });
 
-  it('[S7-F4] the commission lookup is SECURITY DEFINER with a fixed search path, executable by app_public only', () => {
-    expect(out).toContain(
-      'create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean',
-    );
-    expect(out).toMatch(/search_commission_at_least[^;]*security definer set search_path = pg_catalog, pg_temp/);
-    expect(out).toContain('grant execute on function search_commission_at_least(uuid, integer) to app_public;');
-    expect(out).not.toMatch(/search_commission_at_least\(uuid, integer\) to [^;]*app_(?:user|system|auth|staff)/);
+  it('[S7-F11] no app role can execute the S7-F4 commission lookup: dropped, not a helper, never created or granted', () => {
+    // Unused since S7-F10 (the generated view answers instead), kept one release for the app version running during
+    // that deploy. The guard rejects any function an app role can execute that is not a helper (`[S7-F11]` guard test).
+    expect(HELPER_FUNCTIONS as readonly string[]).not.toContain('search_commission_at_least');
+    expect(out).toContain('drop function if exists public.search_commission_at_least(uuid, integer);');
+    expect(out.match(/search_commission_at_least/g)).toHaveLength(1);
   });
 
   it('[S7-F10] the commission floor is a generated security-barrier view of ids only, readable by app_public alone', () => {
-    // The S7-F4 definer function (a call per candidate row) stays one release for the app version still running during
-    // a deploy (its own test above); nothing calls it any more.
-    expect(HELPER_FUNCTIONS as readonly string[]).toContain('search_commission_at_least');
     expect(DEFINER_VIEWS).toEqual(['search_commission_floor']);
     const view = /create view public\.search_commission_floor[^;]*;/.exec(out)?.[0] ?? '';
     expect(view).toContain('with (security_barrier = true)');

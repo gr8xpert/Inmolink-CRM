@@ -44,9 +44,7 @@ create view public.search_commission_floor with (security_barrier = true) as
 alter view public.search_commission_floor owner to app_owner;
 revoke all on table public.search_commission_floor from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select on table public.search_commission_floor to app_public;
-create or replace function search_commission_at_least(t_id uuid, bp integer) returns boolean language sql stable
-  security definer set search_path = pg_catalog, pg_temp
-  as $$ select exists (select 1 from public.listing_search_commissions c where c.target_id = t_id and c.commission_bp >= bp) $$;
+drop function if exists public.search_commission_at_least(uuid, integer);
 create or replace function website_network_open(a_id uuid, min_shared integer, grace_days integer) returns boolean
   language sql stable security definer set search_path = pg_catalog, pg_temp
   as $$ select coalesce((select g.give_to_get_exempt or g.created_at > now() - make_interval(days => grace_days)
@@ -55,8 +53,7 @@ create or replace function website_network_open(a_id uuid, min_shared integer, g
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), search_commission_at_least(uuid, integer), website_network_open(uuid, integer, integer) from public;
-grant execute on function search_commission_at_least(uuid, integer) to app_public;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer) from public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;

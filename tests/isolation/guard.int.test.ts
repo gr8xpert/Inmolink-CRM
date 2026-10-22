@@ -126,6 +126,33 @@ describe('RLS guard', () => {
     ]);
   });
 
+  it('[S7-F11] no app role can execute the S7-F4 commission lookup: dropped by db:rls, and the guard rejects it back', async () => {
+    // Dropped from the database by the generated SQL (applied by the isolation setup)…
+    const { rows } = await owner.query<{ fn: string | null }>(
+      `select to_regprocedure('public.search_commission_at_least(uuid, integer)')::text as fn`,
+    );
+    expect(rows[0]?.fn).toBeNull();
+    // …and no longer a helper: re-created as it was (SECURITY DEFINER, executable by app_public), the guard fails.
+    await owner.query('begin');
+    try {
+      await owner.query(`create function public.search_commission_at_least(t_id uuid, bp integer) returns boolean
+        language sql stable security definer set search_path = pg_catalog, pg_temp
+        as $$ select exists (select 1 from public.listing_search_commissions c
+                              where c.target_id = t_id and c.commission_bp >= bp) $$;
+        revoke all on function public.search_commission_at_least(uuid, integer) from public;
+        grant execute on function public.search_commission_at_least(uuid, integer) to app_public;`);
+      const problems = (await checkRls(owner, isolationRegistry)).filter((p) =>
+        p.startsWith('search_commission_at_least'),
+      );
+      expect(problems).toEqual([
+        'search_commission_at_least(): SECURITY DEFINER outside the generated helpers',
+        'search_commission_at_least(): executable by an app role but not a generated helper',
+      ]);
+    } finally {
+      await owner.query('rollback');
+    }
+  });
+
   it('[S7-F10] a generated definer view: another owner, another reader or a missing view fails the guard', async () => {
     const viewProblems = (all: string[]) => all.filter((p) => p.startsWith('search_commission_floor'));
     expect(viewProblems(await checkRls(owner, isolationRegistry))).toEqual([]);

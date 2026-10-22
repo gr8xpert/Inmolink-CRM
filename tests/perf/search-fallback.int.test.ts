@@ -1,9 +1,10 @@
 import type { PublicListingSearch } from '@inmolink/contracts';
 import * as search from '@inmolink/core/modules/search';
+import * as searchTesting from '@inmolink/core/modules/search/testing';
 import { closeDb, withSystem } from '@inmolink/db';
 import { adminQuery, setupTestDb } from '@inmolink/db/testing';
 import { createLogger } from '@inmolink/platform/logger';
-import { createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
+import { createMeiliEngine, type Filter, type SearchEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
@@ -163,7 +164,11 @@ afterAll(async () => {
   await closeDb();
 });
 
-type Shape = { site: search.PublicSearchSite; q: PublicListingSearch };
+/**
+ * `extra`: a condition the public contract has no parameter for yet (S7-F11: a plot band), ANDed to the site's filter —
+ * run as the fallback statement itself, not through `searchPublicListings`.
+ */
+type Shape = { site: search.PublicSearchSite; q: PublicListingSearch; extra?: Filter };
 const SHAPES = 15;
 const network = (q: PublicListingSearch): Shape => ({ site: { ownerAgencyIds: null, requestId: 'perf' }, q });
 const owned = (owners: string[], q: PublicListingSearch): Shape => ({
@@ -312,7 +317,7 @@ it('[S5-04] with Meilisearch stopped, website search answers within budget at sc
 it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or a capped scan, never a table scan, within 20 ms', async () => {
   for (let shape = 0; shape < SHAPES; shape++) {
     const { site, q } = query(5_010 + shape); // 5,010 = 15 × 334: query(5_010 + n) is shape n
-    const statement = search.publicFallbackSql(site, q);
+    const statement = searchTesting.publicFallbackSql(site, q);
     if (!statement) throw new Error(`shape ${shape}: no statement`);
     // 5 runs: one EXPLAIN on a shared Docker Desktop VM varies 2× from run to run (median logged, fastest asserted).
     const runs: { plan: string; ms: number }[] = [];
@@ -357,6 +362,8 @@ it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or
  * S7-F9: the shapes a network site sends with a price band and a price sort (the S7-08 perf audit's Seq Scan), and the
  * other nullable sorts with a minimum — network only (CUSTOM), own + network (OWN_PLUS_NETWORK) and network-wide, both
  * directions, first and next pages. Each matches far more than the count's cap, so the index-ordered branches run.
+ * S7-F11: an area band sorted by price (467 ms at 500k rows before: the band was estimated at 1 row, read through the
+ * area index and sorted) and a plot band sorted by area.
  */
 function networkBandShapes(): { name: string; shape: Shape }[] {
   const self = agency(17);
@@ -374,12 +381,27 @@ function networkBandShapes(): { name: string; shape: Shape }[] {
     ['beds 3+ beds_desc', { locale: 'en', bedsMin: 3, sort: 'beds_desc' }],
     ['area band area_desc', { locale: 'en', areaMinM2: 100, areaMaxM2: 200, sort: 'area_desc' }],
     // A bound on another column than the sort: the null phase stays (rows without a price, 3+ bedrooms), walked on
-    // `price_idx`'s null entries in id order. (An area band sorted by price is S7-F10: `numeric` comparisons are not
-    // leakproof, so under the table's `global_read` policy the planner has no statistics for them.)
+    // `price_idx`'s null entries in id order.
     ['beds 3+ price_asc', { locale: 'en', bedsMin: 3, sort: 'price_asc' }],
+    // S7-F11: areas compared as float8 (leakproof), so the planner has statistics for the band under the table's
+    // `global_read` policy and walks the price index instead of reading the band and sorting it.
+    ['area band price_asc', { locale: 'en', areaMinM2: 100, areaMaxM2: 200, sort: 'price_asc' }],
+    ['area band price_desc', { locale: 'en', areaMinM2: 100, areaMaxM2: 200, sort: 'price_desc' }],
   ];
-  return sites.flatMap(([s, site]) => queries.map(([n, q]) => ({ name: `${s} · ${n}`, shape: { site, q } })));
+  const plotBand: Filter = { op: 'range', field: 'plotM2', gte: 500, lte: 1_500 };
+  return sites.flatMap(([s, site]) => [
+    ...queries.map(([n, q]) => ({ name: `${s} · ${n}`, shape: { site, q } })),
+    // S7-F11: a plot band (statistics object on `plot_m2::float8`) sorted by area (`area_f8_idx`)
+    { name: `${s} · plot band area_desc`, shape: { site, q: { locale: 'en', sort: 'area_desc' }, extra: plotBand } },
+  ]);
 }
+
+/** The shape's fallback statement, run in the site's public read (an `extra` shape's only path; timed like a search). */
+const runStatement = async ({ site, q, extra }: Shape) => {
+  const statement = searchTesting.publicFallbackSql(site, q, { extra });
+  if (!statement) throw new Error('no statement');
+  return search.withSiteRead(site, (tx) => tx.execute(statement));
+};
 
 /** Rows any one scan node of `listing_search_docs` read (returned + removed by its filter), the largest. */
 function widestScan(plan: string): { rows: number; line: string } {
@@ -395,27 +417,33 @@ function widestScan(plan: string): { rows: number; line: string } {
   return widest;
 }
 
-it('[S7-F9] network site + price band + price sort (and every nullable sort with a bound): index-driven, no table scan, p95 < 150 ms', async () => {
+it('[S7-F9] [S7-F11] network site + price band + price sort (every nullable sort with a bound, an area band by price, a plot band by area): index-driven, no table scan, p95 < 150 ms', async () => {
   const shapes = networkBandShapes();
   const summary: Record<string, { p95: number; widest: number; ms: number }> = {};
   for (const { name, shape } of shapes) {
-    // Page 1 and the page after it: the keyset continues on the index.
-    const first = await run(shape);
-    expect(first.backend, name).toBe('fallback');
-    expect(first.ids.length, name).toBeGreaterThan(0);
-    const pages: Shape[] = [shape, { ...shape, q: { ...shape.q, cursor: first.nextCursor ?? undefined } }];
+    // Page 1 and the page after it: the keyset continues on the index. An `extra` shape (no public parameter yet): its
+    // first page, as the statement.
+    let pages: Shape[] = [shape];
+    if (shape.extra) {
+      expect((await runStatement(shape)).rows.length, name).toBeGreaterThan(1);
+    } else {
+      const first = await run(shape);
+      expect(first.backend, name).toBe('fallback');
+      expect(first.ids.length, name).toBeGreaterThan(0);
+      pages = [shape, { ...shape, q: { ...shape.q, cursor: first.nextCursor ?? undefined } }];
+    }
     const times: number[] = [];
     for (let i = 0; i < 20; i++) {
-      const page = pages[i % 2] as Shape;
+      const page = pages[i % pages.length] as Shape;
       const started = performance.now();
-      await run(page);
+      await (page.extra ? runStatement(page) : run(page));
       times.push(performance.now() - started);
     }
     // The plan under production's planner costs (set on the test database by `setupTestDb`, S7-F10 review).
     let widest = { rows: 0, line: '' };
     let ms = 0;
     for (const page of pages) {
-      const statement = search.publicFallbackSql(page.site, page.q);
+      const statement = searchTesting.publicFallbackSql(page.site, page.q, { extra: page.extra });
       if (!statement) throw new Error(`${name}: no statement`);
       const { rows } = await search.withSiteRead(page.site, (tx) =>
         tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
@@ -426,7 +454,7 @@ it('[S7-F9] network site + price band + price sort (and every nullable sort with
       ms = Math.max(ms, Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]));
       // The null phase of a sort the filter bounds is a constant false: never a scan (the audit's 502k-row id walk);
       // a sort the filter does not bound keeps it (and the widest-scan bound below still holds for it).
-      if (search.publicFallbackBoundsSort(page.site, page.q)) {
+      if (searchTesting.publicFallbackBoundsSort(page.site, page.q, { extra: page.extra })) {
         expect(plan, `${name}: null phase`).toMatch(/One-Time Filter: false/);
       } else {
         expect(plan, `${name}: null phase kept`).not.toMatch(/One-Time Filter: false/);
@@ -438,6 +466,42 @@ it('[S7-F9] network site + price band + price sort (and every nullable sort with
     expect(p95(times), name).toBeLessThan(SHAPE_P95_BUDGET_MS);
   }
   log.info({ rows: ROWS, summary }, '[S7-F9] network band shapes (p95 ms, widest scan rows, slowest EXPLAIN ms)');
+}, 600_000);
+
+/**
+ * S7-F11: the planner's estimate of each band shape's filter is within 10× of the rows it really matches, under the
+ * table's RLS policy as `app_public` (the site's public read). Comparisons without statistics there (`numeric` areas
+ * before S7-F11) were estimated at 1 row for 148k, and the plan read the band then sorted it. The estimate is the
+ * filter's (`select … where <filter>`): a scan under the statement's `limit` stops early by design, so its own row
+ * count says nothing about the estimate.
+ */
+it('[S7-F11] band shapes: the planner estimates each filter within 10× of the rows it matches, under RLS', async () => {
+  const summary: Record<string, { estimate: number; rows: number }> = {};
+  // The plot band's statistics object (migration 0104) and the area expression index exist.
+  const objects = await system((tx) =>
+    tx.execute(sql`select (select count(*)::int from pg_statistic_ext
+                            where stxname = 'listing_search_docs_plot_f8_stat'
+                              and stxrelid = 'listing_search_docs'::regclass) as stat,
+                          to_regclass('listing_search_docs_area_f8_idx') is not null as idx`),
+  );
+  expect(objects.rows[0]).toEqual({ stat: 1, idx: true });
+  for (const { name, shape } of networkBandShapes()) {
+    const condition = searchTesting.publicFallbackCondition(shape.site, shape.q, { extra: shape.extra });
+    if (!condition) throw new Error(`${name}: no condition`);
+    const [estimate, rows] = await search.withSiteRead(shape.site, async (tx) => {
+      await tx.execute(sql`set local statement_timeout = '60s'`);
+      const plan = await tx.execute(sql`explain (format json) select 1 from listing_search_docs where ${condition}`);
+      const json = Object.values(plan.rows[0] ?? {})[0];
+      const parsed = (typeof json === 'string' ? JSON.parse(json) : json) as { Plan: { 'Plan Rows': number } }[];
+      const count = await tx.execute(sql`select count(*)::int as n from listing_search_docs where ${condition}`);
+      return [parsed[0]?.Plan['Plan Rows'] ?? 0, (count.rows[0] as { n: number }).n] as const;
+    });
+    summary[name] = { estimate, rows };
+    expect(rows, name).toBeGreaterThan(0);
+    expect(estimate, `${name}: estimated ${estimate}, matches ${rows}`).toBeGreaterThanOrEqual(rows / 10);
+    expect(estimate, `${name}: estimated ${estimate}, matches ${rows}`).toBeLessThanOrEqual(rows * 10);
+  }
+  log.info({ rows: ROWS, summary }, '[S7-F11] band shape estimates (planner rows vs matching rows)');
 }, 600_000);
 
 /**
@@ -455,7 +519,7 @@ it('[S7-F10] minimum-commission shapes: an index-only probe per candidate, withi
   expect(Object.values(costs[0] ?? {})[0], 'production planner costs on the test database').toBe('1.1');
   for (const shape of [13, 14]) {
     const { site, q } = query(5_010 + shape);
-    const statement = search.publicFallbackSql(site, q);
+    const statement = searchTesting.publicFallbackSql(site, q);
     if (!statement) throw new Error(`shape ${shape}: no statement`);
     const runs: { plan: string; ms: number }[] = [];
     for (let k = 0; k < 9; k++) {

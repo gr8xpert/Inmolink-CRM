@@ -79,6 +79,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'listing_search_commissions',
     definition: `ON "listing_search_commissions" USING btree ("target_id","commission_bp")`,
   },
+  {
+    // The website fallback's area sort and area bands, compared as float8 (S7-F11: statistics under RLS)
+    name: 'listing_search_docs_area_f8_idx',
+    table: 'listing_search_docs',
+    definition: `ON "listing_search_docs" USING btree (("area_m2"::float8),"target_id")`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

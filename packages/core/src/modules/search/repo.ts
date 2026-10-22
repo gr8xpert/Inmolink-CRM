@@ -797,7 +797,7 @@ export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<
 }
 
 /** `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). */
-type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'numeric' | 'bool' | 'uuid[]';
+type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'float8' | 'bool' | 'uuid[]';
 type FieldSpec =
   | { column: string; type: ColumnType }
   | { constant: string }
@@ -824,8 +824,13 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   priceCents: { column: 'price_cents', type: 'bigint' },
   beds: { column: 'beds', type: 'int' },
   baths: { column: 'baths', type: 'int' },
-  areaM2: { column: 'area_m2', type: 'numeric' },
-  plotM2: { column: 'plot_m2', type: 'numeric' },
+  // S7-F11: areas are stored `numeric` (exact) but compared as `float8`. The table is under RLS (`global_read`), where
+  // the planner uses statistics only for leakproof operators: `numeric` comparisons are not, so an area band was
+  // estimated at 1 row (148k real at 500k) and read through the area index then sorted (467 ms). `float8` comparisons
+  // are leakproof; the expression index `area_f8_idx` (and the expression statistics on plot, migration 0104) give
+  // them statistics, and the index serves the band and the sort. Same order and the same matches as the engine's.
+  areaM2: { column: '(area_m2::float8)', type: 'float8' },
+  plotM2: { column: '(plot_m2::float8)', type: 'float8' },
   shareScope: { column: 'share_scope', type: 'text' },
   preferredAgencyIds: { column: 'preferred_agency_ids', type: 'uuid[]' },
   networkHidden: { column: 'network_hidden', type: 'bool' },
@@ -845,15 +850,20 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   developmentOwnRef: { developmentOwnRef: true },
 };
 
-/** Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction). */
-const FALLBACK_SORTS: Readonly<Record<string, { column: string; nullable: boolean }>> = {
-  publishedAt: { column: 'published_at', nullable: false },
-  priceCents: { column: 'price_cents', nullable: true },
-  beds: { column: 'beds', nullable: true },
-  areaM2: { column: 'area_m2', nullable: true },
+/**
+ * Sortable fields → fallback columns (`nullable`: rows without a value come last in either direction; `type`: the
+ * keyset value's cast — the column's own type, so the row comparison stays an index condition).
+ */
+const FALLBACK_SORTS: Readonly<
+  Record<string, { column: string; type: 'bigint' | 'int' | 'float8'; nullable: boolean }>
+> = {
+  publishedAt: { column: 'published_at', type: 'bigint', nullable: false },
+  priceCents: { column: 'price_cents', type: 'bigint', nullable: true },
+  beds: { column: 'beds', type: 'int', nullable: true },
+  areaM2: { column: '(area_m2::float8)', type: 'float8', nullable: true },
 };
 
-const NUMERIC: readonly ColumnType[] = ['bigint', 'int', 'numeric'];
+const NUMERIC: readonly ColumnType[] = ['bigint', 'int', 'float8'];
 
 function fieldOf(name: string): FieldSpec {
   const f = FALLBACK_FIELDS[name];
@@ -882,8 +892,8 @@ const NOT_NULL_COLUMNS: ReadonlySet<string> = new Set(
     .filter((c) => c.notNull)
     .map((c) => c.name),
 );
-/** A field's column name without its cast (`kind::text` → `kind`). */
-const bareColumn = (column: string) => column.replace(/::[a-z_]+$/, '');
+/** A field's column name without its parentheses and cast (`kind::text` → `kind`, `(area_m2::float8)` → `area_m2`). */
+const bareColumn = (column: string) => column.replace(/^\((.*)\)$/, '$1').replace(/::[a-z0-9_]+$/, '');
 
 /**
  * S7-F9: the network rule's negations (`not ownerAgencyId = self`, `not networkHidden = true`) in forms the planner
@@ -1072,7 +1082,9 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
   const take = q.limit + 1;
   const branches: SQL[] = [];
   if (!q.after || q.after.phase === 0) {
-    const keyset = q.after ? sql`and (${col}, target_id) ${cmp} (${q.after.value}, ${q.after.id}::uuid)` : sql``;
+    const keyset = q.after
+      ? sql`and (${col}, target_id) ${cmp} (${q.after.value}::${sql.raw(sort.type)}, ${q.after.id}::uuid)`
+      : sql``;
     branches.push(sql`(select target_id, ${col}::float8 as k, 0 as phase from ${listingSearchDocs}
        where ${where} ${sort.nullable ? sql`and ${col} is not null` : sql``} ${keyset}
        order by ${col} ${dir}, target_id ${dir} limit ${take})`);
@@ -1086,7 +1098,7 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
     const nulls = requiresValue(q.filter, q.sort.field) ? sql`false` : sql`${where} and ${col} is null ${keyset}`;
     // Ordered by the sort column too (all null here, so the order is the id's): the planner then walks the sort index's
     // null entries in id order and stops at `limit + 1` (S7-F9 review: ordered by id alone, it read a whole area band
-    // through `area_idx` and sorted — 109k rows, 205 ms — for the null-price rows of a network site).
+    // through the area index and sorted — 109k rows, 205 ms — for the null-price rows of a network site).
     branches.push(sql`(select target_id, null::float8 as k, 1 as phase from ${listingSearchDocs}
        where ${nulls}
        order by ${col} ${dir}, target_id ${dir} limit ${take})`);

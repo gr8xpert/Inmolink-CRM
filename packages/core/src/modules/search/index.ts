@@ -84,8 +84,6 @@ export {
   developmentRefMatch,
   FALLBACK_COUNT_CAP,
   type PublicSearchSite,
-  publicFallbackBoundsSort,
-  publicFallbackSql,
   publicSearchFilter,
   refFilter,
   resetDevelopmentCodes,

@@ -16,6 +16,9 @@
       "types": "./dist/modules/*/index.d.ts",
       "default": "./dist/modules/*/index.js"
     },
+    "./modules/search/testing": {
+      "@inmolink/source": "./src/modules/search/testing.ts"
+    },
     "./test": {
       "@inmolink/source": "./src/testing/factories.ts"
     }

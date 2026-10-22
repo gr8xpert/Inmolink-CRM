@@ -729,6 +729,13 @@
       "when": 1792650728454,
       "tag": "0103_s6_f4_source_hashes",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1792655713123,
+      "tag": "0104_s7_f11_area_statistics",
+      "breakpoints": true
     }
   ]
 }

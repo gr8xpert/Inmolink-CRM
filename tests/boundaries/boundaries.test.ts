@@ -113,6 +113,18 @@ describe('module scaffolder and boundaries', () => {
     );
   });
 
+  it("[S7-F11] a module's testing.ts (perf-test helpers) is for tests only: an app importing it fails", async () => {
+    const result = await planted(
+      'apps/api/src/planted.ts',
+      "import { publicFallbackSql } from '@inmolink/core/modules/search/testing';\nexport const planted = publicFallbackSql;\n",
+      () => sb.boundaries(['apps/api/src/planted.ts']),
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatch(
+      /core-module-testing-in-tests-only: apps\/api\/src\/planted\.ts → packages\/core\/src\/modules\/search\/testing\.ts/,
+    );
+  });
+
   it("[S0-12] a planted import of another module's repo.ts fails check:boundaries", async () => {
     const result = await planted(
       `${MODULE_DIR}/planted.ts`,

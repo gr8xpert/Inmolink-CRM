@@ -168,8 +168,10 @@ export const readModelQueue = pgTable(
  * same engine-neutral filter compiles to either), without the text — the fallback matches references only.
  *
  * Global, not tenant-scoped: every row is a PUBLIC listing or unit, readable by public paths like the documents
- * themselves. Not under RLS on purpose: array (`&&`, `@>`) and `numeric` comparisons are not leakproof, so under a
- * policy they could never be index conditions. `owner_agency_id` is a filter only, never served.
+ * themselves (S6-F1: under RLS with a `global_read using (true)` policy for `app_public`). Under RLS the planner uses
+ * column statistics only for leakproof comparisons: `numeric`, enum casts and array `@>` / `&&` are not, so the
+ * fallback compares areas as `float8`, whose statistics the expression index and statistics below provide (S7-F11).
+ * `owner_agency_id` is a filter only, never served.
  */
 export const listingSearchDocs = pgTable(
   'listing_search_docs',
@@ -220,9 +222,16 @@ export const listingSearchDocs = pgTable(
     index('listing_search_docs_newest_idx').on(t.publishedAt, t.targetId),
     // network-wide pages by price
     index('listing_search_docs_price_idx').on(t.priceCents, t.targetId),
-    // network-wide pages by bedrooms and by area
+    // network-wide pages by bedrooms
     index('listing_search_docs_beds_idx').on(t.beds, t.targetId),
+    // the app version before S7-F11 (area bands and the area sort on the `numeric` column): kept one release for the
+    // version still running during that deploy; dropped CONCURRENTLY by S7-F13 (expand/contract)
     index('listing_search_docs_area_idx').on(t.areaM2, t.targetId),
+    // network-wide pages by area, and area bands (S7-F11): the fallback compares areas as `float8` (leakproof, so the
+    // planner has statistics for them under the table's RLS policy; this expression index collects them). The plot's
+    // statistics are an extended statistics object (migration 0104; Drizzle does not declare those). Built
+    // CONCURRENTLY, concurrent-indexes.ts
+    index('listing_search_docs_area_f8_idx').on(sql`(${t.areaM2}::float8)`, t.targetId),
     // rare transaction types and statuses network-wide (short-term rentals, reserved units): common ones stop a
     // capped scan early, rare ones would read the whole table without it
     index('listing_search_docs_transaction_idx').on(t.transactionType, t.status),
