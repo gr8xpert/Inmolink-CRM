@@ -253,4 +253,21 @@ describe('listing tables', () => {
       await expect(seedListing(over), JSON.stringify(over)).rejects.toMatchObject({ cause: { code: '23514' } });
     }
   });
+
+  it('[S7-F15] properties_costs_ck is validated after the migrations, and a negative fee is still refused', async () => {
+    const rows = await withSystem('test.s7-f15', (tx) =>
+      tx.execute<{ convalidated: boolean }>(
+        sql`select convalidated from pg_constraint where conname = 'properties_costs_ck' and conrelid = 'properties'::regclass`,
+      ),
+    );
+    expect(rows.rows).toEqual([{ convalidated: true }]);
+    for (const over of [
+      { priceToCents: -1 },
+      { communityFeeMonthCents: -1 },
+      { ibiYearCents: -1 },
+      { garbageTaxYearCents: -1 },
+    ]) {
+      await expect(seedListing(over), JSON.stringify(over)).rejects.toMatchObject({ cause: { code: '23514' } });
+    }
+  });
 });

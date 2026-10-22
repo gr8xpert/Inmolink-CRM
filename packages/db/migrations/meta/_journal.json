@@ -764,6 +764,13 @@
       "when": 1792666540678,
       "tag": "0108_s7_f14_listing_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1792670227319,
+      "tag": "0109_s7_f15_validate_properties_costs_ck",
+      "breakpoints": true
     }
   ]
 }
