@@ -959,6 +959,16 @@ export function fallbackCondition(filter: Filter): SQL {
           sql`, `,
         )})`;
       }
+      if (filter.field === 'status' && filter.values.includes('ACTIVE')) {
+        // S7-F11: a status set with ACTIVE matches most targets (85 % in the scale seed): a filter, never an index
+        // condition. As one, PG 18's skip scan over `transaction_idx` (transaction type, status) offered a 425k-row
+        // bitmap to AND with a selective one; whether the planner took it was a near tie that flipped with one page of
+        // `listing_search_commissions` not all-visible (a one-row index-only probe then costs a heap page: 1.56 →
+        // 2.66) — CI's and production's state, not a settled test table — and cost ~10 ms (shape 13). `is true` keeps
+        // the statistics (leakproof under RLS, same answer: the column is not null). A set without ACTIVE is selective
+        // and stays indexable (reserved units network-wide).
+        return sql`(${sql.raw(f.column)} = any(${typedArray(filter.values, f.type)})) is true`;
+      }
       return sql`${sql.raw(f.column)} = any(${typedArray(filter.values, f.type)})`;
     }
     case 'range': {

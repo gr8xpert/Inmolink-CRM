@@ -25,9 +25,18 @@ describe('fallback filter → SQL', () => {
       }),
     );
     expect(q.sql).toBe(
-      '(location_ids @> array[$1]::uuid[] and feature_ids && array[$2, $3]::uuid[] and status = any(array[$4, $5]::text[]) and owner_agency_id = $6)',
+      '(location_ids @> array[$1]::uuid[] and feature_ids && array[$2, $3]::uuid[] and (status = any(array[$4, $5]::text[])) is true and owner_agency_id = $6)',
     );
     expect(q.params).toEqual([ID, ID, ID, 'ACTIVE', 'AVAILABLE', ID]);
+  });
+
+  it('[S7-F11] a status set with ACTIVE is a filter (never an index condition); one without stays indexable', () => {
+    expect(render(fallbackCondition({ op: 'in', field: 'status', values: ['ACTIVE', 'AVAILABLE'] })).sql).toBe(
+      '(status = any(array[$1, $2]::text[])) is true',
+    );
+    expect(render(fallbackCondition({ op: 'in', field: 'status', values: ['RESERVED'] })).sql).toBe(
+      'status = any(array[$1]::text[])',
+    );
   });
 
   it('[S5-04] a range never matches a null, with either bound alone; not treats unknown as false', () => {

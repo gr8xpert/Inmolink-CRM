@@ -120,12 +120,12 @@ const insertCommissions = (from: number, to: number) => `
    where abs(hashint8(g * 17)) % 20 <> 9`;
 
 /**
- * VACUUMs `table` until its visibility map covers every page (S7-F11, CI run 39750556960). A VACUUM cannot mark a page
- * all-visible while another transaction's snapshot predates the page's inserts — an autovacuum ANALYZE of the table
- * just loaded holds one — and then `relallvisible` stays low: the planner prices the commission probe's index-only
- * scan with a heap fetch per row, takes the primary key and a BitmapAnd over the status index instead (the shape 13
- * plan seen on CI, reproduced locally with `relallvisible = 0`). Production keeps the map through autovacuum; the
- * plan checks below assume a settled table, as there.
+ * VACUUMs `table` until its visibility map covers (nearly) every page (S7-F11, CI run 39750556960). A VACUUM cannot
+ * mark a page all-visible while another transaction's snapshot predates the page's inserts — an autovacuum ANALYZE of
+ * the table just loaded holds one — and a freshly loaded table would leave every index-only scan priced with heap
+ * fetches. "Nearly": the plans below must not depend on the last page. A one-row index-only probe is priced with a
+ * whole heap page as soon as any page is not all-visible (`ceil((1 - allvisfrac) × 1)`), which is production's normal
+ * state; the S7-F10 check runs in both states (CI runs 39755711349, 39758344176: 99.9 % all-visible was CI's).
  */
 async function vacuumUntilAllVisible(table: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
@@ -379,6 +379,14 @@ it('[S5-04] [S5-F4] EXPLAIN at scale: every website query shape uses an index or
       const removed = Number(/Rows Removed by Filter: (\d+)/.exec(lines[n + 1] ?? '')?.[1] ?? 0);
       expect(rows + removed, `shape ${shape}: ${line.trim()}`).toBeLessThanOrEqual(SEQ_SCAN_MAX_ROWS);
     });
+    if (fastest >= SQL_BUDGET_MS) {
+      // Over budget: the planner's estimates and costs too, so a CI-only plan can be reproduced (S7-F11).
+      const { rows: costed } = await search.withSiteRead(site, (tx) => tx.execute(sql`explain ${statement}`));
+      log.warn(
+        { shape, plan: costed.map((r) => String(Object.values(r)[0]).trim().slice(0, 160)) },
+        'search fallback plan over budget (costs)',
+      );
+    }
     expect(fastest, `shape ${shape} (median ${ms} ms)`).toBeLessThan(SQL_BUDGET_MS);
   }
 }, 600_000);
@@ -531,39 +539,77 @@ it('[S7-F11] band shapes: the planner estimates each filter within 10× of the r
 
 /**
  * S7-F10: a CUSTOM site's minimum commission cost a SECURITY DEFINER call per candidate row (~10 µs each: shape 13 ran
- * 20–31 ms warm). It is now an index-only probe per candidate into the generated `search_commission_floor` view (the
+ * 20–31 ms warm). It is now an index probe per candidate into the generated `search_commission_floor` view (the
  * targets paying at least the transaction's minimum, ids only). Shape 13 (own + network + a city + 3 %, newest) and the
  * selective network shape 14 (type + baths + band + 3 %, < 1,000 matches) within the SQL budget under production's
- * planner costs (`random_page_cost` 1.1, `effective_io_concurrency` 200 — on the test database since the S7-F10 review),
- * with no BitmapAnd over the status index to save probes (the container default 4 priced each probe at 4.5 and
- * sometimes added it: 24 ms).
+ * planner costs (`random_page_cost` 1.1, on the test database since the S7-F10 review), with no BitmapAnd over the
+ * status index to save probes.
+ *
+ * S7-F11 (CI runs 39755711349, 39758344176): in both visibility states of `listing_search_commissions`. Settled (every
+ * page all-visible) the probe is an index-only scan of `floor_idx` (1.56); with one page not all-visible — production's
+ * normal state, and CI's after the seed — a one-row index-only scan is priced with a heap page, so the primary key's
+ * index scan (2.66, the same ~2 µs) wins. At 2.66 a probe, PG 18's skip scan over `transaction_idx` for the 85 % status
+ * set used to win a BitmapAnd (10 ms of a 20 ms plan on CI); the status set with ACTIVE is now a filter, never an index
+ * condition, so neither state may plan it.
  */
-it('[S7-F10] minimum-commission shapes: an index-only probe per candidate, within 20 ms warm at 500k rows', async () => {
-  const summary: Record<string, { fastest: number; probes: number }> = {};
+it('[S7-F10] [S7-F11] minimum-commission shapes: an index probe per candidate, settled or not, within 20 ms warm at 500k rows', async () => {
+  const summary: Record<string, { fastest: number; probes: number; probe: string }> = {};
   const costs = await search.withSiteRead(null, async (tx) => (await tx.execute(sql`show random_page_cost`)).rows);
   expect(Object.values(costs[0] ?? {})[0], 'production planner costs on the test database').toBe('1.1');
-  for (const shape of [13, 14]) {
-    const { site, q } = query(5_010 + shape);
-    const statement = searchTesting.publicFallbackSql(site, q);
-    if (!statement) throw new Error(`shape ${shape}: no statement`);
-    const runs: { plan: string; ms: number }[] = [];
-    for (let k = 0; k < 9; k++) {
-      // 9 runs, the fastest asserted: its own cost on a shared Docker Desktop VM (5 left a 14–22 ms spread here).
-      const { rows } = await search.withSiteRead(site, (tx) =>
-        tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
+  const visibility = async () =>
+    (
+      await adminQuery<{ pages: number; visible: number }>(
+        `select relpages as pages, relallvisible as visible from pg_class where oid = 'listing_search_commissions'::regclass`,
+      )
+    )[0] as { pages: number; visible: number };
+  const check = async (state: string) => {
+    for (const shape of [13, 14]) {
+      const { site, q } = query(5_010 + shape);
+      const statement = searchTesting.publicFallbackSql(site, q);
+      if (!statement) throw new Error(`shape ${shape}: no statement`);
+      const runs: { plan: string; ms: number }[] = [];
+      for (let k = 0; k < 9; k++) {
+        // 9 runs, the fastest asserted: its own cost on a shared Docker Desktop VM (5 left a 14–22 ms spread here).
+        const { rows } = await search.withSiteRead(site, (tx) =>
+          tx.execute(sql`explain (analyze, buffers, costs off) ${statement}`),
+        );
+        const plan = rows.map((r) => String(Object.values(r)[0])).join('\n');
+        runs.push({ plan, ms: Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]) });
+      }
+      runs.sort((x, y) => x.ms - y.ms);
+      const { plan, ms } = runs[0] as { plan: string; ms: number };
+      const name = `${state} · shape ${shape}`;
+      const probes = [
+        ...plan.matchAll(
+          /Index (?:Only )?Scan using (listing_search_commissions_(?:floor_idx|pkey)) on listing_search_commissions.*loops=(\d+)/g,
+        ),
+      ];
+      summary[name] = {
+        fastest: ms,
+        probes: probes.reduce((n, m) => n + Number(m[2]), 0),
+        probe: [...new Set(probes.map((m) => m[1]))].join(', '),
+      };
+      expect(probes.length, `${name}: an index probe per candidate`).toBeGreaterThan(0);
+      expect(plan, name).not.toMatch(
+        /search_commission_at_least|Seq Scan on listing_search_commissions|hashed SubPlan/,
       );
-      const plan = rows.map((r) => String(Object.values(r)[0])).join('\n');
-      runs.push({ plan, ms: Number(/Execution Time: ([\d.]+) ms/.exec(plan)?.[1]) });
+      expect(plan, name).not.toMatch(/Bitmap Index Scan on listing_search_docs_transaction_idx/);
+      expect(ms, name).toBeLessThan(SQL_BUDGET_MS);
     }
-    runs.sort((x, y) => x.ms - y.ms);
-    const { plan, ms } = runs[0] as { plan: string; ms: number };
-    const name = `shape ${shape}`;
-    const probes = [...plan.matchAll(/Index Only Scan using listing_search_commissions_floor_idx.*loops=(\d+)/g)];
-    summary[name] = { fastest: ms, probes: probes.reduce((n, m) => n + Number(m[1]), 0) };
-    expect(plan, name).toMatch(/Index Only Scan using listing_search_commissions_floor_idx/);
-    expect(plan, name).not.toMatch(/search_commission_at_least|Seq Scan on listing_search_commissions/);
-    expect(plan, name).not.toMatch(/Bitmap Index Scan on listing_search_docs_transaction_idx/);
-    expect(ms, name).toBeLessThan(SQL_BUDGET_MS);
+  };
+  try {
+    await vacuumUntilAllVisible('listing_search_commissions');
+    await check('settled');
+    // One seed row rewritten in place: its page leaves the visibility map; ANALYZE carries the count to the planner.
+    await adminQuery(`update listing_search_commissions set commission_bp = commission_bp where target_id = $1`, [
+      id(DOC_SPACE, 1),
+    ]);
+    await adminQuery('analyze listing_search_commissions');
+    const after = await visibility();
+    expect(after.visible, 'a page is not all-visible').toBeLessThan(after.pages);
+    await check('one page not all-visible');
+  } finally {
+    await vacuumUntilAllVisible('listing_search_commissions');
   }
   log.info({ rows: ROWS, summary }, '[S7-F10] minimum-commission shapes (fastest EXPLAIN ms, commission probes)');
 }, 600_000);
