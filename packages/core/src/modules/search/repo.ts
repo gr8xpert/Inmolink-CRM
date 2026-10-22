@@ -920,16 +920,22 @@ function negation(filter: Filter): SQL | null {
  * The engine-neutral filter → a SQL condition on `listing_search_docs`, with the engine's semantics: an array field
  * equals a value when it holds it (`@>`) and is `in` values when it shares one (`&&`); a range never matches a null.
  * Values are always parameters; column names come from the map above, never from the caller.
+ *
+ * `rangesAsFilters`: numeric ranges compared as `(…) is true` — same rows and statistics, never an index condition
+ * (`fallbackSearchSql`'s capped match set when a location narrows it, S7-F11).
  */
-export function fallbackCondition(filter: Filter): SQL {
+export function fallbackCondition(filter: Filter, opts: { rangesAsFilters?: boolean } = {}): SQL {
   switch (filter.op) {
     case 'and':
     case 'or': {
       if (filter.filters.length === 0) throw new SearchError(`empty ${filter.op}`);
-      return sql`(${sql.join(filter.filters.map(fallbackCondition), sql.raw(filter.op === 'and' ? ' and ' : ' or '))})`;
+      return sql`(${sql.join(
+        filter.filters.map((f) => fallbackCondition(f, opts)),
+        sql.raw(filter.op === 'and' ? ' and ' : ' or '),
+      )})`;
     }
     case 'not':
-      return negation(filter.filter) ?? sql`(not coalesce(${fallbackCondition(filter.filter)}, false))`;
+      return negation(filter.filter) ?? sql`(not coalesce(${fallbackCondition(filter.filter, opts)}, false))`;
     case 'eq': {
       const f = fieldOf(filter.field);
       if ('constant' in f) return filter.value === f.constant ? sql`true` : sql`false`;
@@ -990,6 +996,7 @@ export function fallbackCondition(filter: Filter): SQL {
       const parts: SQL[] = [sql`${sql.raw(f.column)} is not null`];
       if (filter.gte !== undefined) parts.push(sql`${sql.raw(f.column)} >= ${finite(filter.gte)}`);
       if (filter.lte !== undefined) parts.push(sql`${sql.raw(f.column)} <= ${finite(filter.lte)}`);
+      if (opts.rangesAsFilters) return sql`((${sql.join(parts, sql` and `)}) is true)`;
       return sql`(${sql.join(parts, sql` and `)})`;
     }
     case 'gt':
@@ -1081,6 +1088,12 @@ export function requiresValue(filter: Filter, field: string): boolean {
   }
 }
 
+/** Whether every row matching `filter` is in given locations (a location condition on its `and` spine). */
+function hasLocation(filter: Filter): boolean {
+  if (filter.op === 'and') return filter.filters.some(hasLocation);
+  return (filter.op === 'eq' || filter.op === 'in') && filter.field === 'locationIds';
+}
+
 /** The fallback's one statement (`fallbackSearch`; perf tests EXPLAIN it). */
 export function fallbackSearchSql(q: FallbackQuery): SQL {
   const sort = FALLBACK_SORTS[q.sort.field];
@@ -1123,9 +1136,15 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
     : q.after.phase === 0
       ? sql`and ((k is not null and (k, target_id) ${cmp} (${q.after.value}::float8, ${q.after.id}::uuid)) or k is null)`
       : sql`and k is null and target_id ${cmp} ${q.after.id}::uuid`;
+  // S7-F11 (CI runs 39758344176, 39766144207): with a location, `m` reads the location's bitmap and filters the ranges.
+  // The planner builds one bitmap per scan by total cost, blind to `m`'s limit, so a price band (~200k entries at 500k
+  // rows) ANDed to a city's 8k won by total cost on a fresh index and cost 16 ms up front (26 ms on CI against 9 ms):
+  // a near tie that flipped with the index's size. A location matches thousands of rows at most per city and `m`
+  // stops at the cap; the index-ordered branches below keep the ranges as index conditions (a band sorted by price).
+  const matchWhere = hasLocation(q.filter) ? fallbackCondition(q.filter, { rangesAsFilters: true }) : where;
   return sql`
     with m as materialized (
-      select target_id, ${col}::float8 as k from ${listingSearchDocs} where ${where} limit ${q.countCap + 1}),
+      select target_id, ${col}::float8 as k from ${listingSearchDocs} where ${matchWhere} limit ${q.countCap + 1}),
     c as materialized (select count(*)::int as n from m)
     select least(c.n, ${q.countCap}) as total, p.target_id, p.k, p.phase
       from c

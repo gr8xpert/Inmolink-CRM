@@ -222,6 +222,22 @@ describe('fallback filter → SQL', () => {
     expect(nulls).not.toMatch(/\boffset\b/i);
   });
 
+  it('[S7-F11] with a location, the capped match set filters ranges (never a range bitmap); the index walks keep them', () => {
+    const band: Filter = { op: 'range', field: 'priceCents', gte: 1, lte: 2 };
+    const base = { limit: 2, countCap: 1_000, sort: { field: 'priceCents', dir: 'asc' } } as const;
+    const city = { op: 'eq', field: 'locationIds', value: ID } as const;
+    const s = render(fallbackSearchSql({ ...base, filter: { op: 'and', filters: [city, band] } })).sql;
+    const [match, rest] = s.split(/\),\s+c as materialized/) as [string, string];
+    expect(match).toContain('((price_cents is not null and price_cents >= $2 and price_cents <= $3) is true)');
+    expect(rest).toMatch(
+      /where \(location_ids @> array\[\$\d+\]::uuid\[\] and \(price_cents is not null and price_cents >= /,
+    );
+    expect(rest).not.toContain('is true');
+    // Without a location the band drives the match set through its index (S7-F9's network band shapes).
+    const bandOnly = render(fallbackSearchSql({ ...base, filter: band })).sql;
+    expect(bandOnly).not.toContain('is true');
+  });
+
   it('[S7-F9] a filter that bounds the sort column has no null phase to scan (a price band sorted by price)', () => {
     const band: Filter = { op: 'range', field: 'priceCents', gte: 1, lte: 2 };
     const network: Filter = {
