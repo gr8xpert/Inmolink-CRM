@@ -95,6 +95,11 @@ export interface FeedSink {
    * its lease meanwhile would wipe what the new owner wrote.
    */
   reset?(tx: Tx, runId: string): Promise<void>;
+  /**
+   * S7-F12: in the claiming transaction of a run that has a checkpoint: whether what the earlier slices left is all
+   * there, so the run may resume. False: the run starts over (`reset` follows).
+   */
+  canResume?(tx: Tx, runId: string): Promise<boolean>;
   /** Reads only (owner, defaults): nothing it does needs the run's fence. */
   start(run: SinkRun): Promise<RunLoader>;
 }
@@ -478,6 +483,17 @@ export const listingSink: FeedSink = {
    */
   async reset(tx, runId) {
     await properties.discardImportSeen(tx, runId);
+  },
+
+  /**
+   * S7-F12: a resumed run keeps its seen references (withdrawal at its end needs every slice's). The table is UNLOGGED
+   * (S7-F3): after a crash or a failover the run's logged count no longer matches, and the run starts over instead.
+   */
+  async canResume(tx, runId) {
+    // One transaction's connection: one statement after the other.
+    const expected = await repo.runSeenCount(tx, runId);
+    const actual = await properties.countImportSeen(tx, runId);
+    return expected === actual;
   },
 
   async start(run) {

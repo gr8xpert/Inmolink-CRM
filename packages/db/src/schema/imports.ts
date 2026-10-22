@@ -194,6 +194,18 @@ export const feedRuns = pgTable(
     bytesRead: bigint('bytes_read', { mode: 'number' }).notNull().default(0),
     /** Why the run failed as a whole (an imports error code). */
     errorCode: text('error_code'),
+    /**
+     * S7-F12: the feed API's own text for a failed run (Resales Online's `errordescription`, e.g. "FilterAgencyId not
+     * valid"), credentials removed and bounded (≤ 500); null for other failures. Shown on the run in the dashboard.
+     */
+    errorDetail: text('error_detail'),
+    /**
+     * S7-F12: where a resumable connector's run continues (`{ fp, at }`: a fingerprint of the connection's feed
+     * settings and the connector's position after the last committed page). Written in the batch transaction that
+     * committed that page, so a retry or the next slice of the run resumes after it with the run's counters and seen
+     * references kept. Null: the run starts at the beginning (a claim then resets the counters).
+     */
+    checkpoint: jsonb('checkpoint'),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -236,6 +248,7 @@ export const feedRuns = pgTable(
         and ${t.errorsLogged} <= ${t.itemsFailed}`,
     ),
     check('feed_runs_lease_ck', sql`(${t.state} = 'RUNNING') = (${t.leaseToken} is not null)`),
+    check('feed_runs_error_detail_ck', sql`char_length(${t.errorDetail}) <= 500`),
   ],
 );
 

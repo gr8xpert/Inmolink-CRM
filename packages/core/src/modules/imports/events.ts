@@ -5,7 +5,8 @@ import { z } from 'zod';
  * imports events (PATTERNS §8), emitted in the transaction that changes the run. IDs only.
  *
  * - `imports.run.requested` — a run was queued (a member's "run now" or the scheduler); the subscription enqueues
- *   `imports.runFeed` with the run's id as job ID.
+ *   `imports.runFeed` with the run's id as job ID. S7-F12: also when a resumable run handed its slot back after a
+ *   slice (`resume`: a new job for the same run, from its checkpoint).
  * - `imports.run.finished` — a run ended (SUCCEEDED or FAILED), for notifications and anomaly checks (S6-0x).
  * - `imports.connection.paused` — the anomaly guard paused a connection (S6-08): the agency notice (in-app and email
  *   once notifications land, S11-04); the connection itself shows the pause meanwhile. S7-F1 adds `EMPTY_FEED`.
@@ -17,7 +18,13 @@ export const importsEvents = {
   runRequested: defineEvent(
     'imports.run.requested',
     1,
-    z.object({ runId: z.uuid(), connectionId: z.uuid(), agencyId: z.uuid() }),
+    z.object({
+      runId: z.uuid(),
+      connectionId: z.uuid(),
+      agencyId: z.uuid(),
+      /** S7-F12: the run's next slice — the claim number that handed it back (the job id's suffix). */
+      resume: z.number().int().min(1).optional(),
+    }),
   ),
   runFinished: defineEvent(
     'imports.run.finished',

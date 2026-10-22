@@ -408,9 +408,17 @@ export function discardImportSeen(tx: Tx, runId: string): Promise<void> {
   return repo.deleteSeen(tx, runId);
 }
 
-/** Seen references a crashed run left (older than `before`), `limit` per statement (`imports.pruneRuns`). */
-export function pruneImportSeen(tx: Tx, before: Date, limit: number): Promise<number> {
-  return repo.pruneSeen(tx, before, limit);
+/**
+ * Seen references a crashed run left (older than `before`), `limit` per statement (`imports.pruneRuns`). S7-F12: never
+ * those of `keepRunIds` — runs still queued or running (a run resumed across slices keeps its references for days).
+ */
+export function pruneImportSeen(
+  tx: Tx,
+  before: Date,
+  limit: number,
+  keepRunIds: readonly string[] = [],
+): Promise<number> {
+  return repo.pruneSeen(tx, before, limit, keepRunIds);
 }
 
 /** The agency's live listings among `ids`, row-locked: the media worker attaches feed images to these only. */

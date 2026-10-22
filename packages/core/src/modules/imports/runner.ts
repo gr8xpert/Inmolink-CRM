@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import {
   FEED_ERRORS_KEPT,
   type FeedPauseDetails,
   type FeedPauseReason,
   type FeedRunErrorCode,
 } from '@inmolink/contracts';
-import { withTenant } from '@inmolink/db';
+import { type Tx, withTenant } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
@@ -21,10 +22,18 @@ import {
   RUNS,
   SOURCE_HASH_TRUST_DAYS,
 } from './config';
-import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
+import {
+  type ConnectorContext,
+  FeedCheckpointStaleError,
+  type FeedConnector,
+  FeedHttpStatusError,
+  FeedMalformedError,
+  FeedMappingError,
+  getConnector,
+} from './connectors';
 import { importsEvents } from './events';
 import { emptyFeed, FeedAnomalyError, massWithdrawal, recordPause, typicalVolume, volumeSpike } from './guard';
-import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader } from './load';
+import { FeedNoOwnerError, type FeedSink, listingSink, type RunLoader, SeenRefsLostError } from './load';
 import { type ItemError, type PendingBatch, runFeedPipeline } from './pipeline';
 import * as repo from './repo';
 import { ResalesApiError, ResalesConfigError } from './resales/connector';
@@ -39,6 +48,14 @@ import { SheetFileMissingError } from './sheet/connector';
  * the loader's write included — and the end of the run checks it too (the loader's withdrawals are fenced by it). A worker that stalls past its lease and
  * finds the run reclaimed (or failed by the scheduler) stops without writing: two runs of one connection never
  * write at the same time, and at most one QUEUED or RUNNING run exists per connection (unique index).
+ *
+ * S7-F12 — slices and resume: a resumable connector (Resales Online) marks each page; the batch that commits a page
+ * stores the run's checkpoint in the same fenced transaction. A claim of a run with a checkpoint resumes from it — the
+ * counters, item errors and seen references of the earlier slices stay, so the run's end withdraws exactly what the
+ * whole feed no longer has — unless the connection's feed settings changed since (fingerprint), the connector refuses
+ * the checkpoint, or the sink's seen references were lost (S7-F3); then the run starts over. After `RUNS.SLICE_MARKS`
+ * pages the job hands the run back (QUEUED) and queues its next slice as a new job, giving the imports slot to the
+ * agencies waiting. A retryable failure after progress resumes too, on the job's last attempt as a new slice.
  */
 
 export class LeaseLostError extends Error {
@@ -51,6 +68,8 @@ export class LeaseLostError extends Error {
 export type RunOutcome =
   | { kind: 'skipped' }
   | { kind: 'lost' }
+  /** S7-F12: the run's next slice was queued (a new job resumes it from its checkpoint). */
+  | { kind: 'requeued' }
   | { kind: 'finished'; state: 'SUCCEEDED' | 'FAILED'; errorCode: FeedRunErrorCode | null };
 
 interface Classified {
@@ -82,6 +101,7 @@ export function classifyRunError(err: unknown): Classified {
     return { code: 'FEED_HTTP_STATUS', retryable: err.status >= 500 || err.status === 429 || err.status === 408 };
   }
   if (err instanceof FeedMappingError) return { code: 'FEED_MAPPING_INVALID', retryable: false };
+  if (err instanceof FeedMalformedError) return { code: 'FEED_MALFORMED', retryable: false };
   if (err instanceof SheetFileMissingError) return { code: 'FEED_FETCH_FAILED', retryable: false };
   if (isSheetError(err)) {
     // CSV / Excel files (S6-05): nothing about the file changes between attempts.
@@ -120,9 +140,9 @@ export function classifyRunError(err: unknown): Classified {
       }
       case 'CREDENTIALS':
         return { code: 'FEED_CREDENTIALS_REJECTED', retryable: false };
-      // The run's deadline (sized to the account): without a checkpoint a retry would start over and hit it again.
+      // The run's deadline (sized to the account): S7-F12 — a retry resumes from the last committed page.
       case 'DEADLINE':
-        return { code: 'FEED_TIMEOUT', retryable: false };
+        return { code: 'FEED_TIMEOUT', retryable: true };
       case 'MALFORMED':
         return { code: 'FEED_MALFORMED', retryable: false };
       default:
@@ -132,11 +152,76 @@ export function classifyRunError(err: unknown): Classified {
   return { code: 'INTERNAL', retryable: true };
 }
 
+/**
+ * Control characters, bidi overrides / isolates and zero-width characters out, runs of spaces collapsed (the text
+ * reaches every member of the agency as plain text: nothing may reorder or hide part of it).
+ */
+const tidy = (s: string) =>
+  s
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+    .replace(/[​-‏‪-‮⁦-⁩﻿]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+/** Hex groups joined by colons: an IPv6 address when compressed (`::`) or of at least 5 colons (not a clock time). */
+const IPV6_CANDIDATE = /(?<![0-9a-f:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![0-9a-f:])/gi;
+/** IP addresses (the worker's, the API's, a proxy's) never reach the run's detail. */
+export const maskAddresses = (s: string) =>
+  s
+    .replace(IPV6_CANDIDATE, (m) => (m.includes('::') || (m.match(/:/g)?.length ?? 0) >= 5 ? '[address]' : m))
+    .replace(IPV4, '[address]');
+
+/** S7-F12: the most `feed_runs.error_detail` keeps (characters = code points, as the column's check counts them). */
+export const ERROR_DETAIL_MAX = 500;
+
+/**
+ * S7-F12: what the source itself said about a failed run, for the run's `error_detail` — Resales Online's
+ * `errordescription` texts (the connector removed the credentials from them, raw and encoded), IP addresses masked,
+ * joined and bounded. Never the request URL, the feed's content or an exception message; null when the source said
+ * nothing.
+ */
+export function errorDetailOf(err: unknown): string | null {
+  if (!(err instanceof ResalesApiError)) return null;
+  const text = maskAddresses(tidy(err.descriptions.map(tidy).filter(Boolean).join('; ')));
+  if (!text) return null;
+  const chars = Array.from(text);
+  return chars.length > ERROR_DETAIL_MAX ? `${chars.slice(0, ERROR_DETAIL_MAX - 1).join('')}…` : text;
+}
+
+/**
+ * S7-F12: the connection's feed as a run reads it — its agency and id too, so a checkpoint never crosses
+ * connections; a checkpoint is only resumed under the same one.
+ */
+function feedFingerprint(c: {
+  id: string;
+  agencyId: string;
+  connector: string;
+  url: string;
+  settings: unknown;
+  credentialsEnc: string | null;
+  mapping: unknown;
+}): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([c.agencyId, c.id, c.connector, c.url, c.settings ?? {}, c.credentialsEnc, c.mapping ?? null]),
+    )
+    .digest('hex');
+}
+
+const storedCheckpoint = (v: unknown): { fp: string; at: unknown } | null => {
+  const o = v as { fp?: unknown; at?: unknown } | null;
+  return o && typeof o === 'object' && typeof o.fp === 'string' && o.at !== undefined ? { fp: o.fp, at: o.at } : null;
+};
+
 export interface RunJobContext {
   log: Logger;
   signal: AbortSignal;
   /** No retry follows this attempt: a retryable error fails the run instead of re-queueing it. */
   lastAttempt: boolean;
+  /** S7-F12: marks per slice (default `RUNS.SLICE_MARKS`; tests shorten it). */
+  sliceMarks?: number;
 }
 
 const DAY_MS = 24 * 3_600_000;
@@ -178,6 +263,13 @@ async function finish(
     total?: number;
     /** S6-F4: the connector keeps source hashes; a success drops those of references it did not see. */
     pruneSourceHashes?: boolean;
+    /** S7-F12: the source's own words for the failure (`errorDetailOf`). */
+    errorDetail?: string | null;
+    /**
+     * S7-F12: a failed run that never started its loader (disabled, paused, unknown connector, past its claim or time
+     * cap) drops what earlier slices left for it (the sink's seen references), in this transaction.
+     */
+    discard?: (tx: Tx) => Promise<void>;
   },
   loader: RunLoader | null,
   guard: { skip: boolean },
@@ -205,7 +297,11 @@ async function finish(
         errorCode = PAUSE_CODES[reason];
       }
     }
-    const done = await repo.finishRun(tx, runId, token, { state, errorCode });
+    const done = await repo.finishRun(tx, runId, token, {
+      state,
+      errorCode,
+      errorDetail: state === 'FAILED' ? (outcome.errorDetail ?? null) : null,
+    });
     if (!done) return null;
     if (loader && state === 'SUCCEEDED') {
       const changed = done.itemsCreated + done.itemsUpdated > 0 || missing > 0;
@@ -218,6 +314,7 @@ async function finish(
       if (outcome.pruneSourceHashes && (outcome.valid ?? 0) > 0)
         await repo.pruneSourceHashes(tx, { agencyId, connectionId: done.connectionId, runId });
     } else if (loader) await loader.abandon(tx);
+    else if (state === 'FAILED') await outcome.discard?.(tx);
     const events: OutboxMessage[] = [
       importsEvents.runFinished({ runId, connectionId: done.connectionId, agencyId, state, errorCode }),
     ];
@@ -266,15 +363,42 @@ export async function executeRun(
   job: RunJobContext,
   sink: FeedSink = listingSink,
 ): Promise<RunOutcome> {
+  const again = { startOver: false };
+  const outcome = await runOnce(p, job, sink, again);
+  // S7-F12: the feed moved under the checkpoint: the run was handed back without it; claim it again, from the start.
+  return again.startOver ? runOnce(p, job, sink, { startOver: false }) : outcome;
+}
+
+async function runOnce(
+  p: { runId: string; agencyId: string },
+  job: RunJobContext,
+  sink: FeedSink,
+  again: { startOver: boolean },
+): Promise<RunOutcome> {
   const { runId, agencyId } = p;
   const token = newId();
   // A re-claimed run's leftovers (the sink's seen references) go in the claiming transaction: fenced by the claim,
-  // like `claimRun` clearing the earlier attempt's item errors (S7-F2 review).
+  // like the claim clearing the earlier attempt's item errors (S7-F2 review). S7-F12: unless the run resumes from its
+  // checkpoint — then they are what the earlier slices saw, and they stay.
   const claim = () =>
     withTenant({ agencyId }, async (tx) => {
       const c = await repo.claimRun(tx, runId, token, RUNS.LEASE_MS);
-      if (c && c.attempt > 1) await sink.reset?.(tx, runId);
-      return c;
+      if (!c) return null;
+      const connection = await repo.connectionForRun(tx, c.connectionId);
+      const connector: FeedConnector | undefined = connection ? getConnector(connection.connector) : undefined;
+      const fingerprint = connection && connector?.resumable ? feedFingerprint(connection) : null;
+      const stored = storedCheckpoint(c.checkpoint);
+      const resumable =
+        stored !== null &&
+        fingerprint !== null &&
+        stored.fp === fingerprint &&
+        (connector?.acceptsCheckpoint?.(stored.at) ?? true) &&
+        ((await sink.canResume?.(tx, runId)) ?? true);
+      if (c.attempt > 1 && !resumable) {
+        await repo.restartRun(tx, runId);
+        await sink.reset?.(tx, runId);
+      }
+      return { ...c, connection, connector, fingerprint, resume: resumable ? stored.at : undefined };
     });
   let claimed = await claim();
   if (!claimed) {
@@ -287,35 +411,69 @@ export async function executeRun(
     claimed = await claim();
     if (!claimed) return { kind: 'skipped' }; // the holder renewed: it is alive and owns the run
   }
-  const [connection, baseline] = await withTenant({ agencyId }, async (tx) => {
-    const c = await repo.connectionForRun(tx, claimed.connectionId);
-    // S6-08: the feed's typical volume (none once "accept the change" was chosen on resume)
-    const totals = c && !c.acceptAnomalyOnce ? await repo.recentSucceededTotals(tx, c.id, ANOMALY.BASELINE_RUNS) : [];
-    return [c, typicalVolume(totals)] as const;
-  });
+  const { connection, fingerprint } = claimed;
   if (!connection) return { kind: 'skipped' }; // deleted with its runs meanwhile
+  const resumed = claimed.resume !== undefined;
+  // S6-08: the feed's typical volume (none once "accept the change" was chosen on resume)
+  const baseline = typicalVolume(
+    connection.acceptAnomalyOnce
+      ? []
+      : await withTenant({ agencyId }, (tx) => repo.recentSucceededTotals(tx, connection.id, ANOMALY.BASELINE_RUNS)),
+  );
   let loader: RunLoader | null = null;
   let hashes = false;
   const guard = { skip: connection.acceptAnomalyOnce };
   const end = async (
     state: 'SUCCEEDED' | 'FAILED',
     code: FeedRunErrorCode | null,
-    extra: { pause?: Pause; valid?: number; total?: number } = {},
+    extra: { pause?: Pause; valid?: number; total?: number; errorDetail?: string | null } = {},
   ): Promise<RunOutcome> => {
-    const outcome = { state, errorCode: code, pruneSourceHashes: hashes, ...extra };
+    const outcome = {
+      state,
+      errorCode: code,
+      pruneSourceHashes: hashes,
+      ...(sink.reset ? { discard: (tx: Tx) => sink.reset?.(tx, runId) ?? Promise.resolve() } : {}),
+      ...extra,
+    };
     const ended = await finish(agencyId, runId, token, outcome, loader, guard, job.log);
     return ended ? { kind: 'finished', ...ended } : { kind: 'lost' };
+  };
+  /**
+   * S7-F12: hands the run back (QUEUED, checkpoint kept) and queues its next slice as a new job, in one transaction;
+   * the loader's end-of-run bookkeeping for this slice runs after it.
+   */
+  const nextSlice = async (): Promise<RunOutcome> => {
+    const handed = await withTenant({ agencyId }, async (tx) => {
+      const claimNo = await repo.releaseRun(tx, runId, token);
+      if (claimNo === null) return false;
+      await emit(tx, [importsEvents.runRequested({ runId, connectionId: connection.id, agencyId, resume: claimNo })]);
+      return true;
+    });
+    if (loader?.afterRun) {
+      try {
+        await loader.afterRun();
+      } catch (err) {
+        job.log.warn({ err, runId }, 'feed run end-of-slice bookkeeping failed');
+      }
+    }
+    return handed ? { kind: 'requeued' } : { kind: 'lost' };
   };
 
   if (!connection.enabled) return end('FAILED', 'FEED_CONNECTION_DISABLED');
   // Paused by the anomaly guard (S6-08): neither scheduled nor runnable until resumed; a run queued before stops here.
   if (connection.pausedAt) return end('FAILED', 'FEED_CONNECTION_PAUSED');
-  const connector = getConnector(connection.connector);
+  const connector = claimed.connector;
   if (!connector) return end('FAILED', 'FEED_CONNECTOR_UNKNOWN');
+  // S7-F12: a run that keeps failing between its checkpoints stops some time.
+  if (claimed.attempt > RUNS.MAX_CLAIMS) return end('FAILED', 'FEED_TIMEOUT');
+  // …and a run of any connector ends a day after it first started, however it got there.
+  if (clock.now().getTime() - claimed.startedAt.getTime() > RUNS.MAX_RUN_MS) return end('FAILED', 'FEED_TIMEOUT');
   hashes = connector.sourceHashes === true;
   const hashScope = { agencyId, connectionId: connection.id, runId };
   /** Connector counters (S6-F4), logged with the run's outcome. */
   let sourceStats: Record<string, number> | undefined;
+  /** S7-F12: this job committed a checkpoint (a retryable failure then resumes instead of failing the run). */
+  let progressed = false;
 
   const abort = new AbortController();
   const onJobAbort = () => abort.abort(job.signal.reason ?? new Error('job aborted'));
@@ -349,6 +507,7 @@ export async function executeRun(
         ? decryptCredentials(agencyId, connection.id, connection.credentialsEnc)
         : null,
       signal: abort.signal,
+      ...(resumed ? { resume: claimed.resume } : {}),
       ...(hashes
         ? {
             sourceHashes: (refs: readonly string[]) =>
@@ -364,16 +523,20 @@ export async function executeRun(
         : {}),
     };
     const { spikeFactor } = anomalyThresholds();
-    let read = 0;
+    // S7-F12: a resumed run counts on from its earlier slices (the claim kept the row's counters).
+    let read = resumed ? claimed.itemsTotal : 0;
     // Items the batches stored (the run's `items_valid`): the pipeline's valid ones minus those the loader refused.
-    let stored = 0;
+    let stored = resumed ? claimed.itemsValid : 0;
     const commit = async (batch: PendingBatch) => {
       // S6-08 volume spike: stop before writing the batch that crosses factor × the typical item count.
       const spike = guard.skip ? null : volumeSpike(read + batch.total, baseline, spikeFactor);
       if (spike) throw new FeedAnomalyError('VOLUME_SPIKE', spike);
       read += batch.total;
+      const checkpoint =
+        batch.checkpoint === undefined || fingerprint === null ? undefined : { fp: fingerprint, at: batch.checkpoint };
       // Outside the fenced transaction: item checks and taxonomy resolution (their own short transactions).
-      const { prepared, errors: prepErrors } = await runLoader.prepare(batch.valid);
+      const { prepared, errors: prepErrors } =
+        batch.total > 0 ? await runLoader.prepare(batch.valid) : { prepared: null, errors: [] as ItemError[] };
       await withTenant({ agencyId }, async (tx) => {
         const logged = await repo.lockRunForBatch(tx, runId, token);
         if (logged === null) throw new LeaseLostError();
@@ -381,8 +544,12 @@ export async function executeRun(
         // Failed items still in the feed (they have a reference) and items seen only (S6-F4: unchanged, not
         // written): never counted missing, never withdrawn.
         const seenRefs = [...failedBefore.flatMap((e) => (e.itemRef?.trim() ? [e.itemRef.trim()] : [])), ...batch.seen];
-        const { errors: writeErrors, ...counts } = await runLoader.write(tx, prepared, seenRefs);
-        if (hashes) {
+        // S7-F12: a batch of a mark only (a page with nothing to load) commits its checkpoint alone.
+        const { errors: writeErrors, ...counts } =
+          batch.total > 0
+            ? await runLoader.write(tx, prepared, seenRefs)
+            : { errors: [] as ItemError[], created: 0, updated: 0, unchanged: 0, held: 0, seen: 0 };
+        if (hashes && batch.total > 0) {
           // Only items the loader stored (written or unchanged) get their hash; failed ones keep the old one.
           const failedRefs = new Set(writeErrors.flatMap((e) => (e.itemRef ? [e.itemRef] : [])));
           for (const e of prepErrors) if (e.itemRef) failedRefs.add(e.itemRef);
@@ -406,22 +573,29 @@ export async function executeRun(
           seen: counts.seen ?? 0,
           logged: keep.length,
           bytesRead: batch.bytesRead,
+          ...(checkpoint ? { checkpoint } : {}),
         });
         if (!held) throw new LeaseLostError();
         stored += batch.total - failed;
       });
+      if (checkpoint) progressed = true;
     };
     const totals = await runFeedPipeline({
       connector,
       ctx,
       batchSize: RUNS.BATCH_SIZE,
       commit,
+      sliceMarks: job.sliceMarks ?? RUNS.SLICE_MARKS,
       onStats: (stats) => {
         sourceStats = stats;
       },
     });
-    job.log.info({ runId, connector: connection.connector, ...totals, sourceStats }, 'feed run done');
-    return await end('SUCCEEDED', null, { valid: stored, total: totals.total });
+    if (totals.sliced) {
+      job.log.info({ runId, connector: connection.connector, ...totals, sourceStats }, 'feed run slice done');
+      return await nextSlice();
+    }
+    job.log.info({ runId, connector: connection.connector, ...totals, resumed, sourceStats }, 'feed run done');
+    return await end('SUCCEEDED', null, { valid: stored, total: read });
   } catch (raw) {
     const err = abort.signal.aborted && abort.signal.reason instanceof LeaseLostError ? abort.signal.reason : raw;
     if (err instanceof LeaseLostError) {
@@ -440,12 +614,24 @@ export async function executeRun(
       { runId, code, retryable, apiMessages, sourceStats, err: code === 'INTERNAL' ? err : undefined },
       'feed run failed',
     );
+    // S7-F12: the feed moved under the checkpoint — drop it and start the run over in this job.
+    if (err instanceof FeedCheckpointStaleError) {
+      job.log.warn({ runId }, 'feed changed since the run checkpoint; the run starts over');
+      const released = await withTenant({ agencyId }, (tx) => repo.releaseRun(tx, runId, token, { restart: true }));
+      if (released === null) return { kind: 'lost' };
+      again.startOver = true;
+      return { kind: 'requeued' }; // `executeRun` claims it again at once
+    }
+    // S7-F3: the seen references are not all there — the next attempt starts over, never from the checkpoint.
+    const restart = err instanceof SeenRefsLostError;
     if (retryable && !job.lastAttempt) {
-      const released = await withTenant({ agencyId }, (tx) => repo.releaseRun(tx, runId, token));
-      if (!released) return { kind: 'lost' };
+      const released = await withTenant({ agencyId }, (tx) => repo.releaseRun(tx, runId, token, { restart }));
+      if (released === null) return { kind: 'lost' };
       throw err; // the job's next attempt claims the run again
     }
-    return end('FAILED', code);
+    // S7-F12: the last attempt of a job that moved the run on: its next slice continues from the checkpoint.
+    if (retryable && progressed && !restart) return await nextSlice();
+    return end('FAILED', code, { errorDetail: errorDetailOf(err) });
   } finally {
     clearInterval(heartbeat);
     job.signal.removeEventListener('abort', onJobAbort);

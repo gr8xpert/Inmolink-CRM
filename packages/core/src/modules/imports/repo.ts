@@ -68,6 +68,7 @@ const runColumns = {
   errorsLogged: feedRuns.errorsLogged,
   bytesRead: feedRuns.bytesRead,
   errorCode: feedRuns.errorCode,
+  errorDetail: feedRuns.errorDetail,
   startedAt: feedRuns.startedAt,
   finishedAt: feedRuns.finishedAt,
   createdAt: feedRuns.createdAt,
@@ -301,17 +302,24 @@ const uuidArray = (ids: readonly string[]) => sql`${`{${ids.join(',')}}`}::uuid[
 
 const leaseUntil = (leaseMs: number) => sql`now() + ${`${leaseMs} milliseconds`}::interval`;
 
+/** A claimed run: what the claim left on the row (S7-F12: counters and checkpoint survive the claim). */
+export interface RunClaim {
+  connectionId: string;
+  attempt: number;
+  startedAt: Date;
+  /** Where the run resumes (`{ fp, at }`), or null: it starts at the beginning. */
+  checkpoint: unknown;
+  itemsTotal: number;
+  itemsValid: number;
+}
+
 /**
  * Claims a run for this worker: QUEUED, or RUNNING with a lapsed lease (its worker died). A new fencing token
- * and lease; the counters start over (the loader is idempotent, S6-02). Null when the run is not claimable —
- * another worker holds it, or it ended.
+ * and lease. S7-F12: counters, item errors and the checkpoint stay — in the same transaction the caller either resumes
+ * from the checkpoint or starts the run over (`restartRun`; the loader is idempotent, S6-02). Null when the run is not
+ * claimable — another worker holds it, or it ended.
  */
-export async function claimRun(
-  tx: Tx,
-  runId: string,
-  token: string,
-  leaseMs: number,
-): Promise<{ connectionId: string; attempt: number; startedAt: Date } | null> {
+export async function claimRun(tx: Tx, runId: string, token: string, leaseMs: number): Promise<RunClaim | null> {
   const [row] = await tx
     .update(feedRuns)
     .set({
@@ -320,17 +328,6 @@ export async function claimRun(
       leaseUntil: leaseUntil(leaseMs),
       attempt: sql`${feedRuns.attempt} + 1`,
       startedAt: sql`coalesce(${feedRuns.startedAt}, now())`,
-      itemsTotal: 0,
-      itemsValid: 0,
-      itemsFailed: 0,
-      itemsCreated: 0,
-      itemsUpdated: 0,
-      itemsUnchanged: 0,
-      itemsHeld: 0,
-      itemsWithdrawn: 0,
-      itemsSeen: 0,
-      errorsLogged: 0,
-      bytesRead: 0,
       updatedAt: sql`now()`,
     })
     .where(
@@ -342,10 +339,41 @@ export async function claimRun(
         ) as SQL,
       ),
     )
-    .returning({ connectionId: feedRuns.connectionId, attempt: feedRuns.attempt, startedAt: feedRuns.startedAt });
+    .returning({
+      connectionId: feedRuns.connectionId,
+      attempt: feedRuns.attempt,
+      startedAt: feedRuns.startedAt,
+      checkpoint: feedRuns.checkpoint,
+      itemsTotal: feedRuns.itemsTotal,
+      itemsValid: feedRuns.itemsValid,
+    });
   if (!row) return null;
-  if (row.attempt > 1) await tx.delete(feedItemErrors).where(eq(feedItemErrors.runId, runId));
   return { ...row, startedAt: row.startedAt as Date };
+}
+
+/**
+ * Starts a claimed run over (in the claiming transaction, fenced by it): counters, checkpoint and the earlier attempts'
+ * item errors go. The caller drops the sink's seen references in the same transaction.
+ */
+export async function restartRun(tx: Tx, runId: string): Promise<void> {
+  await tx
+    .update(feedRuns)
+    .set({
+      itemsTotal: 0,
+      itemsValid: 0,
+      itemsFailed: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      itemsUnchanged: 0,
+      itemsHeld: 0,
+      itemsWithdrawn: 0,
+      itemsSeen: 0,
+      errorsLogged: 0,
+      bytesRead: 0,
+      checkpoint: null,
+    })
+    .where(eq(feedRuns.id, runId));
+  await tx.delete(feedItemErrors).where(eq(feedItemErrors.runId, runId));
 }
 
 /** The connection a claimed run fetches, credentials (ciphertext) and mapping included. */
@@ -390,6 +418,8 @@ export async function addBatchCounts(
     seen: number;
     logged: number;
     bytesRead: number;
+    /** S7-F12: the batch ended on a page boundary: the run resumes after it (`{ fp, at }`). */
+    checkpoint?: unknown;
   },
 ): Promise<boolean> {
   const rows = await tx
@@ -405,6 +435,7 @@ export async function addBatchCounts(
       itemsSeen: sql`${feedRuns.itemsSeen} + ${d.seen}`,
       errorsLogged: sql`${feedRuns.errorsLogged} + ${d.logged}`,
       bytesRead: d.bytesRead,
+      ...(d.checkpoint === undefined ? {} : { checkpoint: d.checkpoint }),
       leaseUntil: leaseUntil(leaseMs),
       updatedAt: sql`now()`,
     })
@@ -447,7 +478,7 @@ export async function finishRun(
   tx: Tx,
   runId: string,
   token: string,
-  outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: string | null },
+  outcome: { state: 'SUCCEEDED' | 'FAILED'; errorCode: string | null; errorDetail?: string | null },
 ): Promise<{
   connectionId: string;
   agencyId: string;
@@ -460,6 +491,8 @@ export async function finishRun(
     .set({
       state: outcome.state,
       errorCode: outcome.errorCode,
+      errorDetail: outcome.errorDetail ?? null,
+      checkpoint: null,
       leaseToken: null,
       leaseUntil: null,
       finishedAt: sql`now()`,
@@ -580,21 +613,51 @@ export async function runLease(tx: Tx, runId: string): Promise<{ state: string; 
   return row ? { state: row.state, leaseLeftMs: row.left_ms === null ? null : Number(row.left_ms) } : null;
 }
 
-/** Hands the run back to the queue for the job's next attempt (a retryable error), if `token` still holds it. */
-export async function releaseRun(tx: Tx, runId: string, token: string): Promise<boolean> {
-  const rows = await tx
+/**
+ * Hands the run back to the queue, if `token` still holds it: for the job's next attempt (a retryable error) or, S7-F12,
+ * for the run's next slice (a new job). The checkpoint stays unless `restart` (the next claim then starts over).
+ * Answers the claim number that ends here (the next slice's job id), or null when the lease was lost.
+ */
+export async function releaseRun(
+  tx: Tx,
+  runId: string,
+  token: string,
+  opts: { restart?: boolean } = {},
+): Promise<number | null> {
+  const [row] = await tx
     .update(feedRuns)
-    .set({ state: 'QUEUED', leaseToken: null, leaseUntil: null, updatedAt: sql`now()` })
+    .set({
+      state: 'QUEUED',
+      leaseToken: null,
+      leaseUntil: null,
+      ...(opts.restart ? { checkpoint: null } : {}),
+      updatedAt: sql`now()`,
+    })
     .where(and(eq(feedRuns.id, runId), eq(feedRuns.state, 'RUNNING'), eq(feedRuns.leaseToken, token)))
-    .returning({ id: feedRuns.id });
-  return rows.length > 0;
+    .returning({ attempt: feedRuns.attempt });
+  return row ? row.attempt : null;
+}
+
+/**
+ * S7-F12: the runs still queued or running, of every agency (the seen-reference prune keeps theirs). At most one per
+ * connection; `feed_runs_active_idx`.
+ */
+export async function activeRunIds(tx: Tx): Promise<string[]> {
+  const rows = await tx
+    .select({ id: feedRuns.id })
+    .from(feedRuns)
+    .where(inArray(feedRuns.state, ['QUEUED', 'RUNNING']));
+  return rows.map((r) => r.id);
 }
 
 // ── Scheduler and retention (worker, all agencies via withSystem) ──────────────────────────────────────────────
 
 /**
  * Fails the runs whose worker is gone: RUNNING with a lease lapsed more than `leaseGraceMs` ago
- * (`FEED_LEASE_EXPIRED`), QUEUED for more than `queuedStaleMs` (`FEED_NEVER_STARTED`). Frees their slots.
+ * (`FEED_LEASE_EXPIRED`), QUEUED for more than `queuedStaleMs` (`FEED_NEVER_STARTED`). Frees their slots. S7-F12: a
+ * queued run's wait counts from when it was last queued (`updated_at`: created, or handed back for a retry or its next
+ * slice), so a long run between slices is not taken for a lost one. The active runs are few (≤ one per connection):
+ * `feed_runs_active_idx` reads the QUEUED ones and filters.
  */
 export async function failStaleRuns(
   tx: Tx,
@@ -606,7 +669,7 @@ export async function failStaleRuns(
       select id, case when state = 'RUNNING' then 'FEED_LEASE_EXPIRED' else 'FEED_NEVER_STARTED' end as code
       from feed_runs
       where (state = 'RUNNING' and lease_until < now() - ${`${leaseGraceMs} milliseconds`}::interval)
-         or (state = 'QUEUED' and created_at < now() - ${`${queuedStaleMs} milliseconds`}::interval)
+         or (state = 'QUEUED' and updated_at < now() - ${`${queuedStaleMs} milliseconds`}::interval)
       for update skip locked
     ), failed as (
       update feed_runs r set state = 'FAILED', error_code = s.code, lease_token = null, lease_until = null,

@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
 import { type FeedListingInput, ResalesFeedSettings } from '@inmolink/contracts';
 import { isSafeFetchError, safeFetch } from '@inmolink/platform/safe-fetch';
+import { z } from 'zod';
 import { FEED_FETCH } from '../config';
 import {
   type ConnectorContext,
+  FeedCheckpointStaleError,
   type FeedConnector,
+  type FeedMark,
   type FeedRecord,
   type FeedSource,
   feedListingProblems,
@@ -41,6 +44,10 @@ import {
  * Paging stops when the records reach `QueryInfo.PropertyCount`, or on an empty or short page (shorter than
  * `PropertiesPerPage`, or than the first page when the API does not say). The API caps a page at 40 whatever is asked.
  * The run has a deadline sized to `PropertyCount`; only search pages count against the feed byte cap.
+ *
+ * S7-F12: resumable. After each page `parse` yields a mark (`ResalesCheckpoint`: the page, the records fetched so far,
+ * the paging state and the next record position); a retry or the run's next slice starts at the page after the last
+ * committed one, with the deadline sized to the account again, so an account of any size completes across slices.
  *
  * Credentials are a `basic` credential: user name = the Client ID (`p1`), password = the API key (`p2`). They travel
  * as query parameters (what the API takes), only over https, only to `webapi.resales-online.com:443`, with no
@@ -199,17 +206,34 @@ const refOf = (r: ResalesRecord) =>
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Removes the credentials from a text that reaches logs: every `p1=…` / `p2=…` pair, and each secret raw, URL-encoded
- * (`encodeURIComponent` and the `+` form of URLSearchParams), in any case.
+ * Removes the credentials from a text that reaches logs and (S7-F12) the run's `error_detail`: every `p1=…` / `p2=…`
+ * pair (`=` raw, encoded or double-encoded), and each secret raw, URL-encoded (`encodeURIComponent`, twice, and the `+`
+ * form of URLSearchParams) or base64 (padded, unpadded, URL-safe; also the `p1:p2` pair as Basic auth sends it), in
+ * any case. Longest forms first, so a shorter one never leaves part of a longer one behind.
  */
 export function redactSecrets(text: string, secrets: readonly string[]): string {
-  let t = text.replace(/\b(p1|p2)(=|%3D)[^&\s"'<>;,()]*/gi, '$1=[redacted]');
-  for (const s of secrets) {
-    if (!s) continue;
-    const forms = new Set([s, encodeURIComponent(s), new URLSearchParams({ x: s }).toString().slice(2)]);
-    for (const f of forms) t = t.replace(new RegExp(escapeRe(f), 'gi'), '[redacted]');
-  }
+  let t = text.replace(/\b(p1|p2)(=|%3D|%253D)[^&\s"'<>;,()]*/gi, '$1=[redacted]');
+  const given = secrets.filter(Boolean);
+  const forms = new Set<string>();
+  for (const s of given)
+    for (const f of [
+      s,
+      encodeURIComponent(s),
+      encodeURIComponent(encodeURIComponent(s)),
+      new URLSearchParams({ x: s }).toString().slice(2),
+      ...base64Forms(s),
+    ])
+      forms.add(f);
+  if (given.length === 2) for (const f of base64Forms(given.join(':'))) forms.add(f);
+  for (const f of [...forms].sort((a, b) => b.length - a.length))
+    if (f) t = t.replace(new RegExp(escapeRe(f), 'gi'), '[redacted]');
   return t;
+}
+
+/** A secret as base64: padded, unpadded and URL-safe. */
+function base64Forms(s: string): string[] {
+  const b = Buffer.from(s, 'utf8').toString('base64');
+  return [b, b.replace(/=+$/, ''), Buffer.from(s, 'utf8').toString('base64url')];
 }
 
 /** Resales' error texts, without the credentials and bounded (they reach logs). */
@@ -217,7 +241,11 @@ function descriptionsOf(root: Record<string, unknown> | null, secrets: readonly 
   const desc = asObject(asObject(root?.transaction)?.errordescription) ?? {};
   return Object.values(desc)
     .filter((v): v is string | number => typeof v === 'string' || typeof v === 'number')
-    .map((v) => redactSecrets(String(v), secrets).slice(0, 300))
+    .map((v) =>
+      Array.from(redactSecrets(String(v), secrets))
+        .slice(0, 300)
+        .join(''),
+    ) // code points: never half a character
     .filter(Boolean)
     .slice(0, 5);
 }
@@ -338,10 +366,31 @@ export interface ResalesConnectorOptions {
   deadline?: { BASE_MS: number; PER_LISTING_MS: number };
 }
 
-/** One page as the connector yields it: the records to map, in feed order (own ones only). */
+/**
+ * S7-F12: where a run continues: after `page`, with the paging state the next page needs. `position` is the next
+ * record's position (the run's item errors stay in feed order across slices). Version `v` changes with the shape.
+ */
+export const ResalesCheckpoint = z
+  .object({
+    v: z.literal(1),
+    page: z.number().int().min(1).max(RESALES_MAX_PAGES),
+    position: z.number().int().min(0),
+    fetched: z.number().int().min(0),
+    firstRef: z.string().max(200).nullable(),
+    /** The last record of `page` (any agency's): a resume reads `page` again and starts over if it changed. */
+    lastRef: z.string().max(200).nullable(),
+    pageSize: z.number().int().min(1).nullable(),
+    total: z.number().int().min(0).nullable(),
+  })
+  .strict();
+export type ResalesCheckpoint = z.infer<typeof ResalesCheckpoint>;
+
+/** One page as the connector yields it: the records to map, in feed order (own ones only), and its mark. */
 interface ResalesChunk {
   searchType: string | null;
   items: ResalesItem[];
+  /** The checkpoint after this page (`parse` adds the position). */
+  next: Omit<ResalesCheckpoint, 'position'>;
 }
 
 /** The hash of an own list record as fetched (and of what else decides the mapped listing). */
@@ -371,6 +420,8 @@ export function createResalesConnector(
   return {
     key: options.key ?? 'resales-online',
     sourceHashes: true,
+    resumable: true,
+    acceptsCheckpoint: (checkpoint) => ResalesCheckpoint.safeParse(checkpoint).success,
     settingsProblem(settings) {
       const parsed = ResalesFeedSettings.safeParse(settings);
       return parsed.success ? null : String(parsed.error.issues[0]?.path[0] ?? 'settings');
@@ -380,6 +431,13 @@ export function createResalesConnector(
       const { p1, p2 } = credentialsOf(ctx);
       const secrets = [p1, p2];
       const settings = settingsOf(ctx);
+      // S7-F12: the runner offers only checkpoints `acceptsCheckpoint` took; anything else is a bug, not a restart.
+      let resume: ResalesCheckpoint | null = null;
+      if (ctx.resume !== undefined && ctx.resume !== null) {
+        const parsed = ResalesCheckpoint.safeParse(ctx.resume);
+        if (!parsed.success) throw new ResalesApiError('MALFORMED');
+        resume = parsed.data;
+      }
       const gate = gateFor(
         createHash('sha256')
           .update(JSON.stringify([ctx.agencyId, p1, p2]))
@@ -478,11 +536,28 @@ export function createResalesConnector(
       };
 
       async function* pages(): AsyncGenerator<Uint8Array> {
-        let fetched = 0;
-        let firstRef: string | undefined;
-        let pageSize: number | undefined;
+        let fetched = resume?.fetched ?? 0;
+        let firstRef: string | undefined = resume?.firstRef ?? undefined;
+        let pageSize: number | undefined = resume?.pageSize ?? undefined;
+        let announced: number | null = resume?.total ?? null;
         try {
-          for (let page = 1; page <= RESALES_MAX_PAGES; page++) {
+          if (resume) {
+            // Every listing the API announced was read before the run stopped: nothing is left to fetch.
+            if (announced !== null && fetched >= announced) return;
+            if (announced !== null && announced > 0)
+              setDeadline(deadlineOf.BASE_MS + announced * deadlineOf.PER_LISTING_MS);
+            // The feed may have moved since the checkpoint (a listing added or removed before it shifts every later
+            // page): the last committed page must still end with the same listing and the count must be the same, or
+            // resuming would skip or repeat listings — the run starts over instead (its records are not yielded again).
+            const again = await call(resalesPageUrl(ctx, resume.page), 'search');
+            stats.pages++;
+            const list = records(again.Property);
+            const count = Number.parseInt(String(asObject(again.QueryInfo)?.PropertyCount ?? ''), 10);
+            const lastRef = list.length > 0 ? refOf(list[list.length - 1] as ResalesRecord) : null;
+            if (lastRef !== resume.lastRef || (Number.isFinite(count) ? count : null) !== resume.total)
+              throw new FeedCheckpointStaleError();
+          }
+          for (let page = (resume?.page ?? 0) + 1; page <= RESALES_MAX_PAGES; page++) {
             const root = await call(resalesPageUrl(ctx, page), 'search');
             stats.pages++;
             const list = records(root.Property);
@@ -499,6 +574,7 @@ export function createResalesConnector(
               if (Number.isFinite(total) && total > 0)
                 setDeadline(deadlineOf.BASE_MS + total * deadlineOf.PER_LISTING_MS);
             }
+            if (Number.isFinite(total) && total >= 0) announced = total;
             // Fail closed until H13 confirms the field: a page without any own-property field imports nothing.
             if (list.length > 0 && !list.some((r) => OWN_PROPERTY_KEYS.some((k) => k in r)))
               throw new ResalesApiError('MALFORMED');
@@ -551,9 +627,21 @@ export function createResalesConnector(
               }
             }
 
-            const chunk: ResalesChunk = { searchType, items };
-            yield Buffer.from(JSON.stringify(chunk)); // one page per chunk
             fetched += list.length;
+            const chunk: ResalesChunk = {
+              searchType,
+              items,
+              next: {
+                v: 1,
+                page,
+                fetched,
+                firstRef: firstRef ?? null,
+                lastRef: list.length > 0 ? refOf(list[list.length - 1] as ResalesRecord) : null,
+                pageSize: pageSize ?? null,
+                total: announced,
+              },
+            };
+            yield Buffer.from(JSON.stringify(chunk)); // one page per chunk
             if (list.length === 0 || (Number.isFinite(total) && fetched >= total)) return;
             if (pageSize !== undefined && list.length < pageSize) return; // a short page is the last
           }
@@ -569,8 +657,9 @@ export function createResalesConnector(
         stats: () => ({ ...stats }),
       };
     },
-    async *parse(source): AsyncGenerator<FeedRecord<ResalesItem>> {
-      let position = 0;
+    async *parse(source, ctx): AsyncGenerator<FeedRecord<ResalesItem> | FeedMark> {
+      const resumed = ResalesCheckpoint.safeParse(ctx.resume);
+      let position = resumed.success ? resumed.data.position : 0;
       for await (const raw of source.body) {
         let chunk: ResalesChunk;
         try {
@@ -580,6 +669,7 @@ export function createResalesConnector(
         }
         if (!Array.isArray(chunk?.items)) throw new ResalesApiError('MALFORMED');
         for (const item of chunk.items) yield { position: position++, raw: { ...item, searchType: chunk.searchType } };
+        if (chunk.next) yield { mark: true, checkpoint: { ...chunk.next, position } };
       }
     },
     map: (raw, ctx) => mapResalesProperty(raw, settingsOf(ctx)),

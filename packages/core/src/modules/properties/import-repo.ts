@@ -480,10 +480,16 @@ export async function deleteSeen(tx: Tx, runId: string): Promise<void> {
 }
 
 /** Seen references older than `before` (a crashed run's), `limit` at a time; answers how many went. */
-export async function pruneSeen(tx: Tx, before: Date, limit: number): Promise<number> {
+export async function pruneSeen(
+  tx: Tx,
+  before: Date,
+  limit: number,
+  keepRunIds: readonly string[] = [],
+): Promise<number> {
   const res = await tx.execute(sql`
     delete from property_import_seen
      where ctid in (select ctid from property_import_seen where created_at < ${before.toISOString()}::timestamptz
+                      and run_id <> all(${arrayParam(keepRunIds)}::uuid[])
                     order by created_at limit ${limit})`);
   return res.rowCount ?? 0;
 }

@@ -117,6 +117,7 @@ export function toRunDto(row: repo.RunView): FeedRunDto {
     errorsLogged: row.errorsLogged,
     bytesRead: row.bytesRead,
     errorCode: row.errorCode,
+    errorDetail: row.errorDetail,
     startedAt: iso(row.startedAt),
     finishedAt: iso(row.finishedAt),
     createdAt: row.createdAt.toISOString(),

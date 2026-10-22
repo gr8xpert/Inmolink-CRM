@@ -736,6 +736,13 @@
       "when": 1792655713123,
       "tag": "0104_s7_f11_area_statistics",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1792659216033,
+      "tag": "0105_s7_f12_run_checkpoint",
+      "breakpoints": true
     }
   ]
 }

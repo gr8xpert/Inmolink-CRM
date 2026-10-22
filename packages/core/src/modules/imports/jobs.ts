@@ -48,7 +48,9 @@ async function drain(
  * `IMPORT_MAX_CONCURRENT_RUNS` across every worker — S6-08 — so the pool's other jobs keep their slots and the database a bounded write load; fair share between agencies: an agency's job is queued at its
  * backlog depth, so one agency's many feeds interleave with everyone else's first feed, `platform/queue`): claims the run row (fencing token + lease) and executes it (`runner.ts`) through the listing loader (`load.ts`, S6-02). A second delivery
  * finds the run claimed or ended and does nothing. Retryable failures re-queue the run for the next attempt; the
- * last attempt records it FAILED.
+ * last attempt records it FAILED. S7-F12: a resumable connector's run (Resales Online) commits a checkpoint per page
+ * and, after `RUNS.SLICE_MARKS` pages, hands its slot back and queues its next slice as a new job (`resume`); a retry
+ * or a slice resumes from the checkpoint with the run's counters and seen references kept.
  *
  * `imports.scheduleFeeds` (every minute, pool `imports`, all agencies via `withSystem`): fails the runs whose
  * worker is gone (lease lapsed > `RUNS.LEASE_GRACE_MS`, or queued > `RUNS.QUEUED_STALE_MS`), then queues a run
@@ -73,8 +75,9 @@ export const importsJobs = {
   runFeed: defineJob({
     name: 'imports.runFeed',
     pool: 'imports',
-    payload: z.object({ runId: z.uuid(), agencyId: z.uuid() }),
-    jobId: (p) => p.runId,
+    // S7-F12: `resume` — a slice of a long run, queued by the slice before it (a job id of its own).
+    payload: z.object({ runId: z.uuid(), agencyId: z.uuid(), resume: z.number().int().min(1).optional() }),
+    jobId: (p) => (p.resume ? `${p.runId}:${p.resume}` : p.runId),
     group: (p) => p.agencyId,
     concurrencyPerGroup: 1,
     globalConcurrency: maxConcurrentRuns,
@@ -84,7 +87,7 @@ export const importsJobs = {
     timeoutMs: RUN_TIMEOUT_MS,
     async run(p, job) {
       const outcome = await executeRun(
-        p,
+        { runId: p.runId, agencyId: p.agencyId },
         { log: job.log, signal: job.signal, lastAttempt: job.attempt >= RUN_ATTEMPTS },
         listingSink,
       );
@@ -174,11 +177,13 @@ export const importsJobs = {
         { batch: 1, budgetMs: RUNS.PRUNE_BUDGET_MS, signal },
       );
       // S6-02: the seen feed references a run that died before its end left behind (a run lasts ≤ RUN_TIMEOUT_MS).
+      // S7-F12: never those of a run still queued or running — a run resumed across slices may last days.
       const seenBefore = new Date(clock.now().getTime() - SEEN_RETENTION_MS);
+      const active = await withSystem('imports.pruneRuns: active runs', (tx) => repo.activeRunIds(tx));
       const seen = await drain(
         () =>
           withSystem('imports.pruneRuns: stale seen references', (tx) =>
-            properties.pruneImportSeen(tx, seenBefore, SEEN_PRUNE_BATCH),
+            properties.pruneImportSeen(tx, seenBefore, SEEN_PRUNE_BATCH, active),
           ),
         { batch: SEEN_PRUNE_BATCH, budgetMs: RUNS.PRUNE_BUDGET_MS / 5, signal },
       );

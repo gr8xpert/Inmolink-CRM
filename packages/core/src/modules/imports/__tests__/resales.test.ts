@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { FeedListing } from '@inmolink/contracts';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { describe, expect, it } from 'vitest';
-import { type ConnectorContext, getConnector } from '../connectors';
+import { type ConnectorContext, FeedCheckpointStaleError, getConnector } from '../connectors';
 import { emptyFeed } from '../guard';
 import { type ItemError, type PendingBatch, runFeedPipeline } from '../pipeline';
 import {
@@ -16,13 +16,14 @@ import {
   ResalesConfigError,
   type ResalesFetcher,
   type ResalesResponse,
+  readResalesAnswer,
   redactSecrets,
   resalesDetailsUrl,
   resalesPageUrl,
 } from '../resales/connector';
 import { RESALES_V6_FIELDS, unaccountedPaths } from '../resales/coverage';
 import { RESALES_LANGUAGE_CODES, resalesSettings } from '../resales/mapping';
-import { classifyRunError } from '../runner';
+import { classifyRunError, ERROR_DETAIL_MAX, errorDetailOf } from '../runner';
 import '../resales/connector';
 
 /**
@@ -615,7 +616,8 @@ describe('Resales Online connector', () => {
     const api = fakeApi(cappedAccount(1_227), { delayMs: 5, deadline: { BASE_MS: 40, PER_LISTING_MS: 0 } });
     const err = await run(api.connector).catch((e: unknown) => e);
     expect(err).toMatchObject({ kind: 'DEADLINE' });
-    expect(classifyRunError(err)).toEqual({ code: 'FEED_TIMEOUT', retryable: false });
+    // S7-F12: retryable — the next attempt resumes from the last committed page instead of starting over.
+    expect(classifyRunError(err)).toEqual({ code: 'FEED_TIMEOUT', retryable: true });
     expect(api.searches().length).toBeLessThan(31);
   });
 
@@ -652,5 +654,180 @@ describe('Resales Online connector', () => {
     const api = fakeApi((u) => (isDetails(u) ? detailsEcho(u) : ok(json(doc))));
     await expect(run(api.connector)).rejects.toBeInstanceOf(ResalesApiError);
     expect(api.searches()).toHaveLength(2);
+  });
+});
+
+describe('Resales Online checkpoints (S7-F12)', () => {
+  const pipeline = async (
+    connector: ReturnType<typeof fakeApi>['connector'],
+    c: ConnectorContext,
+    sliceMarks?: number,
+  ) => {
+    const commits: PendingBatch<unknown>[] = [];
+    const totals = await runFeedPipeline({
+      connector,
+      ctx: c,
+      batchSize: 100,
+      commit: async (b) => void commits.push(b),
+      ...(sliceMarks ? { sliceMarks } : {}),
+    });
+    return { totals, commits };
+  };
+  const pages = (urls: URL[]) => urls.map((u) => Number(u.searchParams.get('P_PageNo')));
+
+  it('[S7-F12] batches end on page marks; a run resumed from a committed mark reads only the pages after it, positions continuing', async () => {
+    const api = fakeApi(cappedAccount(1_227));
+    const first = await pipeline(api.connector, ctx(), 10);
+    expect(first.totals).toMatchObject({ sliced: true, total: 400 });
+    // A batch closes on the first mark once it holds >= 100 records (never inside a page); the slice's last mark
+    // closes the rest.
+    expect(first.commits.map((b) => b.total)).toEqual([120, 120, 120, 40]);
+    const checkpoint = first.commits.at(-1)?.checkpoint;
+    expect(checkpoint).toEqual({
+      v: 1,
+      page: 10,
+      position: 400,
+      fetched: 400,
+      firstRef: 'R0000001',
+      lastRef: 'R0000400',
+      pageSize: 40,
+      total: 1_227,
+    });
+    expect(pages(api.searches())).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(api.connector.acceptsCheckpoint?.(checkpoint)).toBe(true);
+    expect(api.connector.acceptsCheckpoint?.({ ...(checkpoint as object), v: 2 })).toBe(false);
+
+    api.requests.length = 0;
+    const rest = await pipeline(api.connector, ctx({ resume: checkpoint }));
+    expect(rest.totals).toMatchObject({ sliced: false, total: 827, valid: 827 });
+    // Page 10 again first (unchanged: same last listing, same count), then the pages after it.
+    expect(pages(api.searches())).toEqual(Array.from({ length: 22 }, (_, i) => 10 + i));
+    expect(api.details()).toHaveLength(827);
+    const firstResumed = rest.commits[0]?.valid[0];
+    expect(firstResumed).toMatchObject({ position: 400, ref: 'R0000401' });
+    expect(rest.commits.at(-1)?.checkpoint).toMatchObject({ page: 31, position: 1_227, fetched: 1_227 });
+  });
+
+  it('[S7-F12] a checkpoint after the last listing resumes to nothing; a page with no own listing still commits its mark', async () => {
+    const api = fakeApi(cappedAccount(80, { ownEvery: 1_000 }));
+    const done = await pipeline(
+      api.connector,
+      ctx({
+        resume: {
+          v: 1,
+          page: 2,
+          position: 1,
+          fetched: 80,
+          firstRef: 'R0000001',
+          lastRef: 'R0000080',
+          pageSize: 40,
+          total: 80,
+        },
+      }),
+    );
+    expect(done.totals).toMatchObject({ total: 0, sliced: false });
+    expect(api.requests).toHaveLength(0);
+
+    // Page 2 holds only other agencies' listings: the slice still moves the checkpoint on (a batch of its mark only).
+    const shared = await pipeline(
+      api.connector,
+      ctx({
+        resume: {
+          v: 1,
+          page: 1,
+          position: 1,
+          fetched: 40,
+          firstRef: 'R0000001',
+          lastRef: 'R0000040',
+          pageSize: 40,
+          total: 80,
+        },
+      }),
+      1,
+    );
+    expect(shared.commits).toEqual([
+      expect.objectContaining({ total: 0, checkpoint: expect.objectContaining({ page: 2, position: 1, fetched: 80 }) }),
+    ]);
+  });
+
+  it('[S7-F12] a feed that moved under the checkpoint (another last listing on its page, or another count) is not resumed', async () => {
+    const at = { v: 1, page: 2, position: 80, fetched: 80, firstRef: 'R0000001', pageSize: 40, total: 200 };
+    const shifted = fakeApi(cappedAccount(200));
+    await expect(pipeline(shifted.connector, ctx({ resume: { ...at, lastRef: 'R0000079' } }))).rejects.toBeInstanceOf(
+      FeedCheckpointStaleError,
+    );
+    expect(pages(shifted.searches())).toEqual([2]);
+    const recounted = fakeApi(cappedAccount(201));
+    await expect(pipeline(recounted.connector, ctx({ resume: { ...at, lastRef: 'R0000080' } }))).rejects.toBeInstanceOf(
+      FeedCheckpointStaleError,
+    );
+    const same = fakeApi(cappedAccount(200));
+    const resumed = await pipeline(same.connector, ctx({ resume: { ...at, lastRef: 'R0000080' } }));
+    expect(resumed.totals).toMatchObject({ total: 120 });
+    expect(pages(same.searches())).toEqual([2, 3, 4, 5]);
+  });
+
+  it('[S7-F12] a checkpoint of another shape is refused before anything is sent', async () => {
+    const api = fakeApi(cappedAccount(80));
+    await expect(pipeline(api.connector, ctx({ resume: { page: 'two' } }))).rejects.toMatchObject({
+      kind: 'MALFORMED',
+    });
+    expect(api.requests).toHaveLength(0);
+  });
+
+  it("[S7-F12] a refused run's error detail is the API's own text: credentials removed, control characters out, bounded", () => {
+    const refusal = (descriptions: Record<string, string>) => {
+      try {
+        readResalesAnswer(ok(json({ transaction: { status: 'error', errordescription: descriptions } })), [P1, P2]);
+      } catch (err) {
+        return err;
+      }
+      throw new Error('not refused');
+    };
+    expect(errorDetailOf(refusal({ '1': 'FilterAgencyId not valid' }))).toBe('FilterAgencyId not valid');
+    expect(
+      errorDetailOf(
+        refusal({
+          '1': `key ${P2} for\nclient ${P1}`,
+          '2': 'p1=1000&p2=x',
+        }),
+      ),
+    ).toBe('key [redacted] for client [redacted]; p1=[redacted]&p2=[redacted]');
+    const long = errorDetailOf(refusal(Object.fromEntries([1, 2, 3, 4, 5].map((i) => [String(i), 'x'.repeat(300)]))));
+    expect(long?.length).toBe(ERROR_DETAIL_MAX);
+    // Code points, not UTF-16 units: an emoji is never cut in half.
+    const emoji = errorDetailOf(refusal({ '1': '😀'.repeat(300), '2': '😀'.repeat(300) }));
+    expect(Array.from(emoji ?? '')).toHaveLength(ERROR_DETAIL_MAX);
+    expect(emoji?.endsWith('😀…')).toBe(true);
+    expect(errorDetailOf(new ResalesApiError('DEADLINE'))).toBeNull();
+    expect(errorDetailOf(new Error('https://webapi.resales-online.com/V6?p2=secret'))).toBeNull();
+  });
+
+  it('[S7-F12] stored detail: double-encoded and base64 credentials removed, bidi and zero-width characters out, addresses masked', () => {
+    const refused = (text: string) =>
+      errorDetailOf(
+        (() => {
+          try {
+            readResalesAnswer(ok(json({ transaction: { status: 'error', errordescription: { '1': text } } })), [
+              P1,
+              P2,
+            ]);
+          } catch (err) {
+            return err;
+          }
+          return null;
+        })(),
+      );
+    const twice = encodeURIComponent(encodeURIComponent(`${P2}/+`));
+    expect(refused(`bad ${twice}`)).not.toContain(encodeURIComponent(encodeURIComponent(P2)));
+    expect(refused('p2%253Dsecret&x=1')).toBe('p2=[redacted]&x=1');
+    const b64 = Buffer.from(P2).toString('base64');
+    expect(refused(`token ${b64} and ${b64.replace(/=+$/, '')}`)).toBe('token [redacted] and [redacted]');
+    const basic = Buffer.from(`${P1}:${P2}`).toString('base64');
+    expect(refused(`Authorization: Basic ${basic}`)).toBe('Authorization: Basic [redacted]');
+    expect(refused('Filter\u202EdilavnI\u202C not\u200B valid\uFEFF')).toBe('FilterdilavnI not valid');
+    expect(refused('from 203.0.113.7 via 2001:db8::1 and fe80:0:0:0:0:0:0:1 at 12:30:45')).toBe(
+      'from [address] via [address] and [address] at 12:30:45',
+    );
   });
 });

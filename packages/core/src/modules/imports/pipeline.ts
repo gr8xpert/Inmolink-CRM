@@ -1,9 +1,19 @@
-import type { ConnectorContext, FeedConnector, FeedItemProblem } from './connectors';
+import {
+  type ConnectorContext,
+  type FeedConnector,
+  type FeedItemProblem,
+  FeedMalformedError,
+  isFeedMark,
+} from './connectors';
 
 /**
  * The run pipeline (S6-01): `fetch → parse (stream) → map → validate`, in batches. Pure orchestration: the caller
  * (`runner.ts`) commits each batch — the sink's write, the run's counters and its per-item errors — in one fenced
  * transaction. Nothing here touches the database, and no transaction is open while the feed is read.
+ *
+ * S7-F12: a resumable connector's batches end on its marks only (a batch is committed once it reached the batch size
+ * and the next mark arrives), so a committed checkpoint never splits a page: a resumed run reads no record twice. After
+ * `sliceMarks` marks the pipeline commits and stops (`sliced`), and the run continues in a new job.
  */
 
 export interface ValidItem<Item = unknown> {
@@ -31,6 +41,8 @@ export interface PendingBatch<Item = unknown> {
   seen: string[];
   /** Bytes read from the feed so far (cumulative). */
   bytesRead: number;
+  /** S7-F12: the batch's last mark: once the batch is committed, the run resumes after it. */
+  checkpoint?: unknown;
 }
 
 export interface PipelineTotals {
@@ -40,6 +52,8 @@ export interface PipelineTotals {
   /** S6-F4: items seen only (unchanged; among `total`, not `valid` or `failed` of the pipeline). */
   seen: number;
   bytesRead: number;
+  /** S7-F12: stopped after `sliceMarks` marks before the feed ended; the run continues from its checkpoint. */
+  sliced: boolean;
 }
 
 const CODE = /^[A-Z][A-Z0-9_]{1,63}$/;
@@ -62,10 +76,14 @@ export async function runFeedPipeline<Raw, Item>(opts: {
   commit(batch: PendingBatch<Item>): Promise<void>;
   /** S6-F4: the source's counters when the run ends, whatever the outcome (for the run log). */
   onStats?(stats: Record<string, number>): void;
+  /** S7-F12: a resumable connector's marks after which this job stops (the run's next slice continues). */
+  sliceMarks?: number;
 }): Promise<PipelineTotals> {
   const { connector, ctx, batchSize } = opts;
+  const resumable = connector.resumable === true;
   const source = await connector.fetch(ctx);
-  const totals: PipelineTotals = { total: 0, valid: 0, failed: 0, seen: 0, bytesRead: 0 };
+  const totals: PipelineTotals = { total: 0, valid: 0, failed: 0, seen: 0, bytesRead: 0, sliced: false };
+  let marks = 0;
   /**
    * Refs of the current batch: a second item with the same ref is an error, not an overwrite. Per batch only, so
    * memory stays bounded by the batch size; a ref an earlier batch had is the sink's check (S7-F2: the loader probes
@@ -75,7 +93,8 @@ export async function runFeedPipeline<Raw, Item>(opts: {
   let batch: PendingBatch<Item> = { total: 0, valid: [], errors: [], seen: [], bytesRead: 0 };
 
   const flush = async () => {
-    if (batch.total === 0) return;
+    // A batch of a mark only (a page with nothing to load, e.g. only other agencies' listings) still commits its mark.
+    if (batch.total === 0 && batch.checkpoint === undefined) return;
     batch.bytesRead = source.bytesRead();
     await opts.commit(batch);
     totals.total += batch.total;
@@ -90,6 +109,18 @@ export async function runFeedPipeline<Raw, Item>(opts: {
   try {
     for await (const record of connector.parse(source, ctx)) {
       if (ctx.signal.aborted) throw ctx.signal.reason ?? new Error('run aborted');
+      if (isFeedMark(record)) {
+        if (!resumable) continue;
+        batch.checkpoint = record.checkpoint;
+        marks++;
+        const slice = opts.sliceMarks !== undefined && marks >= opts.sliceMarks;
+        if (batch.total >= batchSize || slice) await flush();
+        if (slice) {
+          totals.sliced = true;
+          break;
+        }
+        continue;
+      }
       batch.total++;
       let mapped: ReturnType<typeof connector.map>;
       try {
@@ -126,7 +157,9 @@ export async function runFeedPipeline<Raw, Item>(opts: {
             ...(mapped.sourceHash ? { sourceHash: mapped.sourceHash } : {}),
           });
       }
-      if (batch.total >= batchSize) await flush();
+      if (!resumable && batch.total >= batchSize) await flush();
+      // S7-F12: a resumable batch closes only on a mark; a source that never marks would grow it without bound.
+      else if (resumable && batch.total >= 4 * batchSize) throw new FeedMalformedError('no page mark within a batch');
     }
     await flush();
     totals.bytesRead = source.bytesRead();

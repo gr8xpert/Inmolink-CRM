@@ -49,6 +49,7 @@
   "itemRef": "Referencia",
   "code": "Problema",
   "field": "Campo",
+  "errorDetail": "Respuesta del origen: «{detail}»",
   "runErrors": {
     "FEED_DESTINATION_BLOCKED": "La dirección del feed (o una redirección) apunta a una red privada o interna.",
     "FEED_FETCH_FAILED": "No se pudo descargar el feed.",

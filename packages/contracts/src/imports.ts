@@ -236,6 +236,11 @@ export const FeedRunDto = z.object({
   bytesRead: z.number().int(),
   /** Why the whole run failed (`FEED_*` code), or null. */
   errorCode: z.string().nullable(),
+  /**
+   * S7-F12: the feed API's own words for that failure (e.g. Resales Online's "FilterAgencyId not valid"), credentials
+   * removed, at most 500 characters; null when the source said nothing.
+   */
+  errorDetail: z.string().nullable(),
   startedAt: z.iso.datetime().nullable(),
   finishedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),

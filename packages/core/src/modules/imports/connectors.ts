@@ -27,6 +27,11 @@ export interface ConnectorContext {
    * record as last fetched in full, for refs checked recently. Opens its own short transaction; never inside one.
    */
   sourceHashes?: (refs: readonly string[]) => Promise<Map<string, string>>;
+  /**
+   * S7-F12: where a resumable connector continues this run — the `checkpoint` of the last `FeedMark` the run committed
+   * (a retry, or the run's next slice). Absent: from the beginning. The connector checks its shape.
+   */
+  resume?: unknown;
 }
 
 /** The fetched feed: a byte stream (never the whole document in memory). */
@@ -44,6 +49,19 @@ export interface FeedRecord<Raw> {
   position: number;
   raw: Raw;
 }
+
+/**
+ * S7-F12: yielded by a resumable connector's `parse` between records, at a point the feed can be resumed from (Resales
+ * Online: after each page). Once every record before it is committed, the run stores `checkpoint` in the same
+ * transaction; a later attempt gets it back as `ConnectorContext.resume`. JSON only, small (it lives on the run row).
+ */
+export interface FeedMark {
+  mark: true;
+  checkpoint: unknown;
+}
+
+export const isFeedMark = (r: unknown): r is FeedMark =>
+  typeof r === 'object' && r !== null && (r as { mark?: unknown }).mark === true;
 
 /** A problem with one item; `code` is UPPER_SNAKE (`MISSING_FIELD`, `INVALID_PRICE`, …). */
 export interface FeedItemProblem {
@@ -70,6 +88,16 @@ export interface FeedConnector<Raw = unknown, Item = unknown> {
   /** S6-F4: the connector reads and reports source hashes (`ConnectorContext.sourceHashes`, `MapResult.sourceHash`). */
   sourceHashes?: boolean;
   /**
+   * S7-F12: `parse` yields `FeedMark`s and `fetch` honours `ConnectorContext.resume`: the run commits on the marks,
+   * resumes after the last committed one, and hands its imports slot back every `RUNS.SLICE_MARKS` marks.
+   */
+  resumable?: boolean;
+  /**
+   * S7-F12: whether a stored checkpoint is one this connector can resume from (its shape and version); a run whose
+   * checkpoint it refuses starts over.
+   */
+  acceptsCheckpoint?(checkpoint: unknown): boolean;
+  /**
    * S6-F4: checks the connection's settings when it is created or changed; answers the first invalid key, or null.
    * The run checks them again (settings may predate the check).
    */
@@ -77,7 +105,7 @@ export interface FeedConnector<Raw = unknown, Item = unknown> {
   /** Opens the feed. Most connectors use `httpSource(ctx, { contentTypes })`. */
   fetch(ctx: ConnectorContext): Promise<FeedSource>;
   /** Streams records out of the source. Must not buffer the whole document. */
-  parse(source: FeedSource, ctx: ConnectorContext): AsyncIterable<FeedRecord<Raw>>;
+  parse(source: FeedSource, ctx: ConnectorContext): AsyncIterable<FeedRecord<Raw> | FeedMark>;
   /** One raw record → the connector's item (a listing draft for the loader, S6-02). */
   map(raw: Raw, ctx: ConnectorContext): MapResult<Item>;
   /** Business checks on a mapped item; [] when valid. */
@@ -166,6 +194,26 @@ export async function* xmlRecords(
 ): AsyncGenerator<FeedRecord<XmlElement>> {
   let position = 0;
   for await (const raw of streamXmlRecords(source.body, options)) yield { position: position++, raw };
+}
+
+/**
+ * S7-F12: the feed moved under a stored checkpoint (Resales: the last committed page no longer ends with the same
+ * listing, or the announced count changed), so resuming could skip or repeat listings. The run starts over from the
+ * beginning in the same job (its earlier slices' counters and seen references dropped, as on any restart).
+ */
+export class FeedCheckpointStaleError extends Error {
+  override readonly name = 'FeedCheckpointStaleError';
+  constructor() {
+    super('the feed changed since the checkpoint; the run starts over');
+  }
+}
+
+/** S7-F12: a resumable connector's feed broke its own contract (a page larger than any batch). `FEED_MALFORMED`. */
+export class FeedMalformedError extends Error {
+  override readonly name = 'FeedMalformedError';
+  constructor(reason: string) {
+    super(`the feed is malformed: ${reason}`);
+  }
 }
 
 /** Thrown by a profile-driven connector whose mapping is missing or invalid (the run fails with `FEED_MAPPING_INVALID`). */

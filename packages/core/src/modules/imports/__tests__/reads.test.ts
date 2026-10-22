@@ -46,6 +46,7 @@ const run = (agencyId: string) => ({
   errorsLogged: 0,
   bytesRead: 0,
   errorCode: null,
+  errorDetail: null,
   startedAt: null,
   finishedAt: null,
   createdAt: new Date(0),

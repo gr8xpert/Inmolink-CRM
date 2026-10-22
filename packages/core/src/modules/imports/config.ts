@@ -91,6 +91,22 @@ export const RUNS = {
   QUEUED_STALE_MS: 24 * 3_600_000,
   /** Items per committed batch (counters, errors, and the sink's write). */
   BATCH_SIZE: 500,
+  /**
+   * S7-F12: marks (Resales Online: pages of 40) a resumable run reads in one job before it hands its imports slot back
+   * and queues its next slice — about 2,000 listings, a few minutes once the account's listings are known, so one
+   * large account never holds a slot for hours while others wait.
+   */
+  SLICE_MARKS: 50,
+  /**
+   * S7-F12: claims of one run (attempts and slices) after which it fails `FEED_TIMEOUT`: a 1,000-page account needs
+   * 20 slices, so this only stops a run that keeps failing between checkpoints.
+   */
+  MAX_CLAIMS: 100,
+  /**
+   * S7-F12: a run's wall-clock cap from its first claim (`started_at`), across every slice and retry: past it the run
+   * fails `FEED_TIMEOUT` at its next claim (the next scheduled run starts afresh).
+   */
+  MAX_RUN_MS: 24 * 3_600_000,
   /** Finished runs older than this are pruned with their errors (daily). */
   RETENTION_DAYS: 90,
   /** Due connections the scheduler starts per transaction (S7-F3: a tick runs batches until none is due). */

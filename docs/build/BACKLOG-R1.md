@@ -980,15 +980,28 @@ Ref §3 #17 · Mod imports, properties, developments, web · Dep S6-F4 · ⚡
 - A details record with fees, IBI and basura stores them on the listing (test)
 - A development with a 2-unit price list creates one development with 2 units, and a re-run changes nothing (test)
 - A run refused with "FilterAgencyId not valid" shows that text on the run (test)
+**Split (2026-10-22):** the details-only fields, new developments and the connection form (with their two checks) moved to S7-F14; S7-F12 delivered the checkpoint / resume / slices and `error_detail`.
 
 ### S7-F13 · Contract: drop the pre-S7-F11 area index concurrently; scope the taxonomy test fixtures (split from S7-F11)
 Ref §15 · Mod db, taxonomy, tests · Dep S7-F11
 **Build:**
 - Drop `listing_search_docs_area_idx` (on the `numeric` column; unused once every app runs S7-F11) with `DROP INDEX CONCURRENTLY` outside the migrator transaction: a drop list next to `CONCURRENT_INDEXES` that `pnpm db:migrate` applies before the migrations (an invalid or missing index is a no-op), the index out of the Drizzle schema with a migration that says `DROP INDEX IF EXISTS` (a no-op then).
+- `ALTER TABLE feed_runs VALIDATE CONSTRAINT feed_runs_error_detail_ck` (added `NOT VALID` by S7-F12's migration 0105; the validation takes SHARE UPDATE EXCLUSIVE and does not block writes) in a migration of its own.
 - Purge or scope the leftover location fixtures in the shared test database (37k locations left by other files' fixtures) that make the taxonomy tree cache entries multi-MB, so `taxonomy/tree.int.test.ts` no longer needs its 10 s Redis command timeout.
 **Done when:**
 - The drop list drops a listed index concurrently, skips a missing one, and the migration declaring the drop is a no-op once it ran (test)
 - The taxonomy tree test runs under the default 200 ms command timeout in a parallel run (test)
+
+### S7-F14 · Resales follow-ups, part 2: details fields, new developments and the connection form (split from S7-F12)
+Ref §3 #17 · Mod imports, properties, developments, web · Dep S7-F12
+**Build:**
+- `FeedListing` + loader fields for what Resales sends only in `PropertyDetails`: community fees (`Community_Fees_Year` / 12 per month), IBI and basura (yearly), and a price range end (`priceTo`); property columns, DTO and read-model fields where the listing shows them; other connectors map them where their formats have them.
+- New developments from Resales (`NameType` development, `KeyReady`, Category "New Development"): `NewDevName`, key-ready and the `PriceList` units into the developments module (S4-01 / S4-02) through its public API, idempotent per reference. Commission and owner data never reach public paths.
+- A Resales Online connection form in the dashboard (EN / ES): Client ID, API key, filter alias, languages (dashboard route ≤ 250 KB first-load).
+**Done when:**
+- A details record with fees, IBI and basura stores them on the listing (test)
+- A development with a 2-unit price list creates one development with 2 units, and a re-run changes nothing (test)
+- The form creates a working Resales connection; a bad filter alias shows `FEED_SETTINGS_INVALID` (test)
 
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]

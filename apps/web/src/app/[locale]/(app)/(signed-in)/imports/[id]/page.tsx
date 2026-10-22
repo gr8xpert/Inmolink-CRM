@@ -130,6 +130,12 @@ export default async function FeedConnectionPage({
                   <td className="p-2">
                     <StateBadge state={r.state} label={t(`states.${r.state}`)} />
                     {r.errorCode ? <p className="mt-1 text-xs text-destructive">{runError(r.errorCode)}</p> : null}
+                    {/* S7-F12: the source's own words (plain text, credentials removed, ≤ 500 characters) */}
+                    {r.errorDetail ? (
+                      <p className="mt-1 max-w-xs text-xs break-words text-muted-foreground">
+                        {t('errorDetail', { detail: r.errorDetail })}
+                      </p>
+                    ) : null}
                   </td>
                   {COUNT_KEYS.map((k) => (
                     <td key={k} className="p-2 text-right tabular-nums">
