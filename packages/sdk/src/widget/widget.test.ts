@@ -19,6 +19,8 @@ describe('JS widget (S8-06)', () => {
     expect(gzipSync(script, { level: 6 }).length).toBeLessThanOrEqual(MAX_GZIP_BYTES);
     // Self-contained: no import, require or dynamic import of code at load time.
     expect(script.toString()).not.toMatch(/\brequire\(|\bimport\(|^import /m);
+    // Nothing left external: an unresolved workspace import becomes a free `_inmolink_…` global (found on CI).
+    expect(script.toString()).not.toMatch(/_inmolink|@inmolink/);
   }, 120_000);
 
   it('[S8-06] UI strings come in every UI language of locales.json, English for any other language', () => {

@@ -15,6 +15,9 @@ export const widgetConfig: UserConfig = {
   dts: false,
   fixedExtension: true,
   deps: { alwaysBundle: [/.*/] },
+  // Workspace packages from their source: a CI checkout has no `dist` of `@inmolink/i18n`, and an unresolved import is
+  // left external, i.e. a global the page does not have.
+  inputOptions: { resolve: { conditionNames: ['@inmolink/source', 'import', 'module', 'default'] } },
 };
 
 export const WIDGET_FILE = 'inmolink-widget.iife.js';
