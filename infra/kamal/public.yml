@@ -46,6 +46,19 @@ env:
     APP_ROLE: "http"
     PORT: "3000"
     HOSTNAME: "0.0.0.0"
+    # iFrame embeds (S7-F8) read like feed-api: the website API read path, the search accessory, media URLs.
+    MEILI_URL: "http://inmolink-api-meilisearch:7700"
+    MEDIA_CDN_URL: "https://media.inmolink.es"
   secret:
     - RELEASE
     - SENTRY_DSN
+    # iFrame embeds (S7-F8): reads as app_public, the lead form through app_intake (S7-05), site scopes in redis-cache,
+    # per-IP embed limits as the `limits` ACL user, the search-only key, Turnstile (H3), HMAC_KEY (cursors, lead hashes).
+    - DATABASE_URL_APP_PUBLIC
+    - DATABASE_URL_APP_INTAKE
+    - REDIS_CACHE_URL
+    - REDIS_LIMITS_URL
+    - MEILI_SEARCH_KEY
+    - TURNSTILE_SITE_KEY
+    - TURNSTILE_SECRET_KEY
+    - HMAC_KEY

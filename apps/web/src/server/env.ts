@@ -43,6 +43,19 @@ export const webEnv = {
   ...webUrlEnv,
   /** Dashboard API base URL for server-side calls. */
   API_URL: z.url().transform((v) => v.replace(/\/+$/, '')),
+  /**
+   * The website API's public host (feed-api, `https://feed.inmolink.es`): the XML feed card shows the feed URLs on it
+   * (S7-F8).
+   */
+  FEED_API_PUBLIC_URL: z
+    .url()
+    .default('http://localhost:4001')
+    .transform((v) => v.replace(/\/+$/, '')),
+  /** The public pages' host (apps/public, `https://sites.inmolink.es`): IFRAME sites' embed address (S7-F8). */
+  PUBLIC_PAGES_URL: z
+    .url()
+    .default('http://localhost:3101')
+    .transform((v) => v.replace(/\/+$/, '')),
   /** MapLibre style for the staff taxonomy editor's polygon map (S2-04). The default is MapLibre's demo style; set a real one in production. */
   MAP_STYLE_URL: z.url().default('https://demotiles.maplibre.org/style.json'),
   ...authSessionEnv,

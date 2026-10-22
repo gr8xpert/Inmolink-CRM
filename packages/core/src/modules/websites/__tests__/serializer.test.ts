@@ -12,6 +12,7 @@ import {
   WebsiteUnitCard,
 } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
+import { whiteLabelLeaks } from '../../../testing/white-label';
 import {
   type DevelopmentItem,
   deterministicSanitizer,
@@ -257,36 +258,10 @@ const PRESENTER: WebsitePresenter = {
   accentColor: null,
 };
 
-/** Every string anywhere in a value (keys included). */
-function strings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) for (const v of value) strings(v, out);
-  else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) {
-      out.push(k);
-      strings(v, out);
-    }
-  }
-  return out;
-}
-
 function assertWhiteLabelled(out: unknown, o: Owner, label: string): void {
-  const all = strings(out);
-  const text = all.join('\n');
-  const lower = text.toLowerCase();
-  expect(lower.includes(o.name.toLowerCase()), `${label}: owner name`).toBe(false);
-  expect(lower.includes(o.email.toLowerCase()), `${label}: owner e-mail`).toBe(false);
-  expect(lower.includes(o.domain.toLowerCase()), `${label}: owner domain`).toBe(false);
-  expect(text.includes(o.phone), `${label}: owner phone`).toBe(false);
-  expect(lower.includes(o.ref.toLowerCase()), `${label}: owner reference`).toBe(false);
-  // The phone's digits in any spacing within one string.
-  for (const s of all)
-    expect(s.replace(/\D/g, '').includes(o.phoneDigits), `${label}: owner phone digits in "${s}"`).toBe(false);
-  expect(
-    all.some((s) => /commission|owner/i.test(s)),
-    `${label}: commission or owner field`,
-  ).toBe(false);
-  expect(text.includes(o.commission) && /commission/i.test(text), `${label}: commission`).toBe(false);
+  // The shared check (testing/white-label.ts), also run on the S7-F8 embed detail page.
+  const { agencyId: _id, ...owner } = o;
+  expect(whiteLabelLeaks(out, owner), label).toEqual([]);
 }
 
 const RUNS = 300;

@@ -15,7 +15,8 @@
   "modes": {
     "WP_PLUGIN": "Plugin de WordPress",
     "WIDGET": "Widget de búsqueda",
-    "HOSTED": "Páginas alojadas"
+    "HOSTED": "Páginas alojadas",
+    "IFRAME": "Páginas incrustadas (iFrame)"
   },
   "policies": {
     "OWN_ONLY": "Solo nuestros inmuebles",
@@ -69,5 +70,39 @@
     "VALIDATION_FAILED": "Algunos campos no son válidos. Revísalos e inténtalo de nuevo.",
     "VERSION_CONFLICT": "Otra persona ha cambiado este sitio web mientras tanto. Recarga e inténtalo de nuevo.",
     "generic": "Algo ha fallado. Inténtalo de nuevo."
+  },
+  "feed": {
+    "title": "Feed XML",
+    "intro": "Los inmuebles de su web en XML Kyero v3 y genérico, para portales y diseñadores web. La dirección contiene un token secreto: compártala solo con quien importe el feed.",
+    "on": "Activado",
+    "off": "Desactivado",
+    "status": "Estado",
+    "token": "Token",
+    "tokenHint": "…{hint}, creado el {date}",
+    "lastRun": "Última actualización",
+    "never": "Aún no generado",
+    "counts": "Inmuebles",
+    "kyeroCount": "{count, plural, one {# en el feed Kyero} other {# en el feed Kyero}}",
+    "genericCount": "{count, plural, one {# en el feed genérico} other {# en el feed genérico}}",
+    "lastError": "La última actualización falló ({code}). Se reintenta automáticamente.",
+    "turnOn": "Activar el feed",
+    "rotate": "Nuevo token",
+    "rotateHint": "Las direcciones actuales dejan de funcionar al instante.",
+    "turnOff": "Desactivar el feed",
+    "issuedTitle": "Copie ahora las direcciones del feed",
+    "issuedIntro": "Solo se muestran esta vez. Si las pierde, cree un nuevo token.",
+    "kyeroUrl": "Kyero v3",
+    "genericUrl": "XML genérico",
+    "done": "Hecho",
+    "turnedOff": "El feed está desactivado. Sus direcciones responden ahora 404.",
+    "errors": {
+      "FORBIDDEN": "Solo los administradores de la agencia pueden cambiar el feed.",
+      "SITE_NOT_FOUND": "Esta web ya no existe.",
+      "VERIFICATION_REQUIRED": "El feed necesita una agencia verificada.",
+      "generic": "Algo ha fallado. Inténtelo de nuevo."
+    },
+    "embedTitle": "Páginas incrustadas",
+    "embedIntro": "Pegue esta dirección en un iframe en {domains}. Otras webs no pueden mostrar estas páginas.",
+    "embedNoDomain": "Añada los dominios de la web que muestra estas páginas: solo podrán incrustarse allí."
   }
 }

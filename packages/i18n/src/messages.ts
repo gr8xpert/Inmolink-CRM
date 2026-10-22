@@ -2,6 +2,7 @@ import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
 import type developments from '../messages/en/developments.json';
+import type embed from '../messages/en/embed.json';
 import type imports from '../messages/en/imports.json';
 import type leads from '../messages/en/leads.json';
 import type listings from '../messages/en/listings.json';
@@ -25,6 +26,7 @@ export interface Messages {
   'api-keys': typeof apiKeys;
   auth: typeof auth;
   developments: typeof developments;
+  embed: typeof embed;
   imports: typeof imports;
   leads: typeof leads;
   listings: typeof listings;

@@ -1,0 +1,86 @@
+{
+  "search": {
+    "title": "Inmuebles",
+    "label": "Buscar inmuebles",
+    "q": "Palabra clave o referencia",
+    "transaction": "Operación",
+    "anyTransaction": "Venta o alquiler",
+    "transactions": {
+      "SALE": "Venta",
+      "RENT_LONG_TERM": "Alquiler de larga temporada",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    },
+    "priceMin": "Precio mín. (€)",
+    "priceMax": "Precio máx. (€)",
+    "bedsMin": "Dormitorios mín.",
+    "sort": "Ordenar por",
+    "sorts": {
+      "newest": "Más recientes",
+      "price_asc": "Precio: de menor a mayor",
+      "price_desc": "Precio: de mayor a menor",
+      "beds_desc": "Más dormitorios",
+      "area_desc": "Más grandes"
+    },
+    "submit": "Buscar",
+    "total": "{count, plural, =0 {Ningún inmueble} one {# inmueble} other {# inmuebles}}",
+    "empty": "Ningún inmueble coincide con su búsqueda. Pruebe con menos filtros.",
+    "next": "Más inmuebles",
+    "first": "Volver a la primera página",
+    "invalid": "Algunos filtros no eran válidos y se han ignorado."
+  },
+  "card": {
+    "beds": "{count, plural, one {# dormitorio} other {# dormitorios}}",
+    "baths": "{count, plural, one {# baño} other {# baños}}",
+    "built": "{area} construidos",
+    "plot": "{area} de parcela",
+    "ref": "Ref. {ref}",
+    "onRequest": "Precio a consultar",
+    "perPeriod": {
+      "NIGHT": "{price} / noche",
+      "WEEK": "{price} / semana",
+      "MONTH": "{price} / mes"
+    },
+    "noPhoto": "Sin foto todavía"
+  },
+  "detail": {
+    "back": "Volver a los resultados",
+    "description": "Descripción",
+    "features": "Características",
+    "facts": "Datos principales",
+    "energy": "Certificado energético",
+    "type": "Tipo",
+    "location": "Ubicación",
+    "ref": "Referencia",
+    "photos": "Fotos",
+    "photo": "Foto {n} de {total}"
+  },
+  "contact": {
+    "title": "Contactar con {agency}",
+    "phone": "Teléfono",
+    "email": "Correo electrónico",
+    "whatsapp": "WhatsApp",
+    "website": "Web"
+  },
+  "lead": {
+    "title": "Pregunte por este inmueble",
+    "name": "Su nombre",
+    "email": "Su correo electrónico",
+    "phone": "Teléfono (opcional)",
+    "message": "Mensaje",
+    "messageDefault": "Me interesa este inmueble (ref. {ref}). Por favor, contacten conmigo.",
+    "privacy": "Acepto que {agency} trate mis datos para responder a esta consulta.",
+    "marketing": "Envíenme inmuebles similares por correo electrónico.",
+    "submit": "Enviar consulta",
+    "sending": "Enviando…",
+    "sent": "Gracias: {agency} ha recibido su consulta y le contactará pronto.",
+    "unavailable": "Ahora mismo no se pueden enviar consultas desde esta página. Utilice los datos de contacto de arriba.",
+    "errors": {
+      "VALIDATION_FAILED": "Revise su nombre, correo electrónico y mensaje.",
+      "TURNSTILE_FAILED": "No hemos podido confirmar que es una persona. Inténtelo de nuevo.",
+      "RATE_LIMITED": "Demasiadas consultas desde esta conexión. Inténtelo más tarde.",
+      "LISTING_NOT_FOUND": "Este inmueble ya no está disponible.",
+      "generic": "No se ha podido enviar su consulta. Inténtelo de nuevo."
+    }
+  },
+  "poweredBy": "Inmuebles de {agency}"
+}

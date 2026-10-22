@@ -50,6 +50,7 @@
     "perf:smoke": "tsx --conditions=@inmolink/source scripts/perf/smoke.ts",
     "perf:load:setup": "tsx --conditions=@inmolink/source scripts/perf/load-setup.ts",
     "perf:bundle": "tsx scripts/perf/bundle.ts",
+    "perf:lighthouse": "tsx --conditions=@inmolink/source scripts/perf/lighthouse.ts",
     "i18n:check": "tsx --conditions=@inmolink/source scripts/i18n/check.ts",
     "i18n:draft": "tsx --conditions=@inmolink/source scripts/i18n/draft.ts",
     "ai:eval": "node scripts/stub.mjs ai:eval S12-01",

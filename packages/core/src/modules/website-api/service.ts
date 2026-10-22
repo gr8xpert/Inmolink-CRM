@@ -83,6 +83,14 @@ export async function siteForKey(
   const scope = await websites.siteScope(key.siteId);
   // The key's site is its agency's (composite foreign key); anything else is refused, never served.
   if (scope.agencyId !== key.agencyId) throw new AppError('SITE_NOT_FOUND');
+  return apiSiteOf(scope, key.keyId ?? null, requestId);
+}
+
+/**
+ * A site's scope as one request serves it (website API keys, S7-F8 embed pages): its inventory with network listings
+ * dropped while the agency's give-to-get standing is locked. Cached reads only on a warm path.
+ */
+export async function apiSiteOf(scope: websites.SiteScope, keyId: string | null, requestId: string): Promise<ApiSite> {
   let inventory: websites.SiteSearchScope = websites.siteSearchScope(scope, requestId);
   if (inventory.networkOf !== undefined && !(await search.websiteNetworkOpen(scope.agencyId))) {
     const { networkOf: _network, networkRefPrefix: _prefix, ...own } = inventory;
@@ -100,7 +108,7 @@ export async function siteForKey(
     .digest('base64url')
     .slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
-  return { keyId: key.keyId ?? null, scope, inventory: shows ? inventory : null, tag, requestId, edge: newEdgeSeen() };
+  return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, edge: newEdgeSeen() };
 }
 
 /** `?lang=`: one of the site's languages (default its first). */

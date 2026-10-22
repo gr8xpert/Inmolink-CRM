@@ -7,3 +7,5 @@ proxy:
 env:
   clear:
     DEPLOY_ENV: "production"
+    # Embed lead forms solve Turnstile on this host (S7-F8).
+    PUBLIC_URL: "https://sites.inmolink.es"

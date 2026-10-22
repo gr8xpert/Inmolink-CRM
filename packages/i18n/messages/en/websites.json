@@ -15,7 +15,8 @@
   "modes": {
     "WP_PLUGIN": "WordPress plugin",
     "WIDGET": "Search widget",
-    "HOSTED": "Hosted pages"
+    "HOSTED": "Hosted pages",
+    "IFRAME": "Embedded pages (iFrame)"
   },
   "policies": {
     "OWN_ONLY": "Our listings only",
@@ -69,5 +70,39 @@
     "VALIDATION_FAILED": "Some fields are not valid. Check them and try again.",
     "VERSION_CONFLICT": "Someone else changed this website meanwhile. Reload and try again.",
     "generic": "Something went wrong. Try again."
+  },
+  "feed": {
+    "title": "XML feed",
+    "intro": "Your website's listings as Kyero v3 and generic XML, for portals and web designers. The address contains a secret token: share it only with whoever imports the feed.",
+    "on": "On",
+    "off": "Off",
+    "status": "Status",
+    "token": "Token",
+    "tokenHint": "…{hint}, created {date}",
+    "lastRun": "Last update",
+    "never": "Not generated yet",
+    "counts": "Listings",
+    "kyeroCount": "{count, plural, one {# in the Kyero feed} other {# in the Kyero feed}}",
+    "genericCount": "{count, plural, one {# in the generic feed} other {# in the generic feed}}",
+    "lastError": "The last update failed ({code}). It is retried automatically.",
+    "turnOn": "Turn the feed on",
+    "rotate": "New token",
+    "rotateHint": "The current addresses stop working at once.",
+    "turnOff": "Turn the feed off",
+    "issuedTitle": "Copy the feed addresses now",
+    "issuedIntro": "They are shown only this once. If you lose them, create a new token.",
+    "kyeroUrl": "Kyero v3",
+    "genericUrl": "Generic XML",
+    "done": "Done",
+    "turnedOff": "The feed is off. Its addresses now answer 404.",
+    "errors": {
+      "FORBIDDEN": "Only agency admins can change the feed.",
+      "SITE_NOT_FOUND": "This website no longer exists.",
+      "VERIFICATION_REQUIRED": "The feed needs a verified agency.",
+      "generic": "Something went wrong. Try again."
+    },
+    "embedTitle": "Embedded pages",
+    "embedIntro": "Paste this address in an iframe on {domains}. Other sites cannot show these pages.",
+    "embedNoDomain": "Add the domains of the website that shows these pages: they can only be framed there."
   }
 }

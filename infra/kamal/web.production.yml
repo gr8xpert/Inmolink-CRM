@@ -10,3 +10,6 @@ env:
     OTEL_TRACES_SAMPLE_RATIO: "0.05"
     WEB_URL: "https://app.inmolink.es"
     API_URL: "https://api.inmolink.es"
+    # The XML feed card's URLs and IFRAME sites' embed address (S7-F8).
+    FEED_API_PUBLIC_URL: "https://feed.inmolink.es"
+    PUBLIC_PAGES_URL: "https://sites.inmolink.es"

@@ -22,7 +22,12 @@ import {
   UnitDetailDoc,
 } from './search';
 
-export const WebsiteMode = z.enum(['WP_PLUGIN', 'WIDGET', 'HOSTED']);
+/**
+ * How a site runs. IFRAME (S7-F8): search, results and detail pages served by Inmolink (`/embed/<site>/…` on the
+ * public pages host) for the site's own domains to frame — only a site in this mode is served there, and only inside
+ * its domains (`frame-ancestors`).
+ */
+export const WebsiteMode = z.enum(['WP_PLUGIN', 'WIDGET', 'HOSTED', 'IFRAME']);
 export type WebsiteMode = z.infer<typeof WebsiteMode>;
 
 /**

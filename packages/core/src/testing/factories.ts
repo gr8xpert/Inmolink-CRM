@@ -103,3 +103,6 @@ export async function purgeReferenceFixtures(
     for (const text of PURGE_REFERENCE_SQL) await tx.execute(sql.raw(text.replaceAll('$1', `'${params[0]}'`)));
   });
 }
+
+/** The white-label check (S7-02), shared with app tests (S7-F8 embed detail page). */
+export { stringsOf, type WhiteLabelOwner, whiteLabelLeaks } from './white-label';

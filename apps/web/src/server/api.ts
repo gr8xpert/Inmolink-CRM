@@ -85,6 +85,8 @@ import {
   type SetListingFeaturesBody,
   SignedUrlDto,
   SiteDto,
+  SiteFeedDto,
+  SiteFeedSecretDto,
   SitePage,
   StaffAccessPage,
   type StartListingBulkBody,
@@ -210,6 +212,8 @@ export async function apiRequest<S extends z.ZodType>(
     /** A binary body (uploads) instead of JSON. */
     raw?: { bytes: Uint8Array; contentType: string };
     timeoutMs?: number;
+    /** Extra request headers (S7-F8: `Idempotency-Key`). */
+    headers?: Record<string, string>;
   } = {},
 ): Promise<ApiResult<z.infer<S>>> {
   const config = await webConfig();
@@ -230,6 +234,7 @@ async function apiCall<S extends z.ZodType>(
     const res = await fetch(`${apiUrl}${path}`, {
       method: init.method ?? 'GET',
       headers: {
+        ...init.headers,
         authorization: `Bearer ${token}`,
         ...(init.raw
           ? { 'content-type': init.raw.contentType }
@@ -1402,4 +1407,32 @@ export function createSite(session: SessionRef, body: CreateSiteInput): Promise<
 /** Change a website (admins; optimistic concurrency by `version`). */
 export function updateSite(session: SessionRef, id: string, body: UpdateSiteInput): Promise<ApiResult<SiteDto>> {
   return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}`, SiteDto, { method: 'PATCH', body });
+}
+
+// ── Website XML feed (S7-07, dashboard card S7-F8) ───────────────────────────────────────────────────
+
+/** The site's XML feed: on or off, the token's last characters, the last run (members). */
+export function fetchSiteFeed(session: SessionRef, id: string): Promise<ApiResult<SiteFeedDto>> {
+  return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}/feed`, SiteFeedDto);
+}
+
+/**
+ * Turn the feed on, or rotate its token (admins). The token comes back once: hand it to the page, never log it. The
+ * form's `Idempotency-Key` makes a repeated submit (double click, retry) answer the same token instead of rotating
+ * twice (S7-07).
+ */
+export function rotateSiteFeed(
+  session: SessionRef,
+  id: string,
+  idempotencyKey: string,
+): Promise<ApiResult<SiteFeedSecretDto>> {
+  return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}/feed/token`, SiteFeedSecretDto, {
+    method: 'POST',
+    headers: { 'idempotency-key': idempotencyKey },
+  });
+}
+
+/** Turn the feed off: its URLs answer 404 (admins). */
+export function revokeSiteFeed(session: SessionRef, id: string): Promise<ApiResult<SiteFeedDto>> {
+  return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}/feed`, SiteFeedDto, { method: 'DELETE' });
 }

@@ -64,6 +64,8 @@ const PRUNE_FIRST = [
   // S6-02: a crashed run's seen feed references, and feed image URL → hash memory
   'property_import_seen',
   'feed_image_sources',
+  // S7-F1: release tombstones of uploaded sheets (no cascade from agencies); found by S7-F8's local runs
+  'feed_sheet_releases',
 ] as const;
 
 /** Global worker queues keyed by the owner agency (S6-F3). */

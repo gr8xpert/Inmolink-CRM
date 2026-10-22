@@ -53,6 +53,11 @@ export interface WebsiteApiSettings {
    * `serverVerified`.
    */
   turnstile?: TurnstileVerifier | null;
+  /**
+   * The public pages origin (`PUBLIC_URL`, S7-F8): the iFrame embed pages' lead form solves its Turnstile challenge on
+   * this host. Unset: embed forms are refused (`TURNSTILE_FAILED`).
+   */
+  embedOrigin?: string;
 }
 
 let settings: WebsiteApiSettings | undefined;

@@ -1,0 +1,86 @@
+{
+  "search": {
+    "title": "Properties",
+    "label": "Search properties",
+    "q": "Keyword or reference",
+    "transaction": "For",
+    "anyTransaction": "Sale or rent",
+    "transactions": {
+      "SALE": "Sale",
+      "RENT_LONG_TERM": "Long-term rental",
+      "RENT_SHORT_TERM": "Holiday rental"
+    },
+    "priceMin": "Min. price (€)",
+    "priceMax": "Max. price (€)",
+    "bedsMin": "Min. bedrooms",
+    "sort": "Sort by",
+    "sorts": {
+      "newest": "Newest",
+      "price_asc": "Price: low to high",
+      "price_desc": "Price: high to low",
+      "beds_desc": "Most bedrooms",
+      "area_desc": "Largest"
+    },
+    "submit": "Search",
+    "total": "{count, plural, =0 {No properties} one {# property} other {# properties}}",
+    "empty": "No properties match your search. Try fewer filters.",
+    "next": "More properties",
+    "first": "Back to the first page",
+    "invalid": "Some filters were not valid and were ignored."
+  },
+  "card": {
+    "beds": "{count, plural, one {# bedroom} other {# bedrooms}}",
+    "baths": "{count, plural, one {# bathroom} other {# bathrooms}}",
+    "built": "{area} built",
+    "plot": "{area} plot",
+    "ref": "Ref. {ref}",
+    "onRequest": "Price on request",
+    "perPeriod": {
+      "NIGHT": "{price} / night",
+      "WEEK": "{price} / week",
+      "MONTH": "{price} / month"
+    },
+    "noPhoto": "No photo yet"
+  },
+  "detail": {
+    "back": "Back to results",
+    "description": "Description",
+    "features": "Features",
+    "facts": "Key facts",
+    "energy": "Energy rating",
+    "type": "Type",
+    "location": "Location",
+    "ref": "Reference",
+    "photos": "Photos",
+    "photo": "Photo {n} of {total}"
+  },
+  "contact": {
+    "title": "Contact {agency}",
+    "phone": "Phone",
+    "email": "E-mail",
+    "whatsapp": "WhatsApp",
+    "website": "Website"
+  },
+  "lead": {
+    "title": "Ask about this property",
+    "name": "Your name",
+    "email": "Your e-mail",
+    "phone": "Phone (optional)",
+    "message": "Message",
+    "messageDefault": "I am interested in this property (ref. {ref}). Please contact me.",
+    "privacy": "I accept that {agency} processes my details to answer this enquiry.",
+    "marketing": "Send me similar properties by e-mail.",
+    "submit": "Send enquiry",
+    "sending": "Sending…",
+    "sent": "Thank you — {agency} has your enquiry and will be in touch soon.",
+    "unavailable": "Enquiries cannot be sent from this page right now. Please use the contact details above.",
+    "errors": {
+      "VALIDATION_FAILED": "Please check your name, e-mail and message.",
+      "TURNSTILE_FAILED": "We could not confirm you are human. Please try again.",
+      "RATE_LIMITED": "Too many enquiries from this connection. Please try again later.",
+      "LISTING_NOT_FOUND": "This property is no longer available.",
+      "generic": "Your enquiry could not be sent. Please try again."
+    }
+  },
+  "poweredBy": "Listings by {agency}"
+}

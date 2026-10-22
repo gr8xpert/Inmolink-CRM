@@ -19,7 +19,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
-export const websiteModeEnum = pgEnum('website_mode', ['WP_PLUGIN', 'WIDGET', 'HOSTED']);
+/** IFRAME (S7-F8): the site's pages are served by `apps/public` under `/embed/<site>/…`, framed by its domains only. */
+export const websiteModeEnum = pgEnum('website_mode', ['WP_PLUGIN', 'WIDGET', 'HOSTED', 'IFRAME']);
 export const inventoryPolicyEnum = pgEnum('inventory_policy', ['OWN_ONLY', 'OWN_PLUS_NETWORK', 'CUSTOM']);
 
 /**

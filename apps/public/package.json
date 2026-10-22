@@ -14,16 +14,21 @@
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
+    "@inmolink/contracts": "workspace:*",
+    "@inmolink/core": "workspace:*",
     "@inmolink/i18n": "workspace:*",
+    "@inmolink/platform": "workspace:*",
     "@inmolink/ui": "workspace:*",
     "next": "16.4.0",
     "next-intl": "4.14.9",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
+    "@inmolink/db": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",

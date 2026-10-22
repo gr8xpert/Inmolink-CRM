@@ -3,36 +3,38 @@ import m0 from '../messages/en/agency.json' with { type: 'json' };
 import m1 from '../messages/en/api-keys.json' with { type: 'json' };
 import m2 from '../messages/en/auth.json' with { type: 'json' };
 import m3 from '../messages/en/developments.json' with { type: 'json' };
-import m4 from '../messages/en/imports.json' with { type: 'json' };
-import m5 from '../messages/en/leads.json' with { type: 'json' };
-import m6 from '../messages/en/listings.json' with { type: 'json' };
-import m7 from '../messages/en/network.json' with { type: 'json' };
-import m8 from '../messages/en/onboarding.json' with { type: 'json' };
-import m9 from '../messages/en/security.json' with { type: 'json' };
-import m10 from '../messages/en/shell.json' with { type: 'json' };
-import m11 from '../messages/en/staff.json' with { type: 'json' };
-import m12 from '../messages/en/staff-access.json' with { type: 'json' };
-import m13 from '../messages/en/team.json' with { type: 'json' };
-import m14 from '../messages/en/verification.json' with { type: 'json' };
-import m15 from '../messages/en/websites.json' with { type: 'json' };
-import m16 from '../messages/es/agency.json' with { type: 'json' };
-import m17 from '../messages/es/api-keys.json' with { type: 'json' };
-import m18 from '../messages/es/auth.json' with { type: 'json' };
-import m19 from '../messages/es/developments.json' with { type: 'json' };
-import m20 from '../messages/es/imports.json' with { type: 'json' };
-import m21 from '../messages/es/leads.json' with { type: 'json' };
-import m22 from '../messages/es/listings.json' with { type: 'json' };
-import m23 from '../messages/es/network.json' with { type: 'json' };
-import m24 from '../messages/es/onboarding.json' with { type: 'json' };
-import m25 from '../messages/es/security.json' with { type: 'json' };
-import m26 from '../messages/es/shell.json' with { type: 'json' };
-import m27 from '../messages/es/staff.json' with { type: 'json' };
-import m28 from '../messages/es/staff-access.json' with { type: 'json' };
-import m29 from '../messages/es/team.json' with { type: 'json' };
-import m30 from '../messages/es/verification.json' with { type: 'json' };
-import m31 from '../messages/es/websites.json' with { type: 'json' };
+import m4 from '../messages/en/embed.json' with { type: 'json' };
+import m5 from '../messages/en/imports.json' with { type: 'json' };
+import m6 from '../messages/en/leads.json' with { type: 'json' };
+import m7 from '../messages/en/listings.json' with { type: 'json' };
+import m8 from '../messages/en/network.json' with { type: 'json' };
+import m9 from '../messages/en/onboarding.json' with { type: 'json' };
+import m10 from '../messages/en/security.json' with { type: 'json' };
+import m11 from '../messages/en/shell.json' with { type: 'json' };
+import m12 from '../messages/en/staff.json' with { type: 'json' };
+import m13 from '../messages/en/staff-access.json' with { type: 'json' };
+import m14 from '../messages/en/team.json' with { type: 'json' };
+import m15 from '../messages/en/verification.json' with { type: 'json' };
+import m16 from '../messages/en/websites.json' with { type: 'json' };
+import m17 from '../messages/es/agency.json' with { type: 'json' };
+import m18 from '../messages/es/api-keys.json' with { type: 'json' };
+import m19 from '../messages/es/auth.json' with { type: 'json' };
+import m20 from '../messages/es/developments.json' with { type: 'json' };
+import m21 from '../messages/es/embed.json' with { type: 'json' };
+import m22 from '../messages/es/imports.json' with { type: 'json' };
+import m23 from '../messages/es/leads.json' with { type: 'json' };
+import m24 from '../messages/es/listings.json' with { type: 'json' };
+import m25 from '../messages/es/network.json' with { type: 'json' };
+import m26 from '../messages/es/onboarding.json' with { type: 'json' };
+import m27 from '../messages/es/security.json' with { type: 'json' };
+import m28 from '../messages/es/shell.json' with { type: 'json' };
+import m29 from '../messages/es/staff.json' with { type: 'json' };
+import m30 from '../messages/es/staff-access.json' with { type: 'json' };
+import m31 from '../messages/es/team.json' with { type: 'json' };
+import m32 from '../messages/es/verification.json' with { type: 'json' };
+import m33 from '../messages/es/websites.json' with { type: 'json' };
 
 export const CATALOGS = {
-  "en": { "agency": m0, "api-keys": m1, "auth": m2, "developments": m3, "imports": m4, "leads": m5, "listings": m6, "network": m7, "onboarding": m8, "security": m9, "shell": m10, "staff": m11, "staff-access": m12, "team": m13, "verification": m14, "websites": m15 },
-  "es": { "agency": m16, "api-keys": m17, "auth": m18, "developments": m19, "imports": m20, "leads": m21, "listings": m22, "network": m23, "onboarding": m24, "security": m25, "shell": m26, "staff": m27, "staff-access": m28, "team": m29, "verification": m30, "websites": m31 },
+  "en": { "agency": m0, "api-keys": m1, "auth": m2, "developments": m3, "embed": m4, "imports": m5, "leads": m6, "listings": m7, "network": m8, "onboarding": m9, "security": m10, "shell": m11, "staff": m12, "staff-access": m13, "team": m14, "verification": m15, "websites": m16 },
+  "es": { "agency": m17, "api-keys": m18, "auth": m19, "developments": m20, "embed": m21, "imports": m22, "leads": m23, "listings": m24, "network": m25, "onboarding": m26, "security": m27, "shell": m28, "staff": m29, "staff-access": m30, "team": m31, "verification": m32, "websites": m33 },
 };

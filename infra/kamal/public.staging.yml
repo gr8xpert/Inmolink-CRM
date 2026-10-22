@@ -7,3 +7,4 @@ proxy:
 env:
   clear:
     DEPLOY_ENV: "staging"
+    PUBLIC_URL: "https://sites.staging.inmolink.es"
