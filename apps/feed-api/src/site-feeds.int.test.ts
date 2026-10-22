@@ -195,6 +195,16 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     expect(off.headers['cache-tag']).toBeUndefined();
   });
 
+  it('[S8-F2] a feed URL with any query parameter is private (one CDN entry per token URL)', async () => {
+    // (A bare trailing `?` is covered in `plugins/edge-cache.test.ts`: `inject` drops it before the route.)
+    for (const url of [`/v2/feeds/${token}/kyero.xml?x=1`, `/v2/feeds/${token}/kyero.xml?x=1&x=2`]) {
+      const res = await edge.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['cache-control'], url).toBe('private, max-age=0, must-revalidate');
+      expect(res.headers['cache-tag'], url).toBeUndefined();
+    }
+  });
+
   it('[S7-07] a rotated, revoked or unknown token answers 404 — never stored by a cache', async () => {
     const rotated = (await asMember(a, (ctx) => websites.rotateSiteFeed(ctx, { siteId }))).secret;
     for (const url of [

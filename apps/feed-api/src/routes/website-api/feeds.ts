@@ -7,6 +7,7 @@ import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
 
 export const FEED_ROUTE = '/v2/feeds/:token/:file';
 
@@ -79,17 +80,11 @@ export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
       const gzip = acceptsGzip(req);
       // One ETag per stored file and encoding (the bytes differ).
       const etag = gzip ? file.etag : `${file.etag.slice(0, -1)}.identity"`;
-      const shared = app.websiteEdgeCache && file.tags !== null;
+      // Edge cache on, purge tags, and no query parameter (another CDN entry for the same file: S8-F2).
+      const rule = ruleOf(req);
+      const shared = edgePublic(req, rule) && file.tags !== null;
       reply
-        .header(
-          'Cache-Control',
-          shared
-            ? cacheControl.feed({
-                sMaxAge: websiteApi.SITE_FEED_TTL,
-                staleIfError: websiteApi.SITE_FEED_STALE_IF_ERROR,
-              })
-            : cacheControl.private(0),
-        )
+        .header('Cache-Control', shared ? publicCacheControl(rule) : cacheControl.private(0))
         .header('ETag', etag)
         .header('Vary', 'Accept-Encoding')
         .header('X-Robots-Tag', 'noindex, nofollow')

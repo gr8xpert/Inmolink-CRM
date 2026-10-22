@@ -5,7 +5,7 @@ import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
-import { createFounder, type Founder, whiteLabelLeaks, withSystem } from '@inmolink/core/test';
+import { countQueries, createFounder, type Founder, whiteLabelLeaks, withSystem } from '@inmolink/core/test';
 import { adminQuery, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
@@ -344,5 +344,107 @@ describe('iFrame embed routes (S7-F8)', () => {
     });
     expect(tampered.status).toBe(404);
     expect(await adminQuery('select 1 from website_leads where site_id = $1', [wpSiteId])).toHaveLength(0);
+  });
+});
+
+describe('embed page caching (S8-F2)', () => {
+  const params = () => ({ site: siteId, lang: 'en' });
+
+  it('[S8-F2] an unchanged embed page answers 304 to its ETag; a URL with an unknown parameter is private', async () => {
+    const page = `/embed/${siteId}/en?priceMin=100000`;
+    const res = await searchResponse(get(page, siteId), params());
+    expect(res.status).toBe(200);
+    const etag = res.headers.get('etag') ?? '';
+    expect(etag).toMatch(/^"[\w-]{27}"$/);
+    expect(res.headers.get('cache-control')).toBe(
+      'public, max-age=0, s-maxage=60, stale-while-revalidate=300, stale-if-error=300',
+    );
+    expect(res.headers.get('vary')).toBe('Accept-Encoding');
+    const again = await searchResponse(get(page, siteId, { 'if-none-match': etag }), params());
+    expect(again.status).toBe(304);
+    expect(await again.text()).toBe('');
+    expect(again.headers.get('etag')).toBe(etag);
+    expect(again.headers.get('cache-control')).toBe(EMBED_PAGE_CACHE);
+    expect(again.headers.get('content-security-policy')).toBe(res.headers.get('content-security-policy'));
+    // Another tag: the whole page.
+    expect((await searchResponse(get(page, siteId, { 'if-none-match': '"other"' }), params())).status).toBe(200);
+
+    // The detail page too.
+    const ref = /\/listing\/(FS-[0-9A-Z]{8})"/.exec(await res.text())?.[1] as string;
+    const detailPath = `/embed/${siteId}/en/listing/${ref}`;
+    const detail = await detailResponse(get(detailPath, siteId), { ...params(), ref });
+    expect(detail.headers.get('cache-control')).toBe(EMBED_PAGE_CACHE);
+    const detailTag = detail.headers.get('etag') as string;
+    const detail304 = await detailResponse(get(detailPath, siteId, { 'if-none-match': detailTag }), {
+      ...params(),
+      ref,
+    });
+    expect(detail304.status).toBe(304);
+
+    // Unknown parameters, free text, a cursor-less non-canonical spelling: served, but never at the edge.
+    for (const url of [
+      `/embed/${siteId}/en?priceMin=100000&bust=${newId()}`,
+      `/embed/${siteId}/en?q=villa`,
+      `/embed/${siteId}/en?priceMin=0100000`,
+      `/embed/${siteId}/en?priceMin=%3100000`,
+      `/embed/${siteId}/en?%70riceMin=100000`,
+      `/embed/${siteId}/en?transaction=SALE+`,
+      `/embed/${siteId}/en?transaction=%53ALE`,
+      `/embed/${siteId}/en?`,
+    ]) {
+      const r = await searchResponse(get(url, siteId), params());
+      expect(r.status).toBe(200);
+      expect(r.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
+      expect(r.headers.get('cache-tag')).toBeNull();
+      expect(r.headers.get('etag')).toBeTruthy();
+    }
+    // A detail URL other than the reference as written, with no query at all: private.
+    for (const [path, r] of [
+      [`${detailPath}?bust=1`, ref],
+      [`${detailPath}?`, ref],
+      [`/embed/${siteId}/en/listing/%46${ref.slice(1)}`, ref],
+    ] as const) {
+      const odd = await detailResponse(get(path, siteId), { ...params(), ref: r });
+      expect(odd.status, path).toBe(200);
+      expect(odd.headers.get('cache-control'), path).toBe('private, max-age=0, must-revalidate');
+      expect(odd.headers.get('cache-tag'), path).toBeNull();
+    }
+  });
+
+  it('[S8-F2] a forged cursor redirects to the first-page URL without a search', async () => {
+    // Warm: the site's scope cached, as on any page view after the first.
+    await searchResponse(get(`/embed/${siteId}/en`, siteId), params());
+    const siteOnly = await countQueries(() => websiteApi.embedSite(siteId, 'test'));
+    // Forged (no valid MAC), refused by the contract, and well-formed and signed but its position unreadable (stale):
+    // core refuses that one only after reading it.
+    const stale = websiteApi.searchCursorFor(siteId, 1, 'position-gone');
+    for (const cursor of ['A'.repeat(60), 'not!a!cursor', stale]) {
+      let res: Response | undefined;
+      const n = await countQueries(async () => {
+        res = await searchResponse(
+          get(`/embed/${siteId}/en?transaction=SALE&cursor=${encodeURIComponent(cursor)}`, siteId),
+          params(),
+        );
+      });
+      expect(res?.status).toBe(303);
+      expect(res?.headers.get('location')).toBe(`/embed/${siteId}/en?transaction=SALE`);
+      expect(res?.headers.get('cache-control')).toBe('no-store');
+      // Nothing but the site lookup: no search, no read-model read.
+      expect(n).toBe(siteOnly);
+    }
+  });
+
+  it('[S8-F2] the embed search and detail pages stay within 3 queries', async () => {
+    const page = await searchResponse(get(`/embed/${siteId}/en`, siteId), params());
+    const ref = /\/listing\/(FS-[0-9A-Z]{8})"/.exec(await page.text())?.[1] as string;
+    const search = await countQueries(async () => {
+      expect((await searchResponse(get(`/embed/${siteId}/en?priceMin=100000`, siteId), params())).status).toBe(200);
+    });
+    const detail = await countQueries(async () => {
+      const r = await detailResponse(get(`/embed/${siteId}/en/listing/${ref}`, siteId), { ...params(), ref });
+      expect(r.status).toBe(200);
+    });
+    expect(search).toBeLessThanOrEqual(3);
+    expect(detail).toBeLessThanOrEqual(3);
   });
 });

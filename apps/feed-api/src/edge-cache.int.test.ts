@@ -18,7 +18,6 @@ import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { edgeKeyToken } from './plugins/api-key';
-import { WEBSITE_API_TTL } from './routes/website-api/routes';
 
 /**
  * Edge caching of the website API over HTTP (S7-06, ADR 0012 #5) with `WEBSITE_EDGE_CACHE` on. The origin's headers
@@ -269,10 +268,10 @@ const refOf = async (id: string) => (await asMember(a, (ctx) => properties.getLi
 describe('website API edge caching (S7-06)', () => {
   it('[S7-06] first pages and details with their key token are public for the CDN: s-maxage, stale-while-revalidate, stale-if-error 24 h, strong ETag, Cache-Tags', async () => {
     const urls: [string, number][] = [
-      [`/v2/listings?locations=${country}`, WEBSITE_API_TTL.listings],
-      [`/v2/listings/${encodeURIComponent(await refOf(A.listing))}?lang=en`, WEBSITE_API_TTL.detail],
-      ['/v2/sitemap', WEBSITE_API_TTL.sitemap],
-      [`/v2/developments?locations=${country}`, WEBSITE_API_TTL.developments],
+      [`/v2/listings?locations=${country}`, websiteApi.WEBSITE_API_TTL.listings],
+      [`/v2/listings/${encodeURIComponent(await refOf(A.listing))}?lang=en`, websiteApi.WEBSITE_API_TTL.detail],
+      ['/v2/sitemap', websiteApi.WEBSITE_API_TTL.sitemap],
+      [`/v2/developments?locations=${country}`, websiteApi.WEBSITE_API_TTL.developments],
     ];
     for (const [url, ttl] of urls) {
       const res = await get(withK(url, K.a));
@@ -300,7 +299,7 @@ describe('website API edge caching (S7-06)', () => {
       }
     }
     // A sitemap TTL within the purge horizon's bound; the horizon is twice the longest lifetime.
-    expect(WEBSITE_API_TTL.sitemap).toBeLessThanOrEqual(240);
+    expect(websiteApi.WEBSITE_API_TTL.sitemap).toBeLessThanOrEqual(240);
     expect(websiteApi.EDGE_PURGE_HORIZON_MS).toBe(2 * 300 * 1_000);
     // Pages and details name what they show: an edit of either listing purges them.
     const page = await get(withK(`/v2/listings?locations=${country}`, K.a));

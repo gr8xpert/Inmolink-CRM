@@ -4,6 +4,7 @@ import * as websiteApi from '@inmolink/core/modules/website-api';
 import { formatter } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import { isAppError } from '@inmolink/platform/errors';
+import { cacheControl, etagFor, weakCompareEtag } from '@inmolink/platform/http';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { clientAddress, embedPageConfig, embedSiteFor, passedGate } from '@/server/embed';
 import { EMBED_GATE_HEADER, embedCsp } from './csp';
@@ -22,21 +23,81 @@ import type { ViewText } from './views';
 /**
  * The embed routes' transport (S7-F8): check the proxy's marker, load the site (core `embedSite` — checked again, the
  * URL is never trusted), parse the query or form with the contracts, call core, render HTML or redirect. Pages are the
- * same for every visitor: cacheable per URL (`public, s-maxage=60, stale-while-revalidate=300`) with the S7-06 edge
- * tags of what they showed, so a listing or site change purges them like the website API's answers.
+ * same for every visitor: canonical URLs are cacheable at the edge with the feed cache shape (`EMBED_PAGE_CACHE`) and
+ * the S7-06 edge tags of what they showed, so a listing or site change purges them like the website API's answers;
+ * every page carries a strong ETag of what it serves (`If-None-Match` → 304, S8-F2).
  */
 
-export const EMBED_PAGE_CACHE = 'public, max-age=0, s-maxage=60, stale-while-revalidate=300';
+/**
+ * How long the edge may serve a page while the origin fails (S8-F2 review): short, like the XML feeds' — a page whose
+ * purge failed must not keep an old `frame-ancestors` (a removed domain) framing it for a day.
+ */
+export const EMBED_STALE_IF_ERROR = 300;
+/** Edge lifetime of a canonical page, the feed cache shape (S8-F2) with a short `stale-if-error`. */
+export const EMBED_PAGE_CACHE = cacheControl.feed({
+  sMaxAge: 60,
+  staleWhileRevalidate: 300,
+  staleIfError: EMBED_STALE_IF_ERROR,
+});
 
-/** Edge-cacheable only with purge tags; without them (`null`) `no-store` (see `html`). */
-export function pageCacheHeaders(tags: readonly string[] | null): Record<string, string> {
-  return tags === null || tags.length === 0
+/**
+ * How a page may be stored (S8-F2): `public` — a canonical URL, at the edge; `private` — any other URL (unknown or
+ * repeated parameters, free text, a cursor, a non-canonical value: cache-busting URLs never reach a shared cache, the
+ * browser revalidates with the ETag); `no-store` — one visitor's answer (a lead notice).
+ */
+export type EmbedCache = 'public' | 'private' | 'no-store';
+
+/** Edge-cacheable only with purge tags; a public page without them (`null`) is `no-store` (see `html`). */
+export function pageCacheHeaders(cache: EmbedCache, tags: readonly string[] | null): Record<string, string> {
+  if (cache === 'private') return { 'Cache-Control': cacheControl.private(0) };
+  return cache === 'no-store' || tags === null || tags.length === 0
     ? { 'Cache-Control': 'no-store' }
     : { 'Cache-Control': EMBED_PAGE_CACHE, 'Cache-Tag': tags.join(',') };
 }
+
+/** The search page's parameters, in the order its form submits them (and its links are built in). */
+export const EMBED_SEARCH_PARAMS = ['q', 'transaction', 'priceMin', 'priceMax', 'bedsMin', 'sort'] as const;
+/** Whole euros as typed, no leading zero: one URL per amount. */
+const EUROS = /^(0|[1-9]\d{0,9})$/;
+const BEDS = /^(0|[1-9]\d?)$/;
+
+/**
+ * Whether a search URL's query is canonical (S8-F2), so the page may be stored at the edge: only the search page's
+ * parameters, each at most once, in the form's order; no free-text `q` and no `cursor` (deep pages stay with the
+ * origin, like the website API's, S7-06); every value in its one written form — and either no empty value (the
+ * page's own links) or all of them present (the form's submission). The raw query must be what `URLSearchParams`
+ * writes back from its own parse, with no value padded by blanks (S8-F2 review: `%53ALE`, `SALE+`, `%74ransaction`,
+ * `%31000` or a bare `?` would each be another edge entry for the same page). Each filter combination has at most two
+ * canonical URLs. `requestUrl`: the URL as received; `valid`: the filters passed the contract.
+ */
+export function canonicalSearch(requestUrl: string, valid: boolean): boolean {
+  if (!valid) return false;
+  const mark = requestUrl.indexOf('?');
+  if (mark < 0) return true;
+  const raw = requestUrl.slice(mark + 1);
+  const params = new URLSearchParams(raw);
+  if (raw === '' || params.toString() !== raw) return false;
+  const entries = [...params];
+  let at = -1;
+  for (const [k, v] of entries) {
+    const i = (EMBED_SEARCH_PARAMS as readonly string[]).indexOf(k);
+    if (i <= at) return false; // unknown (`cursor` too), repeated or out of order
+    at = i;
+    if (v !== v.trim()) return false;
+    if (v === '') continue;
+    if (k === 'q') return false;
+    if ((k === 'priceMin' || k === 'priceMax') && !EUROS.test(v)) return false;
+    if (k === 'bedsMin' && !BEDS.test(v)) return false;
+  }
+  const empties = entries.filter(([, v]) => v === '').length;
+  return empties === 0 || entries.length === EMBED_SEARCH_PARAMS.length;
+}
+
 /** A lead post's body cap (the website API's form cap). */
 const MAX_FORM_BYTES = 16 * 1024;
 const PAGE_SIZE = 12;
+/** A page's strong ETag: its body and its CSP (a domain change re-frames the same body: a new tag). */
+const pageEtag = (body: string, csp: string) => etagFor(`${csp}\n${body}`);
 
 type Params = { site: string; lang: string };
 
@@ -55,19 +116,31 @@ function plain(status: number, extra: Record<string, string> = {}): Response {
 /**
  * An embed page. Cached at the edge only with its purge tags: a page without them (tags not configured, or more than
  * `EDGE_MAX_TAGS`) could not be purged when the site changes — its old `frame-ancestors` would outlive a mode or
- * domain change — so it is `no-store` (security review).
+ * domain change — so it is `no-store` (security review). An `If-None-Match` naming its ETag → 304 with the same
+ * headers and no body (S8-F2).
  */
-function html(body: string, site: websiteApi.EmbedSite, mediaOrigin: string | null, cacheable: boolean): Response {
-  return new Response(body, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': embedCsp({ frameAncestors: site.frameAncestors, mediaOrigin }),
-      ...pageCacheHeaders(cacheable ? websiteApi.edgeTagsOf(site.api) : null),
-      'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+function html(
+  request: Request,
+  body: string,
+  site: websiteApi.EmbedSite,
+  mediaOrigin: string | null,
+  cache: EmbedCache,
+): Response {
+  const csp = embedCsp({ frameAncestors: site.frameAncestors, mediaOrigin });
+  const etag = pageEtag(body, csp);
+  const headers = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': csp,
+    Vary: 'Accept-Encoding',
+    ...pageCacheHeaders(cache, cache === 'public' ? websiteApi.edgeTagsOf(site.api) : null),
+    ETag: etag,
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
+  if (weakCompareEtag(request.headers.get('if-none-match') ?? undefined, etag)) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(body, { status: 200, headers });
 }
 
 /** The site and language of an embed request, or the refusal (no marker, refused site, not one of its languages). */
@@ -96,7 +169,8 @@ export async function searchResponse(request: Request, params: Params): Promise<
   const ok = await siteOf(request, params);
   if (ok instanceof Response) return ok;
   const { site, lang, text } = ok;
-  const sp = new URL(request.url).searchParams;
+  const url = new URL(request.url);
+  const sp = url.searchParams;
   const filters: EmbedFilters = {
     q: one(sp, 'q'),
     transaction: one(sp, 'transaction'),
@@ -117,20 +191,25 @@ export async function searchResponse(request: Request, params: Params): Promise<
     ...(one(sp, 'cursor') ? { cursor: one(sp, 'cursor') } : {}),
   };
   const parsed = WebsiteListingsQuery.safeParse(raw);
-  let invalid = !parsed.success;
+  const invalid = !parsed.success;
   const query = parsed.success ? parsed.data : WebsiteListingsQuery.parse({ lang, limit: PAGE_SIZE });
+  const b = base(site.siteId, lang);
+  const keep = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) if (v) keep.set(k, v);
+  const first = `${b}${keep.size > 0 ? `?${keep}` : ''}`;
+  const toFirst = () => new Response(null, { status: 303, headers: { Location: first, 'Cache-Control': 'no-store' } });
+  // A cursor the contract refuses is forged: the first page's URL, like one core refuses.
+  if (!parsed.success && parsed.error.issues.some((i) => i.path[0] === 'cursor')) return toFirst();
   let page: Awaited<ReturnType<typeof websiteApi.embedSearch>>;
   try {
     page = await websiteApi.embedSearch(site, query);
   } catch (err) {
-    // A stale or forged cursor: the first page instead. Anything else is a real failure.
+    // A stale or forged cursor: to the first page's URL (S8-F2) — no second search here; that URL is edge-cacheable
+    // when canonical.
+    // Anything else is a real failure.
     if (!isCursorError(err)) throw err;
-    page = await websiteApi.embedSearch(site, { ...query, cursor: undefined });
-    invalid = true;
+    return toFirst();
   }
-  const b = base(site.siteId, lang);
-  const keep = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) if (v) keep.set(k, v);
   const { mediaOrigin } = await embedPageConfig();
   const body = renderSearchPage({
     lang,
@@ -141,10 +220,10 @@ export async function searchResponse(request: Request, params: Params): Promise<
     filters,
     page,
     invalid,
-    firstHref: query.cursor ? `${b}${keep.size > 0 ? `?${keep}` : ''}` : null,
+    firstHref: query.cursor ? first : null,
     nextHref: page.nextCursor ? `${b}?${new URLSearchParams([...keep, ['cursor', page.nextCursor]])}` : null,
   });
-  return html(body, site, mediaOrigin, true);
+  return html(request, body, site, mediaOrigin, canonicalSearch(request.url, parsed.success) ? 'public' : 'private');
 }
 
 /** A route parameter as text (whether or not the router decoded it already). */
@@ -173,11 +252,15 @@ export async function detailResponse(request: Request, params: Params & { ref: s
     throw err;
   }
   const { mediaOrigin, turnstileSiteKey } = await embedPageConfig();
-  const leadParam = new URL(request.url).searchParams.get('lead') ?? '';
+  const url = new URL(request.url);
+  const leadParam = url.searchParams.get('lead') ?? '';
   const notice = NOTICES.has(leadParam) ? (leadParam as EmbedLeadNotice) : undefined;
-  // A notice page answers one visitor's post: never stored at the edge (security review).
-  const cacheable = leadParam === '';
   const b = base(site.siteId, lang);
+  // A notice page answers one visitor's post: never stored anywhere (security review). The canonical detail URL is the
+  // listing's reference as the site shows it, written by `encodeURIComponent`, with no query, not even a bare `?`
+  // (S8-F2): anything else (another spelling, another reference of the same listing, a parameter) is private.
+  const canonical = !request.url.includes('?') && url.pathname === `${b}/listing/${encodeURIComponent(detail.ref)}`;
+  const cache: EmbedCache = url.searchParams.has('lead') ? 'no-store' : canonical ? 'public' : 'private';
   const form = turnstileSiteKey ? (
     <EmbedLeadForm
       action={`${b}/listing/${encodeURIComponent(detail.ref)}`}
@@ -201,7 +284,7 @@ export async function detailResponse(request: Request, params: Params & { ref: s
     form,
     withScript: turnstileSiteKey !== null && notice !== 'sent',
   });
-  return html(body, site, mediaOrigin, cacheable);
+  return html(request, body, site, mediaOrigin, cache);
 }
 
 const known = (code: string | undefined): EmbedLeadError => EMBED_LEAD_ERRORS.find((c) => c === code) ?? 'generic';

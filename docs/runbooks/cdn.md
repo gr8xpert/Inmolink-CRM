@@ -149,7 +149,12 @@ everything).
 4. **Revocation:** cache a detail with a test key, then stop the worker's purges by unsetting `CLOUDFLARE_PURGE_TOKEN`
    for the test, and revoke the key. After the TTL, the next request answers 401 and the entry is gone: the request
    after it is a `MISS` / 401, not a HIT. Restore the token afterwards.
-5. Record the results in STATUS (S7-06 row) and turn `WEBSITE_EDGE_CACHE` on for production the same way. Production
+5. **No override rule (S8-F2 review):** in the zone's Cache Rules, Page Rules and Workers, check that no "Cache
+   Everything" or Edge TTL override covers `/embed/*` or `/v2/*`. The origin's `Cache-Control` decides alone: a
+   `private` answer (a non-canonical URL, a cursor page, an answer without `_k`) must stay `cf-cache-status: BYPASS` /
+   `DYNAMIC`. Check it with `curl -sI '<host>/v2/taxonomy/catalog?lang=en&x=1'` and an embed URL with an unknown
+   parameter.
+6. Record the results in STATUS (S7-06 row) and turn `WEBSITE_EDGE_CACHE` on for production the same way. Production
    needs `--apply` and `--verify` too.
 
 ## Rollback

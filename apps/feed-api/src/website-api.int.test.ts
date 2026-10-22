@@ -27,7 +27,6 @@ import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
-import { WEBSITE_API_TTL } from './routes/website-api/routes';
 
 /**
  * Website API v2 reads over HTTP (S7-03, S7-F6 developments and taxonomy halves): cache headers, strong ETags and
@@ -214,10 +213,10 @@ describe('website API v2 over HTTP (S7-03)', () => {
   it('[S7-03] ETag + 304 work and site answers are private (no shared cache mixes sites), on every read endpoint', async () => {
     const since = new Date(Date.now() - 3_600_000).toISOString();
     const urls: [string, number][] = [
-      [`/v2/listings?locations=${country}`, WEBSITE_API_TTL.listings],
-      [`/v2/listings/${encodeURIComponent(ref)}?lang=en`, WEBSITE_API_TTL.detail],
-      [`/v2/changes?since=${encodeURIComponent(since)}`, WEBSITE_API_TTL.changes],
-      ['/v2/sitemap', WEBSITE_API_TTL.sitemap],
+      [`/v2/listings?locations=${country}`, websiteApi.WEBSITE_API_TTL.listings],
+      [`/v2/listings/${encodeURIComponent(ref)}?lang=en`, websiteApi.WEBSITE_API_TTL.detail],
+      [`/v2/changes?since=${encodeURIComponent(since)}`, websiteApi.WEBSITE_API_TTL.changes],
+      ['/v2/sitemap', websiteApi.WEBSITE_API_TTL.sitemap],
     ];
     for (const [url, ttl] of urls) {
       const res = await get(url);
@@ -290,9 +289,9 @@ describe('website API v2 over HTTP (S7-03)', () => {
 describe('website API v2 developments and taxonomy over HTTP (S7-F6)', () => {
   it('[S7-F6] developments, a development and its unit table: ETag + 304, private like every site answer', async () => {
     const urls: [string, number][] = [
-      [`/v2/developments?locations=${country}`, WEBSITE_API_TTL.developments],
-      [`/v2/developments/${developmentRef}?lang=en`, WEBSITE_API_TTL.development],
-      [`/v2/developments/${developmentRef}/units`, WEBSITE_API_TTL.units],
+      [`/v2/developments?locations=${country}`, websiteApi.WEBSITE_API_TTL.developments],
+      [`/v2/developments/${developmentRef}?lang=en`, websiteApi.WEBSITE_API_TTL.development],
+      [`/v2/developments/${developmentRef}/units`, websiteApi.WEBSITE_API_TTL.units],
     ];
     for (const [url, ttl] of urls) {
       const res = await get(url);

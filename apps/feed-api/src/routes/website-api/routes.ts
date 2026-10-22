@@ -22,9 +22,6 @@ import type { FastifyRequest } from 'fastify';
 import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
 import { sendSiteJson } from '../../plugins/site-response';
 
-/** Edge lifetimes per endpoint (S7-06): defined in core with the purge horizon they set. */
-export const WEBSITE_API_TTL = websiteApi.WEBSITE_API_TTL;
-
 /**
  * List endpoints: a request with a `cursor` counts against the paging rules (S7-04). `/v2/changes` too (S7-F7): paging
  * volume never flags a secret key (a plugin polls with a cursor all day long), while a browser crawling the change feed
@@ -72,7 +69,6 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         reply,
         WebsiteListingPage,
         await websiteApi.searchListings(site, req.query, { suspicious }),
-        WEBSITE_API_TTL.listings,
         { noStore: suspicious, site },
       );
     },
@@ -99,7 +95,6 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         reply,
         WebsiteDetail,
         await websiteApi.listingDetail(site, req.params.ref, req.query.lang),
-        WEBSITE_API_TTL.detail,
         { site },
       );
     },
@@ -122,7 +117,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
       const site = await siteOf(req);
       const page = await websiteApi.changes(site, req.query);
       app.creditChangeFeed(req, page.items);
-      return sendSiteJson(req, reply, WebsiteChangesPage, page, WEBSITE_API_TTL.changes, { site, edge: false });
+      return sendSiteJson(req, reply, WebsiteChangesPage, page, { site });
     },
   );
 
@@ -141,14 +136,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       const site = await siteOf(req);
-      return sendSiteJson(
-        req,
-        reply,
-        WebsiteSitemapPage,
-        await websiteApi.sitemap(site, req.query),
-        WEBSITE_API_TTL.sitemap,
-        { site },
-      );
+      return sendSiteJson(req, reply, WebsiteSitemapPage, await websiteApi.sitemap(site, req.query), { site });
     },
   );
 
@@ -167,14 +155,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       const site = await siteOf(req);
-      return sendSiteJson(
-        req,
-        reply,
-        WebsiteDevelopmentPage,
-        await websiteApi.developments(site, req.query),
-        WEBSITE_API_TTL.developments,
-        { site },
-      );
+      return sendSiteJson(req, reply, WebsiteDevelopmentPage, await websiteApi.developments(site, req.query), { site });
     },
   );
 
@@ -199,7 +180,6 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         reply,
         WebsiteDevelopmentDetail,
         await websiteApi.developmentDetail(site, req.params.ref, req.query.lang),
-        WEBSITE_API_TTL.development,
         { site },
       );
     },
@@ -226,7 +206,6 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         reply,
         WebsiteUnitPage,
         await websiteApi.developmentUnits(site, req.params.ref, req.query),
-        WEBSITE_API_TTL.units,
         { site },
       );
     },

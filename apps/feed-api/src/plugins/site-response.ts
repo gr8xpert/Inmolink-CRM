@@ -3,13 +3,7 @@ import { cacheControl, etagFor, weakCompareEtag } from '@inmolink/platform/http'
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    /** `WEBSITE_EDGE_CACHE` (S7-06): first pages and details are `public` for the CDN, keyed by the API key. */
-    websiteEdgeCache: boolean;
-  }
-}
+import { edgePublic, publicCacheControl, ruleOf } from './edge-cache';
 
 /**
  * Cache policy of site-scoped website API responses (S7-03 review, S7-06). The site comes from the key (a header), so
@@ -27,59 +21,35 @@ declare module 'fastify' {
  *   stale-while-revalidate=<ttl>, stale-if-error=86400` (`max-age=0`: browsers still revalidate) with `Cache-Tag`s for
  *   purging; same normalized URL (path, sorted query — strict query schemas refuse unknown parameters — and `lang`).
  *
- * Never edge-cached: pages with a `cursor` (deep pages must pass the origin's paging rules, S7-04), `/v2/changes`,
+ * Per route in `EDGE_CACHE_RULES` (S8-F2). Never edge-cached: pages with a `cursor` (deep pages must pass the origin's paging rules, S7-04), `/v2/changes`,
  * answers to suspicious callers (`private, no-store`: they may carry a honeytoken), errors and 429s
  * (`edgeSafeErrors`), form posts (`no-store`).
  */
 export const SITE_CACHE_POLICY = {
   private: cacheControl.private(0),
-  public: (ttlSeconds: number) => cacheControl.feed({ sMaxAge: ttlSeconds }),
   vary: 'Accept-Encoding, X-Api-Key, Authorization, Origin',
   /** Public answers: the browser origin is part of the URL (`_k`), so `Origin` is not a varying header. */
   publicVary: 'Accept-Encoding, X-Api-Key, Authorization',
 } as const;
-
-/** The raw query string's parameters (what the CDN keys on, before any schema parsing). */
-function rawQuery(req: FastifyRequest): URLSearchParams {
-  const at = req.url.indexOf('?');
-  return new URLSearchParams(at < 0 ? '' : req.url.slice(at + 1));
-}
-
-/**
- * Whether the request may get a CDN-cacheable answer (S7-06): the edge cache is on, the request carries this key's and
- * origin's `_k` token exactly once, no `cursor` at all (an empty one included), and — when `allowed` is given (a schema
- * that does not refuse unknown parameters) — no other parameter.
- */
-export function edgeCacheable(req: FastifyRequest, allowed?: ReadonlySet<string>): boolean {
-  if (!req.server.websiteEdgeCache || !req.edgeKeyToken) return false;
-  const q = rawQuery(req);
-  if (q.has('cursor')) return false;
-  const tokens = q.getAll('_k');
-  if (tokens.length !== 1 || tokens[0] !== req.edgeKeyToken) return false;
-  return allowed === undefined || [...q.keys()].every((k) => allowed.has(k));
-}
 
 export interface SiteJsonOptions {
   /** Never stored anywhere (S7-04: a suspicious caller's answer). Default: the caller is suspicious. */
   noStore?: boolean;
   /** The request's site: what its answer showed names its `Cache-Tag`s (S7-06). Without it: never edge-cached. */
   site?: websiteApi.ApiSite;
-  /** false: never edge-cached, whatever else holds (`/v2/changes`). */
-  edge?: boolean;
 }
 
 /**
  * A site-scoped JSON answer: validated against its contract first (the strict shapes are the white-label safety net,
  * and the body is sent pre-serialized, so Fastify's response schema would not run), serialized once, hashed for a
- * strong ETag; `If-None-Match` → 304. Public for the CDN when the edge cache is on and the answer may be shared
- * (`SITE_CACHE_POLICY`), else private.
+ * strong ETag; `If-None-Match` → 304. Public for the CDN when the route's rule allows it (`EDGE_CACHE_RULES`) and
+ * the site's purge tags exist, else private.
  */
 export function sendSiteJson<S extends z.ZodType>(
   req: FastifyRequest,
   reply: FastifyReply,
   schema: S,
   body: z.input<S>,
-  ttlSeconds: number,
   options: SiteJsonOptions = {},
 ) {
   const json = JSON.stringify(schema.parse(body));
@@ -91,11 +61,12 @@ export function sendSiteJson<S extends z.ZodType>(
       .type('application/json; charset=utf-8')
       .send(json);
   }
-  const tags =
-    options.edge !== false && options.site && edgeCacheable(req) ? websiteApi.edgeTagsOf(options.site) : null;
+  // The route's own rule (`EDGE_CACHE_RULES`, looked up by the matched route: a handler cannot pass another's).
+  const rule = ruleOf(req);
+  const tags = options.site && edgePublic(req, rule) ? websiteApi.edgeTagsOf(options.site) : null;
   const etag = etagFor(json);
   reply
-    .header('Cache-Control', tags ? SITE_CACHE_POLICY.public(ttlSeconds) : SITE_CACHE_POLICY.private)
+    .header('Cache-Control', tags ? publicCacheControl(rule) : SITE_CACHE_POLICY.private)
     .header('ETag', etag)
     .header('Vary', tags ? SITE_CACHE_POLICY.publicVary : SITE_CACHE_POLICY.vary);
   // Cloudflare strips it before the client; the tags are keyed hashes, never ids.
