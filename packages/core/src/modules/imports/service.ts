@@ -157,10 +157,17 @@ export function assertSecretsOverTls(url: string, hasCredentials: boolean): void
   }
 }
 
+/** S6-F4: the connector's own check of its settings (e.g. the Resales filter alias). */
+function assertSettings(connector: string, settings: Record<string, unknown>): void {
+  const field = getConnector(connector)?.settingsProblem?.(settings);
+  if (field) throw new AppError('FEED_SETTINGS_INVALID', { field });
+}
+
 /** `POST /v1/imports/connections` (admins). The first scheduled run starts on the scheduler's next tick. */
 export async function createFeedConnection(ctx: Ctx, input: CreateFeedConnectionBody): Promise<FeedConnectionDto> {
   assertCan(ctx, 'imports.manage');
   if (!getConnector(input.connector)) throw new AppError('FEED_CONNECTOR_UNKNOWN');
+  assertSettings(input.connector, input.settings ?? {});
   const url = checkedUrl(input.url);
   assertSecretsOverTls(url, Boolean(input.credentials));
   if (getConnector(input.connector)?.requiresMapping && !input.mappingProfileId) {
@@ -230,6 +237,7 @@ export async function updateFeedConnection(
   if (!current) throw new AppError('FEED_CONNECTION_NOT_FOUND');
   assertCan(ctx, 'imports.manage', current);
   if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
+  if (input.settings !== undefined) assertSettings(current.connector, input.settings);
   await assertMappingProfile(ctx, current.connector, input.mappingProfileId);
   const enabled = input.enabled ?? current.enabled;
   const scheduleMinutes = input.scheduleMinutes === undefined ? current.scheduleMinutes : input.scheduleMinutes;

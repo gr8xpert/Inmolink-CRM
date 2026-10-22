@@ -80,6 +80,23 @@ export const FeedCredentials = z.discriminatedUnion('type', [
 ]);
 export type FeedCredentials = z.infer<typeof FeedCredentials>;
 
+/**
+ * Resales Online connection settings (S6-F4), checked when a connection is created or changed. `filterAlias`: the
+ * Filter Alias of the agency's Resales portal (1 Sale, 2 Short Term Rent, 3 Long Term Rent, 4 Featured), never the
+ * numeric Filter Id. `languages`: a comma list of content locales to fetch besides English ("" = English only).
+ */
+export const ResalesFeedSettings = z
+  .object({
+    filterAlias: z.enum(['1', '2', '3', '4']).optional(),
+    languages: z
+      .string()
+      .max(200)
+      .regex(/^\s*([a-z]{2}\s*(,\s*[a-z]{2}\s*)*)?$/)
+      .optional(),
+  })
+  .loose();
+export type ResalesFeedSettings = z.infer<typeof ResalesFeedSettings>;
+
 /** Connector options; each connector validates its own keys. Small (≤ 4 KB as JSON). */
 export const FeedSettings = z
   .record(z.string().max(64), z.union([z.string().max(500), z.number(), z.boolean(), z.null()]))
@@ -264,6 +281,10 @@ export const FEED_RUN_ERROR_CODES = [
   /** S7-F1: nothing valid while the connection has live listings; nothing withdrawn, the connection is paused. */
   'FEED_PAUSED_EMPTY_FEED',
   'FEED_CONNECTION_PAUSED',
+  /** S6-F4: the feed's API refused the credentials (Resales: "P1 or P2 not valid" after the busy retries), or none were given. */
+  'FEED_CREDENTIALS_REJECTED',
+  /** S6-F4: a connector setting is not valid (e.g. a Resales filter alias other than 1-4). */
+  'FEED_SETTINGS_INVALID',
   'INTERNAL',
 ] as const;
 export type FeedRunErrorCode = (typeof FEED_RUN_ERROR_CODES)[number];

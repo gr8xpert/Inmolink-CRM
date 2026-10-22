@@ -17,6 +17,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  char,
   check,
   foreignKey,
   index,
@@ -268,6 +269,42 @@ export const feedItemErrors = pgTable(
     check('feed_item_errors_code_ck', sql`${t.code} ~ '^[A-Z][A-Z0-9_]{1,63}$'`),
     check('feed_item_errors_field_ck', sql`char_length(${t.field}) <= 120`),
     check('feed_item_errors_message_ck', sql`char_length(${t.message}) <= 500`),
+  ],
+);
+
+/**
+ * S6-F4: per connection and feed reference, a hash of the source record as the list call last sent it, so a connector
+ * whose items need extra calls (Resales Online: `PropertyDetails` and one call per language) skips them for an
+ * unchanged record and reports it as seen only. Written in the batch transaction for items the loader stored
+ * (`checked_at` = now) and touched for items seen without a write (`last_run_id`); a successful run deletes the rows
+ * of references it did not see, so a listing that left the feed (and may be withdrawn) is fetched in full when it
+ * comes back. Rows older than `RESALES_FULL_REFRESH_DAYS` are not trusted: every listing is fetched in full weekly.
+ */
+export const feedSourceHashes = pgTable(
+  'feed_source_hashes',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    connectionId: uuid('connection_id').notNull(),
+    externalRef: text('external_ref').notNull(),
+    hash: char('hash', { length: 64 }).notNull(),
+    /** When the item was last fetched in full and stored. */
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+    /** The last run that saw it (no foreign key: runs are pruned after 90 days, the row may outlive its run). */
+    lastRunId: uuid('last_run_id').notNull(),
+  },
+  (t) => [
+    // a page's lookup (where agency, connection and ref = any(…)), the batch upsert, the run-end prune of a connection,
+    // and the FK's cascade (both FK columns are equality conditions on its prefix)
+    primaryKey({ name: 'feed_source_hashes_pk', columns: [t.agencyId, t.connectionId, t.externalRef] }),
+    foreignKey({
+      name: 'feed_source_hashes_connection_fk',
+      columns: [t.connectionId, t.agencyId],
+      foreignColumns: [feedConnections.id, feedConnections.agencyId],
+    }).onDelete('cascade'),
+    check('feed_source_hashes_ref_ck', sql`char_length(${t.externalRef}) between 1 and 200`),
+    check('feed_source_hashes_hash_ck', sql`${t.hash} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 

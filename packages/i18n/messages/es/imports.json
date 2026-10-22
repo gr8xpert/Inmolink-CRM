@@ -68,7 +68,9 @@
     "FEED_PAUSED_VOLUME_SPIKE": "En pausa: el feed traía de repente muchos más inmuebles de lo habitual. No se importó nada a partir de ese punto.",
     "FEED_PAUSED_MASS_WITHDRAWAL": "En pausa: una gran parte de los inmuebles del feed desapareció de golpe. No se retiró ninguno.",
     "FEED_PAUSED_EMPTY_FEED": "En pausa: el feed llegó vacío o no se pudo importar ninguno de sus inmuebles, y este feed aún tiene inmuebles publicados. No se retiró ninguno.",
-    "FEED_CONNECTION_PAUSED": "El feed está en pausa; reanúdalo para volver a importar."
+    "FEED_CONNECTION_PAUSED": "El feed está en pausa; reanúdalo para volver a importar.",
+    "FEED_CREDENTIALS_REJECTED": "El proveedor del feed rechazó las credenciales (o no hay ninguna guardada). Revisa el ID de cliente y la clave API, y que el servidor tenga permiso para conectarse.",
+    "FEED_SETTINGS_INVALID": "Un ajuste de este feed no es válido. Abre el feed y revisa sus ajustes (en Resales Online, el alias de filtro debe ser 1, 2, 3 o 4)."
   },
   "notices": {
     "queued": "La ejecución está en cola; empezará en un momento.",
@@ -89,7 +91,8 @@
     "FEED_MAPPING_REQUIRED": "Elige un perfil de mapeo para un feed XML genérico.",
     "FEED_MAPPING_INVALID": "Este perfil de mapeo no es válido para este formato de feed.",
     "FEED_MAPPING_PROFILE_NOT_FOUND": "Este perfil de mapeo ya no existe.",
-    "FEED_CONNECTION_PAUSED": "Este feed está en pausa. Reanúdalo primero."
+    "FEED_CONNECTION_PAUSED": "Este feed está en pausa. Reanúdalo primero.",
+    "FEED_SETTINGS_INVALID": "Un ajuste no es válido para este formato de feed (en Resales Online, el alias de filtro debe ser 1, 2, 3 o 4)."
   },
   "form": {
     "connect": "Conectar un feed",

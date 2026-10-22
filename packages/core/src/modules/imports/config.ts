@@ -157,6 +157,12 @@ export const SHEETS = {
   PRUNE_BATCH: 5_000,
 } as const;
 
+/**
+ * S6-F4: a stored source hash is trusted this long after the item was last fetched in full; older ones are ignored,
+ * so every listing of a hashing connector (Resales Online) is fetched in full at least weekly, spread over the runs.
+ */
+export const SOURCE_HASH_TRUST_DAYS = 7;
+
 /** Fetch limits for feeds (PATTERNS §16), unless a connector asks for less. */
 export const FEED_FETCH = {
   TIMEOUT_MS: 20 * 60_000,

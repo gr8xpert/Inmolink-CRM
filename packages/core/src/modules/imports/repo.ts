@@ -14,6 +14,7 @@ import {
   feedMappingProfiles,
   feedRuns,
   feedSheetReleases,
+  feedSourceHashes,
 } from '@inmolink/db/schema/imports';
 import { and, asc, desc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
@@ -992,4 +993,74 @@ export async function recentFailures(tx: Tx, since: Date, limit: number) {
     errorCode: x.error_code ?? 'INTERNAL',
     finishedAt: new Date(x.finished_at),
   }));
+}
+
+/** A Postgres text[] literal, one parameter whatever the length (a page holds 40 refs, a batch 500). */
+const textArray = (values: readonly string[]) =>
+  `{${values.map((v) => `"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`).join(',')}}`;
+
+/**
+ * S6-F4: the source hashes of `refs` checked since `since` (older ones are not trusted: a weekly full fetch). One
+ * primary-key probe per ref.
+ */
+export async function freshSourceHashes(
+  tx: Tx,
+  scope: { agencyId: string; connectionId: string },
+  refs: readonly string[],
+  since: Date,
+): Promise<Map<string, string>> {
+  if (refs.length === 0) return new Map();
+  const rows = await tx
+    .select({ ref: feedSourceHashes.externalRef, hash: feedSourceHashes.hash })
+    .from(feedSourceHashes)
+    .where(
+      and(
+        eq(feedSourceHashes.agencyId, scope.agencyId),
+        eq(feedSourceHashes.connectionId, scope.connectionId),
+        sql`${feedSourceHashes.externalRef} = any(${textArray(refs)}::text[])`,
+        gt(feedSourceHashes.checkedAt, since),
+      ),
+    );
+  return new Map(rows.map((r) => [r.ref, r.hash]));
+}
+
+/**
+ * S6-F4, in the batch transaction: `stored` items (written or unchanged by the loader) get their hash with
+ * `checked_at` now; `seen` refs (seen-only or failed with a reference) only get this run as their last.
+ */
+export async function recordSourceHashes(
+  tx: Tx,
+  scope: { agencyId: string; connectionId: string; runId: string },
+  stored: readonly { ref: string; hash: string }[],
+  seen: readonly string[],
+): Promise<void> {
+  if (stored.length > 0) {
+    await tx.execute(sql`
+      insert into feed_source_hashes (agency_id, connection_id, external_ref, hash, checked_at, last_run_id)
+      select ${scope.agencyId}::uuid, ${scope.connectionId}::uuid, r.ref, r.hash, now(), ${scope.runId}::uuid
+        from unnest(${textArray(stored.map((s) => s.ref))}::text[], ${textArray(stored.map((s) => s.hash))}::text[])
+             as r(ref, hash)
+      on conflict (agency_id, connection_id, external_ref)
+      do update set hash = excluded.hash, checked_at = excluded.checked_at, last_run_id = excluded.last_run_id`);
+  }
+  if (seen.length > 0) {
+    await tx.execute(sql`
+      update feed_source_hashes set last_run_id = ${scope.runId}::uuid
+       where agency_id = ${scope.agencyId}::uuid and connection_id = ${scope.connectionId}::uuid
+         and external_ref = any(${textArray(seen)}::text[])`);
+  }
+}
+
+/**
+ * S6-F4, in the transaction that ends a successful run: the hashes of references this run did not see go, so a listing
+ * that left the feed is fetched in full when it comes back.
+ */
+export async function pruneSourceHashes(
+  tx: Tx,
+  scope: { agencyId: string; connectionId: string; runId: string },
+): Promise<void> {
+  await tx.execute(sql`
+    delete from feed_source_hashes
+     where agency_id = ${scope.agencyId}::uuid and connection_id = ${scope.connectionId}::uuid
+       and last_run_id <> ${scope.runId}::uuid`);
 }

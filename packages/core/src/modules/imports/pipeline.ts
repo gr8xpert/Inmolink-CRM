@@ -10,6 +10,8 @@ export interface ValidItem<Item = unknown> {
   position: number;
   ref: string;
   item: Item;
+  /** S6-F4: the source hash to store once the item is stored. */
+  sourceHash?: string;
 }
 
 export interface ItemError {
@@ -25,6 +27,8 @@ export interface PendingBatch<Item = unknown> {
   total: number;
   valid: ValidItem<Item>[];
   errors: ItemError[];
+  /** S6-F4: refs of unchanged items reported as seen only: present in the feed, not written, not failed. */
+  seen: string[];
   /** Bytes read from the feed so far (cumulative). */
   bytesRead: number;
 }
@@ -33,6 +37,8 @@ export interface PipelineTotals {
   total: number;
   valid: number;
   failed: number;
+  /** S6-F4: items seen only (unchanged; among `total`, not `valid` or `failed` of the pipeline). */
+  seen: number;
   bytesRead: number;
 }
 
@@ -54,17 +60,19 @@ export async function runFeedPipeline<Raw, Item>(opts: {
   ctx: ConnectorContext;
   batchSize: number;
   commit(batch: PendingBatch<Item>): Promise<void>;
+  /** S6-F4: the source's counters when the run ends, whatever the outcome (for the run log). */
+  onStats?(stats: Record<string, number>): void;
 }): Promise<PipelineTotals> {
   const { connector, ctx, batchSize } = opts;
   const source = await connector.fetch(ctx);
-  const totals: PipelineTotals = { total: 0, valid: 0, failed: 0, bytesRead: 0 };
+  const totals: PipelineTotals = { total: 0, valid: 0, failed: 0, seen: 0, bytesRead: 0 };
   /**
    * Refs of the current batch: a second item with the same ref is an error, not an overwrite. Per batch only, so
    * memory stays bounded by the batch size; a ref an earlier batch had is the sink's check (S7-F2: the loader probes
    * the run's seen refs once per batch, `properties.importListingBatch`).
    */
   let seen = new Set<string>();
-  let batch: PendingBatch<Item> = { total: 0, valid: [], errors: [], bytesRead: 0 };
+  let batch: PendingBatch<Item> = { total: 0, valid: [], errors: [], seen: [], bytesRead: 0 };
 
   const flush = async () => {
     if (batch.total === 0) return;
@@ -73,8 +81,9 @@ export async function runFeedPipeline<Raw, Item>(opts: {
     totals.total += batch.total;
     totals.valid += batch.valid.length;
     totals.failed += batch.errors.length; // one error per failed item (its first problem)
+    totals.seen += batch.seen.length;
     totals.bytesRead = batch.bytesRead;
-    batch = { total: 0, valid: [], errors: [], bytesRead: 0 };
+    batch = { total: 0, valid: [], errors: [], seen: [], bytesRead: 0 };
     seen = new Set<string>();
   };
 
@@ -88,8 +97,12 @@ export async function runFeedPipeline<Raw, Item>(opts: {
       } catch {
         mapped = { ok: false, problems: [{ code: 'MAP_FAILED' }] };
       }
-      if (!mapped.ok) {
-        const problems = mapped.problems.length ? mapped.problems : [{ code: 'INVALID_ITEM' }];
+      if (!mapped.ok && mapped.seen && mapped.ref?.trim() && !seen.has(mapped.ref)) {
+        batch.seen.push(mapped.ref);
+        seen.add(mapped.ref);
+      } else if (!mapped.ok) {
+        const fallback = mapped.seen ? 'DUPLICATE_REF' : 'INVALID_ITEM';
+        const problems = mapped.problems.length ? mapped.problems : [{ code: fallback }];
         batch.errors.push(toError(record.position, mapped.ref, problems[0] as FeedItemProblem));
         // S7-F2: the feed's first item with a ref wins even when it fails (the runner records its ref as seen, so a
         // later batch refuses the ref too).
@@ -105,7 +118,13 @@ export async function runFeedPipeline<Raw, Item>(opts: {
           problems = [{ code: 'VALIDATION_FAILED' }];
         }
         if (problems.length) batch.errors.push(toError(record.position, mapped.ref, problems[0] as FeedItemProblem));
-        else batch.valid.push({ position: record.position, ref: mapped.ref, item: mapped.item });
+        else
+          batch.valid.push({
+            position: record.position,
+            ref: mapped.ref,
+            item: mapped.item,
+            ...(mapped.sourceHash ? { sourceHash: mapped.sourceHash } : {}),
+          });
       }
       if (batch.total >= batchSize) await flush();
     }
@@ -113,6 +132,8 @@ export async function runFeedPipeline<Raw, Item>(opts: {
     totals.bytesRead = source.bytesRead();
     return totals;
   } finally {
+    const stats = source.stats?.();
+    if (stats) opts.onStats?.(stats);
     // Stop the download when parsing ends early (error, abort); a no-op after a full read.
     const body = source.body as { destroy?: () => void };
     body.destroy?.();

@@ -50,3 +50,6 @@ restore-drill-*.json
 
 # MapLibre worker copied by scripts/copy-maplibre-worker.mjs (S2-04)
 apps/web/public/maplibre/
+
+# S6-F4: real Resales Online recordings (scripts/ops/resales-record.mjs): reviewed and force-added only with the agency's consent
+tests/fixtures/resales/recorded/

@@ -22,6 +22,11 @@ export interface ConnectorContext {
   /** Decrypted — never log it. */
   credentials: FeedCredentials | null;
   signal: AbortSignal;
+  /**
+   * S6-F4: the stored source hashes of the connection (only for a connector with `sourceHashes`): refs → hash of the
+   * record as last fetched in full, for refs checked recently. Opens its own short transaction; never inside one.
+   */
+  sourceHashes?: (refs: readonly string[]) => Promise<Map<string, string>>;
 }
 
 /** The fetched feed: a byte stream (never the whole document in memory). */
@@ -30,6 +35,8 @@ export interface FeedSource {
   /** Bytes read so far (for the run's `bytes_read`). */
   bytesRead(): number;
   contentType: string | null;
+  /** S6-F4: connector counters for the run log (counts only, never feed content). */
+  stats?(): Record<string, number>;
 }
 
 /** One record as the parser produced it, with its 0-based position in the feed. */
@@ -47,14 +54,26 @@ export interface FeedItemProblem {
 }
 
 export type MapResult<Item> =
-  | { ok: true; ref: string; item: Item }
-  | { ok: false; ref?: string; problems: FeedItemProblem[] };
+  /** `sourceHash` (S6-F4): stored for the ref once the loader stored the item (connectors with `sourceHashes`). */
+  | { ok: true; ref: string; item: Item; sourceHash?: string }
+  /**
+   * `seen` (S6-F4): the item is in the feed and unchanged since it was last stored — counted as present (never
+   * withdrawn), not written, not an error. `problems` is then empty.
+   */
+  | { ok: false; ref?: string; problems: FeedItemProblem[]; seen?: boolean };
 
 export interface FeedConnector<Raw = unknown, Item = unknown> {
   /** Registry key, stored on the connection (`kyero`, `generic-xml`). */
   key: string;
   /** The connection needs a mapping profile (generic XML): creating one without is refused. */
   requiresMapping?: boolean;
+  /** S6-F4: the connector reads and reports source hashes (`ConnectorContext.sourceHashes`, `MapResult.sourceHash`). */
+  sourceHashes?: boolean;
+  /**
+   * S6-F4: checks the connection's settings when it is created or changed; answers the first invalid key, or null.
+   * The run checks them again (settings may predate the check).
+   */
+  settingsProblem?(settings: Record<string, unknown>): string | null;
   /** Opens the feed. Most connectors use `httpSource(ctx, { contentTypes })`. */
   fetch(ctx: ConnectorContext): Promise<FeedSource>;
   /** Streams records out of the source. Must not buffer the whole document. */

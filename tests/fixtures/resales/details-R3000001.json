@@ -1,0 +1,58 @@
+{
+  "transaction": {
+    "status": "success",
+    "incomingIp": "203.0.113.10",
+    "version": "6"
+  },
+  "QueryInfo": {
+    "ApiId": "1000",
+    "PropertyCount": "1"
+  },
+  "Property": {
+    "Reference": "R3000001",
+    "AgencyRef": "OWN-001",
+    "OwnProperty": "1",
+    "Country": "Spain",
+    "Location": {
+      "LocationName": "Marbella",
+      "Province": "Málaga",
+      "Area": "Costa del Sol",
+      "SubLocation": "Nueva Andalucía",
+      "Country": "Spain",
+      "LocationId": "421"
+    },
+    "PropertyType": {
+      "NameType": "Detached Villa",
+      "Type": "House",
+      "TypeId": "2",
+      "Subtype1": "Detached Villa",
+      "SubtypeId1": "2-2"
+    },
+    "Status": {
+      "system": "Available",
+      "en": "Available"
+    },
+    "Bedrooms": "4",
+    "Bathrooms": "3.5",
+    "Currency": "EUR",
+    "Price": "1,250,000",
+    "Built": "320",
+    "GardenPlot": "1,200",
+    "Terrace": "60",
+    "GpsX": "-4.9620",
+    "GpsY": "36.4960",
+    "Community_Fees_Year": "3,912",
+    "IBI_Fees_Year": "2,100",
+    "Basura_Tax_Year": "310",
+    "BuiltYear": "2015",
+    "EnergyRating": "C",
+    "Description": "<p>Lovely villa in Nueva Andalucía.</p><p>South facing.</p>",
+    "Pictures": {
+      "Count": 2,
+      "Picture": [
+        { "Id": 1, "PictureURL": "https://cdn.resales-online.com/public/R3000001/1.jpg", "PictureCaption": "" },
+        { "Id": 2, "PictureURL": "https://cdn.resales-online.com/public/R3000001/2.jpg", "PictureCaption": "Pool" }
+      ]
+    }
+  }
+}

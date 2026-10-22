@@ -211,6 +211,8 @@ export const ErrorCodes = {
   FEED_MAPPING_INVALID: 422,
   /** The connector needs a mapping profile and the connection has none. */
   FEED_MAPPING_REQUIRED: 422,
+  /** S6-F4: a connector setting is not valid for this connector (e.g. a Resales filter alias other than 1-4). */
+  FEED_SETTINGS_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

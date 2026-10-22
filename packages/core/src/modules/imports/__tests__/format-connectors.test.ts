@@ -473,7 +473,7 @@ describe('per-format defaults (S7-F2)', () => {
       defaultLocale: 'es',
       defaultCurrency: 'EUR',
     });
-    expect(resalesSettings({ defaultLocale: 'de' }, 'p1')).toMatchObject({
+    expect(resalesSettings({ defaultLocale: 'de' })).toMatchObject({
       defaultLocale: 'de',
       defaultCurrency: 'EUR',
     });

@@ -733,6 +733,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // S7-F1: tombstones of uploaded sheets deleted from storage (the agency's own; the sweep writes them via withSystem).
   feed_sheet_releases: { kind: 'STRICT' },
   feed_item_errors: { kind: 'STRICT', base: { position: 0, code: 'ISOLATION' } },
+  // S6-F4: per-connection source hashes of feed records (the agency's own; written in the batch transaction).
+  feed_source_hashes: { kind: 'STRICT', base: { external_ref: 'isolation', hash: ISOLATION_SHA256 } },
   // S6-02: the feed references a run saw (the agency's own feed runs; written in the batch transaction).
   property_import_seen: { kind: 'STRICT', base: { external_ref: 'isolation' } },
   // S6-02: feed import staging (UNLOGGED); a batch's rows live and die inside its transaction.

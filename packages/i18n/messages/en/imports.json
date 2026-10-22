@@ -68,7 +68,9 @@
     "FEED_PAUSED_VOLUME_SPIKE": "Paused: the feed suddenly had far more listings than usual. Nothing past that point was imported.",
     "FEED_PAUSED_MASS_WITHDRAWAL": "Paused: a large share of the feed's listings vanished at once. Nothing was withdrawn.",
     "FEED_PAUSED_EMPTY_FEED": "Paused: the feed was empty or none of its listings could be imported, while this feed still has live listings. Nothing was withdrawn.",
-    "FEED_CONNECTION_PAUSED": "The feed is paused; resume it to import again."
+    "FEED_CONNECTION_PAUSED": "The feed is paused; resume it to import again.",
+    "FEED_CREDENTIALS_REJECTED": "The feed's provider refused the credentials (or none are saved). Check the client ID and API key, and that the server is allowed to connect.",
+    "FEED_SETTINGS_INVALID": "A setting of this feed is not valid. Open the feed and check its settings (for Resales Online, the filter alias must be 1, 2, 3 or 4)."
   },
   "notices": {
     "queued": "The run was queued; it starts in a moment.",
@@ -89,7 +91,8 @@
     "FEED_MAPPING_REQUIRED": "Choose a mapping profile for a generic XML feed.",
     "FEED_MAPPING_INVALID": "This mapping profile is not valid for this feed format.",
     "FEED_MAPPING_PROFILE_NOT_FOUND": "This mapping profile no longer exists.",
-    "FEED_CONNECTION_PAUSED": "This feed is paused. Resume it first."
+    "FEED_CONNECTION_PAUSED": "This feed is paused. Resume it first.",
+    "FEED_SETTINGS_INVALID": "A setting is not valid for this feed format (for Resales Online, the filter alias must be 1, 2, 3 or 4)."
   },
   "form": {
     "connect": "Connect a feed",

@@ -13,4 +13,5 @@ export const importsErrors = [
   'FEED_SAMPLE_INVALID',
   'FEED_MAPPING_INVALID',
   'FEED_MAPPING_REQUIRED',
+  'FEED_SETTINGS_INVALID',
 ] as const satisfies readonly ErrorCode[];

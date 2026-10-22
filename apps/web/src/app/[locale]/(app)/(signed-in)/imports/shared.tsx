@@ -20,6 +20,7 @@ const NOTICE_ERRORS = [
   'FEED_MAPPING_REQUIRED',
   'FEED_MAPPING_INVALID',
   'FEED_MAPPING_PROFILE_NOT_FOUND',
+  'FEED_SETTINGS_INVALID',
 ] as const;
 
 export function scheduleLabel(t: ImportsT, minutes: number | null): string {

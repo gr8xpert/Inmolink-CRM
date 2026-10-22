@@ -19,6 +19,7 @@ import {
   FEED_CONFIRM_REFRESH_DAYS,
   feedFreshnessDays,
   RUNS,
+  SOURCE_HASH_TRUST_DAYS,
 } from './config';
 import { type ConnectorContext, FeedHttpStatusError, FeedMappingError, getConnector } from './connectors';
 import { importsEvents } from './events';
@@ -104,9 +105,30 @@ export function classifyRunError(err: unknown): Classified {
       ? { code: 'FEED_DTD_NOT_ALLOWED', retryable: false }
       : { code: 'FEED_MALFORMED', retryable: false };
   }
-  // Resales Online: bad configuration or a refused API answer; retrying only re-sends the key.
-  if (err instanceof ResalesConfigError) return { code: 'FEED_DESTINATION_BLOCKED', retryable: false };
-  if (err instanceof ResalesApiError) return { code: 'FEED_MALFORMED', retryable: false };
+  // Resales Online (S6-F4): bad configuration, or the API refused (credentials after the busy retries, a wrong filter
+  // alias, …): retrying only re-sends the key. A non-2xx status retries like any feed's; an unusable answer is final.
+  if (err instanceof ResalesConfigError) {
+    if (err.reason === 'CREDENTIALS_REQUIRED') return { code: 'FEED_CREDENTIALS_REJECTED', retryable: false };
+    if (err.reason === 'FILTER_ALIAS_INVALID') return { code: 'FEED_SETTINGS_INVALID', retryable: false };
+    return { code: 'FEED_DESTINATION_BLOCKED', retryable: false };
+  }
+  if (err instanceof ResalesApiError) {
+    switch (err.kind) {
+      case 'HTTP': {
+        const status = err.status ?? 0;
+        return { code: 'FEED_HTTP_STATUS', retryable: status >= 500 || status === 429 || status === 408 };
+      }
+      case 'CREDENTIALS':
+        return { code: 'FEED_CREDENTIALS_REJECTED', retryable: false };
+      // The run's deadline (sized to the account): without a checkpoint a retry would start over and hit it again.
+      case 'DEADLINE':
+        return { code: 'FEED_TIMEOUT', retryable: false };
+      case 'MALFORMED':
+        return { code: 'FEED_MALFORMED', retryable: false };
+      default:
+        return { code: 'FEED_HTTP_STATUS', retryable: false };
+    }
+  }
   return { code: 'INTERNAL', retryable: true };
 }
 
@@ -154,6 +176,8 @@ async function finish(
     pause?: Pause;
     valid?: number;
     total?: number;
+    /** S6-F4: the connector keeps source hashes; a success drops those of references it did not see. */
+    pruneSourceHashes?: boolean;
   },
   loader: RunLoader | null,
   guard: { skip: boolean },
@@ -191,6 +215,8 @@ async function finish(
       if (alive) confirmBefore = new Date(now - FEED_CONFIRM_REFRESH_DAYS * DAY_MS);
       const withdrawn = await loader.finish(tx, { valid: done.itemsValid });
       if (withdrawn > 0) await repo.setWithdrawn(tx, runId, withdrawn);
+      if (outcome.pruneSourceHashes && (outcome.valid ?? 0) > 0)
+        await repo.pruneSourceHashes(tx, { agencyId, connectionId: done.connectionId, runId });
     } else if (loader) await loader.abandon(tx);
     const events: OutboxMessage[] = [
       importsEvents.runFinished({ runId, connectionId: done.connectionId, agencyId, state, errorCode }),
@@ -269,13 +295,14 @@ export async function executeRun(
   });
   if (!connection) return { kind: 'skipped' }; // deleted with its runs meanwhile
   let loader: RunLoader | null = null;
+  let hashes = false;
   const guard = { skip: connection.acceptAnomalyOnce };
   const end = async (
     state: 'SUCCEEDED' | 'FAILED',
     code: FeedRunErrorCode | null,
     extra: { pause?: Pause; valid?: number; total?: number } = {},
   ): Promise<RunOutcome> => {
-    const outcome = { state, errorCode: code, ...extra };
+    const outcome = { state, errorCode: code, pruneSourceHashes: hashes, ...extra };
     const ended = await finish(agencyId, runId, token, outcome, loader, guard, job.log);
     return ended ? { kind: 'finished', ...ended } : { kind: 'lost' };
   };
@@ -285,6 +312,10 @@ export async function executeRun(
   if (connection.pausedAt) return end('FAILED', 'FEED_CONNECTION_PAUSED');
   const connector = getConnector(connection.connector);
   if (!connector) return end('FAILED', 'FEED_CONNECTOR_UNKNOWN');
+  hashes = connector.sourceHashes === true;
+  const hashScope = { agencyId, connectionId: connection.id, runId };
+  /** Connector counters (S6-F4), logged with the run's outcome. */
+  let sourceStats: Record<string, number> | undefined;
 
   const abort = new AbortController();
   const onJobAbort = () => abort.abort(job.signal.reason ?? new Error('job aborted'));
@@ -318,6 +349,19 @@ export async function executeRun(
         ? decryptCredentials(agencyId, connection.id, connection.credentialsEnc)
         : null,
       signal: abort.signal,
+      ...(hashes
+        ? {
+            sourceHashes: (refs: readonly string[]) =>
+              withTenant({ agencyId }, (tx) =>
+                repo.freshSourceHashes(
+                  tx,
+                  hashScope,
+                  refs,
+                  new Date(clock.now().getTime() - SOURCE_HASH_TRUST_DAYS * DAY_MS),
+                ),
+              ),
+          }
+        : {}),
     };
     const { spikeFactor } = anomalyThresholds();
     let read = 0;
@@ -334,9 +378,19 @@ export async function executeRun(
         const logged = await repo.lockRunForBatch(tx, runId, token);
         if (logged === null) throw new LeaseLostError();
         const failedBefore = [...batch.errors, ...prepErrors];
-        // Failed items still in the feed (they have a reference): never counted missing, never withdrawn.
-        const seenRefs = failedBefore.flatMap((e) => (e.itemRef?.trim() ? [e.itemRef.trim()] : []));
+        // Failed items still in the feed (they have a reference) and items seen only (S6-F4: unchanged, not
+        // written): never counted missing, never withdrawn.
+        const seenRefs = [...failedBefore.flatMap((e) => (e.itemRef?.trim() ? [e.itemRef.trim()] : [])), ...batch.seen];
         const { errors: writeErrors, ...counts } = await runLoader.write(tx, prepared, seenRefs);
+        if (hashes) {
+          // Only items the loader stored (written or unchanged) get their hash; failed ones keep the old one.
+          const failedRefs = new Set(writeErrors.flatMap((e) => (e.itemRef ? [e.itemRef] : [])));
+          for (const e of prepErrors) if (e.itemRef) failedRefs.add(e.itemRef);
+          const stored = batch.valid.flatMap((v) =>
+            v.sourceHash && !failedRefs.has(v.ref) ? [{ ref: v.ref, hash: v.sourceHash }] : [],
+          );
+          await repo.recordSourceHashes(tx, hashScope, stored, seenRefs);
+        }
         const errors: ItemError[] = [...failedBefore, ...writeErrors].sort((a, b) => a.position - b.position);
         const keep = errors.slice(0, Math.max(0, FEED_ERRORS_KEPT - logged));
         await repo.insertItemErrors(
@@ -357,8 +411,16 @@ export async function executeRun(
         stored += batch.total - failed;
       });
     };
-    const totals = await runFeedPipeline({ connector, ctx, batchSize: RUNS.BATCH_SIZE, commit });
-    job.log.info({ runId, connector: connection.connector, ...totals }, 'feed run done');
+    const totals = await runFeedPipeline({
+      connector,
+      ctx,
+      batchSize: RUNS.BATCH_SIZE,
+      commit,
+      onStats: (stats) => {
+        sourceStats = stats;
+      },
+    });
+    job.log.info({ runId, connector: connection.connector, ...totals, sourceStats }, 'feed run done');
     return await end('SUCCEEDED', null, { valid: stored, total: totals.total });
   } catch (raw) {
     const err = abort.signal.aborted && abort.signal.reason instanceof LeaseLostError ? abort.signal.reason : raw;
@@ -372,7 +434,12 @@ export async function executeRun(
       return end('FAILED', PAUSE_CODES[err.reason], { pause: { reason: err.reason, details: err.details } });
     }
     const { code, retryable } = classifyRunError(err);
-    job.log.warn({ runId, code, retryable, err: code === 'INTERNAL' ? err : undefined }, 'feed run failed');
+    // Resales' own error texts (credentials removed by the connector) say why the API refused.
+    const apiMessages = err instanceof ResalesApiError ? err.descriptions : undefined;
+    job.log.warn(
+      { runId, code, retryable, apiMessages, sourceStats, err: code === 'INTERNAL' ? err : undefined },
+      'feed run failed',
+    );
     if (retryable && !job.lastAttempt) {
       const released = await withTenant({ agencyId }, (tx) => repo.releaseRun(tx, runId, token));
       if (!released) return { kind: 'lost' };

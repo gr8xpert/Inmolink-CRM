@@ -1,184 +1,149 @@
 {
   "transaction": {
-    "status": "success"
+    "status": "success",
+    "incomingIp": "203.0.113.10",
+    "version": "6"
   },
   "QueryInfo": {
-    "PropertyCount": 6,
-    "CurrentPage": 1,
-    "PageSize": 3
+    "ApiId": "1000",
+    "PropertyCount": "5",
+    "CurrentPage": "1",
+    "PropertiesPerPage": "3",
+    "SearchType": "Sale"
   },
   "Property": [
     {
       "Reference": "R3000001",
       "AgencyRef": "OWN-001",
-      "AgencyId": "AG-1001",
+      "OwnProperty": "1",
       "Country": "Spain",
       "Province": "Málaga",
       "Area": "Costa del Sol",
       "Location": "Marbella",
-      "SubLocation": "Centro",
+      "SubLocation": "Nueva Andalucía",
       "PropertyType": {
-        "Type": "Villa",
-        "TypeId": "1-1",
-        "Subtype1": "Detached"
+        "NameType": "Detached Villa",
+        "Type": "House",
+        "TypeId": "2",
+        "Subtype1": "Detached Villa",
+        "SubtypeId1": "2-2"
       },
       "Status": {
-        "system": "Available"
+        "system": "Available",
+        "en": "Available"
       },
-      "Bedrooms": 4,
-      "Bathrooms": 2,
+      "Bedrooms": "4",
+      "Bathrooms": "3",
       "Currency": "EUR",
-      "Price": "1250000",
-      "OriginalPrice": "1250000",
-      "Built": 120,
-      "GardenPlot": 500,
-      "Terrace": 20,
+      "Price": "1,250,000",
+      "OriginalPrice": "1,300,000",
+      "Built": "320",
+      "GardenPlot": "1,200",
+      "Terrace": "60",
       "Pool": 1,
       "Parking": 1,
       "Garden": 1,
-      "Latitude": "36.5100",
-      "Longitude": "-4.8800",
-      "Description": "<p>Lovely home in Marbella.</p>",
-      "MainImage": "https://cdn.example.com/R3000001/1.jpg",
+      "Description": "<p>Lovely villa in Nueva Andalucía.</p>",
+      "MainImage": "https://cdn.resales-online.com/public/R3000001/1.jpg",
       "PropertyFeatures": {
         "Category": [
-          {
-            "Type": "Setting",
-            "Value": ["Close To Golf", "Close To Sea"]
-          },
-          {
-            "Type": "Pool",
-            "Value": ["Private"]
-          }
+          { "Type": "Setting", "Value": ["Close To Golf", "Close To Sea"] },
+          { "Type": "Pool", "Value": ["Private"] },
+          { "Type": "Climate Control", "Value": "Air Conditioning" }
         ]
       },
       "Pictures": {
         "Count": 2,
         "Picture": [
-          {
-            "Id": 1,
-            "PictureURL": "https://cdn.example.com/R3000001/1.jpg"
-          },
-          {
-            "Id": 2,
-            "PictureURL": "https://cdn.example.com/R3000001/2.jpg"
-          }
+          { "Id": 1, "PictureURL": "https://cdn.resales-online.com/public/R3000001/1.jpg", "PictureCaption": "" },
+          { "Id": 2, "PictureURL": "https://cdn.resales-online.com/public/R3000001/2.jpg", "PictureCaption": "Pool" }
         ]
       }
     },
     {
       "Reference": "R9000001",
-      "AgencyRef": "X-001",
-      "AgencyId": "AG-7777",
+      "AgencyRef": "NET-001",
+      "OwnProperty": "0",
       "Country": "Spain",
       "Province": "Málaga",
       "Area": "Costa del Sol",
-      "Location": "Marbella",
-      "SubLocation": "Centro",
+      "Location": "Fuengirola",
+      "SubLocation": "Los Boliches",
       "PropertyType": {
-        "Type": "Villa",
-        "TypeId": "1-1",
-        "Subtype1": "Detached"
+        "NameType": "Middle Floor Apartment",
+        "Type": "Apartment",
+        "TypeId": "1",
+        "Subtype1": "Middle Floor Apartment",
+        "SubtypeId1": "1-4"
       },
       "Status": {
-        "system": "Available"
+        "system": "Available",
+        "en": "Available"
       },
-      "Bedrooms": 5,
-      "Bathrooms": 2,
+      "Bedrooms": "2",
+      "Bathrooms": "1",
       "Currency": "EUR",
-      "Price": "2100000",
-      "OriginalPrice": "2100000",
-      "Built": 120,
-      "GardenPlot": 500,
-      "Terrace": 20,
-      "Pool": 1,
-      "Parking": 1,
-      "Garden": 1,
-      "Latitude": "36.5100",
-      "Longitude": "-4.8800",
-      "Description": "<p>Lovely home in Marbella.</p>",
-      "MainImage": "https://cdn.example.com/R9000001/1.jpg",
+      "Price": "285,000",
+      "OriginalPrice": "285,000",
+      "Built": "85",
+      "GardenPlot": "0",
+      "Terrace": "12",
+      "Pool": 0,
+      "Parking": 0,
+      "Garden": 0,
+      "Description": "<p>Network listing of another agency.</p>",
+      "MainImage": "https://cdn.resales-online.com/public/R9000001/1.jpg",
       "PropertyFeatures": {
-        "Category": [
-          {
-            "Type": "Setting",
-            "Value": ["Close To Golf", "Close To Sea"]
-          },
-          {
-            "Type": "Pool",
-            "Value": ["Private"]
-          }
-        ]
+        "Category": [{ "Type": "Setting", "Value": ["Close To Sea"] }]
       },
       "Pictures": {
-        "Count": 2,
+        "Count": 1,
         "Picture": [
-          {
-            "Id": 1,
-            "PictureURL": "https://cdn.example.com/R9000001/1.jpg"
-          },
-          {
-            "Id": 2,
-            "PictureURL": "https://cdn.example.com/R9000001/2.jpg"
-          }
+          { "Id": 1, "PictureURL": "https://cdn.resales-online.com/public/R9000001/1.jpg", "PictureCaption": "" }
         ]
       }
     },
     {
       "Reference": "R3000002",
       "AgencyRef": "OWN-002",
-      "AgencyId": "AG-1001",
+      "OwnProperty": "1",
       "Country": "Spain",
       "Province": "Málaga",
       "Area": "Costa del Sol",
       "Location": "Estepona",
-      "SubLocation": "Centro",
+      "SubLocation": "Estepona",
       "PropertyType": {
+        "NameType": "New Development",
         "Type": "Apartment",
-        "TypeId": "1-1",
-        "Subtype1": "Detached"
+        "TypeId": "1",
+        "Subtype1": "Ground Floor Apartment",
+        "SubtypeId1": "1-2"
       },
       "Status": {
-        "system": "Available"
+        "system": "Available",
+        "en": "Available"
       },
-      "Bedrooms": 2,
-      "Bathrooms": 2,
+      "Bedrooms": "1 - 3",
+      "Bathrooms": "1 - 2.5",
       "Currency": "EUR",
-      "Price": "385000",
-      "OriginalPrice": "385000",
-      "Built": 120,
-      "GardenPlot": 500,
-      "Terrace": 20,
+      "Price": "96091 - 234530",
+      "OriginalPrice": "96091 - 234530",
+      "Built": "39 - 107",
+      "GardenPlot": "0",
+      "Terrace": "10 - 35",
       "Pool": 1,
       "Parking": 1,
-      "Garden": 1,
-      "Latitude": "36.5100",
-      "Longitude": "-4.8800",
-      "Description": "<p>Lovely home in Estepona.</p>",
-      "MainImage": "https://cdn.example.com/R3000002/1.jpg",
+      "Garden": 0,
+      "KeyReady": "0",
+      "Description": "<p>New development by the sea.</p>",
+      "MainImage": "https://cdn.resales-online.com/public/R3000002/1.jpg",
       "PropertyFeatures": {
-        "Category": [
-          {
-            "Type": "Setting",
-            "Value": ["Close To Golf", "Close To Sea"]
-          },
-          {
-            "Type": "Pool",
-            "Value": ["Private"]
-          }
-        ]
+        "Category": [{ "Type": "Category", "Value": ["New Development"] }, { "Type": "Pool", "Value": ["Communal"] }]
       },
       "Pictures": {
-        "Count": 2,
+        "Count": 1,
         "Picture": [
-          {
-            "Id": 1,
-            "PictureURL": "https://cdn.example.com/R3000002/1.jpg"
-          },
-          {
-            "Id": 2,
-            "PictureURL": "https://cdn.example.com/R3000002/2.jpg"
-          }
+          { "Id": 1, "PictureURL": "https://cdn.resales-online.com/public/R3000002/1.jpg", "PictureCaption": "" }
         ]
       }
     }

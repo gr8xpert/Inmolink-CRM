@@ -37,6 +37,7 @@ const KNOWN_ERRORS = [
   'FEED_MAPPING_REQUIRED',
   'FEED_MAPPING_INVALID',
   'FEED_MAPPING_PROFILE_NOT_FOUND',
+  'FEED_SETTINGS_INVALID',
 ] as const;
 
 const text = (form: FormData, name: string) => {

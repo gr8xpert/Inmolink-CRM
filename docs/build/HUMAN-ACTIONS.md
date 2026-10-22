@@ -16,7 +16,7 @@ Claude builds around missing items with fixtures and mocks, but these set the re
 | H10 | Brand direction: logo, colours, typography; attend sprint demos for UI feedback | S1-10 onward | — | |
 | H11 | Pilot agencies (15–20 in one area) and every client's current provider renewal date | S14-06, S17 | — | |
 | H12 | Hire/assign: onboarding & support person (migration waves), new-build data ops person (R2) | S17, R2-08 | weeks | |
-| H13 | Resales Online API credentials from a consenting client agency (own listings) | S6-06 | days | Own listings only — never network data |
+| H13 | Resales Online API credentials from a consenting client agency (own listings), its filter alias, and a whitelisted server to record responses and run the import from | S6-06, S6-F4 | days | Own listings only — never network data. Record with `scripts/ops/resales-record.mjs` on the whitelisted server; steps in STATUS › Blocked › S6-F4 |
 | H14 | Sample feeds from client agencies: Milenio+, Infocasa, Inmoba, thinkSPAIN | S6-07 | days | |
 | H15 | Legacy WordPress plugin source + list of shortcodes/templates actually used on client sites | S8-03, S8-04 | days | |
 | H16 | Royalty-free music licence for video reels | R3-10 | days | |

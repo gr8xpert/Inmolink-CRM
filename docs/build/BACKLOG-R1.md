@@ -967,6 +967,20 @@ Ref §4.2 §15 · Mod search, db · Dep S7-F10 · ⚡
 - Every `[S7-F9]` shape plus area band × price sort and plot band × area sort is index-driven at 500k rows, p95 < 150 ms, estimates within 10× of the rows read
 - No application role can execute `search_commission_at_least` (guard + generator test)
 
+### S7-F12 · Resales follow-ups: run checkpoint, details fields and visible API errors (split from S6-F4)
+Ref §3 #17 · Mod imports, properties, developments, web · Dep S6-F4 · ⚡
+**Build:**
+- Resume within a run: the last completed page on the run row; a retry of the same run resumes from it with the run's seen references kept (`property_import_seen` and `items_seen` are per run, so withdrawal stays correct after a resume); after N pages the job ends and requeues the run with its checkpoint, giving the imports slot back. Then a deadline overrun can be retryable.
+- `FeedListing` + loader fields for what Resales sends only in `PropertyDetails`: community fees (`Community_Fees_Year` / 12 per month), IBI and basura (yearly), and a price range end (`priceTo`); other connectors map them where their formats have them.
+- New developments from Resales (`NameType` development, `KeyReady`, Category "New Development"): `NewDevName`, key-ready and the `PriceList` units into the developments module (S4-01 / S4-02) through its public API, idempotent per reference.
+- The API's own error text on a failed run: a bounded, redacted `error_detail` on `feed_runs`, shown on the run in the dashboard.
+- A Resales Online connection form in the dashboard (EN / ES): Client ID, API key, filter alias, languages.
+**Done when:**
+- A 15,000-listing fake account at 40 per page completes across resumes, and a timeout mid-run resumes rather than restarting (integration test)
+- A details record with fees, IBI and basura stores them on the listing (test)
+- A development with a 2-unit price list creates one development with 2 units, and a re-run changes nothing (test)
+- A run refused with "FilterAgencyId not valid" shows that text on the run (test)
+
 ### S8-01 · Legacy API capture and golden files
 Ref §9.3 · Mod tests · Dep S0-14 · [H2]
 **Build:** log analysis script (endpoints, params, frequencies per site); recorder that replays representative requests against the legacy API and stores normalized responses in `tests/golden/`.

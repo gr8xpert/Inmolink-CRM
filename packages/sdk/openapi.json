@@ -1246,7 +1246,8 @@
                             "FEED_CONNECTION_PAUSED",
                             "FEED_SAMPLE_INVALID",
                             "FEED_MAPPING_INVALID",
-                            "FEED_MAPPING_REQUIRED"
+                            "FEED_MAPPING_REQUIRED",
+                            "FEED_SETTINGS_INVALID"
                           ],
                           "type": "string"
                         },
