@@ -1,4 +1,5 @@
 {
   "extends": "@inmolink/config/tsconfig/react.json",
-  "include": ["src", "*.config.ts"]
+  "compilerOptions": { "allowImportingTsExtensions": true, "noEmit": true },
+  "include": ["src", "*.config.ts", "tsdown.widget.ts", "widget-build.ts"]
 }

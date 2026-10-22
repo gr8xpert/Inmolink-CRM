@@ -16,25 +16,27 @@ import m13 from '../messages/en/staff-access.json' with { type: 'json' };
 import m14 from '../messages/en/team.json' with { type: 'json' };
 import m15 from '../messages/en/verification.json' with { type: 'json' };
 import m16 from '../messages/en/websites.json' with { type: 'json' };
-import m17 from '../messages/es/agency.json' with { type: 'json' };
-import m18 from '../messages/es/api-keys.json' with { type: 'json' };
-import m19 from '../messages/es/auth.json' with { type: 'json' };
-import m20 from '../messages/es/developments.json' with { type: 'json' };
-import m21 from '../messages/es/embed.json' with { type: 'json' };
-import m22 from '../messages/es/imports.json' with { type: 'json' };
-import m23 from '../messages/es/leads.json' with { type: 'json' };
-import m24 from '../messages/es/listings.json' with { type: 'json' };
-import m25 from '../messages/es/network.json' with { type: 'json' };
-import m26 from '../messages/es/onboarding.json' with { type: 'json' };
-import m27 from '../messages/es/security.json' with { type: 'json' };
-import m28 from '../messages/es/shell.json' with { type: 'json' };
-import m29 from '../messages/es/staff.json' with { type: 'json' };
-import m30 from '../messages/es/staff-access.json' with { type: 'json' };
-import m31 from '../messages/es/team.json' with { type: 'json' };
-import m32 from '../messages/es/verification.json' with { type: 'json' };
-import m33 from '../messages/es/websites.json' with { type: 'json' };
+import m17 from '../messages/en/widget.json' with { type: 'json' };
+import m18 from '../messages/es/agency.json' with { type: 'json' };
+import m19 from '../messages/es/api-keys.json' with { type: 'json' };
+import m20 from '../messages/es/auth.json' with { type: 'json' };
+import m21 from '../messages/es/developments.json' with { type: 'json' };
+import m22 from '../messages/es/embed.json' with { type: 'json' };
+import m23 from '../messages/es/imports.json' with { type: 'json' };
+import m24 from '../messages/es/leads.json' with { type: 'json' };
+import m25 from '../messages/es/listings.json' with { type: 'json' };
+import m26 from '../messages/es/network.json' with { type: 'json' };
+import m27 from '../messages/es/onboarding.json' with { type: 'json' };
+import m28 from '../messages/es/security.json' with { type: 'json' };
+import m29 from '../messages/es/shell.json' with { type: 'json' };
+import m30 from '../messages/es/staff.json' with { type: 'json' };
+import m31 from '../messages/es/staff-access.json' with { type: 'json' };
+import m32 from '../messages/es/team.json' with { type: 'json' };
+import m33 from '../messages/es/verification.json' with { type: 'json' };
+import m34 from '../messages/es/websites.json' with { type: 'json' };
+import m35 from '../messages/es/widget.json' with { type: 'json' };
 
 export const CATALOGS = {
-  "en": { "agency": m0, "api-keys": m1, "auth": m2, "developments": m3, "embed": m4, "imports": m5, "leads": m6, "listings": m7, "network": m8, "onboarding": m9, "security": m10, "shell": m11, "staff": m12, "staff-access": m13, "team": m14, "verification": m15, "websites": m16 },
-  "es": { "agency": m17, "api-keys": m18, "auth": m19, "developments": m20, "embed": m21, "imports": m22, "leads": m23, "listings": m24, "network": m25, "onboarding": m26, "security": m27, "shell": m28, "staff": m29, "staff-access": m30, "team": m31, "verification": m32, "websites": m33 },
+  "en": { "agency": m0, "api-keys": m1, "auth": m2, "developments": m3, "embed": m4, "imports": m5, "leads": m6, "listings": m7, "network": m8, "onboarding": m9, "security": m10, "shell": m11, "staff": m12, "staff-access": m13, "team": m14, "verification": m15, "websites": m16, "widget": m17 },
+  "es": { "agency": m18, "api-keys": m19, "auth": m20, "developments": m21, "embed": m22, "imports": m23, "leads": m24, "listings": m25, "network": m26, "onboarding": m27, "security": m28, "shell": m29, "staff": m30, "staff-access": m31, "team": m32, "verification": m33, "websites": m34, "widget": m35 },
 };

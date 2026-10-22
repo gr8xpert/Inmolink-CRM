@@ -5,7 +5,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "public/maplibre/**"]
+      "outputs": ["dist/**", "dist-widget/**", ".next/**", "!.next/cache/**", "public/maplibre/**"]
     },
     "typecheck": {},
     "lint": {},

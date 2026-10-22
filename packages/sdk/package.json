@@ -25,6 +25,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
+    "@inmolink/i18n": "workspace:*",
     "@types/node": "24.19.2",
     "tsdown": "0.23.0",
     "typescript": "6.0.3",

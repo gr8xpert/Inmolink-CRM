@@ -1112,6 +1112,16 @@ Ref §12 · Mod platform, website-api, feed-api · Dep S8-F4
 - Both callers use `LocalFixedWindows` and keep their S7-F9 / S8-F4 tests green (test)
 - A flood of new IP identities does not evict a tracked failed-check or key window (test)
 
+### S8-F8 · Widget: natural-language search and lead form (S8-06)
+Ref §9.5 · Mod sdk, website-api · Dep S8-06
+**Build:**
+- Natural-language box in the widget once `/v2/search/ai` exists (feature check on the key's site); until then structured search only.
+- Enquiry / viewing-request form in the detail modal on `createLead` / `createViewingRequest` (Turnstile for publishable keys, Idempotency-Key), after H3.
+- Serve `inmolink-widget.iife.js` with a versioned immutable URL from the CDN (deploy).
+**Done when:**
+- A widget enquiry arrives as a website lead with the site's agency (test)
+- The AI box is absent while the endpoint is missing (test)
+
 ---
 
 ## S9 — Portal exports

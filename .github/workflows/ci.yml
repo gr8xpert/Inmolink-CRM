@@ -91,6 +91,8 @@ jobs:
       # One step at a time: the root suites share the stack with the package suites.
       - name: Package integration tests
         run: pnpm turbo run test:int $AFFECTED --concurrency=1
+      - name: Browser (Chromium, for the JS widget test)
+        run: pnpm exec playwright install --with-deps chromium
       - name: Workspace integration tests
         run: pnpm test:int:root
       - name: Throughput checks

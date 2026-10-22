@@ -740,6 +740,9 @@ importers:
       '@inmolink/config':
         specifier: workspace:*
         version: link:../config
+      '@inmolink/i18n':
+        specifier: workspace:*
+        version: link:../i18n
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2

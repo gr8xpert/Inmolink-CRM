@@ -70,7 +70,10 @@ export default defineConfig({
         },
       },
       {
-        // Each Node app's real main.ts against the test stack: config, boot, /readyz, SIGTERM (S0-08).
+        // Each Node app's real main.ts against the test stack: config, boot, /readyz, SIGTERM (S0-08), and the JS
+        // widget in Chromium against feed-api built from source (S8-06).
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
         test: {
           name: 'apps',
           include: ['tests/apps/**/*.int.test.ts'],

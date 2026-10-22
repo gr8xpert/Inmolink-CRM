@@ -1,6 +1,7 @@
 # Dependencies & build output
 node_modules/
 dist/
+dist-widget/
 apps/*/build/
 packages/*/build/
 .next/

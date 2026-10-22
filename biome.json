@@ -11,6 +11,7 @@
     "includes": [
       "**",
       "!**/dist",
+      "!**/dist-widget",
       "!**/.next",
       "!**/next-env.d.ts",
       "!apps/wp-plugin",
