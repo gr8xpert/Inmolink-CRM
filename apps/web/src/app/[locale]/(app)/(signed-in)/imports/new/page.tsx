@@ -17,7 +17,7 @@ export default async function NewFeedPage({ searchParams }: { searchParams: Prom
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('createTitle')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
-      <nav aria-label={t('format')} className="flex gap-4 text-sm">
+      <nav aria-label={t('formatChoice')} className="flex gap-4 text-sm">
         <Link
           href="/imports/new"
           className={q.connector === 'resales-online' ? 'underline-offset-4 hover:underline' : 'font-medium'}

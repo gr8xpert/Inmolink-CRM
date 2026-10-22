@@ -132,6 +132,7 @@
     "save": "Guardar cambios",
     "cancel": "Cancelar",
     "format": "Formato",
+    "formatChoice": "Tipo de conexión",
     "formats": {
       "kyero": "Kyero (XML v3)",
       "xml-mapped": "Cualquier feed XML (mapeado)",
