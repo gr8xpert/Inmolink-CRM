@@ -578,6 +578,39 @@ describe('Resales Online connector', () => {
     expect(slow.sleeps[0]).toBe(7_000);
   });
 
+  it('[S6-F4] the gate is per agency and credentials: another agency with the same Client ID and a wrong key never pauses the real account', async () => {
+    const WRONG = 'f'.repeat(40);
+    const requests: URL[] = [];
+    const connector = createResalesConnector(
+      async ({ url }) => {
+        const u = new URL(url);
+        requests.push(u);
+        await Promise.resolve();
+        return u.searchParams.get('p2') === WRONG ? { status: 429, text: '', retryAfter: '60' } : fixtureRoute(u);
+      },
+      {
+        key: 'resales-gates',
+        now: () => 0,
+        // A pause never ends until its run is aborted: a shared gate would hold the real account's calls for ever.
+        sleep: (_ms, signal) =>
+          new Promise((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+          ),
+      },
+    );
+    const intruder = new AbortController();
+    const paused = run(
+      connector,
+      ctx({ agencyId: 'a2', credentials: { type: 'basic', username: P1, password: WRONG }, signal: intruder.signal }),
+    ).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 10)); // the intruder got its 429 and is waiting out the pause
+    expect(requests.some((u) => u.searchParams.get('p2') === WRONG)).toBe(true);
+    const real = await run(connector, ctx({ agencyId: 'a1' }));
+    expect(real.totals).toMatchObject({ valid: 3 });
+    intruder.abort(new Error('test over'));
+    await paused;
+  });
+
   it('[S6-F4] the run has a deadline sized to PropertyCount: past it the run fails as a timeout', async () => {
     const api = fakeApi(cappedAccount(1_227), { delayMs: 5, deadline: { BASE_MS: 40, PER_LISTING_MS: 0 } });
     const err = await run(api.connector).catch((e: unknown) => e);

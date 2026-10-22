@@ -34,7 +34,7 @@ import {
  * in flight per Resales account. A record whose details or a language could not be read is an item error with its
  * reference: kept as it is, never written with less, never withdrawn.
  *
- * Every call goes through the account's gate (per Client ID, shared by the process's runs): at most 5 in flight, and
+ * Every call goes through the account's gate (per agency and credentials, shared by the process's runs): at most 5 in flight, and
  * a busy answer ("P1 or P2 not valid", which Resales also gives for wrong keys), a 5xx, a 429 (its `Retry-After`) or a
  * network failure pauses the account's calls (2 s, then 4 s) before the call is tried again, 3 attempts in all.
  *
@@ -280,8 +280,10 @@ const sleepFor: Sleep = (ms, signal) =>
   });
 
 /**
- * One Resales account's calls in this process (keyed by Client ID: two connections of one agency, e.g. two filter
- * aliases, share it, which is when Resales answers "busy"): at most `limit` in flight, and a pause every call waits
+ * One Resales account's calls in this process (keyed by a hash of agency id, Client ID and API key: two connections of
+ * one agency with the same credentials, e.g. two filter aliases, share it, which is when Resales answers "busy"; another
+ * agency typing the same Client ID with any key never does, so its refusals cannot pause a real account's imports):
+ * at most `limit` in flight, and a pause every call waits
  * out before it starts.
  */
 export class ResalesGate {
@@ -378,7 +380,11 @@ export function createResalesConnector(
       const { p1, p2 } = credentialsOf(ctx);
       const secrets = [p1, p2];
       const settings = settingsOf(ctx);
-      const gate = gateFor(p1);
+      const gate = gateFor(
+        createHash('sha256')
+          .update(JSON.stringify([ctx.agencyId, p1, p2]))
+          .digest('hex'),
+      );
       const deadline = new AbortController();
       const signal = AbortSignal.any([ctx.signal, deadline.signal]);
       let deadlineTimer: NodeJS.Timeout | undefined;
