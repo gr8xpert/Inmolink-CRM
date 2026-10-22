@@ -9,7 +9,12 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder, purgeReferenceFixtures } from '../../../testing/factories';
+import {
+  createFounder,
+  type Founder,
+  purgeReferenceFixtures,
+  purgeStaleLocationFixtures,
+} from '../../../testing/factories';
 import * as taxonomy from '../index';
 
 /** Localized taxonomy reads, cache and change events on the real test database and redis-cache (S2-03). */
@@ -68,12 +73,11 @@ async function coldCache(): Promise<void> {
 beforeAll(async () => {
   await setupTestDb('worker');
   await purgeReferenceFixtures(PREFIX);
-  // Its own prefix: no other file's process can invalidate these entries. And a longer command cut-off than
-  // production's 200 ms: the tree holds every location of the shared test database (tens of thousands, left by the
-  // other files' fixtures), so each entry is megabytes, and under a parallel run a GET or SET of one timed out — the
-  // read then fell back to the database and the query-count and no-reserialize checks failed. These tests check
-  // what the cache serves, not how fast a CPU-starved Redis answers.
-  await configureCache({ prefix: `t:taxonomy:${newId().slice(-12)}`, commandTimeoutMs: 10_000 });
+  // Its own prefix: no other file's process can invalidate these entries. The tree holds every location of the shared
+  // test database, so the stale ones other files left behind are purged first (S7-F13): the entries stay small
+  // enough for the default 200 ms command timeout.
+  await purgeStaleLocationFixtures();
+  await configureCache({ prefix: `t:taxonomy:${newId().slice(-12)}` });
   taxonomy.registerTaxonomySubscriptions();
   founder = await createFounder();
   await system(async (tx) => {

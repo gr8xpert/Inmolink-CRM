@@ -7,7 +7,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { bootstrapRoles, credentialFromUrl } from './bootstrap';
-import { buildConcurrentIndexes } from './concurrent-indexes';
+import { buildConcurrentIndexes, dropConcurrentIndexes } from './concurrent-indexes';
 import { CATALOG_STAMP_FUNCTION, checkRls, rlsCatalogStamp } from './tenancy/guard';
 import { registry, type TenantRegistry } from './tenancy/registry';
 import { applyRls, DEFINER_VIEWS, generateRlsSql, HELPER_FUNCTIONS } from './tenancy/rls';
@@ -76,7 +76,8 @@ export async function runMigrations(
     if (!admin) await lock(owner);
 
     if (existsSync(join(folder, 'meta', '_journal.json'))) {
-      // Large tables' new indexes first, outside the migrator's transaction (S5-F2).
+      // Large tables' indexes built and dropped first, outside the migrator's transaction (S5-F2).
+      await dropConcurrentIndexes(owner, log, undefined, folder);
       await buildConcurrentIndexes(owner, log, undefined, folder);
       await migrate(drizzle({ client: owner }), { migrationsFolder: folder });
       log.info({ folder }, 'migrations applied');

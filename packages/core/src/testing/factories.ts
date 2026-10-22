@@ -104,5 +104,43 @@ export async function purgeReferenceFixtures(
   });
 }
 
+/** Whether `err` (or its cause, as drizzle wraps driver errors) is a Postgres foreign-key violation (23503). */
+const isForeignKeyViolation = (err: unknown): boolean =>
+  typeof err === 'object' &&
+  err !== null &&
+  ((err as { code?: unknown }).code === '23503' || isForeignKeyViolation((err as { cause?: unknown }).cause));
+
+/**
+ * Removes locations that test files left behind (S7-F13): a crashed fork never reaches its `afterAll`, and a few
+ * files never purge theirs, so the shared test database accumulates thousands of them and every cached taxonomy
+ * tree grows to megabytes. Only rows older than `olderThanMs` (default 1 h, so a parallel file's live fixtures are
+ * safe), outside the scale seed (`seed-` slugs, scripts/seed/taxonomy.ts), with no children and nothing pointing at
+ * them: no property, development, group membership or import staging row (that table has no foreign key). Deepest
+ * first, so a stale parent goes once its stale children did. Each depth runs in a savepoint and ignores a foreign-key
+ * violation: a parallel file may attach a row between the check and the delete; the location then stays.
+ */
+export async function purgeStaleLocationFixtures(olderThanMs = 3_600_000): Promise<void> {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  await withSystem('test.purge-stale-locations', async (tx) => {
+    for (const depth of [4, 3, 2, 1]) {
+      try {
+        await tx.transaction(async (sp) => {
+          await sp.execute(sql`
+            delete from locations l
+             where l.depth = ${depth} and l.created_at < ${cutoff}::timestamptz
+               and not exists (select 1 from location_translations t where t.location_id = l.id and t.slug like 'seed-%')
+               and not exists (select 1 from locations c where c.parent_id = l.id)
+               and not exists (select 1 from properties p where p.location_id = l.id)
+               and not exists (select 1 from developments d where d.location_id = l.id)
+               and not exists (select 1 from location_group_members m where m.location_id = l.id)
+               and not exists (select 1 from property_import_staging s where l.id in (s.location_id, s.country_id, s.region_id, s.city_id))`);
+        });
+      } catch (err) {
+        if (!isForeignKeyViolation(err)) throw err;
+      }
+    }
+  });
+}
+
 /** The white-label check (S7-02), shared with app tests (S7-F8 embed detail page). */
 export { stringsOf, type WhiteLabelOwner, whiteLabelLeaks } from './white-label';

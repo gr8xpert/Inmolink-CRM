@@ -129,3 +129,47 @@ export async function buildConcurrentIndexes(
     log.info({ index: ix.name }, 'index built concurrently');
   }
 }
+
+/**
+ * Indexes dropped `CONCURRENTLY` (S7-F13, the contract step of expand/contract): a plain `DROP INDEX` takes an
+ * ACCESS EXCLUSIVE lock on the table inside the migrator's transaction. `pnpm db:migrate` drops these first,
+ * outside it; the migration that declares the drop says `DROP INDEX IF EXISTS` (a no-op then). A missing index is
+ * skipped, and an invalid one (an interrupted concurrent build) is dropped like any other.
+ *
+ * `after` names the migration that replaces the index (the expand step): the drop waits until it is applied, so
+ * one deploy never expands and contracts at once.
+ */
+export interface DroppedIndex {
+  name: string;
+  after: string;
+}
+
+export const DROPPED_INDEXES: readonly DroppedIndex[] = [
+  // the pre-S7-F11 area index on the `numeric` column; every app version runs the float8 one (area_f8_idx) now
+  { name: 'listing_search_docs_area_idx', after: '0104_s7_f11_area_statistics' },
+];
+
+/** Drops each listed index that exists and whose `after` migration is applied, concurrently (autocommit `client`). */
+export async function dropConcurrentIndexes(
+  client: pg.ClientBase,
+  log: Pick<Logger, 'info'>,
+  indexes: readonly DroppedIndex[] = DROPPED_INDEXES,
+  folder?: string,
+): Promise<void> {
+  for (const ix of indexes) {
+    // Only an index: a table or view of that name is none of this step's business.
+    const { rows } = await client.query<{ present: boolean }>(
+      `select exists (select 1 from pg_class where oid = to_regclass(quote_ident($1)) and relkind in ('i', 'I')) as present`,
+      [ix.name],
+    );
+    if (rows[0]?.present !== true) continue;
+    if (!(folder && (await applied(client, folder, ix.after)))) continue;
+    await client.query(`set lock_timeout = '30s'`);
+    try {
+      await client.query(`DROP INDEX CONCURRENTLY IF EXISTS "${ix.name}"`);
+    } finally {
+      await client.query('reset lock_timeout');
+    }
+    log.info({ index: ix.name }, 'index dropped concurrently');
+  }
+}

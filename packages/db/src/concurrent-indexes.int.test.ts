@@ -6,7 +6,12 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupTestDb } from '../test/test-db';
 import { closeDb } from './client';
-import { buildConcurrentIndexes, CONCURRENT_INDEXES } from './concurrent-indexes';
+import {
+  buildConcurrentIndexes,
+  CONCURRENT_INDEXES,
+  DROPPED_INDEXES,
+  dropConcurrentIndexes,
+} from './concurrent-indexes';
 import { MIGRATIONS_FOLDER } from './migrate';
 
 beforeAll(() => setupTestDb('script'), 120_000);
@@ -81,5 +86,114 @@ describe('buildConcurrentIndexes', () => {
     for (const ix of CONCURRENT_INDEXES) {
       expect(all).toContain(`CREATE INDEX IF NOT EXISTS "${ix.name}" ${ix.definition};`);
     }
+  });
+
+  /** A folder whose journal has one applied entry (0069's time) and one pending (far in the future). */
+  function journalFolder(): string {
+    const folder = mkdtempSync(join(tmpdir(), 's7f13-'));
+    mkdirSync(join(folder, 'meta'));
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as {
+      entries: { tag: string; when: number }[];
+    };
+    const applied = journal.entries.find((e) => e.tag === '0069_give_to_get');
+    writeFileSync(
+      join(folder, 'meta', '_journal.json'),
+      JSON.stringify({ entries: [applied, { tag: '9999_pending', when: 9_999_999_999_999 }] }),
+    );
+    return folder;
+  }
+
+  /** Runs `fn` with a normal (not temporary) table, so CONCURRENTLY really runs; dropped afterwards. */
+  async function withTable(fn: (client: pg.Client, table: string) => Promise<void>): Promise<void> {
+    const table = `s7f13_probe_${newId().slice(-8)}`;
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL_ADMIN });
+    await client.connect();
+    try {
+      await client.query(`create table "${table}" (x int)`);
+      await fn(client, table);
+    } finally {
+      await client.query(`drop table if exists "${table}"`);
+      await client.end();
+    }
+  }
+
+  const exists = async (client: pg.Client, name: string) =>
+    (await client.query('select to_regclass($1) as ix', [name])).rows[0].ix !== null;
+
+  it('[S7-F13] the drop list drops a listed index concurrently and skips a missing one', async () => {
+    const folder = journalFolder();
+    try {
+      await withTable(async (client, table) => {
+        const name = `${table}_x_idx`;
+        await client.query(`create index "${name}" on "${table}" (x)`);
+        const dropped: string[] = [];
+        const log = { info: (o: { index?: string }) => dropped.push(o.index ?? '') } as never;
+        const list = [
+          { name, after: '0069_give_to_get' },
+          { name: `${table}_missing_idx`, after: '0069_give_to_get' },
+          // a table of that name is not an index: left alone
+          { name: table, after: '0069_give_to_get' },
+        ];
+        await dropConcurrentIndexes(client, log, list, folder);
+        await dropConcurrentIndexes(client, log, list, folder);
+        expect(dropped).toEqual([name]);
+        expect(await exists(client, name)).toBe(false);
+        expect(await exists(client, table)).toBe(true);
+      });
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('[S7-F13] an invalid index (an interrupted concurrent build) is dropped too', async () => {
+    const folder = journalFolder();
+    try {
+      await withTable(async (client, table) => {
+        const name = `${table}_u_idx`;
+        await client.query(`insert into "${table}" values (1), (1)`);
+        await expect(client.query(`create unique index concurrently "${name}" on "${table}" (x)`)).rejects.toThrow();
+        const invalid = await client.query('select indisvalid from pg_index where indexrelid = to_regclass($1)', [
+          name,
+        ]);
+        expect(invalid.rows).toEqual([{ indisvalid: false }]);
+        const log = { info: () => {} } as never;
+        await dropConcurrentIndexes(client, log, [{ name, after: '0069_give_to_get' }], folder);
+        expect(await exists(client, name)).toBe(false);
+      });
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('[S7-F13] the drop waits until the migration that replaces the index is applied', async () => {
+    const folder = journalFolder();
+    try {
+      await withTable(async (client, table) => {
+        const name = `${table}_x_idx`;
+        await client.query(`create index "${name}" on "${table}" (x)`);
+        const log = { info: () => {} } as never;
+        await dropConcurrentIndexes(client, log, [{ name, after: '9999_pending' }], folder);
+        expect(await exists(client, name)).toBe(true);
+        await dropConcurrentIndexes(client, log, [{ name, after: '0069_give_to_get' }]); // no folder: nothing is known applied
+        expect(await exists(client, name)).toBe(true);
+        await dropConcurrentIndexes(client, log, [{ name, after: '0069_give_to_get' }], folder);
+        expect(await exists(client, name)).toBe(false);
+      });
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it('[S7-F13] no index is on both the build list and the drop list', () => {
+    const built = new Set(CONCURRENT_INDEXES.map((i) => i.name));
+    for (const ix of DROPPED_INDEXES) expect(built.has(ix.name)).toBe(false);
+  });
+
+  it('[S7-F13] a migration declares each dropped index with IF EXISTS (a no-op once the migrator dropped it)', () => {
+    const all = readdirSync(MIGRATIONS_FOLDER)
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => readFileSync(join(MIGRATIONS_FOLDER, f), 'utf8'))
+      .join(' ');
+    for (const ix of DROPPED_INDEXES) expect(all).toContain(`DROP INDEX IF EXISTS "${ix.name}";`);
   });
 });

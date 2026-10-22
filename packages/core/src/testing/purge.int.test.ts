@@ -1,10 +1,13 @@
+import { CreateListingBody } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
-import { setupTestDb } from '@inmolink/db/testing';
+import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { withMemberCtx } from '../member';
+import * as properties from '../modules/properties';
 import * as taxonomy from '../modules/taxonomy';
-import { purgeReferenceFixtures } from './factories';
+import { createFounder, purgeReferenceFixtures, purgeStaleLocationFixtures } from './factories';
 
 /** Fixture hygiene (S3-F3): what a crashed run left behind is removed by the next run's `beforeAll`. */
 
@@ -76,4 +79,90 @@ it('[S3-F3] a crashed earlier run’s reference fixtures are removed by the next
   });
   expect(left).toEqual({ removed: 0, kept: 1 });
   await expect(purgeReferenceFixtures('Bad prefix')).rejects.toThrow(TypeError);
+});
+
+describe('purgeStaleLocationFixtures', () => {
+  const RUN = newId().slice(-8).toLowerCase();
+  const touched: string[] = [];
+  const make = (parentId: string | null, level: 'COUNTRY' | 'REGION', slug: string) =>
+    system(async (tx) => {
+      const id = await taxonomy.createLocation(tx, { parentId, level, translations: tr(slug, `${slug}-${RUN}`) });
+      touched.push(id);
+      return id;
+    });
+  const age = (id: string, hours: number) =>
+    system((tx) =>
+      tx.execute(sql`update locations set created_at = now() - make_interval(hours => ${hours}) where id = ${id}`),
+    );
+  const present = (ids: string[]) =>
+    system(async (tx) => {
+      const r = await tx.execute<{ id: string }>(
+        sql`select id from locations where id::text = any(string_to_array(${ids.join(',')}, ','))`,
+      );
+      return new Set(r.rows.map((x) => x.id));
+    });
+
+  afterAll(async () => {
+    await system(async (tx) => {
+      await tx.execute(
+        sql`delete from properties where location_id::text = any(string_to_array(${touched.join(',')}, ','))`,
+      );
+      for (const depth of [2, 1]) {
+        await tx.execute(
+          sql`delete from locations where depth = ${depth} and id::text = any(string_to_array(${touched.join(',')}, ','))`,
+        );
+      }
+      await tx.execute(sql`delete from property_types where key = ${`purgestale-t-${RUN}`}`);
+      await tx.execute(sql`delete from property_type_groups where key = ${`purgestale-g-${RUN}`}`);
+    });
+  });
+
+  it('[S7-F13] a stale leaf and its stale parent are deleted; a fresh row, a seed- row and a row a property points to stay', async () => {
+    const parent = await make(null, 'COUNTRY', 'stale-parent');
+    const leaf = await make(parent, 'REGION', 'stale-leaf');
+    const fresh = await make(null, 'COUNTRY', 'fresh');
+    const seed = await make(null, 'COUNTRY', 'seed');
+    const used = await make(null, 'COUNTRY', 'used');
+    // a stale child of a fresh parent goes; the fresh parent stays
+    const staleUnderFresh = await make(fresh, 'REGION', 'stale-under-fresh');
+    await system((tx) =>
+      tx.execute(sql`update location_translations set slug = 'seed-' || ${RUN} || '-t' where location_id = ${seed}`),
+    );
+    for (const id of [parent, leaf, seed, used, staleUnderFresh]) await age(id, 2);
+
+    const founder = await createFounder();
+    await setAgencyStatus(founder.agencyId, 'VERIFIED');
+    const type = await system(async (tx) => {
+      const group = await taxonomy.createPropertyTypeGroup(tx, {
+        key: `purgestale-g-${RUN}`,
+        sort: 0,
+        translations: tr('G', `purgestale-g-${RUN}`),
+      });
+      return taxonomy.createPropertyType(tx, {
+        groupId: group,
+        key: `purgestale-t-${RUN}`,
+        sort: 0,
+        translations: tr('T', `purgestale-t-${RUN}`),
+      });
+    });
+    await withMemberCtx(
+      { userId: founder.userId, agencyId: founder.agencyId, requestId: newId(), locale: 'en' },
+      (ctx) => properties.createListing(ctx, CreateListingBody.parse({ propertyTypeId: type, locationId: used })),
+    );
+
+    await purgeStaleLocationFixtures();
+
+    const left = await present([parent, leaf, fresh, seed, used, staleUnderFresh]);
+    expect([...left].sort()).toEqual([fresh, seed, used].sort());
+  });
+
+  it('[S7-F13] a location in a group is kept', async () => {
+    const member = await make(null, 'COUNTRY', 'in-group');
+    await age(member, 2);
+    const key = `purgestale-grp-${RUN}`;
+    await system((tx) => taxonomy.createLocationGroup(tx, { key, translations: tr('Grp', key), memberIds: [member] }));
+    await purgeStaleLocationFixtures();
+    expect((await present([member])).has(member)).toBe(true);
+    await system((tx) => tx.execute(sql`delete from location_groups where key = ${key}`));
+  });
 });

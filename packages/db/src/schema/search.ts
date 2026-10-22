@@ -224,9 +224,6 @@ export const listingSearchDocs = pgTable(
     index('listing_search_docs_price_idx').on(t.priceCents, t.targetId),
     // network-wide pages by bedrooms
     index('listing_search_docs_beds_idx').on(t.beds, t.targetId),
-    // the app version before S7-F11 (area bands and the area sort on the `numeric` column): kept one release for the
-    // version still running during that deploy; dropped CONCURRENTLY by S7-F13 (expand/contract)
-    index('listing_search_docs_area_idx').on(t.areaM2, t.targetId),
     // network-wide pages by area, and area bands (S7-F11): the fallback compares areas as `float8` (leakproof, so the
     // planner has statistics for them under the table's RLS policy; this expression index collects them). The plot's
     // statistics are an extended statistics object (migration 0104; Drizzle does not declare those). Built
