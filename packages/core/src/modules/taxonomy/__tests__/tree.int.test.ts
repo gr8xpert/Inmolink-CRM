@@ -68,7 +68,12 @@ async function coldCache(): Promise<void> {
 beforeAll(async () => {
   await setupTestDb('worker');
   await purgeReferenceFixtures(PREFIX);
-  await configureCache({ prefix: `t:taxonomy:${newId().slice(-12)}` });
+  // Its own prefix: no other file's process can invalidate these entries. And a longer command cut-off than
+  // production's 200 ms: the tree holds every location of the shared test database (tens of thousands, left by the
+  // other files' fixtures), so each entry is megabytes, and under a parallel run a GET or SET of one timed out — the
+  // read then fell back to the database and the query-count and no-reserialize checks failed. These tests check
+  // what the cache serves, not how fast a CPU-starved Redis answers.
+  await configureCache({ prefix: `t:taxonomy:${newId().slice(-12)}`, commandTimeoutMs: 10_000 });
   taxonomy.registerTaxonomySubscriptions();
   founder = await createFounder();
   await system(async (tx) => {
