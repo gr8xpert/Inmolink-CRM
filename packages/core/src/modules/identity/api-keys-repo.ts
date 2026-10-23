@@ -174,6 +174,8 @@ export interface ApiKeyAuthRow {
   rateTier: ApiKeyRateTier;
   /** Null only for keys created before sites existed (S7-01). */
   siteId: string | null;
+  /** S8-02: may be sent as the v1 shim's legacy query parameter. */
+  legacyQueryKey: boolean;
 }
 
 /**
@@ -191,6 +193,7 @@ export async function findUsableApiKeyByPrefix(tx: Tx, prefix: string): Promise<
       allowedOrigins: apiKeys.allowedOrigins,
       rateTier: apiKeys.rateTier,
       siteId: apiKeys.siteId,
+      legacyQueryKey: apiKeys.legacyQueryKey,
     })
     .from(apiKeys)
     .where(and(eq(apiKeys.prefix, prefix), isNull(apiKeys.revokedAt), eq(apiKeys.agencyActive, true)))
@@ -229,4 +232,23 @@ export async function recordApiKeyUse(tx: Tx, uses: { id: string; at: Date }[]):
       from jsonb_to_recordset(${rows}::jsonb) as u(id uuid, at timestamptz)
      where k.id = u.id and (k.last_used_at is null or k.last_used_at < u.at)`);
   return res.rowCount ?? 0;
+}
+
+/**
+ * S8-02 (`app_system`: the legacy key import, `pnpm legacy:key-flag`): marks the active key with this prefix as a
+ * migrated legacy key, or clears the mark. Answers the key changed, if any.
+ */
+export async function setLegacyQueryKey(
+  tx: Tx,
+  agencyId: string,
+  prefix: string,
+  enabled: boolean,
+  now: Date,
+): Promise<{ id: string } | null> {
+  const [row] = await tx
+    .update(apiKeys)
+    .set({ legacyQueryKey: enabled, updatedAt: now })
+    .where(and(eq(apiKeys.agencyId, agencyId), eq(apiKeys.prefix, prefix), isNull(apiKeys.revokedAt)))
+    .returning({ id: apiKeys.id });
+  return row ?? null;
 }

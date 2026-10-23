@@ -60,6 +60,25 @@ export async function publicDetailByRef(
 }
 
 /**
+ * The detail of one target on this site (S8-02: a legacy property id the v1 shim resolved), among the site's inventory
+ * like `publicDetailByRef`. Null: the target is not shown here. One statement (`listing_search_docs_pkey`).
+ */
+export async function publicDetailById(
+  tx: Tx,
+  site: PublicSearchSite,
+  targetId: string,
+  locale: string,
+  fallback: string,
+): Promise<repo.PublicDocRow | null> {
+  return repo.publicDetailWhere(
+    tx,
+    { op: 'and', filters: [{ op: 'eq', field: 'targetId', value: targetId }, siteInventoryFilter(site)] },
+    locale,
+    fallback,
+  );
+}
+
+/**
  * One sitemap page of the site's inventory in public-code order (`limit + 1` rows: the extra one means more follow):
  * the site's own documents and the network's as two keyset walks (an agency's own by `(owner, code)`).
  */

@@ -18,7 +18,7 @@ const req = (url: string, edgeCache: boolean, edgeKeyToken: string | null = 'tok
   ({ url, edgeKeyToken, server: { websiteEdgeCache: edgeCache } }) as unknown as FastifyRequest;
 
 describe('edge-cache rules (S8-F2)', () => {
-  it('[S8-F2] one table pins the edge-cache policy of every /v2 GET route', async () => {
+  it('[S8-F2] [S8-02] one table pins the edge-cache policy of every /v2 and /v1 GET route', async () => {
     const T = websiteApi.WEBSITE_API_TTL;
     const keyed = (ttl: number) => `key ${ttl}s sie=86400 cursor:no params:schema`;
     const pin = (r: EdgeCacheRule) =>
@@ -38,13 +38,17 @@ describe('edge-cache rules (S8-F2)', () => {
       '/v2/taxonomy/types': taxonomy,
       '/v2/taxonomy/features': taxonomy,
       '/v2/feeds/:token/:file': `url ${websiteApi.SITE_FEED_TTL}s sie=${websiteApi.SITE_FEED_STALE_IF_ERROR} cursor:no params:[]`,
+      // S8-02: the v1 shim's URLs carry the key itself — never public.
+      '/v1/properties': 'never sie=0 cursor:no params:schema',
+      '/v1/properties/:id': 'never sie=0 cursor:no params:schema',
+      '/v1/types': 'never sie=0 cursor:no params:schema',
     });
     expect(publicCacheControl(EDGE_CACHE_RULES['/v2/taxonomy/catalog'])).toBe(
       'public, max-age=0, s-maxage=600, stale-while-revalidate=600, stale-if-error=86400',
     );
     expect(() => publicCacheControl(EDGE_CACHE_RULES['/v2/changes'])).toThrow();
 
-    // Every GET route the app serves under /v2 has its row, and every row is a served route.
+    // Every GET route the app serves under /v2 (and the v1 shim, S8-02) has its row, and every row is a served route.
     const app = await buildApp({
       logger: createLogger({ level: 'silent' }),
       trustProxy: 1,
@@ -56,7 +60,7 @@ describe('edge-cache rules (S8-F2)', () => {
       await app.ready();
       const spec = app.swagger() as { paths: Record<string, Record<string, unknown>> };
       const served = Object.entries(spec.paths)
-        .filter(([path, ops]) => path.startsWith('/v2/') && 'get' in ops)
+        .filter(([path, ops]) => /^\/v[12]\//.test(path) && 'get' in ops)
         .map(([path]) => path.replace(/\{(\w+)\}/g, ':$1'))
         .sort();
       expect(served).toEqual(Object.keys(EDGE_CACHE_RULES).sort());

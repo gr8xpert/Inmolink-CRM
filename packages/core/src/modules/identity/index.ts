@@ -13,6 +13,7 @@ export {
   revokeApiKey,
   rotateApiKey,
   setApiKeyRateTier,
+  setLegacyQueryKey,
 } from './api-keys';
 export {
   API_KEYS,

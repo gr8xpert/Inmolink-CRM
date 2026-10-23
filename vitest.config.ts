@@ -127,6 +127,21 @@ export default defineConfig({
         },
       },
       {
+        // Legacy API golden parity (S8-02, PLAN §9.3): every golden file under `tests/golden` replayed against the v1
+        // shim (feed-api from source) on the test stack. A root project, so CI runs it on every push — a new golden
+        // file changes no package and would not make feed-api's own `test:int` affected.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'golden',
+          include: ['tests/golden/**/*.int.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          testTimeout: 120_000,
+          hookTimeout: 180_000,
+        },
+      },
+      {
         // `pnpm test:perf:root`: throughput checks from acceptance criteria. Turbo runs this after every
         // other verify task so the measurement is not shared with parallel suites. Restarts redis-queue.
         ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },

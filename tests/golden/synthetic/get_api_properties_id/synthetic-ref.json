@@ -1,0 +1,52 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties/{id}",
+  "case": "synthetic-ref",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties/GH-103",
+    "query": {}
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "property": {
+        "agency": {
+          "email": "info@golden-homes.example",
+          "name": "Golden Homes",
+          "phone": "+34 600 000 000",
+          "website": null
+        },
+        "baths": 1,
+        "beds": 1,
+        "built": 60,
+        "city": "Marbella",
+        "currency": "EUR",
+        "description": "Close to the old town.",
+        "energy_rating": "E",
+        "features": [],
+        "id": "GH-103",
+        "image": null,
+        "images": [],
+        "kind": "property",
+        "latitude": 36.5,
+        "location": "Marbella",
+        "longitude": -4.9,
+        "plot": null,
+        "price": 1800,
+        "price_on_request": false,
+        "province": "Málaga",
+        "ref": "GH-103",
+        "status": "available",
+        "terrace": 8,
+        "title": "Town apartment for long-term rent",
+        "transaction": "rent",
+        "type": "Apartment",
+        "type_id": "gt-2",
+        "year_built": 1998
+      },
+      "status": "ok"
+    }
+  }
+}

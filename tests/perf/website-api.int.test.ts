@@ -2,6 +2,7 @@ import { gzipSync } from 'node:zlib';
 import { WebsiteSitemapQuery } from '@inmolink/contracts';
 import { withMemberCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as migration from '@inmolink/core/modules/migration';
 import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
@@ -197,6 +198,8 @@ const seedDevelopmentRows = `
     join listing_search_docs r on r.target_id = a.rep`;
 
 const cleanup = async () => {
+  // S8-02: the listings' legacy ids (the v1 shim's measurement).
+  await runSql(`delete from legacy_id_maps where entity = 'listing' and new_id::text like '${space(0x0301)}%'`);
   await runSql(`delete from listing_search_developments where development_id::text like '${space(0x0304)}%'`);
   await runSql(`delete from listing_search_commissions where target_id::text like '${space(0x0303)}%'`);
   for (const s of [0x0301, 0x0303, 0x0304]) {
@@ -562,3 +565,145 @@ it('[S7-F10] a sitemap page is 250 entries by default (white-labelling 500 per r
   expect(report.sitemapNetwork?.items).toBe(250);
   expect(report.sitemapDeep?.items).toBe(250);
 });
+
+/**
+ * S8-02: the v1 shim (legacy `/api/*` as `/v1/*`) on the same seed, in the feed-api budget: ≤ 3 queries warm and with
+ * compiled owner identities dropped, p95 < 150 ms at origin. Legacy ids for every seventh listing (> 10k rows in
+ * `legacy_id_maps`, so a sequential scan would show) and every listing of the sites' agency; the key sent as the legacy
+ * `api_key` parameter. The legacy-id statements are EXPLAINed as `app_public`: index scans only.
+ */
+it('[S8-02] each v1 shim endpoint answers within 3 queries and p95 < 150 ms at origin (scale seed)', async () => {
+  const legacy = (g: number) => `pw${RUN}-${g}`;
+  await runSql(`insert into legacy_id_maps (id, entity, legacy_id, new_id, method)
+    select gen_random_uuid(), 'listing', 'pw${RUN}-' || g, ${idSql('g')}, 'perf'
+      from generate_series(1, ${ROWS}) g where g % 7 = 0 or g % ${AGENCIES} = 0
+    on conflict (entity, legacy_id) do nothing`);
+  // Taxonomy maps for legacy filters: the seed's property type, country and city, and a feature on every third listing.
+  const FEATURE = '0195f0a5-0006-7000-8000-000000000001';
+  await runSql(`insert into legacy_id_maps (id, entity, legacy_id, new_id, method) values
+    (gen_random_uuid(), 'propertyType', 'pw${RUN}-t', '0195f0a5-0005-7000-8000-000000000001', 'perf'),
+    (gen_random_uuid(), 'location', 'pw${RUN}-c', '${country}', 'perf'),
+    (gen_random_uuid(), 'location', 'pw${RUN}-city', '${city}', 'perf'),
+    (gen_random_uuid(), 'feature', 'pw${RUN}-f', '${FEATURE}', 'perf')
+    on conflict (entity, legacy_id) do nothing`);
+  await runSql(`update listing_search_docs set feature_ids = array['${FEATURE}'::uuid]
+    where target_id::text like '${space(0x0301)}%' and ('x' || right(target_id::text, 8))::bit(32)::int % 3 = 0`);
+  await adminQuery('vacuum analyze legacy_id_maps');
+  await adminQuery('vacuum analyze listing_search_docs');
+  await migration.reloadLegacyTaxonomy();
+  migration.resetLegacyIdCache();
+  // The sites' keys as migrated legacy keys (the only kind the v1 shim accepts as `api_key`).
+  await withSystem('perf.website-api', async (tx) => {
+    for (const secret of Object.values(keys)) {
+      await identity.setLegacyQueryKey(
+        {
+          tx,
+          tenant: { agencyId: a.agencyId, verified: true, plan: 'none', locales: ['en'] },
+          actor: { kind: 'system', reason: 'perf' },
+          locale: 'en',
+          requestId: newId(),
+          clientMode: false,
+        },
+        { prefix: secret.split('_')[2] as string, enabled: true, reason: 'perf' },
+      );
+    }
+  });
+  const networkRow = (i: number) => {
+    const g = 7 * (1 + ((i * 7_919) % (Math.floor(ROWS / 7) - 1)));
+    return g % AGENCIES === 0 ? g + 7 : g;
+  };
+  const ownRow = (i: number) => AGENCIES * (1 + ((i * 104_729) % (Math.floor(ROWS / AGENCIES) - 1)));
+  const endpoints: Record<string, { key: SiteName; url: (i: number) => string }> = {
+    v1ListOwn: { key: 'own', url: (i) => `/v1/properties?min_price=${(i % 50) * 10_000}&sort=price_asc` },
+    v1ListNetwork: { key: 'network', url: (i) => `/v1/properties?beds=${i % 4}&min_price=${(i % 50) * 10_000}` },
+    v1ListNarrow: { key: 'narrow', url: (i) => `/v1/properties?beds=${i % 3}` },
+    // Legacy filter ids (engine down: the Postgres fallback answers), resolved from the in-process taxonomy maps.
+    v1ListFiltered: {
+      key: 'network',
+      url: (i) => `/v1/properties?type=pw${RUN}-t&location=pw${RUN}-c&beds=${i % 4}&min_price=${(i % 50) * 10_000}`,
+    },
+    v1ListFeature: {
+      key: 'network',
+      url: (i) => `/v1/properties?feature=pw${RUN}-f&location=pw${RUN}-c&beds=${i % 4}`,
+    },
+    v1ListNarrowFiltered: {
+      key: 'narrow',
+      url: (i) => `/v1/properties?location=pw${RUN}-city&type=pw${RUN}-t&beds=${i % 3}`,
+    },
+    v1DetailOwn: { key: 'own', url: (i) => `/v1/properties/${legacy(ownRow(i))}` },
+    v1DetailNetwork: { key: 'network', url: (i) => `/v1/properties/${legacy(networkRow(i))}` },
+    v1DetailRef: { key: 'network', url: (i) => `/v1/properties/PS-${code(networkRow(i))}` },
+  };
+  const get = (key: SiteName, url: string) =>
+    app.inject({
+      method: 'GET',
+      url: `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(keys[key])}`,
+    });
+  for (const { key, url } of Object.values(endpoints)) for (let i = 0; i < 3; i++) await get(key, url(i));
+  const v1: Record<string, { p95Ms: number; queries: number; coldQueries: number; items: number }> = {};
+  for (const [name, { key, url }] of Object.entries(endpoints)) {
+    const times: number[] = [];
+    let items = 0;
+    for (let i = 0; i < REQUESTS; i++) {
+      const started = performance.now();
+      const res = await get(key, url(100 + i));
+      times.push(performance.now() - started);
+      expect(res.statusCode, `${name} ${url(100 + i)}: ${res.body.slice(0, 200)}`).toBe(200);
+      const body = res.json() as { properties?: unknown[] };
+      items = Math.max(items, (body.properties ?? [1]).length);
+    }
+    await get(key, url(7));
+    const queries = await countQueries(() => get(key, url(7)));
+    // Cold: compiled owner identities and resolved listing legacy ids dropped (the taxonomy maps stay loaded: feed-api
+    // loads them at boot and refreshes them in the background).
+    websiteApi.resetWebsiteApiCaches();
+    migration.resetLegacyIdCache();
+    const coldQueries = await countQueries(() => get(key, url(8)));
+    v1[name] = { p95Ms: Math.round(p95(times) * 10) / 10, queries, coldQueries, items };
+  }
+  // The legacy-id statements (a page's names in the presentation statement, a detail's resolution) as app_public.
+  migration.resetLegacyIdCache();
+  const captured: { query: string; params: unknown[] }[] = [];
+  for (const name of ['v1DetailNetwork', 'v1ListNetwork'] as const) {
+    const e = endpoints[name] as { key: SiteName; url: (i: number) => string };
+    await countQueries(() => get(e.key, e.url(300)), { onQuery: (query, params) => captured.push({ query, params }) });
+  }
+  expect(captured.some((x) => /legacy_target_ids/.test(x.query))).toBe(true);
+  expect(captured.some((x) => /legacy_ids_of/.test(x.query))).toBe(true);
+  // The SECURITY DEFINER lookups hide their plans from an EXPLAIN of the caller's statement: their bodies, with a page's
+  // ids, are EXPLAINed directly (as the table owner sees them).
+  const explain = (query: string, params: unknown[]) =>
+    withAdminRollback([], async (q) => {
+      const r = await q(`explain (analyze, costs off) ${query}`, params);
+      return r.map((x) => String(Object.values(x)[0])).join('\n');
+    });
+  const pageIds = Array.from(
+    { length: 20 },
+    (_, i) => `${space(0x0301)}${(7 * (i + 1)).toString(16).padStart(12, '0')}`,
+  );
+  const reversePlan = await explain(
+    `select m.new_id, min(m.legacy_id) from legacy_id_maps m
+      where m.entity in ('listing', 'unit') and m.new_id = any($1::uuid[]) group by m.new_id`,
+    [pageIds],
+  );
+  const forwardPlan = await explain(
+    `select m.entity, m.legacy_id, m.new_id from (select distinct x from unnest($1::text[]) x) k
+       join legacy_id_maps m on m.entity in ('listing', 'unit') and m.legacy_id = k.x`,
+    [[legacy(networkRow(1)), legacy(networkRow(2))]],
+  );
+  const taxonomyPlan = await explain(
+    `select m.entity, m.legacy_id, m.new_id from legacy_id_maps m
+      where m.entity in ('location', 'propertyType', 'feature') order by m.entity, m.legacy_id limit 200001`,
+    [],
+  );
+  log.info({ rows: ROWS, report: v1, reversePlan, forwardPlan, taxonomyPlan }, 'website API v1 shim at scale');
+  expect(reversePlan).toMatch(/Index Cond: .*new_id = ANY/);
+  expect(forwardPlan).toMatch(/legacy_id_maps_legacy_uq/);
+  for (const plan of [reversePlan, forwardPlan, taxonomyPlan]) expect(plan).not.toMatch(/Seq Scan on legacy_id_maps/);
+  for (const [name, r] of Object.entries(v1)) {
+    expect(r.queries, name).toBeLessThanOrEqual(3);
+    expect(r.coldQueries, name).toBeLessThanOrEqual(3);
+    expect(r.items, name).toBeGreaterThan(0);
+    expect(r.p95Ms, name).toBeLessThan(P95_BUDGET_MS);
+  }
+}, 600_000);

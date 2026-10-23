@@ -42,6 +42,7 @@ const secret: ApiKeyPrincipal = {
   scopes: ['listings:read'],
   rateTier: 'STANDARD',
   siteId: '01900000-0000-7000-8000-000000000051',
+  legacyQueryKey: false,
 };
 const widget: ApiKeyPrincipal = { ...secret, keyId: '01900000-0000-7000-8000-000000000002', kind: 'PUBLISHABLE' };
 const facts = { ip: '203.0.113.7', paged: true, requestId: 'req-1' };

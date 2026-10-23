@@ -1,0 +1,48 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties",
+  "case": "synthetic-feature",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties",
+    "query": {
+      "feature": "gf-1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "page": 1,
+      "per_page": 20,
+      "properties": [
+        {
+          "baths": 3,
+          "beds": 4,
+          "built": 320,
+          "city": "Marbella",
+          "currency": "EUR",
+          "id": "910001",
+          "image": "{LEGACY_BASE}/v1/gh101a/medium.webp",
+          "kind": "property",
+          "latitude": 36.51,
+          "location": "Marbella",
+          "longitude": -4.88,
+          "plot": 1200,
+          "price": 1250000,
+          "price_on_request": false,
+          "province": "Málaga",
+          "ref": "GH-101",
+          "status": "available",
+          "title": "Sea view villa in Marbella",
+          "transaction": "sale",
+          "type": "Villa",
+          "type_id": "gt-1"
+        }
+      ],
+      "status": "ok",
+      "total": 1,
+      "total_pages": 1
+    }
+  }
+}

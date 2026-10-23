@@ -1,0 +1,72 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties",
+  "case": "synthetic-location-beds",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties",
+    "query": {
+      "beds": "2",
+      "location": "gl-3"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "page": 1,
+      "per_page": 20,
+      "properties": [
+        {
+          "baths": 2,
+          "beds": 2,
+          "built": 95,
+          "city": "Estepona",
+          "currency": "EUR",
+          "id": "910002",
+          "image": null,
+          "kind": "property",
+          "latitude": null,
+          "location": "Estepona",
+          "longitude": null,
+          "plot": null,
+          "price": 425000,
+          "price_on_request": false,
+          "province": "Málaga",
+          "ref": "GH-102",
+          "status": "under_offer",
+          "title": "Frontline beach apartment",
+          "transaction": "sale",
+          "type": "Apartment",
+          "type_id": "gt-2"
+        },
+        {
+          "baths": 5,
+          "beds": 5,
+          "built": 610,
+          "city": "Estepona",
+          "currency": "EUR",
+          "id": "910004",
+          "image": null,
+          "kind": "property",
+          "latitude": null,
+          "location": "Estepona",
+          "longitude": null,
+          "plot": 2500,
+          "price": null,
+          "price_on_request": true,
+          "province": "Málaga",
+          "ref": "GH-104",
+          "status": "available",
+          "title": "Estate on the golf valley",
+          "transaction": "sale",
+          "type": "Villa",
+          "type_id": "gt-1"
+        }
+      ],
+      "status": "ok",
+      "total": 2,
+      "total_pages": 1
+    }
+  }
+}

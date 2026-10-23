@@ -1,0 +1,59 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties/{id}",
+  "case": "synthetic-legacy-id",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties/910001",
+    "query": {
+      "lang": "en"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "property": {
+        "agency": {
+          "email": "info@golden-homes.example",
+          "name": "Golden Homes",
+          "phone": "+34 600 000 000",
+          "website": null
+        },
+        "baths": 3,
+        "beds": 4,
+        "built": 320,
+        "city": "Marbella",
+        "currency": "EUR",
+        "description": "A family villa with a pool and sea views.",
+        "energy_rating": "B",
+        "features": [
+          "Private pool"
+        ],
+        "id": "910001",
+        "image": "{LEGACY_BASE}/v1/gh101a/medium.webp",
+        "images": [
+          "{LEGACY_BASE}/v1/gh101a/large.webp",
+          "{LEGACY_BASE}/v1/gh101b/large.webp"
+        ],
+        "kind": "property",
+        "latitude": 36.51,
+        "location": "Marbella",
+        "longitude": -4.88,
+        "plot": 1200,
+        "price": 1250000,
+        "price_on_request": false,
+        "province": "Málaga",
+        "ref": "GH-101",
+        "status": "available",
+        "terrace": 40,
+        "title": "Sea view villa in Marbella",
+        "transaction": "sale",
+        "type": "Villa",
+        "type_id": "gt-1",
+        "year_built": 2015
+      },
+      "status": "ok"
+    }
+  }
+}

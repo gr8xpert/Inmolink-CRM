@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ApiKeyScope } from '@inmolink/contracts';
 import * as identity from '@inmolink/core/modules/identity';
 import * as websiteApi from '@inmolink/core/modules/website-api';
-import { isAppError } from '@inmolink/platform/errors';
+import { AppError, isAppError } from '@inmolink/platform/errors';
 import {
   ipBucket,
   LocalFixedWindows,
@@ -24,6 +24,14 @@ export interface RequireApiKeyOptions {
   write?: boolean;
   /** A detail or sitemap request: the sync rules apply (S7-F7 detail / sync counting). */
   sync?: boolean;
+  /**
+   * The v1 shim only (S8-02): legacy websites send their key as this query parameter, and cannot be changed (the
+   * cutover is a DNS flip). Only keys marked as migrated legacy keys (`legacyQueryKey`) are accepted that way; header
+   * keys still win. Request logs never carry query strings (`stripQuery`); `api_key` is a redacted log key too.
+   */
+  keyParam?: string;
+  /** The v1 shim only (S8-02): a request whose numbered page (this query parameter) is past the first is paged. */
+  pageParam?: string;
 }
 
 declare module 'fastify' {
@@ -62,12 +70,24 @@ declare module 'fastify' {
 
 const BEARER = /^Bearer\s+(\S+)$/i;
 
-/** The key from `X-Api-Key`, else from `Authorization: Bearer`. Never from the query string (logs, caches). */
-function keyOf(request: FastifyRequest): string | undefined {
+/** The longest legacy query-parameter key looked at (S8-02): longer values are no key at all. */
+const MAX_QUERY_KEY = 200;
+
+/**
+ * The key from `X-Api-Key`, else from `Authorization: Bearer`. Never from the query string (logs, caches) — except the
+ * legacy parameter of a v1 shim route (`keyParam`, S8-02), reported as `fromQuery`: only migrated legacy keys may come
+ * that way.
+ */
+function keyOf(request: FastifyRequest, keyParam?: string): { key: string | undefined; fromQuery: boolean } {
   const header = request.headers['x-api-key'];
-  if (typeof header === 'string' && header !== '') return header.trim();
+  if (typeof header === 'string' && header !== '') return { key: header.trim(), fromQuery: false };
   const auth = request.headers.authorization;
-  return auth ? BEARER.exec(auth)?.[1] : undefined;
+  const bearer = auth ? BEARER.exec(auth)?.[1] : undefined;
+  if (bearer !== undefined || keyParam === undefined) return { key: bearer, fromQuery: false };
+  const legacy = (request.query as Record<string, unknown> | undefined)?.[keyParam];
+  return typeof legacy === 'string' && legacy !== '' && legacy.length <= MAX_QUERY_KEY
+    ? { key: legacy.trim(), fromQuery: true }
+    : { key: undefined, fromQuery: false };
 }
 
 /**
@@ -120,9 +140,10 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
       async (request: FastifyRequest, reply: FastifyReply) => {
         let principal: identity.ApiKeyPrincipal;
         const ip = ipBucket(request.ip);
+        const { key, fromQuery } = keyOf(request, options.keyParam);
         try {
           principal = await identity.authenticateApiKey({
-            key: keyOf(request),
+            key,
             origin: request.headers.origin,
             scope,
             // S7-F9: an IP in the failed-checks penalty box gets no database lookup for a key no cache knows. Only on a
@@ -137,6 +158,9 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
               if (peeked && !peeked.allowed) throw new FailedChecksPenalty(peeked.retryAfterSeconds);
             },
           });
+          // S8-02: a key in the query string must be a migrated legacy key; a v2 key sent that way is refused (and counts
+          // as a failed check), so v2 keys never start living in URLs.
+          if (fromQuery && !principal.legacyQueryKey) throw new AppError('API_KEY_INVALID');
         } catch (err) {
           if (err instanceof FailedChecksPenalty) return replyRateLimited(reply, 'ip', err.retryAfterSeconds);
           // Unknown keys are never cached, so guessing costs a query: cap failed checks per client IP — a wrong key, and
@@ -151,18 +175,18 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
           throw err;
         }
         request.apiKey = principal;
-        request.edgeKeyToken = edgeKeyToken(keyOf(request) as string, request.headers.origin);
+        request.edgeKeyToken = edgeKeyToken(key as string, request.headers.origin);
         // The key's tier, the agency's ceiling, burst, daily quota, per-browser limits (publishable keys) and the paging
         // rules (S7-04): one Redis round trip, decided in core.
         const cursor = cursorOf(request);
         const decision = await websiteApi.checkWebsiteLimits(deps.limiter, principal, {
           ip: ipBucket(request.ip),
-          paged: options.paged === true && cursor !== undefined,
+          paged: options.paged === true && (cursor !== undefined || pastFirstPage(request, options.pageParam)),
           listingsCursor: options.listings === true ? cursor : undefined,
           // S7-F7: a filtered first page of `/v2/listings` or `/v2/developments` counts towards filter-slicing (its
           // signature from the query as the route's schema parses it); details and sitemap pages towards the sync budget.
           filterSignature:
-            options.slicing !== undefined && cursor === undefined
+            options.slicing !== undefined && cursor === undefined && !pastFirstPage(request, options.pageParam)
               ? websiteApi.sliceSignature(options.slicing, request.query)
               : undefined,
           sync: options.sync === true,
@@ -208,4 +232,11 @@ ${origin ?? ''}`)
 function cursorOf(request: FastifyRequest): string | undefined {
   const cursor = (request.query as Record<string, unknown> | undefined)?.cursor;
   return typeof cursor === 'string' && cursor !== '' ? cursor : undefined;
+}
+
+/** A v1 shim request for a numbered page after the first (S8-02: legacy `page`). */
+function pastFirstPage(request: FastifyRequest, pageParam: string | undefined): boolean {
+  if (pageParam === undefined) return false;
+  const page = (request.query as Record<string, unknown> | undefined)?.[pageParam];
+  return typeof page === 'number' ? page > 1 : typeof page === 'string' && Number(page) > 1;
 }

@@ -19,6 +19,8 @@
     "tests/ci",
     "tests/ops",
     "tests/load",
+    "tests/golden",
+    "scripts/legacy-api",
     "scripts/perf/load-setup.ts",
     "scripts/perf/load-sites.ts",
     "scripts/perf/smoke.ts"

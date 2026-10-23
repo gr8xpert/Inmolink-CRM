@@ -470,6 +470,22 @@ describe('website API extraction budgets (S7-F7)', () => {
     ]);
   });
 
+  it('[S8-02] the v1 shim counts filter slices like /v2/listings: a secret key slicing /v1/properties alerts key-wide', async () => {
+    limits({ slicePerKey: { STANDARD: 5, HIGH: 5 } });
+    nextHour();
+    const key = await newKey('SECRET');
+    const pages = [];
+    for (let i = 0; i < 8; i++) {
+      // Repeats of a slice count once; a page past the first is paging, not a new slice.
+      pages.push(await get(`/v1/properties?limit=1&min_price=${i * 10}`, key));
+      pages.push(await get(`/v1/properties?limit=1&min_price=${i * 10}`, key));
+    }
+    expect(pages.every((p) => p.statusCode === 200 && p.headers.etag !== undefined)).toBe(true);
+    expect(alerts).toEqual([
+      expect.objectContaining({ rule: 'feed.slice.key.standard', action: 'observed', scope: 'key', keyKind: 'SECRET' }),
+    ]);
+  });
+
   it('[S7-F7] details the change feed explains do not count against the sync budget (each entry credited once, secret keys only); unexplained ones do', async () => {
     limits({ syncPerKey: { STANDARD: 3, HIGH: 3 }, syncBrowserFlag: 3, syncBrowserLimit: 5 });
     const plugin = await newKey('SECRET');

@@ -251,6 +251,18 @@ const MAX_SORT_VALUE = 1e15;
 
 const encode = (c: CursorState) => Buffer.from(JSON.stringify(c)).toString('base64url');
 
+/**
+ * The engine cursor of the page starting `offset` results down (S8-02: the v1 shim's legacy `page` numbers). Undefined
+ * for the first page. Past `SEARCH_RESULT_CAP` there is no page (null). In the Postgres fallback an engine cursor
+ * restarts at the first keyset page with `resultsChanged` (the fallback never runs an SQL OFFSET, S6-F2).
+ */
+export function searchOffsetCursor(sort: PublicSearchSort, offset: number): string | undefined | null {
+  if (!Number.isInteger(offset) || offset < 0) throw new RangeError('offset must be a non-negative integer');
+  if (offset === 0) return undefined;
+  if (offset >= SEARCH_RESULT_CAP) return null;
+  return encode({ s: sort, o: offset });
+}
+
 /** A cursor this sort could have produced, or VALIDATION_FAILED: a forged one never reaches SQL as a type error. */
 function decode(cursor: string | undefined, sort: PublicSearchSort): CursorState | undefined {
   if (cursor === undefined) return undefined;

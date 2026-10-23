@@ -1,0 +1,20 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties",
+  "case": "synthetic-bad-page",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties",
+    "query": {
+      "page": "0"
+    }
+  },
+  "response": {
+    "status": 400,
+    "contentType": "application/json",
+    "json": {
+      "message": "Invalid parameter",
+      "status": "error"
+    }
+  }
+}

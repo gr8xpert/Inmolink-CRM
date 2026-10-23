@@ -234,6 +234,12 @@ export interface GlobalTable {
    */
   noUserRead?: true;
   /**
+   * With `publicRead` and `noUserRead` (S8-02): `app_public` reads only the rows matching this predicate (default: every
+   * row). `publicSamples` are rows the isolation suite seeds to check both sides.
+   */
+  publicReadSql?: string;
+  publicSamples?: PredicateSamples;
+  /**
    * `app_owner` (the owner of SECURITY DEFINER functions and of the generated definer views, `rls.ts` `DEFINER_VIEWS`)
    * may read every row: the table is read through one of those only (S7-F4, S7-F10), no application role has a grant.
    * Forced RLS binds the owner too, hence the explicit policy.
@@ -886,8 +892,19 @@ export const globalTables: Record<string, GlobalTable> = {
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
   legacy_id_maps: {
     reason: 'every legacy ID and the v2 ID it became (ADR 0006), permanent',
-    // import scripts only; tenant entity maps (S14) must not be readable across agencies (S3-F1)
+    // Written by import scripts only; tenant entity maps (S14) must not be readable across agencies (S3-F1), so no
+    // `app_user` read. S8-02 (narrows S3-F1's "app_system only"): the v1 shim (feed-api, `app_public`) reads the
+    // taxonomy maps (location, property type, feature: platform reference data) to resolve legacy filter ids. Listing
+    // and unit maps stay unreadable by every app role: the shim reaches them only through the SECURITY DEFINER lookups
+    // `legacy_target_ids` / `legacy_ids_of` (owner `app_owner`, `definerRead`), which answer ids for given ids only.
     noUserRead: true,
+    publicRead: true,
+    publicReadSql: `entity in ('location', 'propertyType', 'feature')`,
+    publicSamples: {
+      visible: [{ entity: 'location' }, { entity: 'propertyType' }, { entity: 'feature' }],
+      hidden: [{ entity: 'listing' }, { entity: 'unit' }, { entity: 'contact' }],
+    },
+    definerRead: true,
     base: { entity: 'location', method: 'exact' },
   },
 };

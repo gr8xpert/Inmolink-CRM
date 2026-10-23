@@ -1,0 +1,1 @@
+ALTER TABLE "api_keys" ADD COLUMN "legacy_query_key" boolean DEFAULT false NOT NULL;

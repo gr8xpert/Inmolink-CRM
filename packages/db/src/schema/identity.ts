@@ -312,6 +312,12 @@ export const apiKeys = pgTable(
      */
     siteId: uuid('site_id'),
     agencyActive: boolean('agency_active').notNull().default(true),
+    /**
+     * S8-02: a key migrated from legacy Inmolink, which legacy websites send as the `api_key` query parameter of the v1
+     * shim (`/v1/*` only). Every other key is refused there. Set by the legacy key import / `pnpm legacy:key-flag`
+     * (`app_system`), never by a dashboard path.
+     */
+    legacyQueryKey: boolean('legacy_query_key').notNull().default(false),
     /** The admin who created the key (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),

@@ -27,6 +27,8 @@ export const HELPER_FUNCTIONS = [
   'app_preferring_agencies',
   'app_partition_maintenance',
   'website_network_open',
+  'legacy_target_ids',
+  'legacy_ids_of',
 ] as const;
 
 /**
@@ -133,6 +135,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     }
   } else {
     if (def.access && def.publicRead) throw new Error(`${name}: an ${def.access} table cannot be publicRead`);
+    if ((def.publicReadSql !== undefined || def.publicSamples) && !(def.publicRead && def.noUserRead)) {
+      throw new Error(`${name}: publicReadSql is only valid with publicRead and noUserRead`);
+    }
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
     if (def.mediaWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be mediaWrite`);
@@ -388,8 +393,23 @@ end $$;`,
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer) from public;`,
+    // S8-02: the v1 shim's listing and unit legacy ids. feed-api (app_public) reads only the taxonomy maps; these two
+    // answer, for the ids a request names, the matching ids and nothing else (no scan: at most 1,000 inputs, each an
+    // index probe). Owned by app_owner (its `definer_read` policy on legacy_id_maps).
+    `create or replace function legacy_target_ids(legacy_ids text[]) returns table(entity text, legacy_id text, new_id uuid)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select m.entity, m.legacy_id, m.new_id
+          from (select distinct x from unnest(legacy_ids[1:1000]) x) k
+          join public.legacy_id_maps m on m.entity in ('listing', 'unit') and m.legacy_id = k.x $$;`,
+    `create or replace function legacy_ids_of(new_ids uuid[]) returns table(new_id uuid, legacy_id text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select m.new_id, min(m.legacy_id)
+          from public.legacy_id_maps m
+         where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
+         group by m.new_id $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]) from public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
+    `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,
@@ -636,7 +656,12 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
     : [];
   return [
     ...definerRead,
-    ...(readers ? [`create policy global_read on ${t} for select to ${readers} using (true);`] : []),
+    // S8-02: a `publicReadSql` narrows app_public's rows (only with noUserRead, so app_public is the sole reader).
+    ...(readers
+      ? [
+          `create policy global_read on ${t} for select to ${readers} using (${def.publicReadSql === undefined ? 'true' : predicate(name, def.publicReadSql)});`,
+        ]
+      : []),
     `revoke all on table ${t} from ${APP_ROLES};`,
     ...(readers ? [`grant select on table ${t} to ${readers};`] : []),
     `grant select, insert, update, delete on table ${t} to app_system;`,

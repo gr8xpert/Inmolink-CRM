@@ -1,0 +1,24 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties",
+  "case": "synthetic-unknown-type",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties",
+    "query": {
+      "type": "gt-999"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "page": 1,
+      "per_page": 20,
+      "properties": [],
+      "status": "ok",
+      "total": 0,
+      "total_pages": 0
+    }
+  }
+}

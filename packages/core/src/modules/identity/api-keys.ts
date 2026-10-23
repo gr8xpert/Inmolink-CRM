@@ -244,6 +244,36 @@ export async function setApiKeyRateTier(
   return changed.length;
 }
 
+/**
+ * S8-02 (system only: the legacy key import, `pnpm legacy:key-flag`): marks the agency's active key with this prefix as
+ * a migrated legacy key — the only kind the v1 shim accepts as its legacy `api_key` query parameter — or clears it.
+ * Audited; the cached lookup is dropped (other processes' copies expire in 15 s). False: no such active key.
+ */
+export async function setLegacyQueryKey(
+  ctx: Ctx,
+  input: { prefix: string; enabled: boolean; reason: string },
+): Promise<boolean> {
+  if (ctx.actor.kind !== 'system') throw new AppError('FORBIDDEN');
+  if (!/^[a-z0-9][a-z0-9.:-]{0,63}$/.test(input.reason)) throw new TypeError('reason must be a short code');
+  if (!PREFIX_RE.test(input.prefix)) throw new TypeError('not a key prefix');
+  const changed = await keysRepo.setLegacyQueryKey(
+    ctx.tx,
+    ctx.tenant.agencyId,
+    input.prefix,
+    input.enabled,
+    clock.now(),
+  );
+  if (!changed) return false;
+  await compliance.audit(
+    ctx,
+    'identity.apiKey.legacyQueryKeyChanged',
+    { type: 'apiKey', id: changed.id },
+    { prefix: input.prefix, enabled: input.enabled, reason: input.reason },
+  );
+  await cache.delete(apiKeyCacheKey(input.prefix));
+  return true;
+}
+
 // ── Website API: authenticate a request ───────────────────────────────────────────────────────────
 
 /** Who is calling the website API, once the key checked out. */
@@ -255,6 +285,8 @@ export interface ApiKeyPrincipal {
   rateTier: ApiKeyRateTier;
   /** The website the key serves (`websites.siteScope`); null for keys created before sites existed (S7-01). */
   siteId: string | null;
+  /** S8-02: a migrated legacy key — the only kind the v1 shim accepts as its `api_key` query parameter. */
+  legacyQueryKey: boolean;
 }
 
 export interface ApiKeyRequest {
@@ -309,6 +341,8 @@ export async function authenticateApiKey(req: ApiKeyRequest): Promise<ApiKeyPrin
     rateTier: row.rateTier,
     // A lookup cached before S7-01 has no site: it reads as none until the entry expires.
     siteId: row.siteId ?? null,
+    // A lookup cached before S8-02 has no flag: not a legacy key until the entry expires.
+    legacyQueryKey: row.legacyQueryKey === true,
   };
 }
 

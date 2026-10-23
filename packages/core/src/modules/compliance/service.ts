@@ -47,6 +47,7 @@ export const AUDIT_TYPES = [
   'identity.apiKey.rotated',
   'identity.apiKey.revoked',
   'identity.apiKey.tierChanged',
+  'identity.apiKey.legacyQueryKeyChanged',
   'agencies.verification.decided',
   'agencies.profile.updated',
   'agencies.giveToGet.changed',

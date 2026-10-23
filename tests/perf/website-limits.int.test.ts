@@ -30,6 +30,7 @@ const key = (kind: 'SECRET' | 'PUBLISHABLE', i: number): identity.ApiKeyPrincipa
   scopes: ['listings:read'],
   rateTier: 'HIGH',
   siteId: SITE,
+  legacyQueryKey: false,
 });
 const SITE = '01900000-0000-7000-8000-00000000fe01';
 

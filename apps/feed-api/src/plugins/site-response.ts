@@ -37,6 +37,8 @@ export interface SiteJsonOptions {
   noStore?: boolean;
   /** The request's site: what its answer showed names its `Cache-Tag`s (S7-06). Without it: never edge-cached. */
   site?: websiteApi.ApiSite;
+  /** The `Cache-Control` of a private answer (S8-02: the v1 shim's `private, no-cache`). */
+  privateCacheControl?: string;
 }
 
 /**
@@ -66,7 +68,10 @@ export function sendSiteJson<S extends z.ZodType>(
   const tags = options.site && edgePublic(req, rule) ? websiteApi.edgeTagsOf(options.site) : null;
   const etag = etagFor(json);
   reply
-    .header('Cache-Control', tags ? publicCacheControl(rule) : SITE_CACHE_POLICY.private)
+    .header(
+      'Cache-Control',
+      tags ? publicCacheControl(rule) : (options.privateCacheControl ?? SITE_CACHE_POLICY.private),
+    )
     .header('ETag', etag)
     .header('Vary', tags ? SITE_CACHE_POLICY.publicVary : SITE_CACHE_POLICY.vary);
   // Cloudflare strips it before the client; the tags are keyed hashes, never ids.

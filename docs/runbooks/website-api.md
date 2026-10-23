@@ -224,3 +224,39 @@ hop, feed-api under tsx, leftover rows of other suites): the acceptance numbers 
    run at a low rate (the fallback unless `--engine`; it passes `DEGRADED=1`).
 6. Clean up: `NODE_ENV=production DEPLOY_ENV=staging pnpm perf:load:setup --teardown --staging`, delete
    `/secure/website-keys.json`.
+
+## Legacy v1 shim (S8-02)
+
+`/v1/*` on feed-api answers legacy client websites unchanged (PLAN §9.3): `GET /v1/properties`, `/v1/properties/{id}`
+(a legacy property id or a site reference) and `/v1/types`. Answers are `private, no-cache` with a strong ETag; errors
+are `{ "status": "error", "message": … }`.
+
+- **Keys.** A key may come as the legacy `api_key` query parameter only when it is marked as a migrated legacy key
+  (`api_keys.legacy_query_key`, set by the legacy key import or `pnpm legacy:key-flag --agency <id> --prefix <prefix>
+  --on --reason <code>`); any other key there is a 401. Header keys work for every key. App logs never carry query
+  strings and redact `api_key`.
+- **Legacy ids.** Taxonomy maps (location, property type, feature) are loaded whole into each feed-api process at boot
+  and reloaded in the background every 5 min: a new migration batch's filter ids work within 5 min, no restart.
+  Listing and unit ids go through the SECURITY DEFINER lookups `legacy_target_ids` / `legacy_ids_of`; `app_public`
+  cannot read those maps.
+- **Shapes are assumed** until H2: `tests/golden/synthetic/` holds hand-derived golden files for the assumed contract
+  (contracts `legacy-v1.ts`). Recorded files (`pnpm legacy:record`) go to `tests/golden/<endpoint>/` with
+  `tests/golden/fixture.json` (the test account's read-path rows after its migration); `pnpm test:golden` replays all
+  of them byte for byte (and checks `traffic.json`'s 99% set is covered); CI runs it in `test:int:root`.
+- **Paging.** Legacy `page` numbers are engine offsets (≤ 10,000 results). While the search engine is down (the
+  Postgres fallback answers, keyset only), pages after the first are empty rather than repeating page 1.
+- **Capacity.** `/v1` is never edge-cached (the URL carries the key): every legacy request reaches the origin, ETag
+  revalidation saves only the body. Size feed-api for the legacy sites' full request rate until they move to v2/the
+  plugin (load test: add `/v1` to `tests/load` before cutover).
+
+### Cutover checklist (legacy hostname)
+
+1. Mark every migrated site's key as a legacy key (the import does it; check `select count(*) from api_keys where
+   legacy_query_key`).
+2. Cloudflare on the legacy hostname: a transform rule rewriting `/api/*` to `/v1/*` (`legacyShimPath`), and **strip
+   `api_key` from logs**: Logpush/log fields exclude the query string (or `ClientRequestURI`), and the origin proxy
+   (kamal-proxy) logs no query strings.
+3. Flip DNS to feed-api; rollback is the DNS flip.
+4. After cutover, as each site moves to the plugin or header keys: rotate its key (the old one has lived in URLs) and
+   clear its legacy flag (`pnpm legacy:key-flag … --off`).
+5. Change a `/v1` answer only with an approved golden update in STATUS.

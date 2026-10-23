@@ -1201,6 +1201,31 @@ Ref §9.4 · Mod wp-plugin · Dep S8-04
 
 ---
 
+### S8-F10 · v1 cutover on the legacy hostname (S8-02) · [H5]
+Ref §9.3 · Mod ops, feed-api · Dep S8-02
+**Build:** a Cloudflare transform rule on the legacy hostname rewriting `/api/*` to `/v1/*` (`legacyShimPath`), managed with `pnpm ops:cdn-rules`; Logpush and the origin proxy configured so no log on that hostname keeps the query string (`api_key`); `/v1` added to the k6 website mix (`tests/load`) with the legacy sites' request rate.
+**Done when:**
+- The rule maps every legacy path the traffic report names to its `/v1` route (test over `traffic.json`)
+- A request with `?api_key=` leaves no key in Cloudflare or proxy logs (staging check, runbook step)
+- `/v1` at the legacy sites' peak rate stays within the feed-api budget in the load test
+
+### S8-F18 · v1 coverage of the real traffic (S8-02) · [H2]
+Ref §9.3 · Mod feed-api, website-api · Dep S8-01 S8-02
+**Build:** every endpoint of the traffic report's 99% set the shim does not serve yet — likely `/api/locations` (with legacy location ids from the taxonomy maps) and `POST /api/contact` (to the S7-05 lead intake: Turnstile and idempotency mapping, a hand-written golden).
+**Done when:** `pnpm test:golden`'s coverage check passes on the real `traffic.json`; each new route stays within 3 queries and p95 < 150 ms
+
+### S8-F19 · Legacy key import marks keys (S8-02) · [H1]
+Ref §14 · Mod migration, identity · Dep S8-02 S14-03
+**Build:** the legacy key import creates each site's v2 key with the legacy key's value hashed (zero-touch cutover) and `legacy_query_key = true`; a guard-trigger rule so no `app_user` write can set `legacy_query_key`; a staff report of keys still used as `?api_key=` (last seen) to drive rotation after cutover.
+**Done when:**
+- An imported legacy key authenticates as `?api_key=` on `/v1`, a dashboard-created key does not (test)
+- An `app_user` update setting `legacy_query_key` is refused (isolation/guard test)
+
+### S8-F20 · v1 golden parity sign-off (S8-02) · [H2]
+Ref §9.3 · Mod feed-api, website-api · Dep S8-01 S8-F18 S14-03
+**Build:** export the H2 test account's read-path rows to `tests/golden/fixture.json`; reshape contracts `legacy-v1.ts` and core `website-api/legacy-v1.ts` until every recorded golden matches; delete `tests/golden/synthetic/`; freeze `/v1`.
+**Done when:** `pnpm test:golden` passes with 100% parity on the recorded set in CI; S8-02 marked DONE
+
 ## S9 — Portal exports
 
 ### S9-01 · Portal connections and selection rules

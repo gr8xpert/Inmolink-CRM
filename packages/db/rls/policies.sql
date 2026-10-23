@@ -53,8 +53,20 @@ create or replace function website_network_open(a_id uuid, min_shared integer, g
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer) from public;
+create or replace function legacy_target_ids(legacy_ids text[]) returns table(entity text, legacy_id text, new_id uuid)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select m.entity, m.legacy_id, m.new_id
+          from (select distinct x from unnest(legacy_ids[1:1000]) x) k
+          join public.legacy_id_maps m on m.entity in ('listing', 'unit') and m.legacy_id = k.x $$;
+create or replace function legacy_ids_of(new_ids uuid[]) returns table(new_id uuid, legacy_id text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select m.new_id, min(m.legacy_id)
+          from public.legacy_id_maps m
+         where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
+         group by m.new_id $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]) from public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
+grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -511,7 +523,10 @@ grant select, insert, update, delete on table public."job_checkpoints" to app_sy
 -- legacy_id_maps: GLOBAL
 alter table public."legacy_id_maps" enable row level security;
 alter table public."legacy_id_maps" force row level security;
+create policy definer_read on public."legacy_id_maps" for select to app_owner using (true);
+create policy global_read on public."legacy_id_maps" for select to app_public using (entity in ('location', 'propertyType', 'feature'));
 revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."legacy_id_maps" to app_public;
 grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
 
 -- listing_bookmarks: STRICT

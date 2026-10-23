@@ -969,6 +969,28 @@ describe.each(globalNames)('global table %s', (table) => {
     it(`[S0-05] ${table}: app_public can read it`, async () => {
       expect(await withPublicRead(seen)).toBe(1);
     });
+    const samples = def.publicSamples;
+    if (samples) {
+      it(`[S8-02] ${table}: publicReadSql — app_public reads exactly the rows its predicate opens`, async () => {
+        for (const [sample, expected] of [
+          ...samples.visible.map((v) => [v, 1] as const),
+          ...samples.hidden.map((h) => [h, 0] as const),
+        ]) {
+          const row = buildRow(table, await columnsOf(admin, table), { ...def.base, ...sample });
+          const at = await withReplicaRole(admin, () => seed(admin, table, row));
+          try {
+            const n = await withPublicRead((tx) =>
+              tx
+                .execute(sql`select count(*) as n from ${sql.identifier(table)} where ctid = ${at}::tid`)
+                .then((r) => Number(r.rows[0]?.n)),
+            );
+            expect(n, JSON.stringify(sample)).toBe(expected);
+          } finally {
+            await admin.query(`delete from "${table}" where ctid = $1::tid`, [at]);
+          }
+        }
+      });
+    }
   } else {
     it(`[S0-05] ${table}: app_public cannot read it`, async () => {
       await expectSqlState(() => withPublicRead(seen), DENIED);

@@ -1,0 +1,331 @@
+{
+  "synthetic": true,
+  "about": "SYNTHETIC fixture (S8-02): no real legacy traffic exists yet (S8-01 BLOCKED-HUMAN H2). The golden files beside it encode the ASSUMED legacy contract (contracts legacy-v1.ts), not recorded legacy answers. Rows of the public read path (listing_search_docs, listing_read_models, listing_public_codes, legacy_id_maps) that the parity suite loads for the site's own agency.",
+  "base": "https://media.example",
+  "site": {
+    "locales": ["en"],
+    "referencePrefix": "GS",
+    "contact": { "name": "Golden Homes", "email": "info@golden-homes.example", "phone": "+34 600 000 000" }
+  },
+  "catalog": {
+    "propertyTypes": [
+      {
+        "id": "0195f0a5-0805-7000-8000-000000000001",
+        "key": "golden-homes",
+        "name": "Homes",
+        "slug": "homes",
+        "types": [
+          { "id": "0195f0a5-0802-7000-8000-000000000001", "key": "golden-villa", "name": "Villa", "slug": "villa" },
+          { "id": "0195f0a5-0802-7000-8000-000000000002", "key": "golden-apartment", "name": "Apartment", "slug": "apartment" },
+          { "id": "0195f0a5-0802-7000-8000-000000000003", "key": "golden-townhouse", "name": "Townhouse", "slug": "townhouse" }
+        ]
+      }
+    ]
+  },
+  "legacyIds": [
+    { "entity": "propertyType", "legacyId": "gt-1", "newId": "0195f0a5-0802-7000-8000-000000000001" },
+    { "entity": "propertyType", "legacyId": "gt-2", "newId": "0195f0a5-0802-7000-8000-000000000002" },
+    { "entity": "location", "legacyId": "gl-0", "newId": "0195f0a5-0803-7000-8000-000000000000" },
+    { "entity": "location", "legacyId": "gl-1", "newId": "0195f0a5-0803-7000-8000-000000000001" },
+    { "entity": "location", "legacyId": "gl-2", "newId": "0195f0a5-0803-7000-8000-000000000002" },
+    { "entity": "location", "legacyId": "gl-3", "newId": "0195f0a5-0803-7000-8000-000000000003" },
+    { "entity": "feature", "legacyId": "gf-1", "newId": "0195f0a5-0804-7000-8000-000000000001" }
+  ],
+  "listings": [
+    {
+      "legacyId": "910001",
+      "code": "G0000001",
+      "search": {
+        "kind": "LISTING",
+        "status": "ACTIVE",
+        "transactionType": "SALE",
+        "propertyTypeId": "0195f0a5-0802-7000-8000-000000000001",
+        "locationIds": [
+          "0195f0a5-0803-7000-8000-000000000000",
+          "0195f0a5-0803-7000-8000-000000000001",
+          "0195f0a5-0803-7000-8000-000000000002"
+        ],
+        "featureIds": ["0195f0a5-0804-7000-8000-000000000001"],
+        "priceCents": 125000000,
+        "priceOnRequest": false,
+        "beds": 4,
+        "baths": 3,
+        "areaM2": 320,
+        "plotM2": 1200,
+        "lat": 36.51,
+        "lng": -4.88,
+        "ref": "GH-101",
+        "publishedAt": 1700000300
+      },
+      "card": {
+        "kind": "LISTING",
+        "id": "0195f0a5-0801-7000-8000-000000000001",
+        "ref": "GH-101",
+        "status": "ACTIVE",
+        "transactionType": "SALE",
+        "price": { "amountCents": 125000000, "currency": "EUR", "period": null, "onRequest": false },
+        "propertyType": { "id": "0195f0a5-0802-7000-8000-000000000001", "name": "Villa", "slug": "villa" },
+        "place": {
+          "country": { "id": "0195f0a5-0803-7000-8000-000000000000", "name": "Spain", "slug": "spain" },
+          "region": { "id": "0195f0a5-0803-7000-8000-000000000001", "name": "Málaga", "slug": "malaga" },
+          "city": { "id": "0195f0a5-0803-7000-8000-000000000002", "name": "Marbella", "slug": "marbella" },
+          "area": null
+        },
+        "bedrooms": 4,
+        "bathrooms": 3,
+        "builtM2": 320,
+        "plotM2": 1200,
+        "geo": { "lat": 36.51, "lng": -4.88, "precision": "APPROX" },
+        "cover": {
+          "kind": "IMAGE",
+          "cover": true,
+          "alt": null,
+          "room": null,
+          "width": 1600,
+          "height": 1067,
+          "variants": { "medium": "v1/gh101a/medium.webp", "large": "v1/gh101a/large.webp" }
+        },
+        "imageCount": 2,
+        "developmentId": null,
+        "title": "Sea view villa in Marbella",
+        "slug": "sea-view-villa-in-marbella",
+        "textLocale": null
+      },
+      "detail": {
+        "description": "A family villa with a pool and sea views.",
+        "metaTitle": null,
+        "metaDescription": null,
+        "terraceM2": 40,
+        "yearBuilt": 2015,
+        "priceToCents": null,
+        "communityFeeMonthCents": null,
+        "ibiYearCents": null,
+        "garbageTaxYearCents": null,
+        "energyRating": "B",
+        "energyEmissionsRating": null,
+        "features": [{ "id": "0195f0a5-0804-7000-8000-000000000001", "name": "Private pool", "slug": "private-pool" }],
+        "media": [
+          {
+            "kind": "IMAGE",
+            "cover": true,
+            "alt": null,
+            "room": null,
+            "width": 1600,
+            "height": 1067,
+            "variants": { "medium": "v1/gh101a/medium.webp", "large": "v1/gh101a/large.webp" }
+          },
+          {
+            "kind": "IMAGE",
+            "cover": false,
+            "alt": null,
+            "room": null,
+            "width": 1600,
+            "height": 1067,
+            "variants": { "medium": "v1/gh101b/medium.webp", "large": "v1/gh101b/large.webp" }
+          }
+        ]
+      }
+    },
+    {
+      "legacyId": "910002",
+      "code": "G0000002",
+      "search": {
+        "kind": "LISTING",
+        "status": "UNDER_OFFER",
+        "transactionType": "SALE",
+        "propertyTypeId": "0195f0a5-0802-7000-8000-000000000002",
+        "locationIds": [
+          "0195f0a5-0803-7000-8000-000000000000",
+          "0195f0a5-0803-7000-8000-000000000001",
+          "0195f0a5-0803-7000-8000-000000000003"
+        ],
+        "featureIds": [],
+        "priceCents": 42500000,
+        "priceOnRequest": false,
+        "beds": 2,
+        "baths": 2,
+        "areaM2": 95,
+        "plotM2": null,
+        "lat": null,
+        "lng": null,
+        "ref": "GH-102",
+        "publishedAt": 1700000200
+      },
+      "card": {
+        "kind": "LISTING",
+        "id": "0195f0a5-0801-7000-8000-000000000002",
+        "ref": "GH-102",
+        "status": "UNDER_OFFER",
+        "transactionType": "SALE",
+        "price": { "amountCents": 42500000, "currency": "EUR", "period": null, "onRequest": false },
+        "propertyType": { "id": "0195f0a5-0802-7000-8000-000000000002", "name": "Apartment", "slug": "apartment" },
+        "place": {
+          "country": { "id": "0195f0a5-0803-7000-8000-000000000000", "name": "Spain", "slug": "spain" },
+          "region": { "id": "0195f0a5-0803-7000-8000-000000000001", "name": "Málaga", "slug": "malaga" },
+          "city": { "id": "0195f0a5-0803-7000-8000-000000000003", "name": "Estepona", "slug": "estepona" },
+          "area": null
+        },
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "builtM2": 95,
+        "plotM2": null,
+        "geo": null,
+        "cover": null,
+        "imageCount": 0,
+        "developmentId": null,
+        "title": "Frontline beach apartment",
+        "slug": "frontline-beach-apartment",
+        "textLocale": null
+      },
+      "detail": {
+        "description": null,
+        "metaTitle": null,
+        "metaDescription": null,
+        "terraceM2": null,
+        "yearBuilt": null,
+        "priceToCents": null,
+        "communityFeeMonthCents": null,
+        "ibiYearCents": null,
+        "garbageTaxYearCents": null,
+        "energyRating": "D",
+        "energyEmissionsRating": null,
+        "features": [],
+        "media": []
+      }
+    },
+    {
+      "legacyId": null,
+      "code": "G0000003",
+      "search": {
+        "kind": "LISTING",
+        "status": "ACTIVE",
+        "transactionType": "RENT_LONG_TERM",
+        "propertyTypeId": "0195f0a5-0802-7000-8000-000000000002",
+        "locationIds": [
+          "0195f0a5-0803-7000-8000-000000000000",
+          "0195f0a5-0803-7000-8000-000000000001",
+          "0195f0a5-0803-7000-8000-000000000002"
+        ],
+        "featureIds": [],
+        "priceCents": 180000,
+        "priceOnRequest": false,
+        "beds": 1,
+        "baths": 1,
+        "areaM2": 60,
+        "plotM2": null,
+        "lat": 36.5,
+        "lng": -4.9,
+        "ref": "GH-103",
+        "publishedAt": 1700000100
+      },
+      "card": {
+        "kind": "LISTING",
+        "id": "0195f0a5-0801-7000-8000-000000000003",
+        "ref": "GH-103",
+        "status": "ACTIVE",
+        "transactionType": "RENT_LONG_TERM",
+        "price": { "amountCents": 180000, "currency": "EUR", "period": "MONTH", "onRequest": false },
+        "propertyType": { "id": "0195f0a5-0802-7000-8000-000000000002", "name": "Apartment", "slug": "apartment" },
+        "place": {
+          "country": { "id": "0195f0a5-0803-7000-8000-000000000000", "name": "Spain", "slug": "spain" },
+          "region": { "id": "0195f0a5-0803-7000-8000-000000000001", "name": "Málaga", "slug": "malaga" },
+          "city": { "id": "0195f0a5-0803-7000-8000-000000000002", "name": "Marbella", "slug": "marbella" },
+          "area": null
+        },
+        "bedrooms": 1,
+        "bathrooms": 1,
+        "builtM2": 60,
+        "plotM2": null,
+        "geo": { "lat": 36.5, "lng": -4.9, "precision": "APPROX" },
+        "cover": null,
+        "imageCount": 0,
+        "developmentId": null,
+        "title": "Town apartment for long-term rent",
+        "slug": "town-apartment-for-long-term-rent",
+        "textLocale": null
+      },
+      "detail": {
+        "description": "Close to the old town.",
+        "metaTitle": null,
+        "metaDescription": null,
+        "terraceM2": 8,
+        "yearBuilt": 1998,
+        "priceToCents": null,
+        "communityFeeMonthCents": null,
+        "ibiYearCents": null,
+        "garbageTaxYearCents": null,
+        "energyRating": "E",
+        "energyEmissionsRating": null,
+        "features": [],
+        "media": []
+      }
+    },
+    {
+      "legacyId": "910004",
+      "code": "G0000004",
+      "search": {
+        "kind": "LISTING",
+        "status": "ACTIVE",
+        "transactionType": "SALE",
+        "propertyTypeId": "0195f0a5-0802-7000-8000-000000000001",
+        "locationIds": [
+          "0195f0a5-0803-7000-8000-000000000000",
+          "0195f0a5-0803-7000-8000-000000000001",
+          "0195f0a5-0803-7000-8000-000000000003"
+        ],
+        "featureIds": [],
+        "priceCents": null,
+        "priceOnRequest": true,
+        "beds": 5,
+        "baths": 5,
+        "areaM2": 610,
+        "plotM2": 2500,
+        "lat": null,
+        "lng": null,
+        "ref": "GH-104",
+        "publishedAt": 1700000050
+      },
+      "card": {
+        "kind": "LISTING",
+        "id": "0195f0a5-0801-7000-8000-000000000004",
+        "ref": "GH-104",
+        "status": "ACTIVE",
+        "transactionType": "SALE",
+        "price": { "amountCents": null, "currency": "EUR", "period": null, "onRequest": true },
+        "propertyType": { "id": "0195f0a5-0802-7000-8000-000000000001", "name": "Villa", "slug": "villa" },
+        "place": {
+          "country": { "id": "0195f0a5-0803-7000-8000-000000000000", "name": "Spain", "slug": "spain" },
+          "region": { "id": "0195f0a5-0803-7000-8000-000000000001", "name": "Málaga", "slug": "malaga" },
+          "city": { "id": "0195f0a5-0803-7000-8000-000000000003", "name": "Estepona", "slug": "estepona" },
+          "area": null
+        },
+        "bedrooms": 5,
+        "bathrooms": 5,
+        "builtM2": 610,
+        "plotM2": 2500,
+        "geo": null,
+        "cover": null,
+        "imageCount": 0,
+        "developmentId": null,
+        "title": "Estate on the golf valley",
+        "slug": "estate-on-the-golf-valley",
+        "textLocale": null
+      },
+      "detail": {
+        "description": null,
+        "metaTitle": null,
+        "metaDescription": null,
+        "terraceM2": null,
+        "yearBuilt": null,
+        "priceToCents": null,
+        "communityFeeMonthCents": null,
+        "ibiYearCents": null,
+        "garbageTaxYearCents": null,
+        "energyRating": "EXEMPT",
+        "energyEmissionsRating": null,
+        "features": [],
+        "media": []
+      }
+    }
+  ]
+}

@@ -43,6 +43,8 @@ export const REDACT_KEYS = [
   'idToken',
   'key',
   'apiKey',
+  // The v1 shim's legacy key parameter (S8-02), should a parsed query ever be logged.
+  'api_key',
   'secret',
   'clientSecret',
   'authorization',

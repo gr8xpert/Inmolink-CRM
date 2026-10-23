@@ -166,7 +166,8 @@ describe('RLS generator', () => {
   });
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
-    expect(out.match(/security definer/gi)).toHaveLength(2);
+    // S8-02 adds the two legacy-id lookups (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(4);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -201,6 +202,30 @@ describe('RLS generator', () => {
       'create policy definer_read on public."listing_search_commissions" for select to app_owner',
     );
     expect(table).not.toMatch(/grant select[^;]*to [^;]*app_(?:user|public)/);
+  });
+
+  it('[S8-02] legacy_id_maps: app_public reads taxonomy maps only; listing ids through two SECURITY DEFINER lookups', () => {
+    const table = tablesSql(registry).split('-- legacy_id_maps: GLOBAL')[1]?.split('\n\n')[0] ?? '';
+    expect(table).toContain(
+      `create policy global_read on public."legacy_id_maps" for select to app_public using (entity in ('location', 'propertyType', 'feature'));`,
+    );
+    expect(table).toContain(
+      'create policy definer_read on public."legacy_id_maps" for select to app_owner using (true);',
+    );
+    expect(table).not.toMatch(/grant select[^;]*to [^;]*app_user/);
+    for (const fn of ['legacy_target_ids', 'legacy_ids_of']) {
+      expect(HELPER_FUNCTIONS as readonly string[]).toContain(fn);
+      const body = out.split(`create or replace function ${fn}(`)[1]?.split('$$;')[0] ?? '';
+      expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+      expect(body).toContain("in ('listing', 'unit')");
+    }
+    expect(out).toContain('grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;');
+    expect(() =>
+      generateRlsSql({
+        ...registry,
+        global: { ...registry.global, x: { reason: 'x', publicRead: true, publicReadSql: 'true' } },
+      }),
+    ).toThrow(/publicReadSql is only valid with publicRead and noUserRead/);
   });
 
   it('[S7-03] the website network gate is SECURITY DEFINER, executable by app_public only; its tables open to the owner only', () => {

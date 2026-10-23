@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/types",
+  "case": "synthetic-types",
+  "request": {
+    "method": "GET",
+    "path": "/api/types",
+    "query": {
+      "lang": "en"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "status": "ok",
+      "types": [
+        {
+          "id": "gt-1",
+          "name": "Villa",
+          "slug": "villa"
+        },
+        {
+          "id": "gt-2",
+          "name": "Apartment",
+          "slug": "apartment"
+        },
+        {
+          "id": "0195f0a5-0802-7000-8000-000000000003",
+          "name": "Townhouse",
+          "slug": "townhouse"
+        }
+      ]
+    }
+  }
+}

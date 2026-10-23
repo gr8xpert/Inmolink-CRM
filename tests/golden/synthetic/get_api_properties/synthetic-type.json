@@ -1,0 +1,71 @@
+{
+  "synthetic": true,
+  "endpoint": "GET /api/properties",
+  "case": "synthetic-type",
+  "request": {
+    "method": "GET",
+    "path": "/api/properties",
+    "query": {
+      "type": "gt-1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+      "page": 1,
+      "per_page": 20,
+      "properties": [
+        {
+          "baths": 3,
+          "beds": 4,
+          "built": 320,
+          "city": "Marbella",
+          "currency": "EUR",
+          "id": "910001",
+          "image": "{LEGACY_BASE}/v1/gh101a/medium.webp",
+          "kind": "property",
+          "latitude": 36.51,
+          "location": "Marbella",
+          "longitude": -4.88,
+          "plot": 1200,
+          "price": 1250000,
+          "price_on_request": false,
+          "province": "Málaga",
+          "ref": "GH-101",
+          "status": "available",
+          "title": "Sea view villa in Marbella",
+          "transaction": "sale",
+          "type": "Villa",
+          "type_id": "gt-1"
+        },
+        {
+          "baths": 5,
+          "beds": 5,
+          "built": 610,
+          "city": "Estepona",
+          "currency": "EUR",
+          "id": "910004",
+          "image": null,
+          "kind": "property",
+          "latitude": null,
+          "location": "Estepona",
+          "longitude": null,
+          "plot": 2500,
+          "price": null,
+          "price_on_request": true,
+          "province": "Málaga",
+          "ref": "GH-104",
+          "status": "available",
+          "title": "Estate on the golf valley",
+          "transaction": "sale",
+          "type": "Villa",
+          "type_id": "gt-1"
+        }
+      ],
+      "status": "ok",
+      "total": 2,
+      "total_pages": 1
+    }
+  }
+}

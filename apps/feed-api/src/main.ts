@@ -1,5 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
+import * as migration from '@inmolink/core/modules/migration';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
@@ -113,6 +114,10 @@ try {
       { name: 'telemetry', run: telemetry.shutdown },
     ],
   });
+  // S8-02: the v1 shim's legacy taxonomy maps, loaded before traffic (a failure is retried at first use).
+  await migration
+    .reloadLegacyTaxonomy()
+    .catch((err: unknown) => logger.warn({ err }, 'legacy taxonomy maps not loaded'));
   await app.listen({ host: config.HOST, port: config.FEED_API_PORT });
 } catch (err) {
   logger.fatal({ err }, 'feed-api failed to start');
