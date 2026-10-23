@@ -3,23 +3,30 @@ import { closeDb, withMemberCtx } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { createFounder } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
-import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { cache, cacheKey, closeCache, configureCache } from '@inmolink/platform/cache';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
-import { createLocalFailedChecks, type LocalFailedChecks } from './plugins/api-key';
+import {
+  createLocalFailedChecks,
+  FAILED_CHECKS_PER_PROCESS,
+  FAILED_CHECKS_TRACKED,
+  type LocalFailedChecks,
+} from './plugins/api-key';
 
 /** `requireApiKey` over HTTP (S1-05): a stand-in website route, as feed-api's v2 routes will use it (S7). */
 
-/** Allows everything except the rule names in `deny`. */
+/** Allows everything except the rule names in `deny`; while `redis.down`, allowed answers say they failed open (S8-F9). */
 function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
+  const open = () => (redis.down ? { failedOpen: true as const } : {});
   const consume = async (rule: RateLimitRule) => {
     seen.push(rule);
     return deny.has(rule.name)
       ? { allowed: false, limit: rule.limit, remaining: 0, retryAfterSeconds: 7, resetAtMs: 0 }
-      : { allowed: true, limit: rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 };
+      : { allowed: true, limit: rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0, ...open() };
   };
   return {
     consume,
@@ -32,7 +39,7 @@ function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
             ? Promise.resolve(
                 deny.has(c.rule.name)
                   ? { allowed: false, limit: c.rule.limit, remaining: 0, retryAfterSeconds: 7, resetAtMs: 0 }
-                  : { allowed: true, limit: c.rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 },
+                  : { allowed: true, limit: c.rule.limit, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0, ...open() },
               )
             : consume(c.rule),
         ),
@@ -42,8 +49,10 @@ function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
 
 const deny = new Set<string>();
 const consumed: RateLimitRule[] = [];
+/** The limits Redis not answering: the fake limiter fails open (S8-F9). */
+const redis = { down: false };
 
-async function build(localFailures?: LocalFailedChecks) {
+async function build(localFailures?: LocalFailedChecks, failedChecksPerProcess?: number) {
   const app = await buildApp({
     logger: createLogger({ level: 'silent' }),
     trustProxy: false,
@@ -51,6 +60,7 @@ async function build(localFailures?: LocalFailedChecks) {
     limiter: limiter(deny, consumed),
     checks: {},
     ...(localFailures ? { localFailures } : {}),
+    ...(failedChecksPerProcess !== undefined ? { failedChecksPerProcess } : {}),
   });
   app.get('/v2/test-listings', { onRequest: [app.requireApiKey('listings:read')] }, async (req) => ({
     agencyId: req.apiKey?.agencyId,
@@ -234,19 +244,25 @@ describe('requireApiKey', () => {
   });
 
   it('[S7-F9] with Redis not answering (the limiter allows), the in-process count still stops guessed-key lookups', async () => {
-    const ip = '198.51.100.77';
-    const statuses: number[] = [];
-    for (let i = 0; i < identity.API_KEY_FAILURE_RULE.limit + 3; i++) {
-      statuses.push((await get({ 'x-api-key': guessed(10_000 + i) }, ip)).statusCode);
+    redis.down = true;
+    try {
+      const ip = '198.51.100.77';
+      const statuses: number[] = [];
+      for (let i = 0; i < identity.API_KEY_FAILURE_RULE.limit + 3; i++) {
+        statuses.push((await get({ 'x-api-key': guessed(10_000 + i) }, ip)).statusCode);
+      }
+      expect(statuses.slice(0, identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 401)).toBe(true);
+      expect(statuses.slice(identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 429)).toBe(true);
+      // Another address is not affected.
+      expect((await get({ 'x-api-key': guessed(20_000) }, '198.51.100.78')).statusCode).toBe(401);
+    } finally {
+      redis.down = false;
     }
-    expect(statuses.slice(0, identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 401)).toBe(true);
-    expect(statuses.slice(identity.API_KEY_FAILURE_RULE.limit).every((s) => s === 429)).toBe(true);
-    // Another address is not affected.
-    expect((await get({ 'x-api-key': guessed(20_000) }, '198.51.100.78')).statusCode).toBe(401);
   });
 
   it('[S8-F6] a request flood filling the failed-check map: a new IP with an uncached key still authenticates, the boxed IP stays boxed', async () => {
     const small = await build(createLocalFailedChecks(20));
+    redis.down = true;
     try {
       const boxed = '198.51.100.90';
       for (let i = 0; i < identity.API_KEY_FAILURE_RULE.limit; i++) {
@@ -290,7 +306,123 @@ describe('requireApiKey', () => {
       });
       expect(refused.statusCode).toBe(429);
     } finally {
+      redis.down = false;
       await small.close();
     }
   }, 60_000);
+
+  it('[S8-F9] with Redis healthy, a flood of 10k+ failing IPs changes nothing for a new IP with a valid uncached key', async () => {
+    const local = createLocalFailedChecks();
+    const flooded = await build(local);
+    // Frozen, so the flood stays inside one failure window however slow the machine.
+    useFakeClock();
+    try {
+      const { limit } = identity.API_KEY_FAILURE_RULE;
+      const send = (key: string, remoteAddress: string) =>
+        flooded.inject({ method: 'GET', url: '/v2/test-listings', headers: { 'x-api-key': key }, remoteAddress });
+      const boxed = '198.51.100.91';
+      for (let i = 0; i < limit; i++) await send('bad', boxed);
+      // The flood: 10,050 failing addresses (malformed keys fail before any lookup), each counted locally.
+      for (let i = 0; i < 10_050; i++) {
+        const res = await send('bad', `10.${Math.floor(i / 65_536) % 256}.${Math.floor(i / 256) % 256}.${i % 256}`);
+        expect(res.statusCode).toBe(401);
+      }
+      expect(local.size('ip')).toBe(FAILED_CHECKS_TRACKED);
+      expect(local.peek('ip', boxed, limit)).toBeGreaterThan(0);
+      expect(local.peek('all', '*', FAILED_CHECKS_PER_PROCESS)).toBeGreaterThan(0);
+      // The local windows are full and over the process cap: none of it applies while the shared limiter answers.
+      const fresh = await issue(founder, {
+        name: 'Fresh2',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+      });
+      expect((await send(fresh, '192.0.2.201')).statusCode).toBe(200);
+      // Not even the locally boxed address is refused: its unknown key gets its lookup (401), not a local 429.
+      expect((await send(guessed(60_000), boxed)).statusCode).toBe(401);
+    } finally {
+      restoreClock();
+      await flooded.close();
+    }
+  }, 120_000);
+
+  it('[S8-F9] failing open with the ip pool full of boxed windows, failed lookups from new IPs stop at the per-process cap', async () => {
+    const { limit } = identity.API_KEY_FAILURE_RULE;
+    const cap = 3 * limit + 5;
+    const small = await build(createLocalFailedChecks(3), cap);
+    try {
+      const send = (key: string, remoteAddress: string) =>
+        small.inject({ method: 'GET', url: '/v2/test-listings', headers: { 'x-api-key': key }, remoteAddress });
+      // A key this process authenticated a moment ago, then dropped from the key cache (as after 15 s elsewhere).
+      const known = await issue(founder, {
+        name: 'Known',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+      });
+      expect((await send(known, '192.0.2.210')).statusCode).toBe(200);
+      await dropCachedKey(known);
+      redis.down = true;
+      // Three addresses in the penalty box fill the pool (3 x limit failures towards the process cap).
+      for (const ip of ['198.51.100.101', '198.51.100.102', '198.51.100.103']) {
+        for (let i = 0; i < limit; i++) expect((await send('bad', ip)).statusCode).toBe(401);
+        expect((await send(guessed(70_000), ip)).statusCode).toBe(429);
+      }
+      // New addresses go untracked: their failed lookups go on until the process cap (5 more), then stop.
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i++) statuses.push((await send(guessed(80_000 + i), `203.0.113.${100 + i}`)).statusCode);
+      expect(statuses).toEqual([...Array(5).fill(401), ...Array(7).fill(429)]);
+      // A valid key no cache knows waits too (no lookup): the price of the cap during an outage.
+      const fresh = await issue(founder, {
+        name: 'Fresh3',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+      });
+      expect((await send(fresh, '192.0.2.202')).statusCode).toBe(429);
+      // A key seen valid in the last minutes skips the process cap (its lookup runs).
+      expect((await send(known, '192.0.2.211')).statusCode).toBe(200);
+      // Redis back: the local windows no longer apply.
+      redis.down = false;
+      expect((await send(fresh, '192.0.2.202')).statusCode).toBe(200);
+    } finally {
+      redis.down = false;
+      await small.close();
+    }
+  }, 60_000);
+
+  it('[S8-F9] failing open, 40 tracked addresses flooding failures past the process total do not stop a valid uncached key', async () => {
+    const local = createLocalFailedChecks();
+    const tracked = await build(local);
+    redis.down = true;
+    try {
+      const { limit } = identity.API_KEY_FAILURE_RULE;
+      const send = (key: string, remoteAddress: string) =>
+        tracked.inject({ method: 'GET', url: '/v2/test-listings', headers: { 'x-api-key': key }, remoteAddress });
+      // 40 addresses x (limit + 10) failures: every address boxed on its own, the process total past its cap.
+      for (let a = 0; a < 40; a++) {
+        for (let i = 0; i < limit + 10; i++) await send('bad', `198.18.0.${a + 1}`);
+      }
+      expect(local.peek('all', '*', FAILED_CHECKS_PER_PROCESS)).toBeGreaterThan(0);
+      expect(local.saturated('ip')).toBe(false);
+      const fresh = await issue(founder, {
+        name: 'Fresh4',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+      });
+      expect((await send(fresh, '192.0.2.220')).statusCode).toBe(200);
+      // A flooding address stays boxed.
+      expect((await send(guessed(90_000), '198.18.0.1')).statusCode).toBe(429);
+    } finally {
+      redis.down = false;
+      await tracked.close();
+    }
+  }, 120_000);
 });
+
+/** Drops a key's cached lookup (shared and in-process), so its next request is a database lookup. */
+async function dropCachedKey(key: string): Promise<void> {
+  const prefix = key.split('_')[2] as string;
+  await cache.delete(cacheKey({ v: 1, module: 'identity', entity: 'api-key', scope: 'global', id: prefix }));
+}

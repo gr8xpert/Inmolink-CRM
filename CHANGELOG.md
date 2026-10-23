@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Local limiter windows enforce only while the shared limiter fails open (S8-F9): `RateLimitResult.failedOpen`, counting always; the process-wide failed-lookup cap only while the address pool is saturated (recently valid keys exempt); untracked form posts capped per key and per process; the publishable per-key cap checked before the Redis round trip; `LocalFixedWindows` evicts an under-limit window in O(1) and reports pool saturation.
 - Developments in the plugin sitemap (S8-F24): `/v2/sitemap` lists the site's developments (kind DEVELOPMENT, lastmod) after its listings; the plugin's sitemap provider links them; contract, OpenAPI and SDK updated.
 - feed-api conditional GETs through one `sendConditional`; plugin routes tagged `wp-plugin` and out of the customer SDK; storage `putIf` (If-None-Match / If-Match) keeps `latest.json` at the higher version under concurrent releases; byte-reproducible plugin zip (S9-F6, S8-F30). No new dependencies.
 - Legacy key flag and lookup functions locked at the database (S8-F26): `app_user` can no longer update `api_keys.legacy_query_key` (column-level UPDATE grant, guard-checked) nor insert it as true (`api_keys_guard` v4, migration 0118); `legacy_target_ids` / `legacy_ids_of` owned by `app_owner` via `pnpm db:rls`. No new dependencies.

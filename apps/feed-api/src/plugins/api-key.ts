@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ApiKeyScope } from '@inmolink/contracts';
 import * as identity from '@inmolink/core/modules/identity';
 import * as websiteApi from '@inmolink/core/modules/website-api';
+import { clock } from '@inmolink/platform/clock';
 import { AppError, isAppError } from '@inmolink/platform/errors';
 import {
   ipBucket,
@@ -118,19 +119,67 @@ const FAILED_CHECK_CODES: ReadonlySet<string> = new Set([
  * Failed key checks per client IP in this process (S7-F9 security review): the fallback when Redis cannot answer —
  * the shared limiter fails open, so without it a Redis outage would leave guessed-key lookups unbounded. Same limit
  * and window as `API_KEY_FAILURE_RULE`, fixed windows (S8-F6 `LocalFixedWindows`), at most `FAILED_CHECKS_TRACKED`
- * addresses. An address with no window is never refused (a flood of new addresses cannot lock out others); a full map
- * evicts its oldest address under the limit and never one in the penalty box.
+ * addresses. **Counted always, enforced only while the shared limiter fails open** (S8-F9: with Redis healthy a flood
+ * of failing addresses changes nothing locally). An address with no window is never refused (a flood of new addresses
+ * cannot lock out others); a full map evicts an address under the limit and never one in the penalty box.
  */
 export const FAILED_CHECKS_TRACKED = 10_000;
 
-export type LocalFailedChecks = LocalFixedWindows<'ip'>;
+/**
+ * Failed key checks of the whole process per `API_KEY_FAILURE_RULE` window (S8-F9): bounds the database lookups of
+ * addresses the `ip` pool cannot hold. Counted always; enforced only while the shared limiter fails open **and** the
+ * `ip` pool is saturated (it evicted or left an address untracked within the window), so failures from addresses the
+ * pool tracks — each boxed on its own — never use it up for everyone. Past it, cache-miss lookups get 429 until the
+ * window ends, except keys this process saw valid in the last `RECENT_KEY_MS` (and keys the key cache holds).
+ */
+export const FAILED_CHECKS_PER_PROCESS = 2_000;
 
-export function createLocalFailedChecks(max = FAILED_CHECKS_TRACKED): LocalFailedChecks {
-  return new LocalFixedWindows<'ip'>({ ip: { max, windowMs: identity.API_KEY_FAILURE_RULE.windowSeconds * 1_000 } });
+/** Keys (by edge token: key + origin) this process authenticated recently, which skip the process cap (S8-F9). */
+export const RECENT_KEYS_TRACKED = 10_000;
+export const RECENT_KEY_MS = 10 * 60_000;
+
+type FailedChecksPool = 'ip' | 'all';
+const ALL = '*';
+
+/**
+ * Edge tokens of keys authenticated within `RECENT_KEY_MS`, oldest first, at most `RECENT_KEYS_TRACKED` (the oldest go).
+ * A token is a hash of a real key, so only someone holding the key can match one. Refreshed at most once a minute.
+ */
+class RecentKeys {
+  private readonly seen = new Map<string, number>();
+
+  note(token: string): void {
+    const now = clock.nowMs();
+    const at = this.seen.get(token);
+    if (at !== undefined && now - at < 60_000) return;
+    this.seen.delete(token);
+    this.seen.set(token, now);
+    if (this.seen.size > RECENT_KEYS_TRACKED) {
+      const oldest = this.seen.keys().next().value;
+      if (oldest !== undefined) this.seen.delete(oldest);
+    }
+  }
+
+  has(token: string): boolean {
+    const at = this.seen.get(token);
+    return at !== undefined && clock.nowMs() - at < RECENT_KEY_MS;
+  }
 }
 
-export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; localFailures?: LocalFailedChecks }): void {
+export type LocalFailedChecks = LocalFixedWindows<FailedChecksPool>;
+
+export function createLocalFailedChecks(max = FAILED_CHECKS_TRACKED): LocalFailedChecks {
+  const windowMs = identity.API_KEY_FAILURE_RULE.windowSeconds * 1_000;
+  return new LocalFixedWindows<FailedChecksPool>({ ip: { max, windowMs }, all: { max: 1, windowMs } });
+}
+
+export function apiKeyPlugin(
+  app: FastifyZod,
+  deps: { limiter: RateLimiter; localFailures?: LocalFailedChecks; failedChecksPerProcess?: number },
+): void {
   const local = deps.localFailures ?? createLocalFailedChecks();
+  const perProcess = deps.failedChecksPerProcess ?? FAILED_CHECKS_PER_PROCESS;
+  const recent = new RecentKeys();
   app.decorateRequest('apiKey', null);
   app.decorateRequest('websitePaging', null);
   app.decorateRequest('edgeKeyToken', null);
@@ -148,14 +197,20 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
             scope,
             // S7-F9: an IP in the failed-checks penalty box gets no database lookup for a key no cache knows. Only on a
             // cache miss: keys served from the key cache keep working for everyone else on a shared address. The
-            // in-process count stands in when Redis cannot answer (the limiter then allows).
+            // in-process counts stand in only when Redis cannot answer (S8-F9: the limiter then fails open): the
+            // address's own, and — while the address pool is saturated — the process's total, which a key seen valid
+            // recently skips.
             beforeLookup: async () => {
-              const localWait = local.peek('ip', ip, identity.API_KEY_FAILURE_RULE.limit);
-              if (localWait > 0) throw new FailedChecksPenalty(localWait);
               const [peeked] = await deps.limiter.consumeMany([
                 { rule: identity.API_KEY_FAILURE_RULE, identity: ip, peek: true },
               ]);
               if (peeked && !peeked.allowed) throw new FailedChecksPenalty(peeked.retryAfterSeconds);
+              if (!peeked?.failedOpen) return;
+              const ipWait = local.peek('ip', ip, identity.API_KEY_FAILURE_RULE.limit);
+              if (ipWait > 0) throw new FailedChecksPenalty(ipWait);
+              if (!local.saturated('ip') || recent.has(edgeKeyToken(key as string, request.headers.origin))) return;
+              const allWait = local.peek('all', ALL, perProcess);
+              if (allWait > 0) throw new FailedChecksPenalty(allWait);
             },
           });
           // S8-02: a key in the query string must be a migrated legacy key; a v2 key sent that way is refused (and counts
@@ -166,9 +221,10 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
           // Unknown keys are never cached, so guessing costs a query: cap failed checks per client IP — a wrong key, and
           // (S7-F9) a real key tried from other origins or for other scopes.
           if (isAppError(err) && FAILED_CHECK_CODES.has(err.code)) {
-            // False when the address went untracked (the map is full of addresses in the penalty box): ignored — the
-            // shared rule below still counts it, and an untracked address is never boxed locally.
+            // Counted always (S8-F9). False when the address went untracked (the map is full of addresses in the
+            // penalty box): the shared rule below still counts it, and the process total bounds it during an outage.
             local.hit('ip', ip, identity.API_KEY_FAILURE_RULE.limit);
+            local.hit('all', ALL, perProcess);
             const failed = await deps.limiter.consume(identity.API_KEY_FAILURE_RULE, ip);
             if (!failed.allowed) return replyRateLimited(reply, 'ip', failed.retryAfterSeconds);
           }
@@ -176,6 +232,7 @@ export function apiKeyPlugin(app: FastifyZod, deps: { limiter: RateLimiter; loca
         }
         request.apiKey = principal;
         request.edgeKeyToken = edgeKeyToken(key as string, request.headers.origin);
+        recent.note(request.edgeKeyToken);
         // The key's tier, the agency's ceiling, burst, daily quota, per-browser limits (publishable keys) and the paging
         // rules (S7-04): one Redis round trip, decided in core.
         const cursor = cursorOf(request);

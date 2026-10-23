@@ -491,9 +491,11 @@ function publishableIpRule(): RateLimitRule {
  * an outage does not take websites offline; without these a leaked secret key stating `serverVerified: true` could post
  * leads, and trigger acknowledgement e-mails, without bound).
  *
- * - **Same limits as the shared form-spam rules**, fixed windows, so while Redis answers the shared rule denies first
- *   (the publishable per-key cap has no shared twin: it alone refuses a widget site posting more than
- *   `leadsPerKeyHour` leads an hour through one process). Per process: N processes let up to N × a cap through.
+ * - **Same limits as the shared form-spam rules**, fixed windows. **Counted always, enforced only while the shared
+ *   limiter fails open** (S8-F9: `RateLimitResult.failedOpen`), so with Redis healthy only the shared rules answer —
+ *   save the publishable per-key cap, which has no shared twin and is always enforced (it alone refuses a widget site
+ *   posting more than `leadsPerKeyHour` leads an hour through one process). Per process: N processes let up to N × a
+ *   cap through.
  * - **Pools (S8-F6 `LocalFixedWindows`):** `key` (an hour) and `browser` (key × client IP, `leadWindowSeconds`) are
  *   tracked apart, so a flood of browser identities never evicts a key's window. A full pool never refuses for lack of
  *   room: it evicts its oldest window under its limit, or lets the post through untracked when every window is at its
@@ -504,7 +506,23 @@ function publishableIpRule(): RateLimitRule {
  */
 export const LOCAL_WRITE_TRACKED = 10_000;
 
-type LocalWritePool = 'key' | 'browser';
+/**
+ * Form posts per hour this process lets through with a check left untracked (its pool saturated: full of windows at
+ * their limit), over all keys, enforced while the shared limiter fails open (S8-F9): identities the pools cannot hold
+ * stay bounded. Each key also has its own untracked budget (`untrackedKey` pool, `u|<keyId>`, the key's hourly lead
+ * limit), so one key's flood does not use up the others' share before the global cap.
+ */
+export const LOCAL_UNTRACKED_POSTS_PER_HOUR = 1_000;
+
+type LocalWritePool = 'key' | 'browser' | 'untrackedKey' | 'untrackedAll';
+
+/** The answer's scope per pool: the global untracked cap counts posts of untracked browsers and keys alike (`ip`). */
+const POOL_SCOPE: Record<LocalWritePool, RateScope> = {
+  key: 'key',
+  browser: 'ip',
+  untrackedKey: 'key',
+  untrackedAll: 'ip',
+};
 
 /** In-process form-post windows (exported for tests; `size` per pool). */
 export function createLocalWriteWindows(
@@ -514,6 +532,8 @@ export function createLocalWriteWindows(
   return new LocalFixedWindows<LocalWritePool>({
     key: { max, windowMs: HOUR_SECONDS * 1_000 },
     browser: { max, windowMs: browserWindowMs },
+    untrackedKey: { max, windowMs: HOUR_SECONDS * 1_000 },
+    untrackedAll: { max: 1, windowMs: HOUR_SECONDS * 1_000 },
   });
 }
 
@@ -528,22 +548,22 @@ function localWriteWindows(): LocalFixedWindows<LocalWritePool> {
   return localWrites;
 }
 
-/** Tests: forget the in-process form-post counts. */
-export function resetLocalWriteCaps(): void {
+let untrackedPostsCap = LOCAL_UNTRACKED_POSTS_PER_HOUR;
+
+/** Tests: forget the in-process form-post counts (and set the untracked-posts cap, default `LOCAL_UNTRACKED_POSTS_PER_HOUR`). */
+export function resetLocalWriteCaps(untrackedPerHour = LOCAL_UNTRACKED_POSTS_PER_HOUR): void {
   localWrites = undefined;
+  untrackedPostsCap = untrackedPerHour;
 }
 
 /**
  * The in-process caps of a form post (S8-F4): per key per hour (`feed.leads.key.*`'s limit — publishable keys too),
- * and for publishable keys per browser per `leadWindowSeconds` (`feed.leads.browser`).
+ * and for publishable keys per browser per `leadWindowSeconds` (`feed.leads.browser`). `failedOpen` (S8-F9): the
+ * shared limiter did not answer — every cap enforced; else only the publishable per-key cap (no shared twin).
  */
-function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalWindowCheck<LocalWritePool>[] {
+function localWriteCaps(key: ApiKeyPrincipal, ip: string, failedOpen: boolean): LocalWindowCheck<LocalWritePool>[] {
   const l = websiteLimits();
-  const perKey: LocalWindowCheck<LocalWritePool> = {
-    identity: `${key.kind === 'SECRET' ? 'k' : 'pk'}|${key.keyId}`,
-    limit: l.leadsPerKeyHour[key.rateTier],
-    pool: 'key',
-  };
+  const perKey = perKeyCap(key, failedOpen);
   if (key.kind === 'SECRET') return [perKey];
   return [
     perKey,
@@ -551,49 +571,84 @@ function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalWindowCheck<Loca
       identity: `b|${key.keyId}|${ip}`,
       limit: l.leadsPerBrowser,
       pool: 'browser',
+      enforce: failedOpen,
     },
   ];
+}
+
+/** A form post's per-key cap: enforced while failing open, and always for publishable keys (no shared twin). */
+function perKeyCap(key: ApiKeyPrincipal, failedOpen: boolean): LocalWindowCheck<LocalWritePool> {
+  return {
+    identity: `${key.kind === 'SECRET' ? 'k' : 'pk'}|${key.keyId}`,
+    limit: websiteLimits().leadsPerKeyHour[key.rateTier],
+    pool: 'key',
+    enforce: failedOpen || key.kind !== 'SECRET',
+  };
+}
+
+/** A refusal by an in-process window. */
+function localRefusal(check: LocalWindowCheck<LocalWritePool>, retryAfterSeconds: number): WebsiteLimitDecision {
+  return {
+    allowed: false,
+    kind: 'rate',
+    scope: POOL_SCOPE[check.pool],
+    limit: check.limit,
+    resetAtMs: clock.nowMs() + retryAfterSeconds * 1_000,
+    retryAfterSeconds,
+  };
 }
 
 /**
  * Checks one website API request against its quotas and limits (one Redis round trip) and raises
  * `WebsiteScrapingDetected` when a rule trips. Fails open like every website limit (Redis down must not take every
- * website offline): the limiter answers allowed. Form posts first take a post from their in-process caps (S8-F4,
- * `LocalFixedWindows`, synchronously, before the round trip), given back when the shared limits refuse, so an outage does
- * not leave lead writes unbounded.
+ * website offline): the limiter answers allowed. A form post the shared limits allowed then takes a post from its
+ * in-process caps (S8-F4, `LocalFixedWindows`, synchronously after the round trip, so concurrent posts cannot all pass):
+ * counted always, refused only while the shared limiter fails open (S8-F9) — plus the publishable per-key cap — so an
+ * outage does not leave lead writes unbounded. A post the shared limits refused is not counted locally.
  */
 export async function checkWebsiteLimits(
   limiter: RateLimiter,
   key: ApiKeyPrincipal,
   facts: WebsiteRequestFacts,
 ): Promise<WebsiteLimitDecision> {
-  if (!facts.write) return sharedLimits(limiter, key, facts);
-  const reservation = localWriteWindows().reserve(localWriteCaps(key, facts.ip));
-  if (!reservation.allowed) {
-    return {
-      allowed: false,
-      kind: 'rate',
-      scope: reservation.check.pool === 'key' ? 'key' : 'ip',
-      limit: reservation.check.limit,
-      resetAtMs: clock.nowMs() + reservation.retryAfterSeconds * 1_000,
-      retryAfterSeconds: reservation.retryAfterSeconds,
-    };
+  if (facts.write && key.kind !== 'SECRET') {
+    // The publishable per-key cap refuses whatever Redis answers: refuse before the round trip, so a refused post spends
+    // no shared count (S8-F9). The reservation after the round trip still decides between concurrent posts.
+    const cap = perKeyCap(key, false);
+    const wait = localWriteWindows().peek('key', cap.identity, cap.limit);
+    if (wait > 0) return localRefusal(cap, wait);
   }
-  let decision: WebsiteLimitDecision | undefined;
-  try {
-    decision = await sharedLimits(limiter, key, facts);
-    return decision;
-  } finally {
-    if (!decision?.allowed) reservation.release();
+  const { decision, failedOpen } = await sharedLimits(limiter, key, facts);
+  if (!facts.write || !decision.allowed) return decision;
+  const windows = localWriteWindows();
+  const reservation = windows.reserve(localWriteCaps(key, facts.ip, failedOpen));
+  if (!reservation.allowed) return localRefusal(reservation.check, reservation.retryAfterSeconds);
+  if (reservation.untracked > 0) {
+    // A check its pool could not hold (saturated: full of windows at their limit) — the key's own untracked budget and
+    // the process-wide one bound these (S8-F9), counted always, enforced while failing open.
+    const untracked = windows.reserve([
+      {
+        pool: 'untrackedKey',
+        identity: `u|${key.keyId}`,
+        limit: websiteLimits().leadsPerKeyHour[key.rateTier],
+        enforce: failedOpen,
+      },
+      { pool: 'untrackedAll', identity: '*', limit: untrackedPostsCap, enforce: failedOpen },
+    ]);
+    if (!untracked.allowed) {
+      reservation.release();
+      return localRefusal(untracked.check, untracked.retryAfterSeconds);
+    }
   }
+  return decision;
 }
 
-/** The shared (Redis) limits of one request. */
+/** The shared (Redis) limits of one request; `failedOpen`: a limiter call failed open (S8-F9). */
 async function sharedLimits(
   limiter: RateLimiter,
   key: ApiKeyPrincipal,
   facts: WebsiteRequestFacts,
-): Promise<WebsiteLimitDecision> {
+): Promise<{ decision: WebsiteLimitDecision; failedOpen: boolean }> {
   const l = websiteLimits();
   const depth = depthOf(key, facts.listingsCursor);
   const checks = websiteRequestChecks(key, { ...facts, depth });
@@ -612,9 +667,10 @@ async function sharedLimits(
       ? Promise.resolve([] as RateLimitResult[])
       : limiter.consumeMany([{ rule: publishableIpRule(), identity: facts.ip }], { slot: facts.ip }),
   ]);
+  const failedOpen = results.some((r) => r.failedOpen === true) || ipResults.some((r) => r.failedOpen === true);
   const ipResult = ipResults[0];
   if (ipResult && !ipResult.allowed) {
-    return {
+    const decision: WebsiteLimitDecision = {
       allowed: false,
       kind: 'rate',
       scope: 'ip',
@@ -622,6 +678,7 @@ async function sharedLimits(
       resetAtMs: ipResult.resetAtMs,
       retryAfterSeconds: ipResult.retryAfterSeconds,
     };
+    return { decision, failedOpen };
   }
   let suspicious = facts.paged && depth >= l.deepPage;
   let worst: { check: WebsiteCheck; result: RateLimitResult } | undefined;
@@ -646,8 +703,8 @@ async function sharedLimits(
     if (result.allowed || check.role === 'flag' || check.role === 'observe') return;
     if (!worst || result.retryAfterSeconds > worst.result.retryAfterSeconds) worst = { check, result };
   });
-  if (!worst) return { allowed: true, suspicious };
-  return {
+  if (!worst) return { decision: { allowed: true, suspicious }, failedOpen };
+  const decision: WebsiteLimitDecision = {
     allowed: false,
     kind: worst.check.role === 'quota' ? 'quota' : 'rate',
     scope: worst.check.rule.scope,
@@ -655,4 +712,5 @@ async function sharedLimits(
     resetAtMs: worst.result.resetAtMs,
     retryAfterSeconds: worst.result.retryAfterSeconds,
   };
+  return { decision, failedOpen };
 }

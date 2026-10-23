@@ -47,10 +47,14 @@ const secret: ApiKeyPrincipal = {
 const widget: ApiKeyPrincipal = { ...secret, keyId: '01900000-0000-7000-8000-000000000002', kind: 'PUBLISHABLE' };
 const facts = { ip: '203.0.113.7', paged: true, requestId: 'req-1' };
 
-/** Answers each rule from `script` (by rule name); allowed with nothing used otherwise. Records what was sent. */
+/**
+ * Answers each rule from `script` (by rule name); allowed with nothing used otherwise (plus `base`). Records what was
+ * sent.
+ */
 function scripted(
   script: Record<string, Partial<RateLimitResult>>,
   seen: { checks: RateLimitCheck[]; slot?: string }[] = [],
+  base: Partial<RateLimitResult> = {},
 ): RateLimiter {
   const consume = (rule: RateLimitRule): RateLimitResult => ({
     allowed: true,
@@ -58,6 +62,7 @@ function scripted(
     remaining: rule.limit,
     retryAfterSeconds: 0,
     resetAtMs: 0,
+    ...base,
     ...script[rule.name],
   });
   return {
@@ -245,8 +250,8 @@ describe('website form posts while the limits Redis is down (S8-F4)', () => {
         cursorKey: KEY,
         limits: { leadsPerKeyHour: { STANDARD: 3, HIGH: 10 }, leadsPerBrowser: 2 },
       });
-      // What the limiter answers when its Redis call fails (fail open): every rule allowed.
-      const failingOpen = scripted({});
+      // What the limiter answers when its Redis call fails (fail open): every rule allowed, marked (S8-F9).
+      const failingOpen = scripted({}, [], { failedOpen: true });
       const post = (k: ApiKeyPrincipal, ip = facts.ip) =>
         checkWebsiteLimits(failingOpen, k, { ip, paged: false, write: true, requestId: 'req-lead' });
 
@@ -300,6 +305,7 @@ describe('website form posts while the limits Redis is down (S8-F4)', () => {
           remaining: 1,
           retryAfterSeconds: 0,
           resetAtMs: 0,
+          failedOpen: true,
         }));
       },
     } as unknown as RateLimiter;
@@ -381,6 +387,70 @@ describe('website form posts while the limits Redis is down (S8-F4)', () => {
     expect(caps.size('browser')).toBe(1);
     if (b.allowed) b.release();
     expect(caps.size('browser')).toBe(1);
+  });
+});
+
+describe('local form-post windows only while the shared limiter fails open (S8-F9)', () => {
+  const post = (limiter: RateLimiter, k: ApiKeyPrincipal, ip = facts.ip) =>
+    checkWebsiteLimits(limiter, k, { ip, paged: false, write: true, requestId: 'req-lead' });
+
+  it('[S8-F9] with Redis healthy the local windows count but never refuse (save the publishable per-key cap); failing open they enforce what they counted', async () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    try {
+      configureWebsiteApi({
+        mediaBaseUrl: 'https://media.example',
+        cursorKey: KEY,
+        limits: { leadsPerKeyHour: { STANDARD: 3, HIGH: 10 }, leadsPerBrowser: 2 },
+      });
+      const healthy = scripted({});
+      const failingOpen = scripted({}, [], { failedOpen: true });
+      // Healthy: the shared rules answer — five posts on one secret key, three on one browser, all allowed.
+      for (let i = 0; i < 5; i++) expect(await post(healthy, secret)).toMatchObject({ allowed: true });
+      for (let i = 0; i < 3; i++) expect(await post(healthy, widget)).toMatchObject({ allowed: true });
+      // The publishable per-key cap has no shared twin: enforced either way — before the round trip, so the refused post
+      // spends no shared count.
+      const sent: { checks: RateLimitCheck[]; slot?: string }[] = [];
+      expect(await post(scripted({}, sent), widget, '198.51.100.20')).toMatchObject({
+        allowed: false,
+        scope: 'key',
+        limit: 3,
+      });
+      expect(sent).toHaveLength(0);
+      // Redis fails: what was counted while it answered now applies.
+      expect(await post(failingOpen, secret)).toMatchObject({ allowed: false, scope: 'key', limit: 3 });
+      const fresh = { ...secret, keyId: '01900000-0000-7000-8000-000000000009' };
+      expect(await post(failingOpen, fresh)).toMatchObject({ allowed: true });
+    } finally {
+      restoreClock();
+    }
+  });
+
+  it('[S8-F9] failing open with the key pool full of boxed windows, untracked posts stop at their key budget and the per-process cap', async () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    try {
+      configureWebsiteApi({
+        mediaBaseUrl: 'https://media.example',
+        cursorKey: KEY,
+        limits: { leadsPerKeyHour: { STANDARD: 1, HIGH: 1 } },
+      });
+      resetLocalWriteCaps(4);
+      const failingOpen = scripted({}, [], { failedOpen: true });
+      const key = (i: number) => ({ ...secret, keyId: `key-${i}` });
+      // Fill the key pool (10,000) with keys at their limit (one post each).
+      for (let i = 0; i < 10_000; i++) expect((await post(failingOpen, key(i))).allowed).toBe(true);
+      // New keys go untracked: each has its own untracked budget (its hourly limit, 1)…
+      expect(await post(failingOpen, key(20_000))).toMatchObject({ allowed: true });
+      expect(await post(failingOpen, key(20_000))).toMatchObject({ allowed: false, scope: 'key', limit: 1 });
+      // …and all share the process cap (4): three more keys, then refused on the global cap (its own scope and limit).
+      const decisions = [];
+      for (let i = 1; i <= 5; i++) decisions.push(await post(failingOpen, key(20_000 + i)));
+      expect(decisions.map((d) => d.allowed)).toEqual([true, true, true, false, false]);
+      expect(decisions[3]).toMatchObject({ allowed: false, scope: 'ip', limit: 4 });
+      // Healthy again: the cap is counted, not enforced.
+      expect(await post(scripted({}), key(30_000))).toMatchObject({ allowed: true });
+    } finally {
+      restoreClock();
+    }
   });
 });
 

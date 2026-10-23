@@ -35,6 +35,8 @@ export interface FeedApiDeps {
   portalFeedIpPerMinute?: number;
   /** Tests: the in-process failed-key-check windows (S8-F6; default one per app, 10,000 addresses). */
   localFailures?: LocalFailedChecks;
+  /** Tests: the process-wide failed-key-check cap enforced while the limiter fails open (S8-F9; default 2,000). */
+  failedChecksPerProcess?: number;
 }
 
 export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
@@ -47,7 +49,11 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     successLogLevel: 'debug',
   });
   app.decorate('websiteEdgeCache', deps.edgeCache === true);
-  apiKeyPlugin(app, { limiter: deps.limiter, localFailures: deps.localFailures });
+  apiKeyPlugin(app, {
+    limiter: deps.limiter,
+    localFailures: deps.localFailures,
+    failedChecksPerProcess: deps.failedChecksPerProcess,
+  });
   websiteCors(app);
   edgeSafeErrors(app);
   await app.register(rateLimitPlugin, {

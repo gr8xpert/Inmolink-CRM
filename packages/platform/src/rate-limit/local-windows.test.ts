@@ -73,3 +73,63 @@ describe('local fixed windows (S8-F6)', () => {
     expect(w.size('ip')).toBe(1);
   });
 });
+
+describe('local fixed windows (S8-F9)', () => {
+  afterEach(() => restoreClock());
+
+  it('[S8-F9] a full pool evicts a window under its limit wherever it sits, past any number of boxed windows', () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    const w = windows(1_000);
+    for (let i = 0; i < 999; i++) w.hit('ip', `boxed${i}`, 1);
+    w.hit('ip', 'open', 5);
+    expect(w.size('ip')).toBe(1_000);
+    // The only window under its limit is the newest, 999 boxed windows ahead of it: it goes, the newcomer is tracked.
+    expect(w.hit('ip', 'newcomer', 5)).toBe(true);
+    expect([w.peek('ip', 'open', 1), w.peek('ip', 'newcomer', 1), w.peek('ip', 'boxed0', 1)]).toEqual([0, 600, 600]);
+    // A window back under its limit after a release is a candidate again.
+    const two = windows(2);
+    two.hit('ip', 'a', 1);
+    two.hit('ip', 'b', 2);
+    const held = two.reserve([ip('b', 2)]);
+    expect(two.hit('ip', 'c', 1)).toBe(false);
+    if (held.allowed) held.release();
+    expect(two.hit('ip', 'c', 1)).toBe(true);
+    expect([two.peek('ip', 'a', 1), two.peek('ip', 'b', 1), two.peek('ip', 'c', 1)]).toEqual([600, 0, 600]);
+  });
+
+  it('[S8-F9] enforce: false counts past the limit and never refuses; untracked checks are reported', () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    const w = windows(1);
+    for (let i = 0; i < 4; i++) expect(w.reserve([{ ...ip('a'), enforce: false }])).toMatchObject({ allowed: true });
+    // The window kept counting: an enforced check sees it over its limit.
+    expect(w.reserve([ip('a')])).toMatchObject({ allowed: false, retryAfterSeconds: 600 });
+    // The pool (1) holds a boxed window: a new identity is untracked, and says so.
+    expect(w.reserve([ip('b'), key('k')])).toMatchObject({ allowed: true, untracked: 1 });
+    expect([w.size('ip'), w.size('key')]).toEqual([1, 1]);
+  });
+
+  it('[S8-F9] saturated: only after the pool had to evict or leave one untracked, for one window length', () => {
+    const clock = useFakeClock('2026-10-23T10:00:00Z');
+    const w = windows(2);
+    w.hit('ip', 'a', 5);
+    w.hit('ip', 'b', 5);
+    // Full but nothing pushed out yet; another pool's pressure is its own.
+    expect(w.saturated('ip')).toBe(false);
+    w.hit('ip', 'c', 5);
+    expect([w.saturated('ip'), w.saturated('key')]).toEqual([true, false]);
+    clock.advance(600_000);
+    expect(w.saturated('ip')).toBe(false);
+  });
+
+  it('[S8-F9] a window takes the current limit: a tier raised mid-window makes a boxed window evictable again', () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    const w = windows(2);
+    w.hit('ip', 'a', 1);
+    w.hit('ip', 'b', 1);
+    expect(w.hit('ip', 'c', 1)).toBe(false);
+    // `a`'s limit goes up to 5 (count 2 < 5): back in the under-limit list, so the next newcomer evicts it.
+    w.hit('ip', 'a', 5);
+    expect(w.hit('ip', 'd', 1)).toBe(true);
+    expect([w.peek('ip', 'a', 1), w.peek('ip', 'b', 1), w.peek('ip', 'd', 1)]).toEqual([0, 600, 600]);
+  });
+});

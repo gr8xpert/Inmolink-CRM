@@ -42,6 +42,12 @@ export interface RateLimitResult {
   tripped?: boolean;
   /** Denied by a running penalty (`penaltySeconds`), not by the count. */
   penalized?: boolean;
+  /**
+   * The script call failed and the rule failed open: allowed without a count (S8-F9; a `failClosed` rule denies
+   * instead, without this flag). The signal behind `inmolink.rate_limit.failures`; callers enforce their in-process
+   * fallback windows (`LocalFixedWindows`) only then.
+   */
+  failedOpen?: true;
 }
 
 export interface RateLimiterOptions {
@@ -537,7 +543,14 @@ export class RateLimiter {
       return plans.map(({ rule, resetAtMs }) =>
         rule.failClosed
           ? { allowed: false, limit: rule.limit, remaining: 0, retryAfterSeconds: rule.windowSeconds, resetAtMs }
-          : { allowed: true, limit: rule.limit, remaining: rule.limit, retryAfterSeconds: 0, resetAtMs },
+          : {
+              allowed: true,
+              limit: rule.limit,
+              remaining: rule.limit,
+              retryAfterSeconds: 0,
+              resetAtMs,
+              failedOpen: true,
+            },
       );
     }
   }

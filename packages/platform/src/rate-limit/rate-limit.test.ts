@@ -1,5 +1,7 @@
+import type { Redis } from 'ioredis';
 import { describe, expect, it } from 'vitest';
-import { assertRule, retryAfterMs } from './limiter';
+import type { Logger } from '../logger';
+import { assertRule, RateLimiter, retryAfterMs } from './limiter';
 
 const W = 60_000;
 
@@ -36,5 +38,20 @@ describe('assertRule', () => {
     expect(() =>
       assertRule({ name: 'auth.login', scope: 'ip', limit: 5, windowSeconds: 60, failClosed: true }),
     ).not.toThrow();
+  });
+});
+
+describe('fail-open signal (S8-F9)', () => {
+  it('[S8-F9] a failed script call marks fail-open answers; fail-closed rules deny without the flag', async () => {
+    const redis = { status: 'end', defineCommand: () => {} } as unknown as Redis;
+    const logger = { warn: () => {} } as unknown as Logger;
+    const limiter = new RateLimiter({ redis, logger, hmacKey: 'k'.repeat(32) });
+    const [open, closed] = await limiter.consumeMany([
+      { rule: { name: 'feed.x', scope: 'ip', limit: 5, windowSeconds: 60 }, identity: 'a' },
+      { rule: { name: 'auth.login', scope: 'ip', limit: 5, windowSeconds: 60, failClosed: true }, identity: 'a' },
+    ]);
+    expect(open).toMatchObject({ allowed: true, failedOpen: true });
+    expect(closed).toMatchObject({ allowed: false });
+    expect(closed?.failedOpen).toBeUndefined();
   });
 });
