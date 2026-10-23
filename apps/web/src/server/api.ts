@@ -78,6 +78,7 @@ import {
   PortalConnectionDto,
   PortalConnectionPage,
   PortalConnectionSecretDto,
+  PortalIssuePage,
   PortalOverridePage,
   PortalSelectionPage,
   PreferredAgencyDto,
@@ -1535,5 +1536,18 @@ export function fetchPortalSelection(
     session,
     `/v1/portal-connections/${encodeURIComponent(id)}/selection?${page(cursor, 25)}`,
     PortalSelectionPage,
+  );
+}
+
+/** The listings the connection's last feed run left out, with the reasons (S9-02). */
+export function fetchPortalIssues(
+  session: SessionRef,
+  id: string,
+  cursor?: string,
+): Promise<ApiResult<PortalIssuePage>> {
+  return apiRequest(
+    session,
+    `/v1/portal-connections/${encodeURIComponent(id)}/issues?${page(cursor, 25)}`,
+    PortalIssuePage,
   );
 }

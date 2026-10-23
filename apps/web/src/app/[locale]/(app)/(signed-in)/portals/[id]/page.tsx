@@ -6,6 +6,7 @@ import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation
 import {
   fetchPortalChannels,
   fetchPortalConnection,
+  fetchPortalIssues,
   fetchPortalOverrides,
   fetchPortalSelection,
   sessionRef,
@@ -43,19 +44,28 @@ export default async function PortalConnectionPage({
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const ref = sessionRef(session.user);
-  const [res, channels, overrides, selection] = await Promise.all([
+  const q = await searchParams;
+  // The reasons list is paged by listing id: `?issuesCursor=` continues it.
+  const issuesCursor = typeof q.issuesCursor === 'string' && UUID.test(q.issuesCursor) ? q.issuesCursor : undefined;
+  const [res, channels, overrides, selection, issues] = await Promise.all([
     fetchPortalConnection(ref, id),
     fetchPortalChannels(ref),
     fetchPortalOverrides(ref, id),
     fetchPortalSelection(ref, id),
+    fetchPortalIssues(ref, id, issuesCursor),
   ]);
-  if (res === 'revoked' || channels === 'revoked' || overrides === 'revoked' || selection === 'revoked') {
+  if (
+    res === 'revoked' ||
+    channels === 'revoked' ||
+    overrides === 'revoked' ||
+    selection === 'revoked' ||
+    issues === 'revoked'
+  ) {
     redirect('/session/expired');
   }
   if (!res.ok && res.status === 404) notFound();
   const t = await getTranslations('portals');
   const fmt = await getFormatter();
-  const q = await searchParams;
   if (!res.ok) {
     return (
       <div className="mx-auto max-w-3xl p-6">
@@ -221,6 +231,44 @@ export default async function PortalConnectionPage({
         )}
         {selection.ok && selection.data.nextCursor ? (
           <p className="text-xs text-muted-foreground">{t('preview.more')}</p>
+        ) : null}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-issues-title">
+        <h2 id="portal-issues-title" className="text-lg font-semibold">
+          {t('issues.title')}
+        </h2>
+        <p className="text-sm text-muted-foreground" data-testid="portal-validation">
+          {c.validation
+            ? t('issues.summary', {
+                date: fmt.dateTime(new Date(c.validation.checkedAt), { dateStyle: 'medium', timeStyle: 'short' }),
+                valid: c.validation.validCount,
+                invalid: c.validation.invalidCount,
+              })
+            : t('issues.never')}
+        </p>
+        {issues.ok && issues.data.items.length > 0 ? (
+          <ul className="flex flex-col gap-2 text-sm" data-testid="portal-issues">
+            {issues.data.items.map((i) => (
+              <li key={i.propertyId} className="flex flex-col">
+                <span className="font-mono text-xs">{i.ref ?? i.propertyId}</span>
+                <ul className="list-disc pl-5">
+                  {i.issues.map((issue) => (
+                    <li key={issue.code}>{t(`issues.codes.${issue.code}`, issue.params ?? {})}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {issues.ok && issues.data.nextCursor ? (
+          <Link
+            href={{ pathname: `/portals/${id}`, query: { issuesCursor: issues.data.nextCursor } }}
+            className="text-sm underline-offset-4 hover:underline"
+            data-testid="portal-issues-next"
+          >
+            {t('issues.more')}
+          </Link>
         ) : null}
       </section>
 

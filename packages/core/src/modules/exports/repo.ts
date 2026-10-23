@@ -4,8 +4,13 @@
  * anyway).
  */
 import type { Tx } from '@inmolink/db';
-import { agencyPortalConnections, portalChannels, portalConnectionProperties } from '@inmolink/db/schema/exports';
-import { and, asc, count, eq, gt, inArray, ne, sql } from 'drizzle-orm';
+import {
+  agencyPortalConnections,
+  portalChannels,
+  portalConnectionIssues,
+  portalConnectionProperties,
+} from '@inmolink/db/schema/exports';
+import { and, asc, count, eq, gt, inArray, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ChannelStatus = (typeof portalChannels.$inferSelect)['status'];
@@ -66,6 +71,9 @@ export interface ConnectionRow {
   tokenHint: string;
   tokenCreatedAt: Date;
   revokedAt: Date | null;
+  lastCheckedAt: Date | null;
+  lastValidCount: number | null;
+  lastInvalidCount: number | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -84,6 +92,9 @@ const connectionColumns = {
   tokenHint: agencyPortalConnections.tokenHint,
   tokenCreatedAt: agencyPortalConnections.tokenCreatedAt,
   revokedAt: agencyPortalConnections.revokedAt,
+  lastCheckedAt: agencyPortalConnections.lastCheckedAt,
+  lastValidCount: agencyPortalConnections.lastValidCount,
+  lastInvalidCount: agencyPortalConnections.lastInvalidCount,
   version: agencyPortalConnections.version,
   createdAt: agencyPortalConnections.createdAt,
   updatedAt: agencyPortalConnections.updatedAt,
@@ -382,5 +393,94 @@ export async function overrideIdPage(
       ),
     )
     .orderBy(asc(portalConnectionProperties.propertyId))
+    .limit(q.limit);
+}
+
+// ── Feed validation (S9-02) ───────────────────────────────────────────────────────────────────────────────────────
+
+export interface IssueRow {
+  propertyId: string;
+  errors: unknown;
+  checkedAt: Date;
+}
+
+/**
+ * A checked batch (worker): writes the batch's failures and removes the rows of listings in its key range that no
+ * longer fail. A failure whose reasons are unchanged is not written (`on conflict ... where errors is distinct`), so a
+ * second run over unchanged data writes nothing. The range is `(after, upTo]` — `upTo` null: to the end — exactly the
+ * ids the selection examined for this batch, so listings no longer selected (or fixed) lose their row without a sweep.
+ * Every statement names the agency (these run as `app_system`).
+ */
+export async function syncIssues(
+  tx: Tx,
+  connection: { id: string; agencyId: string },
+  range: { after: string | null; upTo: string | null },
+  failures: readonly { propertyId: string; errors: unknown }[],
+  checkedAt: Date,
+): Promise<void> {
+  const failedIds = failures.map((f) => f.propertyId);
+  await tx
+    .delete(portalConnectionIssues)
+    .where(
+      and(
+        eq(portalConnectionIssues.agencyId, connection.agencyId),
+        eq(portalConnectionIssues.connectionId, connection.id),
+        range.after ? gt(portalConnectionIssues.propertyId, range.after) : undefined,
+        range.upTo ? lte(portalConnectionIssues.propertyId, range.upTo) : undefined,
+        failedIds.length > 0 ? notInArray(portalConnectionIssues.propertyId, failedIds) : undefined,
+      ),
+    );
+  if (failures.length === 0) return;
+  await tx
+    .insert(portalConnectionIssues)
+    .values(
+      failures.map((f) => ({
+        connectionId: connection.id,
+        agencyId: connection.agencyId,
+        propertyId: f.propertyId,
+        errors: f.errors,
+        checkedAt,
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [portalConnectionIssues.connectionId, portalConnectionIssues.propertyId],
+      set: { errors: sql`excluded.errors`, checkedAt: sql`excluded.checked_at` },
+      setWhere: sql`${portalConnectionIssues.errors} is distinct from excluded.errors`,
+    });
+}
+
+/** Records the last run's outcome on the connection. Does not touch `version` (worker state, not a setup change). */
+export async function setValidationSummary(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  summary: { checkedAt: Date; valid: number; invalid: number },
+): Promise<void> {
+  await tx
+    .update(agencyPortalConnections)
+    .set({ lastCheckedAt: summary.checkedAt, lastValidCount: summary.valid, lastInvalidCount: summary.invalid })
+    .where(and(eq(agencyPortalConnections.agencyId, agencyId), eq(agencyPortalConnections.id, id)));
+}
+
+/** A page of the connection's issues by listing id (keyset); one extra row tells whether more follow. */
+export async function issuePage(
+  tx: Tx,
+  connectionId: string,
+  q: { after: string | null; limit: number },
+): Promise<IssueRow[]> {
+  return tx
+    .select({
+      propertyId: portalConnectionIssues.propertyId,
+      errors: portalConnectionIssues.errors,
+      checkedAt: portalConnectionIssues.checkedAt,
+    })
+    .from(portalConnectionIssues)
+    .where(
+      and(
+        eq(portalConnectionIssues.connectionId, connectionId),
+        q.after ? gt(portalConnectionIssues.propertyId, q.after) : undefined,
+      ),
+    )
+    .orderBy(asc(portalConnectionIssues.propertyId))
     .limit(q.limit);
 }

@@ -100,5 +100,23 @@
     "LISTING_NOT_FOUND": "One or more references match none of your listings. Nothing was changed.",
     "VALIDATION_FAILED": "Check the details and try again.",
     "VERSION_CONFLICT": "Someone else changed this connection. Reload and try again."
+  },
+  "issues": {
+    "title": "Listings left out of the feed",
+    "summary": "Last check {date}: {valid, plural, one {# listing} other {# listings}} sent, {invalid, plural, =0 {none left out} one {# left out} other {# left out}}.",
+    "never": "No feed has been checked yet. The first check runs when the feed is generated.",
+    "more": "Show more listings left out",
+    "codes": {
+      "NO_DOCUMENT": "The listing has no published page content yet; it is refreshed automatically.",
+      "PRICE_MISSING": "Add a price.",
+      "PRICE_ON_REQUEST": "This portal does not take a price on request; add a price.",
+      "PRICE_PERIOD": "This portal takes sale prices and monthly or weekly rents only.",
+      "TOWN_MISSING": "Add a town or area (the location is too general).",
+      "ENERGY_RATING_MISSING": "Add the energy rating (CEE), or mark it exempt or in progress.",
+      "PHOTOS_TOO_FEW": "Add photos: {actual} of the {min} this portal needs.",
+      "DESCRIPTION_MISSING": "Add a description.",
+      "DESCRIPTION_TOO_SHORT": "The description has {actual} characters; this portal needs at least {min}.",
+      "DESCRIPTION_TOO_LONG": "The description has {actual} characters; this portal takes at most {max}."
+    }
   }
 }

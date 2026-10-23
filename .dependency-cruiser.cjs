@@ -11,7 +11,9 @@
 
 const TESTS = '(\\.(test|spec|int\\.test)\\.tsx?$|/__tests__/|^(packages|apps)/[^/]+/test/|^tests/)';
 const APP_TESTS = '^apps/([^/]+/test/|.*(\\.(test|spec|int\\.test)\\.tsx?$|/__tests__/))';
-const CORE_PUBLIC = '^packages/core/src/(index|modules/[^/]+/(index|testing)|testing/factories)\\.ts$';
+const CORE_PUBLIC = '^packages/core/src/(index|modules/[^/]+/(index|testing|worker)|testing/factories)\\.ts$';
+/** A module's worker-only entry (`@inmolink/core/modules/exports/worker`: code that runs as `app_system`). */
+const MODULE_WORKER = '^packages/core/src/modules/[^/]+/worker\\.ts$';
 /** A module's test-only entry point (`@inmolink/core/modules/search/testing`: perf-test SQL helpers, S7-F11). */
 const MODULE_TESTING = '^packages/core/src/modules/[^/]+/testing\\.ts$';
 const APP_PACKAGES = '^packages/(core|contracts|platform|ui|i18n|config)/';
@@ -55,6 +57,14 @@ module.exports = {
       comment: "A module's `testing.ts` (perf-test helpers) is for tests only — never apps or other modules' code.",
       from: { pathNot: [TESTS, MODULE_TESTING] },
       to: { path: MODULE_TESTING },
+    },
+    {
+      name: 'core-module-worker-entry-workers-only',
+      severity: 'error',
+      comment:
+        "A module's worker.ts (feed writers that read every table as app_system) is for apps/worker, tests and scripts, never the API, web or other modules.",
+      from: { pathNot: [TESTS, MODULE_WORKER, '^apps/worker/', '^scripts/'] },
+      to: { path: MODULE_WORKER },
     },
     {
       name: 'apps-infra-via-platform',

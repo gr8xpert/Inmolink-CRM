@@ -5,6 +5,15 @@ export { exportsEvents } from './events';
 export { exportsJobs } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, EXPORTS_ACTIONS, EXPORTS_IMPERSONATION } from './policy';
 export {
+  PORTAL_PREFERRED_LOCALE,
+  PORTAL_PROFILES,
+  type PortalFormat,
+  type PortalProfile,
+  portalFlagKey,
+  portalWriterEnabled,
+  profileOf,
+} from './profiles';
+export {
   ruleOf as selectionRuleOf,
   SELECTION_BATCH,
   SELECTION_MAX_BATCH,
@@ -20,6 +29,7 @@ export {
   getConnection,
   listChannels,
   listConnections,
+  listIssues,
   listOverrides,
   PORTAL_CHANNEL_CATALOG,
   portalFeedTokenHash,
@@ -33,3 +43,4 @@ export {
   updateConnection,
   type WorkerConnection,
 } from './service';
+export { validateItem } from './validate';

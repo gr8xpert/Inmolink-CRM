@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  thinkSPAIN property feed: schema fixture for Inmolink's portal export (S9-02, channel `thinkspain`).
+
+  PROVENANCE AND STATUS (confirm at H6): thinkSPAIN does not publish its feed specification. Its website says it takes feeds
+  from property software and portals (https://thinkspain.com/advertise/property-owner). Searched on 2026-10-23: no public specification, XSD or sample was
+  found. This fixture is therefore the Kyero v3 schema (tests/fixtures/kyero/kyero-v3.xsd, the format Spanish portals have
+  in common) tightened with this portal's ASSUMED rules from `packages/core/src/modules/exports/profiles.ts`: every
+  property carries a description, an energy rating and at least 3 photos. The writer is behind the feature flag
+  `exports.portal.thinkspain` until a human confirms the format.
+
+  TO CONFIRM (H6): get the feed specification (or an XSD / sample feed) from thinkSPAIN's partner or agent support, replace
+  this file with it, adapt `PORTAL_PROFILES['thinkspain']` (format, thresholds) and the writer if the format differs from
+  Kyero v3, then re-run `exports/__tests__/portal-feeds.int.test.ts` and switch the flag on for the pilot agencies.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <xs:simpleType name="flag">
+    <xs:restriction base="xs:integer">
+      <xs:enumeration value="0"/>
+      <xs:enumeration value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="nonEmptyText">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="kyeroDate">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="energyValue">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="A"/>
+      <xs:enumeration value="B"/>
+      <xs:enumeration value="C"/>
+      <xs:enumeration value="D"/>
+      <xs:enumeration value="E"/>
+      <xs:enumeration value="F"/>
+      <xs:enumeration value="G"/>
+      <xs:enumeration value="exempt"/>
+      <xs:enumeration value="in_progress"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- One text per language Kyero takes, each at most once. -->
+  <xs:complexType name="languages">
+    <xs:all>
+      <xs:element name="en" type="xs:string" minOccurs="0"/>
+      <xs:element name="es" type="xs:string" minOccurs="0"/>
+      <xs:element name="de" type="xs:string" minOccurs="0"/>
+      <xs:element name="fr" type="xs:string" minOccurs="0"/>
+      <xs:element name="nl" type="xs:string" minOccurs="0"/>
+      <xs:element name="it" type="xs:string" minOccurs="0"/>
+      <xs:element name="pt" type="xs:string" minOccurs="0"/>
+      <xs:element name="ru" type="xs:string" minOccurs="0"/>
+      <xs:element name="sv" type="xs:string" minOccurs="0"/>
+      <xs:element name="no" type="xs:string" minOccurs="0"/>
+      <xs:element name="da" type="xs:string" minOccurs="0"/>
+      <xs:element name="fi" type="xs:string" minOccurs="0"/>
+      <xs:element name="pl" type="xs:string" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:element name="root">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="kyero">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="feed_version" type="xs:integer" fixed="3"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="property" minOccurs="0" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:all>
+              <xs:element name="id" type="nonEmptyText"/>
+              <xs:element name="date" type="kyeroDate"/>
+              <xs:element name="ref" type="xs:string" minOccurs="0"/>
+              <xs:element name="price" type="xs:positiveInteger"/>
+              <xs:element name="currency" minOccurs="0">
+                <xs:simpleType>
+                  <xs:restriction base="xs:string">
+                    <xs:pattern value="[A-Z]{3}"/>
+                  </xs:restriction>
+                </xs:simpleType>
+              </xs:element>
+              <xs:element name="price_freq">
+                <xs:simpleType>
+                  <xs:restriction base="xs:string">
+                    <xs:enumeration value="sale"/>
+                    <xs:enumeration value="month"/>
+                    <xs:enumeration value="week"/>
+                  </xs:restriction>
+                </xs:simpleType>
+              </xs:element>
+              <xs:element name="part_ownership" type="flag" minOccurs="0"/>
+              <xs:element name="leasehold" type="flag" minOccurs="0"/>
+              <xs:element name="new_build" type="flag" minOccurs="0"/>
+              <xs:element name="type" type="nonEmptyText"/>
+              <xs:element name="town" type="nonEmptyText"/>
+              <xs:element name="province" type="nonEmptyText"/>
+              <xs:element name="location_detail" type="xs:string" minOccurs="0"/>
+              <xs:element name="location" minOccurs="0">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="latitude">
+                      <xs:simpleType>
+                        <xs:restriction base="xs:decimal">
+                          <xs:minInclusive value="-90"/>
+                          <xs:maxInclusive value="90"/>
+                        </xs:restriction>
+                      </xs:simpleType>
+                    </xs:element>
+                    <xs:element name="longitude">
+                      <xs:simpleType>
+                        <xs:restriction base="xs:decimal">
+                          <xs:minInclusive value="-180"/>
+                          <xs:maxInclusive value="180"/>
+                        </xs:restriction>
+                      </xs:simpleType>
+                    </xs:element>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="beds" type="xs:nonNegativeInteger" minOccurs="0"/>
+              <xs:element name="baths" type="xs:nonNegativeInteger" minOccurs="0"/>
+              <xs:element name="pool" type="flag" minOccurs="0"/>
+              <xs:element name="surface_area" minOccurs="0">
+                <xs:complexType>
+                  <xs:all>
+                    <xs:element name="built" type="xs:nonNegativeInteger" minOccurs="0"/>
+                    <xs:element name="plot" type="xs:nonNegativeInteger" minOccurs="0"/>
+                  </xs:all>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="energy_rating">
+                <xs:complexType>
+                  <xs:all>
+                    <xs:element name="consumption" type="energyValue" minOccurs="0"/>
+                    <xs:element name="emissions" type="energyValue" minOccurs="0"/>
+                  </xs:all>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="url" type="languages" minOccurs="0"/>
+              <xs:element name="desc" type="languages"/>
+              <xs:element name="features" minOccurs="0">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="feature" type="nonEmptyText" maxOccurs="unbounded"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="notes" type="xs:string" minOccurs="0"/>
+              <xs:element name="images">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="image" minOccurs="3" maxOccurs="unbounded">
+                      <xs:complexType>
+                        <xs:sequence>
+                          <xs:element name="url" type="xs:anyURI"/>
+                        </xs:sequence>
+                        <xs:attribute name="id" type="xs:positiveInteger" use="required"/>
+                      </xs:complexType>
+                    </xs:element>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+            </xs:all>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

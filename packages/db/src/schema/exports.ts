@@ -9,6 +9,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -81,6 +82,13 @@ export const agencyPortalConnections = pgTable(
     tokenHint: text('token_hint').notNull(),
     tokenCreatedAt: timestamp('token_created_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * The last feed validation run (S9-02, written by the generator, never bumps `version`): when it finished and how
+     * many selected listings were valid (exported) and invalid (left out, see `portal_connection_issues`). Null: never run.
+     */
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    lastValidCount: integer('last_valid_count'),
+    lastInvalidCount: integer('last_invalid_count'),
     /** The admin who created the connection (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
     /** Bumped on every change (optimistic concurrency, `VERSION_CONFLICT`). */
@@ -138,5 +146,38 @@ export const portalConnectionProperties = pgTable(
     index('portal_connection_properties_action_idx').on(t.connectionId, t.action, t.propertyId),
     // a purged listing's overrides (cascade) and "where is this listing sent"
     index('portal_connection_properties_property_idx').on(t.propertyId),
+  ],
+);
+
+/**
+ * Listings a connection's last validation run left out, and why (S9-02): one row per selected listing that failed the
+ * portal's checks — `errors` is `[{ code, params? }]` (codes of `PortalIssueCode`, the dashboard words them per locale).
+ * Valid listings have no row. The generator rewrites the rows of each batch it checks and, when the run ends, deletes
+ * the rows of earlier runs (`checked_at` older than the run's start): a listing no longer selected, or fixed, vanishes.
+ */
+export const portalConnectionIssues = pgTable(
+  'portal_connection_issues',
+  {
+    connectionId: uuid('connection_id').notNull(),
+    propertyId: uuid('property_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    errors: jsonb('errors').notNull(),
+    /** The start of the run that wrote the row. */
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // keyset list of a connection's issues: where connection_id = ? and property_id > ? order by property_id
+    primaryKey({ columns: [t.connectionId, t.propertyId] }),
+    foreignKey({
+      name: 'portal_connection_issues_connection_fk',
+      columns: [t.agencyId, t.connectionId],
+      foreignColumns: [agencyPortalConnections.agencyId, agencyPortalConnections.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'portal_connection_issues_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    index('portal_connection_issues_property_idx').on(t.propertyId),
   ],
 );

@@ -100,5 +100,23 @@
     "LISTING_NOT_FOUND": "Una o más referencias no coinciden con ninguno de tus inmuebles. No se ha cambiado nada.",
     "VALIDATION_FAILED": "Revisa los datos e inténtalo de nuevo.",
     "VERSION_CONFLICT": "Otra persona ha cambiado esta conexión. Recarga e inténtalo de nuevo."
+  },
+  "issues": {
+    "title": "Anuncios excluidos del feed",
+    "summary": "Última comprobación {date}: {valid, plural, one {# anuncio enviado} other {# anuncios enviados}}, {invalid, plural, =0 {ninguno excluido} one {# excluido} other {# excluidos}}.",
+    "never": "Aún no se ha comprobado ningún feed. La primera comprobación se hace al generar el feed.",
+    "more": "Ver más anuncios excluidos",
+    "codes": {
+      "NO_DOCUMENT": "El anuncio todavía no tiene contenido publicado; se actualiza automáticamente.",
+      "PRICE_MISSING": "Añade un precio.",
+      "PRICE_ON_REQUEST": "Este portal no admite precio bajo consulta; añade un precio.",
+      "PRICE_PERIOD": "Este portal solo admite precios de venta y alquileres mensuales o semanales.",
+      "TOWN_MISSING": "Añade una población o zona (la ubicación es demasiado general).",
+      "ENERGY_RATING_MISSING": "Añade la calificación energética (CEE), o márcala como exenta o en trámite.",
+      "PHOTOS_TOO_FEW": "Añade fotos: {actual} de las {min} que necesita este portal.",
+      "DESCRIPTION_MISSING": "Añade una descripción.",
+      "DESCRIPTION_TOO_SHORT": "La descripción tiene {actual} caracteres; este portal necesita al menos {min}.",
+      "DESCRIPTION_TOO_LONG": "La descripción tiene {actual} caracteres; este portal admite como máximo {max}."
+    }
   }
 }

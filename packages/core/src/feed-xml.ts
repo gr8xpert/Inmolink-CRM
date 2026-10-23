@@ -78,14 +78,37 @@ export function writeKyeroEnd(w: XmlWriter): void {
   w.close().newline();
 }
 
-/** One `<property>`; false (nothing written) when Kyero cannot take the item. */
-export function writeKyeroProperty(w: XmlWriter, item: FeedItem): boolean {
+/**
+ * Why Kyero cannot take an item, or null when it can. The names are the portal issue codes of `@inmolink/contracts`
+ * (`PortalIssueCode`) on purpose: the validator reports a blocker as it is, with no mapping to drift.
+ */
+export type KyeroBlocker = 'PRICE_ON_REQUEST' | 'PRICE_MISSING' | 'PRICE_PERIOD' | 'TOWN_MISSING';
+
+const kyeroAmount = (d: WebsiteDetail) =>
+  d.price.onRequest || d.price.amountCents === null ? 0 : Math.round(d.price.amountCents / 100);
+const kyeroTown = (d: WebsiteDetail) => d.place.city?.name ?? d.place.area?.name ?? null;
+
+export function kyeroBlocker(d: WebsiteDetail): KyeroBlocker | null {
+  if (d.price.onRequest) return 'PRICE_ON_REQUEST';
+  if (kyeroAmount(d) <= 0) return 'PRICE_MISSING';
+  if (kyeroFrequency(d) === null) return 'PRICE_PERIOD';
+  if (kyeroTown(d) === null) return 'TOWN_MISSING';
+  return null;
+}
+
+/** Images a feed lists, in order (pictures and floor plans with a usable URL). */
+export function feedPictureUrls(d: WebsiteDetail): string[] {
+  return d.kind === 'LISTING' ? images(d.media).flatMap((m) => imageUrl(m) ?? []) : [];
+}
+
+/** One `<property>`; false (nothing written) when Kyero cannot take the item. `maxImages`: a portal's photo cap. */
+export function writeKyeroProperty(w: XmlWriter, item: FeedItem, opts: { maxImages?: number } = {}): boolean {
   const d = item.base;
-  const freq = kyeroFrequency(d);
-  const amount = d.price.onRequest || d.price.amountCents === null ? 0 : Math.round(d.price.amountCents / 100);
-  const town = d.place.city?.name ?? d.place.area?.name ?? null;
+  if (kyeroBlocker(d) !== null) return false;
+  const freq = kyeroFrequency(d) as 'sale' | 'month' | 'week';
+  const amount = kyeroAmount(d);
+  const town = kyeroTown(d) as string;
   const province = d.place.region?.name ?? town;
-  if (freq === null || amount <= 0 || town === null || province === null) return false;
   const listing = d.kind === 'LISTING' ? d : null;
   w.open('property');
   w.leaf('id', d.ref);
@@ -130,7 +153,7 @@ export function writeKyeroProperty(w: XmlWriter, item: FeedItem): boolean {
     for (const f of listing.features) w.leaf('feature', f.name);
     w.close();
   }
-  const pictures = listing ? images(listing.media).flatMap((m) => imageUrl(m) ?? []) : [];
+  const pictures = feedPictureUrls(d).slice(0, opts.maxImages ?? Number.POSITIVE_INFINITY);
   if (pictures.length > 0) {
     w.open('images');
     pictures.forEach((url, i) => {
@@ -150,13 +173,14 @@ export function writeKyeroProperty(w: XmlWriter, item: FeedItem): boolean {
 export function writeGenericStart(
   w: XmlWriter,
   head: {
-    generatedAt: Date;
+    /** Null: no timestamp (portal feeds: the same data gives the same bytes, so a content hash can skip an upload). */
+    generatedAt: Date | null;
     siteName: string;
     locales: readonly string[];
     agency: { name: string; email: string | null; phone: string | null; website: string | null };
   },
 ): void {
-  w.open('inmolink_feed', { version: 1, generated: head.generatedAt.toISOString() }).newline();
+  w.open('inmolink_feed', { version: 1, generated: head.generatedAt?.toISOString() }).newline();
   w.open('site').leaf('name', head.siteName).leaf('languages', head.locales.join(' ')).close().newline();
   w.open('agency')
     .leaf('name', head.agency.name)

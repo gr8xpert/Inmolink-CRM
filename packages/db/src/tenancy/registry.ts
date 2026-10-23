@@ -409,6 +409,8 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { channel_code: 'isolation-portal', name: 'Isolation', token_hint: 'abcd' },
   },
   portal_connection_properties: { kind: 'STRICT', base: { action: 'INCLUDE' } },
+  // Listings a connection's last run left out and why (S9-02).
+  portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
   // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
   // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.

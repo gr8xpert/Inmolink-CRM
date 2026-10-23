@@ -89,6 +89,10 @@ export const PortalConnectionDto = z.strictObject({
   /** Per-property choices: how many listings are always sent / never sent. */
   includeCount: z.number().int(),
   excludeCount: z.number().int(),
+  /** The last feed check (S9-02); null: no feed has been generated for this connection yet. */
+  validation: z
+    .strictObject({ checkedAt: z.iso.datetime(), validCount: z.number().int(), invalidCount: z.number().int() })
+    .nullable(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -147,3 +151,42 @@ export type PortalSelectionQuery = z.infer<typeof PortalSelectionQuery>;
 export const PortalSelectedListingDto = z.strictObject({ propertyId: z.uuid(), ref: z.string().nullable() });
 export const PortalSelectionPage = pageOf(PortalSelectedListingDto);
 export type PortalSelectionPage = z.infer<typeof PortalSelectionPage>;
+
+// ── Feed validation (S9-02) ───────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Why a listing is left out of a portal's feed. The dashboard words each code per locale (`portals` namespace,
+ * `issues.codes.<code>`) with the issue's `params`.
+ */
+export const PORTAL_ISSUE_CODES = [
+  'NO_DOCUMENT',
+  'PRICE_MISSING',
+  'PRICE_ON_REQUEST',
+  'PRICE_PERIOD',
+  'TOWN_MISSING',
+  'ENERGY_RATING_MISSING',
+  'PHOTOS_TOO_FEW',
+  'DESCRIPTION_MISSING',
+  'DESCRIPTION_TOO_SHORT',
+  'DESCRIPTION_TOO_LONG',
+] as const;
+export const PortalIssueCode = z.enum(PORTAL_ISSUE_CODES);
+export type PortalIssueCode = z.infer<typeof PortalIssueCode>;
+
+/** One reason; `params`: the numbers behind it (`min`, `max`, `actual`). */
+export const PortalIssue = z.strictObject({
+  code: PortalIssueCode,
+  params: z.record(z.string(), z.number()).optional(),
+});
+export type PortalIssue = z.infer<typeof PortalIssue>;
+
+/** `GET .../issues`: the listings the last run left out, by listing id (keyset), with every reason. */
+export const PortalIssueDto = z.strictObject({
+  propertyId: z.uuid(),
+  ref: z.string().nullable(),
+  issues: z.array(PortalIssue),
+  checkedAt: z.iso.datetime(),
+});
+export type PortalIssueDto = z.infer<typeof PortalIssueDto>;
+export const PortalIssuePage = pageOf(PortalIssueDto);
+export type PortalIssuePage = z.infer<typeof PortalIssuePage>;

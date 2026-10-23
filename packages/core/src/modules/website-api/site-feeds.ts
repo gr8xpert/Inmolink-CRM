@@ -30,9 +30,6 @@ import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
 import { type ObjectUpload, storage } from '@inmolink/platform/storage';
 import { XmlWriter } from '@inmolink/platform/xml';
-import * as search from '../search';
-import * as websites from '../websites';
-import { edgeTag, edgeTagsConfigured } from './edge';
 import {
   type FeedItem,
   writeGenericEnd,
@@ -41,7 +38,10 @@ import {
   writeKyeroEnd,
   writeKyeroProperty,
   writeKyeroStart,
-} from './feed-xml';
+} from '../../feed-xml';
+import * as search from '../search';
+import * as websites from '../websites';
+import { edgeTag, edgeTagsConfigured } from './edge';
 import { serializeDetailsFor, siteForKey } from './service';
 
 /** Items per batch (one sitemap page, then one read-model statement — and one view statement — per site locale). */

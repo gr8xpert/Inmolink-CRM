@@ -7,6 +7,7 @@ import {
   PortalConnectionPage,
   PortalConnectionParams,
   PortalConnectionSecretDto,
+  PortalIssuePage,
   PortalOverridePage,
   PortalSelectionPage,
   PortalSelectionQuery,
@@ -216,5 +217,22 @@ export async function exportsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => exportsModule.previewSelection(ctx, req.params, req.query)),
+  );
+
+  app.get(
+    '/v1/portal-connections/:connectionId/issues',
+    {
+      schema: {
+        tags,
+        operationId: 'exports.listPortalIssues',
+        summary: 'The listings the last feed run left out, with the reasons, by listing id',
+        params: PortalConnectionParams,
+        querystring: PortalSelectionQuery,
+        response: { 200: PortalIssuePage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => exportsModule.listIssues(ctx, req.params, req.query)),
   );
 }

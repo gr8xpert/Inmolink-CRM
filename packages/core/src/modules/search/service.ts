@@ -8,7 +8,7 @@
  * the other, the later one reading at least what the earlier one read. The upsert never lowers `version`, so
  * events delivered late, twice or out of order cannot move a read model backwards.
  */
-import { PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
+import { ListingDetailDoc, PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
@@ -681,6 +681,32 @@ export async function rebuildAllReadModels(
     out[kind] = progress;
   }
   return out;
+}
+
+/** An own listing's detail document in one content locale (portal feeds). */
+export interface OwnListingDetail {
+  targetId: string;
+  locale: string;
+  doc: ListingDetailDoc;
+  updatedAt: Date;
+}
+
+/**
+ * The agency's own PUBLIC listings' detail documents in these locales (S9-02, raw `tx`, `withSystem`, no
+ * authorization — PATTERNS §12). One statement. A target without a public read model in a locale is absent there;
+ * a stored document that no longer parses is left out too (the caller reports the listing as having no document).
+ */
+export async function ownListingDetails(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  locales: readonly string[],
+): Promise<OwnListingDetail[]> {
+  const rows = await repo.ownListingDetails(tx, agencyId, ids, locales);
+  return rows.flatMap((r) => {
+    const doc = ListingDetailDoc.safeParse(r.detail);
+    return doc.success ? [{ targetId: r.targetId, locale: r.locale, doc: doc.data, updatedAt: r.updatedAt }] : [];
+  });
 }
 
 /** Tests and ops checks: these targets' stored documents. */

@@ -14,6 +14,8 @@ import {
   type PortalConnectionPage,
   type PortalConnectionParams,
   type PortalConnectionSecretDto,
+  PortalIssue,
+  type PortalIssuePage,
   type PortalOverridePage,
   type PortalSelectionPage,
   type PortalSelectionQuery,
@@ -55,6 +57,14 @@ function toDto(row: repo.ConnectionRow, counts: { include: number; exclude: numb
     tokenActive: row.revokedAt === null,
     tokenHint: row.tokenHint,
     tokenCreatedAt: row.tokenCreatedAt.toISOString(),
+    validation:
+      row.lastCheckedAt === null
+        ? null
+        : {
+            checkedAt: row.lastCheckedAt.toISOString(),
+            validCount: row.lastValidCount ?? 0,
+            invalidCount: row.lastInvalidCount ?? 0,
+          },
     includeCount: counts?.include ?? 0,
     excludeCount: counts?.exclude ?? 0,
     version: row.version,
@@ -462,6 +472,7 @@ export interface WorkerConnection {
   id: string;
   agencyId: string;
   channelCode: string;
+  name: string;
   enabled: boolean;
   /** Set: the feed token was revoked (nothing to serve). */
   revokedAt: Date | null;
@@ -482,6 +493,7 @@ export async function connectionForWorker(
     id: row.id,
     agencyId: row.agencyId,
     channelCode: row.channelCode,
+    name: row.name,
     enabled: row.enabled,
     revokedAt: row.revokedAt,
     version: row.version,
@@ -516,5 +528,47 @@ export async function previewSelection(
   return {
     items: page.ids.map((id) => ({ propertyId: id, ref: refs.get(id) ?? null })),
     nextCursor: page.next,
+  };
+}
+
+/** Stored reasons as the contract has them; an entry that does not parse (a code retired since) is dropped. */
+const issuesOf = (errors: unknown): PortalIssue[] =>
+  Array.isArray(errors)
+    ? errors.flatMap((e) => {
+        const parsed = PortalIssue.safeParse(e);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
+
+// ── Feed validation (S9-02) ───────────────────────────────────────────────────────────────────────────────────────
+
+/** The listings the connection's last feed run left out, by listing id (keyset), with every reason and the reference. */
+export async function listIssues(
+  ctx: Ctx,
+  params: PortalConnectionParams,
+  q: PortalSelectionQuery,
+): Promise<PortalIssuePage> {
+  assertCan(ctx, 'exports.read');
+  const connection = await loadConnection(ctx, params.connectionId);
+  const rows = await repo.issuePage(ctx.tx, connection.id, { after: listingCursor(q.cursor), limit: q.limit + 1 });
+  const page = rows.slice(0, q.limit);
+  const refs = new Map(
+    (
+      await properties.listingRefs(
+        ctx.tx,
+        ctx.tenant.agencyId,
+        page.map((r) => r.propertyId),
+      )
+    ).map((r) => [r.id, r.ref]),
+  );
+  return {
+    items: page.map((r) => ({
+      propertyId: r.propertyId,
+      ref: refs.get(r.propertyId) ?? null,
+      issues: issuesOf(r.errors),
+      // The run that last completed: rows keep the time their reasons last changed.
+      checkedAt: (connection.lastCheckedAt ?? r.checkedAt).toISOString(),
+    })),
+    nextCursor: rows.length > q.limit ? (page.at(-1)?.propertyId ?? null) : null,
   };
 }

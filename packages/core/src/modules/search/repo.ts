@@ -267,6 +267,32 @@ export async function targetsOfDevelopment(tx: Tx, developmentId: string): Promi
     .where(eq(listingReadModels.developmentId, developmentId));
 }
 
+/**
+ * An agency's own PUBLIC listing documents (portal feeds, S9-02): the detail of each of these targets in the given
+ * locales, pinned to the owner agency. One statement (primary key range of the targets). No owner or private fields:
+ * the document type has none.
+ */
+export async function ownListingDetails(tx: Tx, agencyId: string, ids: readonly string[], locales: readonly string[]) {
+  if (ids.length === 0 || locales.length === 0) return [];
+  return tx
+    .select({
+      targetId: listingReadModels.targetId,
+      locale: listingReadModels.locale,
+      detail: listingReadModels.detail,
+      updatedAt: listingReadModels.updatedAt,
+    })
+    .from(listingReadModels)
+    .where(
+      and(
+        eq(listingReadModels.agencyId, agencyId),
+        eq(listingReadModels.kind, 'LISTING'),
+        eq(listingReadModels.public, true),
+        inArray(listingReadModels.targetId, [...ids]),
+        inArray(listingReadModels.locale, [...locales]),
+      ),
+    );
+}
+
 /** These targets' documents (tests and ops checks). */
 export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) {
   if (ids.length === 0) return [];

@@ -9,7 +9,7 @@ import {
   writeKyeroEnd,
   writeKyeroProperty,
   writeKyeroStart,
-} from '../feed-xml';
+} from '../../../feed-xml';
 import { GENERIC_XSD, KYERO_XSD, schemaErrors } from './feed-schema';
 
 /**

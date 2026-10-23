@@ -2,8 +2,9 @@
 <!--
   Inmolink generic XML feed, version 1 (S7-07, `/v2/feeds/<token>/inmolink.xml`): one site's inventory as its website
   API shows it — white-labelled (`<agency>` is the presenting agency, references are the site's), every text plain
-  text. Our own format: this schema is its definition (source: packages/core/src/modules/website-api/feed-xml.ts).
+  text. Our own format: this schema is its definition (source: packages/core/src/feed-xml.ts).
   Prices are in cents with their currency, like the API's `amountCents`; areas in m²; dates ISO 8601 UTC.
+  `generated` is present in per-site feeds and omitted in portal feeds (S9-02), whose bytes depend on the data only.
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
 
@@ -183,7 +184,7 @@
         </xs:element>
       </xs:sequence>
       <xs:attribute name="version" type="xs:integer" fixed="1" use="required"/>
-      <xs:attribute name="generated" type="xs:dateTime" use="required"/>
+      <xs:attribute name="generated" type="xs:dateTime" use="optional"/>
     </xs:complexType>
   </xs:element>
 </xs:schema>

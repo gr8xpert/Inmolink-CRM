@@ -125,6 +125,18 @@ describe('module scaffolder and boundaries', () => {
     );
   });
 
+  it("[S9-02] a module's worker.ts (feed writers running as app_system) is for the worker: the API importing it fails", async () => {
+    const result = await planted(
+      'apps/api/src/planted.ts',
+      "import { writeConnectionFeed } from '@inmolink/core/modules/exports/worker';\nexport const planted = writeConnectionFeed;\n",
+      () => sb.boundaries(['apps/api/src/planted.ts']),
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatch(
+      /core-module-worker-entry-workers-only: apps\/api\/src\/planted\.ts → packages\/core\/src\/modules\/exports\/worker\.ts/,
+    );
+  });
+
   it("[S0-12] a planted import of another module's repo.ts fails check:boundaries", async () => {
     const result = await planted(
       `${MODULE_DIR}/planted.ts`,
