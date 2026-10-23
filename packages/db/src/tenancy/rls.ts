@@ -430,6 +430,9 @@ end $$;`,
     // app_owner whichever role ran the migration (a function runs as its owner).
     `alter function legacy_target_ids(text[]) owner to app_owner;`,
     `alter function legacy_ids_of(uuid[]) owner to app_owner;`,
+    // S9 review: the portal feed token lookup reads agency_portal_connections through its `definer_read` policy
+    // (app_owner) and is recreated (dropped first) on every run, so it is owned by whichever role ran the SQL unless set.
+    `alter function portal_feed_by_token(text) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

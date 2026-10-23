@@ -35,7 +35,13 @@ export { brandStyle, type EmbedBranding, embedBranding, embedFrameAncestors } fr
 export { websiteApiErrors } from './errors';
 export { websiteApiEvents } from './events';
 export { isHoneytokenRef } from './honeytokens';
-export { configureSiteFeedFanout, queueEdgePurge, websiteApiJobs } from './jobs';
+export {
+  configureFeedRunCaps,
+  configureSiteFeedFanout,
+  EXPORTS_FEED_CAP_GROUP,
+  queueEdgePurge,
+  websiteApiJobs,
+} from './jobs';
 export { LEAD_TURNSTILE_ACTION, type LeadRequestFacts, submitLead } from './leads';
 export { legacyProperties, legacyProperty, legacyTypes, resetLegacyCaches } from './legacy-v1';
 export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_POOL, sliceSignature } from './limits';

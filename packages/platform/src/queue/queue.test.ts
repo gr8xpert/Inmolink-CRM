@@ -36,6 +36,25 @@ describe('queue definitions', () => {
     const def = defineJob({ name: 'search.reindex', pool: 'indexing', payload, run });
     expect(def).toMatchObject({ name: 'search.reindex', pool: 'indexing', attempts: 5, timeoutMs: 600_000 });
   });
+
+  it('[S9-review] a capGroup needs a valid name and a cap to share', () => {
+    const run = async () => {};
+    expect(() =>
+      defineJob({ name: 'a.b', pool: 'exports', payload, capGroup: 'Bad Group', perProcessConcurrency: 2, run }),
+    ).toThrow(/invalid capGroup/);
+    expect(() => defineJob({ name: 'a.b', pool: 'exports', payload, capGroup: 'exports.feeds', run })).toThrow(
+      /capGroup needs perProcessConcurrency or globalConcurrency/,
+    );
+    const def = defineJob({
+      name: 'a.b',
+      pool: 'exports',
+      payload,
+      capGroup: 'exports.feeds',
+      perProcessConcurrency: 2,
+      run,
+    });
+    expect(def.spec.capGroup).toBe('exports.feeds');
+  });
 });
 
 describe('fair share over-cap backoff', () => {

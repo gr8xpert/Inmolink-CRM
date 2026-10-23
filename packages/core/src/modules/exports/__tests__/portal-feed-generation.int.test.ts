@@ -462,6 +462,31 @@ describe('[S9-03] run history and serialization', () => {
     expect(stored).toBe(exportsModule.FEED_RUNS_KEPT);
   });
 
+  it('[S9-review] push runs have their own agency group; every heavy job of the pool shares one cap group', () => {
+    const push = exportsJobs.pushPortalListings.spec;
+    // Serialized per agency (so per connection) without holding the lease the agency's feed passes and site feeds use.
+    expect(push.group?.({ agencyId: a.agencyId })).toBe(`${a.agencyId}:push`);
+    expect(push.concurrencyPerGroup).toBe(1);
+    expect(exportsJobs.generatePortalFeeds.spec.group?.({ agencyId: a.agencyId })).toBe(a.agencyId);
+    const heavy = [
+      exportsJobs.generatePortalFeeds,
+      exportsJobs.generateNightlyPortalFeeds,
+      exportsJobs.pushPortalListings,
+      websiteApi.websiteApiJobs.generateSiteFeed,
+    ].map((j) => j.spec);
+    expect(new Set(heavy.map((s) => s.capGroup))).toEqual(new Set([websiteApi.EXPORTS_FEED_CAP_GROUP]));
+    const cap = (c: number | (() => number) | undefined) => (typeof c === 'function' ? c() : c);
+    configurePortalFeedJobs({ runsPerProcess: 3, maxConcurrentRuns: 9 });
+    try {
+      for (const s of heavy) expect([cap(s.perProcessConcurrency), cap(s.globalConcurrency)]).toEqual([3, 9]);
+      // The lanes leave the other heavy jobs at least one pool-wide slot.
+      expect(() => configurePortalFeedJobs({ nightlyLanes: 9, maxConcurrentRuns: 9 })).toThrow(/less than/);
+    } finally {
+      configurePortalFeedJobs({});
+    }
+    for (const s of heavy) expect([cap(s.perProcessConcurrency), cap(s.globalConcurrency)]).toEqual([2, 8]);
+  });
+
   it('[S9-03] runs are serialized per agency, and a run that lost a race never replaces the newer file', async () => {
     const spec = exportsJobs.generatePortalFeeds.spec;
     const payload = { agencyId: a.agencyId, connectionId: C.kyero };

@@ -15,6 +15,12 @@ export interface JobContext {
   progress(value: number | object): Promise<void>;
   /** Aborted when the job's `timeoutMs` elapses or the worker shuts down. */
   signal: AbortSignal;
+  /**
+   * S9 review: hands back the job's per-process and pool-wide cap slots (its `capGroup`'s, or its definition's) before
+   * it returns, once its heavy part is done — e.g. before it enqueues a successor that needs the same slot. The group
+   * lease (`concurrencyPerGroup`) is kept until the job ends. Idempotent; absent outside a worker (direct `run` calls).
+   */
+  releaseCapSlots?: () => Promise<void>;
 }
 
 export interface JobSpec<S extends z.ZodType> {
@@ -42,6 +48,13 @@ export interface JobSpec<S extends z.ZodType> {
    * over the cap goes back to delayed like one over `globalConcurrency`; another process can take it meanwhile.
    */
   perProcessConcurrency?: number | (() => number);
+  /**
+   * S9 review: a cap shared with the pool's other definitions of the same `capGroup`. `perProcessConcurrency` and
+   * `globalConcurrency` then count the running jobs of every definition of the group (in this process / across the
+   * pool), not of this definition alone, so several heavy job kinds of one pool cannot each take their own slots. Each
+   * definition compares the group's count with its own caps: definitions of one group normally declare the same.
+   */
+  capGroup?: string;
   /** Total runs including the first. Default 5. */
   attempts?: number;
   backoff?: { type: 'exponential' | 'fixed'; delay: number };
@@ -95,6 +108,7 @@ export interface StoredJob {
 
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+$/;
 const POOL = /^[a-z][a-z0-9-]{0,31}$/;
+const CAP_GROUP = /^[a-z][a-zA-Z0-9.-]{0,63}$/;
 
 /** BullMQ custom IDs must not contain ':' or be purely numeric; the job-name prefix rules out the latter. */
 export function stableJobId(name: string, id: string): string {
@@ -127,6 +141,14 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     (!Number.isInteger(spec.perProcessConcurrency) || spec.perProcessConcurrency < 1)
   ) {
     throw new RangeError(`defineJob ${spec.name}: perProcessConcurrency must be a positive integer`);
+  }
+  if (spec.capGroup !== undefined) {
+    if (!CAP_GROUP.test(spec.capGroup)) {
+      throw new TypeError(`defineJob ${spec.name}: invalid capGroup ${JSON.stringify(spec.capGroup)}`);
+    }
+    if (spec.perProcessConcurrency === undefined && spec.globalConcurrency === undefined) {
+      throw new TypeError(`defineJob ${spec.name}: capGroup needs perProcessConcurrency or globalConcurrency`);
+    }
   }
   const attempts = spec.attempts ?? 5;
   const timeoutMs = spec.timeoutMs ?? 10 * 60_000;

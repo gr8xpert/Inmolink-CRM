@@ -77,6 +77,7 @@ grant execute on function website_network_open(uuid, integer, integer) to app_pu
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
 alter function legacy_target_ids(text[]) owner to app_owner;
 alter function legacy_ids_of(uuid[]) owner to app_owner;
+alter function portal_feed_by_token(text) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;

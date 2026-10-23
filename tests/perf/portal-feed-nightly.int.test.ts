@@ -27,6 +27,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  * `nightlyLanes` chains (in the perf project: it measures waits, and it marks every other agency's connections done for
  * tonight, which no parallel file may race): at no point are more nightly jobs queued than lanes, none is ever bounced to delayed by a
  * cap, every due agency is covered, and a site feed job queued meanwhile starts within a bounded wait.
+ *
+ * S9 review: nightly passes, event passes and site feeds share one cap group (per process and pool-wide). The lanes take
+ * `LANES` of its slots and leave one (`nightlyLanes` < `maxConcurrentRuns`): the site feed runs in it, and each lane's
+ * successor takes its predecessor's slot (handed back before the enqueue), so still none is bounced.
  */
 
 const RUN = newId().slice(-8).toLowerCase();
@@ -75,7 +79,13 @@ afterAll(async () => {
 describe('[S9-03] nightly lanes on the real queue', () => {
   it('[S9-03] the night runs as lanes: never more nightly jobs than lanes, none bounced, all covered, site feeds start promptly', async () => {
     const now = new Date();
-    configurePortalFeedJobs({ nightlyHourUtc: now.getUTCHours(), nightlyLanes: LANES, maxConcurrentRuns: LANES });
+    // One process here: its share of the heavy jobs is the whole pool-wide cap (lanes + one for the other heavy jobs).
+    configurePortalFeedJobs({
+      nightlyHourUtc: now.getUTCHours(),
+      nightlyLanes: LANES,
+      maxConcurrentRuns: LANES + 1,
+      runsPerProcess: LANES + 1,
+    });
     const window = nightlyWindow(now, now.getUTCHours());
     const mine = founders.map((f) => f.agencyId);
     // Only this file's agencies are due tonight (the shared database holds other files' connections).
@@ -103,6 +113,13 @@ describe('[S9-03] nightly lanes on the real queue', () => {
 
     let maxNightly = 0;
     let bounced = 0;
+    /** Heavy jobs (the shared cap group) running at once, sampled. */
+    let maxHeavy = 0;
+    const heavy = new Set([
+      'exports.generateNightlyPortalFeeds',
+      'exports.generatePortalFeeds',
+      'websiteApi.generateSiteFeed',
+    ]);
     const due = async () =>
       (
         await system((tx) =>
@@ -115,6 +132,7 @@ describe('[S9-03] nightly lanes on the real queue', () => {
       const jobs = await queue.getJobs(['waiting', 'prioritized', 'delayed', 'active']);
       const nightly = jobs.filter((j) => j.name === 'exports.generateNightlyPortalFeeds');
       maxNightly = Math.max(maxNightly, nightly.length);
+      maxHeavy = Math.max(maxHeavy, (await queue.getJobs(['active'])).filter((j) => heavy.has(j.name)).length);
       const delayed = await queue.getJobs(['delayed']);
       bounced = Math.max(bounced, delayed.filter((j) => j.name === 'exports.generateNightlyPortalFeeds').length);
       if ((await due()) === 0 && nightly.length === 0) break;
@@ -126,6 +144,8 @@ describe('[S9-03] nightly lanes on the real queue', () => {
     // delayed by a cap: no churn.
     expect(maxNightly).toBeLessThanOrEqual(2 * LANES);
     expect(bounced).toBe(0);
+    // The shared cap held: never more heavy jobs active than the pool-wide cap.
+    expect(maxHeavy).toBeLessThanOrEqual(LANES + 1);
     // Every due agency was covered tonight, once (one NIGHTLY run each).
     const nightlyRuns = await system((tx) =>
       tx.execute<{ agency_id: string; n: number }>(sql`select agency_id, count(*)::int as n from portal_feed_runs

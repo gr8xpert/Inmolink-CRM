@@ -1375,6 +1375,53 @@ Ref §3 #60 · Mod crm, reports · Dep S10-02
 
 ---
 
+### S10-F1 · exports public surface: worker-only helpers out of the index (S9 review) 🔒
+Ref §4 · Mod exports · Dep S9-04
+**Build:** `decryptCredentials`, `workerConnections`, `connectionForWorker` and `selectConnectionListings` (tx, no ctx, `app_system`) move behind the worker-only entry (`exports/worker.ts`, e.g. `exports/connections-worker.ts`) so `service.ts` is ctx-only; trim index / worker exports with no consumer outside the module (`FEED_FILE_OF_FORMAT`, `PORTAL_PREFERRED_LOCALE`, `selectionBatch`, `selectionRuleOf`, `SELECTION_MAX_BATCH`, `portalFeedObjectKey`, `PORTAL_FEED_MAX_GZIP_BYTES`, `PORTAL_FEED_REDIRECT_TTL`, `planAgencyFeeds`, `writePlannedFeeds`, `FEED_BATCH`, `HashedGzipUpload`, the `queue*` helpers, push timing constants, `OAuthPortalHttp`, `LIVE_CACHE_MS`; tests import internals directly); `FEED_RUNS_KEPT` moves out of `service.ts`; the "feed server, S9-04" comment says S9-03; the S9-02 acceptance `it`s carry `[S9-02]`.
+**Done when:** `apps/api` cannot import `decryptCredentials` or the tx-only helpers (boundary test); no export of either entry is unused outside the module (check script or test)
+
+### S10-F2 · One stored-feed upload and serving helper (S9 review)
+Ref §9.5 · Mod exports, website-api, feed-api · Dep S9-03
+**Build:** a shared `GzipObjectUpload` (hash target text or gzip, size cap, abort) next to `core/src/feed-xml.ts` replacing `HashedGzipUpload` and site-feeds' `GzipUpload`; a shared `storedFeedFile(key, maxBytes, ttl, notFoundCode)` for `serve.ts` and `site-feeds.ts`; a feed-api `sendStoredFeed(req, reply, file)` beside `sendConditional` for both feed routes; one redirect TTL for site and portal feeds (60 s, the shorter) or a recorded reason.
+**Done when:** site and portal feed tests green on the shared helpers; no copied upload / serve / route code left (review)
+
+### S10-F3 · Row-bound credential cipher in platform/crypto (S9 review)
+Ref §5 · Mod platform, exports, imports · Dep S9-01
+**Build:** `rowCipher(table, column)` in `platform/crypto` replaces the duplicated encrypt / decrypt helpers in `exports/config.ts` and `imports/config.ts`.
+**Done when:** a ciphertext bound to one row does not decrypt for another row or table (unit test); imports and exports credential tests green
+
+### S10-F4 · Portal secrets out of request paths; worker tables read-only for app_user (S9 review) 🔒
+Ref §5 · Mod exports, db · Dep S9-04
+**Build:** `connectionColumns` stops selecting `credentials_enc` (a worker-only select reads it); registry `hiddenColumns: ['credentials_enc', 'token_hash']` on `agency_portal_connections`; `app_user` SELECT-only on `portal_feed_runs` and `portal_listing_sync` (written by the generator / push job as `app_system`); `userNoUpdateColumns` `feed_run_id`, `feed_sha256`, `push_error`, `nightly_at` on `agency_portal_connections`.
+**Done when:** app_user selecting `credentials_enc` / `token_hash` and writing `portal_listing_sync.remote_id` get 42501 (isolation tests); dashboard and worker tests green
+
+### S10-F5 · Location precision in portal XML feeds (S9 review) 🔒
+Ref §7 M7 · Mod exports, website-api · Dep S9-04
+**Build:** decide with Shahzaib whether EXACT pins may reach feed portals (Kyero, thinkSPAIN, A Place in the Sun, site feeds) while push portals get them rounded to 3 decimals until H6; apply the same rule in both XML writers (`core/src/feed-xml.ts`) or record that exact pins are intended.
+**Done when:** the rule is in STATUS Decisions and a writer test asserts it for an EXACT and an APPROX listing
+
+### S10-F6 · Plugin: wp-config key changes flush the cache; no unpinned API calls (S9 review) 🔒
+Ref §9.4 · Mod wp-plugin · Dep S8-F14 S8-F23
+**Build:** a fingerprint of (API base, key prefix) in `Cache::key()` and the mirror (or stored and compared on boot → `flush(false)` + mirror truncate), so `INMOLINK_API_KEY` / `INMOLINK_API_BASE` changes in wp-config.php never serve the previous agency; when `CURLOPT_RESOLVE` pinning cannot apply (streams transport), answer from cache only and say so on the health page; a deprecation notice when only the legacy trusted-header setting is used.
+**Done when:** changing the key constant then taking the API down renders nothing from the old agency (PHPUnit); a streams-transport request makes no network call (PHPUnit)
+
+### S10-F7 · Portal connection create takes Idempotency-Key (S9 review)
+Ref §8 · Mod exports, api · Dep S9-01
+**Build:** `POST /v1/portal-connections` accepts `Idempotency-Key` with the standard replay (the token shown once is answered again for a retry, as `POST /v1/sites/{id}/feed/token` does).
+**Done when:** a retried create with the same key returns the same connection and token, no second row (int test)
+
+### S10-F8 · Push teardown and live-advert queries index-driven (S9 perf review) ⚡
+Ref §5 · Mod exports, db · Dep S9-04
+**Build:** `liveAdverts` keyset on `property_id > last` (no restart from the start per page) and a partial index `(agency_id, connection_id, property_id) where remote_id is not null and state <> 'WITHDRAWN'`, also used by `hasLiveAdverts`.
+**Done when:** teardown of 20k adverts reads each row once (statement / rows test); EXPLAIN of both queries uses the partial index, < 20 ms at 20k rows
+
+### S10-F9 · One selection read per rule across an agency's connections (S9 perf review) ⚡
+Ref §5 · Mod exports · Dep S9-03
+**Build:** per 200-listing batch, connections with the same rule read the base page and exclusions once (grouped selection), and issue rows are written in one statement for all connections; `firstNightlyAgencies` without a Seq Scan (DISTINCT ON per lane over the live index, or an expression index on the lane hash); `setOverrides` ≤ 10 statements (counts from the rows written); a plain-XML request with the edge cache off is redirected to the signed URL instead of being gunzipped through feed-api.
+**Done when:** a 20-connection agency's batch runs ≤ 2 × (rules + 2) statements (statement-count test); the nightly sweep and `setOverrides` meet their budgets (EXPLAIN / query-count tests)
+
+---
+
 ## S11 — MLS collaboration & network board
 
 ### S11-01 · Client registration

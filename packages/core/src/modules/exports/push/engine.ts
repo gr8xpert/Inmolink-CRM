@@ -3,8 +3,9 @@
  * what changed since the last run, or takes their adverts down. Worker-only (imported through `../worker`): it reads
  * every agency's tables as `app_system`.
  *
- * Per connection, sequentially (one run per agency at a time: the job is grouped by agency like the feed passes, so
- * the agency's fair share and the pool's caps apply unchanged). A connection is in one of two **modes**:
+ * Per connection, sequentially (one run per agency at a time: the job has its own group per agency, `<agency>:push`,
+ * so its portal calls never hold the lease the agency's feed passes wait on, and shares the pool's heavy-job caps with
+ * them, S9 review). A connection is in one of two **modes**:
  *
  * - **SYNC** (enabled, its flag on, the agency verified):
  *   1. *Selection and validation are the feeds'*: rounds of `selectConnectionListings` (S9-01), documents read once per

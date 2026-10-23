@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- S9 review fixes: one shared per-process and pool-wide cap group for the `exports` pool's heavy jobs (event and nightly passes, push runs, site feeds; `capGroup`, `releaseCapSlots`), nightly lanes below the pool cap; push runs in their own `<agency>:push` group; `portal_feed_by_token` owned by `app_owner`. No new dependency, no migration.
 - Local limiter windows enforce only while the shared limiter fails open (S8-F9): `RateLimitResult.failedOpen`, counting always; the process-wide failed-lookup cap only while the address pool is saturated (recently valid keys exempt); untracked form posts capped per key and per process; the publishable per-key cap checked before the Redis round trip; `LocalFixedWindows` evicts an under-limit window in O(1) and reports pool saturation.
 - Developments in the plugin sitemap (S8-F24): `/v2/sitemap` lists the site's developments (kind DEVELOPMENT, lastmod) after its listings; the plugin's sitemap provider links them; contract, OpenAPI and SDK updated.
 - feed-api conditional GETs through one `sendConditional`; plugin routes tagged `wp-plugin` and out of the customer SDK; storage `putIf` (If-None-Match / If-Match) keeps `latest.json` at the higher version under concurrent releases; byte-reproducible plugin zip (S9-F6, S8-F30). No new dependencies.

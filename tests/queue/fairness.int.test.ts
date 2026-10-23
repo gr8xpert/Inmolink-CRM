@@ -186,6 +186,132 @@ describe('queue per-process concurrency (S6 review)', () => {
   });
 });
 
+describe('queue cap groups (S9 review)', () => {
+  const POOL_S = 'test-fair-shared';
+  const GROUP = 'test.heavy';
+  /** Shared caps, read per attempt (each test sets them). */
+  const caps = { perProcess: 2, global: 24 };
+  let running = 0;
+  let maxRunning = 0;
+  let heavyDone = 0;
+  let lightDone = 0;
+  const kinds = new Set<string>();
+  /** Three heavy job kinds (like a feed pass, a push run and a site feed) sharing one cap group. */
+  const heavy = ['A', 'B', 'C'].map((kind) =>
+    defineJob({
+      name: `test.fairShared${kind}`,
+      pool: POOL_S,
+      payload: z.object({ group: z.string() }),
+      group: (p) => p.group,
+      concurrencyPerGroup: 1,
+      capGroup: GROUP,
+      perProcessConcurrency: () => caps.perProcess,
+      globalConcurrency: () => caps.global,
+      async run() {
+        running++;
+        maxRunning = Math.max(maxRunning, running);
+        kinds.add(kind);
+        await new Promise((r) => setTimeout(r, 40));
+        running--;
+        heavyDone++;
+      },
+    }),
+  );
+  const light = defineJob({
+    name: 'test.fairSharedLight',
+    pool: POOL_S,
+    payload: z.object({ i: z.number() }),
+    async run() {
+      lightDone++;
+    },
+  });
+  /** Hands its slots back after its heavy part, then keeps running (a nightly pass enqueueing its successor). */
+  const phases: { key: string; event: 'heavyStart' | 'released' | 'end'; at: number }[] = [];
+  let heavyPhase = 0;
+  let maxHeavyPhase = 0;
+  const handing = defineJob({
+    name: 'test.fairSharedHandOver',
+    pool: POOL_S,
+    payload: z.object({ key: z.string() }),
+    group: (p) => p.key,
+    concurrencyPerGroup: 1,
+    capGroup: GROUP,
+    perProcessConcurrency: () => caps.perProcess,
+    globalConcurrency: () => caps.global,
+    async run(p, { releaseCapSlots }) {
+      heavyPhase++;
+      maxHeavyPhase = Math.max(maxHeavyPhase, heavyPhase);
+      phases.push({ key: p.key, event: 'heavyStart', at: Date.now() });
+      await new Promise((r) => setTimeout(r, 60));
+      heavyPhase--;
+      await releaseCapSlots?.();
+      await releaseCapSlots?.(); // idempotent
+      phases.push({ key: p.key, event: 'released', at: Date.now() });
+      await new Promise((r) => setTimeout(r, 400));
+      phases.push({ key: p.key, event: 'end', at: Date.now() });
+    },
+  });
+  const local: PoolHandle[] = [];
+  const reset = () => {
+    running = 0;
+    maxRunning = 0;
+    heavyDone = 0;
+    lightDone = 0;
+    kinds.clear();
+  };
+  const all = [...heavy, light, handing];
+
+  beforeAll(() => setupQueueTest(`test-${run}-s`));
+  afterAll(async () => {
+    await Promise.all(local.map((h) => h.close()));
+    await teardownQueueTest([POOL_S]);
+  });
+
+  it('[S9-review] the jobs of one cap group never run more than the shared per-process cap together; other jobs keep running', async () => {
+    Object.assign(caps, { perProcess: 2, global: 24 });
+    reset();
+    // One process of 10 slots: three heavy kinds × 6 jobs; counted per kind, 6 would run at once.
+    local.push(registerPool(POOL_S, all, { concurrency: 10, groupRetryMs: 20, groupRetryMaxMs: 100 }));
+    await Promise.all(
+      heavy.flatMap((def, k) => Array.from({ length: 6 }, (_, i) => def.enqueue({ group: `t-${k}-${i}` }))),
+    );
+    await Promise.all(Array.from({ length: 20 }, (_, i) => light.enqueue({ i })));
+    await waitFor(() => heavyDone === 18 && lightDone === 20, 30_000);
+    expect(maxRunning).toBe(2);
+    expect([...kinds].sort()).toEqual(['A', 'B', 'C']);
+    await Promise.all(local.splice(0).map((h) => h.close()));
+  });
+
+  it('[S9-review] the jobs of one cap group share one pool-wide cap across processes', async () => {
+    Object.assign(caps, { perProcess: 10, global: 3 });
+    reset();
+    for (let i = 0; i < 2; i++) {
+      local.push(registerPool(POOL_S, all, { concurrency: 10, groupRetryMs: 20, groupRetryMaxMs: 100 }));
+    }
+    await Promise.all(
+      heavy.flatMap((def, k) => Array.from({ length: 5 }, (_, i) => def.enqueue({ group: `u-${k}-${i}` }))),
+    );
+    await waitFor(() => heavyDone === 15, 30_000);
+    expect(maxRunning).toBe(3);
+    expect([...kinds].sort()).toEqual(['A', 'B', 'C']);
+    await Promise.all(local.splice(0).map((h) => h.close()));
+  });
+
+  it('[S9-review] a job that hands its cap slots back early lets the next one start while it finishes', async () => {
+    Object.assign(caps, { perProcess: 1, global: 1 });
+    local.push(registerPool(POOL_S, all, { concurrency: 4, groupRetryMs: 20, groupRetryMaxMs: 100 }));
+    await handing.enqueue({ key: 'first' });
+    await handing.enqueue({ key: 'second' });
+    await waitFor(() => phases.filter((p) => p.event === 'end').length === 2, 30_000);
+    const at = (key: string, event: string) => phases.find((p) => p.key === key && p.event === event)?.at ?? NaN;
+    const [a, b] = ['first', 'second'].sort((x, y) => at(x, 'heavyStart') - at(y, 'heavyStart')) as [string, string];
+    // The second started after the first handed back its slot, and before the first ended: one heavy part at a time.
+    expect(at(b, 'heavyStart')).toBeGreaterThanOrEqual(at(a, 'released'));
+    expect(at(b, 'heavyStart')).toBeLessThan(at(a, 'end'));
+    expect(maxHeavyPhase).toBe(1);
+  });
+});
+
 describe('queue fair share bookkeeping', () => {
   const POOL_B = 'test-fair-book';
   const done = new Set<string>();

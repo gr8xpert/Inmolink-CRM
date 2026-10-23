@@ -6,8 +6,7 @@
  * `exports.generatePortalFeeds` — one pass over an agency's portal connections (`generator.ts`): every live one
  * (`connectionId` absent: a listing change, the nightly run) or one (a connection change). Grouped per agency with
  * `concurrencyPerGroup` 1 — runs of one connection never overlap, and an agency's portal and site feed runs take one
- * slot of the pool at a time (per-tenant fair share) — at most `runsPerProcess` per process (memory) and
- * `maxConcurrentRuns` across the pool (database load: other pools and request paths keep their share). Throttled:
+ * slot of the pool at a time (per-tenant fair share). Throttled:
  * per agency for listing changes (`queueAgencyPortalFeeds`, 5 minutes after the first), per connection for its own
  * changes (`queueConnectionPortalFeed`, 1 minute, at once for a new connection or token).
  *
@@ -17,6 +16,16 @@
  * done (or failed for good), enqueues the next agency of its lane still due tonight. At most `nightlyLanes` nightly
  * jobs exist at once, so none is picked up only to bounce off a cap, and the pool's other jobs (site feeds, event
  * passes) find free slots all night. Each job id is stable per agency and night: re-enqueueing is a no-op.
+ *
+ * **One budget for the pool's heavy jobs** (S9 review): event passes, nightly passes, push runs and site feeds
+ * (`websiteApi.generateSiteFeed`) share one cap group (`EXPORTS_FEED_CAP_GROUP`): at most `runsPerProcess` of them at
+ * once in one worker process (memory: each feed being written holds a 5 MiB upload part), at most `maxConcurrentRuns`
+ * across the pool (database load: other pools and request paths keep their share). The lanes count against both caps:
+ * `nightlyLanes` < `maxConcurrentRuns` (checked at boot) leaves the rest of the pool-wide cap to the other heavy jobs at
+ * night, and a nightly job hands its slots back before it enqueues its successor (`releaseCapSlots`), so a lane never
+ * bounces off its own predecessor. A nightly job can still find its process full (another heavy job took the slot) and
+ * go back to delayed — at most the lanes' few jobs, with growing delays, never the night's queue: size the pool so
+ * processes × `runsPerProcess` ≥ `maxConcurrentRuns`.
  *
  * `exports.sweepNightlyPortalFeeds` — every 15 minutes; inside the nightly window (`nightlyHourUtc` + up to
  * `NIGHTLY_CATCH_UP_HOURS`) it seeds — or repairs — the lanes: the first agency of each lane still due (one
@@ -28,6 +37,7 @@ import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { defineJob, type JobContext, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as websiteApi from '../website-api';
 import { generatePortalFeeds, PortalFeedError } from './generator';
 import { pushPortalListings } from './push/engine';
 import * as repo from './repo';
@@ -52,11 +62,11 @@ export const NIGHTLY_CATCH_UP_HOURS = 6;
 export interface PortalFeedJobsConfig {
   /** UTC hour the nightly run starts (0–23). */
   nightlyHourUtc: number;
-  /** Nightly chains at once (≤ `maxConcurrentRuns`: event passes keep the rest of the cap). */
+  /** Nightly chains at once (< `maxConcurrentRuns`: event passes, push runs and site feeds keep the rest of the cap). */
   nightlyLanes: number;
-  /** Passes at once across the pool (database load). */
+  /** Heavy jobs (passes, push runs, site feeds) at once across the pool (database load). */
   maxConcurrentRuns: number;
-  /** Passes at once in one worker process (memory: one upload part per connection being written). */
+  /** Heavy jobs at once in one worker process (memory: one upload part per connection being written). */
   runsPerProcess: number;
 }
 
@@ -78,9 +88,14 @@ export function configurePortalFeedJobs(next: Partial<PortalFeedJobsConfig>): vo
   for (const k of ['nightlyLanes', 'maxConcurrentRuns', 'runsPerProcess'] as const) {
     if (!Number.isInteger(merged[k]) || merged[k] < 1) throw new RangeError(`exports: ${k} must be a positive integer`);
   }
-  if (merged.nightlyLanes > merged.maxConcurrentRuns) {
-    throw new RangeError('exports: nightlyLanes must not exceed maxConcurrentRuns');
+  // S9 review: the lanes share the pool-wide cap with event passes, push runs and site feeds: leave them a slot.
+  if (merged.nightlyLanes >= merged.maxConcurrentRuns) {
+    throw new RangeError('exports: nightlyLanes must be less than maxConcurrentRuns');
   }
+  websiteApi.configureFeedRunCaps({
+    runsPerProcess: merged.runsPerProcess,
+    maxConcurrentRuns: merged.maxConcurrentRuns,
+  });
   jobsConfig = merged;
 }
 
@@ -153,8 +168,8 @@ async function pass(
 
 export const exportsJobs = {
   /**
-   * Event passes (listing, selection and connection changes): throttled per agency or connection, at most
-   * `maxConcurrentRuns` across the pool and `runsPerProcess` per process.
+   * Event passes (listing, selection and connection changes): throttled per agency or connection; the heavy jobs'
+   * shared caps (`maxConcurrentRuns` across the pool, `runsPerProcess` per process).
    */
   generatePortalFeeds: defineJob({
     name: 'exports.generatePortalFeeds',
@@ -162,6 +177,7 @@ export const exportsJobs = {
     payload: generatePayload,
     group: (p) => p.agencyId,
     concurrencyPerGroup: 1,
+    capGroup: websiteApi.EXPORTS_FEED_CAP_GROUP,
     perProcessConcurrency: () => jobsConfig.runsPerProcess,
     globalConcurrency: () => jobsConfig.maxConcurrentRuns,
     attempts: PORTAL_FEED_ATTEMPTS,
@@ -172,11 +188,14 @@ export const exportsJobs = {
 
   /**
    * S9-04: sends an agency's push-portal connections (idealista, Fotocasa) what changed, or takes their adverts down
-   * (connection off, flag off, agency unverified) - see `push/engine.ts`. Same pool, group and caps as the feed passes,
-   * so the agency's fair share and the pool's database load are one budget; queued by the feed passes (events, nightly)
-   * and the agency status subscriber. A run that ran out of calls or time queues its own continuation (with the
-   * cursor, and the portal's `Retry-After` if it asked for one); `retry` (the nightly pass) tries connections that
-   * stopped on a standing problem again.
+   * (connection off, flag off, agency unverified) - see `push/engine.ts`. Same pool and cap group as the feed passes,
+   * so the pool's memory and database load are one budget. S9 review: its own group per agency (`<agency>:push`,
+   * `concurrencyPerGroup` 1): an agency's push runs never overlap (nor runs of one connection), but a run's minutes of
+   * portal calls do not hold the lease the agency's feed passes and site feeds wait on. Push and feed passes write
+   * disjoint state (a pass writes no run, issue or summary for a push connection; push owns the sync rows, issues,
+   * summary and `push_error`). Queued by the feed passes (events, nightly) and the agency status subscriber. A run
+   * that ran out of calls or time queues its own continuation (with the cursor, and the portal's `Retry-After` if it
+   * asked for one); `retry` (the nightly pass) tries connections that stopped on a standing problem again.
    */
   pushPortalListings: defineJob({
     name: 'exports.pushPortalListings',
@@ -188,8 +207,9 @@ export const exportsJobs = {
       cursor: z.uuid().optional(),
       retry: z.boolean().optional(),
     }),
-    group: (p) => p.agencyId,
+    group: (p) => `${p.agencyId}:push`,
     concurrencyPerGroup: 1,
+    capGroup: websiteApi.EXPORTS_FEED_CAP_GROUP,
     perProcessConcurrency: () => jobsConfig.runsPerProcess,
     globalConcurrency: () => jobsConfig.maxConcurrentRuns,
     attempts: PORTAL_FEED_ATTEMPTS,
@@ -223,10 +243,10 @@ export const exportsJobs = {
 
   /**
    * The nightly lanes' passes: one per agency and night (stable id), each enqueueing its lane's next agency. The lanes
-   * bound them (`nightlyLanes`): no pool-wide cap to bounce off. Same group as the event passes (`concurrencyPerGroup`
-   * 1 on the agency's group lease, which the pool shares): a nightly and an event pass of one agency never overlap.
-   * Per process at most `runsPerProcess` + 1 (memory; the + 1 is a lane's successor starting while its predecessor
-   * finishes).
+   * bound them (`nightlyLanes` < `maxConcurrentRuns`). Same group as the event passes (`concurrencyPerGroup` 1 on the
+   * agency's group lease, which the pool shares): a nightly and an event pass of one agency never overlap. S9 review:
+   * the heavy jobs' shared caps, like the event passes; the pass hands its cap slots back before it enqueues the lane's
+   * successor, which can then start at once in the same slot.
    */
   generateNightlyPortalFeeds: defineJob({
     name: 'exports.generateNightlyPortalFeeds',
@@ -235,18 +255,25 @@ export const exportsJobs = {
     jobId: (p) => `${p.agencyId}:${p.nightly}`,
     group: (p) => p.agencyId,
     concurrencyPerGroup: 1,
-    perProcessConcurrency: () => jobsConfig.runsPerProcess + 1,
+    capGroup: websiteApi.EXPORTS_FEED_CAP_GROUP,
+    perProcessConcurrency: () => jobsConfig.runsPerProcess,
+    globalConcurrency: () => jobsConfig.maxConcurrentRuns,
     attempts: PORTAL_FEED_ATTEMPTS,
     backoff: { type: 'exponential', delay: 30_000 },
     timeoutMs: PORTAL_FEED_TIMEOUT_MS,
-    async run(p, { log, signal, attempt }) {
+    async run(p, { log, signal, attempt, releaseCapSlots }) {
       try {
         const result = await pass(p.agencyId, { trigger: 'NIGHTLY', signal, log });
+        // The pass is done (its buffers with it): the successor may take this slot at once.
+        await releaseCapSlots?.();
         await continueLane(p);
         return result;
       } catch (err) {
         // The lane goes on past an agency that failed for good; a retry continues it later.
-        if (err instanceof UnrecoverableError || attempt >= PORTAL_FEED_ATTEMPTS) await continueLane(p);
+        if (err instanceof UnrecoverableError || attempt >= PORTAL_FEED_ATTEMPTS) {
+          await releaseCapSlots?.();
+          await continueLane(p);
+        }
         throw err;
       }
     },

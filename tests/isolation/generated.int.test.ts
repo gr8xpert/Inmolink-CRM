@@ -1135,4 +1135,12 @@ describe('legacy key flag and id lookups (S8-F26)', () => {
       'legacy_target_ids:app_owner',
     ]);
   });
+
+  it('[S9-review] the portal feed token lookup (SECURITY DEFINER) is owned by app_owner', async () => {
+    const { rows } = await admin.query(
+      `select pg_get_userbyid(p.proowner) as owner, p.prosecdef as definer from pg_proc p
+        where p.proname = 'portal_feed_by_token' and p.pronamespace = 'public'::regnamespace`,
+    );
+    expect(rows).toEqual([{ owner: 'app_owner', definer: true }]);
+  });
 });

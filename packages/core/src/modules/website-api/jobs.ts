@@ -125,6 +125,31 @@ async function load(leadId: string, done: 'ackSentAt' | 'agencyNotifiedAt', requ
   return { lead, site };
 }
 
+/**
+ * S9 review: the `exports` pool's heavy jobs — site feeds (here), portal feed passes (event and nightly) and push runs
+ * (`exports`) — share one per-process and one pool-wide cap (`capGroup`): each holds an upload part per file being
+ * written, so they are counted together, not per job kind. The caps are the portal feeds' settings
+ * (`EXPORTS_PORTAL_FEEDS_PER_PROCESS`, `EXPORTS_PORTAL_FEEDS_MAX_CONCURRENT`); `exports` sets them at boot.
+ */
+export const EXPORTS_FEED_CAP_GROUP = 'exports.feeds';
+
+export interface FeedRunCaps {
+  /** Heavy jobs at once in one worker process (memory; 2 measured safe: S9-03 RSS run). */
+  runsPerProcess: number;
+  /** Heavy jobs at once across the pool (database load). */
+  maxConcurrentRuns: number;
+}
+
+let feedRunCaps: FeedRunCaps = { runsPerProcess: 2, maxConcurrentRuns: 8 };
+
+/** Boot (worker, through `exports.configurePortalFeedJobs`): the shared caps of the `exports` pool's heavy jobs. */
+export function configureFeedRunCaps(next: FeedRunCaps): void {
+  for (const k of ['runsPerProcess', 'maxConcurrentRuns'] as const) {
+    if (!Number.isInteger(next[k]) || next[k] < 1) throw new RangeError(`website-api: ${k} must be a positive integer`);
+  }
+  feedRunCaps = { ...next };
+}
+
 export const websiteApiJobs = {
   /**
    * S7-06: purges an agency's pending edge cache tags — listings and units (`t`), developments (`d`), sites (`s`),
@@ -362,7 +387,10 @@ export const websiteApiJobs = {
     payload: z.object({ siteId: z.uuid(), agencyId: z.uuid() }),
     group: (p) => p.agencyId,
     concurrencyPerGroup: 1,
-    perProcessConcurrency: 2,
+    // S9 review: one budget with the portal feed passes and push runs (`EXPORTS_FEED_CAP_GROUP`).
+    capGroup: EXPORTS_FEED_CAP_GROUP,
+    perProcessConcurrency: () => feedRunCaps.runsPerProcess,
+    globalConcurrency: () => feedRunCaps.maxConcurrentRuns,
     attempts: SITE_FEED_ATTEMPTS,
     backoff: { type: 'exponential', delay: 30_000 },
     timeoutMs: 10 * 60_000,

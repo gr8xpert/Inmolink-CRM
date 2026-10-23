@@ -6,6 +6,7 @@ import * as agenciesModule from '@inmolink/core/modules/agencies';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import { DEFAULT_PORTAL_FEED_JOBS, exportsJobs, PORTAL_FEED_TIMEOUT_MS } from '@inmolink/core/modules/exports/worker';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import { createFounder, type Founder } from '@inmolink/core/test';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
@@ -242,9 +243,15 @@ it(
     const caps = DEFAULT_PORTAL_FEED_JOBS;
     const small = connections.length - 1;
     // Fair share and pool caps (so other pools and tenants keep their share): one pass per agency at a time, the night
-    // in `nightlyLanes` chains (≤ the pool-wide cap), at most `runsPerProcess` (+ a lane's successor) per process.
+    // in `nightlyLanes` chains (< the pool-wide cap), at most `runsPerProcess` heavy jobs per process (S9 review: passes,
+    // push runs and site feeds together, one cap group).
     expect(exportsJobs.generatePortalFeeds.spec.concurrencyPerGroup).toBe(1);
     expect(exportsJobs.generateNightlyPortalFeeds.spec.concurrencyPerGroup).toBe(1);
+    expect(
+      [exportsJobs.generatePortalFeeds, exportsJobs.generateNightlyPortalFeeds, exportsJobs.pushPortalListings].map(
+        (j) => j.spec.capGroup,
+      ),
+    ).toEqual(Array(3).fill(websiteApi.EXPORTS_FEED_CAP_GROUP));
     expect(caps).toMatchObject({ nightlyLanes: 6, maxConcurrentRuns: 8, runsPerProcess: 2 });
 
     // 1. The first night, 2 passes at once — with Postgres' shared buffers cold when `PORTAL_FEED_PERF_RESTART` names the

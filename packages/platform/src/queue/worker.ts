@@ -59,6 +59,13 @@ function capOf(cap: number | (() => number) | undefined): number | undefined {
   return Number.isInteger(n) && n >= 1 ? n : 1;
 }
 
+/**
+ * The key a definition's per-process and pool-wide caps are counted under: its `capGroup` (shared with the pool's other
+ * definitions of that group, S9 review) or its own name. `@` cannot start a job name, so a group never collides with one.
+ */
+const capKeyOf = (spec: { name: string; capGroup?: string }): string =>
+  spec.capGroup === undefined ? spec.name : `@${spec.capGroup}`;
+
 /** Dead letters are kept this long, for inspection and manual re-enqueue. */
 export const DEAD_LETTER_RETENTION_MS = 30 * 24 * 3_600_000;
 
@@ -94,7 +101,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   const controllers = new Set<AbortController>();
   /** Over-cap retries so far per job id (this process); cleared when the job runs, dead-letters or releases. */
   const capWaits = new Map<string, number>();
-  /** Jobs of each definition running in this process now (`perProcessConcurrency`). */
+  /** Jobs of each definition (or cap group) running in this process now (`perProcessConcurrency`). */
   const localRunning = new Map<string, number>();
 
   let deadLettered = 0;
@@ -121,7 +128,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   async function releaseFairness(job: Job<StoredJob>, def: JobDef | undefined): Promise<void> {
     capWaits.delete(job.id as string);
     if (def && capOf(def.spec.globalConcurrency) !== undefined) {
-      await fairnessFor().releaseCap(pool, def.name, job.id as string);
+      await fairnessFor().releaseCap(pool, capKeyOf(def.spec), job.id as string);
     }
     if (!def?.spec.group) return;
     let group: string;
@@ -161,18 +168,22 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     };
     // S6 review: the per-process cap first — checked and taken with no await in between, so two jobs of this
     // process cannot both pass it; handed back if a group or pool-wide cap then sends the job back to delayed.
+    // S9 review: counted per cap group when the definition has one (several heavy job kinds share the slots).
+    const capKey = capKeyOf(spec);
     const perProcess = capOf(spec.perProcessConcurrency);
     if (perProcess !== undefined) {
-      if ((localRunning.get(spec.name) ?? 0) >= perProcess) await overCap();
-      localRunning.set(spec.name, (localRunning.get(spec.name) ?? 0) + 1);
+      if ((localRunning.get(capKey) ?? 0) >= perProcess) await overCap();
+      localRunning.set(capKey, (localRunning.get(capKey) ?? 0) + 1);
     }
     let localHeld = perProcess !== undefined;
     const releaseLocal = () => {
       if (!localHeld) return;
       localHeld = false;
-      localRunning.set(spec.name, (localRunning.get(spec.name) ?? 1) - 1);
+      localRunning.set(capKey, (localRunning.get(capKey) ?? 1) - 1);
     };
     let globalCap: number | undefined;
+    /** Holds a pool-wide cap slot; false once handed back (the job ended, or `releaseCapSlots`). */
+    let globalHeld = false;
     try {
       if (fair && group !== undefined && spec.concurrencyPerGroup) {
         const ok = await fair.acquire(pool, group, job.id as string, spec.concurrencyPerGroup, leaseMs);
@@ -181,13 +192,14 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       // S6-08: the definition's pool-wide cap, taken after the group's slot (and that one handed back when full).
       globalCap = capOf(spec.globalConcurrency);
       if (globalCap !== undefined) {
-        const ok = await fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs);
+        const ok = await fairnessFor().acquireCap(pool, capKey, job.id as string, globalCap, leaseMs);
         if (!ok) {
           if (fair && group !== undefined && spec.concurrencyPerGroup) {
             await fair.release(pool, group, job.id as string);
           }
           await overCap();
         }
+        globalHeld = true;
       }
     } catch (err) {
       releaseLocal();
@@ -195,6 +207,11 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     }
     capWaits.delete(job.id as string);
     const holdsGroup = Boolean(fair && group !== undefined && spec.concurrencyPerGroup);
+    const releaseGlobal = async () => {
+      if (!globalHeld) return;
+      globalHeld = false;
+      await fairnessFor().releaseCap(pool, capKey, job.id as string);
+    };
     const renew =
       holdsGroup || globalCap !== undefined
         ? setInterval(() => {
@@ -210,8 +227,8 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
                 ),
               );
             }
-            if (globalCap !== undefined) {
-              renewals.push(fairnessFor().acquireCap(pool, spec.name, job.id as string, globalCap, leaseMs));
+            if (globalHeld) {
+              renewals.push(fairnessFor().acquireCap(pool, capKey, job.id as string, globalCap as number, leaseMs));
             }
             Promise.all(renewals).catch((err: unknown) => jobLog.warn({ err }, 'slot lease renewal failed'));
           }, SLOT_RENEW_MS)
@@ -229,6 +246,10 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
           attempt: job.attemptsMade + 1,
           progress: (value) => job.updateProgress(value),
           signal: controller.signal,
+          releaseCapSlots: async () => {
+            releaseLocal();
+            await releaseGlobal();
+          },
         }),
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
@@ -256,7 +277,9 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       controllers.delete(controller);
       releaseLocal();
       if (fair && group !== undefined && spec.concurrencyPerGroup) await fair.release(pool, group, job.id as string);
-      if (globalCap !== undefined) await fairnessFor().releaseCap(pool, spec.name, job.id as string);
+      // Unconditional (idempotent): a renewal in flight when `releaseCapSlots` ran may have put the slot back.
+      globalHeld = false;
+      if (globalCap !== undefined) await fairnessFor().releaseCap(pool, capKey, job.id as string);
     }
   }
 

@@ -251,6 +251,13 @@ describe('RLS generator', () => {
     expect(table).not.toMatch(/to [^;]*app_public/);
   });
 
+  it('[S9-review] portal_feed_by_token is owned by app_owner (its definer_read policy), set after it is recreated', () => {
+    const owner = 'alter function portal_feed_by_token(text) owner to app_owner;';
+    expect(out).toContain(owner);
+    // Recreated (dropped first) on every run: the owner must be set after the create, never before it.
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create function portal_feed_by_token('));
+  });
+
   it('[S7-03] the website network gate is SECURITY DEFINER, executable by app_public only; its tables open to the owner only', () => {
     expect(out).toContain(
       'create or replace function website_network_open(a_id uuid, min_shared integer, grace_days integer) returns boolean',

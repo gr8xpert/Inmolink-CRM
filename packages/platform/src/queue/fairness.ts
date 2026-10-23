@@ -136,7 +136,8 @@ export class Fairness {
   }
 
   /**
-   * Takes one of `cap` slots of job definition `name` across every process of the pool (S6-08, `globalConcurrency`).
+   * Takes one of `cap` slots of job definition (or cap group, S9 review) `name` across every process of the pool (S6-08,
+   * `globalConcurrency`).
    * Same lease semantics as `acquire`: a crashed holder's slot frees itself when its lease lapses.
    */
   async acquireCap(
