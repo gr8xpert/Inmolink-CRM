@@ -31,7 +31,7 @@ import { checkUrl, isSafeFetchError, isTestOrigin } from '@inmolink/platform/saf
 import type { Ctx } from '../../context';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as compliance from '../compliance';
-import { encryptCredentials } from './config';
+import { feedCredentialsCipher } from './config';
 import { getConnector } from './connectors';
 import { importsEvents } from './events';
 import { assertCan, can } from './policy';
@@ -194,7 +194,7 @@ export async function createFeedConnection(ctx: Ctx, input: CreateFeedConnection
     name: input.name,
     connector: input.connector,
     url,
-    credentialsEnc: input.credentials ? encryptCredentials(agencyId, id, input.credentials) : null,
+    credentialsEnc: input.credentials ? feedCredentialsCipher.encrypt(agencyId, id, input.credentials) : null,
     settings: input.settings ?? {},
     mappingProfileId: input.mappingProfileId ?? null,
     enabled,
@@ -264,7 +264,7 @@ export async function updateFeedConnection(
     ...(input.settings !== undefined ? { settings: input.settings } : {}),
     ...(input.mappingProfileId !== undefined ? { mappingProfileId: input.mappingProfileId } : {}),
     ...(credentials !== undefined
-      ? { credentialsEnc: credentials ? encryptCredentials(current.agencyId, id, credentials) : null }
+      ? { credentialsEnc: credentials ? feedCredentialsCipher.encrypt(current.agencyId, id, credentials) : null }
       : {}),
     enabled,
     scheduleMinutes,

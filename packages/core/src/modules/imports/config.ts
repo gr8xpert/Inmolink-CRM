@@ -1,7 +1,7 @@
 import { type FeedCredentials, SHEET_MAPPED_CONNECTOR, XML_MAPPED_CONNECTOR } from '@inmolink/contracts';
 import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { importsEnv, loadConfig } from '@inmolink/platform/config';
-import { aadFor, type Keyring } from '@inmolink/platform/crypto';
+import { type Keyring, rowCipher } from '@inmolink/platform/crypto';
 
 /**
  * Process settings for imports, set once at boot (api: encrypts credentials when a connection is saved; worker:
@@ -65,17 +65,11 @@ function keyring(): Keyring {
   return current.keyring;
 }
 
-/** Ciphertext is bound to the agency, table, column and row: copied elsewhere it does not decrypt. */
-const aad = (agencyId: string, connectionId: string) =>
-  aadFor({ agencyId, table: 'feed_connections', column: 'credentials_enc', rowId: connectionId });
-
-export function encryptCredentials(agencyId: string, connectionId: string, credentials: FeedCredentials): string {
-  return keyring().encrypt(JSON.stringify(credentials), aad(agencyId, connectionId));
-}
-
-export function decryptCredentials(agencyId: string, connectionId: string, envelope: string): FeedCredentials {
-  return JSON.parse(keyring().decrypt(envelope, aad(agencyId, connectionId))) as FeedCredentials;
-}
+/**
+ * A connection's credentials, encrypted (S10-F3: `rowCipher`). Ciphertext is bound to the agency, table, column and
+ * row: copied elsewhere it does not decrypt. `encrypt(agencyId, connectionId, credentials)` / `decrypt(...)`.
+ */
+export const feedCredentialsCipher = rowCipher<FeedCredentials>('feed_connections', 'credentials_enc', keyring);
 
 /** Run timings (S6-01). */
 export const RUNS = {

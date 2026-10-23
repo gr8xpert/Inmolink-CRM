@@ -13,6 +13,7 @@ import * as agencies from '../../agencies';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as exportsModule from '../index';
+import { portalFlagKey } from '../profiles';
 import { writeConnectionFeed } from '../worker';
 import { image, listingDoc, schemaErrors, xsd } from './portal-fixtures';
 
@@ -168,7 +169,7 @@ afterAll(async () => {
 describe('[S9-02] Kyero feed: valid listings export, invalid ones are excluded with a visible reason', () => {
   let connectionId: string;
 
-  it('writes the valid listings, validates against the Kyero schema, and leaves the invalid ones out', async () => {
+  it('[S9-02] writes the valid listings, validates against the Kyero schema, and leaves the invalid ones out', async () => {
     connectionId = await connect(a, 'kyero', 'Kyero main');
     const { result, xml } = await run(a, connectionId);
     // good + threePhotos (Kyero needs 1 photo); noPhotos and noCee are left out
@@ -182,13 +183,13 @@ describe('[S9-02] Kyero feed: valid listings export, invalid ones are excluded w
     expect(xml).not.toContain(`<ref>${REF.noCee}</ref>`);
   });
 
-  it('only the agency’s own ACTIVE, PUBLIC listings are read: SHARED and other agencies’ never appear', async () => {
+  it('[S9-02] only the agency’s own ACTIVE, PUBLIC listings are read: SHARED and other agencies’ never appear', async () => {
     const { xml } = await run(a, connectionId);
     expect(xml).not.toContain(REF.shared as string);
     expect(xml).not.toContain(REF.other as string);
   });
 
-  it('stores a reason per excluded listing and shows it in the dashboard API', async () => {
+  it('[S9-02] stores a reason per excluded listing and shows it in the dashboard API', async () => {
     const page = await issues(a, connectionId);
     const byRef = Object.fromEntries(page.items.map((i) => [i.ref, i.issues.map((x) => x.code).sort()]));
     expect(byRef).toEqual({
@@ -201,7 +202,7 @@ describe('[S9-02] Kyero feed: valid listings export, invalid ones are excluded w
     await expect(issues(b, connectionId)).rejects.toMatchObject({ code: 'PORTAL_CONNECTION_NOT_FOUND' });
   });
 
-  it('a fixed listing leaves the list on the next run; a listing no longer selected does too', async () => {
+  it('[S9-02] a fixed listing leaves the list on the next run; a listing no longer selected does too', async () => {
     await readModel(a, 'noPhotos');
     await as(a, (ctx) =>
       exportsModule.setOverrides(
@@ -219,7 +220,7 @@ describe('[S9-02] Kyero feed: valid listings export, invalid ones are excluded w
     });
   });
 
-  it('a listing with no read model yet is left out with NO_DOCUMENT, the rest still go', async () => {
+  it('[S9-02] a listing with no read model yet is left out with NO_DOCUMENT, the rest still go', async () => {
     await listing(a, 'fresh');
     const { result } = await run(a, connectionId);
     expect(result).toMatchObject({ valid: 3, invalid: 1 });
@@ -235,7 +236,7 @@ describe('[S9-02] Kyero feed: valid listings export, invalid ones are excluded w
 });
 
 describe('[S9-02] the writer streams: bounded batches, bounded buffers', () => {
-  it('writes in pieces while it reads in batches, and the output is the same whatever the batch size', async () => {
+  it('[S9-02] writes in pieces while it reads in batches, and the output is the same whatever the batch size', async () => {
     const connectionId = await connect(a, 'kyero', 'Kyero big');
     // Long descriptions make the document larger than the 64 K flush threshold.
     const description = `${'Sunny house with a large garden. '.repeat(450)}`.slice(0, 15_000);
@@ -255,7 +256,7 @@ describe('[S9-02] the writer streams: bounded batches, bounded buffers', () => {
 });
 
 describe('[S9-02] thinkSPAIN, A Place in the Sun and generic XML', () => {
-  it('unconfirmed portals write nothing until their flag is on, then validate against their fixtures (H6)', async () => {
+  it('[S9-02] unconfirmed portals write nothing until their flag is on, then validate against their fixtures (H6)', async () => {
     for (const [channel, schema, minPhotos] of [
       ['thinkspain', 'thinkspain/portal-feed.xsd', 3],
       ['a-place-in-the-sun', 'a-place-in-the-sun/portal-feed.xsd', 5],
@@ -263,8 +264,8 @@ describe('[S9-02] thinkSPAIN, A Place in the Sun and generic XML', () => {
       const connectionId = await connect(a, channel, `${channel} main`);
       expect((await run(a, connectionId)).result).toEqual({ skipped: 'writer-disabled' });
       await system(async (tx) => {
-        await setFlag(tx, exportsModule.portalFlagKey(channel), { enabled: false });
-        await setFlagOverride(tx, exportsModule.portalFlagKey(channel), a.agencyId, true);
+        await setFlag(tx, portalFlagKey(channel), { enabled: false });
+        await setFlagOverride(tx, portalFlagKey(channel), a.agencyId, true);
       });
       invalidateFlags();
       const { result, xml } = await run(a, connectionId);
@@ -276,7 +277,7 @@ describe('[S9-02] thinkSPAIN, A Place in the Sun and generic XML', () => {
     }
   });
 
-  it('generic XML carries every selected listing and the agency itself as presenter', async () => {
+  it('[S9-02] generic XML carries every selected listing and the agency itself as presenter', async () => {
     const connectionId = await connect(a, 'generic-xml', 'Generic main');
     const { result, xml } = await run(a, connectionId);
     expect(result.invalid).toBe(0);
@@ -288,7 +289,7 @@ describe('[S9-02] thinkSPAIN, A Place in the Sun and generic XML', () => {
     expect(xml).not.toMatch(/commission/i);
   });
 
-  it('an off or revoked connection writes nothing', async () => {
+  it('[S9-02] an off or revoked connection writes nothing', async () => {
     const connectionId = await connect(a, 'kyero', 'Kyero off');
     const dto = await as(a, (ctx) => exportsModule.getConnection(ctx, { connectionId }));
     await as(a, (ctx) =>
@@ -310,7 +311,7 @@ describe('[S9-02] reruns, failures and skipped agencies', () => {
         ).rows,
     );
 
-  it('two runs over unchanged data give identical bytes (Kyero and generic) and rewrite no issue row', async () => {
+  it('[S9-02] two runs over unchanged data give identical bytes (Kyero and generic) and rewrite no issue row', async () => {
     for (const channel of ['kyero', 'generic-xml']) {
       const connectionId = await connect(a, channel, `${channel} stable`);
       const first = await run(a, connectionId);
@@ -323,7 +324,7 @@ describe('[S9-02] reruns, failures and skipped agencies', () => {
     }
   });
 
-  it('a failing sink leaves the last good summary: no half run is shown', async () => {
+  it('[S9-02] a failing sink leaves the last good summary: no half run is shown', async () => {
     const connectionId = await connect(a, 'kyero', 'Kyero flaky');
     await run(a, connectionId);
     const before = await as(a, (ctx) => exportsModule.getConnection(ctx, { connectionId }));
@@ -345,7 +346,7 @@ describe('[S9-02] reruns, failures and skipped agencies', () => {
     await readModel(a, 'good');
   });
 
-  it('a suspended agency is skipped with its own reason, not reported as listings without documents', async () => {
+  it('[S9-02] a suspended agency is skipped with its own reason, not reported as listings without documents', async () => {
     const c = await createFounder();
     await setAgencyStatus(c.agencyId, 'VERIFIED');
     const connectionId = await connect(c, 'kyero', 'Kyero c');

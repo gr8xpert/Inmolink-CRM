@@ -18,20 +18,19 @@ import * as agencies from '../../agencies';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../../website-api';
+import { FEED_RUNS_KEPT, portalFeedTokenHash } from '../config';
 import * as exportsModule from '../index';
+import { PORTAL_FEED_CONNECTION_THROTTLE_MS, PORTAL_FEED_SOON_MS, PORTAL_FEED_THROTTLE_MS } from '../jobs';
+import { portalFlagKey } from '../profiles';
+import { resetLiveConnectionCache, unregisterExportsSubscriptions } from '../subscriptions';
 import {
   configurePortalFeedJobs,
   configurePortalFeeds,
   exportsJobs,
   generatePortalFeeds,
   nightlyWindow,
-  PORTAL_FEED_CONNECTION_THROTTLE_MS,
-  PORTAL_FEED_SOON_MS,
-  PORTAL_FEED_THROTTLE_MS,
   registerExportsSubscriptions,
-  resetLiveConnectionCache,
   seedNightlyLanes,
-  unregisterExportsSubscriptions,
   writeConnectionFeed,
 } from '../worker';
 import { DESCRIPTION, listingDoc, schemaErrors, xsd } from './portal-fixtures';
@@ -350,7 +349,7 @@ describe('[S9-03] delivery at tokenized URLs', () => {
       tx.execute(sql`select credentials_enc from agency_portal_connections limit 1`),
     ).catch((err: unknown) => err as Error & { cause?: Error });
     expect(String((denied as { cause?: Error }).cause?.message)).toMatch(/permission denied/);
-    const hash = exportsModule.portalFeedTokenHash(TOKEN.kyero);
+    const hash = portalFeedTokenHash(TOKEN.kyero);
     const rows = await withPublicRead((tx) => tx.execute(sql`select * from portal_feed_by_token(${hash})`));
     // Only what feed-api uses: never the agency, the token hash or anything else of the row.
     expect(Object.keys(rows.rows[0] ?? {}).sort()).toEqual(['channel_code', 'connection_id', 'run_id', 'sha256']);
@@ -415,7 +414,7 @@ describe('[S9-03] delivery at tokenized URLs', () => {
   });
 
   it('[S9-03] a portal whose writer is turned off stops serving: its next run removes the file', async () => {
-    const key = exportsModule.portalFlagKey('thinkspain');
+    const key = portalFlagKey('thinkspain');
     const created = await connect(a, 'thinkspain', 'thinkSPAIN main');
     const id = created.connection.id;
     try {
@@ -445,9 +444,9 @@ describe('[S9-03] delivery at tokenized URLs', () => {
 
 describe('[S9-03] run history and serialization', () => {
   it('[S9-03] run history is kept per connection up to FEED_RUNS_KEPT, newest first', async () => {
-    for (let i = 0; i < exportsModule.FEED_RUNS_KEPT + 2; i++) await generate([C.kyero]);
+    for (let i = 0; i < FEED_RUNS_KEPT + 2; i++) await generate([C.kyero]);
     const list = await runs(C.kyero);
-    expect(list.items).toHaveLength(exportsModule.FEED_RUNS_KEPT);
+    expect(list.items).toHaveLength(FEED_RUNS_KEPT);
     expect(list.items[0]).toMatchObject({ trigger: 'EVENT', status: 'UNCHANGED', validCount: 3, invalidCount: 0 });
     const ids = list.items.map((r) => r.id);
     expect([...ids].sort().reverse()).toEqual(ids);
@@ -459,7 +458,7 @@ describe('[S9-03] run history and serialization', () => {
           )
         ).rows[0]?.n,
     );
-    expect(stored).toBe(exportsModule.FEED_RUNS_KEPT);
+    expect(stored).toBe(FEED_RUNS_KEPT);
   });
 
   it('[S9-review] push runs have their own agency group; every heavy job of the pool shares one cap group', () => {

@@ -18,8 +18,11 @@ import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
+import { portalCredentialsCipher, portalFeedTokenHash } from '../config';
+import { selectConnectionListings, type WorkerConnection, workerConnections } from '../connections-worker';
 import * as exportsModule from '../index';
 import { selectionPage } from '../selection';
+import { selectListings } from '../service';
 
 /**
  * Portal connections and selection rules (S9-01): which listings a connection sends is deterministic — the agency's
@@ -115,7 +118,7 @@ async function walk(m: Founder, connectionId: string, size: number): Promise<str
   let cursor: string | null = null;
   for (let rounds = 0; rounds < 1_000; rounds++) {
     const page: { ids: string[]; nextCursor: string | null } = await as(m, (ctx) =>
-      exportsModule.selectListings(ctx, connectionId, { cursor, limit: size }),
+      selectListings(ctx, connectionId, { cursor, limit: size }),
     );
     expect(page.ids.length).toBeLessThanOrEqual(size);
     out.push(...page.ids);
@@ -293,7 +296,7 @@ describe('selection rules', () => {
     expect(await refusal(as(a, (ctx) => exportsModule.getConnection(ctx, { connectionId: c.id })))).toBe(
       'PORTAL_CONNECTION_NOT_FOUND',
     );
-    expect(await refusal(as(a, (ctx) => exportsModule.selectListings(ctx, c.id)))).toBe('PORTAL_CONNECTION_NOT_FOUND');
+    expect(await refusal(as(a, (ctx) => selectListings(ctx, c.id)))).toBe('PORTAL_CONNECTION_NOT_FOUND');
   });
 
   it('[S9-01] a listing of another agency cannot be chosen', async () => {
@@ -326,16 +329,16 @@ describe('selection rules', () => {
       channelCode: 'generic-xml',
       selection: { mode: 'TAGGED', tag: 'portal' },
     });
-    const conn = await system((tx) => exportsModule.connectionForWorker(tx, a.agencyId, c.id));
+    const [conn] = await system((tx) => workerConnections(tx, a.agencyId, [c.id]));
     expect(conn).toMatchObject({ channelCode: 'generic-xml', enabled: true, revokedAt: null, version: c.version });
     expect(conn?.rule).toEqual({ agencyId: a.agencyId, connectionId: c.id, mode: 'TAGGED', tag: 'portal' });
-    expect(await system((tx) => exportsModule.connectionForWorker(tx, b.agencyId, c.id))).toBeNull();
+    expect(await system((tx) => workerConnections(tx, b.agencyId, [c.id]))).toEqual([]);
     let reads = -1;
     const got = await system(async (tx) => {
-      let out: Awaited<ReturnType<typeof exportsModule.selectConnectionListings>> | undefined;
+      let out: Awaited<ReturnType<typeof selectConnectionListings>> | undefined;
       reads = await countQueries(
         async () => {
-          out = await exportsModule.selectConnectionListings(tx, conn as exportsModule.WorkerConnection, {
+          out = await selectConnectionListings(tx, conn as WorkerConnection, {
             limit: 100,
           });
         },
@@ -387,7 +390,7 @@ describe('selection rules', () => {
     await choose(a, c.id, { p1: 'EXCLUDE', p2: 'EXCLUDE', p3: 'EXCLUDE', p4: 'EXCLUDE', p5: 'EXCLUDE', p6: 'EXCLUDE' });
     let n = Number.POSITIVE_INFINITY;
     await as(a, async (ctx) => {
-      n = await countQueries(() => exportsModule.selectListings(ctx, c.id, { limit: 2 }));
+      n = await countQueries(() => selectListings(ctx, c.id, { limit: 2 }));
     });
     expect(n).toBeLessThanOrEqual(2 + 20);
     expect(labels(await walk(a, c.id, 2))).toEqual(['p7', 'p8']);
@@ -395,7 +398,7 @@ describe('selection rules', () => {
 
   it('[S9-01] a malformed cursor is a validation error, not a failure', async () => {
     const c = await connect(a, { name: 'Cursors', channelCode: 'generic-xml' });
-    expect(await refusal(as(a, (ctx) => exportsModule.selectListings(ctx, c.id, { cursor: 'not-a-uuid' })))).toBe(
+    expect(await refusal(as(a, (ctx) => selectListings(ctx, c.id, { cursor: 'not-a-uuid' })))).toBe(
       'VALIDATION_FAILED',
     );
     expect(
@@ -507,14 +510,14 @@ describe('connections', () => {
     });
     expect(row?.credentials_enc).toMatch(/^v1\./);
     expect(row?.credentials_enc).not.toContain('agent-secret-4711');
-    expect(row?.token_hash).toBe(exportsModule.portalFeedTokenHash(token));
+    expect(row?.token_hash).toBe(portalFeedTokenHash(token));
     expect(row?.token_hash).not.toContain(token);
     expect(row?.token_hint).toBe(token.slice(-4));
     // Decrypts back only for its own agency and row.
-    expect(exportsModule.decryptCredentials(a.agencyId, connection.id, row?.credentials_enc as string)).toEqual({
+    expect(portalCredentialsCipher.decrypt(a.agencyId, connection.id, row?.credentials_enc as string)).toEqual({
       agentId: 'agent-secret-4711',
     });
-    expect(() => exportsModule.decryptCredentials(b.agencyId, connection.id, row?.credentials_enc as string)).toThrow();
+    expect(() => portalCredentialsCipher.decrypt(b.agencyId, connection.id, row?.credentials_enc as string)).toThrow();
   });
 
   it('[S9-01] the dashboard lists credential names from their own column, never by decrypting', async () => {
@@ -598,7 +601,7 @@ describe('connections', () => {
       );
       return r.rows[0]?.token_hash;
     });
-    expect(hash).toBe(exportsModule.portalFeedTokenHash(revived.token));
+    expect(hash).toBe(portalFeedTokenHash(revived.token));
   });
 
   it('[S9-01] members read portal setup, only admins change it', async () => {

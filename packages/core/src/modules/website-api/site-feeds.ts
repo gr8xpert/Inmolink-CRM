@@ -17,18 +17,13 @@
  * object is streamed, never buffered — or, with the edge cache off, the poll is redirected to a short-lived signed
  * storage URL (S8-F1). Feeds are exempt from the 150 KB JSON budget of website answers: a whole inventory, gzip.
  */
-import { createHash } from 'node:crypto';
-import { once } from 'node:events';
-import type { Readable } from 'node:stream';
-import { finished } from 'node:stream/promises';
-import { createGzip } from 'node:zlib';
 import { WebsiteDetail } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
-import { type ObjectUpload, storage } from '@inmolink/platform/storage';
+import { storage } from '@inmolink/platform/storage';
 import { XmlWriter } from '@inmolink/platform/xml';
 import {
   type FeedItem,
@@ -39,6 +34,7 @@ import {
   writeKyeroProperty,
   writeKyeroStart,
 } from '../../feed-xml';
+import { GzipObjectUpload, type StoredFeedFile, storedFeedFile } from '../../stored-feed';
 import * as search from '../search';
 import * as websites from '../websites';
 import { edgeTag, edgeTagsConfigured } from './edge';
@@ -57,11 +53,6 @@ export const SITE_FEED_TTL = 900;
 export const SITE_FEED_STALE_IF_ERROR = 300;
 /** A live feed is regenerated at least this often (network listings, overrides: no per-site event names them). */
 export const SITE_FEED_MAX_AGE_MS = 6 * 3_600_000;
-/**
- * Lifetime of the signed storage URL a feed poll is redirected to while the edge cache is off (S8-F1, seconds): long
- * enough to follow the redirect, short enough that a copied URL is useless soon.
- */
-export const SITE_FEED_REDIRECT_TTL = 120;
 /** Runs of `websiteApi.generateSiteFeed` before it gives up (the last failure is recorded on the feed). */
 export const SITE_FEED_ATTEMPTS = 3;
 
@@ -83,51 +74,10 @@ export class SiteFeedError extends Error {
   }
 }
 
-/** Gzip of a document written in pieces, streamed into an object upload as it compresses (hashed on the way). */
-class GzipUpload {
-  readonly #gzip = createGzip({ level: 6 });
-  readonly #hash = createHash('sha256');
-  readonly #pending: Buffer[] = [];
-  #bytes = 0;
-
-  constructor(private readonly upload: ObjectUpload) {
-    this.#gzip.on('data', (chunk: Buffer) => {
-      this.#pending.push(chunk);
-      this.#hash.update(chunk);
-      this.#bytes += chunk.length;
-    });
-  }
-
-  async #drain(): Promise<void> {
-    if (this.#bytes > SITE_FEED_MAX_GZIP_BYTES) throw new SiteFeedError('TOO_LARGE');
-    for (let chunk = this.#pending.shift(); chunk; chunk = this.#pending.shift()) await this.upload.write(chunk);
-  }
-
-  async write(text: string): Promise<void> {
-    if (text.length === 0) return;
-    if (!this.#gzip.write(text, 'utf8')) await once(this.#gzip, 'drain');
-    await this.#drain();
-  }
-
-  /** Completes the object; its SHA-256 (base64url) and compressed size. */
-  async end(): Promise<{ sha256: string; bytes: number }> {
-    this.#gzip.end();
-    await finished(this.#gzip);
-    await this.#drain();
-    await this.upload.complete();
-    return { sha256: this.#hash.digest('base64url'), bytes: this.#bytes };
-  }
-
-  async abort(): Promise<void> {
-    this.#gzip.destroy();
-    await this.upload.abort().catch(() => undefined);
-  }
-}
-
 /** Flush the writer into its upload once it holds this many characters. */
 const FLUSH_CHARS = 64 * 1024;
 
-async function flush(w: XmlWriter, sink: GzipUpload): Promise<void> {
+async function flush(w: XmlWriter, sink: GzipObjectUpload): Promise<void> {
   if (w.pending >= FLUSH_CHARS) await sink.write(w.take());
 }
 
@@ -227,15 +177,18 @@ export async function generateSiteFeed(
   const baseLocale = site.scope.locales.includes('en') ? 'en' : site.scope.defaultLocale;
   // Object storage: streamed, outside any transaction (CLAUDE.md rule 6; each batch's read is its own).
   const store = storage();
-  const put = { contentType: 'application/gzip' };
-  const kyero = {
-    w: new XmlWriter(),
-    sink: new GzipUpload(store.upload('feeds', siteFeedObjectKey(siteId, runId, 'kyero.xml'), put)),
-  };
-  const generic = {
-    w: new XmlWriter(),
-    sink: new GzipUpload(store.upload('feeds', siteFeedObjectKey(siteId, runId, 'inmolink.xml'), put)),
-  };
+  const sink = (file: SiteFeedFileName) =>
+    new GzipObjectUpload(
+      store.upload('feeds', siteFeedObjectKey(siteId, runId, file), { contentType: 'application/gzip' }),
+      {
+        // The ETag is the stored file's own hash.
+        hash: 'gzip',
+        maxBytes: SITE_FEED_MAX_GZIP_BYTES,
+        tooLarge: () => new SiteFeedError('TOO_LARGE'),
+      },
+    );
+  const kyero = { w: new XmlWriter(), sink: sink('kyero.xml') };
+  const generic = { w: new XmlWriter(), sink: sink('inmolink.xml') };
   let items = 0;
   let kyeroItems = 0;
   let invalid = 0;
@@ -272,7 +225,7 @@ export async function generateSiteFeed(
     writeGenericEnd(generic.w);
     await kyero.sink.write(kyero.w.end());
     await generic.sink.write(generic.w.end());
-    files = { kyero: await kyero.sink.end(), generic: await generic.sink.end() };
+    files = { kyero: await kyero.sink.finish(), generic: await generic.sink.finish() };
   } catch (err) {
     await kyero.sink.abort();
     await generic.sink.abort();
@@ -347,20 +300,13 @@ export async function recordSiteFeedFailure(siteId: string, err: unknown): Promi
 
 // ── Serving (feed-api) ──────────────────────────────────────────────────────────────────────────────────────────
 
-/** A feed file as feed-api answers it. */
-export interface SiteFeedFile {
+/** A feed file as feed-api answers it (`open` / `signedUrl`: the stored object, `storedFeedFile`). */
+export interface SiteFeedFile extends StoredFeedFile {
   siteId: string;
   /** Strong ETag: the stored file's SHA-256. */
   etag: string;
   /** The `Cache-Tag`s of the answer (site and feed), or null before boot configured the tags. */
   tags: string[] | null;
-  /** The gzip bytes as a stream (a storage read): only when the client has no current copy. */
-  open(): Promise<Readable>;
-  /**
-   * S8-F1: a short-lived signed storage URL serving the stored file as gzip-encoded XML — feed-api redirects polls to
-   * it while the edge cache is off, so a feed (up to 64 MiB) never streams through the origin on every poll.
-   */
-  signedUrl(): Promise<string>;
 }
 
 /**
@@ -375,23 +321,14 @@ export async function siteFeedFile(token: string, file: SiteFeedFileName): Promi
   if (scope.agencyId !== feed.agencyId || !scope.verified) throw new AppError('SITE_FEED_NOT_FOUND');
   const sha = feed[SITE_FEED_FILES[file].sha];
   if (!sha) throw new AppError('SITE_FEED_NOT_FOUND');
-  const key = siteFeedObjectKey(feed.siteId, feed.runId, file);
   return {
     siteId: feed.siteId,
     etag: `"${sha}"`,
     tags: edgeTagsConfigured() ? [edgeTag('s', feed.siteId), edgeTag('f', feed.siteId)] : null,
-    async open() {
-      const body = await storage().getStream('feeds', key, { maxBytes: SITE_FEED_MAX_GZIP_BYTES });
-      // Replaced by a newer run between the lookup and the read: the client asks again.
-      if (!body) throw new AppError('SITE_FEED_NOT_FOUND');
-      return body;
-    },
-    signedUrl() {
-      return storage().signedGetUrl('feeds', key, {
-        expiresInSeconds: SITE_FEED_REDIRECT_TTL,
-        responseContentType: 'application/xml',
-        responseContentEncoding: 'gzip',
-      });
-    },
+    ...storedFeedFile(
+      siteFeedObjectKey(feed.siteId, feed.runId, file),
+      SITE_FEED_MAX_GZIP_BYTES,
+      'SITE_FEED_NOT_FOUND',
+    ),
   };
 }

@@ -1,60 +1,20 @@
 /**
  * exports — worker-only entry (`@inmolink/core/modules/exports/worker`, S9-02). The feed writer and the generator
- * (S9-03) read every agency's tables as `app_system` (`withSystem`), so they are not part of the module's public
- * `index.ts` that the dashboard API imports: only `apps/worker` (the jobs and outbox subscriptions), tests and scripts
- * may import this file (`core-module-worker-entry-workers-only`, `.dependency-cruiser.cjs`).
+ * (S9-03) and the push engine (S9-04) read every agency's tables as `app_system` (`withSystem`), so they are not part
+ * of the module's public `index.ts` that the dashboard API imports: only `apps/worker` (the jobs and outbox
+ * subscriptions), tests and scripts may import this file (`core-module-worker-entry-workers-only`,
+ * `.dependency-cruiser.cjs`). S10-F1: only what code outside the module uses (`__tests__/public-surface.test.ts`);
+ * the connection reads and credential decryption they build on (`connections-worker.ts`, `config.ts`) stay internal.
  */
-export {
-  buildItems,
-  FEED_BATCH,
-  type FeedPlan,
-  type PlannedFeedOutcome,
-  type PortalFeedOptions,
-  type PortalFeedResult,
-  planAgencyFeeds,
-  writeConnectionFeed,
-  writePlannedFeeds,
-} from './feed';
-export {
-  configurePortalFeeds,
-  deletePortalFeedFiles,
-  generatePortalFeeds,
-  HashedGzipUpload,
-  PortalFeedError,
-  type PortalFeedsRunResult,
-} from './generator';
+export { writeConnectionFeed } from './feed';
+export { configurePortalFeeds, generatePortalFeeds } from './generator';
 export {
   configurePortalFeedJobs,
   DEFAULT_PORTAL_FEED_JOBS,
   exportsJobs,
-  NIGHTLY_CATCH_UP_HOURS,
   nightlyWindow,
-  PORTAL_FEED_ATTEMPTS,
-  PORTAL_FEED_CONNECTION_THROTTLE_MS,
-  PORTAL_FEED_SOON_MS,
-  PORTAL_FEED_THROTTLE_MS,
   PORTAL_FEED_TIMEOUT_MS,
-  PORTAL_PUSH_CONTINUE_MS,
-  PORTAL_PUSH_THROTTLE_MS,
-  portalFeedJobsConfig,
-  queueAgencyPortalFeeds,
-  queueAgencyPortalPush,
-  queueConnectionPortalFeed,
-  queuePushContinuation,
   seedNightlyLanes,
 } from './jobs';
-export {
-  PUSH_RUN_BUDGET_MS,
-  type PushConnectionOutcome,
-  type PushRunResult,
-  payloadHash,
-  pushPortalListings,
-} from './push/engine';
-export { OAuthPortalHttp, type PortalEndpoints } from './push/http';
-export { configurePortalPush, type PortalPushConfig } from './push/registry';
-export {
-  LIVE_CACHE_MS,
-  registerExportsSubscriptions,
-  resetLiveConnectionCache,
-  unregisterExportsSubscriptions,
-} from './subscriptions';
+export { configurePortalPush } from './push/registry';
+export { registerExportsSubscriptions } from './subscriptions';

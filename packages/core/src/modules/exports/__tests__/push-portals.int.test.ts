@@ -22,19 +22,19 @@ import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../../website-api';
 import * as exportsModule from '../index';
+import { portalFlagKey } from '../profiles';
+import { payloadHash, pushPortalListings } from '../push/engine';
 import { fotocasaAdapter } from '../push/fotocasa';
 import { idealistaAdapter } from '../push/idealista';
 import { classifyStatus, PortalPushError } from '../push/types';
+import { unregisterExportsSubscriptions } from '../subscriptions';
 import {
   configurePortalFeedJobs,
   configurePortalFeeds,
   configurePortalPush,
   exportsJobs,
   generatePortalFeeds,
-  payloadHash,
-  pushPortalListings,
   registerExportsSubscriptions,
-  unregisterExportsSubscriptions,
 } from '../worker';
 import { image, listingDoc } from './portal-fixtures';
 
@@ -144,7 +144,7 @@ let LOCALE = 'es';
 const L: Record<string, string> = {};
 const REF: Record<string, string> = {};
 let connectionId = '';
-const IDEALISTA_FLAG = exportsModule.portalFlagKey('idealista');
+const IDEALISTA_FLAG = portalFlagKey('idealista');
 
 const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);

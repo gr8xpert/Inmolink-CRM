@@ -1,14 +1,11 @@
 import { createHash } from 'node:crypto';
-import { createGunzip } from 'node:zlib';
 import { ErrorBody, WebsiteFeedParams } from '@inmolink/contracts';
 import * as websiteApi from '@inmolink/core/modules/website-api';
-import { cacheControl } from '@inmolink/platform/http';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
-import { sendConditional } from '../../plugins/site-response';
+import { sendStoredFeed } from '../../plugins/site-response';
 
 export const FEED_ROUTE = '/v2/feeds/:token/:file';
 /** S9-03: portal feeds (`routes/exports/portal-feeds.ts`), the same token-URL shape and limits. */
@@ -34,18 +31,6 @@ export function feedTokenIdentity(req: FastifyRequest): string | undefined {
   if (typeof token !== 'string') return undefined;
   const kind = route === FEED_ROUTE ? 'feed' : 'portal-feed';
   return `${kind}:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}`;
-}
-
-/** Whether the client takes gzip (`Accept-Encoding`, ignoring `gzip;q=0`). */
-export function acceptsGzip(req: FastifyRequest): boolean {
-  const header = req.headers['accept-encoding'];
-  const value = Array.isArray(header) ? header.join(',') : (header ?? '');
-  return value.split(',').some((part) => {
-    const [coding, ...params] = part.trim().toLowerCase().split(';');
-    if (coding !== 'gzip' && coding !== 'x-gzip') return false;
-    const q = params.map((p) => p.trim()).find((p) => p.startsWith('q='));
-    return q === undefined || Number(q.slice(2)) > 0;
-  });
 }
 
 /** The XML document (OpenAPI only: the body is streamed, never serialized). */
@@ -80,36 +65,6 @@ export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
       },
       config: { rateLimit: FEED_LIMITS },
     },
-    async (req, reply) => {
-      const file = await websiteApi.siteFeedFile(req.params.token, req.params.file);
-      const gzip = acceptsGzip(req);
-      // One ETag per stored file and encoding (the bytes differ).
-      const etag = gzip ? file.etag : `${file.etag.slice(0, -1)}.identity"`;
-      // Edge cache on, purge tags, and no query parameter (another CDN entry for the same file: S8-F2).
-      const rule = ruleOf(req);
-      const shared = edgePublic(req, rule) && file.tags !== null;
-      reply
-        .header('X-Robots-Tag', 'noindex, nofollow')
-        .header('Referrer-Policy', 'no-referrer')
-        .header('X-Content-Type-Options', 'nosniff');
-      if (shared && file.tags) reply.header('Cache-Tag', file.tags.join(','));
-      if (
-        sendConditional(req, reply, {
-          etag,
-          cacheControl: shared ? publicCacheControl(rule) : cacheControl.private(0),
-          vary: 'Accept-Encoding',
-        })
-      ) {
-        return reply;
-      }
-      if (!shared && gzip) {
-        return reply.header('Cache-Control', 'private, no-store').redirect(await file.signedUrl(), 302);
-      }
-      const body = await file.open();
-      reply.type('application/xml; charset=utf-8');
-      // Streams are sent as they are (the response schema documents the XML; it never serializes a stream).
-      if (gzip) return reply.header('Content-Encoding', 'gzip').send(body as unknown as string);
-      return reply.send(body.pipe(createGunzip()) as unknown as string);
-    },
+    async (req, reply) => sendStoredFeed(req, reply, await websiteApi.siteFeedFile(req.params.token, req.params.file)),
   );
 }

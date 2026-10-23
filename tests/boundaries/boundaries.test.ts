@@ -137,6 +137,31 @@ describe('module scaffolder and boundaries', () => {
     );
   });
 
+  it('[S10-F1] apps/api cannot import credential decryption (exports, imports), the tx-only connection reads or the worker entry', async () => {
+    const result = await planted(
+      'apps/api/src/planted.ts',
+      [
+        "import { writeConnectionFeed } from '@inmolink/core/modules/exports/worker';",
+        "import { portalCredentialsCipher } from '../../../packages/core/src/modules/exports/config';",
+        "import { selectConnectionListings, workerConnections } from '../../../packages/core/src/modules/exports/connections-worker';",
+        "import { feedCredentialsCipher } from '../../../packages/core/src/modules/imports/config';",
+        "import * as runner from '../../../packages/core/src/modules/imports/runner';",
+        'export const planted = [writeConnectionFeed, portalCredentialsCipher, selectConnectionListings, workerConnections, feedCredentialsCipher, runner];',
+        '',
+      ].join('\n'),
+      () => sb.boundaries(['apps/api/src/planted.ts']),
+    );
+    expect(result.code).not.toBe(0);
+    expect(result.output).toMatch(
+      /core-module-worker-entry-workers-only: apps\/api\/src\/planted\.ts → packages\/core\/src\/modules\/exports\/worker\.ts/,
+    );
+    for (const target of ['exports/config', 'exports/connections-worker', 'imports/config', 'imports/runner']) {
+      expect(result.output).toContain(
+        `core-public-api-only: apps/api/src/planted.ts → packages/core/src/modules/${target}.ts`,
+      );
+    }
+  });
+
   it("[S0-12] a planted import of another module's repo.ts fails check:boundaries", async () => {
     const result = await planted(
       `${MODULE_DIR}/planted.ts`,

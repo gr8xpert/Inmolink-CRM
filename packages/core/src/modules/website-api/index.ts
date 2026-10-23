@@ -61,7 +61,6 @@ export { configureWebsiteApi, type WebsiteAlert } from './settings';
 export {
   generateSiteFeed,
   SITE_FEED_BATCH,
-  SITE_FEED_REDIRECT_TTL,
   SITE_FEED_STALE_IF_ERROR,
   SITE_FEED_TTL,
   type SiteFeedFile,

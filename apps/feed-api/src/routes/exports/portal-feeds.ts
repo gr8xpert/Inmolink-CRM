@@ -1,13 +1,10 @@
-import { createGunzip } from 'node:zlib';
 import { ErrorBody, PortalFeedParams } from '@inmolink/contracts';
 import * as exportsModule from '@inmolink/core/modules/exports';
-import { cacheControl } from '@inmolink/platform/http';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
-import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
-import { sendConditional } from '../../plugins/site-response';
-import { acceptsGzip, FeedXml, PORTAL_FEED_ROUTE } from '../website-api/feeds';
+import { sendStoredFeed } from '../../plugins/site-response';
+import { FeedXml, PORTAL_FEED_ROUTE } from '../website-api/feeds';
 
 /** Default portal feed requests per minute per IP (`PORTAL_FEED_IP_PER_MINUTE`). */
 export const PORTAL_FEED_IP_DEFAULT = 3_000;
@@ -57,34 +54,7 @@ export async function portalFeedRoutes(app: FastifyZod, opts: { ipPerMinute?: nu
       },
       config: { rateLimit: portalFeedLimits(opts.ipPerMinute) },
     },
-    async (req, reply) => {
-      const file = await exportsModule.portalFeedFile(req.params.token, req.params.file);
-      const gzip = acceptsGzip(req);
-      // One ETag per stored file and encoding (the bytes differ).
-      const etag = gzip ? file.etag : `${file.etag.slice(0, -1)}.identity"`;
-      const rule = ruleOf(req);
-      const shared = edgePublic(req, rule) && file.tags !== null;
-      reply
-        .header('X-Robots-Tag', 'noindex, nofollow')
-        .header('Referrer-Policy', 'no-referrer')
-        .header('X-Content-Type-Options', 'nosniff');
-      if (shared && file.tags) reply.header('Cache-Tag', file.tags.join(','));
-      if (
-        sendConditional(req, reply, {
-          etag,
-          cacheControl: shared ? publicCacheControl(rule) : cacheControl.private(0),
-          vary: 'Accept-Encoding',
-        })
-      ) {
-        return reply;
-      }
-      if (!shared && gzip) {
-        return reply.header('Cache-Control', cacheControl.noStore()).redirect(await file.signedUrl(), 302);
-      }
-      const body = await file.open();
-      reply.type('application/xml; charset=utf-8');
-      if (gzip) return reply.header('Content-Encoding', 'gzip').send(body as unknown as string);
-      return reply.send(body.pipe(createGunzip()) as unknown as string);
-    },
+    async (req, reply) =>
+      sendStoredFeed(req, reply, await exportsModule.portalFeedFile(req.params.token, req.params.file)),
   );
 }

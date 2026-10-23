@@ -142,8 +142,16 @@ describe('[S9-03] portal feeds at tokenized URLs', () => {
       headers: { 'accept-encoding': 'gzip' },
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.headers.location).toMatch(/^memory:\/\//);
+  });
+
+  it('[S10-F9] with the edge cache off, a plain-XML poll is redirected to the signed URL too, never gunzipped here', async () => {
+    const res = await origin.inject({ method: 'GET', url: `/v2/portal-feeds/${token}/kyero.xml` });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(res.headers.location).toMatch(/^memory:\/\/feeds\/portal-feeds\/.*[?&]expires=60(&|$)/);
+    expect(res.rawPayload.byteLength).toBe(0);
   });
 
   it('[S9-03] unknown tokens and the other format’s file answer the same 404, never cached publicly', async () => {

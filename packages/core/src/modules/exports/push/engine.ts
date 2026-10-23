@@ -43,11 +43,11 @@ import { clock } from '@inmolink/platform/clock';
 import type { Logger } from '@inmolink/platform/logger';
 import type { FeedItem } from '../../../feed-xml';
 import * as search from '../../search';
-import { decryptCredentials } from '../config';
+import { portalCredentialsCipher } from '../config';
+import { selectConnectionListings, type WorkerConnection, workerConnections } from '../connections-worker';
 import { agencyPresentation, buildItems, FEED_BATCH, type FeedPresenter } from '../feed';
 import { portalFeedMediaBase } from '../generator';
 import * as repo from '../repo';
-import { selectConnectionListings, type WorkerConnection, workerConnections } from '../service';
 import { validateItem } from '../validate';
 import { OAuthPortalHttp } from './http';
 import {
@@ -268,7 +268,7 @@ async function planRound(
 
 /** Credentials of a connection, decrypted here only; a missing required key is a permanent, reported stop. */
 function credentialsOf(agencyId: string, p: PlannedPush): { clientId: string; clientSecret: string } {
-  const stored = p.credentialsEnc ? decryptCredentials(agencyId, p.connection.id, p.credentialsEnc) : {};
+  const stored = p.credentialsEnc ? portalCredentialsCipher.decrypt(agencyId, p.connection.id, p.credentialsEnc) : {};
   for (const key of p.adapter.credentials.required) {
     if (!stored[key]) throw new PortalPushError('CREDENTIALS_MISSING', false, 'CONNECTION');
   }

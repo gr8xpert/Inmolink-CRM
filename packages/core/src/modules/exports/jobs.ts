@@ -38,7 +38,8 @@ import { clock } from '@inmolink/platform/clock';
 import { defineJob, type JobContext, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as websiteApi from '../website-api';
-import { generatePortalFeeds, PortalFeedError } from './generator';
+import { PortalFeedError } from './feed-error';
+import { generatePortalFeeds } from './generator';
 import { pushPortalListings } from './push/engine';
 import * as repo from './repo';
 

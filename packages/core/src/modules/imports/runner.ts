@@ -16,8 +16,8 @@ import { isXmlStreamError } from '@inmolink/platform/xml';
 import {
   ANOMALY,
   anomalyThresholds,
-  decryptCredentials,
   FEED_CONFIRM_REFRESH_DAYS,
+  feedCredentialsCipher,
   feedFreshnessDays,
   RUNS,
   SOURCE_HASH_TRUST_DAYS,
@@ -504,7 +504,7 @@ async function runOnce(
       settings: (connection.settings ?? {}) as ConnectorContext['settings'],
       mapping: connection.mapping ?? null,
       credentials: connection.credentialsEnc
-        ? decryptCredentials(agencyId, connection.id, connection.credentialsEnc)
+        ? feedCredentialsCipher.decrypt(agencyId, connection.id, connection.credentialsEnc)
         : null,
       signal: abort.signal,
       ...(resumed ? { resume: claimed.resume } : {}),

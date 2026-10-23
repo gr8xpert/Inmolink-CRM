@@ -22,6 +22,7 @@ export {
   verifyHmacSha256,
   verifyRawHmacSha256Hex,
 } from './hmac';
+export { type RowCipher, rowCipher } from './row-cipher';
 export {
   base32Decode,
   base32Encode,

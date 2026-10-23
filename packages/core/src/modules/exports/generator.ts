@@ -20,23 +20,18 @@
  * A WRITTEN run purges the connection's edge copies (`p` tag); turning a connection off, revoking its token or
  * deleting it removes its stored files (`deletePortalFeedFiles`).
  */
-import { createHash } from 'node:crypto';
-import { once } from 'node:events';
-import { finished } from 'node:stream/promises';
-import { createGzip } from 'node:zlib';
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
-import { MIN_UPLOAD_PART_BYTES, type ObjectUpload, storage } from '@inmolink/platform/storage';
+import { MIN_UPLOAD_PART_BYTES, storage } from '@inmolink/platform/storage';
+import { GzipObjectUpload } from '../../stored-feed';
 import * as websiteApi from '../website-api';
+import { FEED_RUNS_KEPT } from './config';
 import { type FeedPlan, type PortalFeedSkip, planAgencyFeeds, writePlannedFeeds } from './feed';
 import { PortalFeedError } from './feed-error';
 import * as repo from './repo';
 import { PORTAL_FEED_MAX_GZIP_BYTES, portalFeedObjectKey, portalFeedPrefix } from './serve';
-import { FEED_RUNS_KEPT } from './service';
-
-export { PortalFeedError };
 
 export interface PortalFeedsConfig {
   /** Media CDN base (`MEDIA_CDN_URL`): image variant keys are served under it. */
@@ -57,58 +52,6 @@ export const portalFeedMediaBase = (): string => configured().mediaBaseUrl.repla
 function configured(): PortalFeedsConfig {
   if (!config) throw new Error('exports: configurePortalFeeds() was not called');
   return config;
-}
-
-/**
- * The XML of one feed, hashed (SHA-256 of the text, the content hash) and gzipped into a multipart upload as it is
- * written. `finish` compares the hash with the served file's and completes or aborts the upload.
- */
-export class HashedGzipUpload {
-  readonly #gzip = createGzip({ level: 6 });
-  readonly #content = createHash('sha256');
-  readonly #pending: Buffer[] = [];
-  #bytes = 0;
-
-  constructor(private readonly upload: ObjectUpload) {
-    this.#gzip.on('data', (chunk: Buffer) => {
-      this.#pending.push(chunk);
-      this.#bytes += chunk.length;
-    });
-  }
-
-  async #drain(): Promise<void> {
-    if (this.#bytes > PORTAL_FEED_MAX_GZIP_BYTES) throw new PortalFeedError('TOO_LARGE');
-    for (let chunk = this.#pending.shift(); chunk; chunk = this.#pending.shift()) await this.upload.write(chunk);
-  }
-
-  async write(text: string): Promise<void> {
-    if (text.length === 0) return;
-    this.#content.update(text, 'utf8');
-    if (!this.#gzip.write(text, 'utf8')) await once(this.#gzip, 'drain');
-    await this.#drain();
-  }
-
-  /**
-   * Ends the document. Same content hash as `servedSha256` → the upload is aborted (`unchanged`); otherwise it
-   * completes. The hash is base64url; `bytes` the gzip size.
-   */
-  async finish(servedSha256: string | null): Promise<{ sha256: string; bytes: number; unchanged: boolean }> {
-    this.#gzip.end();
-    await finished(this.#gzip);
-    await this.#drain();
-    const sha256 = this.#content.digest('base64url');
-    if (sha256 === servedSha256) {
-      await this.upload.abort();
-      return { sha256, bytes: this.#bytes, unchanged: true };
-    }
-    await this.upload.complete();
-    return { sha256, bytes: this.#bytes, unchanged: false };
-  }
-
-  async abort(): Promise<void> {
-    this.#gzip.destroy();
-    await this.upload.abort().catch(() => undefined);
-  }
 }
 
 export type PortalFeedTrigger = repo.FeedRunTrigger;
@@ -206,13 +149,14 @@ export async function generatePortalFeeds(
 
   // Object storage: streamed, outside any transaction (CLAUDE.md rule 6; each batch's read is its own).
   const store = storage();
-  const uploads = new Map<string, HashedGzipUpload>();
+  const uploads = new Map<string, GzipObjectUpload>();
   for (const { connection } of plan.ready) {
     const key = portalFeedObjectKey(connection.id, runIdOf(connection.id));
     uploads.set(
       connection.id,
-      new HashedGzipUpload(
+      new GzipObjectUpload(
         store.upload('feeds', key, { contentType: 'application/gzip', partBytes: MIN_UPLOAD_PART_BYTES }),
+        { hash: 'text', maxBytes: PORTAL_FEED_MAX_GZIP_BYTES, tooLarge: () => new PortalFeedError('TOO_LARGE') },
       ),
     );
   }
@@ -253,7 +197,7 @@ export async function generatePortalFeeds(
       continue;
     }
     const current = served.get(outcome.connectionId) ?? null;
-    let file: Awaited<ReturnType<HashedGzipUpload['finish']>>;
+    let file: Awaited<ReturnType<GzipObjectUpload['finish']>>;
     try {
       file = await upload.finish(current?.sha256 ?? null);
     } catch (err) {

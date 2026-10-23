@@ -26,7 +26,7 @@ import {
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
-import { hmacSha256, newToken } from '@inmolink/platform/crypto';
+import { newToken } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
@@ -36,19 +36,13 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
 import * as properties from '../properties';
-import { encryptCredentials, tokenKey } from './config';
+import { FEED_RUNS_KEPT, portalCredentialsCipher, portalFeedTokenHash } from './config';
 import { exportsEvents } from './events';
 import { assertCan } from './policy';
 import { feedFileOf } from './profiles';
 import { isPushChannel, pushChannelEnabled } from './push/registry';
 import * as repo from './repo';
-import { ruleOf, type SelectionRule, selectionBatch, selectionPage } from './selection';
-
-const TOKEN_PURPOSE = 'exports.feed-token';
-const tokenHashOf = (token: string) => hmacSha256(tokenKey(), TOKEN_PURPOSE, token);
-
-/** The hash a feed token is stored as (the feed server, S9-04, hashes the presented token the same way). */
-export const portalFeedTokenHash = tokenHashOf;
+import { ruleOf, selectionBatch, selectionPage } from './selection';
 
 function toDto(row: repo.ConnectionRow, counts: { include: number; exclude: number } | undefined): PortalConnectionDto {
   return {
@@ -232,9 +226,9 @@ export async function createConnection(
     name: input.name,
     selectionMode: input.selection.mode,
     selectionTag: input.selection.tag,
-    credentialsEnc: input.credentials ? encryptCredentials(agencyId, id, input.credentials) : null,
+    credentialsEnc: input.credentials ? portalCredentialsCipher.encrypt(agencyId, id, input.credentials) : null,
     credentialKeys: input.credentials ? Object.keys(input.credentials).sort() : [],
-    tokenHash: tokenHashOf(token),
+    tokenHash: portalFeedTokenHash(token),
     tokenHint: token.slice(-4),
     createdBy: userId,
     now: clock.now(),
@@ -280,7 +274,7 @@ export async function updateConnection(
       const channel = await repo.getChannel(ctx.tx, current.channelCode);
       if (!channel || !(await channelUsable(ctx, channel))) throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
       assertCredentialKeys(channel, input.credentials);
-      credentialsEnc = encryptCredentials(agencyId, current.id, input.credentials);
+      credentialsEnc = portalCredentialsCipher.encrypt(agencyId, current.id, input.credentials);
       credentialKeys = Object.keys(input.credentials).sort();
     }
   }
@@ -331,7 +325,7 @@ export async function rotateConnectionToken(
   const current = await loadConnection(ctx, params.connectionId, true);
   const token = newToken(32);
   const row = await repo.setToken(ctx.tx, agencyId, current.id, {
-    tokenHash: tokenHashOf(token),
+    tokenHash: portalFeedTokenHash(token),
     tokenHint: token.slice(-4),
     now: clock.now(),
   });
@@ -511,71 +505,6 @@ export async function selectListings(
   return { ids: page.ids, nextCursor: page.next };
 }
 
-/** A connection as the generator (worker) needs it: what to send to which portal, and the version it read it at. */
-export interface WorkerConnection {
-  id: string;
-  agencyId: string;
-  channelCode: string;
-  name: string;
-  enabled: boolean;
-  /** Set: the feed token was revoked (nothing to serve). */
-  revokedAt: Date | null;
-  /** The connection's version when the pass loaded it (a change meanwhile queues its own run: `exports.connection.changed`). */
-  version: number;
-  rule: SelectionRule;
-  /** S9-03: the served file when read (its run and content hash); null: none yet. */
-  feed: { runId: string; sha256: string } | null;
-}
-
-function workerConnectionOf(row: repo.ConnectionRow): WorkerConnection {
-  return {
-    id: row.id,
-    agencyId: row.agencyId,
-    channelCode: row.channelCode,
-    name: row.name,
-    enabled: row.enabled,
-    revokedAt: row.revokedAt,
-    version: row.version,
-    rule: ruleOf(row),
-    feed: row.feedRunId && row.feedSha256 ? { runId: row.feedRunId, sha256: row.feedSha256 } : null,
-  };
-}
-
-/**
- * Worker side (S9-03): the connections of one pass over an agency — these ids, or (`ids` null) every live one. One
- * statement.
- */
-export async function workerConnections(
-  tx: Tx,
-  agencyId: string,
-  ids: readonly string[] | null,
-): Promise<WorkerConnection[]> {
-  return (await repo.connectionsForPass(tx, agencyId, ids)).map(workerConnectionOf);
-}
-
-/** Worker side (`withSystem`, no ctx): a connection of a known agency, read once; null: no such connection. */
-export async function connectionForWorker(
-  tx: Tx,
-  agencyId: string,
-  connectionId: string,
-): Promise<WorkerConnection | null> {
-  const row = await repo.getConnection(tx, agencyId, connectionId);
-  return row ? workerConnectionOf(row) : null;
-}
-
-/**
- * Worker side: the next batch of a loaded connection's selection (same rules and limits as `selectListings`), with
- * no read of the connection itself — every batch of a run uses the one rule it was loaded with.
- */
-export async function selectConnectionListings(
-  tx: Tx,
-  connection: Pick<WorkerConnection, 'rule'>,
-  opts: { cursor?: string | null; limit?: number } = {},
-): Promise<{ ids: string[]; nextCursor: string | null }> {
-  const page = await selectionBatch(tx, connection.rule, opts.cursor ?? null, opts.limit);
-  return { ids: page.ids, nextCursor: page.next };
-}
-
 /** Dashboard preview: one page (short is fine; `nextCursor` continues) of the listings the connection sends now. */
 export async function previewSelection(
   ctx: Ctx,
@@ -636,9 +565,6 @@ export async function listIssues(
 }
 
 // ── Feed generation (S9-03) ───────────────────────────────────────────────────────────────────────────────────────
-
-/** Runs kept per connection (the generator deletes older ones in each run's transaction). */
-export const FEED_RUNS_KEPT = 30;
 
 /** The connection's latest feed runs, newest first (bounded by `FEED_RUNS_KEPT`: no paging). */
 export async function listFeedRuns(ctx: Ctx, params: PortalConnectionParams): Promise<PortalFeedRunList> {

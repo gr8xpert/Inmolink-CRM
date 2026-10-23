@@ -44,11 +44,11 @@ import {
 } from '../../feed-xml';
 import * as agencies from '../agencies';
 import * as search from '../search';
+import { selectConnectionListings, type WorkerConnection, workerConnections } from './connections-worker';
 import { PortalFeedError } from './feed-error';
 import { PORTAL_PREFERRED_LOCALE, type PortalProfile, portalWriterEnabled, profileOf } from './profiles';
 import { isPushChannel } from './push/registry';
 import * as repo from './repo';
-import { selectConnectionListings, type WorkerConnection, workerConnections } from './service';
 import { validateItem } from './validate';
 
 /** Listings per batch (one selection page, then one document statement, one issue write). */

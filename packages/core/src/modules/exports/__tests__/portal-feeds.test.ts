@@ -10,9 +10,9 @@ import {
   writeKyeroProperty,
   writeKyeroStart,
 } from '../../../feed-xml';
+import { buildItems } from '../feed';
 import { PORTAL_PROFILES, type PortalProfile, portalWriterEnabled } from '../profiles';
 import { validateItem } from '../validate';
-import { buildItems } from '../worker';
 import { DESCRIPTION, image, listingDoc, ownDetail, PRESENTER, schemaErrors, xsd } from './portal-fixtures';
 
 /**
@@ -51,7 +51,7 @@ describe('[S9-02] portal writers validate against their schema fixtures', () => 
     ['kyero', kyero, 'kyero/kyero-v3.xsd'],
     ['thinkspain', thinkspain, 'thinkspain/portal-feed.xsd'],
     ['a-place-in-the-sun', place, 'a-place-in-the-sun/portal-feed.xsd'],
-  ])('%s', async (_name, profile, schema) => {
+  ])('[S9-02] %s', async (_name, profile, schema) => {
     expect(profile.schema).toBe(schema);
     const item = build();
     expect(validateItem(profile, item)).toEqual([]);
@@ -60,7 +60,7 @@ describe('[S9-02] portal writers validate against their schema fixtures', () => 
     expect(await schemaErrors(xml, xsd(schema))).toEqual([]);
   });
 
-  it('generic XML', async () => {
+  it('[S9-02] generic XML', async () => {
     const item = build();
     const w = new XmlWriter();
     writeGenericStart(w, {
@@ -74,19 +74,19 @@ describe('[S9-02] portal writers validate against their schema fixtures', () => 
     expect(await schemaErrors(w.end(), xsd(generic.schema))).toEqual([]);
   });
 
-  it('images are the processed variants under the media CDN, never storage keys alone', () => {
+  it('[S9-02] images are the processed variants under the media CDN, never storage keys alone', () => {
     const xml = kyeroXml(build(), kyero);
     expect(xml).toContain('<url>https://media.example/bucket/v1/img1/large.webp</url>');
     expect(xml).not.toContain('variants');
   });
 
-  it('a portal photo cap cuts the photos written, never the listing', () => {
+  it('[S9-02] a portal photo cap cuts the photos written, never the listing', () => {
     const many = Array.from({ length: 8 }, (_, i) => image(i + 1));
     const xml = kyeroXml(build(listingDoc({ media: many, imageCount: 8 })), { ...kyero, maxPhotos: 3 });
     expect(xml.match(/<image id=/g)).toHaveLength(3);
   });
 
-  it('the stricter portal schemas really reject what the validator refuses (rules and fixtures agree)', async () => {
+  it('[S9-02] the stricter portal schemas really reject what the validator refuses (rules and fixtures agree)', async () => {
     const few = build(listingDoc({ media: [image(1), image(2)], imageCount: 2 }));
     expect(codes(thinkspain, few)).toEqual(['PHOTOS_TOO_FEW']);
     expect(await schemaErrors(kyeroXml(few, thinkspain), xsd(thinkspain.schema))).not.toEqual([]);
@@ -95,11 +95,11 @@ describe('[S9-02] portal writers validate against their schema fixtures', () => 
 });
 
 describe('[S9-02] validation gives a reason per listing', () => {
-  it('a complete listing passes every portal', () => {
+  it('[S9-02] a complete listing passes every portal', () => {
     for (const profile of Object.values(PORTAL_PROFILES)) expect(codes(profile, build())).toEqual([]);
   });
 
-  it('required fields: price, price period, town', () => {
+  it('[S9-02] required fields: price, price period, town', () => {
     expect(
       codes(
         kyero,
@@ -125,14 +125,14 @@ describe('[S9-02] validation gives a reason per listing', () => {
     );
   });
 
-  it('CEE energy rating: missing is refused, exempt and in progress are fine, optional for generic XML', () => {
+  it('[S9-02] CEE energy rating: missing is refused, exempt and in progress are fine, optional for generic XML', () => {
     expect(codes(kyero, build(listingDoc({ energyRating: null })))).toEqual(['ENERGY_RATING_MISSING']);
     expect(codes(kyero, build(listingDoc({ energyRating: 'EXEMPT' })))).toEqual([]);
     expect(codes(kyero, build(listingDoc({ energyRating: 'PENDING' })))).toEqual([]);
     expect(codes(generic, build(listingDoc({ energyRating: null })))).toEqual([]);
   });
 
-  it('minimum photos come from the portal profile, with the numbers', () => {
+  it('[S9-02] minimum photos come from the portal profile, with the numbers', () => {
     const three = build(listingDoc({ media: [image(1), image(2), image(3)], imageCount: 3 }));
     expect(codes(kyero, three)).toEqual([]);
     expect(codes(thinkspain, three)).toEqual([]);
@@ -141,7 +141,7 @@ describe('[S9-02] validation gives a reason per listing', () => {
     expect(codes({ ...thinkspain, minPhotos: 4 }, three)).toEqual(['PHOTOS_TOO_FEW']);
   });
 
-  it('description length: missing, too short, too long', () => {
+  it('[S9-02] description length: missing, too short, too long', () => {
     expect(codes(kyero, build(listingDoc({ description: null })))).toEqual(['DESCRIPTION_MISSING']);
     expect(validateItem(kyero, build(listingDoc({ description: 'Nice villa.' })))).toEqual([
       { code: 'DESCRIPTION_TOO_SHORT', params: { min: 30, actual: 11 } },
@@ -150,7 +150,7 @@ describe('[S9-02] validation gives a reason per listing', () => {
     expect(codes(generic, build(listingDoc({ description: null })))).toEqual([]);
   });
 
-  it('whatever the Kyero writer would drop is already an issue with the same code (count and list agree)', () => {
+  it('[S9-02] whatever the Kyero writer would drop is already an issue with the same code (count and list agree)', () => {
     const none = { country: null, region: null, city: null, area: null };
     const cases = [
       listingDoc({ price: { amountCents: null, currency: 'EUR', period: null, onRequest: true } }),
@@ -176,12 +176,12 @@ describe('[S9-02] validation gives a reason per listing', () => {
     }
   });
 
-  it('every reason is reported, not only the first', () => {
+  it('[S9-02] every reason is reported, not only the first', () => {
     const bad = build(listingDoc({ energyRating: null, description: null, media: [], imageCount: 0, cover: null }));
     expect(codes(kyero, bad).sort()).toEqual(['DESCRIPTION_MISSING', 'ENERGY_RATING_MISSING', 'PHOTOS_TOO_FEW']);
   });
 
-  it('a language counts only where the listing has its own text in it', () => {
+  it('[S9-02] a language counts only where the listing has its own text in it', () => {
     const { items } = buildItems(
       [ID],
       [
@@ -195,7 +195,7 @@ describe('[S9-02] validation gives a reason per listing', () => {
 });
 
 describe('[S9-02] unconfirmed portals stay behind a feature flag (H6)', () => {
-  it('confirmed formats need none; thinkSPAIN and A Place in the Sun are marked unconfirmed', async () => {
+  it('[S9-02] confirmed formats need none; thinkSPAIN and A Place in the Sun are marked unconfirmed', async () => {
     expect(kyero.confirmed).toBe(true);
     expect(thinkspain.confirmed).toBe(false);
     expect(place.confirmed).toBe(false);

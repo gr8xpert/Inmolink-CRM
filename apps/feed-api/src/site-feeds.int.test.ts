@@ -190,8 +190,10 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
       websiteApi.edgeTag('s', siteId),
       websiteApi.edgeTag('f', siteId),
     ]);
+    // Edge cache off: private — S10-F9: a body is never served from the origin, the poll goes to the signed URL.
     const off = await origin.inject({ method: 'GET', url: `/v2/feeds/${token}/kyero.xml` });
-    expect(off.headers['cache-control']).toBe('private, max-age=0, must-revalidate');
+    expect(off.statusCode).toBe(302);
+    expect(off.headers['cache-control']).toBe('private, no-store');
     expect(off.headers['cache-tag']).toBeUndefined();
   });
 
@@ -199,8 +201,9 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     // (A bare trailing `?` is covered in `plugins/edge-cache.test.ts`: `inject` drops it before the route.)
     for (const url of [`/v2/feeds/${token}/kyero.xml?x=1`, `/v2/feeds/${token}/kyero.xml?x=1&x=2`]) {
       const res = await edge.inject({ method: 'GET', url });
-      expect(res.statusCode, url).toBe(200);
-      expect(res.headers['cache-control'], url).toBe('private, max-age=0, must-revalidate');
+      // Private, so (S10-F9) redirected to the signed URL like any poll the CDN does not answer.
+      expect(res.statusCode, url).toBe(302);
+      expect(res.headers['cache-control'], url).toBe('private, no-store');
       expect(res.headers['cache-tag'], url).toBeUndefined();
     }
   });
@@ -244,16 +247,18 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     expect(res.statusCode).toBe(302);
     expect(res.headers['cache-control']).toBe('private, no-store');
     expect(res.headers['cache-tag']).toBeUndefined();
-    // The memory store's signed URL: the stored gzip object, served as gzip-encoded XML, expiring in two minutes.
+    // The memory store's signed URL: the stored gzip object, served as gzip-encoded XML, expiring in a minute.
     const location = String(res.headers.location);
     expect(location.startsWith(`memory://feeds/site-feeds/${siteId}/`)).toBe(true);
     expect(location).toContain('/kyero.xml.gz?');
-    expect(location).toContain(`expires=${websiteApi.SITE_FEED_REDIRECT_TTL}`);
+    // S10-F2: one redirect TTL for site and portal feeds, 60 s.
+    expect(location).toMatch(/[?&]expires=60(&|$)/);
     expect(location).toContain('type=application%2Fxml');
     expect(location).toContain('encoding=gzip');
     expect(location).not.toContain(token);
     expect(res.rawPayload.byteLength).toBe(0);
-    // A current copy still answers 304 without a redirect; a client without gzip still gets the plain document.
+    // A current copy still answers 304 without a redirect; S10-F9: a client without gzip is redirected too (feed-api
+    // never gunzips a whole feed per poll).
     const again = await origin.inject({
       method: 'GET',
       url: `/v2/feeds/${token}/kyero.xml`,
@@ -261,8 +266,9 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     });
     expect(again.statusCode).toBe(304);
     const plain = await origin.inject({ method: 'GET', url: `/v2/feeds/${token}/kyero.xml` });
-    expect(plain.statusCode).toBe(200);
-    expect(plain.body).toContain('<feed_version>3</feed_version>');
+    expect(plain.statusCode).toBe(302);
+    expect(plain.headers['cache-control']).toBe('private, no-store');
+    expect(String(plain.headers.location).startsWith(`memory://feeds/site-feeds/${siteId}/`)).toBe(true);
   });
 
   it('[S8-F1] the feed route stays within 3 queries, warm and cold', async () => {

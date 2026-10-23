@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- exports public surface trimmed, worker-only helpers internal (S10-F1); `rowCipher` in platform/crypto replaces duplicated credential encrypt / decrypt in imports and exports (S10-F3); shared `GzipObjectUpload` / `storedFeedFile` / `sendStoredFeed`, one 60 s feed redirect TTL, plain-XML polls redirected to the signed URL when the edge cache is off (S10-F2, part of S10-F9). No new dependency, no migration.
 - Plugin: wp-config API key / base changes purge the cache, mirror and sitemap (config fingerprint in every cache key); no unpinned API or update calls on non-cURL transports (cache-only, shown on the health page); deprecation notice for the legacy trusted-header setting (S10-F6). No new dependency.
 - Queue producer defines the fair-share Lua command before its first command — a lazily defined command was missing from an already-open ioredis auto-pipeline (intermittent TypeError and an uncaught exception on a process's first fair-share enqueue) (S10-F11).
 - S9 review fixes: one shared per-process and pool-wide cap group for the `exports` pool's heavy jobs (event and nightly passes, push runs, site feeds; `capGroup`, `releaseCapSlots`), nightly lanes below the pool cap; push runs in their own `<agency>:push` group; `portal_feed_by_token` owned by `app_owner`. No new dependency, no migration.

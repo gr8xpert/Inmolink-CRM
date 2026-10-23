@@ -1,4 +1,5 @@
-import { aadFor, type Keyring } from '@inmolink/platform/crypto';
+import { hmacSha256, type Keyring, rowCipher } from '@inmolink/platform/crypto';
+import { z } from 'zod';
 
 /**
  * Process settings for exports, set once at boot (api: encrypts credentials and hashes feed tokens; worker and the
@@ -26,26 +27,31 @@ function configured(): ExportsConfig {
   return current;
 }
 
-export const tokenKey = (): Buffer => Buffer.from(configured().tokenKey);
+const tokenKey = (): Buffer => Buffer.from(configured().tokenKey);
 
-/** Ciphertext is bound to the agency, table, column and row: copied elsewhere it does not decrypt. */
+/**
+ * The hash a feed token is stored as (`token_hash`): HMAC-SHA256 with `HMAC_KEY`, purpose `exports.feed-token`. The
+ * service hashes a new token with it; the feed server (S9-03) hashes the presented one the same way.
+ */
+export const portalFeedTokenHash = (token: string): string => hmacSha256(tokenKey(), 'exports.feed-token', token);
+
 function keyring(): Keyring {
   const k = configured().keyring;
   if (!k) throw new Error('exports: no keyring configured (credentials cannot be encrypted or decrypted here)');
   return k;
 }
 
-const aad = (agencyId: string, connectionId: string) =>
-  aadFor({ agencyId, table: 'agency_portal_connections', column: 'credentials_enc', rowId: connectionId });
+/**
+ * A portal connection's credentials, encrypted (S10-F3: `rowCipher`). Ciphertext is bound to the agency, table,
+ * column and row: copied elsewhere it does not decrypt. Decrypting is worker-side (the push engine); the API only
+ * encrypts. `encrypt(agencyId, connectionId, credentials)` / `decrypt(...)`.
+ */
+export const portalCredentialsCipher = rowCipher(
+  'agency_portal_connections',
+  'credentials_enc',
+  keyring,
+  z.record(z.string(), z.string()),
+);
 
-export function encryptCredentials(
-  agencyId: string,
-  connectionId: string,
-  credentials: Record<string, string>,
-): string {
-  return keyring().encrypt(JSON.stringify(credentials), aad(agencyId, connectionId));
-}
-
-export function decryptCredentials(agencyId: string, connectionId: string, envelope: string): Record<string, string> {
-  return JSON.parse(keyring().decrypt(envelope, aad(agencyId, connectionId))) as Record<string, string>;
-}
+/** Feed runs kept per connection (the generator deletes older ones in each run's transaction; S10-F1: out of the service). */
+export const FEED_RUNS_KEPT = 30;
