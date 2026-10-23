@@ -1279,6 +1279,41 @@ Ref §3 #19 · Mod exports · Dep S9-02 · [H6]
 **Build:** adapters behind feature flags following each partner's integration spec once access is granted.
 **Done when:** sandbox submissions succeed *(when H6 is complete)*; otherwise `BLOCKED-HUMAN H6` with scaffolding merged
 
+### S9-F1 · Legacy recordings never carry keys or personal data (S8 review) 🔒
+Ref §9.3 · Mod scripts · Dep S8-01
+**Build:** `pnpm legacy:record` replaces the test key in recorded bodies (`normalizeJson` / `normalizeText`) and fails if it still appears; `tests/golden/recorded/` gitignored until the H2 sign-off; a scan that flags e-mail, phone and cadastral fields before the S8-F20 export is committed.
+**Done when:**
+- A stub API echoing the key in a paging link records `<key>` and a planted leftover fails the recording (test)
+- A recorded body with an e-mail or phone fails the scan (test)
+
+### S9-F2 · Embed pages purged when a site's domains change (S8 review) 🔒
+Ref §9.5 · Mod websites, public · Dep S8-F2
+**Build:** a change to a site's domains or `frameAncestors` emits the site's edge-tag purge, so a removed domain cannot keep framing the cached embed page until it expires.
+**Done when:** removing a domain enqueues the site's purge in the same transaction (int test)
+
+### S9-F3 · Plugin update metadata signed; Turnstile retries keep their key (S8 review)
+Ref §9.4 · Mod wp-plugin, plugin-updates · Dep S8-05
+**Build:** the release signature also covers `changelog`, `requires` and `tested` (with S8-F27's `releasedAt`); the plugin's Turnstile idempotency key is a UUIDv5 of the token hash, so a network retry of siteverify is not a duplicate.
+**Done when:** a manifest with an altered changelog offers no update (PHPUnit); a retried siteverify with the same token succeeds (PHPUnit)
+
+### S9-F4 · Worker and update-server bounds (S8 perf review) ⚡
+Ref §5 · Mod platform, developments, plugin-updates, migration · Dep S8-F3 S8-05
+**Build:** outbox `emit` chunks by payload bytes too (≈ 8 MB) besides `EMIT_CHUNK_ROWS`; a failed developments feed batch is bisected (halve and retry) instead of retried row by row; an unknown plugin version's miss is cached 60 s in-process; the legacy taxonomy reload uses the platform `clock`.
+**Done when:**
+- A batch of 10k 10 KB payloads is emitted in ≥ 13 statements, none over the byte cap (test)
+- One bad development in 500 costs ≤ 7 × log2(500) statements (statement-count test)
+- 50 requests for an unknown plugin version make one storage read (test)
+
+### S9-F5 · Plugin and contract lead validation in step (S8 review)
+Ref §9.4 · Mod wp-plugin, contracts · Dep S8-05 S8-F8
+**Build:** the plugin's name check mirrors the contract (`website-leads.ts`, domains refused); `LEAD_LIMITS.phone` = 25 with `LeadPhone` derived from it; the plugin template uses `Turnstile::ACTION` and the limits; one shared fixture of valid / invalid leads run by both the contract tests and PHPUnit.
+**Done when:** every fixture case gets the same verdict from the contract and the plugin (vitest + PHPUnit)
+
+### S9-F6 · feed-api response helper and SDK surface (S8 review)
+Ref §9.2 · Mod feed-api, plugin-updates, migration, sdk · Dep S8-02 S8-05
+**Build:** one `sendConditional(req, reply, { etag, cacheControl, vary })` in `site-response.ts` for the six copies of the ETag / 304 code; plugin update routes tagged `wp-plugin` and left out of the customer SDK (`pnpm sdk:generate`); the `/v2/plugin/update` edge rule takes `PLUGIN_RELEASE_CACHE_SECONDS`; unused exports trimmed from `plugin-updates` and `migration` index files; the S8-F7 headroom check named as a manual CI check in the backlog (or a flagged soft assert).
+**Done when:** the generated SDK has no plugin operations (test); every conditional GET still answers 304 on a matching `If-None-Match` (existing tests green)
+
 ---
 
 ## S10 — CRM core
