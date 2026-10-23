@@ -15,30 +15,50 @@ const BUDGET_SECONDS = 15 * 60;
 /** S1-F6: the S0 review measured the users phase at 25k users in 15.2 s; the task asks for ≥ 5× faster. */
 const USERS_SEED = 916;
 const USERS_BUDGET_SECONDS = 15.2 / 5;
-/** Seeded users, and first the listings they own (S3-F6: a listing's owner must stay a member). */
-const cleanupSeed = (seed: number) =>
-  withSystem('test.seed.cleanup', async (tx) => {
-    const pattern = `%@s${seed}.scale.inmolink.test`;
-    await tx.execute(
-      sql`delete from properties where owner_user_id in (select id from users where email like ${pattern})`,
-    );
-    await tx.delete(users).where(like(users.email, pattern));
-  });
+/**
+ * Seeded users, and first the listings they own (S3-F6: a listing's owner must stay a member). The listings are found
+ * through the members' `(agency_id, owner_user_id)` (index `properties_agency_owner_idx`, not a scan of every listing)
+ * and deleted in batches, each in its own transaction under the worker statement timeout (S10-F10: one statement
+ * over the whole table timed out in CI after the 1,000-agency delete left it bloated).
+ */
+const CLEANUP_BATCH = 5_000;
+const cleanupSeed = async (seed: number) => {
+  const pattern = `%@s${seed}.scale.inmolink.test`;
+  for (;;) {
+    const deleted = await withSystem('test.seed.cleanup', async (tx) => {
+      const { rows } = await tx.execute(sql`
+        with doomed as (
+          select p.id from agency_members m
+          join users u on u.id = m.user_id and u.email like ${pattern}
+          join properties p on p.agency_id = m.agency_id and p.owner_user_id = m.user_id
+          limit ${CLEANUP_BATCH}
+        )
+        delete from properties where id in (select id from doomed) returning 1`);
+      return rows.length;
+    });
+    if (deleted < CLEANUP_BATCH) break;
+  }
+  await withSystem('test.seed.cleanup', (tx) => tx.delete(users).where(like(users.email, pattern)));
+};
 const cleanup = async () => {
+  const started = performance.now();
   await cleanupSeed(SEED);
   await cleanupSeed(USERS_SEED);
   // its Spain-sized tree would double what other tests load (the taxonomy reload measures the whole table)
   await removeSeededTaxonomy(SEED);
+  console.log(`[S10-F10] scale seed cleanup: ${((performance.now() - started) / 1000).toFixed(1)} s`);
 };
 
+/** Removing a 1,000-agency seed (listings and their cascades) takes minutes; each statement stays short. */
+const CLEANUP_TIMEOUT_MS = 600_000;
 beforeAll(async () => {
   await setupTestDb('script');
   await cleanup();
-}, 180_000);
+}, CLEANUP_TIMEOUT_MS);
 afterAll(async () => {
   await cleanup();
   await closeDb();
-});
+}, CLEANUP_TIMEOUT_MS);
 
 it(
   '[S0-13] --agencies=1000 completes locally in < 15 min',
