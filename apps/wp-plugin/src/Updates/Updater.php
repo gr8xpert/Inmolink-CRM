@@ -164,7 +164,18 @@ class Updater {
 	 * @return mixed
 	 */
 	public function filter_update_transient( $transient ) {
-		if ( ! is_object( $transient ) || empty( $transient->checked ) || '' === self::public_key() ) {
+		if ( ! is_object( $transient ) ) {
+			return $transient;
+		}
+		// Only this updater may offer this plugin: anything else (wordpress.org for a same-named plugin, another filter)
+		// is dropped, even when no key is pinned — such a package would install unverified.
+		if ( isset( $transient->response ) && is_array( $transient->response ) ) {
+			unset( $transient->response[ $this->basename ] );
+		}
+		if ( isset( $transient->no_update ) && is_array( $transient->no_update ) ) {
+			unset( $transient->no_update[ $this->basename ] );
+		}
+		if ( empty( $transient->checked ) || '' === self::public_key() ) {
 			return $transient;
 		}
 		$info = $this->info();
@@ -234,10 +245,12 @@ class Updater {
 	 * @return mixed A local file path, a WP_Error, or `$reply` for other packages.
 	 */
 	public function pre_download( $reply, $package, $upgrader = null, $hook_extra = array() ) {
-		unset( $upgrader, $hook_extra );
-		$prefix = self::base() . '/v2/plugin/package/';
-		if ( ! is_string( $package ) || '' === self::base() || 0 !== strpos( $package, $prefix ) ) {
+		if ( ! $this->is_ours( $package, $upgrader, $hook_extra ) ) {
 			return $reply;
+		}
+		// From here on it is this plugin's package: it installs only if it is our verified release, whatever offered it.
+		if ( ! is_string( $package ) || '' === self::base() || 0 !== strpos( $package, self::base() . '/v2/plugin/package/' ) ) {
+			return new \WP_Error( 'inmolink_update_foreign', __( 'Refusing an Inmolink package that does not come from the Inmolink update server.', 'inmolink' ) );
 		}
 		$info = $this->info();
 		if ( null === $info || self::package_url( $info ) !== $package ) {
@@ -261,6 +274,27 @@ class Updater {
 			return $error;
 		}
 		return $file;
+	}
+
+	/**
+	 * Whether a download is for this plugin: by the upgrader's `hook_extra` (single, bulk and automatic updates pass
+	 * `plugin`), by the plugin a Plugin_Upgrader skin is working on, or by our package URL.
+	 *
+	 * @param mixed $package    Package URL.
+	 * @param mixed $upgrader   Upgrader.
+	 * @param mixed $hook_extra Extra arguments.
+	 */
+	private function is_ours( $package, $upgrader, $hook_extra ): bool {
+		if ( is_array( $hook_extra ) && isset( $hook_extra['plugin'] ) && $hook_extra['plugin'] === $this->basename ) {
+			return true;
+		}
+		if ( is_array( $hook_extra ) && isset( $hook_extra['plugins'] ) && is_array( $hook_extra['plugins'] ) && in_array( $this->basename, $hook_extra['plugins'], true ) ) {
+			return true;
+		}
+		if ( is_object( $upgrader ) && isset( $upgrader->skin ) && is_object( $upgrader->skin ) && isset( $upgrader->skin->plugin ) && $upgrader->skin->plugin === $this->basename ) {
+			return true;
+		}
+		return is_string( $package ) && '' !== self::base() && 0 === strpos( $package, self::base() . '/v2/plugin/package/' );
 	}
 
 	/**

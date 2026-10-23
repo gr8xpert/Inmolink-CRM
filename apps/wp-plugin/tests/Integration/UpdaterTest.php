@@ -260,4 +260,76 @@ final class UpdaterTest extends TestCase {
 		$sig   = base64_encode( sodium_crypto_sign_detached( Updater::signing_message( '0.2.0', $sha ), sodium_crypto_sign_secretkey( $other ) ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 		$this->assertSame( 'inmolink_update_signature', Updater::verify_file( $file, '0.2.0', $sha, $sig )->get_error_code() );
 	}
+
+	/**
+	 * [S8-05] A package from anywhere else offered for this plugin (e.g. wordpress.org for a same-named plugin) is
+	 * refused — single, bulk and automatic updates alike — while other plugins' downloads are left alone.
+	 */
+	public function test_s8_05_foreign_package_for_our_plugin_is_refused(): void {
+		$foreign = 'https://downloads.wordpress.org/plugin/inmolink.9.9.9.zip';
+		foreach ( array(
+			array( 'plugin' => self::BASENAME ),
+			array( 'plugins' => array( 'other/other.php', self::BASENAME ) ),
+		) as $extra ) {
+			$error = $this->updater->pre_download( false, $foreign, null, $extra );
+			$this->assertWPError( $error );
+			$this->assertSame( 'inmolink_update_foreign', $error->get_error_code() );
+		}
+		$skin         = new \Automatic_Upgrader_Skin();
+		$skin->plugin = self::BASENAME;
+		$this->assertWPError( $this->updater->pre_download( false, $foreign, new \Plugin_Upgrader( $skin ), array() ) );
+		$this->assertSame( 'untouched', $this->updater->pre_download( 'untouched', 'https://downloads.wordpress.org/plugin/akismet.zip', null, array( 'plugin' => 'akismet/akismet.php' ) ) );
+
+		// End to end: a foreign offer written straight into the transient (bypassing our filter) installs nothing.
+		$transient           = new \stdClass();
+		$transient->checked  = array( self::BASENAME => '0.1.0' );
+		$transient->response = array(
+			self::BASENAME => (object) array(
+				'slug'        => 'inmolink',
+				'plugin'      => self::BASENAME,
+				'new_version' => '9.9.9',
+				'package'     => $foreign,
+			),
+		);
+		update_site_option( '_site_transient_update_plugins', $transient );
+		wp_cache_delete( 'update_plugins', 'site-transient' );
+		$level = ob_get_level();
+		try {
+			$result = ( new \Plugin_Upgrader( new \Automatic_Upgrader_Skin() ) )->upgrade( self::BASENAME );
+		} finally {
+			while ( ob_get_level() > $level ) {
+				ob_end_clean();
+			}
+		}
+		$this->assertNotTrue( $result );
+		$this->assertSame( '0.1.0', self::installed_version() );
+	}
+
+	/**
+	 * [S8-05] Offers for this plugin from other sources are removed from the update transient (also with no release).
+	 */
+	public function test_s8_05_foreign_transient_entries_are_removed(): void {
+		$this->api->on( '/v2/plugin/update', array( 'status' => 404 ) );
+		$transient            = new \stdClass();
+		$transient->checked   = array( self::BASENAME => '0.1.0' );
+		$transient->response  = array(
+			self::BASENAME   => (object) array( 'package' => 'https://downloads.wordpress.org/plugin/inmolink.zip' ),
+			'other/other.php' => (object) array( 'package' => 'https://downloads.wordpress.org/plugin/other.zip' ),
+		);
+		$transient->no_update = array( self::BASENAME => (object) array( 'package' => 'https://downloads.wordpress.org/plugin/inmolink.zip' ) );
+
+		$filtered = $this->updater->filter_update_transient( $transient );
+		$this->assertArrayNotHasKey( self::BASENAME, $filtered->response );
+		$this->assertArrayNotHasKey( self::BASENAME, $filtered->no_update );
+		$this->assertArrayHasKey( 'other/other.php', $filtered->response, 'other plugins untouched' );
+	}
+
+	/**
+	 * [S8-05] The plugin header names its update server (`Update URI`), so WordPress never asks wordpress.org about it.
+	 */
+	public function test_s8_05_update_uri_header(): void {
+		$data = get_plugin_data( \Inmolink\Plugin\PLUGIN_FILE, false, false );
+		$this->assertSame( 'https://feed.inmolink.es', $data['UpdateURI'] );
+		$this->assertSame( \Inmolink\Plugin\Settings::DEFAULT_API_BASE, $data['UpdateURI'] );
+	}
 }

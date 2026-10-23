@@ -6,6 +6,7 @@
  * Requires at least: 6.4
  * Tested up to: 6.8
  * Requires PHP: 8.1
+ * Update URI: https://feed.inmolink.es
  * Author: Inmolink
  * License: GPL-2.0-or-later
  * Text Domain: inmolink
