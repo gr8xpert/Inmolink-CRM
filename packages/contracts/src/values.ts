@@ -88,6 +88,11 @@ export const DEVELOPMENT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 /** Units per development (S4-02): bounds every whole-development query (price list diffs, unit table). */
 /** A development's brand name, at most (dashboard and feeds alike, S8-F3). */
 export const MAX_DEVELOPMENT_NAME = 160;
+/**
+ * The fields a feed sets on a development it created that the owner may lock (S8-F5, like a listing's field locks):
+ * a feed run leaves a locked field as the owner set it. Editing one by hand locks it.
+ */
+export const LOCKABLE_DEVELOPMENT_FIELDS = ['name', 'location'] as const;
 export const MAX_UNITS_PER_DEVELOPMENT = 2_000;
 /** Units per bulk create or bulk edit. */
 export const MAX_UNITS_PER_BULK = 500;

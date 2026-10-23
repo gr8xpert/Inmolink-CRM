@@ -1,6 +1,7 @@
 'use client';
 
-import { type DevelopmentDto, LOCKABLE_DEVELOPMENT_FIELDS, type LockableDevelopmentField } from '@inmolink/contracts';
+import type { DevelopmentDto, LockableDevelopmentField } from '@inmolink/contracts';
+import { LOCKABLE_DEVELOPMENT_FIELDS } from '@inmolink/contracts/values';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useRouter } from 'next/navigation';
 import { useFormatter } from 'next-intl';

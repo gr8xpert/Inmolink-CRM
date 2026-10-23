@@ -4,6 +4,7 @@ import { Commission } from './agency-profile';
 import { CurrencyCode, Money, PageQuery, pageOf } from './common';
 import {
   DEVELOPMENT_DOCUMENT_KINDS,
+  LOCKABLE_DEVELOPMENT_FIELDS,
   MAX_DEVELOPMENT_NAME,
   MAX_UNITS_PER_BULK,
   MAX_UNITS_PER_DEVELOPMENT,
@@ -28,11 +29,7 @@ const Ref = z.string().trim().min(1).max(40);
 const Area = z.number().min(0).max(1_000_000);
 const PriceCents = z.number().int().min(0).max(100_000_000_000);
 
-/**
- * The fields a feed sets on a development it created that the owner may lock (S8-F5, like a listing's field locks):
- * a feed run leaves a locked field as the owner set it. Editing one by hand locks it.
- */
-export const LOCKABLE_DEVELOPMENT_FIELDS = ['name', 'location'] as const;
+/** The development fields a feed run leaves alone once the owner locks them (`LOCKABLE_DEVELOPMENT_FIELDS`, S8-F5). */
 export const LockableDevelopmentField = z.enum(LOCKABLE_DEVELOPMENT_FIELDS);
 export type LockableDevelopmentField = z.infer<typeof LockableDevelopmentField>;
 const LockedDevelopmentFields = z
