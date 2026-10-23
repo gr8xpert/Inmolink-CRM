@@ -7,6 +7,11 @@
  * nothing, bumps no version and emits no event. The feed never sets a commission or an access list — those stay the
  * owner's — so a feed development is a PRIVATE_NETWORK one shared with nobody.
  *
+ * Field locks (S8-F5): a name or location the owner locked — or edited by hand, which locks it — stays as the owner
+ * set it; the lock is read with the development itself, so locks add no statement. A development matched by
+ * reference that the feed did not create (made by hand) is adopted on the run: marked as a feed's, its name and
+ * location kept, and each of them that differs from the feed's value locked.
+ *
  * A whole import batch is a fixed number of statements, whatever its size: the developments locked by reference and
  * their units read (one statement each), the diff in memory, then one statement per kind of write. Only when that
  * batch write fails does each development get its own savepoint, so one bad development is skipped alone.
@@ -239,13 +244,26 @@ async function writeBatch(ctx: Ctx, inputs: readonly FeedDevelopmentInput[]): Pr
     // Turning key-ready is the only status a feed moves (never back, never out of SOLD_OUT).
     const status: DevelopmentStatus =
       input.keyReady && dev.status !== 'KEY_READY' && dev.status !== 'SOLD_OUT' ? 'KEY_READY' : dev.status;
+    // Adopting a development the feed did not create keeps its hand values and locks each one the feed disagrees with.
+    const locks = dev.fromFeed
+      ? dev.lockedFields
+      : [
+          ...new Set([
+            ...dev.lockedFields,
+            ...(dev.name !== input.name ? ['name'] : []),
+            ...(dev.locationId !== input.locationId ? ['location'] : []),
+          ]),
+        ].sort();
+    const name = locks.includes('name') ? dev.name : input.name;
+    const locationId = locks.includes('location') ? dev.locationId : input.locationId;
     const changed = [
-      ...(dev.name !== input.name ? ['name'] : []),
-      ...(dev.locationId !== input.locationId ? ['locationId'] : []),
+      ...(dev.name !== name ? ['name'] : []),
+      ...(dev.locationId !== locationId ? ['locationId'] : []),
       ...(dev.status !== status ? ['status'] : []),
+      ...(dev.fromFeed ? [] : ['feed']),
     ];
     if (changed.length > 0) {
-      devChanges.push({ id: dev.id, name: input.name, locationId: input.locationId, status, changed });
+      devChanges.push({ id: dev.id, name, locationId, status, lockedFields: locks, changed });
     } else {
       out.developments.unchanged += 1;
     }

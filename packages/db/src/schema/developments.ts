@@ -94,6 +94,10 @@ export const developments = pgTable(
     lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
     /** Secure by default: a new development reaches no other agency until opened or shared. */
     access: developmentAccessEnum('access').notNull().default('PRIVATE_NETWORK'),
+    /** Created by a feed import (S7-F14): the feed keeps its name and location current unless locked (S8-F5). */
+    fromFeed: boolean('from_feed').notNull().default(false),
+    /** The feed-owned fields the owner locked (`LOCKABLE_DEVELOPMENT_FIELDS`): a feed run leaves them as set. */
+    lockedFields: text('locked_fields').array().notNull().default(sql`'{}'::text[]`),
     /** v1 id for migrated developments (S4-04). */
     legacyId: text('legacy_id'),
     version: integer('version').notNull().default(1),
@@ -126,6 +130,8 @@ export const developments = pgTable(
         and (${t.lat} is null or (${t.lat} between -90 and 90 and ${t.lng} between -180 and 180))`,
     ),
     check('developments_version_ck', sql`${t.version} >= 1`),
+    // only the contract's LOCKABLE_DEVELOPMENT_FIELDS (S8-F5); a new feed-owned field widens this check
+    check('developments_locked_fields_ck', sql`${t.lockedFields} <@ array['name', 'location']::text[]`),
   ],
 );
 

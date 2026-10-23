@@ -28,6 +28,18 @@ const Ref = z.string().trim().min(1).max(40);
 const Area = z.number().min(0).max(1_000_000);
 const PriceCents = z.number().int().min(0).max(100_000_000_000);
 
+/**
+ * The fields a feed sets on a development it created that the owner may lock (S8-F5, like a listing's field locks):
+ * a feed run leaves a locked field as the owner set it. Editing one by hand locks it.
+ */
+export const LOCKABLE_DEVELOPMENT_FIELDS = ['name', 'location'] as const;
+export const LockableDevelopmentField = z.enum(LOCKABLE_DEVELOPMENT_FIELDS);
+export type LockableDevelopmentField = z.infer<typeof LockableDevelopmentField>;
+const LockedDevelopmentFields = z
+  .array(LockableDevelopmentField)
+  .max(LOCKABLE_DEVELOPMENT_FIELDS.length)
+  .refine((f) => new Set(f).size === f.length, 'duplicate field');
+
 export const DevelopmentParams = z.object({ id: z.uuid() }).strict();
 export type DevelopmentParams = z.infer<typeof DevelopmentParams>;
 
@@ -48,6 +60,11 @@ export const DevelopmentDto = z.object({
   lastVerifiedAt: z.iso.datetime().nullable(),
   /** The owner's sharing settings; null for other agencies. */
   access: z.object({ kind: DevelopmentAccess, allowedAgencyIds: z.array(z.uuid()) }).nullable(),
+  /**
+   * A development a feed import created, for its owner (null otherwise, and for other agencies): the feed keeps
+   * `LOCKABLE_DEVELOPMENT_FIELDS` current except the locked ones (S8-F5).
+   */
+  feed: z.object({ lockedFields: z.array(LockableDevelopmentField) }).nullable(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -80,6 +97,11 @@ export const UpdateDevelopmentBody = CreateDevelopmentBody.omit({ currency: true
     version: z.number().int().min(1),
     /** The maintainer confirms units and prices are current (freshness SLA 24 h): sets `lastVerifiedAt`. */
     verified: z.literal(true).optional(),
+    /**
+     * Replaces the feed field locks (S8-F5). Left out, editing `name` or `locationId` of a feed development locks
+     * that field, so the next feed run keeps the edit.
+     */
+    lockedFields: LockedDevelopmentFields.optional(),
   })
   .strict();
 export type UpdateDevelopmentBody = z.infer<typeof UpdateDevelopmentBody>;

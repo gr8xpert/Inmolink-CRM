@@ -8,7 +8,7 @@
   "never": "Nunca",
   "columns": {
     "ref": "Referencia",
-    "name": "Nombre",
+    "name": "nombre",
     "status": "Estado",
     "access": "Compartida con",
     "verified": "Última verificación",
@@ -33,7 +33,7 @@
   },
   "fields": {
     "ref": "Referencia",
-    "name": "Nombre",
+    "name": "nombre",
     "status": "Estado",
     "completionDate": "Fecha de entrega",
     "locationId": "Ubicación",
@@ -57,7 +57,16 @@
     "verifiedAt": "Verificada por última vez el {date}",
     "notVerified": "Nunca verificada",
     "fixedCommission": "Hay una comisión fija ({amount}); vacía el campo para quitarla o escribe un porcentaje para sustituirla.",
-    "readOnly": "Promoción de otra agencia: puedes consultarla y escribir tus propios textos para tus canales."
+    "readOnly": "Promoción de otra agencia: puedes consultarla y escribir tus propios textos para tus canales.",
+    "feed": {
+      "intro": "Importada desde un feed: cada importación actualiza el nombre y la ubicación salvo que los bloquees. Al editar uno aquí, queda bloqueado.",
+      "legend": "Campos que mantiene el feed",
+      "fields": {
+        "name": "nombre",
+        "location": "ubicación"
+      },
+      "lockField": "Bloquear {field}: conservar mi valor"
+    }
   },
   "access": {
     "title": "Compartir",

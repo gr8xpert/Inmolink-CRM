@@ -809,7 +809,7 @@ export async function ownByRefsForUpdate(tx: Tx, agencyId: string, refs: readonl
     .for('update');
 }
 
-/** A development a feed creates (S8-F3): PRIVATE_NETWORK, no commission, the column defaults otherwise. */
+/** A development a feed creates (S8-F3): PRIVATE_NETWORK, no commission, marked `from_feed`, defaults otherwise. */
 export interface FeedDevelopmentInsert {
   id: string;
   ref: string;
@@ -832,8 +832,8 @@ export async function insertFeedDevelopments(
       type,
     );
   const result =
-    await tx.execute(sql`insert into ${developments} (id, agency_id, ref, name, status, location_id, currency)
-    select v.id, ${agencyId}::uuid, v.ref, v.name, v.status, v.location_id, v.currency
+    await tx.execute(sql`insert into ${developments} (id, agency_id, ref, name, status, location_id, currency, from_feed)
+    select v.id, ${agencyId}::uuid, v.ref, v.name, v.status, v.location_id, v.currency, true
       from unnest(${col('id', 'uuid')}, ${col('ref', 'text')}, ${col('name', 'text')}, ${col('status', 'development_status')},
                   ${col('locationId', 'uuid')}, ${col('currency', 'text')}) as v(id, ref, name, status, location_id, currency)
     returning id, version`);
@@ -846,9 +846,15 @@ export interface FeedDevelopmentValues {
   name: string;
   locationId: string;
   status: DevelopmentRow['status'];
+  /** The field locks after the run (S8-F5): the current ones, plus those an adoption adds. */
+  lockedFields: readonly string[];
 }
 
-/** The feed-owned columns of many developments, one statement (one bind parameter per column). */
+/**
+ * The feed-owned columns of many developments, one statement (one bind parameter per column); marks them as a
+ * feed's and sets their locks (S8-F5). The caller has already kept the locked fields' current values. The locks
+ * travel as one comma-joined text per row (lockable field names hold no comma): `unnest` would flatten a text[][].
+ */
 export async function setFeedDevelopments(
   tx: Tx,
   agencyId: string,
@@ -862,6 +868,8 @@ export async function setFeedDevelopments(
       name: sql`${v}.name`,
       locationId: sql`${v}.location_id`,
       status: sql`${v}.status`,
+      lockedFields: sql`string_to_array(${v}.locked_fields, ',')`,
+      fromFeed: true,
       version: sql`${developments.version} + 1`,
       updatedAt: sql`now()`,
     })
@@ -878,7 +886,10 @@ export async function setFeedDevelopments(
       )}, ${array(
         values.map((r) => r.status),
         'development_status',
-      )}) as v(id, name, location_id, status)`,
+      )}, ${array(
+        values.map((r) => r.lockedFields.join(',')),
+        'text',
+      )}) as v(id, name, location_id, status, locked_fields)`,
     )
     .where(and(eq(developments.agencyId, agencyId), sql`${developments.id} = ${v}.id`))
     .returning(developmentColumns);

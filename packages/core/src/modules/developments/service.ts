@@ -10,6 +10,7 @@ import type {
   DevelopmentDto,
   DevelopmentPage,
   ListDevelopmentsQuery,
+  LockableDevelopmentField,
   SetDevelopmentAccessBody,
   UpdateDevelopmentBody,
 } from '@inmolink/contracts';
@@ -123,6 +124,10 @@ export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed
     managedBy: row.managedBy,
     lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
     access: own && !ctx.clientMode ? { kind: row.access, allowedAgencyIds: allowed ?? [] } : null,
+    feed:
+      own && !ctx.clientMode && row.fromFeed
+        ? { lockedFields: [...(row.lockedFields as LockableDevelopmentField[])].sort() }
+        : null,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -229,11 +234,40 @@ export async function listDevelopments(ctx: Ctx, q: ListDevelopmentsQuery): Prom
   };
 }
 
-/** `PATCH /v1/developments/:id`: fields, commission (admins), and the "units and prices are current" mark. */
+/**
+ * The feed field locks after an edit (S8-F5), or undefined when they stay as they are: the ones sent (a feed's
+ * development only), or — when none are sent — the current ones plus each feed-owned field the edit changes, so
+ * the next feed run does not undo a hand edit.
+ */
+export function lockedFieldsAfter(
+  current: Pick<repo.DevelopmentRow, 'fromFeed' | 'lockedFields' | 'name' | 'locationId'>,
+  input: Pick<UpdateDevelopmentBody, 'name' | 'locationId' | 'lockedFields'>,
+): string[] | undefined {
+  const same = (next: readonly string[]) => next.join() === [...current.lockedFields].sort().join();
+  if (input.lockedFields !== undefined) {
+    // Only a feed's development has fields a feed owns.
+    if (!current.fromFeed) throw new AppError('VALIDATION_FAILED', { field: 'lockedFields', reason: 'not_feed' });
+    const next = [...input.lockedFields].sort();
+    return same(next) ? undefined : next;
+  }
+  if (!current.fromFeed) return undefined;
+  const add: LockableDevelopmentField[] = [
+    ...(input.name !== undefined && input.name !== current.name ? (['name'] as const) : []),
+    ...(input.locationId !== undefined && input.locationId !== current.locationId ? (['location'] as const) : []),
+  ];
+  if (add.every((f) => current.lockedFields.includes(f))) return undefined;
+  return [...new Set([...current.lockedFields, ...add])].sort();
+}
+
+/**
+ * `PATCH /v1/developments/:id`: fields, commission (admins), the "units and prices are current" mark, and the feed
+ * field locks (a hand edit of a feed-owned field locks it).
+ */
 export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevelopmentBody): Promise<DevelopmentDto> {
   const current = await ownForChange(ctx, id, 'development.update');
   if (input.commission !== undefined) assertCan(ctx, 'development.commission', current);
   assertCommissionCurrency(input.commission, current.currency);
+  const lockedFields = lockedFieldsAfter(current, input);
   const patch: Partial<repo.DevelopmentInsert> = {
     ...(input.ref !== undefined ? { ref: input.ref } : {}),
     ...(input.name !== undefined ? { name: input.name } : {}),
@@ -244,7 +278,13 @@ export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevel
     ...point(input.coordinates),
     ...(input.commission !== undefined ? commissionColumns(input.commission) : {}),
     ...(input.verified ? { lastVerifiedAt: clock.now() } : {}),
+    ...(lockedFields !== undefined ? { lockedFields } : {}),
   };
+  if (Object.keys(patch).length === 0 && input.lockedFields !== undefined) {
+    // Only the locks it already has: nothing to write, no version bump, no event.
+    if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
+    return getDevelopmentDtoOf(ctx, current);
+  }
   const updated = await withDbErrors(() => repo.updateDevelopment(ctx.tx, id, input.version, patch));
   if (!updated) throw new AppError('VERSION_CONFLICT');
   const before = toDevelopmentDto(ctx, current, null);

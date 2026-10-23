@@ -232,3 +232,129 @@ describe('feed developments (S8-F3)', () => {
     expect(await refs()).toEqual(['H1', 'K1', 'K2', 'K3', 'K4', 'K6', 'K7']);
   });
 });
+
+describe('feed field locks (S8-F5)', () => {
+  const stored = (prefix: string) =>
+    rows<{ ref: string; name: string; locationId: string; fromFeed: boolean; lockedFields: string[] }>(sql`
+      select ref, name, location_id as "locationId", from_feed as "fromFeed", locked_fields as "lockedFields"
+        from developments where agency_id = ${owner.agencyId} and ref like ${`${prefix}-%-${RUN}`} order by ref`);
+  const idOf = async (ref: string) =>
+    (
+      await rows<{ id: string; version: number }>(
+        sql`select id, version from developments where agency_id = ${owner.agencyId} and ref = ${ref}`,
+      )
+    )[0] as { id: string; version: number };
+
+  it("[S8-F5] a renamed feed development keeps the owner's name after the next run while an unlocked one follows the feed", async () => {
+    await run(batch('R', 2, 1));
+    const a = await idOf(code('R-0'));
+    // Renaming by hand locks the name (the location, not edited, stays the feed's).
+    const renamed = await as((ctx) =>
+      developments.updateDevelopment(ctx, a.id, { version: a.version, name: 'Owner name' }),
+    );
+    expect(renamed.feed).toEqual({ lockedFields: ['name'] });
+
+    const second = await run(batch('R', 2, 2));
+    expect(second.result.developments).toEqual({ created: 0, updated: 2, unchanged: 0 });
+    expect(await stored('R')).toEqual([
+      { ref: code('R-0'), name: 'Owner name', locationId: ids.location2, fromFeed: true, lockedFields: ['name'] },
+      { ref: code('R-1'), name: 'Dev 1 renamed', locationId: ids.location2, fromFeed: true, lockedFields: [] },
+    ]);
+    // Idempotent with the lock: the same input again writes nothing.
+    const third = await run(batch('R', 2, 2));
+    expect(third.result.developments).toEqual({ created: 0, updated: 0, unchanged: 2 });
+
+    // Locking the location too, then unlocking the name: the feed takes the name back, the place stays.
+    const b = await idOf(code('R-0'));
+    const relocked = await as((ctx) =>
+      developments.updateDevelopment(ctx, b.id, { version: b.version, locationId: ids.location }),
+    );
+    expect(relocked.feed).toEqual({ lockedFields: ['location', 'name'] });
+    const c = await idOf(code('R-0'));
+    await as((ctx) => developments.updateDevelopment(ctx, c.id, { version: c.version, lockedFields: ['location'] }));
+    await run(batch('R', 2, 2));
+    expect((await stored('R'))[0]).toMatchObject({ name: 'Dev 0 renamed', locationId: ids.location });
+  });
+
+  it('[S8-F5] a feed adopting a development made by hand keeps its name and location and locks each one the feed disagrees with', async () => {
+    const ref = code('M-0');
+    const made = await as((ctx) =>
+      developments.createDevelopment(ctx, { ref, name: 'By hand', locationId: ids.location }),
+    );
+    expect(made.feed).toBeNull();
+    const edited = await as((ctx) =>
+      developments.updateDevelopment(ctx, made.id, { version: made.version, name: 'By hand 2' }),
+    );
+    expect(edited.feed).toBeNull();
+    // The feed sends another name ('Dev 0') and the same place: the name is kept and locked, the place stays open.
+    const first = await run(batch('M', 1, 1));
+    expect(first.result.developments).toEqual({ created: 0, updated: 1, unchanged: 0 });
+    const adopted = await as((ctx) => developments.getDevelopment(ctx, made.id));
+    expect(adopted).toMatchObject({ name: 'By hand 2', locationId: ids.location, feed: { lockedFields: ['name'] } });
+    // From then on a feed development: the next run moves the open field only, and is idempotent after.
+    await run(batch('M', 1, 2));
+    expect(await as((ctx) => developments.getDevelopment(ctx, made.id))).toMatchObject({
+      name: 'By hand 2',
+      locationId: ids.location2,
+    });
+    expect((await run(batch('M', 1, 2))).result.developments.unchanged).toBe(1);
+  });
+
+  it('[S8-F5] locks can be sent only for a feed development, and sending the locks it already has writes nothing', async () => {
+    const hand = await as((ctx) =>
+      developments.createDevelopment(ctx, { ref: code('V-hand'), name: 'Hand', locationId: ids.location }),
+    );
+    await expect(
+      as((ctx) => developments.updateDevelopment(ctx, hand.id, { version: hand.version, lockedFields: ['name'] })),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+
+    await run(batch('V', 1, 1));
+    const dev = await idOf(code('V-0'));
+    const locked = await as((ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: dev.version, lockedFields: ['location', 'name'] }),
+    );
+    expect(locked).toMatchObject({ version: dev.version + 1, feed: { lockedFields: ['location', 'name'] } });
+    const again = await as((ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: locked.version, lockedFields: ['name', 'location'] }),
+    );
+    expect(again.version).toBe(locked.version);
+    expect((await idOf(code('V-0'))).version).toBe(locked.version);
+  });
+
+  it('[S8-F5] the database refuses a lock on a field no feed owns', async () => {
+    const dev = await idOf(code('V-0'));
+    await expect(
+      system((tx) => tx.execute(sql`update developments set locked_fields = '{price}' where id = ${dev.id}`)),
+    ).rejects.toMatchObject({ cause: { constraint: 'developments_locked_fields_ck' } });
+  });
+
+  it('[S8-F5] the batch still runs a fixed number of statements with locks present', () =>
+    rolledBack(async (ctx) => {
+      await run(batch('LS', 5, 1), ctx);
+      await run(batch('LB', 300, 1), ctx);
+      // Every other development locks its name and location.
+      const locked = [...batch('LS', 5, 1), ...batch('LB', 300, 1)].filter((_, i) => i % 2 === 0).map((d) => d.ref);
+      await ctx.tx.execute(sql`
+        update developments set locked_fields = '{location,name}'
+         where agency_id = ${owner.agencyId} and ref in (${sql.join(
+           locked.map((r) => sql`${r}`),
+           sql`, `,
+         )})`);
+      const small = await run(batch('LS', 5, 2), ctx);
+      const big = await run(batch('LB', 300, 2), ctx);
+      expect(big.statements).toBe(small.statements);
+      expect(big.statements).toBeLessThanOrEqual(9);
+      // Locked ones turn key-ready (status is not lockable) but keep their name and place; the others follow.
+      expect(big.result.developments).toEqual({ created: 0, updated: 300, unchanged: 0 });
+      const r = (
+        await ctx.tx.execute(sql`
+        select count(*) filter (where name like '% renamed')::int as renamed,
+               count(*) filter (where location_id = ${ids.location2})::int as moved,
+               count(*) filter (where status = 'KEY_READY')::int as "keyReady"
+          from developments where agency_id = ${owner.agencyId} and ref like ${`LB-%-${RUN}`}`)
+      ).rows[0];
+      expect(r).toEqual({ renamed: 150, moved: 150, keyReady: 300 });
+      const again = await run(batch('LB', 300, 2), ctx);
+      expect(again.statements).toBe(2);
+    }));
+});

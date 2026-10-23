@@ -8,7 +8,7 @@
   "never": "Never",
   "columns": {
     "ref": "Reference",
-    "name": "Name",
+    "name": "name",
     "status": "Status",
     "access": "Shared with",
     "verified": "Last verified",
@@ -33,7 +33,7 @@
   },
   "fields": {
     "ref": "Reference",
-    "name": "Name",
+    "name": "name",
     "status": "Status",
     "completionDate": "Completion date",
     "locationId": "Location",
@@ -57,7 +57,16 @@
     "verifiedAt": "Last verified {date}",
     "notVerified": "Never verified",
     "fixedCommission": "A fixed commission is set ({amount}); clear the field to remove it or enter a percentage to replace it.",
-    "readOnly": "Another agency's development: you can read it and write your own texts for your channels."
+    "readOnly": "Another agency's development: you can read it and write your own texts for your channels.",
+    "feed": {
+      "intro": "Imported from a feed: each run updates the name and location unless you lock them. Editing one here locks it.",
+      "legend": "Fields the feed keeps current",
+      "fields": {
+        "name": "name",
+        "location": "location"
+      },
+      "lockField": "Lock {field}: keep my value"
+    }
   },
   "access": {
     "title": "Sharing",
