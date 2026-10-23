@@ -112,7 +112,9 @@ class Listings {
 		}
 		if ( Response::NOT_FOUND === $response->kind ) {
 			$this->mirror->delete( $ref, $lang );
-			set_transient( $missing, 1, self::NOT_FOUND_TTL );
+			if ( Cache::may_remember_missing() ) {
+				set_transient( $missing, 1, self::NOT_FOUND_TTL );
+			}
 			return null;
 		}
 		return null !== $row ? new Result( $row['payload'], $row['fetched_at'], true ) : null;

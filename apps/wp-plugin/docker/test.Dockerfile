@@ -11,4 +11,4 @@ WORKDIR /app
 COPY composer.json composer.lock* ./
 RUN --mount=type=cache,target=/tmp/composer-cache composer install --no-interaction --no-progress --prefer-dist
 COPY . .
-CMD ["sh", "-c", "composer lint && composer test"]
+CMD ["sh", "-c", "composer lint && composer test && composer test:multisite"]

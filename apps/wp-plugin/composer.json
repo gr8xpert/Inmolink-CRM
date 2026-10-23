@@ -27,6 +27,7 @@
   },
   "scripts": {
     "test": "phpunit",
+    "test:multisite": "phpunit -c phpunit.multisite.xml.dist",
     "lint": "phpcs",
     "fix": "phpcbf"
   }

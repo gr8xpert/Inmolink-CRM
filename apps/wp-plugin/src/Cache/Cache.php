@@ -9,6 +9,7 @@ namespace Inmolink\Plugin\Cache;
 
 use Inmolink\Plugin\Api\Client;
 use Inmolink\Plugin\Api\Response;
+use Inmolink\Plugin\Net\Counter;
 use Inmolink\Plugin\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,6 +43,24 @@ class Cache {
 	 */
 	public function __construct( private readonly Client $client ) {}
 
+	/** Unknown-reference markers (transients) one site may write per window, whoever asks. */
+	public const MISSING_BUDGET = 200;
+	public const MISSING_WINDOW = 300;
+	/** A documentation address standing for the whole site ({@see Counter} keys its counters by IP bucket). */
+	private const SITE_BUCKET = '192.0.2.1';
+
+	/**
+	 * Whether another "unknown reference" marker may be stored now: a site-wide budget, so a crawl from many addresses
+	 * cannot grow `wp_options` (past it, unknown references simply cost an API call, which the per-IP limit bounds).
+	 */
+	public static function may_remember_missing(): bool {
+		if ( Counter::count( 'nf', self::SITE_BUCKET ) >= self::MISSING_BUDGET ) {
+			return false;
+		}
+		Counter::hit( 'nf', self::SITE_BUCKET, self::MISSING_WINDOW );
+		return true;
+	}
+
 	/**
 	 * A cached `GET`.
 	 *
@@ -69,7 +88,14 @@ class Cache {
 
 		if ( $stored && $entry['fresh_until'] > $now ) {
 			// Still stale when it is only "fresh" because of a failure back-off.
-			return new Result( $entry['body'], $entry['fetched_at'], $entry['fetched_at'] + $ttl < $now );
+			return new Result( $entry['body'], $entry['fetched_at'], $entry['stale_only'] || $entry['fetched_at'] + $ttl < $now );
+		}
+
+		// After a flush the previous generation's copy stays readable as stale-only (never revalidated with its ETag:
+		// the flush meant it may be wrong), until this key is refreshed successfully (S8-F14).
+		$previous = $stored ? null : $this->read( self::key( $path, $query, -1 ) );
+		if ( null !== $previous && ! $previous['keep_stale'] ) {
+			$previous = null;
 		}
 
 		$response = $this->client->get( $path, $query, $stored ? $entry['etag'] : null );
@@ -84,13 +110,22 @@ class Cache {
 			return new Result( $entry['body'], $now, false );
 		}
 		if ( Response::NOT_FOUND === $response->kind ) {
-			// Remembered briefly, so unknown references cannot make an API call per request.
-			set_transient( $key, array( 'not_found' => true ), \Inmolink\Plugin\Listings::NOT_FOUND_TTL );
+			// Remembered briefly, so unknown references cannot make an API call per request (within the site-wide
+			// budget: a crawl must not grow wp_options).
+			if ( self::may_remember_missing() ) {
+				set_transient( $key, array( 'not_found' => true ), \Inmolink\Plugin\Listings::NOT_FOUND_TTL );
+			}
 			return null;
+		}
+		if ( null !== $previous ) {
+			// Unreachable after a flush: serve the previous generation's copy under the current key (so it survives
+			// another flush and the API is left alone for a minute).
+			$this->write( $key, $previous['body'], null, $previous['fetched_at'], $now + self::BACKOFF, true, true );
+			return new Result( $previous['body'], $previous['fetched_at'], true );
 		}
 		if ( $stored ) {
 			// Unreachable: serve the stale copy, back off for a minute.
-			$this->write( $key, $entry['body'], $entry['etag'], $entry['fetched_at'], $now + self::BACKOFF, $entry['keep_stale'] );
+			$this->write( $key, $entry['body'], $entry['etag'], $entry['fetched_at'], $now + self::BACKOFF, $entry['keep_stale'], true );
 			return new Result( $entry['body'], $entry['fetched_at'], true );
 		}
 		return null;
@@ -102,25 +137,30 @@ class Cache {
 	 *
 	 * @param string              $path  API path.
 	 * @param array<string,mixed> $query Query values.
+	 * @param int                 $offset Generations back from the current one (0, or -1 for the previous).
 	 */
-	public static function key( string $path, array $query ): string {
+	public static function key( string $path, array $query, int $offset = 0 ): string {
 		ksort( $query );
-		$generation = (int) get_option( self::GENERATION_OPTION, 1 );
+		$generation = (int) get_option( self::GENERATION_OPTION, 1 ) + $offset;
 		return self::PREFIX . md5( $generation . '|' . $path . '?' . wp_json_encode( $query ) );
 	}
 
 	/**
-	 * Invalidates every cached answer (settings change, scope change); old entries expire by themselves.
+	 * Invalidates every cached answer; old entries expire by themselves.
+	 *
+	 * @param bool $keep_fallback Keep the previous generation readable as a stale-only fallback until each key is
+	 *                            refreshed (a rebuild of the same agency's data). False when the API URL or key changed:
+	 *                            the old answers belong to another agency and are skipped altogether (two generations).
 	 */
-	public static function flush(): void {
-		update_option( self::GENERATION_OPTION, (int) get_option( self::GENERATION_OPTION, 1 ) + 1, true ); // Autoloaded: part of every cache key.
+	public static function flush( bool $keep_fallback = true ): void {
+		update_option( self::GENERATION_OPTION, (int) get_option( self::GENERATION_OPTION, 1 ) + ( $keep_fallback ? 1 : 2 ), true ); // Autoloaded: part of every cache key.
 	}
 
 	/**
 	 * Reads an entry.
 	 *
 	 * @param string $key Transient name.
-	 * @return array{body:array<string,mixed>,etag:?string,fetched_at:int,fresh_until:int,keep_stale:bool}|null
+	 * @return array{body:array<string,mixed>,etag:?string,fetched_at:int,fresh_until:int,keep_stale:bool,stale_only:bool}|null
 	 */
 	private function read( string $key ): ?array {
 		$entry = get_transient( $key );
@@ -133,6 +173,7 @@ class Cache {
 			'fetched_at'  => (int) $entry['fetched_at'],
 			'fresh_until' => (int) $entry['fresh_until'],
 			'keep_stale'  => isset( $entry['keep_stale'] ) && true === $entry['keep_stale'],
+			'stale_only'  => isset( $entry['stale_only'] ) && true === $entry['stale_only'],
 		);
 	}
 
@@ -145,8 +186,9 @@ class Cache {
 	 * @param int                 $fetched_at  When the body was last confirmed by the API.
 	 * @param int                 $fresh_until When to revalidate.
 	 * @param bool                $keep_stale  Keep it for the stale window.
+	 * @param bool                $stale_only  A fallback copy: always reported stale, even while the back-off holds it.
 	 */
-	private function write( string $key, array $body, ?string $etag, int $fetched_at, int $fresh_until, bool $keep_stale ): void {
+	private function write( string $key, array $body, ?string $etag, int $fetched_at, int $fresh_until, bool $keep_stale, bool $stale_only = false ): void {
 		set_transient(
 			$key,
 			array(
@@ -155,6 +197,7 @@ class Cache {
 				'fetched_at'  => $fetched_at,
 				'fresh_until' => $fresh_until,
 				'keep_stale'  => $keep_stale,
+				'stale_only'  => $stale_only,
 			),
 			$keep_stale ? (int) Settings::get( 'stale_days' ) * DAY_IN_SECONDS : max( 1, $fresh_until - time() )
 		);

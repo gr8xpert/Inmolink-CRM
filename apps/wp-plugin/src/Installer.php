@@ -22,12 +22,48 @@ final class Installer {
 
 	/**
 	 * Plugin activation.
+	 *
+	 * @param bool $network_wide Activated for the whole network (WordPress passes it).
 	 */
-	public static function activate(): void {
+	public static function activate( bool $network_wide = false ): void {
+		if ( $network_wide && is_multisite() ) {
+			self::each_site( array( self::class, 'activate_site' ) );
+		} else {
+			self::activate_site();
+		}
+		Updates\Updater::for_plugin()->enable_auto_update_once();
+	}
+
+	/**
+	 * Activation work of one site: its mirror table, cron event and rewrite rules.
+	 */
+	private static function activate_site(): void {
 		Mirror::install();
 		self::schedule();
 		Routing\Router::schedule_flush();
-		Updates\Updater::for_plugin()->enable_auto_update_once();
+	}
+
+	/**
+	 * A site created while the plugin is network-active gets its table and cron event (`wp_initialize_site`).
+	 *
+	 * @param \WP_Site $site The new site.
+	 */
+	public static function initialize_site( $site ): void {
+		if ( ! $site instanceof \WP_Site ) {
+			return;
+		}
+		if ( ! function_exists( 'is_plugin_active_for_network' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		if ( ! is_plugin_active_for_network( plugin_basename( PLUGIN_FILE ) ) ) {
+			return;
+		}
+		switch_to_blog( (int) $site->blog_id );
+		try {
+			self::activate_site();
+		} finally {
+			restore_current_blog();
+		}
 	}
 
 	/**
@@ -40,9 +76,57 @@ final class Installer {
 	}
 
 	/**
-	 * Uninstall: drops the table and deletes every option and transient the plugin wrote.
+	 * Uninstall: drops the table and deletes every option and transient the plugin wrote — on every site of a network,
+	 * then the network-level options.
 	 */
 	public static function uninstall(): void {
+		if ( is_multisite() ) {
+			self::each_site( array( self::class, 'uninstall_site' ) );
+		} else {
+			self::uninstall_site();
+		}
+		delete_site_transient( Updates\Updater::INFO_TRANSIENT );
+		foreach ( array( 'inmolink_auto_update_init', Updates\Updater::HIGHEST_OPTION, Updates\Updater::REPLAY_OPTION ) as $option ) {
+			delete_site_option( $option );
+		}
+	}
+
+	/**
+	 * Runs a callback in each site of the network (in pages, so a large network is never loaded at once), then
+	 * restores the current site.
+	 *
+	 * @param callable $callback Called with the site switched in.
+	 */
+	private static function each_site( callable $callback ): void {
+		$offset = 0;
+		$count  = 0;
+		do {
+			$ids   = get_sites(
+				array(
+					'fields'                 => 'ids',
+					'number'                 => 100,
+					'offset'                 => $offset,
+					'network_id'             => get_current_network_id(),
+					'update_site_meta_cache' => false,
+				)
+			);
+			$count = count( $ids );
+			foreach ( $ids as $id ) {
+				switch_to_blog( (int) $id );
+				try {
+					$callback();
+				} finally {
+					restore_current_blog();
+				}
+			}
+			$offset += 100;
+		} while ( 100 === $count );
+	}
+
+	/**
+	 * Uninstall work of the current site.
+	 */
+	private static function uninstall_site(): void {
 		self::deactivate();
 		Mirror::drop();
 		$host = wp_parse_url( (string) Settings::get( 'api_base' ), PHP_URL_HOST );
@@ -52,9 +136,7 @@ final class Installer {
 		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION ) as $option ) {
 			delete_option( $option );
 		}
-		delete_site_transient( Updates\Updater::INFO_TRANSIENT );
-		delete_site_option( 'inmolink_auto_update_init' );
-		delete_transient( Client::DOWN_TRANSIENT );
+		Client::reset_backoff();
 		self::delete_cached_answers();
 	}
 

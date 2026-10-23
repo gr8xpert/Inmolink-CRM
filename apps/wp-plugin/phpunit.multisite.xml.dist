@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- The multisite suite (S8-F16): same bootstrap, WordPress installed as a network (it reinstalls the test database). -->
+<phpunit
+	bootstrap="tests/bootstrap.php"
+	colors="true"
+	beStrictAboutTestsThatDoNotTestAnything="true"
+	failOnWarning="true"
+	failOnRisky="true"
+	convertDeprecationsToExceptions="true"
+>
+	<php>
+		<const name="WP_TESTS_MULTISITE" value="1"/>
+	</php>
+	<testsuites>
+		<testsuite name="inmolink-multisite">
+			<directory suffix="Test.php">tests/Multisite</directory>
+		</testsuite>
+	</testsuites>
+</phpunit>

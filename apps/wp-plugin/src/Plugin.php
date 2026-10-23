@@ -8,6 +8,7 @@
 namespace Inmolink\Plugin;
 
 use Inmolink\Plugin\Admin\Health;
+use Inmolink\Plugin\Admin\SaltNotice;
 use Inmolink\Plugin\Admin\SettingsPage;
 use Inmolink\Plugin\Forms\LeadForm;
 use Inmolink\Plugin\Updates\Updater;
@@ -66,6 +67,7 @@ final class Plugin {
 		add_action( DeltaSync::HOOK, array( self::class, 'run_sync' ) );
 		add_action( 'init', array( self::class, 'init' ) );
 		add_action( 'plugins_loaded', array( Mirror::class, 'maybe_upgrade' ) );
+		add_action( 'wp_initialize_site', array( Installer::class, 'initialize_site' ), 100 );
 		add_action( DeltaSync::HOOK, array( self::class, 'refresh_sitemaps' ), 20 );
 
 		Router::register();
@@ -79,6 +81,7 @@ final class Plugin {
 		if ( is_admin() ) {
 			( new SettingsPage() )->register();
 			Health::register();
+			SaltNotice::register();
 		}
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'inmolink', Cli::class );

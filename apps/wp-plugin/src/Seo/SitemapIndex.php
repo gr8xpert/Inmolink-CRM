@@ -45,7 +45,7 @@ class SitemapIndex {
 	 */
 	public static function from_settings(): self {
 		$chunk = function_exists( 'wp_sitemaps_get_max_urls' ) ? (int) wp_sitemaps_get_max_urls( 'inmolink' ) : 2000;
-		return new self( Client::from_settings( Client::SYNC_TIMEOUT ), max( 1, $chunk ) );
+		return new self( Client::from_settings( Client::SYNC_TIMEOUT, Client::PAGE ), max( 1, $chunk ) );
 	}
 
 	/**

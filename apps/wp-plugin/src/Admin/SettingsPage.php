@@ -31,7 +31,7 @@ final class SettingsPage {
 	public const SYNC       = 'inmolink_sync_now';
 
 	/** Notice codes a redirect may carry, with their messages (nothing from the query string is printed). */
-	private const NOTICES = array( 'saved', 'key_invalid', 'key_reentry', 'test_ok', 'test_failed', 'synced', 'sync_failed' );
+	private const NOTICES = array( 'saved', 'key_invalid', 'key_reentry', 'test_ok', 'test_failed', 'synced', 'sync_failed', 'base_network_only' );
 
 	/**
 	 * Registers the admin hooks.
@@ -96,6 +96,11 @@ final class SettingsPage {
 		$before_key  = Settings::api_key();
 		$notice      = 'saved';
 
+		if ( ! self::can_change_api_base() ) {
+			// On multisite the API URL is a network-level setting: keep the stored one.
+			$input['api_base'] = $before_base;
+			$notice            = 'base_network_only';
+		}
 		Settings::save( $input );
 
 		if ( ! Settings::key_from_constant() ) {
@@ -119,7 +124,7 @@ final class SettingsPage {
 		if ( Settings::get( 'api_base' ) !== $before_base || Settings::api_key() !== $before_key ) {
 			// Another site's (or agency's) data must not keep rendering here, not even as a stale fallback.
 			DeltaSync::reset();
-			Cache::flush();
+			Cache::flush( false ); // A different agency: its predecessor's answers must not stay readable, not even as a stale fallback.
 			( new Mirror() )->truncate();
 		} else {
 			// Rows of a removed locale are never synced again; new locales fill in on view and with the next changes.
@@ -134,7 +139,7 @@ final class SettingsPage {
 	 */
 	public function test_connection(): bool {
 		Client::reset_backoff();
-		$response = Client::from_settings( Client::SYNC_TIMEOUT )->get(
+		$response = Client::from_settings( Client::SYNC_TIMEOUT, Client::PROBE )->get(
 			'/v2/changes',
 			array(
 				'since' => gmdate( 'Y-m-d\TH:i:s\Z' ),
@@ -168,7 +173,7 @@ final class SettingsPage {
 					<tr>
 						<th scope="row"><label for="inmolink-api-base"><?php esc_html_e( 'API URL', 'inmolink' ); ?></label></th>
 						<td>
-							<input type="url" class="regular-text" id="inmolink-api-base" name="inmolink[api_base]" value="<?php echo esc_attr( $settings['api_base'] ); ?>" <?php disabled( defined( 'INMOLINK_API_BASE' ) ); ?> />
+							<input type="url" class="regular-text" id="inmolink-api-base" name="inmolink[api_base]" value="<?php echo esc_attr( $settings['api_base'] ); ?>" <?php disabled( defined( 'INMOLINK_API_BASE' ) || ! self::can_change_api_base() ); ?> />
 							<p class="description"><?php esc_html_e( 'The Inmolink website API address given with your API key (https).', 'inmolink' ); ?></p>
 						</td>
 					</tr>
@@ -246,7 +251,7 @@ final class SettingsPage {
 					<tr><th scope="row"><?php esc_html_e( 'Last sync', 'inmolink' ); ?></th><td><?php echo esc_html( $this->when( (int) $state['last_success'] ) ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Last sync error', 'inmolink' ); ?></th><td><?php echo esc_html( '' !== $state['last_error'] ? (string) $state['last_error'] : '—' ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Mirrored detail pages', 'inmolink' ); ?></th><td><?php echo esc_html( number_format_i18n( ( new Mirror() )->count() ) ); ?></td></tr>
-					<tr><th scope="row"><?php esc_html_e( 'API reachable', 'inmolink' ); ?></th><td><?php echo esc_html( Client::in_backoff() ? __( 'No — serving cached copies', 'inmolink' ) : __( 'Yes', 'inmolink' ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'API reachable', 'inmolink' ); ?></th><td><?php echo esc_html( Client::reachable() ? __( 'Yes', 'inmolink' ) : __( 'No — serving cached copies', 'inmolink' ) ); ?></td></tr>
 				</tbody>
 			</table>
 			<p>
@@ -255,6 +260,14 @@ final class SettingsPage {
 			</p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Whether the current user may change the API address: anyone allowed on the settings page on a single site, only
+	 * network administrators (`manage_network_options`) on multisite (S8-F16).
+	 */
+	public static function can_change_api_base(): bool {
+		return ! is_multisite() || current_user_can( 'manage_network_options' );
 	}
 
 	/**
@@ -313,13 +326,14 @@ final class SettingsPage {
 			return;
 		}
 		$messages               = array(
-			'saved'       => array( 'success', __( 'Settings saved.', 'inmolink' ) ),
-			'key_reentry' => array( 'warning', __( 'Settings saved. The API URL changed, so the stored key was removed: enter the key for the new URL.', 'inmolink' ) ),
-			'key_invalid' => array( 'error', __( 'Settings saved, but the API key was not: enter a secret key (inl_live_sk… or inl_test_sk…).', 'inmolink' ) ),
-			'test_ok'     => array( 'success', __( 'The API answered.', 'inmolink' ) ),
-			'test_failed' => array( 'error', __( 'The API could not be reached with these settings.', 'inmolink' ) ),
-			'synced'      => array( 'success', __( 'Sync finished.', 'inmolink' ) ),
-			'sync_failed' => array( 'error', __( 'Sync did not finish; it will retry on the next run.', 'inmolink' ) ),
+			'saved'             => array( 'success', __( 'Settings saved.', 'inmolink' ) ),
+			'key_reentry'       => array( 'warning', __( 'Settings saved. The API URL changed, so the stored key was removed: enter the key for the new URL.', 'inmolink' ) ),
+			'base_network_only' => array( 'warning', __( 'The API URL can only be changed by a network administrator; the other settings were saved.', 'inmolink' ) ),
+			'key_invalid'       => array( 'error', __( 'Settings saved, but the API key was not: enter a secret key (inl_live_sk… or inl_test_sk…).', 'inmolink' ) ),
+			'test_ok'           => array( 'success', __( 'The API answered.', 'inmolink' ) ),
+			'test_failed'       => array( 'error', __( 'The API could not be reached with these settings.', 'inmolink' ) ),
+			'synced'            => array( 'success', __( 'Sync finished.', 'inmolink' ) ),
+			'sync_failed'       => array( 'error', __( 'Sync did not finish; it will retry on the next run.', 'inmolink' ) ),
 		);
 		list( $type, $message ) = $messages[ $code ];
 		printf( '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>', esc_attr( $type ), esc_html( $message ) );

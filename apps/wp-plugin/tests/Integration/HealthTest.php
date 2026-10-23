@@ -23,6 +23,7 @@ final class HealthTest extends TestCase {
 	 * [S8-05] The health report: version, API status, last sync, mirror counts and ages per locale.
 	 */
 	public function test_s8_05_health_report(): void {
+		$this->api->on( '/v2/changes', array( 'fixture' => 'changes.empty.json' ) );
 		update_option( DeltaSync::STATE_OPTION, array( 'last_success' => time() - 120, 'last_run' => time() - 60, 'last_error' => '' ), false );
 		( new Mirror() )->upsert( 'INM-1001', 'en', array( 'slug' => 'villa-sol' ), null );
 		( new Mirror() )->upsert( 'INM-1002', 'en', array( 'slug' => 'casa-luna' ), null );
@@ -30,14 +31,15 @@ final class HealthTest extends TestCase {
 		$r = Health::report();
 		$this->assertSame( VERSION, $r['version'] );
 		$this->assertTrue( $r['configured'] );
-		$this->assertTrue( $r['api_reachable'] );
+		$this->assertTrue( $r['api_reachable'], 'the probe reached the fake change feed' );
 		$this->assertFalse( $r['sync_stale'] );
 		$this->assertSame( 2, $r['mirror']['en']['rows'] );
 		$this->assertGreaterThan( time() - 60, $r['mirror']['en']['newest'] );
 		$this->assertTrue( $r['update_key'] );
 
 		$this->assertSame( 'good', Health::site_status()['status'] );
-		set_transient( Client::DOWN_TRANSIENT, time(), 60 );
+		$this->api->down();
+		delete_transient( Client::PROBE_TRANSIENT );
 		$this->assertFalse( Health::report()['api_reachable'] );
 		$this->assertSame( 'recommended', Health::site_status()['status'] );
 	}

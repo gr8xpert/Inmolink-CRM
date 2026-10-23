@@ -68,7 +68,7 @@ class DeltaSync {
 	public static function from_settings(): self {
 		$limit  = (int) ini_get( 'max_execution_time' );
 		$budget = $limit > 0 ? max( 5, min( 50, $limit - 10 ) ) : 50;
-		return new self( Client::from_settings( Client::SYNC_TIMEOUT ), new Mirror(), 20, $budget );
+		return new self( Client::from_settings( Client::SYNC_TIMEOUT, Client::SYNC ), new Mirror(), 20, $budget );
 	}
 
 	/**

@@ -56,7 +56,7 @@ final class Health {
 		return array(
 			'version'        => VERSION,
 			'configured'     => Settings::is_configured(),
-			'api_reachable'  => ! Client::in_backoff() && (int) $state['last_success'] > 0,
+			'api_reachable'  => Client::reachable(),
 			'last_sync'      => (int) $state['last_success'],
 			'last_run'       => (int) $state['last_run'],
 			'last_error'     => (string) $state['last_error'],
@@ -86,7 +86,7 @@ final class Health {
 		$rows = array(
 			__( 'Plugin version', 'inmolink' )       => $r['version'],
 			__( 'Configured', 'inmolink' )           => $r['configured'] ? __( 'Yes', 'inmolink' ) : __( 'No', 'inmolink' ),
-			__( 'API reachable', 'inmolink' )        => $r['api_reachable'] ? __( 'Yes', 'inmolink' ) : ( $r['last_sync'] > 0 ? __( 'No — serving cached copies', 'inmolink' ) : __( 'Not yet confirmed (no successful sync)', 'inmolink' ) ),
+			__( 'API reachable', 'inmolink' )        => ! $r['configured'] ? __( 'Not configured', 'inmolink' ) : ( $r['api_reachable'] ? __( 'Yes', 'inmolink' ) : __( 'No — serving cached copies', 'inmolink' ) ),
 			__( 'Last successful sync', 'inmolink' ) => $when( $r['last_sync'] ) . ( $r['sync_stale'] ? ' ' . __( '(stale)', 'inmolink' ) : '' ),
 			__( 'Last sync run', 'inmolink' )        => $when( $r['last_run'] ),
 			__( 'Last sync error', 'inmolink' )      => '' !== $r['last_error'] ? $r['last_error'] : '—',

@@ -149,7 +149,7 @@ final class FakeApi {
 			$response['filename'] = (string) $args['filename'];
 			return $response;
 		}
-		return self::response( $status, $body, $etag );
+		return self::response( $status, $body, $etag, (array) ( $spec['headers'] ?? array() ) );
 	}
 
 	/**
@@ -158,10 +158,11 @@ final class FakeApi {
 	 * @param int         $status Status.
 	 * @param string      $body   Body.
 	 * @param string|null $etag   ETag.
+	 * @param array<string,string> $extra Extra response headers (e.g. `retry-after`).
 	 * @return array<string,mixed>
 	 */
-	private static function response( int $status, string $body, ?string $etag ): array {
-		$headers = array( 'content-type' => 'application/json' );
+	private static function response( int $status, string $body, ?string $etag, array $extra = array() ): array {
+		$headers = $extra + array( 'content-type' => 'application/json' );
 		if ( null !== $etag ) {
 			$headers['etag'] = $etag;
 		}
