@@ -66,6 +66,28 @@ final class SitemapTest extends TestCase {
 	}
 
 	/**
+	 * [S8-F24] Development entries of the sitemap: the development URL with lastmod, beside the listings.
+	 */
+	public function test_s8_f24_sitemap_lists_developments_with_lastmod(): void {
+		$this->api->on( '/v2/sitemap', array( 'fixture' => 'sitemap.developments.json' ) );
+		$provider = new SitemapProvider( new SitemapIndex( new Client( FakeApi::BASE, self::KEY, Client::SYNC_TIMEOUT ), 10 ) );
+		$this->assertSame( 1, $provider->get_max_num_pages( 'en' ) );
+		$this->assertSame(
+			array(
+				array(
+					'loc'     => home_url( '/property/INM-1001/villa-sol/' ),
+					'lastmod' => '2026-10-23T09:00:03Z',
+				),
+				array(
+					'loc'     => home_url( '/development/DEV-77/mar-azul-residences/' ),
+					'lastmod' => '2026-10-22T07:30:00Z',
+				),
+			),
+			$provider->get_url_list( 1, 'en' )
+		);
+	}
+
+	/**
 	 * [S8-04] Built once, then served from the index — also when the API is down; a failed rebuild keeps it.
 	 */
 	public function test_s8_04_sitemap_served_from_index_when_api_down(): void {

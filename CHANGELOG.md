@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Developments in the plugin sitemap (S8-F24): `/v2/sitemap` lists the site's developments (kind DEVELOPMENT, lastmod) after its listings; the plugin's sitemap provider links them; contract, OpenAPI and SDK updated.
 - feed-api conditional GETs through one `sendConditional`; plugin routes tagged `wp-plugin` and out of the customer SDK; storage `putIf` (If-None-Match / If-Match) keeps `latest.json` at the higher version under concurrent releases; byte-reproducible plugin zip (S9-F6, S8-F30). No new dependencies.
 - Legacy key flag and lookup functions locked at the database (S8-F26): `app_user` can no longer update `api_keys.legacy_query_key` (column-level UPDATE grant, guard-checked) nor insert it as true (`api_keys_guard` v4, migration 0118); `legacy_target_ids` / `legacy_ids_of` owned by `app_owner` via `pnpm db:rls`. No new dependencies.
 - Worker and update-server bounds (S9-F4): outbox emit chunks by payload bytes (8 MiB) as well as rows; a failed developments feed batch is bisected instead of retried row by row; unknown plugin versions are cached 60 s in-process; the legacy taxonomy reload runs on the platform clock. No new dependencies.

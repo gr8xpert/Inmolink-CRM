@@ -553,7 +553,8 @@ export type WebsiteSitemapQuery = z.infer<typeof WebsiteSitemapQuery>;
 
 export const WebsiteSitemapEntry = z.strictObject({
   ref: z.string(),
-  kind: z.enum(['LISTING', 'UNIT']),
+  /** S8-F24: `DEVELOPMENT` entries (the site's new-build developments) follow the listing pages. */
+  kind: z.enum(['LISTING', 'UNIT', 'DEVELOPMENT']),
   /** The page's slug in `lang` (network listings: from the title the site shows). */
   slug: z.string(),
   updatedAt: z.iso.datetime(),

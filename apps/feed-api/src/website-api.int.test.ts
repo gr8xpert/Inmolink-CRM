@@ -7,6 +7,7 @@ import {
   WebsiteDevelopmentDetail,
   WebsiteDevelopmentPage,
   WebsiteFeaturesDto,
+  WebsiteSitemapPage,
   WebsiteTypesDto,
   WebsiteUnitPage,
 } from '@inmolink/contracts';
@@ -308,6 +309,18 @@ describe('website API v2 developments and taxonomy over HTTP (S7-F6)', () => {
     const page = WebsiteDevelopmentPage.parse((await get(`/v2/developments?locations=${country}`)).json());
     expect(page.items.map((d) => d.ref)).toEqual([developmentRef]);
     expect(page.items[0]).toMatchObject({ name: 'Feed Gardens', units: { total: 1, available: 1, reserved: 0 } });
+    // S8-F24: the sitemap lists the development after the listing pages, with lastmod.
+    const sm: { ref: string; kind: string; updatedAt: string }[] = [];
+    let smCursor: string | null = null;
+    do {
+      const url: string = `/v2/sitemap?limit=1${smCursor ? `&cursor=${smCursor}` : ''}`;
+      const r = WebsiteSitemapPage.parse((await get(url)).json());
+      sm.push(...r.items);
+      smCursor = r.nextCursor;
+    } while (smCursor);
+    const smDev = sm.filter((e) => e.kind === 'DEVELOPMENT');
+    expect(smDev.map((e) => e.ref)).toEqual([developmentRef]);
+    expect(Number.isNaN(Date.parse(smDev[0]?.updatedAt ?? ''))).toBe(false);
     const detail = WebsiteDevelopmentDetail.parse((await get(`/v2/developments/${developmentRef}`)).json());
     expect(detail.ref).toBe(developmentRef);
     const units = WebsiteUnitPage.parse((await get(`/v2/developments/${developmentRef}/units`)).json());

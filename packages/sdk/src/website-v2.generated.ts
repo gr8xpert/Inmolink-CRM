@@ -358,7 +358,7 @@ export type GetSitemapQuery = {
 export type GetSitemapResponse = {
   items: Array<{
     ref: string;
-    kind: "LISTING" | "UNIT";
+    kind: "LISTING" | "UNIT" | "DEVELOPMENT";
     slug: string;
     updatedAt: string;
   }>;

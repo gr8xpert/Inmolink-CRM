@@ -10,6 +10,8 @@ import {
   WebsiteDevelopmentsQuery,
   WebsiteListingPage,
   WebsiteListingsQuery,
+  WebsiteSitemapPage,
+  WebsiteSitemapQuery,
   WebsiteUnitPage,
   WebsiteUnitsQuery,
 } from '@inmolink/contracts';
@@ -390,6 +392,48 @@ describe('website API v2 developments (S7-F6)', () => {
     expect(await refusal(websiteApi.developmentUnits(resale, code('DV-A'), WebsiteUnitsQuery.parse({})))).toBe(
       'DEVELOPMENT_NOT_FOUND',
     );
+  });
+
+  it('[S8-F24] /v2/sitemap lists the site developments after its listings, with lastmod, in 2 queries', async () => {
+    const net = await site(S.net as string);
+    // The sitemap has no location filter: every development of the site, as `/v2/developments` lists them.
+    const shown = WebsiteDevelopmentPage.parse(
+      await websiteApi.developments(net, WebsiteDevelopmentsQuery.parse({ limit: 100 })),
+    ).items.map((d) => d.ref);
+    expect(shown.length).toBeGreaterThanOrEqual(3);
+    const entries: { ref: string; kind: string; updatedAt: string }[] = [];
+    let cursor: string | undefined;
+    do {
+      const p = WebsiteSitemapPage.parse(
+        await websiteApi.sitemap(net, WebsiteSitemapQuery.parse({ limit: 1, ...(cursor ? { cursor } : {}) })),
+      );
+      if (p.nextCursor) {
+        const decoded = Buffer.from(p.nextCursor, 'base64url').toString('utf8');
+        for (const id of Object.values(D)) expect(decoded.includes(id)).toBe(false);
+      }
+      entries.push(...p.items);
+      cursor = p.nextCursor ?? undefined;
+    } while (cursor);
+    const devs = entries.filter((e) => e.kind === 'DEVELOPMENT');
+    expect(devs.map((e) => e.ref)).toEqual(shown);
+    for (const e of devs) expect(Number.isNaN(Date.parse(e.updatedAt))).toBe(false);
+    // Development entries come after every listing and unit entry.
+    expect(entries.map((e) => e.kind).lastIndexOf('UNIT')).toBeLessThan(
+      entries.findIndex((e) => e.kind === 'DEVELOPMENT'),
+    );
+    // A site without new builds lists none and ends after its listings.
+    const resale = WebsiteSitemapPage.parse(
+      await websiteApi.sitemap(await site(S.noNew as string), WebsiteSitemapQuery.parse({ limit: 500 })),
+    );
+    expect(resale.items.some((e) => e.kind === 'DEVELOPMENT')).toBe(false);
+    expect(resale.nextCursor).toBeNull();
+    // The development part: page + overrides/identities (2), warm.
+    const first = await websiteApi.sitemap(net, WebsiteSitemapQuery.parse({ limit: 500 }));
+    const devCursor = Buffer.from(JSON.stringify({ d: '' })).toString('base64url');
+    const q = WebsiteSitemapQuery.parse({ limit: 500, cursor: devCursor });
+    await websiteApi.sitemap(net, q);
+    expect(first.items.length).toBeGreaterThan(0);
+    expect(await countQueries(() => websiteApi.sitemap(net, q))).toBeLessThanOrEqual(3);
   });
 
   it('[S7-F6] a network development and its units are white-labelled: no owner id, reference, name or contact', async () => {

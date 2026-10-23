@@ -468,10 +468,15 @@ export async function changes(site: ApiSite, q: WebsiteChangesQuery): Promise<We
 
 // ── Sitemap ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-function decodeSitemapCursor(cursor: string): string {
+/** A sitemap cursor: after a listing's public code (`c`), or in the development part (`d`: '' = its start). */
+type SitemapCursor = { part: 'listings'; after: string } | { part: 'developments'; after: string | undefined };
+
+function decodeSitemapCursor(cursor: string): SitemapCursor {
   try {
     const c = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<string, unknown>;
-    if (typeof c.c === 'string' && PublicCode.safeParse(c.c).success) return c.c;
+    if (typeof c.c === 'string' && PublicCode.safeParse(c.c).success) return { part: 'listings', after: c.c };
+    if (c.d === '') return { part: 'developments', after: undefined };
+    if (typeof c.d === 'string' && PublicCode.safeParse(c.d).success) return { part: 'developments', after: c.d };
   } catch {
     // falls through
   }
@@ -487,7 +492,9 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
   const lang = langOf(site, q.lang);
   const inventory = site.inventory;
   if (!inventory) return { items: [], nextCursor: null };
-  const after = q.cursor === undefined ? undefined : decodeSitemapCursor(q.cursor);
+  const cur = q.cursor === undefined ? undefined : decodeSitemapCursor(q.cursor);
+  if (cur?.part === 'developments') return sitemapDevelopments(site, inventory, lang, q.limit, cur.after);
+  const after = cur?.after;
   return search.withSiteRead(inventory, async (tx) => {
     const rows = await search.sitemapPage(tx, inventory, {
       after,
@@ -508,7 +515,52 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
         slug: entry.slug,
         updatedAt: (page[i] as search.PublicDocRow).updatedAt.toISOString(),
       })),
-      nextCursor: rows.length > q.limit && last?.publicCode ? encodeCursor({ c: last.publicCode }) : null,
+      nextCursor:
+        rows.length > q.limit && last?.publicCode
+          ? encodeCursor({ c: last.publicCode })
+          : // S8-F24: the listing pages end; the development pages follow (only when the site shows new builds).
+            newBuildsOf(site)
+            ? encodeCursor({ d: '' })
+            : null,
+    };
+  });
+}
+
+/** Development entries per sitemap page at most: each carries a representative unit's card (S8-F24). */
+const SITEMAP_DEVELOPMENTS_MAX = 100;
+
+/**
+ * The development part of `GET /v2/sitemap` (S8-F24): the site's developments through the same read path as
+ * `/v2/developments` (development rows + read models, newest first, white-labelled), as `DEVELOPMENT` entries with
+ * the later of the row's and its representative unit's change as `updatedAt`. One statement, plus the overrides.
+ */
+async function sitemapDevelopments(
+  site: ApiSite,
+  inventory: NonNullable<ApiSite['inventory']>,
+  lang: string,
+  limit: number,
+  after: string | undefined,
+): Promise<WebsiteSitemapPage> {
+  const take = Math.min(limit, SITEMAP_DEVELOPMENTS_MAX);
+  return search.withSiteRead(inventory, async (tx) => {
+    const rows = await search.developmentPage(tx, inventory, {
+      after,
+      limit: take,
+      locale: lang,
+      fallback: site.scope.defaultLocale,
+    });
+    const page = rows.slice(0, take);
+    const view = await viewFor(tx, site, lang, viewRows(page));
+    const cards = websites.serializeDevelopmentCards(view, page.map(developmentItem<UnitCardDoc>));
+    const last = page[page.length - 1];
+    return {
+      items: cards.map((card, i) => ({
+        ref: card.ref,
+        kind: 'DEVELOPMENT' as const,
+        slug: card.slug,
+        updatedAt: (page[i] as search.DevelopmentRow).updatedAt.toISOString(),
+      })),
+      nextCursor: rows.length > take && last ? encodeCursor({ d: last.code }) : null,
     };
   });
 }

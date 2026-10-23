@@ -1666,6 +1666,8 @@ export interface DevelopmentRow {
   priceMax: number | null;
   bedsMin: number | null;
   bedsMax: number | null;
+  /** The latest change of the development row or its representative unit's document (sitemap `lastmod`). */
+  updatedAt: Date;
   doc: unknown;
 }
 
@@ -1742,7 +1744,8 @@ function developmentRows(part: 'card' | 'detail', locale: string, fallback: stri
   return sql`
     select g.development_id as "developmentId", dc.code, g.ref as "ownRef", g.owner_agency_id as "ownerAgencyId",
            g.units as total, g.available, g.reserved, g.price_min_cents as "priceMin", g.price_max_cents as "priceMax",
-           g.beds_min as "bedsMin", g.beds_max as "bedsMax", r.${sql.raw(part)} as doc
+           g.beds_min as "bedsMin", g.beds_max as "bedsMax", r.${sql.raw(part)} as doc,
+           greatest(g.updated_at, r.updated_at) as "updatedAt"
       from d
       join ${listingSearchDevelopments} g on g.development_id = d.id
       join ${listingPublicCodes} dc on dc.target_id = g.development_id
@@ -1766,6 +1769,7 @@ const developmentRowsOf = (rows: unknown[]): DevelopmentRow[] =>
     priceMax: numOrNull(r.priceMax),
     bedsMin: numOrNull(r.bedsMin),
     bedsMax: numOrNull(r.bedsMax),
+    updatedAt: new Date(r.updatedAt as string | Date),
     doc: r.doc,
   }));
 

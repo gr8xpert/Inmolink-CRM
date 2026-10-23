@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * `wp-sitemap-inmolink-{language}-{n}.xml`: the site's listing and unit pages from `/v2/sitemap` ({@see SitemapIndex}),
+ * `wp-sitemap-inmolink-{language}-{n}.xml`: the site's listing, unit and development pages from `/v2/sitemap` ({@see SitemapIndex}),
  * one subtype per site language, with `lastmod`.
  */
 class SitemapProvider extends \WP_Sitemaps_Provider {
@@ -75,7 +75,7 @@ class SitemapProvider extends \WP_Sitemaps_Provider {
 		$locale = $this->locale( (string) $object_subtype );
 		$urls   = array();
 		foreach ( $this->index->entries( $locale, (int) $page_num ) as $entry ) {
-			$url = array( 'loc' => Urls::listing( $entry['ref'], $entry['slug'], $locale ) );
+			$url = array( 'loc' => Urls::for_item( $entry, $locale ) );
 			$ts  = strtotime( $entry['updatedAt'] );
 			if ( false !== $ts ) {
 				$url['lastmod'] = gmdate( 'Y-m-d\TH:i:s\Z', $ts );

@@ -3538,7 +3538,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "kind": {
-                            "enum": ["LISTING", "UNIT"],
+                            "enum": ["LISTING", "UNIT", "DEVELOPMENT"],
                             "type": "string"
                           },
                           "ref": {
