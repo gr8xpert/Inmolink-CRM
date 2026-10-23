@@ -289,6 +289,60 @@ describe('edge cache purge (S7-06)', () => {
     expect(cdn.tags()).toEqual(new Set([websiteApi.edgeTag('s', siteId)]));
   });
 
+  it("[S9-F2] removing a site's domain (its frame-ancestors) enqueues the site's tag purge in the same transaction", async () => {
+    cdn = createMemoryCdn();
+    configureCdn(cdn);
+    const embed = await as((ctx) =>
+      websites.createSite(ctx, {
+        ...SITE,
+        name: 'Embed Homes',
+        mode: 'IFRAME',
+        domains: ['www.keep-homes.example', 'www.drop-homes.example'],
+      }),
+    );
+    const siteEvents = (id: string) =>
+      system((tx) =>
+        tx.execute<{ id: string; payload: { siteId: string; version: number } }>(
+          sql`select id, payload from outbox_events
+               where agency_id = ${a.agencyId} and type = 'websites.site.changed' and payload->>'siteId' = ${id}
+               order by created_at, id`,
+        ),
+      ).then((r) => r.rows);
+    // The embed page carries the site tag, so purging the tag reaches every cached URL of the site.
+    const tags = websiteApi.edgeTagsOf({
+      scope: { siteId: embed.id },
+      keyId: null,
+      edge: { targets: new Set<string>(), developments: new Set<string>() },
+    });
+    expect(tags).toContain(websiteApi.edgeTag('s', embed.id));
+
+    const before = (await siteEvents(embed.id)).length;
+    // A refused edit (stale version) rolls back with its event: nothing is queued.
+    await expect(
+      as((ctx) => websites.updateSite(ctx, { siteId: embed.id }, { version: embed.version + 5, domains: [] })),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await siteEvents(embed.id)).toHaveLength(before);
+    // An edit that changes nothing queues nothing either.
+    await as((ctx) =>
+      websites.updateSite(ctx, { siteId: embed.id }, { version: embed.version, domains: embed.domains }),
+    );
+    expect(await siteEvents(embed.id)).toHaveLength(before);
+
+    const since = new Date(Date.now() - 1_000);
+    enqueued.length = 0;
+    const updated = await as((ctx) =>
+      websites.updateSite(ctx, { siteId: embed.id }, { version: embed.version, domains: ['www.keep-homes.example'] }),
+    );
+    // The event is committed with the change (the update's transaction has ended): same version, this site only.
+    const events = await siteEvents(embed.id);
+    expect(events).toHaveLength(before + 1);
+    expect(events.at(-1)?.payload).toMatchObject({ siteId: embed.id, version: updated.version });
+    await deliver(since);
+    expect(enqueued.map((e) => e.agencyId)).toContain(a.agencyId);
+    await drain(a.agencyId);
+    expect(cdn.tags()).toEqual(new Set([websiteApi.edgeTag('s', embed.id)]));
+  });
+
   it('[S7-06] purges: ≤ 100 tags per run, old listing tags dropped but site and key tags never, failures retried then alerted', async () => {
     const alerts: websiteApi.WebsiteAlert[] = [];
     websiteApi.configureWebsiteApi({
