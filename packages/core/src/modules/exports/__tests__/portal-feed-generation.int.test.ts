@@ -4,7 +4,7 @@ import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
-import { invalidateFlags, setFlagOverride } from '@inmolink/platform/flags';
+import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
@@ -419,7 +419,11 @@ describe('[S9-03] delivery at tokenized URLs', () => {
     const created = await connect(a, 'thinkspain', 'thinkSPAIN main');
     const id = created.connection.id;
     try {
-      await system((tx) => setFlagOverride(tx, key, a.agencyId, true));
+      // The flag row may not exist yet on a fresh database (no other test created it).
+      await system(async (tx) => {
+        await setFlag(tx, key, { enabled: false });
+        await setFlagOverride(tx, key, a.agencyId, true);
+      });
       invalidateFlags();
       expect((await generate([id])).written).toEqual([id]);
       expect(objectsOf(id)).toHaveLength(1);
