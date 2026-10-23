@@ -15,16 +15,18 @@ function stackEnv(): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined));
 }
 
+// Fixed ports below 32768: outside the ephemeral ranges (Linux 32768–60999, Windows 49152–65535), so a server another
+// test bound to port 0 can never hold one (CI 3d21ffc: EADDRINUSE on 54100).
 const APPS = [
-  { name: 'api', port: 54100, portVar: 'API_PORT', metrics: 54110, metricsVar: 'API_METRICS_PORT' },
-  { name: 'feed-api', port: 54101, portVar: 'FEED_API_PORT', metrics: 54111, metricsVar: 'FEED_API_METRICS_PORT' },
-  { name: 'realtime', port: 54102, portVar: 'REALTIME_PORT', metrics: 54112, metricsVar: 'REALTIME_METRICS_PORT' },
+  { name: 'api', port: 31100, portVar: 'API_PORT', metrics: 31110, metricsVar: 'API_METRICS_PORT' },
+  { name: 'feed-api', port: 31101, portVar: 'FEED_API_PORT', metrics: 31111, metricsVar: 'FEED_API_METRICS_PORT' },
+  { name: 'realtime', port: 31102, portVar: 'REALTIME_PORT', metrics: 31112, metricsVar: 'REALTIME_METRICS_PORT' },
   // `maintenance` has no jobs yet; never `outbox` here — it would claim the queue suite's events.
   {
     name: 'worker',
-    port: 54103,
+    port: 31103,
     portVar: 'WORKER_HEALTH_PORT',
-    metrics: 54113,
+    metrics: 31113,
     metricsVar: 'WORKER_METRICS_PORT',
     extra: { WORKER_POOLS: 'maintenance' },
   },
