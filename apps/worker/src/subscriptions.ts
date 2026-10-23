@@ -3,6 +3,7 @@ import * as billing from '@inmolink/core/modules/billing';
 import * as compliance from '@inmolink/core/modules/compliance';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as developments from '@inmolink/core/modules/developments';
+import * as exports from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
@@ -37,6 +38,7 @@ export const MODULES = {
   websites,
   'website-api': websiteApi,
   'plugin-updates': pluginUpdates,
+  exports,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */

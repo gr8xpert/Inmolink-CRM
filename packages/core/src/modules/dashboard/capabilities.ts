@@ -4,6 +4,7 @@ import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
+import * as exportsModule from '../exports';
 import * as identity from '../identity';
 import * as imports from '../imports';
 import * as properties from '../properties';
@@ -25,6 +26,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['team', (ctx) => identity.can(ctx, 'identity.members.read')],
   // Website sites (S7-01): the agency's members (admins change them; not partners, not Client Mode).
   ['websites', (ctx) => websites.can(ctx, 'websites.read')],
+  // Portal connections (S9-01): the agency's members (admins change them; not partners, not Client Mode).
+  ['portals', (ctx) => exportsModule.can(ctx, 'exports.read')],
   ['apiKeys', (ctx) => identity.can(ctx, 'identity.apiKeys.read')],
   ['profile', (ctx) => agencies.can(ctx, 'agencies.profile.update')],
   ['settings', (ctx) => agencies.can(ctx, 'agencies.settings.read')],

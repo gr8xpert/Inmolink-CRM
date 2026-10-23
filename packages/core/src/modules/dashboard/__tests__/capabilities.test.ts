@@ -32,6 +32,7 @@ describe('getMyCapabilities', () => {
       'imports',
       'team',
       'websites',
+      'portals',
       'apiKeys',
       'profile',
       'settings',
@@ -51,6 +52,7 @@ describe('getMyCapabilities', () => {
         'imports',
         'team',
         'websites',
+        'portals',
         'settings',
         'preferredAgencies',
       ]);
@@ -87,6 +89,7 @@ describe('getMyCapabilities', () => {
       'imports',
       'team',
       'websites',
+      'portals',
       'apiKeys',
       'profile',
       'settings',

@@ -7,6 +7,7 @@ export * from './agencies';
 export * from './billing';
 export * from './compliance';
 export * from './developments';
+export * from './exports';
 export * from './flags';
 export * from './identity';
 export * from './imports';

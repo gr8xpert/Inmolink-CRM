@@ -23,6 +23,13 @@ export {
 export { propertiesErrors } from './errors';
 export { IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {
+  exportableListingIds,
+  exportableListingPage,
+  listingIdsByRefs,
+  listingRefs,
+  ownListingIds,
+} from './export-selection';
+export {
   confirmListing,
   type ListingQualityInputs,
   listingQualityInputs,

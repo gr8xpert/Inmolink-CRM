@@ -1,0 +1,104 @@
+{
+  "title": "Portales",
+  "intro": "Envía tus inmuebles a portales inmobiliarios. Cada conexión tiene una regla que elige los inmuebles que envía: todos los PUBLIC, los que llevan una etiqueta o solo los que elijas. Solo se envían inmuebles activos publicados como PUBLIC.",
+  "empty": "Todavía no hay portales conectados.",
+  "next": "Página siguiente",
+  "back": "Todos los portales",
+  "on": "Activo",
+  "off": "Desactivado",
+  "planned": "próximamente",
+  "choicesCount": "{include, plural, =0 {} other {# siempre se envían}}{include, plural, =0 {} other { · }}{exclude, plural, =0 {ninguno excluido} other {# excluidos}}",
+  "columns": {
+    "name": "Conexión",
+    "portal": "Portal",
+    "rule": "Envía",
+    "choices": "Tus elecciones",
+    "status": "Estado"
+  },
+  "rule": {
+    "title": "Qué inmuebles",
+    "hint": "Después puedes incluir o excluir inmuebles concretos.",
+    "mode": "Regla",
+    "tag": "Etiqueta",
+    "tagHint": "Solo para «inmuebles con etiqueta»: la etiqueta exacta, en minúsculas.",
+    "modes": {
+      "ALL_PUBLIC": "Todos los inmuebles PUBLIC",
+      "TAGGED": "Inmuebles con una etiqueta",
+      "MANUAL": "Solo los que yo elija"
+    }
+  },
+  "add": {
+    "title": "Conectar un portal",
+    "portal": "Portal",
+    "name": "Nombre",
+    "credentials": "Credenciales del portal (opcional)",
+    "credentialsHint": "Una por línea como nombre=valor, con los nombres que pide el portal. Se guardan cifradas y no se vuelven a mostrar.",
+    "submit": "Conectar"
+  },
+  "issued": {
+    "title": "Token del feed",
+    "intro": "Copia este token ahora: solo se muestra una vez. La dirección del feed del portal, que lo usa, aparecerá aquí cuando los feeds estén activados en tu cuenta.",
+    "token": "Token del feed",
+    "done": "Abrir la conexión"
+  },
+  "detail": {
+    "title": "{name}",
+    "setup": "Configuración",
+    "enabled": "Enviar inmuebles a este portal",
+    "credentials": "Credenciales del portal",
+    "credentialsStored": "Guardadas: {keys}. Los valores nunca se muestran.",
+    "credentialsNone": "No hay ninguna guardada.",
+    "credentialsFields": "Este portal usa: {keys}.",
+    "removeCredentials": "Eliminar las credenciales guardadas",
+    "save": "Guardar",
+    "delete": "Eliminar esta conexión"
+  },
+  "token": {
+    "title": "Token del feed",
+    "intro": "El portal descarga tu feed con este token. Crear uno nuevo deja de valer el anterior al instante.",
+    "active": "Token activo que termina en {hint}, creado el {date}.",
+    "revoked": "El feed está desactivado hasta que crees un token nuevo.",
+    "rotate": "Crear un token nuevo",
+    "turnOn": "Activar el feed con un token nuevo",
+    "turnOff": "Desactivar el feed"
+  },
+  "choices": {
+    "title": "Inmuebles concretos",
+    "intro": "Envía siempre un inmueble que la regla omitiría, o exclúyelo. Un inmueble que no está activo y PUBLIC nunca se envía, elijas lo que elijas.",
+    "none": "No has elegido ningún inmueble concreto.",
+    "refs": "Referencias de los inmuebles",
+    "refsHint": "Una referencia por línea, o separadas por espacios o comas (máximo 200).",
+    "action": "Y entonces",
+    "apply": "Aplicar",
+    "clear": "Quitar",
+    "actions": {
+      "INCLUDE": "Enviar siempre",
+      "EXCLUDE": "Excluir",
+      "CLEAR": "Volver a la regla"
+    }
+  },
+  "preview": {
+    "title": "Enviados ahora",
+    "intro": "Los primeros inmuebles que envía esta conexión, por referencia.",
+    "empty": "Todavía no coincide ningún inmueble.",
+    "more": "…y más."
+  },
+  "notices": {
+    "saved": "Guardado.",
+    "revoked": "El feed está desactivado.",
+    "deleted": "La conexión se ha eliminado.",
+    "chosen": "Tus elecciones se han guardado."
+  },
+  "errors": {
+    "generic": "Algo ha salido mal. Inténtalo de nuevo.",
+    "FORBIDDEN": "Solo los administradores de la agencia pueden cambiar las conexiones con portales.",
+    "PORTAL_CONNECTION_NOT_FOUND": "Esa conexión ya no existe.",
+    "PORTAL_CHANNEL_UNAVAILABLE": "Ese portal todavía no se puede conectar.",
+    "PORTAL_CONNECTION_LIMIT_REACHED": "Tu agencia ya tiene el máximo de conexiones con portales permitidas.",
+    "PORTAL_CONNECTION_NAME_TAKEN": "Ya tienes una conexión con este portal con ese nombre.",
+    "PORTAL_OVERRIDE_LIMIT_REACHED": "Esta conexión ya tiene el máximo de inmuebles concretos permitidos.",
+    "LISTING_NOT_FOUND": "Una o más referencias no coinciden con ninguno de tus inmuebles. No se ha cambiado nada.",
+    "VALIDATION_FAILED": "Revisa los datos e inténtalo de nuevo.",
+    "VERSION_CONFLICT": "Otra persona ha cambiado esta conexión. Recarga e inténtalo de nuevo."
+  }
+}

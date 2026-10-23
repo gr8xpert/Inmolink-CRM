@@ -10,6 +10,7 @@ export * from './compliance';
 export * from './developments';
 export * from './developments-csv';
 export * from './errors';
+export * from './exports';
 export * from './http';
 export * from './identity';
 export * from './imports';

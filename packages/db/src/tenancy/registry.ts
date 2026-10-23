@@ -402,6 +402,13 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { token_hint: 'abcd' },
     samples: { visible: [{}], hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }] },
   },
+  // Portal connections (S9-01): an agency's feeds to Kyero, thinkSPAIN, … Credentials are an encrypted envelope, the
+  // feed token only a keyed hash; the serving read for the token (S9-04) is added with the feed server.
+  agency_portal_connections: {
+    kind: 'STRICT',
+    base: { channel_code: 'isolation-portal', name: 'Isolation', token_hint: 'abcd' },
+  },
+  portal_connection_properties: { kind: 'STRICT', base: { action: 'INCLUDE' } },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
   // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
   // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.
@@ -771,6 +778,11 @@ export const tenantTables: Record<string, TenantTable> = {
  * except `access: 'auth'` tables, which only `app_auth` and `app_system` reach.
  */
 export const globalTables: Record<string, GlobalTable> = {
+  // Portal catalog (S9-01): Kyero, thinkSPAIN, A Place in the Sun, generic XML (idealista and Fotocasa planned).
+  portal_channels: {
+    reason: 'catalog of portals an agency can feed, written by staff / sync via withSystem()',
+    staffWrite: true,
+  },
   // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
   feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },
   // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).

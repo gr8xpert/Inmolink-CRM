@@ -5,6 +5,7 @@
  * ones' deterministic IDs (`seededId(seed, '<namespace>', i)`).
  */
 import { agenciesSeeder } from './agencies';
+import { exportsSeeder } from './exports';
 import { identityUsers } from './identity';
 import { listingsSeeder } from './listings';
 import { taxonomySeeder } from './taxonomy';
@@ -47,4 +48,10 @@ export interface Seeder {
   scale(options: ScaleSeedOptions): Promise<SeedResult>;
 }
 
-export const SEEDERS: readonly Seeder[] = [identityUsers, agenciesSeeder, taxonomySeeder, listingsSeeder];
+export const SEEDERS: readonly Seeder[] = [
+  identityUsers,
+  agenciesSeeder,
+  taxonomySeeder,
+  listingsSeeder,
+  exportsSeeder,
+];

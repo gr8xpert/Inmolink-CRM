@@ -132,6 +132,7 @@ export const DashboardSection = z.enum([
   'imports',
   'team',
   'websites',
+  'portals',
   'apiKeys',
   'profile',
   'settings',

@@ -37,6 +37,7 @@
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
+    "exports:sync-channels": "tsx --conditions=@inmolink/source scripts/ops/sync-portal-channels.ts",
     "ops:cdn-rules": "tsx scripts/ops/cdn-rules.ts",
     "ops:widget-publish": "tsx --conditions=@inmolink/source scripts/ops/widget-publish.ts",
     "ops:wp-plugin-release": "tsx --conditions=@inmolink/source scripts/ops/wp-plugin-release.ts",

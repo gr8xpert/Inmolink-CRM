@@ -55,6 +55,17 @@ export const ErrorCodes = {
    * verified, or a feed not generated yet. The same answer for each, so a token cannot be probed.
    */
   SITE_FEED_NOT_FOUND: 404,
+  // exports: portal connections (S9-01)
+  /** No such portal connection in the agency (or one of another agency). */
+  PORTAL_CONNECTION_NOT_FOUND: 404,
+  /** No such portal in the catalog, or one still waiting for the portal's partner approval. */
+  PORTAL_CHANNEL_UNAVAILABLE: 409,
+  /** The agency has as many portal connections as allowed. */
+  PORTAL_CONNECTION_LIMIT_REACHED: 409,
+  /** Another connection of the agency to this portal has that name. */
+  PORTAL_CONNECTION_NAME_TAKEN: 409,
+  /** A connection can hold only so many per-property choices. */
+  PORTAL_OVERRIDE_LIMIT_REACHED: 409,
   // websites: API v2 (S7-03)
   /** A key created before websites existed (no site): website API v2 needs a key bound to a site — issue a new one. */
   API_KEY_SITE_REQUIRED: 403,

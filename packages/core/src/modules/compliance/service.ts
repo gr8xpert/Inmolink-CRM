@@ -74,6 +74,12 @@ export const AUDIT_TYPES = [
   'websites.site.changed',
   'websites.feed.rotated',
   'websites.feed.revoked',
+  'exports.connection.created',
+  'exports.connection.changed',
+  'exports.connection.deleted',
+  'exports.connection.tokenRotated',
+  'exports.connection.tokenRevoked',
+  'exports.connection.selectionChanged',
   'staff.impersonation.started',
   'staff.impersonation.ended',
   'staff.auditLog.read',
@@ -99,7 +105,8 @@ export interface AuditTarget {
     | 'developmentDocument'
     | 'feedConnection'
     | 'feedMappingProfile'
-    | 'site';
+    | 'site'
+    | 'portalConnection';
   id: string;
 }
 

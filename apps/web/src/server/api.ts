@@ -18,6 +18,7 @@ import {
   type CreateFeedConnectionBody,
   type CreateListingBody,
   type CreateMappingProfileBody,
+  type CreatePortalConnectionInput,
   type CreatePriceListBody,
   type CreateSiteInput,
   type CreateUnitsBody,
@@ -73,6 +74,12 @@ import {
   MyCapabilitiesDto,
   type NetworkSearchBody,
   NetworkSearchResult,
+  PortalChannelList,
+  PortalConnectionDto,
+  PortalConnectionPage,
+  PortalConnectionSecretDto,
+  PortalOverridePage,
+  PortalSelectionPage,
   PreferredAgencyDto,
   PreferredAgencyPage,
   PriceListDto,
@@ -83,6 +90,7 @@ import {
   type ReorderListingMediaBody,
   type SetDevelopmentAccessBody,
   type SetListingFeaturesBody,
+  type SetPortalOverridesInput,
   SignedUrlDto,
   SiteDto,
   SiteFeedDto,
@@ -106,6 +114,7 @@ import {
   type UpdateFeedConnectionBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
+  type UpdatePortalConnectionInput,
   type UpdatePreferredAgencyBody,
   type UpdateSiteInput,
   type UpdateUnitBody,
@@ -1435,4 +1444,96 @@ export function rotateSiteFeed(
 /** Turn the feed off: its URLs answer 404 (admins). */
 export function revokeSiteFeed(session: SessionRef, id: string): Promise<ApiResult<SiteFeedDto>> {
   return apiRequest(session, `/v1/sites/${encodeURIComponent(id)}/feed`, SiteFeedDto, { method: 'DELETE' });
+}
+
+// ── Portal connections (S9-01) ───────────────────────────────────────────────────────────────────
+
+/** The portals an agency can feed (members). */
+export function fetchPortalChannels(session: SessionRef): Promise<ApiResult<PortalChannelList>> {
+  return apiRequest(session, '/v1/portal-channels', PortalChannelList);
+}
+
+/** The agency's portal connections (members; admins change them). */
+export function fetchPortalConnections(session: SessionRef, cursor?: string): Promise<ApiResult<PortalConnectionPage>> {
+  return apiRequest(session, `/v1/portal-connections?${page(cursor, 50)}`, PortalConnectionPage);
+}
+
+export function fetchPortalConnection(session: SessionRef, id: string): Promise<ApiResult<PortalConnectionDto>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}`, PortalConnectionDto);
+}
+
+/** Connect a portal (admins). The feed token comes back once: hand it to the page, never log it. */
+export function createPortalConnection(
+  session: SessionRef,
+  body: CreatePortalConnectionInput,
+): Promise<ApiResult<PortalConnectionSecretDto>> {
+  return apiRequest(session, '/v1/portal-connections', PortalConnectionSecretDto, { method: 'POST', body });
+}
+
+export function updatePortalConnection(
+  session: SessionRef,
+  id: string,
+  body: UpdatePortalConnectionInput,
+): Promise<ApiResult<PortalConnectionDto>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}`, PortalConnectionDto, {
+    method: 'PATCH',
+    body,
+  });
+}
+
+export function deletePortalConnection(session: SessionRef, id: string): Promise<ApiResult<null>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}`, z.null(), { method: 'DELETE' });
+}
+
+/** A new feed token, shown once (admins). */
+export function rotatePortalConnectionToken(
+  session: SessionRef,
+  id: string,
+): Promise<ApiResult<PortalConnectionSecretDto>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}/token`, PortalConnectionSecretDto, {
+    method: 'POST',
+  });
+}
+
+export function revokePortalConnectionToken(session: SessionRef, id: string): Promise<ApiResult<PortalConnectionDto>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}/token`, PortalConnectionDto, {
+    method: 'DELETE',
+  });
+}
+
+/** The listings chosen one by one for the connection. */
+export function fetchPortalOverrides(
+  session: SessionRef,
+  id: string,
+  cursor?: string,
+): Promise<ApiResult<PortalOverridePage>> {
+  return apiRequest(
+    session,
+    `/v1/portal-connections/${encodeURIComponent(id)}/properties?${page(cursor, 50)}`,
+    PortalOverridePage,
+  );
+}
+
+export function setPortalOverrides(
+  session: SessionRef,
+  id: string,
+  body: SetPortalOverridesInput,
+): Promise<ApiResult<PortalConnectionDto>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}/properties`, PortalConnectionDto, {
+    method: 'PUT',
+    body,
+  });
+}
+
+/** A page of the listings the connection sends now (the preview). */
+export function fetchPortalSelection(
+  session: SessionRef,
+  id: string,
+  cursor?: string,
+): Promise<ApiResult<PortalSelectionPage>> {
+  return apiRequest(
+    session,
+    `/v1/portal-connections/${encodeURIComponent(id)}/selection?${page(cursor, 25)}`,
+    PortalSelectionPage,
+  );
 }

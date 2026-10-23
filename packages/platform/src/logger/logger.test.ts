@@ -179,6 +179,14 @@ describe('logger', () => {
     expect(redactPathsInText('"/v1/types?api_key=abc"')).toBe(`"/v1/types?api_key=${REDACTED}"`);
   });
 
+  it('[S9-01] a portal feed token in a path or a quoted URL is redacted, the rest kept', () => {
+    const token = 'p'.repeat(43);
+    expect(stripQuery(`/v2/portal-feeds/${token}/kyero.xml?x=1`)).toBe(`/v2/portal-feeds/${REDACTED}/kyero.xml`);
+    expect(redactPathsInText(`GET https://feed.example/v2/portal-feeds/${token}/inmolink.xml failed`)).toBe(
+      `GET https://feed.example/v2/portal-feeds/${REDACTED}/inmolink.xml failed`,
+    );
+  });
+
   it('[S0-03] bindings cannot overwrite the request id', () => {
     const out = capture();
     withRequestId(createLogger({ destination: out.destination }), 'req-1', { requestId: 'spoofed' }).info('x');

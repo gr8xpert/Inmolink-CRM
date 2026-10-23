@@ -240,6 +240,11 @@ export const properties = pgTable(
       .where(
         sql`${t.visibility} <> 'PRIVATE' and ${t.status} = 'ACTIVE' and ${t.deletedAt} is null and ${t.networkHiddenAt} is null`,
       ),
+    // portal selection (S9-01): an agency's live PUBLIC listings in id order, keyset-paged per connection:
+    // where agency_id = ? and status = 'ACTIVE' and visibility = 'PUBLIC' and deleted_at is null and id > ? order by id
+    index('properties_agency_export_idx')
+      .on(t.agencyId, t.id)
+      .where(sql`${t.status} = 'ACTIVE' and ${t.visibility} = 'PUBLIC' and ${t.deletedAt} is null`),
     // duplicate clusters (later sprint)
     index('properties_duplicate_cluster_idx').on(t.duplicateClusterId).where(sql`${t.duplicateClusterId} is not null`),
     check('properties_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),

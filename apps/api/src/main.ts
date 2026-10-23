@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
@@ -52,6 +53,8 @@ try {
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
   // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
   imports.configureImports({ keyring: keyringFromEnv(config) });
+  // Portal connections (S9-01): credentials encrypted and feed tokens hashed when a connection is saved.
+  exportsModule.configureExports({ keyring: keyringFromEnv(config), tokenKey: config.HMAC_KEY });
   // Search (S5-05, S7-08): `requestSearchConfig` — the search-only key; a deployed app without it fails to boot.
   const searchConfig = requestSearchConfig(config);
   if (searchConfig) configureSearch(searchConfig);

@@ -8,6 +8,7 @@ import type leads from '../messages/en/leads.json';
 import type listings from '../messages/en/listings.json';
 import type network from '../messages/en/network.json';
 import type onboarding from '../messages/en/onboarding.json';
+import type portals from '../messages/en/portals.json';
 import type security from '../messages/en/security.json';
 import type shell from '../messages/en/shell.json';
 import type staff from '../messages/en/staff.json';
@@ -33,6 +34,7 @@ export interface Messages {
   listings: typeof listings;
   network: typeof network;
   onboarding: typeof onboarding;
+  portals: typeof portals;
   security: typeof security;
   shell: typeof shell;
   'staff-access': typeof staffAccess;

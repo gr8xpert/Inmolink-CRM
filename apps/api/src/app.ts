@@ -8,6 +8,7 @@ import { agenciesRoutes } from './routes/agencies/routes';
 import { billingRoutes } from './routes/billing/routes';
 import { complianceRoutes } from './routes/compliance/routes';
 import { developmentsRoutes } from './routes/developments/routes';
+import { exportsRoutes } from './routes/exports/routes';
 import { identityRoutes } from './routes/identity/routes';
 import { importsRoutes } from './routes/imports/routes';
 import { staffImportsRoutes } from './routes/imports/staff';
@@ -76,5 +77,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(importsRoutes);
   await app.register(staffImportsRoutes);
   await app.register(websitesRoutes);
+  await app.register(exportsRoutes);
   return app;
 }

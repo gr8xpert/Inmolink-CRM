@@ -99,6 +99,11 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
    that carries migration 0065 (read-model share scope), run `pnpm ops:rebuild-read-models` once: rows written
    before it count as PREFERRED (narrowest) until rebuilt.
 
+   Portal catalog (S9-01): the portals an agency can connect (`portal_channels`) are reference data, not written by
+   a migration. After the first deploy that carries migration 0113, and after any release that changes the catalog,
+   run `pnpm exports:sync-channels` once (idempotent; `pnpm db:seed` does it on dev and test stacks). Without it the
+   dashboard's "Connect a portal" list is empty.
+
    Turnstile (H3): create a widget for `app.inmolink.es` (+ staging) and set `TURNSTILE_SITE_KEY` /
    `TURNSTILE_SECRET_KEY` for web. Without them, the per-email login ceiling is a hard block again.
 7. First deploy creates the app roles: export `DATABASE_URL_ADMIN=postgres://postgres:<superuser

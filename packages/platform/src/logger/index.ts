@@ -93,16 +93,21 @@ function errSerializer(err: unknown): unknown {
 }
 
 /**
- * Path segments that are credentials (S7-07: per-site XML feed tokens, `/v2/feeds/<token>/…`): never in a log line, a
+ * Path segments that are credentials (S7-07: per-site XML feed tokens, `/v2/feeds/<token>/…`; S9-01: per-connection
+ * portal feed tokens, `/v2/portal-feeds/<token>/…`, served from S9-04): never in a log line, a
  * trace or an error report.
  */
-const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/];
+const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/, /^(\/v2\/portal-feeds\/)[^/?#]+/];
 /**
  * The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). Also the
  * legacy `api_key` query parameter (S8-02: the v1 shim takes a flagged legacy key in the URL), which a quoted URL in a
  * message would otherwise carry into an error report.
  */
-const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [/(\/v2\/feeds\/)[^/?#\s"'<>]+/g, /([?&]api_key=)[^&#\s"'<>]+/g];
+const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [
+  /(\/v2\/feeds\/)[^/?#\s"'<>]+/g,
+  /(\/v2\/portal-feeds\/)[^/?#\s"'<>]+/g,
+  /([?&]api_key=)[^&#\s"'<>]+/g,
+];
 
 /** A path with its credential segments replaced by `[REDACTED]`. */
 export function redactPath(path: string): string {

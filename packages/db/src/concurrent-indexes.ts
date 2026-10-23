@@ -85,6 +85,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'listing_search_docs',
     definition: `ON "listing_search_docs" USING btree (("area_m2"::float8),"target_id")`,
   },
+  {
+    // portal selection (S9-01): an agency's live PUBLIC listings in id order, keyset-paged per connection
+    name: 'properties_agency_export_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","id") WHERE "properties"."status" = 'ACTIVE' and "properties"."visibility" = 'PUBLIC' and "properties"."deleted_at" is null`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

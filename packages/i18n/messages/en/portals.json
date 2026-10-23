@@ -1,0 +1,104 @@
+{
+  "title": "Portals",
+  "intro": "Send your listings to property portals. Each connection has a rule that picks the listings it sends: all of your PUBLIC listings, the ones carrying a tag, or only the ones you choose. Only active listings published as PUBLIC are ever sent.",
+  "empty": "No portals connected yet.",
+  "next": "Next page",
+  "back": "All portals",
+  "on": "On",
+  "off": "Off",
+  "planned": "coming soon",
+  "choicesCount": "{include, plural, =0 {} other {# always sent}}{include, plural, =0 {} other { · }}{exclude, plural, =0 {none held back} other {# held back}}",
+  "columns": {
+    "name": "Connection",
+    "portal": "Portal",
+    "rule": "Sends",
+    "choices": "Your choices",
+    "status": "Status"
+  },
+  "rule": {
+    "title": "Which listings",
+    "hint": "You can still include or hold back single listings below.",
+    "mode": "Rule",
+    "tag": "Tag",
+    "tagHint": "Only for “tagged listings”: the exact tag, in lower case.",
+    "modes": {
+      "ALL_PUBLIC": "All PUBLIC listings",
+      "TAGGED": "Listings with a tag",
+      "MANUAL": "Only listings I choose"
+    }
+  },
+  "add": {
+    "title": "Connect a portal",
+    "portal": "Portal",
+    "name": "Name",
+    "credentials": "Portal credentials (optional)",
+    "credentialsHint": "One per line as name=value, using the names the portal asks for. Stored encrypted and never shown again.",
+    "submit": "Connect"
+  },
+  "issued": {
+    "title": "Feed token",
+    "intro": "Copy this token now: it is shown only once. The portal's feed address, which uses it, appears here when feeds are switched on for your account.",
+    "token": "Feed token",
+    "done": "Open the connection"
+  },
+  "detail": {
+    "title": "{name}",
+    "setup": "Setup",
+    "enabled": "Send listings to this portal",
+    "credentials": "Portal credentials",
+    "credentialsStored": "Stored: {keys}. Values are never shown.",
+    "credentialsNone": "None stored.",
+    "credentialsFields": "This portal uses: {keys}.",
+    "removeCredentials": "Remove the stored credentials",
+    "save": "Save",
+    "delete": "Delete this connection"
+  },
+  "token": {
+    "title": "Feed token",
+    "intro": "The portal fetches your feed with this token. Making a new one stops the old one working at once.",
+    "active": "Active token ending in {hint}, made on {date}.",
+    "revoked": "The feed is turned off until you make a new token.",
+    "rotate": "Make a new token",
+    "turnOn": "Turn the feed on with a new token",
+    "turnOff": "Turn the feed off"
+  },
+  "choices": {
+    "title": "Single listings",
+    "intro": "Always send a listing the rule would skip, or hold one back. A listing that is not active and PUBLIC is never sent, whatever you choose.",
+    "none": "No single listings chosen.",
+    "refs": "Listing references",
+    "refsHint": "One reference per line, or separated by spaces or commas (at most 200).",
+    "action": "Then",
+    "apply": "Apply",
+    "clear": "Clear",
+    "actions": {
+      "INCLUDE": "Always send",
+      "EXCLUDE": "Hold back",
+      "CLEAR": "Back to the rule"
+    }
+  },
+  "preview": {
+    "title": "Sent now",
+    "intro": "The first listings this connection sends, by reference.",
+    "empty": "No listing matches yet.",
+    "more": "…and more."
+  },
+  "notices": {
+    "saved": "Saved.",
+    "revoked": "The feed is turned off.",
+    "deleted": "The connection was deleted.",
+    "chosen": "Your choices were saved."
+  },
+  "errors": {
+    "generic": "Something went wrong. Try again.",
+    "FORBIDDEN": "Only agency admins can change portal connections.",
+    "PORTAL_CONNECTION_NOT_FOUND": "That connection no longer exists.",
+    "PORTAL_CHANNEL_UNAVAILABLE": "That portal can not be connected yet.",
+    "PORTAL_CONNECTION_LIMIT_REACHED": "Your agency has as many portal connections as allowed.",
+    "PORTAL_CONNECTION_NAME_TAKEN": "You already have a connection to this portal with that name.",
+    "PORTAL_OVERRIDE_LIMIT_REACHED": "This connection has as many single-listing choices as allowed.",
+    "LISTING_NOT_FOUND": "One or more references match none of your listings. Nothing was changed.",
+    "VALIDATION_FAILED": "Check the details and try again.",
+    "VERSION_CONFLICT": "Someone else changed this connection. Reload and try again."
+  }
+}
