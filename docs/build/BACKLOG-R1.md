@@ -1420,6 +1420,11 @@ Ref §5 · Mod exports · Dep S9-03
 **Build:** per 200-listing batch, connections with the same rule read the base page and exclusions once (grouped selection), and issue rows are written in one statement for all connections; `firstNightlyAgencies` without a Seq Scan (DISTINCT ON per lane over the live index, or an expression index on the lane hash); `setOverrides` ≤ 10 statements (counts from the rows written); a plain-XML request with the edge cache off is redirected to the signed URL instead of being gunzipped through feed-api.
 **Done when:** a 20-connection agency's batch runs ≤ 2 × (rules + 2) statements (statement-count test); the nightly sweep and `setOverrides` meet their budgets (EXPLAIN / query-count tests)
 
+### S10-F10 · Scale-seed cleanup within the statement timeout (S9 CI)
+Ref §15 · Mod tests · Dep S0-13
+**Build:** `tests/perf/seed-scale.int.test.ts` cleanup (`delete from properties where owner_user_id in (…)`) hit the statement timeout in CI twice (eafe6fb, a1e016a) — likely the growing set of FK cascades / checks on `properties` (exports tables S9-01 … S9-04); delete in batches (or by agency through the cascade) and check every FK referencing `properties` has an index.
+**Done when:** the cleanup runs in batches each under the timeout (test); 5 consecutive CI runs green
+
 ---
 
 ## S11 — MLS collaboration & network board
