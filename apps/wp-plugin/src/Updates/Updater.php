@@ -7,6 +7,7 @@
 
 namespace Inmolink\Plugin\Updates;
 
+use Inmolink\Plugin\Net\ApiGuard;
 use Inmolink\Plugin\Settings;
 use const Inmolink\Plugin\PLUGIN_FILE;
 use const Inmolink\Plugin\VERSION;
@@ -101,19 +102,26 @@ class Updater {
 		if ( '' === $base ) {
 			return null;
 		}
-		$response = wp_safe_remote_get(
-			$base . '/v2/plugin/update',
-			array(
-				'timeout'             => 10,
-				'redirection'         => 0,
-				'limit_response_size' => 65536,
-				'reject_unsafe_urls'  => ! Settings::allow_local_api(),
-				'headers'             => array(
-					'Accept'     => 'application/json',
-					'User-Agent' => 'Inmolink-WordPress/' . $this->current_version,
-				),
-			)
-		);
+		// The same address guard as the API client: checked addresses, pinned connection, never an unpinned call (S10-F6).
+		$checked  = ApiGuard::check( $base );
+		$response = ! $checked['ok'] || ! ApiGuard::can_call( $checked )
+			? new \WP_Error( 'inmolink_unpinned', 'The update server address cannot be checked and pinned.' )
+			: ApiGuard::pinned(
+				$checked,
+				fn () => wp_safe_remote_get(
+					$base . '/v2/plugin/update',
+					array(
+						'timeout'             => 10,
+						'redirection'         => 0,
+						'limit_response_size' => 65536,
+						'reject_unsafe_urls'  => ! Settings::allow_local_api(),
+						'headers'             => array(
+							'Accept'     => 'application/json',
+							'User-Agent' => 'Inmolink-WordPress/' . $this->current_version,
+						),
+					)
+				)
+			);
 		$body     = ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response )
 			? json_decode( (string) wp_remote_retrieve_body( $response ), true )
 			: null;
@@ -340,7 +348,11 @@ class Updater {
 			return new \WP_Error( 'inmolink_update_downgrade', __( 'Refusing to install an older or equal Inmolink version.', 'inmolink' ) );
 		}
 		require_once ABSPATH . 'wp-admin/includes/file.php';
-		$file = download_url( $package, 120 );
+		$checked = ApiGuard::check( self::base() );
+		if ( ! $checked['ok'] || ! ApiGuard::can_call( $checked ) ) {
+			return new \WP_Error( 'inmolink_unpinned', __( 'The Inmolink update server address cannot be checked and pinned on this server.', 'inmolink' ) );
+		}
+		$file = ApiGuard::pinned( $checked, static fn () => download_url( $package, 120 ) );
 		if ( is_wp_error( $file ) ) {
 			return $file;
 		}

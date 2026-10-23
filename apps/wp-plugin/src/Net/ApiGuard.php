@@ -20,10 +20,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  * to the addresses that were checked (`CURLOPT_RESOLVE`), so a DNS answer that changes between the check and the
  * connect (rebinding) cannot reach another address.
  *
- * Limits of the pin: it needs WordPress's cURL transport and has no effect with the streams transport (WordPress has
- * no hook there; the addresses are still checked just before the request) or when requests go through an HTTP proxy
- * (`WP_PROXY_HOST`: the proxy resolves the name, and the plugin's check is then only a sanity check). The health page
- * says when pinning is off, see {@see pin_effective()}.
+ * Limits of the pin: it needs WordPress's cURL transport. Without it (the streams / fsockopen transport, where
+ * WordPress has no hook to pin the address) a name is never called at all (S10-F6): {@see can_call()} says no, the
+ * client answers from the cache only, and {@see pinned()} refuses the request and aborts any fsockopen connection
+ * attempt. Through an HTTP proxy (`WP_PROXY_HOST`) the proxy resolves the name, and the plugin's check is then only a
+ * sanity check. The health page says when pinning is off, see {@see pin_effective()} and {@see transport_pins()}.
  *
  * Resolved addresses are cached for {@see DNS_TTL} seconds per host, so a page view does not cost a DNS round trip;
  * the cached addresses are also the ones pinned, so the cache cannot be raced by rebinding.
@@ -84,7 +85,15 @@ final class ApiGuard {
 	 * Whether the connection pin takes effect: the cURL transport is used and no HTTP proxy is configured.
 	 */
 	public static function pin_effective(): bool {
-		if ( ! defined( 'CURLOPT_RESOLVE' ) || ( defined( 'WP_PROXY_HOST' ) && '' !== (string) WP_PROXY_HOST ) ) {
+		return self::transport_pins() && ! ( defined( 'WP_PROXY_HOST' ) && '' !== (string) WP_PROXY_HOST );
+	}
+
+	/**
+	 * Whether the HTTP transport can pin an address (`CURLOPT_RESOLVE`): WordPress's cURL transport is available and
+	 * not turned off with the `use_curl_transport` filter.
+	 */
+	public static function transport_pins(): bool {
+		if ( ! defined( 'CURLOPT_RESOLVE' ) ) {
 			return false;
 		}
 		$curl = class_exists( '\WpOrg\Requests\Transport\Curl' ) ? \WpOrg\Requests\Transport\Curl::test() : function_exists( 'curl_init' );
@@ -92,28 +101,49 @@ final class ApiGuard {
 	}
 
 	/**
+	 * Whether a checked API base may be called: an address literal or a local development API needs no pin; a name
+	 * only when the transport pins it (no unpinned calls, S10-F6).
+	 *
+	 * @param array{ok:bool,host:string,port:int,ip:string,ips:list<string>,error:string} $checked Result of {@see check()}.
+	 */
+	public static function can_call( array $checked ): bool {
+		return array() === $checked['ips'] || self::transport_pins();
+	}
+
+	/**
 	 * Runs a request with the connection pinned to the checked addresses. Hooks `http_api_curl` for this request only.
+	 * Never runs it unpinned: refused when the transport cannot pin ({@see can_call()}), and should WordPress still
+	 * pick the fsockopen transport, its connection attempt is aborted before it connects.
 	 *
 	 * @param array{ok:bool,host:string,port:int,ip:string,ips:list<string>,error:string} $checked Result of {@see check()}.
 	 * @param callable                                                                    $request Performs the request.
-	 * @return mixed What the request returns.
+	 * @return mixed What the request returns, or a `WP_Error` (`inmolink_unpinned`) when it was not run.
 	 */
 	public static function pinned( array $checked, callable $request ) {
-		if ( array() === $checked['ips'] || ! defined( 'CURLOPT_RESOLVE' ) ) {
+		if ( array() === $checked['ips'] ) {
 			return $request();
 		}
-		$list = array_map( static fn ( string $ip ): string => str_contains( $ip, ':' ) ? '[' . $ip . ']' : $ip, $checked['ips'] );
-		$pin  = static function ( $handle, $args, $url ) use ( $checked, $list ): void {
+		if ( ! self::can_call( $checked ) ) {
+			return new \WP_Error( 'inmolink_unpinned', 'The HTTP transport cannot pin the API address.' );
+		}
+		$list   = array_map( static fn ( string $ip ): string => str_contains( $ip, ':' ) ? '[' . $ip . ']' : $ip, $checked['ips'] );
+		$pin    = static function ( $handle, $args, $url ) use ( $checked, $list ): void {
 			$host = wp_parse_url( (string) $url, PHP_URL_HOST );
 			if ( is_string( $host ) && strtolower( $host ) === $checked['host'] ) {
 				curl_setopt( $handle, CURLOPT_RESOLVE, array( $checked['host'] . ':' . $checked['port'] . ':' . implode( ',', $list ) ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
 			}
 		};
+		$refuse = static function (): void {
+			// WordPress turns a Requests exception into a WP_Error (`http_request_failed`); nothing was connected.
+			throw new \WpOrg\Requests\Exception( 'The HTTP transport cannot pin the API address.', 'inmolink_unpinned' );
+		};
 		add_action( 'http_api_curl', $pin, 10, 3 );
+		add_action( 'requests-fsockopen.before_request', $refuse ); // phpcs:ignore WordPress.NamingConventions.ValidHookName.UseUnderscores -- WordPress core hook (WP_HTTP_Requests_Hooks).
 		try {
 			return $request();
 		} finally {
 			remove_action( 'http_api_curl', $pin, 10 );
+			remove_action( 'requests-fsockopen.before_request', $refuse );
 		}
 	}
 

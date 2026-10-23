@@ -35,6 +35,8 @@ final class Settings {
 	public const MAX_LOCALES        = 10;
 	/** The website API's `lang` format. */
 	public const LANG_PATTERN = '/^[a-z]{2}(-[A-Z]{2})?$/';
+	/** Length of a secret key's public part: `inl_live_sk` / `inl_test_sk` plus the 10-character key id. */
+	public const KEY_ID_LENGTH = 21;
 
 	/**
 	 * Defaults for every setting except the key.
@@ -60,17 +62,19 @@ final class Settings {
 	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string,turnstile_site_key:string}
 	 */
 	public static function all(): array {
-		static $memo_raw = null, $memo_values = null;
+		static $memo_raw = null, $memo_const = null, $memo_values = null;
 		$stored          = get_option( self::OPTION, array() );
 		$stored          = is_array( $stored ) ? $stored : array();
-		if ( $memo_raw === $stored && null !== $memo_values ) {
+		$const_base      = self::config_constant( 'INMOLINK_API_BASE' );
+		if ( $memo_raw === $stored && $memo_const === $const_base && null !== $memo_values ) {
 			return $memo_values;
 		}
 		$values = self::sanitize( $stored );
-		if ( defined( 'INMOLINK_API_BASE' ) && is_string( INMOLINK_API_BASE ) ) {
-			$values['api_base'] = self::sanitize_base( INMOLINK_API_BASE );
+		if ( null !== $const_base ) {
+			$values['api_base'] = self::sanitize_base( $const_base );
 		}
 		$memo_raw    = $stored;
+		$memo_const  = $const_base;
 		$memo_values = $values;
 		return $values;
 	}
@@ -315,8 +319,7 @@ final class Settings {
 	public static function api_key(): string {
 		$base = (string) self::get( 'api_base' );
 		if ( self::key_from_constant() ) {
-			$const_base = defined( 'INMOLINK_API_BASE' ) && is_string( INMOLINK_API_BASE ) ? INMOLINK_API_BASE : null;
-			return self::constant_key_allowed( $base, $const_base ) ? INMOLINK_API_KEY : '';
+			return self::constant_key_allowed( $base, self::config_constant( 'INMOLINK_API_BASE' ) ) ? (string) self::config_constant( 'INMOLINK_API_KEY' ) : '';
 		}
 		$sealed = get_option( self::KEY_OPTION, '' );
 		if ( ! is_string( $sealed ) || '' === $sealed ) {
@@ -367,7 +370,36 @@ final class Settings {
 	 * Whether the key comes from wp-config.php (the settings page then cannot change it).
 	 */
 	public static function key_from_constant(): bool {
-		return defined( 'INMOLINK_API_KEY' ) && is_string( INMOLINK_API_KEY ) && '' !== INMOLINK_API_KEY;
+		return '' !== (string) self::config_constant( 'INMOLINK_API_KEY' );
+	}
+
+	/**
+	 * A wp-config.php constant the API settings read (`INMOLINK_API_KEY`, `INMOLINK_API_BASE`) as a string, or null
+	 * when it is not defined (or not a string).
+	 *
+	 * Test seam: the `inmolink_wp_config_constant` filter ( `$value, $name` ) replaces the value, because a constant
+	 * cannot be redefined within one PHP process. It is applied only in the WordPress test suite (`WP_TESTS_DOMAIN`)
+	 * or on a `local` / `development` environment type, never on a production or staging site.
+	 *
+	 * @param string $name Constant name.
+	 */
+	public static function config_constant( string $name ): ?string {
+		$value = defined( $name ) ? constant( $name ) : null;
+		if ( defined( 'WP_TESTS_DOMAIN' ) || in_array( wp_get_environment_type(), array( 'local', 'development' ), true ) ) {
+			$value = apply_filters( 'inmolink_wp_config_constant', $value, $name );
+		}
+		return is_string( $value ) ? $value : null;
+	}
+
+	/**
+	 * Identifies the agency the cached data belongs to (S10-F6): the API base and the wp-config key's public prefix
+	 * (`inl_<env>_sk` + its 10-character id — never the secret part). Part of every cache key and compared on boot
+	 * ({@see ConfigGuard}), so editing `INMOLINK_API_KEY` / `INMOLINK_API_BASE` in wp-config.php never serves the previous
+	 * agency's answers. A key entered on the settings page is covered by the settings save, which flushes itself.
+	 */
+	public static function config_fingerprint(): string {
+		$key = (string) self::config_constant( 'INMOLINK_API_KEY' );
+		return substr( md5( (string) self::get( 'api_base' ) . '|' . substr( $key, 0, self::KEY_ID_LENGTH ) ), 0, 16 );
 	}
 
 	/**

@@ -18,6 +18,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Walks `/v2/sitemap` (cursor pages of 500) per locale and stores the entries in chunks of one WordPress sitemap
  * page each (transients, kept for the stale window). Rebuilt when older than {@see REFRESH} — by the cron job, or
  * on the first sitemap request without a copy; if the API fails the previous copy stays in use.
+ *
+ * Each copy carries the agency fingerprint ({@see Settings::config_fingerprint()}): a copy built for another API base or
+ * wp-config key is never served nor kept as the "previous" copy (S10-F6), and {@see clear()} deletes it outright.
  */
 class SitemapIndex {
 
@@ -143,14 +146,16 @@ class SitemapIndex {
 		}
 
 		$previous = $this->meta( $locale );
+		$stored   = self::stored_meta( $locale ); // Also another agency's copy: its chunks go below.
 		$ttl      = (int) Settings::get( 'stale_days' ) * DAY_IN_SECONDS;
 		if ( ! $complete && null !== $previous ) {
 			// Keep serving the previous copy; try again in five minutes rather than on every run.
 			$previous['built'] = time() - self::REFRESH + 5 * MINUTE_IN_SECONDS;
+			$previous['fp']    = Settings::config_fingerprint(); // The current agency's copy (meta() checked it).
 			set_transient( self::PREFIX . $locale, $previous, $ttl );
 			return false;
 		}
-		$gen    = ( null !== $previous ? $previous['gen'] : 0 ) + 1;
+		$gen    = ( null !== $stored ? $stored['gen'] : 0 ) + 1;
 		$chunks = array_chunk( $entries, $this->chunk );
 		foreach ( $chunks as $n => $chunk ) {
 			set_transient( self::chunk_key( $locale, $gen, $n + 1 ), $chunk, $ttl );
@@ -163,13 +168,14 @@ class SitemapIndex {
 				// An incomplete first build is retried in five minutes.
 				'built' => $complete ? time() : time() - self::REFRESH + 5 * MINUTE_IN_SECONDS,
 				'gen'   => $gen,
+				'fp'    => Settings::config_fingerprint(),
 			),
 			$ttl
 		);
-		if ( null !== $previous ) {
+		if ( null !== $stored ) {
 			// One copy only: the previous generation's chunks go.
-			for ( $n = 1; $n <= $previous['pages']; $n++ ) {
-				delete_transient( self::chunk_key( $locale, $previous['gen'], $n ) );
+			for ( $n = 1; $n <= $stored['pages']; $n++ ) {
+				delete_transient( self::chunk_key( $locale, $stored['gen'], $n ) );
 			}
 		}
 		return $complete;
@@ -188,12 +194,45 @@ class SitemapIndex {
 	}
 
 	/**
-	 * The stored index metadata.
+	 * Deletes the stored index of each locale, whichever agency it was built for (a new API base or key). Also clears
+	 * a build lock so the next request rebuilds at once.
+	 *
+	 * @param string[] $locales Locales (the configured ones).
+	 */
+	public static function clear( array $locales ): void {
+		foreach ( $locales as $locale ) {
+			$locale = (string) $locale;
+			$meta   = self::stored_meta( $locale );
+			if ( null !== $meta ) {
+				for ( $n = 1; $n <= $meta['pages']; $n++ ) {
+					delete_transient( self::chunk_key( $locale, $meta['gen'], $n ) );
+				}
+			}
+			delete_transient( self::PREFIX . $locale );
+		}
+	}
+
+	/**
+	 * The stored index metadata of the current agency (a copy built for another fingerprint does not count).
 	 *
 	 * @param string $locale API locale.
 	 * @return array{pages:int,count:int,built:int,gen:int}|null
 	 */
 	private function meta( string $locale ): ?array {
+		$meta = get_transient( self::PREFIX . $locale );
+		if ( ! is_array( $meta ) || ( $meta['fp'] ?? null ) !== Settings::config_fingerprint() ) {
+			return null;
+		}
+		return self::stored_meta( $locale );
+	}
+
+	/**
+	 * The stored index metadata, whoever it was built for.
+	 *
+	 * @param string $locale API locale.
+	 * @return array{pages:int,count:int,built:int,gen:int}|null
+	 */
+	private static function stored_meta( string $locale ): ?array {
 		$meta = get_transient( self::PREFIX . $locale );
 		if ( ! is_array( $meta ) || ! isset( $meta['pages'], $meta['built'], $meta['gen'] ) ) {
 			return null;

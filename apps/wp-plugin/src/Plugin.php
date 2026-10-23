@@ -8,6 +8,7 @@
 namespace Inmolink\Plugin;
 
 use Inmolink\Plugin\Admin\Health;
+use Inmolink\Plugin\Admin\LegacyProxyNotice;
 use Inmolink\Plugin\Admin\SaltNotice;
 use Inmolink\Plugin\Admin\SettingsPage;
 use Inmolink\Plugin\Forms\LeadForm;
@@ -68,6 +69,7 @@ final class Plugin {
 		add_action( DeltaSync::HOOK, array( self::class, 'run_sync' ) );
 		add_action( 'init', array( self::class, 'init' ) );
 		add_action( 'plugins_loaded', array( Mirror::class, 'maybe_upgrade' ) );
+		ConfigGuard::register();
 		add_action( 'wp_initialize_site', array( Installer::class, 'initialize_site' ), 100 );
 		add_action( DeltaSync::HOOK, array( self::class, 'refresh_sitemaps' ), 20 );
 
@@ -84,6 +86,7 @@ final class Plugin {
 			( new SettingsPage() )->register();
 			Health::register();
 			SaltNotice::register();
+			LegacyProxyNotice::register();
 		}
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'inmolink', Cli::class );

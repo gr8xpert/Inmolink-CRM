@@ -132,8 +132,9 @@ class Cache {
 	}
 
 	/**
-	 * The transient name for a request (includes the cache generation, so {@see flush()} needs no table scan and
-	 * works with persistent object caches too).
+	 * The transient name for a request. Includes the cache generation, so {@see flush()} needs no table scan and
+	 * works with persistent object caches too, and the API base + wp-config key fingerprint, so answers cached for
+	 * another agency are never read even before the boot check flushes them (S10-F6).
 	 *
 	 * @param string              $path  API path.
 	 * @param array<string,mixed> $query Query values.
@@ -142,7 +143,7 @@ class Cache {
 	public static function key( string $path, array $query, int $offset = 0 ): string {
 		ksort( $query );
 		$generation = (int) get_option( self::GENERATION_OPTION, 1 ) + $offset;
-		return self::PREFIX . md5( $generation . '|' . $path . '?' . wp_json_encode( $query ) );
+		return self::PREFIX . md5( Settings::config_fingerprint() . '|' . $generation . '|' . $path . '?' . wp_json_encode( $query ) );
 	}
 
 	/**

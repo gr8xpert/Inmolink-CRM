@@ -8,7 +8,7 @@
 namespace Inmolink\Plugin\Admin;
 
 use Inmolink\Plugin\Api\Client;
-use Inmolink\Plugin\Cache\Cache;
+use Inmolink\Plugin\ConfigGuard;
 use Inmolink\Plugin\Forms\Turnstile;
 use Inmolink\Plugin\Mirror\Mirror;
 use Inmolink\Plugin\Settings;
@@ -123,14 +123,14 @@ final class SettingsPage {
 
 		if ( Settings::get( 'api_base' ) !== $before_base || Settings::api_key() !== $before_key ) {
 			// Another site's (or agency's) data must not keep rendering here, not even as a stale fallback.
-			DeltaSync::reset();
-			Cache::flush( false ); // A different agency: its predecessor's answers must not stay readable, not even as a stale fallback.
-			( new Mirror() )->truncate();
+			ConfigGuard::forget_agency(); // Also clears the back-offs.
 		} else {
 			// Rows of a removed locale are never synced again; new locales fill in on view and with the next changes.
 			( new Mirror() )->keep_locales( (array) Settings::get( 'locales' ) );
+			Client::reset_backoff();
 		}
-		Client::reset_backoff();
+		// The flush above covers this change: the next boot must not flush again (S10-F6).
+		ConfigGuard::remember();
 		return $notice;
 	}
 
@@ -173,7 +173,7 @@ final class SettingsPage {
 					<tr>
 						<th scope="row"><label for="inmolink-api-base"><?php esc_html_e( 'API URL', 'inmolink' ); ?></label></th>
 						<td>
-							<input type="url" class="regular-text" id="inmolink-api-base" name="inmolink[api_base]" value="<?php echo esc_attr( $settings['api_base'] ); ?>" <?php disabled( defined( 'INMOLINK_API_BASE' ) || ! self::can_change_api_base() ); ?> />
+							<input type="url" class="regular-text" id="inmolink-api-base" name="inmolink[api_base]" value="<?php echo esc_attr( $settings['api_base'] ); ?>" <?php disabled( null !== Settings::config_constant( 'INMOLINK_API_BASE' ) || ! self::can_change_api_base() ); ?> />
 							<p class="description"><?php esc_html_e( 'The Inmolink website API address given with your API key (https).', 'inmolink' ); ?></p>
 						</td>
 					</tr>

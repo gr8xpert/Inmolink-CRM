@@ -17,7 +17,7 @@ msgstr ""
 #. Plugin Name of the plugin
 #. Author of the plugin
 #: inmolink.php
-#: src/Admin/Health.php:166
+#: src/Admin/Health.php:172
 #: src/Admin/SettingsPage.php:51
 #: src/Admin/SettingsPage.php:52
 #: src/Admin/SettingsPage.php:166
@@ -30,181 +30,177 @@ msgid "Inmolink listings for WordPress, served from the Inmolink website API v2 
 msgstr ""
 
 #: src/Admin/Health.php:45
-#: src/Admin/Health.php:107
+#: src/Admin/Health.php:110
 msgid "Inmolink health"
 msgstr ""
 
-#: src/Admin/Health.php:79
+#: src/Admin/Health.php:82
 #: src/Admin/SettingsPage.php:157
 msgid "You do not have permission to access this page."
 msgstr ""
 
 #. translators: %s: human time difference, e.g. "5 mins".
-#: src/Admin/Health.php:84
+#: src/Admin/Health.php:87
 #: src/Admin/SettingsPage.php:352
 #, php-format
 msgid "%s ago"
 msgstr ""
 
-#: src/Admin/Health.php:87
+#: src/Admin/Health.php:90
 msgid "Plugin version"
 msgstr ""
 
-#: src/Admin/Health.php:88
+#: src/Admin/Health.php:91
 #: src/Admin/SettingsPage.php:250
 msgid "Configured"
 msgstr ""
 
-#: src/Admin/Health.php:88
-#: src/Admin/Health.php:89
+#: src/Admin/Health.php:91
+#: src/Admin/Health.php:92
 #: src/Admin/SettingsPage.php:250
 #: src/Admin/SettingsPage.php:254
 msgid "Yes"
 msgstr ""
 
-#: src/Admin/Health.php:88
+#: src/Admin/Health.php:91
 #: src/Admin/SettingsPage.php:250
 msgid "No"
 msgstr ""
 
-#: src/Admin/Health.php:89
+#: src/Admin/Health.php:92
 #: src/Admin/SettingsPage.php:254
 msgid "API reachable"
 msgstr ""
 
-#: src/Admin/Health.php:89
+#: src/Admin/Health.php:92
 msgid "Not configured"
 msgstr ""
 
-#: src/Admin/Health.php:89
+#: src/Admin/Health.php:92
 #: src/Admin/SettingsPage.php:254
 msgid "No — serving cached copies"
 msgstr ""
 
-#: src/Admin/Health.php:90
+#: src/Admin/Health.php:93
 msgid "Last successful sync"
 msgstr ""
 
-#: src/Admin/Health.php:90
+#: src/Admin/Health.php:93
 msgid "(stale)"
 msgstr ""
 
-#: src/Admin/Health.php:91
+#: src/Admin/Health.php:94
 msgid "Last sync run"
 msgstr ""
 
-#: src/Admin/Health.php:92
+#: src/Admin/Health.php:95
 #: src/Admin/SettingsPage.php:252
 msgid "Last sync error"
 msgstr ""
 
-#: src/Admin/Health.php:93
+#: src/Admin/Health.php:96
 msgid "Enquiry forms"
 msgstr ""
 
-#: src/Admin/Health.php:94
+#: src/Admin/Health.php:97
 msgid "On (site verifies Turnstile)"
 msgstr ""
 
-#: src/Admin/Health.php:95
+#: src/Admin/Health.php:98
 msgid "On (Inmolink verifies Turnstile)"
 msgstr ""
 
-#: src/Admin/Health.php:96
+#: src/Admin/Health.php:99
 msgid "Off — no Turnstile key"
 msgstr ""
 
-#: src/Admin/Health.php:97
+#: src/Admin/Health.php:100
 msgid "TEST MODE — Turnstile test keys (always pass)"
 msgstr ""
 
-#: src/Admin/Health.php:99
+#: src/Admin/Health.php:102
 msgid "Signed updates"
 msgstr ""
 
-#: src/Admin/Health.php:99
-#: src/Admin/Health.php:100
 #: src/Admin/Health.php:102
+#: src/Admin/Health.php:103
+#: src/Admin/Health.php:105
 msgid "On"
 msgstr ""
 
-#: src/Admin/Health.php:99
+#: src/Admin/Health.php:102
 msgid "Off — no update key pinned"
 msgstr ""
 
-#: src/Admin/Health.php:100
+#: src/Admin/Health.php:103
 msgid "Automatic updates"
 msgstr ""
 
-#: src/Admin/Health.php:100
+#: src/Admin/Health.php:103
 msgid "Off (Plugins screen)"
 msgstr ""
 
-#: src/Admin/Health.php:101
+#: src/Admin/Health.php:104
 msgid "Latest release"
 msgstr ""
 
-#: src/Admin/Health.php:102
+#: src/Admin/Health.php:105
 msgid "API address pinning"
 msgstr ""
 
-#: src/Admin/Health.php:102
-msgid "Off — the API address is checked before each request but not pinned (HTTP proxy or non-cURL transport)"
-msgstr ""
-
-#: src/Admin/Health.php:103
+#: src/Admin/Health.php:106
 msgid "Update server"
 msgstr ""
 
-#: src/Admin/Health.php:103
+#: src/Admin/Health.php:106
 msgid "WARNING: an older release was offered and refused"
 msgstr ""
 
-#: src/Admin/Health.php:103
+#: src/Admin/Health.php:106
 msgid "OK"
 msgstr ""
 
-#: src/Admin/Health.php:115
+#: src/Admin/Health.php:118
 msgid "Detail pages cached on this site"
 msgstr ""
 
-#: src/Admin/Health.php:117
+#: src/Admin/Health.php:120
 msgid "Locale"
 msgstr ""
 
-#: src/Admin/Health.php:117
+#: src/Admin/Health.php:120
 msgid "Pages"
 msgstr ""
 
-#: src/Admin/Health.php:117
+#: src/Admin/Health.php:120
 msgid "Oldest copy"
 msgstr ""
 
-#: src/Admin/Health.php:117
+#: src/Admin/Health.php:120
 msgid "Newest copy"
 msgstr ""
 
-#: src/Admin/Health.php:123
+#: src/Admin/Health.php:126
 msgid "None yet."
 msgstr ""
 
-#: src/Admin/Health.php:140
+#: src/Admin/Health.php:143
 msgid "Inmolink listings"
 msgstr ""
 
-#: src/Admin/Health.php:154
+#: src/Admin/Health.php:157
 msgid "Inmolink listings are up to date"
 msgstr ""
 
-#: src/Admin/Health.php:157
+#: src/Admin/Health.php:160
 msgid "Inmolink is not configured"
 msgstr ""
 
-#: src/Admin/Health.php:160
+#: src/Admin/Health.php:166
 msgid "Inmolink is serving cached listings (the API or the sync is behind)"
 msgstr ""
 
-#: src/Admin/Health.php:169
+#: src/Admin/Health.php:175
 msgid "See Settings → Inmolink health for the sync, cache and update status."
 msgstr ""
 
@@ -353,7 +349,7 @@ msgstr ""
 msgid "Sync did not finish; it will retry on the next run."
 msgstr ""
 
-#: src/Plugin.php:111
+#: src/Plugin.php:114
 msgid "Every five minutes (Inmolink)"
 msgstr ""
 
@@ -368,31 +364,31 @@ msgstr ""
 msgid "From %s"
 msgstr ""
 
-#: src/Updates/Updater.php:329
+#: src/Updates/Updater.php:337
 msgid "Refusing an Inmolink package that does not come from the Inmolink update server."
 msgstr ""
 
-#: src/Updates/Updater.php:337
+#: src/Updates/Updater.php:345
 msgid "Unknown Inmolink package."
 msgstr ""
 
-#: src/Updates/Updater.php:340
+#: src/Updates/Updater.php:348
 msgid "Refusing to install an older or equal Inmolink version."
 msgstr ""
 
-#: src/Updates/Updater.php:385
+#: src/Updates/Updater.php:397
 msgid "No Inmolink update key is pinned: updates are disabled."
 msgstr ""
 
-#: src/Updates/Updater.php:389
+#: src/Updates/Updater.php:401
 msgid "The Inmolink package does not match its checksum."
 msgstr ""
 
-#: src/Updates/Updater.php:392
+#: src/Updates/Updater.php:404
 msgid "The Inmolink package signature is not valid."
 msgstr ""
 
-#: src/Updates/Updater.php:434
+#: src/Updates/Updater.php:446
 msgid "Could not prepare the Inmolink update folder."
 msgstr ""
 
@@ -724,4 +720,24 @@ msgstr ""
 #: blocks/search/block.json
 msgctxt "block description"
 msgid "Search form for the site's listings; sends visitors to a results page."
+msgstr ""
+
+#: src/Admin/Health.php:105
+msgid "Off — this server has no cURL transport, so the API is not called: pages are served from the cache only"
+msgstr ""
+
+#: src/Admin/Health.php:105
+msgid "Off — requests go through an HTTP proxy, which resolves the API address (it is checked before each request but not pinned)"
+msgstr ""
+
+#: src/Admin/Health.php:163
+msgid "Inmolink serves cached listings only: this server has no cURL transport"
+msgstr ""
+
+#: src/Admin/LegacyProxyNotice.php:48
+msgid "Inmolink: INMOLINK_TRUSTED_PROXY_HEADER without INMOLINK_TRUSTED_PROXIES is deprecated and will stop being read in a future version. Add your proxy's address ranges to wp-config.php as INMOLINK_TRUSTED_PROXIES, so the visitor address is only read from requests your proxy forwarded."
+msgstr ""
+
+#: src/Updates/Updater.php:353
+msgid "The Inmolink update server address cannot be checked and pinned on this server."
 msgstr ""

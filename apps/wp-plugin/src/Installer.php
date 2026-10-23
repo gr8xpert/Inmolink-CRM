@@ -133,7 +133,7 @@ final class Installer {
 		if ( is_string( $host ) ) {
 			delete_transient( 'inmolink_dns_' . md5( strtolower( $host ) ) );
 		}
-		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION ) as $option ) {
+		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, ConfigGuard::OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION ) as $option ) {
 			delete_option( $option );
 		}
 		Client::reset_backoff();

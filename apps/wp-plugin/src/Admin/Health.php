@@ -48,11 +48,12 @@ final class Health {
 	/**
 	 * The report: what an operator needs to tell whether the site is serving fresh data.
 	 *
-	 * @return array{version:string,configured:bool,api_reachable:bool,last_sync:int,last_run:int,last_error:string,sync_stale:bool,mirror:array<string,array{rows:int,oldest:int,newest:int}>,turnstile:string,update_key:bool,auto_update:bool,latest_version:string,update_replay:string,api_pinning:bool}
+	 * @return array{version:string,configured:bool,api_reachable:bool,last_sync:int,last_run:int,last_error:string,sync_stale:bool,mirror:array<string,array{rows:int,oldest:int,newest:int}>,turnstile:string,update_key:bool,auto_update:bool,latest_version:string,update_replay:string,api_pinning:bool,api_cache_only:bool}
 	 */
 	public static function report(): array {
 		$state  = DeltaSync::state();
 		$replay = get_site_option( Updater::REPLAY_OPTION, array() );
+		$base   = Settings::is_configured() ? ApiGuard::check( (string) Settings::get( 'api_base' ) ) : null;
 		return array(
 			'version'        => VERSION,
 			'configured'     => Settings::is_configured(),
@@ -67,6 +68,8 @@ final class Health {
 			'auto_update'    => in_array( plugin_basename( \Inmolink\Plugin\PLUGIN_FILE ), (array) get_site_option( 'auto_update_plugins', array() ), true ),
 			'latest_version' => Updater::cached_version(),
 			'api_pinning'    => ApiGuard::pin_effective(),
+			// The API address needs a pin the transport cannot apply (no cURL), so the API is never called (S10-F6).
+			'api_cache_only' => null !== $base && $base['ok'] && ! ApiGuard::can_call( $base ),
 			'update_replay'  => is_array( $replay ) && isset( $replay['offered'], $replay['highest'] ) ? sprintf( '%s < %s', (string) $replay['offered'], (string) $replay['highest'] ) : '',
 		);
 	}
@@ -99,7 +102,7 @@ final class Health {
 			__( 'Signed updates', 'inmolink' )       => $r['update_key'] ? __( 'On', 'inmolink' ) : __( 'Off — no update key pinned', 'inmolink' ),
 			__( 'Automatic updates', 'inmolink' )    => $r['auto_update'] ? __( 'On', 'inmolink' ) : __( 'Off (Plugins screen)', 'inmolink' ),
 			__( 'Latest release', 'inmolink' )       => '' !== $r['latest_version'] ? $r['latest_version'] : '—',
-			__( 'API address pinning', 'inmolink' )  => $r['api_pinning'] ? __( 'On', 'inmolink' ) : __( 'Off — the API address is checked before each request but not pinned (HTTP proxy or non-cURL transport)', 'inmolink' ),
+			__( 'API address pinning', 'inmolink' )  => $r['api_pinning'] ? __( 'On', 'inmolink' ) : ( $r['api_cache_only'] ? __( 'Off — this server has no cURL transport, so the API is not called: pages are served from the cache only', 'inmolink' ) : __( 'Off — requests go through an HTTP proxy, which resolves the API address (it is checked before each request but not pinned)', 'inmolink' ) ),
 			__( 'Update server', 'inmolink' )        => '' !== $r['update_replay'] ? __( 'WARNING: an older release was offered and refused', 'inmolink' ) . ' (' . $r['update_replay'] . ')' : __( 'OK', 'inmolink' ),
 		);
 		?>
@@ -155,6 +158,9 @@ final class Health {
 		if ( ! $r['configured'] ) {
 			$status = 'critical';
 			$label  = __( 'Inmolink is not configured', 'inmolink' );
+		} elseif ( $r['api_cache_only'] ) {
+			$status = 'critical';
+			$label  = __( 'Inmolink serves cached listings only: this server has no cURL transport', 'inmolink' );
 		} elseif ( ! $r['api_reachable'] || $r['sync_stale'] ) {
 			$status = 'recommended';
 			$label  = __( 'Inmolink is serving cached listings (the API or the sync is behind)', 'inmolink' );

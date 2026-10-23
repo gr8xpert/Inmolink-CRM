@@ -99,6 +99,10 @@ class Client {
 			}
 			return new Response( Response::FAILED, 0, null, null, $checked['error'] );
 		}
+		if ( ! ApiGuard::can_call( $checked ) ) {
+			// The transport cannot pin the API address (streams): no call at all, the cache answers (S10-F6).
+			return new Response( Response::FAILED, 0, null, null, 'unpinned' );
+		}
 
 		$headers = array(
 			'Accept'     => 'application/json',
@@ -171,6 +175,9 @@ class Client {
 		$checked = ApiGuard::check( $this->base );
 		if ( ! $checked['ok'] ) {
 			return new Response( Response::FAILED, 0, null, null, $checked['error'] );
+		}
+		if ( ! ApiGuard::can_call( $checked ) ) {
+			return new Response( Response::FAILED, 0, null, null, 'unpinned' );
 		}
 		$raw = ApiGuard::pinned(
 			$checked,

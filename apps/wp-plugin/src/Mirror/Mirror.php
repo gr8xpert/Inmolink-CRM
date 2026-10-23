@@ -109,12 +109,14 @@ class Mirror {
 
 	/**
 	 * Deletes every row (new API key or endpoint).
+	 *
+	 * @return bool Whether the delete succeeded.
 	 */
-	public function truncate(): void {
+	public function truncate(): bool {
 		global $wpdb;
 		$table = self::table();
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table, name from $wpdb->prefix.
-		$wpdb->query( "DELETE FROM {$table}" );
+		return false !== $wpdb->query( "DELETE FROM {$table}" );
 	}
 
 	/**
