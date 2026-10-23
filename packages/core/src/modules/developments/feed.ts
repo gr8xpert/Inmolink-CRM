@@ -132,17 +132,51 @@ export async function importFeedDevelopments(
   } catch (err) {
     if (!(feedDataError(err) instanceof AppError)) throw err;
   }
-  // The batch write failed (one development's data): each development again, alone in its own savepoint.
-  for (const input of todo) {
+  // The batch write failed (some development's data): halve it and retry each half in its own savepoint (the failing half is split again), so one bad
+  // development among n costs O(log n) attempts, not n.
+  await bisect(ctx, todo, total);
+  return total;
+}
+
+async function bisect(
+  ctx: Ctx,
+  failing: readonly FeedDevelopmentInput[],
+  total: FeedDevelopmentsResult,
+): Promise<void> {
+  // The write of `list` in its own savepoint: null when stored, else the AppError the data failed with.
+  const attempt = async (list: readonly FeedDevelopmentInput[]): Promise<AppError | null> => {
     try {
-      addInto(total, await ctx.tx.transaction((sp) => writeBatch({ ...ctx, tx: sp }, [input])));
+      addInto(total, await ctx.tx.transaction((sp) => writeBatch({ ...ctx, tx: sp }, list)));
+      return null;
     } catch (err) {
       const appError = feedDataError(err);
       if (!(appError instanceof AppError)) throw err;
-      total.skipped.set(input.ref, appError.code);
+      return appError;
     }
+  };
+  // Never-tried items: the second halves of failing first halves, stored together once the bad one is found.
+  let pending: FeedDevelopmentInput[] = [];
+  // `list` is known to fail: one half is tried; if it stores, the failure is in the other half (no attempt on it).
+  const split = async (list: readonly FeedDevelopmentInput[]): Promise<void> => {
+    const only = list[0];
+    if (list.length === 1 && only) {
+      const failed = await attempt(list);
+      if (failed) total.skipped.set(only.ref, failed.code);
+      return;
+    }
+    const mid = Math.ceil(list.length / 2);
+    const first = list.slice(0, mid);
+    const second = list.slice(mid);
+    if ((await attempt(first)) === null) return split(second);
+    pending.push(...second);
+    return split(first);
+  };
+  await split(failing);
+  while (pending.length > 0) {
+    const batch = pending;
+    pending = [];
+    if ((await attempt(batch)) !== null) await split(batch);
   }
-  return total;
 }
 
 interface Plan {

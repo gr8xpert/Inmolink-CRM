@@ -23,6 +23,9 @@ export const MAX_EVENT_PAYLOAD_BYTES = 10_240;
  */
 export const EMIT_CHUNK_ROWS = 10_000;
 
+/** Payload bytes per insert statement: 10k events of 10 KB would otherwise be one ~100 MB statement. */
+export const EMIT_CHUNK_BYTES = 8 * 1024 * 1024;
+
 function agencyOf(message: OutboxMessage, options: EmitOptions): string | null {
   const p = message.payload as { agencyId?: unknown } | null;
   const fromPayload = p && typeof p === 'object' && typeof p.agencyId === 'string' ? p.agencyId : null;
@@ -45,8 +48,13 @@ export async function emit(
 ): Promise<void> {
   const messages = Array.isArray(message) ? message : [message as OutboxMessage];
   if (messages.length === 0) return;
+  const json: string[] = [];
+  const sizes: number[] = [];
   for (const m of messages) {
-    const bytes = Buffer.byteLength(JSON.stringify(m.payload));
+    const text = JSON.stringify(m.payload);
+    const bytes = Buffer.byteLength(text);
+    json.push(text);
+    sizes.push(bytes);
     if (bytes > MAX_EVENT_PAYLOAD_BYTES) {
       throw new TypeError(`emit ${m.type}: payload is ${bytes} bytes (max ${MAX_EVENT_PAYLOAD_BYTES}); carry IDs only`);
     }
@@ -55,8 +63,21 @@ export async function emit(
   // One bind parameter per column (`unnest` of arrays, S8-F3): a statement per 10,000 events, not per 1,000 rows of
   // six parameters each — a feed batch's events (thousands) are one statement.
   const array = (values: readonly unknown[], type: string) => sql`${sql.param(values)}::${sql.raw(type)}[]`;
-  for (let i = 0; i < messages.length; i += EMIT_CHUNK_ROWS) {
-    const chunk = messages.slice(i, i + EMIT_CHUNK_ROWS);
+  let i = 0;
+  while (i < messages.length) {
+    let end = i;
+    let bytes = 0;
+    while (
+      end < messages.length &&
+      end - i < EMIT_CHUNK_ROWS &&
+      (end === i || bytes + (sizes[end] ?? 0) <= EMIT_CHUNK_BYTES)
+    ) {
+      bytes += sizes[end] ?? 0;
+      end++;
+    }
+    const chunk = messages.slice(i, end);
+    const chunkJson = json.slice(i, end);
+    i = end;
     await tx.execute(
       sql`insert into outbox_events (id, agency_id, type, version, payload, trace_parent)
           select v.id, coalesce(v.agency_id, nullif(current_setting('app.agency_id', true), '')::uuid, ${PLATFORM_AGENCY_ID}::uuid),
@@ -73,10 +94,7 @@ export async function emit(
             )}, ${array(
               chunk.map((m) => m.version),
               'integer',
-            )}, ${array(
-              chunk.map((m) => JSON.stringify(m.payload)),
-              'jsonb',
-            )}) as v(id, agency_id, type, version, payload)`,
+            )}, ${array(chunkJson, 'jsonb')}) as v(id, agency_id, type, version, payload)`,
     );
   }
 }

@@ -189,6 +189,20 @@ describe('feed developments (S8-F3)', () => {
         from developments d where d.agency_id = ${owner.agencyId} and d.ref like ${`F-%-${RUN}`}`);
     expect(stored).toEqual([{ ref: good.ref, units: 2 }]);
   });
+  it.each([0, 321, 499])(
+    '[S9-F4] one bad development in 500 (at %i) is found by halving: at most 7 x log2(500) statements',
+    (position) =>
+      rolledBack(async (ctx) => {
+        const inputs = batch('H', 500, 1);
+        const bad = inputs[position] as developments.FeedDevelopmentInput;
+        inputs[position] = { ...bad, units: [{ ...unit('U1', 1), propertyTypeId: newId() }] };
+        const r = await run(inputs, ctx);
+        expect([...r.result.skipped]).toEqual([[bad.ref, 'VALIDATION_FAILED']]);
+        expect(r.result.developments.created).toBe(499);
+        expect(r.statements).toBeLessThanOrEqual(Math.ceil(7 * Math.log2(500)));
+      }),
+  );
+
   it('[S8-F3] only AVAILABLE units the feed created are withdrawn: an omitted SOLD unit and a hand-added unit stay; a truncated list withdraws nothing', async () => {
     const ref = code('K');
     const dev = (units: developments.FeedUnitInput[]): developments.FeedDevelopmentInput => ({

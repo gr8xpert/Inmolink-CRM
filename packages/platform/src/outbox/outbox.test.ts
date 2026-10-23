@@ -1,6 +1,8 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineEvent, SubscriberRegistry } from './index';
+import { defineEvent, EMIT_CHUNK_BYTES, emit, SubscriberRegistry } from './index';
 
 const updated = defineEvent(
   'properties.listing.updated',
@@ -34,5 +36,29 @@ describe('outbox events', () => {
     expect(reg.get(updated.type, 2).map((s) => s.name)).toEqual(['v2-consumer']);
     off();
     expect(reg.get(updated.type, 1)).toHaveLength(0);
+  });
+});
+
+describe('emit chunking', () => {
+  it('[S9-F4] 10k 10 KB payloads are emitted in at least 13 statements, none over the byte cap', async () => {
+    const dialect = new PgDialect();
+    const statements: number[] = [];
+    const tx = {
+      execute: async (q: SQL) => {
+        const { params } = dialect.sqlToQuery(q);
+        const payloads = params.find((p) => Array.isArray(p) && typeof p[0] === 'string' && p[0].startsWith('{')) as
+          | string[]
+          | undefined;
+        statements.push((payloads ?? []).reduce((n, t) => n + Buffer.byteLength(t), 0));
+        return { rows: [] };
+      },
+    };
+    const big = defineEvent('a.big', 1, z.object({ blob: z.string() }));
+    const blob = 'x'.repeat(10_240 - '{"blob":""}'.length);
+    const messages = Array.from({ length: 10_000 }, () => big({ blob }));
+    await emit(tx as never, messages);
+    expect(statements.length).toBeGreaterThanOrEqual(13);
+    expect(Math.max(...statements)).toBeLessThanOrEqual(EMIT_CHUNK_BYTES);
+    expect(statements.reduce((a, b) => a + b, 0)).toBe(10_000 * 10_240);
   });
 });

@@ -35,7 +35,12 @@ let latest: { at: number; info: PluginUpdateInfo | null } | null = null;
 /** Forgets the cached manifest (tests, or right after a publish in the same process). */
 export function resetPluginReleaseCache(): void {
   latest = null;
+  unknownVersions.clear();
 }
+
+/** Versions with no release, with the time they were found missing: made-up versions cost one storage read a minute. */
+const unknownVersions = new Map<string, number>();
+const UNKNOWN_VERSIONS_MAX = 1_000;
 
 /** A stored manifest, or null when it is not valid JSON in the manifest shape (an operator error: "no release"). */
 function parseManifest(raw: Uint8Array | null): PluginReleaseManifest | null {
@@ -72,8 +77,17 @@ export async function latestPluginRelease(): Promise<PluginUpdateInfo> {
 /** `GET /v2/plugin/package/{version}`: the release's zip as a stream, with its manifest (ETag = SHA-256). */
 export async function pluginPackage(version: string): Promise<{ manifest: PluginReleaseManifest; body: Readable }> {
   const keys = pluginReleaseKeys(version);
+  const now = clock.nowMs();
+  const missedAt = unknownVersions.get(version);
+  if (missedAt !== undefined && now - missedAt < PLUGIN_RELEASE_CACHE_SECONDS * 1000) {
+    throw new AppError('PLUGIN_RELEASE_NOT_FOUND');
+  }
   const manifest = await readManifest(keys.manifest);
-  if (!manifest || manifest.version !== version) throw new AppError('PLUGIN_RELEASE_NOT_FOUND');
+  if (!manifest || manifest.version !== version) {
+    if (unknownVersions.size >= UNKNOWN_VERSIONS_MAX) unknownVersions.clear();
+    unknownVersions.set(version, now);
+    throw new AppError('PLUGIN_RELEASE_NOT_FOUND');
+  }
   const body = await storage().getStream(PLUGIN_RELEASE_BUCKET, keys.zip, { maxBytes: PLUGIN_PACKAGE_MAX_BYTES });
   if (!body) throw new AppError('PLUGIN_RELEASE_NOT_FOUND');
   return { manifest, body };

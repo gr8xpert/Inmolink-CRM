@@ -13,6 +13,7 @@ export {
   type RunSystem,
 } from './dispatcher';
 export {
+  EMIT_CHUNK_BYTES,
   type EmitOptions,
   emit,
   emitFrom,

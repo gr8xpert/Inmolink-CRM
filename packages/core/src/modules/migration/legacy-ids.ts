@@ -11,6 +11,7 @@
  */
 import { withPublicRead } from '@inmolink/db';
 import { LocalLru } from '@inmolink/platform/cache';
+import { clock } from '@inmolink/platform/clock';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import type { SQL } from 'drizzle-orm';
 import * as repo from './repo';
@@ -56,7 +57,7 @@ function loadTaxonomy(): Promise<LegacyTaxonomy> {
       newId: (entity: TaxonomyEntity, legacyId: string) => forward.get(`${entity}:${legacyId}`),
       legacyIdOf: (newId: string) => reverse.get(newId),
       size: forward.size,
-      loadedAt: Date.now(),
+      loadedAt: clock.nowMs(),
     };
     taxonomy = next;
     return next;
@@ -73,7 +74,7 @@ function loadTaxonomy(): Promise<LegacyTaxonomy> {
 export async function legacyTaxonomy(): Promise<LegacyTaxonomy> {
   const current = taxonomy;
   if (!current) return loadTaxonomy();
-  if (Date.now() - current.loadedAt > LEGACY_TAXONOMY_REFRESH_MS && !loading) {
+  if (clock.nowMs() - current.loadedAt > LEGACY_TAXONOMY_REFRESH_MS && !loading) {
     loadTaxonomy().catch((err: unknown) => {
       logger().warn({ error: err instanceof Error ? err.name : typeof err }, 'legacy taxonomy reload failed');
     });

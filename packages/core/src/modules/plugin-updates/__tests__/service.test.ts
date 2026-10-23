@@ -1,7 +1,8 @@
 import { createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { pluginSigningMessage } from '@inmolink/contracts';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   latestPluginRelease,
   PLUGIN_LATEST_KEY,
@@ -29,6 +30,11 @@ describe('plugin update server (S8-05)', () => {
     store = createMemoryStore();
     configureStorage(store);
     resetPluginReleaseCache();
+  });
+
+  afterEach(() => {
+    restoreClock();
+    vi.restoreAllMocks();
   });
 
   it('[S8-05] a published release is signed over slug, version and SHA-256, and offered as the latest', async () => {
@@ -135,6 +141,20 @@ describe('plugin update server (S8-05)', () => {
     });
     resetPluginReleaseCache();
     await expect(latestPluginRelease()).rejects.toMatchObject({ code: 'PLUGIN_RELEASE_NOT_FOUND' });
+  });
+
+  it('[S9-F4] 50 requests for an unknown version make one storage read; a version published since is found after the minute', async () => {
+    const clockStart = useFakeClock();
+    const get = vi.spyOn(store, 'get');
+    for (let i = 0; i < 50; i++) {
+      await expect(pluginPackage('7.7.7')).rejects.toMatchObject({ code: 'PLUGIN_RELEASE_NOT_FOUND' });
+    }
+    expect(get).toHaveBeenCalledTimes(1);
+    await publishPluginRelease(store, zip('7.7.7'), input('7.7.7'), signer);
+    clockStart.advance(59_000);
+    await expect(pluginPackage('7.7.7')).rejects.toMatchObject({ code: 'PLUGIN_RELEASE_NOT_FOUND' });
+    clockStart.advance(2_000);
+    expect((await pluginPackage('7.7.7')).manifest.version).toBe('7.7.7');
   });
 
   it('[S8-05] a damaged release is never overwritten; the same commit re-zipped is the same release', async () => {
