@@ -34,6 +34,19 @@ export interface PutOptions {
   cacheControl?: string;
 }
 
+/**
+ * A precondition on a write (S8-F30): `ifNoneMatch: '*'` creates the object only when the key is free; `ifMatch` replaces
+ * it only while it still has this ETag (as `head` returned it). S3, R2 and MinIO answer 412 (or 409 while another
+ * conditional write to the key is in flight) when the precondition does not hold.
+ */
+export type PutCondition = { ifNoneMatch: '*' } | { ifMatch: string };
+
+export interface ObjectHead {
+  sizeBytes: number;
+  /** The store's ETag, quoted as on the wire (`"…"`): what `PutCondition.ifMatch` expects. */
+  etag: string;
+}
+
 export interface GetOptions {
   /** Refuse (`StorageError`, status 413) an object larger than this, without reading it into memory. */
   maxBytes: number;
@@ -122,6 +135,17 @@ export interface UploadOptions extends PutOptions {
 
 export interface ObjectStore {
   put(bucket: BucketName, key: string, body: Uint8Array, options: PutOptions): Promise<void>;
+  /**
+   * A conditional write (S8-F30: two releases racing on `latest.json`): true when written, false when the
+   * `condition` does not hold (the object is untouched). Other failures throw.
+   */
+  putIf(
+    bucket: BucketName,
+    key: string,
+    body: Uint8Array,
+    options: PutOptions,
+    condition: PutCondition,
+  ): Promise<boolean>;
   /** A streamed write (`ObjectUpload`); call `complete()` or `abort()`. */
   upload(bucket: BucketName, key: string, options: UploadOptions): ObjectUpload;
   /**
@@ -139,8 +163,8 @@ export interface ObjectStore {
   copy(bucket: BucketName, fromKey: string, toKey: string): Promise<void>;
   /** Idempotent: deleting a missing object succeeds. */
   delete(bucket: BucketName, key: string): Promise<void>;
-  /** Size of the object, or null when it does not exist. */
-  head(bucket: BucketName, key: string): Promise<{ sizeBytes: number } | null>;
+  /** Size and ETag of the object, or null when it does not exist. */
+  head(bucket: BucketName, key: string): Promise<ObjectHead | null>;
   /**
    * One page of objects whose key starts with `prefix` (key order), at most `limit` (1–1000). Pass the
    * previous page's `next` as `after` to continue; `next` is null on the last page.
@@ -346,22 +370,41 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     }
   };
 
+  const putObject = async (
+    bucket: BucketName,
+    key: string,
+    body: Uint8Array,
+    options: PutOptions,
+    condition: PutCondition | undefined,
+  ): Promise<boolean> => {
+    const res = await send(urlOf(bucket, key), {
+      method: 'PUT',
+      ...lengthBody(body),
+      headers: {
+        'content-type': options.contentType,
+        ...(options.cacheControl ? { 'cache-control': assertCacheControl(options.cacheControl) } : {}),
+        'content-length': String(body.byteLength),
+        // Signed payload hash: the store rejects a body altered in transit.
+        'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
+        ...(condition && 'ifNoneMatch' in condition ? { 'if-none-match': condition.ifNoneMatch } : {}),
+        ...(condition && 'ifMatch' in condition ? { 'if-match': assertEtag(condition.ifMatch) } : {}),
+      },
+    });
+    // 412: the precondition failed; 409: another conditional write to the key is in flight (S3 ConditionalRequestConflict).
+    if (condition && (res.status === 412 || res.status === 409)) {
+      await res.body?.cancel();
+      return false;
+    }
+    if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
+    await res.body?.cancel();
+    return true;
+  };
+
   return {
     async put(bucket, key, body, options) {
-      const res = await send(urlOf(bucket, key), {
-        method: 'PUT',
-        ...lengthBody(body),
-        headers: {
-          'content-type': options.contentType,
-          ...(options.cacheControl ? { 'cache-control': assertCacheControl(options.cacheControl) } : {}),
-          'content-length': String(body.byteLength),
-          // Signed payload hash: the store rejects a body altered in transit.
-          'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
-        },
-      });
-      if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
-      await res.body?.cancel();
+      await putObject(bucket, key, body, options, undefined);
     },
+    putIf: (bucket, key, body, options, condition) => putObject(bucket, key, body, options, condition),
     upload(bucket, key, options) {
       const target = urlOf(bucket, key);
       const meta = {
@@ -545,7 +588,8 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       const res = await send(urlOf(bucket, key), { method: 'HEAD' });
       if (res.status === 404) return null;
       if (!res.ok) throw new StorageError(`storage HEAD failed (${res.status})`, res.status);
-      return { sizeBytes: Number(res.headers.get('content-length') ?? 0) };
+      await res.body?.cancel();
+      return { sizeBytes: Number(res.headers.get('content-length') ?? 0), etag: res.headers.get('etag') ?? '' };
     },
     async list(bucket, prefix, options) {
       assertListPrefix(prefix);
@@ -629,6 +673,14 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
   };
 }
 
+const memoryEtag = (body: Uint8Array) => `"${createHash('md5').update(body).digest('hex')}"`;
+
+/** An ETag as `head` returns it, safe to send in a header. */
+function assertEtag(etag: string): string {
+  if (!/^(W\/)?"[!#-~]+"$/.test(etag)) throw new StorageError('storage: invalid ETag');
+  return etag;
+}
+
 /** In-memory store for unit tests. Signed URLs are fake (`memory://…`). */
 export interface MemoryStore extends ObjectStore {
   readonly objects: Map<string, { body: Uint8Array; contentType: string; lastModified: Date }>;
@@ -645,6 +697,14 @@ export function createMemoryStore(): MemoryStore {
     async put(bucket, key, body, options) {
       if (options.cacheControl) assertCacheControl(options.cacheControl);
       objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType, lastModified: new Date() });
+    },
+    async putIf(bucket, key, body, options, condition) {
+      if (options.cacheControl) assertCacheControl(options.cacheControl);
+      const current = objects.get(id(bucket, key));
+      if ('ifNoneMatch' in condition ? current : !current || memoryEtag(current.body) !== condition.ifMatch)
+        return false;
+      objects.set(id(bucket, key), { body: body.slice(), contentType: options.contentType, lastModified: new Date() });
+      return true;
     },
     upload(bucket, key, options) {
       const target = id(bucket, key);
@@ -697,7 +757,7 @@ export function createMemoryStore(): MemoryStore {
     },
     async head(bucket, key) {
       const o = objects.get(id(bucket, key));
-      return o ? { sizeBytes: o.body.byteLength } : null;
+      return o ? { sizeBytes: o.body.byteLength, etag: memoryEtag(o.body) } : null;
     },
     async list(bucket, prefix, options) {
       assertListPrefix(prefix);

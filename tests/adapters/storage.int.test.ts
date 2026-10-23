@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { PLUGIN_LATEST_KEY, pluginReleaseKeys, publishPluginRelease } from '@inmolink/core/modules/plugin-updates';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { loadConfig, storageEnv } from '@inmolink/platform/config';
 import { newId } from '@inmolink/platform/ids';
@@ -12,6 +13,9 @@ import {
   storageConfigFromEnv,
 } from '@inmolink/platform/storage';
 import { beforeAll, describe, expect, it } from 'vitest';
+
+const RACE = randomBytes(4).toString('hex');
+const RACEN = Number.parseInt(RACE, 16) % 9_000;
 
 let store: ObjectStore;
 let endpoint = '';
@@ -121,7 +125,7 @@ describe('storage (MinIO as R2)', () => {
     const key = `test/${newId()}`;
     const body = new TextEncoder().encode('%PDF-1.7 test document');
     await store.put('private', key, body, { contentType: 'application/pdf' });
-    expect(await store.head('private', key)).toEqual({ sizeBytes: body.byteLength });
+    expect(await store.head('private', key)).toMatchObject({ sizeBytes: body.byteLength });
 
     const url = await store.signedGetUrl('private', key, { expiresInSeconds: 60, downloadName: 'cif.pdf' });
     const res = await fetch(url);
@@ -153,6 +157,61 @@ describe('storage (MinIO as R2)', () => {
       expect((await fetch(`${endpoint}/${privateBucket}/`)).status).toBe(403);
     } finally {
       await store.delete('private', key);
+    }
+  });
+
+  it('[S8-F30] a conditional put creates only a free key and replaces only the ETag it was given', async () => {
+    const key = `test/${newId()}`;
+    const text = (t: string) => new TextEncoder().encode(t);
+    const opts = { contentType: 'text/plain' };
+    try {
+      expect(await store.putIf('exports', key, text('one'), opts, { ifNoneMatch: '*' })).toBe(true);
+      expect(await store.putIf('exports', key, text('two'), opts, { ifNoneMatch: '*' })).toBe(false);
+      const first = await store.head('exports', key);
+      expect(first?.etag).toMatch(/^"[^"]+"$/);
+      expect(await store.putIf('exports', key, text('three'), opts, { ifMatch: `"${'0'.repeat(32)}"` })).toBe(false);
+      expect(await store.putIf('exports', key, text('four'), opts, { ifMatch: first?.etag ?? '' })).toBe(true);
+      // The ETag moved on: the old one no longer matches.
+      expect(await store.putIf('exports', key, text('five'), opts, { ifMatch: first?.etag ?? '' })).toBe(false);
+      expect(new TextDecoder().decode((await store.get('exports', key, { maxBytes: 100 })) ?? undefined)).toBe('four');
+    } finally {
+      await store.delete('exports', key);
+    }
+  });
+
+  it('[S8-F30] two concurrent releases leave latest.json at the higher version', async () => {
+    const signer = () => new Uint8Array(64).fill(7);
+    const input = (version: string) => ({
+      version,
+      requires: '6.4',
+      requiresPhp: '8.1',
+      tested: '6.8',
+      commit: 'c'.repeat(40),
+    });
+    const zip = (version: string) => new TextEncoder().encode(`PK ${version} ${RACE}`);
+    const latest = async () =>
+      JSON.parse(
+        new TextDecoder().decode((await store.get('feeds', PLUGIN_LATEST_KEY, { maxBytes: 1e6 })) ?? undefined),
+      ).version as string;
+    // A version no real release uses, so the keys are this run's own; `latest.json` is the one shared key.
+    const lo = `97.${RACEN}.1`;
+    const hi = `97.${RACEN}.2`;
+    const versions = [lo, hi];
+    await store.delete('feeds', PLUGIN_LATEST_KEY);
+    try {
+      for (let round = 0; round < 6; round++) {
+        await store.delete('feeds', PLUGIN_LATEST_KEY);
+        // Alternate which release is started first; both run at once.
+        const order = round % 2 === 0 ? versions : [...versions].reverse();
+        await Promise.all(order.map((v) => publishPluginRelease(store, zip(v), input(v), signer)));
+        expect(await latest()).toBe(hi);
+      }
+    } finally {
+      await store.delete('feeds', PLUGIN_LATEST_KEY);
+      for (const v of versions) {
+        await store.delete('feeds', pluginReleaseKeys(v).zip);
+        await store.delete('feeds', pluginReleaseKeys(v).manifest);
+      }
     }
   });
 });

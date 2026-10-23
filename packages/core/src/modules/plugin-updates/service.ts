@@ -8,7 +8,7 @@ import {
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
-import { type ObjectStore, storage } from '@inmolink/platform/storage';
+import { type ObjectStore, type PutCondition, storage } from '@inmolink/platform/storage';
 
 /**
  * WordPress plugin update server (S8-05, PLAN §9.4). Platform-wide and tenant-less (the same release for every site),
@@ -159,17 +159,39 @@ export async function publishPluginRelease(
     });
   }
 
-  // One release at a time (an operator task): the read-compare-write below is not atomic.
-  const current = parseManifest(
-    await store.get(PLUGIN_RELEASE_BUCKET, PLUGIN_LATEST_KEY, { maxBytes: MANIFEST_MAX_BYTES }),
-  );
-  if (!current || compareVersions(stored.version, current.version) >= 0) {
-    await store.put(PLUGIN_RELEASE_BUCKET, PLUGIN_LATEST_KEY, new TextEncoder().encode(JSON.stringify(stored)), {
-      contentType: 'application/json',
-      cacheControl: 'no-cache',
-    });
-  }
+  await pointLatestAt(store, stored);
   return stored;
+}
+
+/** Attempts at the compare-and-set of `latest.json` before giving up (each retry means another release won the race). */
+const LATEST_ATTEMPTS = 8;
+
+/**
+ * Moves `latest.json` to `release` unless it already names a higher version (S8-F30). Two releases running at once
+ * cannot lose the higher one: each write is conditional on the ETag of the `latest.json` it compared against (or on
+ * its absence), and a lost race re-reads and compares again.
+ */
+async function pointLatestAt(store: ObjectStore, release: PluginReleaseManifest): Promise<void> {
+  const body = new TextEncoder().encode(JSON.stringify(release));
+  for (let attempt = 0; attempt < LATEST_ATTEMPTS; attempt++) {
+    // Head before get: the content read is at least as new as the ETag the write is conditional on.
+    const head = await store.head(PLUGIN_RELEASE_BUCKET, PLUGIN_LATEST_KEY);
+    const raw = head
+      ? await store.get(PLUGIN_RELEASE_BUCKET, PLUGIN_LATEST_KEY, { maxBytes: MANIFEST_MAX_BYTES })
+      : null;
+    const current = parseManifest(raw);
+    if (current && compareVersions(release.version, current.version) < 0) return;
+    const condition: PutCondition = head ? { ifMatch: head.etag } : { ifNoneMatch: '*' };
+    const written = await store.putIf(
+      PLUGIN_RELEASE_BUCKET,
+      PLUGIN_LATEST_KEY,
+      body,
+      { contentType: 'application/json', cacheControl: 'no-cache' },
+      condition,
+    );
+    if (written) return;
+  }
+  throw new Error(`latest.json kept changing under ${release.version}; run the release again`);
 }
 
 /** `major.minor.patch` comparison (-1, 0, 1). */

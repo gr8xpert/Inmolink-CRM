@@ -1118,6 +1118,7 @@ Ref §13 · Mod media, worker · Dep S6-F5
 - `[S4-F2]` / `[S3-04]` in `tests/perf/media-processing.int.test.ts` now peak at 460–530 MB on CI (370–500 MB on 2026-10-17…20; idle RSS flat at ~146 MB), so a normal run crosses 512 MB about one time in four (failed on 8f1d11e, 622b1c8, 5622153, 3288d64 twice). Find what raised the burst peak — first suspect e9d6d86 (S6-F5: large originals decoded alone, V8 sizing), then a9a40cb, fcaefaf, 5d2904c — by comparing peaks on Linux (`node:24.15.0-bookworm`, `--cpuset-cpus=0-3`), and restore real headroom under 512 MB without raising the budget.
 **Done when:**
 - The burst peak is ≤ 470 MB on 5 consecutive CI runs (test)
+- **Manual CI check (S9-F6):** the test asserts only the 512 MB budget; after each CI run read `[S8-F7] (target ≤ 470 MB, budget 512 MB)` from the `[S3-04]` burst log of `tests/perf/media-processing.int.test.ts` and record the peak — done after 5 consecutive runs at or below 470 MB.
 
 ### S8-F8 · Widget: natural-language search and lead form (S8-06)
 Ref §9.5 · Mod sdk, website-api · Dep S8-06

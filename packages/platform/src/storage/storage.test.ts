@@ -300,4 +300,51 @@ describe('storage list (S1-F7)', () => {
     expect(second.objects.map((o) => o.key)).toEqual(['verification/b/1']);
     expect(second.next).toBeNull();
   });
+
+  it('[S8-F30] the memory store honours If-None-Match and If-Match, and the S3 store sends them (412 / 409: not written)', async () => {
+    const mem = createMemoryStore();
+    const opts = { contentType: 'text/plain' };
+    expect(await mem.putIf('work', 'k', new Uint8Array([1]), opts, { ifNoneMatch: '*' })).toBe(true);
+    expect(await mem.putIf('work', 'k', new Uint8Array([2]), opts, { ifNoneMatch: '*' })).toBe(false);
+    const head = await mem.head('work', 'k');
+    expect(await mem.putIf('work', 'k', new Uint8Array([3]), opts, { ifMatch: '"nope"' })).toBe(false);
+    expect(await mem.putIf('work', 'k', new Uint8Array([4]), opts, { ifMatch: head?.etag ?? '' })).toBe(true);
+    expect(await mem.putIf('work', 'k', new Uint8Array([5]), opts, { ifMatch: head?.etag ?? '' })).toBe(false);
+    expect(mem.objects.get('work/k')?.body).toEqual(new Uint8Array([4]));
+
+    const seen: { method: string; ifNoneMatch: string | null; ifMatch: string | null }[] = [];
+    let status = 200;
+    const store = createS3Store({
+      endpoint: 'http://localhost:9000/',
+      region: 'auto',
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
+      fetch: async (req) => {
+        const r = req as Request;
+        seen.push({
+          method: r.method,
+          ifNoneMatch: r.headers.get('if-none-match'),
+          ifMatch: r.headers.get('if-match'),
+        });
+        return new Response(null, { status });
+      },
+    });
+    expect(await store.putIf('work', 'k', new Uint8Array([1]), opts, { ifNoneMatch: '*' })).toBe(true);
+    status = 412;
+    expect(await store.putIf('work', 'k', new Uint8Array([1]), opts, { ifMatch: '"abc"' })).toBe(false);
+    status = 409;
+    expect(await store.putIf('work', 'k', new Uint8Array([1]), opts, { ifMatch: '"abc"' })).toBe(false);
+    status = 500;
+    await expect(store.putIf('work', 'k', new Uint8Array([1]), opts, { ifMatch: '"abc"' })).rejects.toThrow(
+      /PUT failed/,
+    );
+    await expect(store.putIf('work', 'k', new Uint8Array([1]), opts, { ifMatch: 'x\r\ny' })).rejects.toThrow(/ETag/);
+    expect(seen.map((r) => [r.ifNoneMatch, r.ifMatch])).toEqual([
+      ['*', null],
+      [null, '"abc"'],
+      [null, '"abc"'],
+      [null, '"abc"'],
+    ]);
+  });
 });

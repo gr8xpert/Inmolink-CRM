@@ -2,13 +2,9 @@
 
 export { pluginUpdatesErrors } from './errors';
 export {
-  compareVersions,
   latestPluginRelease,
   PLUGIN_LATEST_KEY,
-  PLUGIN_PACKAGE_CACHE_CONTROL,
-  PLUGIN_RELEASE_BUCKET,
   PLUGIN_RELEASE_CACHE_SECONDS,
-  type PluginReleaseInput,
   pluginPackage,
   pluginReleaseKeys,
   publishPluginRelease,

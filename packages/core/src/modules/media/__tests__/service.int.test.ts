@@ -574,7 +574,7 @@ describe('media upload pipeline', () => {
     expect(await upload(checked, [photo])).toEqual([200]);
     await register(a, await listing(a), [photo]);
     await sync();
-    expect(await storage().head('work', media.originalKey(hash))).toEqual({ sizeBytes: photo.byteLength });
+    expect(await storage().head('work', media.originalKey(hash))).toMatchObject({ sizeBytes: photo.byteLength });
     expect(await storage().head('private', media.originalKey(hash))).toBeNull();
 
     // The media pool runs on its own credentials: the media and work buckets only.

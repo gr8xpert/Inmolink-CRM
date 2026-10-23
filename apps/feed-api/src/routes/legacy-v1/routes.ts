@@ -10,11 +10,11 @@ import {
 } from '@inmolink/contracts';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { AppError } from '@inmolink/platform/errors';
-import { etagFor, weakCompareEtag } from '@inmolink/platform/http';
+import { etagFor } from '@inmolink/platform/http';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
-import { sendSiteJson } from '../../plugins/site-response';
+import { sendConditional, sendSiteJson } from '../../plugins/site-response';
 
 /**
  * Every v1 route: the legacy key parameter (migrated legacy keys only). List pages past the first count as paging
@@ -74,11 +74,15 @@ function siteOf(req: FastifyRequest): Promise<websiteApi.ApiSite> {
 function sendShared(req: FastifyRequest, reply: FastifyReply, body: LegacyTypesResponse) {
   const json = JSON.stringify(LegacyTypesResponse.parse(body));
   const etag = etagFor(json);
-  reply
-    .header('Cache-Control', LEGACY_CACHE_CONTROL)
-    .header('ETag', etag)
-    .header('Vary', 'Accept-Encoding, X-Api-Key, Authorization');
-  if (weakCompareEtag(req.headers['if-none-match'], etag)) return reply.code(304).send();
+  if (
+    sendConditional(req, reply, {
+      etag,
+      cacheControl: LEGACY_CACHE_CONTROL,
+      vary: 'Accept-Encoding, X-Api-Key, Authorization',
+    })
+  ) {
+    return reply;
+  }
   return reply.type('application/json; charset=utf-8').send(json);
 }
 

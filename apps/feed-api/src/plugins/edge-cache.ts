@@ -1,4 +1,5 @@
 import * as exportsModule from '@inmolink/core/modules/exports';
+import { PLUGIN_RELEASE_CACHE_SECONDS } from '@inmolink/core/modules/plugin-updates';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { cacheControl } from '@inmolink/platform/http';
 import type { FastifyRequest } from 'fastify';
@@ -82,7 +83,13 @@ export const EDGE_CACHE_RULES = {
   '/v1/properties/:id': legacy,
   '/v1/types': legacy,
   // S8-05: the WordPress plugin's update server — the same for every site, no key; the package is immutable.
-  '/v2/plugin/update': { gate: 'always', sMaxAge: 60, staleIfError: DAY, cursorPages: false, params: [] },
+  '/v2/plugin/update': {
+    gate: 'always',
+    sMaxAge: PLUGIN_RELEASE_CACHE_SECONDS,
+    staleIfError: DAY,
+    cursorPages: false,
+    params: [],
+  },
   '/v2/plugin/package/:version': {
     gate: 'always',
     sMaxAge: 365 * DAY,

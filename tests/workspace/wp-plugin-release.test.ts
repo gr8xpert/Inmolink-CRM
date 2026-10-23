@@ -1,12 +1,15 @@
+import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 import { pluginSigningMessage } from '@inmolink/contracts';
 import { PLUGIN_LATEST_KEY, pluginReleaseKeys } from '@inmolink/core/modules/plugin-updates';
 import { createMemoryStore } from '@inmolink/platform/storage';
 import { describe, expect, it } from 'vitest';
 import {
   buildPluginZip,
+  deterministicZip,
   PLUGIN_EXCLUDES,
   pinnedPublicKey,
   pluginHeader,
@@ -77,5 +80,51 @@ describe('WordPress plugin release (S8-05)', () => {
       new TextDecoder().decode((await store.get('feeds', PLUGIN_LATEST_KEY, { maxBytes: 1e6 })) ?? new Uint8Array()),
     );
     expect(latest).toMatchObject({ version: manifest.version, changelog: 'Notes', sha256: manifest.sha256 });
+  });
+
+  it('[S8-F30] the same commit zipped twice is byte-identical, whatever the order, modes or clock', () => {
+    const a = buildPluginZip('HEAD');
+    const b = buildPluginZip('HEAD');
+    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
+
+    const files = [
+      { path: 'inmolink/b.php', data: new TextEncoder().encode('<?php // b') },
+      { path: 'inmolink/a.php', data: new TextEncoder().encode('<?php // a') },
+      { path: 'inmolink/src/c.php', data: new TextEncoder().encode('<?php // c') },
+    ];
+    const sorted = deterministicZip(files);
+    expect(Buffer.from(deterministicZip([...files].reverse())).equals(Buffer.from(sorted))).toBe(true);
+    expect(zipEntries(sorted)).toEqual(['inmolink/a.php', 'inmolink/b.php', 'inmolink/src/c.php']);
+
+    // Fixed attributes: 1980-01-01 00:00, Unix -rw-r--r--, no extra field, no comment.
+    const buf = Buffer.from(sorted);
+    for (let i = buf.indexOf('PK\x01\x02'); i !== -1; i = buf.indexOf('PK\x01\x02', i + 4)) {
+      expect(buf.readUInt16LE(i + 12)).toBe(0);
+      expect(buf.readUInt16LE(i + 14)).toBe(0x21);
+      expect(buf.readUInt32LE(i + 38) >>> 16).toBe(0o100644);
+      expect(buf.readUInt16LE(i + 30)).toBe(0);
+      expect(buf.readUInt16LE(i + 32)).toBe(0);
+    }
+  });
+
+  it('[S8-F30] the reproducible zip holds the committed bytes of each file', () => {
+    const buf = Buffer.from(buildPluginZip('HEAD'));
+    const at = buf.indexOf('PK\x01\x02');
+    expect(at).toBeGreaterThan(0);
+    // The first local entry is inmolink/ + the alphabetically first file; compare the main plugin file instead.
+    for (let i = buf.indexOf('PK\x03\x04'); i !== -1; i = buf.indexOf('PK\x03\x04', i + 4)) {
+      const nameLen = buf.readUInt16LE(i + 26);
+      const name = buf.subarray(i + 30, i + 30 + nameLen).toString('utf8');
+      if (name !== 'inmolink/inmolink.php') continue;
+      const start = i + 30 + nameLen;
+      const data = inflateRawSync(buf.subarray(start, start + buf.readUInt32LE(i + 18)));
+      const committed = execFileSync('git', ['show', 'HEAD:apps/wp-plugin/inmolink.php'], {
+        cwd: join(import.meta.dirname, '../..'),
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      expect(data.equals(committed)).toBe(true);
+      return;
+    }
+    throw new Error('inmolink/inmolink.php is not in the zip');
   });
 });

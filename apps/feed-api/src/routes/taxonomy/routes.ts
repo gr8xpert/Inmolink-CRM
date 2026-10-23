@@ -9,24 +9,29 @@ import {
   WebsiteTypesDto,
 } from '@inmolink/contracts';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
-import { cacheControl, weakCompareEtag } from '@inmolink/platform/http';
+import { cacheControl } from '@inmolink/platform/http';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
 import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
+import { sendConditional } from '../../plugins/site-response';
 
 /** The body is already JSON (serialized once per cached copy), so it skips the response serializer. */
 function send(req: FastifyRequest, reply: FastifyReply, doc: taxonomy.Serialized) {
   // The same for every key and site: public with only `lang`, `cursor` and `_k` (`EDGE_CACHE_RULES`, S8-F2).
   const rule = ruleOf(req);
-  reply
-    .header('Cache-Control', edgePublic(req, rule) ? publicCacheControl(rule) : cacheControl.private(0))
-    .header('ETag', doc.etag)
-    // S7-06: the edge cache keys by these (passthrough), so a cached copy only answers the key that fetched it.
-    .header('Vary', 'Accept-Encoding, X-Api-Key, Authorization')
-    // Platform reference data, the same for every site and key: shareable by any widget origin (S7-03).
-    .header('Access-Control-Allow-Origin', '*');
-  if (weakCompareEtag(req.headers['if-none-match'], doc.etag)) return reply.code(304).send();
+  // Platform reference data, the same for every site and key: shareable by any widget origin (S7-03).
+  reply.header('Access-Control-Allow-Origin', '*');
+  if (
+    sendConditional(req, reply, {
+      etag: doc.etag,
+      cacheControl: edgePublic(req, rule) ? publicCacheControl(rule) : cacheControl.private(0),
+      // S7-06: the edge cache keys by these (passthrough), so a cached copy only answers the key that fetched it.
+      vary: 'Accept-Encoding, X-Api-Key, Authorization',
+    })
+  ) {
+    return reply;
+  }
   return reply.type('application/json; charset=utf-8').send(doc.json);
 }
 

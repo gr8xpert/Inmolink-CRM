@@ -32,6 +32,28 @@ export const SITE_CACHE_POLICY = {
   publicVary: 'Accept-Encoding, X-Api-Key, Authorization',
 } as const;
 
+export interface ConditionalOptions {
+  /** The strong (or weak) validator of the answer. */
+  etag: string;
+  cacheControl: string;
+  /** Omitted: no `Vary` header. */
+  vary?: string;
+}
+
+/**
+ * The one ETag / 304 step of every conditional GET (S9-F6): sets `Cache-Control`, `ETag` and `Vary`, and answers 304
+ * with no body when `If-None-Match` matches (weak comparison, `*` and lists included). Returns true when the 304 was
+ * sent — the handler then returns the reply; otherwise it goes on with the body. Headers a route adds itself
+ * (`Cache-Tag`, `X-Robots-Tag`, ...) are set before the call so a 304 carries them too.
+ */
+export function sendConditional(req: FastifyRequest, reply: FastifyReply, options: ConditionalOptions): boolean {
+  reply.header('Cache-Control', options.cacheControl).header('ETag', options.etag);
+  if (options.vary) reply.header('Vary', options.vary);
+  if (!weakCompareEtag(req.headers['if-none-match'], options.etag)) return false;
+  reply.code(304).send();
+  return true;
+}
+
 export interface SiteJsonOptions {
   /** Never stored anywhere (S7-04: a suspicious caller's answer). Default: the caller is suspicious. */
   noStore?: boolean;
@@ -67,16 +89,17 @@ export function sendSiteJson<S extends z.ZodType>(
   const rule = ruleOf(req);
   const tags = options.site && edgePublic(req, rule) ? websiteApi.edgeTagsOf(options.site) : null;
   const etag = etagFor(json);
-  reply
-    .header(
-      'Cache-Control',
-      tags ? publicCacheControl(rule) : (options.privateCacheControl ?? SITE_CACHE_POLICY.private),
-    )
-    .header('ETag', etag)
-    .header('Vary', tags ? SITE_CACHE_POLICY.publicVary : SITE_CACHE_POLICY.vary);
-  // Cloudflare strips it before the client; the tags are keyed hashes, never ids.
+  // Cloudflare strips `Cache-Tag` before the client; the tags are keyed hashes, never ids.
   if (tags) reply.header('Cache-Tag', tags.join(','));
-  if (weakCompareEtag(req.headers['if-none-match'], etag)) return reply.code(304).send();
+  if (
+    sendConditional(req, reply, {
+      etag,
+      cacheControl: tags ? publicCacheControl(rule) : (options.privateCacheControl ?? SITE_CACHE_POLICY.private),
+      vary: tags ? SITE_CACHE_POLICY.publicVary : SITE_CACHE_POLICY.vary,
+    })
+  ) {
+    return reply;
+  }
   return reply.type('application/json; charset=utf-8').send(json);
 }
 

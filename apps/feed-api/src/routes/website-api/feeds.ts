@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto';
 import { createGunzip } from 'node:zlib';
 import { ErrorBody, WebsiteFeedParams } from '@inmolink/contracts';
 import * as websiteApi from '@inmolink/core/modules/website-api';
-import { cacheControl, weakCompareEtag } from '@inmolink/platform/http';
+import { cacheControl } from '@inmolink/platform/http';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
+import { sendConditional } from '../../plugins/site-response';
 
 export const FEED_ROUTE = '/v2/feeds/:token/:file';
 /** S9-03: portal feeds (`routes/exports/portal-feeds.ts`), the same token-URL shape and limits. */
@@ -88,16 +89,19 @@ export async function websiteFeedRoutes(app: FastifyZod): Promise<void> {
       const rule = ruleOf(req);
       const shared = edgePublic(req, rule) && file.tags !== null;
       reply
-        .header('Cache-Control', shared ? publicCacheControl(rule) : cacheControl.private(0))
-        .header('ETag', etag)
-        .header('Vary', 'Accept-Encoding')
         .header('X-Robots-Tag', 'noindex, nofollow')
         .header('Referrer-Policy', 'no-referrer')
         .header('X-Content-Type-Options', 'nosniff');
       if (shared && file.tags) reply.header('Cache-Tag', file.tags.join(','));
-      if (weakCompareEtag(req.headers['if-none-match'], etag)) return reply.code(304).send(null);
-      // Edge cache off (S8-F1): a gzip client is sent to a short-lived signed storage URL — the file (up to 64 MiB)
-      // never streams through the origin on every poll. Never cached: the URL expires.
+      if (
+        sendConditional(req, reply, {
+          etag,
+          cacheControl: shared ? publicCacheControl(rule) : cacheControl.private(0),
+          vary: 'Accept-Encoding',
+        })
+      ) {
+        return reply;
+      }
       if (!shared && gzip) {
         return reply.header('Cache-Control', 'private, no-store').redirect(await file.signedUrl(), 302);
       }
