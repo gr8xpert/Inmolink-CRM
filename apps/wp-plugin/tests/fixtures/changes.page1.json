@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "ref": "INM-1001",
+      "kind": "LISTING",
+      "change": "UPSERT",
+      "changedAt": "2026-10-23T09:00:00.000Z"
+    },
+    {
+      "ref": "INM-1002",
+      "kind": "LISTING",
+      "change": "UPSERT",
+      "changedAt": "2026-10-23T09:00:01.000Z"
+    },
+    {
+      "ref": "INM-1003",
+      "kind": "LISTING",
+      "change": "UPSERT",
+      "changedAt": "2026-10-23T09:00:02.000Z"
+    },
+    {
+      "ref": "INM-1001",
+      "kind": "LISTING",
+      "change": "UPSERT",
+      "changedAt": "2026-10-23T09:00:03.000Z"
+    }
+  ],
+  "nextCursor": "cur_p1",
+  "hasMore": true,
+  "scope": "scope_a"
+}

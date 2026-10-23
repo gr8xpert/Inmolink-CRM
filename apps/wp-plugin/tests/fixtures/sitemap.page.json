@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "ref": "INM-1001",
+      "kind": "LISTING",
+      "slug": "villa-sol",
+      "updatedAt": "2026-10-23T09:00:03.000Z"
+    }
+  ],
+  "nextCursor": null
+}

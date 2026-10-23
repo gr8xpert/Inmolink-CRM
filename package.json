@@ -27,6 +27,7 @@
     "infra:down": "docker compose --profile dev --profile test down",
     "infra:health": "tsx scripts/ops/health.ts",
     "infra:health:test": "tsx scripts/ops/health.ts --test",
+    "wp:test": "tsx scripts/ops/wp-test.ts",
     "legacy:taxonomy": "tsx --conditions=@inmolink/source scripts/legacy-migration/taxonomy.ts",
     "legacy:traffic": "tsx scripts/legacy-api/traffic.ts",
     "legacy:record": "tsx scripts/legacy-api/record.ts",

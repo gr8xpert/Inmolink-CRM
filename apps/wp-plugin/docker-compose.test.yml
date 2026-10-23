@@ -1,0 +1,30 @@
+# Throwaway WordPress test stack for the plugin's PHPUnit suite (S8-03): `pnpm wp:test`.
+# Containers are named inmolink-wp-*; the database lives in tmpfs and is gone after `down`.
+name: inmolink-wp
+services:
+  db:
+    image: mariadb:11.4@sha256:250e1609e93c0e6aecf64bfbab2d84d5e89d2481540fe77447ff6c855c3b1873
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: wp_tests
+    command: ['--innodb-buffer-pool-size=32M', '--performance-schema=OFF', '--skip-name-resolve']
+    tmpfs: [/var/lib/mysql]
+    mem_limit: 384m
+    cpus: 1
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  php:
+    image: inmolink-wp-test:local
+    build:
+      context: .
+      dockerfile: docker/test.Dockerfile
+    environment:
+      WP_TESTS_DB_HOST: db
+    mem_limit: 512m
+    cpus: 2
+    depends_on:
+      db:
+        condition: service_healthy

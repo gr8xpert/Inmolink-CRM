@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "ref": "INM-1003",
+      "kind": "LISTING",
+      "change": "REMOVE",
+      "changedAt": "2026-10-23T09:05:00.000Z"
+    },
+    {
+      "ref": "INM-9999",
+      "kind": "LISTING",
+      "change": "REMOVE",
+      "changedAt": "2026-10-23T09:05:01.000Z"
+    }
+  ],
+  "nextCursor": "cur_p2",
+  "hasMore": false,
+  "scope": "scope_a"
+}

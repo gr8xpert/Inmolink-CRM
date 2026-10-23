@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<ruleset name="Inmolink WordPress plugin">
+	<description>WordPress Coding Standards for the Inmolink plugin (S8-03).</description>
+	<file>inmolink.php</file>
+	<file>uninstall.php</file>
+	<file>src</file>
+	<file>templates</file>
+	<arg name="extensions" value="php"/>
+	<arg value="sp"/>
+	<arg name="colors"/>
+	<config name="minimum_wp_version" value="6.4"/>
+	<config name="testVersion" value="8.1-"/>
+	<!-- PHP 8.1+ (testVersion above): the suite itself runs on 8.3. -->
+	<rule ref="PHPCompatibilityWP"/>
+	<rule ref="WordPress">
+		<!-- PSR-4 class files (src/Foo/Bar.php), not class-foo.php. -->
+		<exclude name="WordPress.Files.FileName"/>
+	</rule>
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="inmolink"/>
+			</property>
+		</properties>
+	</rule>
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="inmolink"/>
+				<element value="Inmolink\Plugin"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

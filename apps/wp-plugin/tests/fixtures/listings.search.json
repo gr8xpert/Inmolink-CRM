@@ -1,0 +1,148 @@
+{
+  "items": [
+    {
+      "kind": "LISTING",
+      "id": "9a7b6c5d-4e3f-4a1b-9c2d-000000000001",
+      "ref": "INM-1001",
+      "slug": "villa-sol",
+      "title": "Villa Sol",
+      "textLocale": "en",
+      "status": "ACTIVE",
+      "transactionType": "SALE",
+      "propertyType": {
+        "id": "4f2b7e96-0a5c-4d4e-9e5b-5d6c7b8a9f04",
+        "name": "Villa",
+        "slug": "villa"
+      },
+      "price": {
+        "amountCents": 125000000,
+        "currency": "EUR",
+        "period": null,
+        "onRequest": false
+      },
+      "bedrooms": 4,
+      "bathrooms": 3,
+      "builtM2": 320,
+      "plotM2": 1100,
+      "place": {
+        "country": {
+          "id": "0b8f3a52-6c1e-4f0a-9a1d-1f2e3d4c5b60",
+          "name": "Spain",
+          "slug": "spain"
+        },
+        "region": {
+          "id": "1c9e4b63-7d2f-4a1b-8b2e-2a3f4e5d6c71",
+          "name": "Andalusia",
+          "slug": "andalusia"
+        },
+        "city": {
+          "id": "2d0f5c74-8e3a-4b2c-9c3f-3b4a5f6e7d82",
+          "name": "Marbella",
+          "slug": "marbella"
+        },
+        "area": {
+          "id": "3e1a6d85-9f4b-4c3d-8d4a-4c5b6a7f8e93",
+          "name": "Nueva Andalucía",
+          "slug": "nueva-andalucia"
+        }
+      },
+      "geo": {
+        "lat": 36.4935,
+        "lng": -4.9617,
+        "precision": "APPROX"
+      },
+      "developmentId": null,
+      "developmentRef": null,
+      "imageCount": 12,
+      "cover": {
+        "kind": "IMAGE",
+        "cover": true,
+        "alt": "Photo 1",
+        "room": "EXTERIOR",
+        "width": 1600,
+        "height": 1067,
+        "urls": {
+          "thumb": "https://media.example/l/1/thumb.webp",
+          "small": "https://media.example/l/1/small.webp",
+          "medium": "https://media.example/l/1/medium.webp",
+          "large": "https://media.example/l/1/large.webp",
+          "og": "https://media.example/l/1/og.jpg"
+        }
+      }
+    },
+    {
+      "kind": "LISTING",
+      "id": "9a7b6c5d-4e3f-4a1b-9c2d-000000000002",
+      "ref": "INM-1002",
+      "slug": "casa-luna",
+      "title": "Casa Luna",
+      "textLocale": "en",
+      "status": "ACTIVE",
+      "transactionType": "SALE",
+      "propertyType": {
+        "id": "4f2b7e96-0a5c-4d4e-9e5b-5d6c7b8a9f04",
+        "name": "Villa",
+        "slug": "villa"
+      },
+      "price": {
+        "amountCents": 89000000,
+        "currency": "EUR",
+        "period": null,
+        "onRequest": false
+      },
+      "bedrooms": 4,
+      "bathrooms": 3,
+      "builtM2": 320,
+      "plotM2": 1100,
+      "place": {
+        "country": {
+          "id": "0b8f3a52-6c1e-4f0a-9a1d-1f2e3d4c5b60",
+          "name": "Spain",
+          "slug": "spain"
+        },
+        "region": {
+          "id": "1c9e4b63-7d2f-4a1b-8b2e-2a3f4e5d6c71",
+          "name": "Andalusia",
+          "slug": "andalusia"
+        },
+        "city": {
+          "id": "2d0f5c74-8e3a-4b2c-9c3f-3b4a5f6e7d82",
+          "name": "Marbella",
+          "slug": "marbella"
+        },
+        "area": {
+          "id": "3e1a6d85-9f4b-4c3d-8d4a-4c5b6a7f8e93",
+          "name": "Nueva Andalucía",
+          "slug": "nueva-andalucia"
+        }
+      },
+      "geo": {
+        "lat": 36.4935,
+        "lng": -4.9617,
+        "precision": "APPROX"
+      },
+      "developmentId": null,
+      "developmentRef": null,
+      "imageCount": 12,
+      "cover": {
+        "kind": "IMAGE",
+        "cover": true,
+        "alt": "Photo 2",
+        "room": "EXTERIOR",
+        "width": 1600,
+        "height": 1067,
+        "urls": {
+          "thumb": "https://media.example/l/2/thumb.webp",
+          "small": "https://media.example/l/2/small.webp",
+          "medium": "https://media.example/l/2/medium.webp",
+          "large": "https://media.example/l/2/large.webp",
+          "og": "https://media.example/l/2/og.jpg"
+        }
+      }
+    }
+  ],
+  "total": 2,
+  "facets": {},
+  "nextCursor": null,
+  "degraded": false
+}

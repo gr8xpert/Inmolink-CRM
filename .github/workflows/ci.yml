@@ -179,11 +179,37 @@ jobs:
           'apt-get update -qq && apt-get install -y -qq git build-essential >/dev/null &&
           git config --global --add safe.directory /repo && bash scripts/ci/deploy-config-check.sh kamal'
 
+  # WordPress plugin (S8-03): PHPCS (WordPress standard) + PHPUnit with the WP test suite against a throwaway
+  # MariaDB, in the same runner image as `pnpm wp:test`. The image (with vendor/) is cached in the GitHub Actions
+  # cache, so Composer only runs when composer.json/composer.lock change.
+  wp-plugin:
+    name: WordPress plugin (PHPCS, PHPUnit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the runner image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/wp-plugin
+          file: apps/wp-plugin/docker/test.Dockerfile
+          tags: inmolink-wp-test:local
+          load: true
+          cache-from: type=gha,scope=wp-plugin
+          cache-to: type=gha,scope=wp-plugin,mode=max
+      - name: PHPCS + PHPUnit
+        run: docker compose -f apps/wp-plugin/docker-compose.test.yml run --rm --no-build php
+      - name: Stack down
+        if: always()
+        run: docker compose -f apps/wp-plugin/docker-compose.test.yml down --volumes
+
   # The single check branch protection requires: fails unless every job above succeeded.
   required:
     name: required
     if: always()
-    needs: [static, boundaries, isolation, integration, e2e, migrations, deploy-config]
+    needs: [static, boundaries, isolation, integration, e2e, migrations, deploy-config, wp-plugin]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

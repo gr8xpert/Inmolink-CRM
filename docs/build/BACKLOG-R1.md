@@ -1129,6 +1129,51 @@ Ref §9.5 · Mod sdk, website-api · Dep S8-06
 - A widget enquiry arrives as a website lead with the site's agency (test)
 - The AI box is absent while the endpoint is missing (test)
 
+### S8-F9 · Local limiter windows only while the shared limiter fails open (S8-F6 review)
+Ref §9.5 · Mod platform, website-api · Dep S8-F6
+**Build:**
+- The rate-limit result says when it failed open (the signal behind `inmolink.rate_limit.failures`); the local windows (`LocalFixedWindows`: feed-api failed key checks, website form posts) enforce only then, and count always.
+- A per-process cap on total failed key lookups and on untracked form posts while failing open, so identities left untracked (pool full of boxed windows, eviction scan past `EVICT_SCAN`) are still bounded.
+- Eviction finds a window under its limit whenever one exists (no 64-window scan limit, e.g. a separate list of under-limit windows).
+**Done when:**
+- With Redis healthy, a flood of 10k+ failing IPs changes nothing for a new IP with a valid uncached key (test)
+- With the limiter failing open and the ip pool full of boxed windows, failed lookups from new IPs stop at the per-process cap (test)
+
+### S8-F11 · Settings migration from the legacy WordPress plugin (S8-03) · [H15]
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** on activation, read the legacy plugin's options (names from H15) into the new settings and the encrypted key; leave the old options untouched.
+**Done when:** a site with the legacy plugin's settings activates v2 and syncs without re-entering the key (PHPUnit on a fixture of the legacy options)
+
+### S8-F12 · Plugin: bound cache misses and detail 404s (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-04
+**Build:** per-IP limit on cache misses before calling the API; a short cache for detail 404s, once S8-04 wires query vars to search and detail.
+**Done when:** a crawl of random refs makes at most the limit's API calls per IP (PHPUnit)
+
+### S8-F13 · Plugin: separate back-offs, Retry-After (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** separate back-off for sync and page views; honour `Retry-After` on 429/503.
+**Done when:** a 429 with `Retry-After: 120` pauses calls for 120 s and page views keep serving cache while sync backs off (PHPUnit)
+
+### S8-F14 · Plugin: previous cache generation as stale-only fallback (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** after a cache flush, keep the previous generation readable as stale-only until the first successful refresh.
+**Done when:** flush then API down still renders the last search page (PHPUnit)
+
+### S8-F15 · Plugin: Plugin Check in CI and translations (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** WordPress Plugin Check in the `wp-plugin` CI job; `.pot` and EN/ES (+ NL/DE/FR/SV drafts) in `languages/`.
+**Done when:** Plugin Check passes in CI; the admin page renders in Spanish (PHPUnit)
+
+### S8-F16 · Plugin: multisite (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** uninstall loops over every site; changing the API URL needs network-level rights on multisite.
+**Done when:** uninstall on a 2-site network removes both sites' tables and options (PHPUnit multisite)
+
+### S8-F17 · Plugin: warn when salts live in the database (S8-03 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** an admin notice when the WordPress salts are stored in the database rather than wp-config.php (a database dump alone could then decrypt the key).
+**Done when:** the notice shows with DB salts and not with wp-config salts (PHPUnit)
+
 ---
 
 ## S9 — Portal exports
