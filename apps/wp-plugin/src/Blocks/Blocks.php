@@ -42,6 +42,8 @@ final class Blocks {
 			VERSION,
 			true
 		);
+		// The sidebar labels (assets/editor.js) are translated from JSON files in languages/ (S8-F22).
+		wp_set_script_translations( 'inmolink-blocks-editor', 'inmolink', dirname( PLUGIN_FILE ) . '/languages' );
 		foreach ( self::NAMES as $name ) {
 			register_block_type(
 				dirname( PLUGIN_FILE ) . '/blocks/' . $name,

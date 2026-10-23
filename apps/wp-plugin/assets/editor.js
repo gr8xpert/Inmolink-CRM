@@ -18,7 +18,30 @@
 	var ServerSideRender = wp.serverSideRender;
 	var NAMES = [ 'search', 'results', 'detail', 'developments', 'map', 'lead-form' ];
 
+	// Sidebar labels per block attribute. Literal __() calls so `wp i18n make-pot` finds them (S8-F22); an attribute
+	// without an entry (a future one) falls back to a humanised name.
+	var LABELS = {
+		bedsMin: __( 'Minimum bedrooms', 'inmolink' ),
+		development: __( 'Development reference', 'inmolink' ),
+		features: __( 'Features (comma-separated)', 'inmolink' ),
+		fields: __( 'Search fields (comma-separated)', 'inmolink' ),
+		kind: __( 'Kind', 'inmolink' ),
+		limit: __( 'Number of items', 'inmolink' ),
+		locations: __( 'Locations (comma-separated)', 'inmolink' ),
+		priceMax: __( 'Maximum price', 'inmolink' ),
+		priceMin: __( 'Minimum price', 'inmolink' ),
+		ref: __( 'Reference', 'inmolink' ),
+		resultsUrl: __( 'Results page URL', 'inmolink' ),
+		sort: __( 'Sort order', 'inmolink' ),
+		transaction: __( 'Transaction (SALE or RENT)', 'inmolink' ),
+		types: __( 'Property types (comma-separated)', 'inmolink' ),
+		useQuery: __( 'Apply the visitor\'s search filters', 'inmolink' ),
+	};
+
 	function label( name ) {
+		if ( Object.prototype.hasOwnProperty.call( LABELS, name ) ) {
+			return LABELS[ name ];
+		}
 		return name.replace( /([A-Z])/g, ' $1' ).replace( /^./, function ( c ) {
 			return c.toUpperCase();
 		} );

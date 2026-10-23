@@ -76,7 +76,7 @@ class Mirror {
 	public static function drop(): void {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table, name from $wpdb->prefix.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table, name from $wpdb->prefix.
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
 		delete_option( self::VERSION_OPTION );
 	}
@@ -87,7 +87,7 @@ class Mirror {
 	public function expire_all(): void {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table, name from $wpdb->prefix.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table, name from $wpdb->prefix.
 		$wpdb->query( "UPDATE {$table} SET fetched_at = '1970-01-02 00:00:00'" );
 	}
 
@@ -103,7 +103,7 @@ class Mirror {
 		}
 		$table = self::table();
 		$in    = implode( ',', array_fill( 0, count( $locales ), '%s' ) );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; placeholders built above.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; placeholders built above.
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE lang NOT IN ({$in})", ...array_values( $locales ) ) );
 	}
 
@@ -113,7 +113,7 @@ class Mirror {
 	public function truncate(): void {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table, name from $wpdb->prefix.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table, name from $wpdb->prefix.
 		$wpdb->query( "DELETE FROM {$table}" );
 	}
 
@@ -141,7 +141,7 @@ class Mirror {
 				static fn ( $v ): bool => null !== $v
 			)
 		);
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; values prepared (NULLs as literals).
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; values prepared (NULLs as literals).
 		$wpdb->query(
 			$wpdb->prepare(
 				"INSERT INTO {$table} (ref, lang, kind, slug, payload, etag, changed_at, fetched_at)
@@ -183,7 +183,7 @@ class Mirror {
 	public function find( string $ref, string $lang ): ?array {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table; values prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table; values prepared.
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT ref, lang, kind, slug, payload, etag, fetched_at FROM {$table} WHERE ref = %s AND lang = %s", $ref, $lang ), ARRAY_A );
 		return is_array( $row ) ? self::hydrate( $row ) : null;
 	}
@@ -198,7 +198,7 @@ class Mirror {
 	public function find_by_slug( string $slug, string $lang ): ?array {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table; values prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table; values prepared.
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT ref, lang, kind, slug, payload, etag, fetched_at FROM {$table} WHERE slug = %s AND lang = %s LIMIT 1", $slug, $lang ), ARRAY_A );
 		return is_array( $row ) ? self::hydrate( $row ) : null;
 	}
@@ -230,7 +230,7 @@ class Mirror {
 		$table = self::table();
 		foreach ( array_chunk( array_values( array_unique( $refs ) ), self::CHUNK ) as $chunk ) {
 			$in = implode( ',', array_fill( 0, count( $chunk ), '%s' ) );
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; placeholders built above.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- plugin table; placeholders built above.
 			$wpdb->query( $wpdb->prepare( "UPDATE {$table} SET sweep = %d WHERE ref IN ({$in})", $sweep, ...$chunk ) );
 		}
 	}
@@ -246,7 +246,7 @@ class Mirror {
 	public function sweep( int $sweep, int $started ): int {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table; values prepared.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table; values prepared.
 		return (int) $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE sweep <> %d AND fetched_at < %s", $sweep, gmdate( 'Y-m-d H:i:s', $started ) ) );
 	}
 
@@ -256,7 +256,7 @@ class Mirror {
 	public function count(): int {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table.
 		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
 	}
 
@@ -268,7 +268,7 @@ class Mirror {
 	public function stats(): array {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table; admin page only.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table; admin page only.
 		$rows = $wpdb->get_results( "SELECT lang, COUNT(*) AS n, MIN(fetched_at) AS oldest, MAX(fetched_at) AS newest FROM {$table} GROUP BY lang ORDER BY lang", ARRAY_A );
 		$out  = array();
 		foreach ( is_array( $rows ) ? $rows : array() as $r ) {
@@ -289,7 +289,7 @@ class Mirror {
 	public function snapshot(): array {
 		global $wpdb;
 		$table = self::table();
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- plugin table.
 		$rows = $wpdb->get_results( "SELECT ref, lang, SHA1(payload) AS hash FROM {$table} ORDER BY ref, lang", ARRAY_A );
 		return is_array( $rows ) ? array_map(
 			static fn ( array $r ): array => array(

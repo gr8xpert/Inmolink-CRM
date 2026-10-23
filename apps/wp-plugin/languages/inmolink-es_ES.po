@@ -1,0 +1,727 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Inmolink 0.2.0\n"
+"Report-Msgid-Bugs-To: https://inmolink.es\n"
+"Last-Translator: Inmolink\n"
+"Language-Team: Inmolink\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-10-23T13:24:52+00:00\n"
+"PO-Revision-Date: 2026-10-23 12:00+0000\n"
+"Language: es_ES\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Domain: inmolink\n"
+
+#. Plugin Name of the plugin
+#. Author of the plugin
+#: inmolink.php
+#: src/Admin/Health.php:166
+#: src/Admin/SettingsPage.php:51
+#: src/Admin/SettingsPage.php:52
+#: src/Admin/SettingsPage.php:166
+msgid "Inmolink"
+msgstr "Inmolink"
+
+#. Description of the plugin
+#: inmolink.php
+msgid "Inmolink listings for WordPress, served from the Inmolink website API v2 with a local cache and a stale fallback."
+msgstr "Inmuebles de Inmolink para WordPress, servidos desde la API web v2 de Inmolink con caché local y copia de respaldo si la API no responde."
+
+#: src/Admin/Health.php:45
+#: src/Admin/Health.php:107
+msgid "Inmolink health"
+msgstr "Estado de Inmolink"
+
+#: src/Admin/Health.php:79
+#: src/Admin/SettingsPage.php:157
+msgid "You do not have permission to access this page."
+msgstr "No tienes permiso para acceder a esta página."
+
+#. translators: %s: human time difference, e.g. "5 mins".
+#: src/Admin/Health.php:84
+#: src/Admin/SettingsPage.php:352
+#, php-format
+msgid "%s ago"
+msgstr "hace %s"
+
+#: src/Admin/Health.php:87
+msgid "Plugin version"
+msgstr "Versión del plugin"
+
+#: src/Admin/Health.php:88
+#: src/Admin/SettingsPage.php:250
+msgid "Configured"
+msgstr "Configurado"
+
+#: src/Admin/Health.php:88
+#: src/Admin/Health.php:89
+#: src/Admin/SettingsPage.php:250
+#: src/Admin/SettingsPage.php:254
+msgid "Yes"
+msgstr "Sí"
+
+#: src/Admin/Health.php:88
+#: src/Admin/SettingsPage.php:250
+msgid "No"
+msgstr "No"
+
+#: src/Admin/Health.php:89
+#: src/Admin/SettingsPage.php:254
+msgid "API reachable"
+msgstr "API accesible"
+
+#: src/Admin/Health.php:89
+msgid "Not configured"
+msgstr "Sin configurar"
+
+#: src/Admin/Health.php:89
+#: src/Admin/SettingsPage.php:254
+msgid "No — serving cached copies"
+msgstr "No: se sirven copias en caché"
+
+#: src/Admin/Health.php:90
+msgid "Last successful sync"
+msgstr "Última sincronización correcta"
+
+#: src/Admin/Health.php:90
+msgid "(stale)"
+msgstr "(desactualizado)"
+
+#: src/Admin/Health.php:91
+msgid "Last sync run"
+msgstr "Última ejecución de la sincronización"
+
+#: src/Admin/Health.php:92
+#: src/Admin/SettingsPage.php:252
+msgid "Last sync error"
+msgstr "Último error de sincronización"
+
+#: src/Admin/Health.php:93
+msgid "Enquiry forms"
+msgstr "Formularios de contacto"
+
+#: src/Admin/Health.php:94
+msgid "On (site verifies Turnstile)"
+msgstr "Activado (el sitio verifica Turnstile)"
+
+#: src/Admin/Health.php:95
+msgid "On (Inmolink verifies Turnstile)"
+msgstr "Activado (Inmolink verifica Turnstile)"
+
+#: src/Admin/Health.php:96
+msgid "Off — no Turnstile key"
+msgstr "Desactivado: falta la clave de Turnstile"
+
+#: src/Admin/Health.php:97
+msgid "TEST MODE — Turnstile test keys (always pass)"
+msgstr "MODO DE PRUEBA: claves de prueba de Turnstile (siempre pasan)"
+
+#: src/Admin/Health.php:99
+msgid "Signed updates"
+msgstr "Actualizaciones firmadas"
+
+#: src/Admin/Health.php:99
+#: src/Admin/Health.php:100
+#: src/Admin/Health.php:102
+msgid "On"
+msgstr "Activado"
+
+#: src/Admin/Health.php:99
+msgid "Off — no update key pinned"
+msgstr "Desactivado: no hay clave de actualización fijada"
+
+#: src/Admin/Health.php:100
+msgid "Automatic updates"
+msgstr "Actualizaciones automáticas"
+
+#: src/Admin/Health.php:100
+msgid "Off (Plugins screen)"
+msgstr "Desactivadas (pantalla Plugins)"
+
+#: src/Admin/Health.php:101
+msgid "Latest release"
+msgstr "Última versión publicada"
+
+#: src/Admin/Health.php:102
+msgid "API address pinning"
+msgstr "Fijación de la dirección de la API"
+
+#: src/Admin/Health.php:102
+msgid "Off — the API address is checked before each request but not pinned (HTTP proxy or non-cURL transport)"
+msgstr "Desactivada: la dirección de la API se comprueba antes de cada petición pero no se fija (proxy HTTP o transporte sin cURL)"
+
+#: src/Admin/Health.php:103
+msgid "Update server"
+msgstr "Servidor de actualizaciones"
+
+#: src/Admin/Health.php:103
+msgid "WARNING: an older release was offered and refused"
+msgstr "AVISO: se ofreció una versión anterior y se rechazó"
+
+#: src/Admin/Health.php:103
+msgid "OK"
+msgstr "Correcto"
+
+#: src/Admin/Health.php:115
+msgid "Detail pages cached on this site"
+msgstr "Fichas en caché en este sitio"
+
+#: src/Admin/Health.php:117
+msgid "Locale"
+msgstr "Idioma"
+
+#: src/Admin/Health.php:117
+msgid "Pages"
+msgstr "Páginas"
+
+#: src/Admin/Health.php:117
+msgid "Oldest copy"
+msgstr "Copia más antigua"
+
+#: src/Admin/Health.php:117
+msgid "Newest copy"
+msgstr "Copia más reciente"
+
+#: src/Admin/Health.php:123
+msgid "None yet."
+msgstr "Todavía ninguna."
+
+#: src/Admin/Health.php:140
+msgid "Inmolink listings"
+msgstr "Inmuebles de Inmolink"
+
+#: src/Admin/Health.php:154
+msgid "Inmolink listings are up to date"
+msgstr "Los inmuebles de Inmolink están al día"
+
+#: src/Admin/Health.php:157
+msgid "Inmolink is not configured"
+msgstr "Inmolink no está configurado"
+
+#: src/Admin/Health.php:160
+msgid "Inmolink is serving cached listings (the API or the sync is behind)"
+msgstr "Inmolink está sirviendo inmuebles en caché (la API o la sincronización van con retraso)"
+
+#: src/Admin/Health.php:169
+msgid "See Settings → Inmolink health for the sync, cache and update status."
+msgstr "Consulta Ajustes → Estado de Inmolink para ver el estado de la sincronización, la caché y las actualizaciones."
+
+#: src/Admin/SaltNotice.php:71
+msgid "Inmolink: your WordPress security keys and salts are stored in the database, not in wp-config.php. A copy of the database alone could then decrypt the stored API key. Add unique AUTH_KEY and AUTH_SALT values to wp-config.php (generate them at https://api.wordpress.org/secret-key/1.1/salt/), then enter the API key again."
+msgstr "Inmolink: las claves y sales de seguridad de WordPress están guardadas en la base de datos, no en wp-config.php. Con solo una copia de la base de datos se podría descifrar la clave de API almacenada. Añade valores únicos de AUTH_KEY y AUTH_SALT a wp-config.php (puedes generarlos en https://api.wordpress.org/secret-key/1.1/salt/) y vuelve a introducir la clave de API."
+
+#: src/Admin/SettingsPage.php:174
+msgid "API URL"
+msgstr "URL de la API"
+
+#: src/Admin/SettingsPage.php:177
+msgid "The Inmolink website API address given with your API key (https)."
+msgstr "La dirección de la API web de Inmolink que recibiste con tu clave de API (https)."
+
+#: src/Admin/SettingsPage.php:181
+msgid "Secret API key"
+msgstr "Clave secreta de la API"
+
+#: src/Admin/SettingsPage.php:184
+msgid "Set in wp-config.php (INMOLINK_API_KEY)."
+msgstr "Definida en wp-config.php (INMOLINK_API_KEY)."
+
+#: src/Admin/SettingsPage.php:186
+#: src/Admin/SettingsPage.php:226
+msgid "Stored — leave empty to keep it"
+msgstr "Guardada: déjalo vacío para conservarla"
+
+#: src/Admin/SettingsPage.php:186
+msgid "inl_live_sk…"
+msgstr "inl_live_sk…"
+
+#: src/Admin/SettingsPage.php:188
+msgid "Remove the stored key"
+msgstr "Eliminar la clave guardada"
+
+#: src/Admin/SettingsPage.php:190
+msgid "Stored encrypted and used by the server only; it is never shown again or sent to browsers."
+msgstr "Se guarda cifrada y solo la usa el servidor; no se vuelve a mostrar ni se envía a los navegadores."
+
+#: src/Admin/SettingsPage.php:195
+msgid "Locales"
+msgstr "Idiomas"
+
+#: src/Admin/SettingsPage.php:198
+msgid "Comma-separated, e.g. en,es,de. Detail pages are mirrored in each."
+msgstr "Separados por comas, p. ej. en,es,de. Las fichas se copian en cada uno."
+
+#: src/Admin/SettingsPage.php:202
+msgid "Default locale"
+msgstr "Idioma predeterminado"
+
+#: src/Admin/SettingsPage.php:206
+msgid "Property URL base"
+msgstr "Base de la URL de inmuebles"
+
+#: src/Admin/SettingsPage.php:209
+msgid "e.g. property, or property, es:propiedad, de:immobilie for one per locale. Pages live at /{base}/{reference}/{slug}/."
+msgstr "p. ej. property, o property, es:propiedad, de:immobilie para una por idioma. Las páginas están en /{base}/{referencia}/{slug}/."
+
+#: src/Admin/SettingsPage.php:213
+msgid "Development URL base"
+msgstr "Base de la URL de promociones"
+
+#: src/Admin/SettingsPage.php:217
+msgid "Turnstile site key"
+msgstr "Clave del sitio de Turnstile"
+
+#: src/Admin/SettingsPage.php:220
+msgid "Enquiry forms need Cloudflare Turnstile. With a secret below the site verifies visitors itself; without one the token is checked by Inmolink."
+msgstr "Los formularios de contacto necesitan Cloudflare Turnstile. Con una clave secreta abajo, el sitio verifica a los visitantes; sin ella, Inmolink comprueba el token."
+
+#: src/Admin/SettingsPage.php:224
+msgid "Turnstile secret"
+msgstr "Clave secreta de Turnstile"
+
+#: src/Admin/SettingsPage.php:228
+msgid "Remove the stored secret"
+msgstr "Eliminar la clave secreta guardada"
+
+#: src/Admin/SettingsPage.php:233
+msgid "Search cache (seconds)"
+msgstr "Caché de búsquedas (segundos)"
+
+#: src/Admin/SettingsPage.php:237
+msgid "Keep stale copies (days)"
+msgstr "Conservar copias antiguas (días)"
+
+#: src/Admin/SettingsPage.php:240
+msgid "Served when the API cannot be reached."
+msgstr "Se sirven cuando no se puede acceder a la API."
+
+#: src/Admin/SettingsPage.php:247
+msgid "Status"
+msgstr "Estado"
+
+#: src/Admin/SettingsPage.php:251
+msgid "Last sync"
+msgstr "Última sincronización"
+
+#: src/Admin/SettingsPage.php:253
+msgid "Mirrored detail pages"
+msgstr "Fichas copiadas"
+
+#: src/Admin/SettingsPage.php:258
+msgid "Test connection"
+msgstr "Probar la conexión"
+
+#: src/Admin/SettingsPage.php:259
+msgid "Sync now"
+msgstr "Sincronizar ahora"
+
+#: src/Admin/SettingsPage.php:280
+msgid "You do not have permission to do this."
+msgstr "No tienes permiso para hacer esto."
+
+#: src/Admin/SettingsPage.php:329
+msgid "Settings saved."
+msgstr "Ajustes guardados."
+
+#: src/Admin/SettingsPage.php:330
+msgid "Settings saved. The API URL changed, so the stored key was removed: enter the key for the new URL."
+msgstr "Ajustes guardados. La URL de la API ha cambiado, así que se eliminó la clave guardada: introduce la clave de la nueva URL."
+
+#: src/Admin/SettingsPage.php:331
+msgid "The API URL can only be changed by a network administrator; the other settings were saved."
+msgstr "Solo un administrador de la red puede cambiar la URL de la API; el resto de los ajustes se han guardado."
+
+#: src/Admin/SettingsPage.php:332
+msgid "Settings saved, but the API key was not: enter a secret key (inl_live_sk… or inl_test_sk…)."
+msgstr "Ajustes guardados, pero la clave de API no: introduce una clave secreta (inl_live_sk… o inl_test_sk…)."
+
+#: src/Admin/SettingsPage.php:333
+msgid "The API answered."
+msgstr "La API ha respondido."
+
+#: src/Admin/SettingsPage.php:334
+msgid "The API could not be reached with these settings."
+msgstr "No se pudo acceder a la API con estos ajustes."
+
+#: src/Admin/SettingsPage.php:335
+msgid "Sync finished."
+msgstr "Sincronización terminada."
+
+#: src/Admin/SettingsPage.php:336
+msgid "Sync did not finish; it will retry on the next run."
+msgstr "La sincronización no terminó; se reintentará en la próxima ejecución."
+
+#: src/Plugin.php:111
+msgid "Every five minutes (Inmolink)"
+msgstr "Cada cinco minutos (Inmolink)"
+
+#: src/Renderer.php:279
+#: src/Renderer.php:292
+msgid "Price on request"
+msgstr "Precio a consultar"
+
+#. translators: %s: lowest price with currency, e.g. "450,000 EUR".
+#: src/Renderer.php:296
+#, php-format
+msgid "From %s"
+msgstr "Desde %s"
+
+#: src/Updates/Updater.php:329
+msgid "Refusing an Inmolink package that does not come from the Inmolink update server."
+msgstr "Se rechaza un paquete de Inmolink que no procede del servidor de actualizaciones de Inmolink."
+
+#: src/Updates/Updater.php:337
+msgid "Unknown Inmolink package."
+msgstr "Paquete de Inmolink desconocido."
+
+#: src/Updates/Updater.php:340
+msgid "Refusing to install an older or equal Inmolink version."
+msgstr "Se rechaza instalar una versión de Inmolink anterior o igual a la actual."
+
+#: src/Updates/Updater.php:385
+msgid "No Inmolink update key is pinned: updates are disabled."
+msgstr "No hay clave de actualización de Inmolink fijada: las actualizaciones están desactivadas."
+
+#: src/Updates/Updater.php:389
+msgid "The Inmolink package does not match its checksum."
+msgstr "El paquete de Inmolink no coincide con su suma de comprobación."
+
+#: src/Updates/Updater.php:392
+msgid "The Inmolink package signature is not valid."
+msgstr "La firma del paquete de Inmolink no es válida."
+
+#: src/Updates/Updater.php:434
+msgid "Could not prepare the Inmolink update folder."
+msgstr "No se pudo preparar la carpeta de actualización de Inmolink."
+
+#: templates/detail.php:22
+msgid "This property is no longer available."
+msgstr "Este inmueble ya no está disponible."
+
+#. translators: %d: number of bedrooms.
+#: templates/detail.php:46
+#, php-format
+msgid "%d bedroom"
+msgid_plural "%d bedrooms"
+msgstr[0] "%d dormitorio"
+msgstr[1] "%d dormitorios"
+
+#. translators: %d: number of bathrooms.
+#: templates/detail.php:50
+#, php-format
+msgid "%d bathroom"
+msgid_plural "%d bathrooms"
+msgstr[0] "%d baño"
+msgstr[1] "%d baños"
+
+#. translators: %s: built area in square metres.
+#: templates/detail.php:55
+#, php-format
+msgid "%s m² built"
+msgstr "%s m² construidos"
+
+#: templates/development.php:22
+msgid "This development is no longer available."
+msgstr "Esta promoción ya no está disponible."
+
+#: templates/development.php:36
+msgid "Unit"
+msgstr "Unidad"
+
+#: templates/development.php:37
+#: templates/search-form.php:56
+msgid "Bedrooms"
+msgstr "Dormitorios"
+
+#: templates/development.php:38
+msgid "Price"
+msgstr "Precio"
+
+#: templates/developments.php:21
+msgid "No developments found."
+msgstr "No se han encontrado promociones."
+
+#. translators: %d: number of available units.
+#: templates/developments.php:32
+#, php-format
+msgid "%d unit available"
+msgid_plural "%d units available"
+msgstr[0] "%d unidad disponible"
+msgstr[1] "%d unidades disponibles"
+
+#: templates/lead-form.php:21
+msgid "Thank you — your message has been sent."
+msgstr "Gracias: tu mensaje se ha enviado."
+
+#: templates/lead-form.php:22
+msgid "Please check the form and try again."
+msgstr "Revisa el formulario e inténtalo de nuevo."
+
+#: templates/lead-form.php:23
+msgid "This form is not available right now."
+msgstr "Este formulario no está disponible en este momento."
+
+#: templates/lead-form.php:24
+msgid "Too many messages from your connection. Please try again later."
+msgstr "Demasiados mensajes desde tu conexión. Inténtalo de nuevo más tarde."
+
+#: templates/lead-form.php:25
+msgid "Your message could not be sent. Please try again."
+msgstr "No se pudo enviar tu mensaje. Inténtalo de nuevo."
+
+#: templates/lead-form.php:26
+msgid "The form expired. Please send it again."
+msgstr "El formulario ha caducado. Envíalo de nuevo."
+
+#: templates/lead-form.php:41
+msgid "Leave this field empty"
+msgstr "Deja este campo vacío"
+
+#: templates/lead-form.php:43
+msgid "Name"
+msgstr "Nombre"
+
+#: templates/lead-form.php:44
+msgid "Email"
+msgstr "Correo electrónico"
+
+#: templates/lead-form.php:45
+msgid "Phone"
+msgstr "Teléfono"
+
+#: templates/lead-form.php:47
+msgid "Preferred day"
+msgstr "Día preferido"
+
+#: templates/lead-form.php:48
+msgid "Time of day"
+msgstr "Franja horaria"
+
+#: templates/lead-form.php:50
+msgid "Any time"
+msgstr "Cualquier hora"
+
+#: templates/lead-form.php:51
+msgid "Morning"
+msgstr "Mañana"
+
+#: templates/lead-form.php:52
+msgid "Afternoon"
+msgstr "Tarde"
+
+#: templates/lead-form.php:53
+msgid "Evening"
+msgstr "Noche"
+
+#: templates/lead-form.php:57
+msgid "Message"
+msgstr "Mensaje"
+
+#. translators: %s: link to the privacy policy.
+#: templates/lead-form.php:64
+#, php-format
+msgid "I accept the %s."
+msgstr "Acepto la %s."
+
+#: templates/lead-form.php:65
+msgid "privacy policy"
+msgstr "política de privacidad"
+
+#: templates/lead-form.php:69
+msgid "I accept that my details are used to answer my request."
+msgstr "Acepto que mis datos se utilicen para responder a mi solicitud."
+
+#: templates/lead-form.php:72
+msgid "Send me similar properties by email."
+msgstr "Envíame inmuebles similares por correo electrónico."
+
+#: templates/lead-form.php:74
+msgid "Request a viewing"
+msgstr "Solicitar una visita"
+
+#: templates/lead-form.php:74
+msgid "Send"
+msgstr "Enviar"
+
+#: templates/map.php:19
+msgid "No properties to show on the map."
+msgstr "No hay inmuebles que mostrar en el mapa."
+
+#: templates/map.php:27
+msgid "Approximate location"
+msgstr "Ubicación aproximada"
+
+#: templates/results.php:24
+msgid "No properties found."
+msgstr "No se han encontrado inmuebles."
+
+#: templates/results.php:50
+msgid "More properties"
+msgstr "Más inmuebles"
+
+#: templates/search-form.php:17
+msgid "For sale"
+msgstr "En venta"
+
+#: templates/search-form.php:18
+msgid "Long-term rental"
+msgstr "Alquiler de larga duración"
+
+#: templates/search-form.php:19
+msgid "Holiday rental"
+msgstr "Alquiler vacacional"
+
+#: templates/search-form.php:26
+msgid "Keywords"
+msgstr "Palabras clave"
+
+#: templates/search-form.php:32
+msgid "Looking for"
+msgstr "Busco"
+
+#: templates/search-form.php:34
+#: templates/search-form.php:45
+msgid "Any"
+msgstr "Cualquiera"
+
+#: templates/search-form.php:43
+msgid "Property type"
+msgstr "Tipo de inmueble"
+
+#: templates/search-form.php:54
+msgid "Min price"
+msgstr "Precio mínimo"
+
+#: templates/search-form.php:55
+msgid "Max price"
+msgstr "Precio máximo"
+
+#: templates/search-form.php:66
+msgid "Search"
+msgstr "Buscar"
+
+#: assets/editor.js:24
+msgid "Minimum bedrooms"
+msgstr "Dormitorios mínimos"
+
+#: assets/editor.js:25
+msgid "Development reference"
+msgstr "Referencia de la promoción"
+
+#: assets/editor.js:26
+msgid "Features (comma-separated)"
+msgstr "Características (separadas por comas)"
+
+#: assets/editor.js:27
+msgid "Search fields (comma-separated)"
+msgstr "Campos de búsqueda (separados por comas)"
+
+#: assets/editor.js:28
+msgid "Kind"
+msgstr "Tipo"
+
+#: assets/editor.js:29
+msgid "Number of items"
+msgstr "Número de elementos"
+
+#: assets/editor.js:30
+msgid "Locations (comma-separated)"
+msgstr "Ubicaciones (separadas por comas)"
+
+#: assets/editor.js:31
+msgid "Maximum price"
+msgstr "Precio máximo"
+
+#: assets/editor.js:32
+msgid "Minimum price"
+msgstr "Precio mínimo"
+
+#: assets/editor.js:33
+msgid "Reference"
+msgstr "Referencia"
+
+#: assets/editor.js:34
+msgid "Results page URL"
+msgstr "URL de la página de resultados"
+
+#: assets/editor.js:35
+msgid "Sort order"
+msgstr "Orden"
+
+#: assets/editor.js:36
+msgid "Transaction (SALE or RENT)"
+msgstr "Operación (SALE o RENT)"
+
+#: assets/editor.js:37
+msgid "Property types (comma-separated)"
+msgstr "Tipos de inmueble (separados por comas)"
+
+#: assets/editor.js:38
+msgid "Apply the visitor's search filters"
+msgstr "Aplicar los filtros de búsqueda del visitante"
+
+#: assets/editor.js:98
+msgid "Settings"
+msgstr "Ajustes"
+
+#: blocks/detail/block.json
+msgctxt "block title"
+msgid "Property detail"
+msgstr "Ficha de inmueble"
+
+#: blocks/detail/block.json
+msgctxt "block description"
+msgid "One listing by reference (or the listing of the current pretty URL)."
+msgstr "Un inmueble por referencia (o el de la URL amigable actual)."
+
+#: blocks/developments/block.json
+msgctxt "block title"
+msgid "New developments"
+msgstr "Obra nueva"
+
+#: blocks/developments/block.json
+msgctxt "block description"
+msgid "New-build developments on the site."
+msgstr "Promociones de obra nueva del sitio."
+
+#: blocks/lead-form/block.json
+msgctxt "block title"
+msgid "Property enquiry form"
+msgstr "Formulario de consulta de inmueble"
+
+#: blocks/lead-form/block.json
+msgctxt "block description"
+msgid "Enquiry or viewing-request form, sent server-side to the agency (Turnstile protected)."
+msgstr "Formulario de consulta o de solicitud de visita, enviado desde el servidor a la agencia (protegido con Turnstile)."
+
+#: blocks/map/block.json
+msgctxt "block title"
+msgid "Property map"
+msgstr "Mapa de inmuebles"
+
+#: blocks/map/block.json
+msgctxt "block description"
+msgid "Listings as map points: a key-free list of coordinates by default, enhanced by a theme map script if present."
+msgstr "Inmuebles como puntos de mapa: por defecto una lista de coordenadas sin claves, mejorada por el script de mapa del tema si existe."
+
+#: blocks/results/block.json
+msgctxt "block title"
+msgid "Property results"
+msgstr "Resultados de inmuebles"
+
+#: blocks/results/block.json
+msgctxt "block description"
+msgid "Listing results from the Inmolink website API; visitors' search filters apply when enabled."
+msgstr "Resultados de inmuebles de la API web de Inmolink; los filtros de búsqueda del visitante se aplican si está activado."
+
+#: blocks/search/block.json
+msgctxt "block title"
+msgid "Property search"
+msgstr "Búsqueda de inmuebles"
+
+#: blocks/search/block.json
+msgctxt "block description"
+msgid "Search form for the site's listings; sends visitors to a results page."
+msgstr "Formulario de búsqueda de los inmuebles del sitio; lleva a los visitantes a una página de resultados."

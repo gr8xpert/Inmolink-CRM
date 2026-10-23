@@ -29,6 +29,8 @@
     "test": "phpunit",
     "test:multisite": "phpunit -c phpunit.multisite.xml.dist",
     "lint": "phpcs",
-    "fix": "phpcbf"
+    "fix": "phpcbf",
+    "plugin-check": "sh docker/plugin-check.sh",
+    "i18n:pot": "sh docker/i18n.sh"
   }
 }

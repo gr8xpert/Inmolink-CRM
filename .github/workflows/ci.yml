@@ -180,11 +180,12 @@ jobs:
           'apt-get update -qq && apt-get install -y -qq git build-essential >/dev/null &&
           git config --global --add safe.directory /repo && bash scripts/ci/deploy-config-check.sh kamal'
 
-  # WordPress plugin (S8-03): PHPCS (WordPress standard) + PHPUnit with the WP test suite against a throwaway
+  # WordPress plugin (S8-03, S8-F15): PHPCS (WordPress standard), PHPUnit (single site + multisite) with the WP test
+  # suite against a throwaway
   # MariaDB, in the same runner image as `pnpm wp:test`. The image (with vendor/) is cached in the GitHub Actions
   # cache, so Composer only runs when composer.json/composer.lock change.
   wp-plugin:
-    name: WordPress plugin (PHPCS, PHPUnit)
+    name: WordPress plugin (PHPCS, PHPUnit, Plugin Check)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -200,7 +201,7 @@ jobs:
           load: true
           cache-from: type=gha,scope=wp-plugin
           cache-to: type=gha,scope=wp-plugin,mode=max
-      - name: PHPCS + PHPUnit
+      - name: PHPCS + PHPUnit + Plugin Check (WP-CLI 2.12.0, plugin-check 2.1.0, pinned in the image)
         run: docker compose -f apps/wp-plugin/docker-compose.test.yml run --rm php
       - name: Stack down
         if: always()

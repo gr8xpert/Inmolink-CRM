@@ -14,6 +14,7 @@ use Inmolink\Plugin\Forms\LeadForm;
 use Inmolink\Plugin\Updates\Updater;
 use Inmolink\Plugin\Blocks\Blocks;
 use Inmolink\Plugin\Routing\Router;
+use Inmolink\Plugin\Seo\Coexistence;
 use Inmolink\Plugin\Seo\Head;
 use Inmolink\Plugin\Seo\SitemapIndex;
 use Inmolink\Plugin\Seo\SitemapProvider;
@@ -72,6 +73,7 @@ final class Plugin {
 
 		Router::register();
 		Head::register();
+		Coexistence::register();
 		Blocks::register();
 		Shortcodes::register();
 		SitemapProvider::register();
@@ -92,7 +94,7 @@ final class Plugin {
 	 * `init`: translations, and the cron event (re-created if something removed it).
 	 */
 	public static function init(): void {
-		load_plugin_textdomain( 'inmolink', false, dirname( plugin_basename( PLUGIN_FILE ) ) . '/languages' );
+		load_plugin_textdomain( 'inmolink', false, dirname( plugin_basename( PLUGIN_FILE ) ) . '/languages' ); // phpcs:ignore PluginCheck.CodeAnalysis.DiscouragedFunctions.load_plugin_textdomainFound -- not hosted on WordPress.org: no automatic loading, translations ship in languages/.
 		Installer::schedule();
 	}
 

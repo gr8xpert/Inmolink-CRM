@@ -30,8 +30,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Turnstile {
 
 	public const ACTION        = 'website-lead';
-	public const VERIFY_URL    = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
-	public const SCRIPT_URL    = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+	public const VERIFY_URL    = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'; // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent -- server-side verification endpoint of the documented Turnstile service.
+	public const SCRIPT_URL    = 'https://challenges.cloudflare.com/turnstile/v0/api.js'; // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent -- Cloudflare's documented Turnstile widget script, loaded only on pages with the form.
 	public const SECRET_OPTION = 'inmolink_turnstile_secret';
 	/** Cloudflare's documented test keys (always pass). */
 	public const TEST_SITE_KEY = '1x00000000000000000000AA';
