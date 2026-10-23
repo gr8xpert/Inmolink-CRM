@@ -170,6 +170,39 @@ final class LeadFormTest extends TestCase {
 	}
 
 	/**
+	 * [S9-F3] A retried siteverify with the same token succeeds: the idempotency key is a UUIDv5 of the token's hash
+	 * (the same token, the same key; another token, another key).
+	 */
+	public function test_s9_f3_retried_siteverify_keeps_its_key(): void {
+		$this->assertTrue( Turnstile::verify( 'XXXX.DUMMY.TOKEN', '203.0.113.30', 'submission-a' ) );
+		$this->assertTrue( Turnstile::verify( 'XXXX.DUMMY.TOKEN', '203.0.113.30', 'submission-a' ), 'the retry succeeds' );
+		$this->assertTrue( Turnstile::verify( 'another.token', '203.0.113.30', 'submission-a' ) );
+		$keys = array_column( $this->verifications, 'idempotency_key' );
+		$this->assertCount( 3, $keys );
+		$this->assertSame( $keys[0], $keys[1], 'a retry carries the same key' );
+		$this->assertNotSame( $keys[0], $keys[2] );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/', $keys[0], 'a UUIDv5' );
+		$this->assertSame( Turnstile::idempotency_key( 'XXXX.DUMMY.TOKEN', 'submission-a' ), $keys[0] );
+	}
+
+	/**
+	 * [S9-F3] One solved token cannot carry a second submission: it is refused without a Cloudflare call, while a
+	 * network retry of the first submission still succeeds.
+	 */
+	public function test_s9_f3_same_token_on_another_submission_is_refused_without_a_call(): void {
+		$this->assertSame( 'sent', LeadForm::from_settings()->submit( $this->form(), '203.0.113.40' ) );
+		$calls = count( $this->verifications );
+		$this->assertSame( 'sent', LeadForm::from_settings()->submit( $this->form(), '203.0.113.40' ), 'a retry of the same submission' );
+		$this->assertSame( $calls + 1, count( $this->verifications ) );
+		$calls = count( $this->verifications );
+
+		$other = $this->form( array( 'message' => 'A different message, same solved challenge' ) );
+		$this->assertSame( 'invalid', LeadForm::from_settings()->submit( $other, '203.0.113.40' ) );
+		$this->assertCount( $calls, $this->verifications, 'refused before Cloudflare is asked' );
+		$this->assertSame( 2, count( $this->api->requests_to( '/v2/leads' ) ), 'no lead was posted for the replayed token' );
+	}
+
+	/**
 	 * [S8-05] Logged-in users need the nonce; visitors need none (cached pages), so a stale nonce never loses a lead.
 	 */
 	public function test_s8_05_nonce_only_for_logged_in_users(): void {

@@ -2,7 +2,7 @@
 //
 // Releases the WordPress plugin (S8-05): builds `inmolink.zip` from the committed `apps/wp-plugin` (git archive of
 // HEAD, so the zip stands for a commit; dev files excluded), signs it with Ed25519 over
-// `pluginSigningMessage(version, sha256)` and publishes it through the storage adapter to the feeds bucket
+// `pluginSigningMessage(...)` (version, SHA-256, requirements, releasedAt, changelog) and publishes it through the storage adapter to the feeds bucket
 // (`wp-plugin/<version>/inmolink.zip`, `release.json`, then `latest.json`), where feed-api's update server
 // (`/v2/plugin/update`, `/v2/plugin/package/<version>`) serves it. A version is immutable: bump `Version:` and
 // `VERSION` in apps/wp-plugin/inmolink.php first. Refuses a working tree with uncommitted changes.

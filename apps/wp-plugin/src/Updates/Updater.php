@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Offers new versions from `{API base}/v2/plugin/update` to WordPress (`pre_set_site_transient_update_plugins`,
  * `plugins_api`) and, before WordPress unpacks a package, downloads it itself and checks its SHA-256 and its Ed25519
- * signature over `inmolink-wp-plugin\n{version}\n{sha256}` with the pinned public key ({@see PUBLIC_KEY}, or
+ * signature over the package hash and the release metadata (version, requirements, release date, changelog: {@see signing_message()}) with the pinned public key ({@see PUBLIC_KEY}, or
  * `INMOLINK_UPDATE_PUBLIC_KEY` in wp-config.php). A package that fails either check is refused, so a compromised
  * update channel or storage cannot ship code. No public key pinned → no updates are installed. Never phones home with
  * visitor data: the request carries only the plugin version.
@@ -34,7 +34,12 @@ class Updater {
 	public const INFO_TRANSIENT  = 'inmolink_update_info';
 	public const INFO_TTL        = 12 * HOUR_IN_SECONDS;
 	public const FAILURE_TTL     = HOUR_IN_SECONDS;
-	private const VERSION_FORMAT = '/^\d{1,4}\.\d{1,4}\.\d{1,4}$/';
+	private const VERSION_FORMAT = '/^\d{1,4}\.\d{1,4}\.\d{1,4}\z/';
+
+	/** Highest release version ever offered by a verified manifest (a replayed older manifest is refused). */
+	public const HIGHEST_OPTION = 'inmolink_update_highest';
+	/** Set when a verified but older manifest was replayed: `{offered, highest, at}`; shown on the health page. */
+	public const REPLAY_OPTION = 'inmolink_update_replay';
 
 	/**
 	 * Creates the updater.
@@ -90,7 +95,7 @@ class Updater {
 	public function info( bool $refresh = false ): ?array {
 		$cached = get_site_transient( self::INFO_TRANSIENT );
 		if ( ! $refresh && is_array( $cached ) ) {
-			return isset( $cached['version'] ) ? self::validate( $cached ) : null;
+			return isset( $cached['version'] ) ? $this->accept( self::validate( $cached ) ) : null;
 		}
 		$base = self::base();
 		if ( '' === $base ) {
@@ -114,7 +119,64 @@ class Updater {
 			: null;
 		$info     = is_array( $body ) ? self::validate( $body ) : null;
 		set_site_transient( self::INFO_TRANSIENT, $info ?? array( 'failed' => time() ), null !== $info ? self::INFO_TTL : self::FAILURE_TTL );
+		return $this->accept( $info );
+	}
+
+	/**
+	 * The cached latest version if its signature verifies, else '' (no network, no side effects; for the health page).
+	 */
+	public static function cached_version(): string {
+		$cached = get_site_transient( self::INFO_TRANSIENT );
+		$info   = is_array( $cached ) && isset( $cached['version'] ) ? self::validate( $cached ) : null;
+		return null !== $info && self::verify_meta( $info ) ? $info['version'] : '';
+	}
+
+	/**
+	 * Trusts metadata only when its signature verifies against the pinned key (so an altered changelog, requirement or
+	 * date offers nothing) and it is not older than the highest version already seen (a replayed old manifest cannot
+	 * freeze the site on a vulnerable version; the health page flags it).
+	 *
+	 * @param array{version:string,sha256:string,signature:string,package:string,requires:string,requiresPhp:string,tested:string,releasedAt:string,changelog:string}|null $info Well-formed metadata.
+	 * @return array{version:string,sha256:string,signature:string,package:string,requires:string,requiresPhp:string,tested:string,releasedAt:string,changelog:string}|null
+	 */
+	private function accept( ?array $info ): ?array {
+		if ( null === $info || ! self::verify_meta( $info ) ) {
+			return null;
+		}
+		// The floor is the highest version ever seen or, if higher, the one installed: a replay can never offer a downgrade.
+		$stored  = (string) get_site_option( self::HIGHEST_OPTION, '' );
+		$highest = '' !== $stored && version_compare( $stored, $this->current_version, '>' ) ? $stored : $this->current_version;
+		if ( version_compare( $info['version'], $highest, '<' ) ) {
+			update_site_option(
+				self::REPLAY_OPTION,
+				array(
+					'offered' => $info['version'],
+					'highest' => $highest,
+					'at'      => time(),
+				)
+			);
+			return null;
+		}
+		if ( $info['version'] !== $stored ) {
+			update_site_option( self::HIGHEST_OPTION, $info['version'] );
+		}
+		if ( false !== get_site_option( self::REPLAY_OPTION, false ) ) {
+			delete_site_option( self::REPLAY_OPTION );
+		}
 		return $info;
+	}
+
+	/**
+	 * Whether the metadata's signature verifies (false when no key is pinned).
+	 *
+	 * @param array{version:string,sha256:string,signature:string,requires:string,requiresPhp:string,tested:string,releasedAt:string,changelog:string} $info Metadata.
+	 */
+	public static function verify_meta( array $info ): bool {
+		$key = self::public_key();
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- a signature, not obfuscation.
+		$sig = base64_decode( $info['signature'], true );
+		return '' !== $key && false !== $sig && SODIUM_CRYPTO_SIGN_BYTES === strlen( $sig )
+			&& sodium_crypto_sign_verify_detached( $sig, self::signing_message( $info ), $key );
 	}
 
 	/**
@@ -129,23 +191,37 @@ class Updater {
 				return null;
 			}
 		}
-		if ( ! preg_match( self::VERSION_FORMAT, $body['version'] ) || ! preg_match( '/^[0-9a-f]{64}$/', $body['sha256'] )
+		if ( ! preg_match( self::VERSION_FORMAT, $body['version'] ) || ! preg_match( '/^[0-9a-f]{64}\z/', $body['sha256'] )
 			|| '/v2/plugin/package/' . $body['version'] !== $body['package'] || ( $body['slug'] ?? self::SLUG ) !== self::SLUG ) {
 			return null;
 		}
-		$text = static fn ( string $k, string $pattern ): string => isset( $body[ $k ] ) && is_string( $body[ $k ] ) && preg_match( $pattern, $body[ $k ] ) ? $body[ $k ] : '';
-		$req  = '/^\d{1,2}\.\d{1,2}(\.\d{1,2})?$/';
-		return array(
-			'version'     => $body['version'],
-			'sha256'      => $body['sha256'],
-			'signature'   => $body['signature'],
-			'package'     => $body['package'],
-			'requires'    => $text( 'requires', $req ),
-			'requiresPhp' => $text( 'requiresPhp', $req ),
-			'tested'      => $text( 'tested', $req ),
-			'releasedAt'  => $text( 'releasedAt', '/^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/' ),
-			'changelog'   => mb_substr( $text( 'changelog', '/^[\s\S]*$/u' ), 0, 4000 ),
+		// Every signed field must be present and well-formed (anchored with \z: `$` also matches before a trailing
+		// newline); a malformed one rejects the manifest instead of being blanked, so the signed bytes are the served bytes.
+		$req    = '/^\d{1,2}\.\d{1,2}(\.\d{1,2})?\z/';
+		$fields = array(
+			'requires'    => $req,
+			'requiresPhp' => $req,
+			'tested'      => $req,
+			'releasedAt'  => '/^\d{4}-\d{2}-\d{2}T[0-9:.]+Z\z/',
 		);
+		$out    = array(
+			'version'   => $body['version'],
+			'sha256'    => $body['sha256'],
+			'signature' => $body['signature'],
+			'package'   => $body['package'],
+		);
+		foreach ( $fields as $key => $pattern ) {
+			if ( ! isset( $body[ $key ] ) || ! is_string( $body[ $key ] ) || ! preg_match( $pattern, $body[ $key ] ) ) {
+				return null;
+			}
+			$out[ $key ] = $body[ $key ];
+		}
+		$changelog = $body['changelog'] ?? '';
+		if ( ! is_string( $changelog ) || ! mb_check_encoding( $changelog, 'UTF-8' ) || mb_strlen( $changelog, 'UTF-8' ) > 4000 ) {
+			return null;
+		}
+		$out['changelog'] = $changelog;
+		return $out;
 	}
 
 	/**
@@ -268,7 +344,7 @@ class Updater {
 		if ( is_wp_error( $file ) ) {
 			return $file;
 		}
-		$error = self::verify_file( $file, $info['version'], $info['sha256'], $info['signature'] );
+		$error = self::verify_file( $file, $info );
 		if ( null !== $error ) {
 			wp_delete_file( $file );
 			return $error;
@@ -298,40 +374,39 @@ class Updater {
 	}
 
 	/**
-	 * Checks a downloaded package: its SHA-256 and the signature over slug, version and hash.
+	 * Checks a downloaded package: its SHA-256 against the metadata, and the metadata's signature.
 	 *
-	 * @param string $file      Local file.
-	 * @param string $version   Release version.
-	 * @param string $sha256    Expected SHA-256 (hex).
-	 * @param string $signature Signature (base64).
+	 * @param string               $file Local file.
+	 * @param array<string,string> $info Release metadata.
 	 * @return \WP_Error|null Null when the package is authentic.
 	 */
-	public static function verify_file( string $file, string $version, string $sha256, string $signature ): ?\WP_Error {
-		$key = self::public_key();
-		if ( '' === $key ) {
+	public static function verify_file( string $file, array $info ): ?\WP_Error {
+		if ( '' === self::public_key() ) {
 			return new \WP_Error( 'inmolink_update_unsigned', __( 'No Inmolink update key is pinned: updates are disabled.', 'inmolink' ) );
 		}
 		$actual = hash_file( 'sha256', $file );
-		if ( false === $actual || ! hash_equals( $sha256, $actual ) ) {
+		if ( false === $actual || ! hash_equals( $info['sha256'], $actual ) ) {
 			return new \WP_Error( 'inmolink_update_hash', __( 'The Inmolink package does not match its checksum.', 'inmolink' ) );
 		}
-		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- a signature, not obfuscation.
-		$sig = base64_decode( $signature, true );
-		if ( false === $sig || SODIUM_CRYPTO_SIGN_BYTES !== strlen( $sig )
-			|| ! sodium_crypto_sign_verify_detached( $sig, self::signing_message( $version, $actual ), $key ) ) {
+		if ( ! self::verify_meta( $info ) ) {
 			return new \WP_Error( 'inmolink_update_signature', __( 'The Inmolink package signature is not valid.', 'inmolink' ) );
 		}
 		return null;
 	}
 
 	/**
-	 * The signed message (contracts `pluginSigningMessage`).
+	 * The signed message (contracts `pluginSigningMessage`): slug and format, version, package hash, requirements,
+	 * release date and changelog, each as a netstring (byte length, colon, value, comma).
 	 *
-	 * @param string $version Version.
-	 * @param string $sha256  SHA-256 hex.
+	 * @param array{version:string,sha256:string,requires:string,requiresPhp:string,tested:string,releasedAt:string,changelog:string} $m Release metadata.
 	 */
-	public static function signing_message( string $version, string $sha256 ): string {
-		return "inmolink-wp-plugin\n" . $version . "\n" . $sha256;
+	public static function signing_message( array $m ): string {
+		$out = "inmolink-wp-plugin/v2\n";
+		foreach ( array( 'version', 'sha256', 'requires', 'requiresPhp', 'tested', 'releasedAt', 'changelog' ) as $k ) {
+			// Netstring: UTF-8 byte length, ':', value, ','.
+			$out .= strlen( $m[ $k ] ) . ':' . $m[ $k ] . ',';
+		}
+		return $out;
 	}
 
 	/**

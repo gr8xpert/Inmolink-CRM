@@ -47,11 +47,11 @@ final class Health {
 	/**
 	 * The report: what an operator needs to tell whether the site is serving fresh data.
 	 *
-	 * @return array{version:string,configured:bool,api_reachable:bool,last_sync:int,last_run:int,last_error:string,sync_stale:bool,mirror:array<string,array{rows:int,oldest:int,newest:int}>,turnstile:string,update_key:bool,auto_update:bool,latest_version:string}
+	 * @return array{version:string,configured:bool,api_reachable:bool,last_sync:int,last_run:int,last_error:string,sync_stale:bool,mirror:array<string,array{rows:int,oldest:int,newest:int}>,turnstile:string,update_key:bool,auto_update:bool,latest_version:string,update_replay:string}
 	 */
 	public static function report(): array {
 		$state  = DeltaSync::state();
-		$latest = get_site_transient( Updater::INFO_TRANSIENT );
+		$replay = get_site_option( Updater::REPLAY_OPTION, array() );
 		return array(
 			'version'        => VERSION,
 			'configured'     => Settings::is_configured(),
@@ -64,7 +64,8 @@ final class Health {
 			'turnstile'      => Turnstile::test_mode() ? 'test' : Turnstile::mode(),
 			'update_key'     => '' !== Updater::public_key(),
 			'auto_update'    => in_array( plugin_basename( \Inmolink\Plugin\PLUGIN_FILE ), (array) get_site_option( 'auto_update_plugins', array() ), true ),
-			'latest_version' => is_array( $latest ) && isset( $latest['version'] ) && is_string( $latest['version'] ) ? $latest['version'] : '',
+			'latest_version' => Updater::cached_version(),
+			'update_replay'  => is_array( $replay ) && isset( $replay['offered'], $replay['highest'] ) ? sprintf( '%s < %s', (string) $replay['offered'], (string) $replay['highest'] ) : '',
 		);
 	}
 
@@ -96,6 +97,7 @@ final class Health {
 			__( 'Signed updates', 'inmolink' )       => $r['update_key'] ? __( 'On', 'inmolink' ) : __( 'Off — no update key pinned', 'inmolink' ),
 			__( 'Automatic updates', 'inmolink' )    => $r['auto_update'] ? __( 'On', 'inmolink' ) : __( 'Off (Plugins screen)', 'inmolink' ),
 			__( 'Latest release', 'inmolink' )       => '' !== $r['latest_version'] ? $r['latest_version'] : '—',
+			__( 'Update server', 'inmolink' )        => '' !== $r['update_replay'] ? __( 'WARNING: an older release was offered and refused', 'inmolink' ) . ' (' . $r['update_replay'] . ')' : __( 'OK', 'inmolink' ),
 		);
 		?>
 		<div class="wrap">

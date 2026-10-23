@@ -66,7 +66,7 @@ describe('WordPress plugin release (S8-05)', () => {
     const { manifest, zip } = await releasePlugin(store, key, { commit: 'HEAD', php: PHP, changelog: 'Notes' });
     const ok = verify(
       null,
-      Buffer.from(pluginSigningMessage(manifest.version, manifest.sha256)),
+      Buffer.from(pluginSigningMessage(manifest)),
       publicKey,
       Buffer.from(manifest.signature, 'base64'),
     );

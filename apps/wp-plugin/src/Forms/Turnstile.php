@@ -36,7 +36,12 @@ class Turnstile {
 	/** Cloudflare's documented test keys (always pass). */
 	public const TEST_SITE_KEY = '1x00000000000000000000AA';
 	public const TEST_SECRET   = '1x0000000000000000000000000000000AA';
-	private const KEY_PATTERN  = '/^[A-Za-z0-9_-]{10,100}$/';
+	private const KEY_PATTERN  = '/^[A-Za-z0-9_-]{10,100}\z/';
+	/** How long a verified token stays bound to its submission (seconds). */
+	public const TOKEN_TTL    = 300;
+	private const USED_PREFIX = 'inmolink_ts_';
+	/** UUIDv5 namespace of the siteverify idempotency keys (fixed; a random UUID generated once for this plugin). */
+	private const KEY_NAMESPACE = '6f1b3a52-8d0e-4c47-9b1a-2e5d7c9f4a10';
 
 	/**
 	 * `own`, `forward` or `none`.
@@ -115,12 +120,22 @@ class Turnstile {
 	/**
 	 * `own` mode: asks Cloudflare whether the visitor's token is good, for this action.
 	 *
-	 * @param string $token           The form's `cf-turnstile-response`.
-	 * @param string $remote_ip       The visitor's IP.
-	 * @param string $idempotency_key The submission's key (Cloudflare dedupes retries with it).
+	 * A token is single-use at Cloudflare, which caches a success per `idempotency_key`. The key is a UUIDv5 of the
+	 * submission's own key plus the token's hash: a network retry of the same submission gets the same key and succeeds,
+	 * while the same token on another submission would get another key — and is refused here, before any Cloudflare
+	 * call, for {@see TOKEN_TTL} seconds after a success (so one solved challenge cannot carry several submissions).
+	 *
+	 * @param string $token          The form's `cf-turnstile-response`.
+	 * @param string $remote_ip      The visitor's IP.
+	 * @param string $submission_key A digest of the validated submission (token and content), same for a retry.
 	 */
-	public static function verify( string $token, string $remote_ip, string $idempotency_key ): bool {
-		if ( '' === $token || strlen( $token ) > 2048 || 'own' !== self::mode() ) {
+	public static function verify( string $token, string $remote_ip, string $submission_key ): bool {
+		if ( '' === $token || strlen( $token ) > 2048 || 'own' !== self::mode() || '' === $submission_key ) {
+			return false;
+		}
+		$used = self::USED_PREFIX . substr( hash( 'sha256', $token ), 0, 40 );
+		$prev = get_transient( $used );
+		if ( is_string( $prev ) && ! hash_equals( $prev, $submission_key ) ) {
 			return false;
 		}
 		$response = wp_remote_post(
@@ -131,7 +146,7 @@ class Turnstile {
 					'secret'          => self::secret(),
 					'response'        => $token,
 					'remoteip'        => $remote_ip,
-					'idempotency_key' => self::uuid_or_new( $idempotency_key ),
+					'idempotency_key' => self::idempotency_key( $token, $submission_key ),
 				),
 			)
 		);
@@ -143,21 +158,34 @@ class Turnstile {
 			return false;
 		}
 		if ( self::test_mode() ) {
+			set_transient( $used, $submission_key, self::TOKEN_TTL );
 			return true;
 		}
 		// Real keys: our action (a token from another form is refused) and this site's host (a widget shared by several
 		// domains does not make their tokens good here).
 		$host = wp_parse_url( home_url( '/' ), PHP_URL_HOST );
-		return self::ACTION === ( $body['action'] ?? null ) && is_string( $body['hostname'] ?? null ) && strtolower( $body['hostname'] ) === strtolower( (string) $host );
+		$good = self::ACTION === ( $body['action'] ?? null ) && is_string( $body['hostname'] ?? null ) && strtolower( $body['hostname'] ) === strtolower( (string) $host );
+		if ( $good ) {
+			set_transient( $used, $submission_key, self::TOKEN_TTL );
+		}
+		return $good;
 	}
 
 	/**
-	 * Cloudflare's `idempotency_key` must be a UUID: the form key when it is one, else a fresh one.
+	 * Cloudflare's `idempotency_key` must be a UUID: a UUIDv5 (RFC 4122, SHA-1) under a fixed namespace of the submission
+	 * key and the token's SHA-256 — stable for a retry, different for another submission or token.
 	 *
-	 * @param string $key Form key.
+	 * @param string $token          Turnstile token.
+	 * @param string $submission_key Submission digest.
 	 */
-	private static function uuid_or_new( string $key ): string {
-		return wp_is_uuid( $key ) ? $key : wp_generate_uuid4();
+	public static function idempotency_key( string $token, string $submission_key ): string {
+		$ns   = hex2bin( str_replace( '-', '', self::KEY_NAMESPACE ) );
+		$hash = sha1( (string) $ns . $submission_key . '|' . hash( 'sha256', $token ), true );
+		$hex  = bin2hex( substr( $hash, 0, 16 ) );
+		// Version 5 and the RFC 4122 variant.
+		$hex[12] = '5';
+		$hex[16] = dechex( ( hexdec( $hex[16] ) & 0x3 ) | 0x8 );
+		return substr( $hex, 0, 8 ) . '-' . substr( $hex, 8, 4 ) . '-' . substr( $hex, 12, 4 ) . '-' . substr( $hex, 16, 4 ) . '-' . substr( $hex, 20, 12 );
 	}
 
 	/**

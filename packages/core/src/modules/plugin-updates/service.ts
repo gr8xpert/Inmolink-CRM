@@ -105,14 +105,11 @@ export async function publishPluginRelease(
     throw new Error(`plugin zip must be 1 byte to ${PLUGIN_PACKAGE_MAX_BYTES} bytes`);
   }
   const sha256 = createHash('sha256').update(zip).digest('hex');
-  const signature = Buffer.from(sign(new TextEncoder().encode(pluginSigningMessage(input.version, sha256)))).toString(
-    'base64',
-  );
-  const manifest = PluginReleaseManifest.parse({
+  // The signature covers the metadata WordPress shows too (S9-F3), so everything is fixed before signing.
+  const unsigned = PluginReleaseManifest.omit({ signature: true }).parse({
     slug: 'inmolink',
     version: input.version,
     sha256,
-    signature,
     sizeBytes: zip.byteLength,
     requires: input.requires,
     requiresPhp: input.requiresPhp,
@@ -121,6 +118,8 @@ export async function publishPluginRelease(
     commit: input.commit,
     changelog: input.changelog ?? '',
   });
+  const signature = Buffer.from(sign(new TextEncoder().encode(pluginSigningMessage(unsigned)))).toString('base64');
+  const manifest = PluginReleaseManifest.parse({ ...unsigned, signature });
 
   const keys = pluginReleaseKeys(manifest.version);
   const existingRaw = await store.get(PLUGIN_RELEASE_BUCKET, keys.manifest, { maxBytes: MANIFEST_MAX_BYTES });

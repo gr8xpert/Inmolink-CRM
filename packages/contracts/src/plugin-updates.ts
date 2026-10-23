@@ -20,7 +20,7 @@ export const PluginReleaseManifest = z.strictObject({
   version: PluginVersion,
   /** SHA-256 of the zip, lower-case hex. */
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  /** Ed25519 signature over `pluginSigningMessage(version, sha256)`, base64 (64 bytes). */
+  /** Ed25519 signature over `pluginSigningMessage(...)` (the package and its metadata), base64 (64 bytes). */
   signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
   sizeBytes: z.number().int().positive(),
   requires: RequiredVersion,
@@ -30,7 +30,11 @@ export const PluginReleaseManifest = z.strictObject({
   /** The commit the zip was built from. */
   commit: z.string().regex(/^[0-9a-f]{40}$/),
   /** Release notes, plain text (the plugin escapes them). */
-  changelog: z.string().max(4_000).default(''),
+  changelog: z
+    .string()
+    .max(4_000)
+    .refine((s) => s.isWellFormed(), 'changelog must be well-formed Unicode')
+    .default(''),
 });
 export type PluginReleaseManifest = z.infer<typeof PluginReleaseManifest>;
 
@@ -48,10 +52,21 @@ export type PluginPackageParams = z.infer<typeof PluginPackageParams>;
 /** Largest plugin zip the update server stores or serves. */
 export const PLUGIN_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
 
+/** What a release signature covers (S9-F3): the update metadata WordPress shows, not only the package. */
+export type PluginSigningFields = Pick<
+  PluginReleaseManifest,
+  'version' | 'sha256' | 'requires' | 'requiresPhp' | 'tested' | 'releasedAt' | 'changelog'
+>;
+
 /**
- * The bytes a release signature covers: the slug, the version and the zip's SHA-256 — so a signed package can never be
- * replayed as another version (a downgrade) or another plugin. The PHP updater builds the same string.
+ * The bytes a release signature covers: the slug, the version, the zip's SHA-256, the requirements (`requires`,
+ * `requiresPhp`, `tested`), `releasedAt` and the changelog, each as a netstring (`<UTF-8 byte length>:<value>,`) so no value can shift into another — so a signed
+ * package can never be replayed as another version (a downgrade) or another plugin, and the metadata the update screen
+ * shows cannot be altered by whoever serves it. The PHP updater (`Updater::signing_message`) builds the same string.
  */
-export function pluginSigningMessage(version: string, sha256: string): string {
-  return `inmolink-wp-plugin\n${version}\n${sha256}`;
+export function pluginSigningMessage(f: PluginSigningFields): string {
+  const field = (v: string) => `${new TextEncoder().encode(v).length}:${v},`;
+  return `inmolink-wp-plugin/v2\n${[f.version, f.sha256, f.requires, f.requiresPhp, f.tested, f.releasedAt, f.changelog]
+    .map(field)
+    .join('')}`;
 }

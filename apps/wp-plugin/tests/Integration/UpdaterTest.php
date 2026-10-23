@@ -111,10 +111,21 @@ final class UpdaterTest extends TestCase {
 	 * @param string      $bytes          Package bytes served.
 	 * @param string|null $signed_version Version the signature covers (default: the offered one).
 	 * @param string|null $signed_bytes   Bytes the hash and signature cover (default: the served ones).
+	 * @param string|null $served_changelog Changelog served when it differs from the signed one (default: as signed).
 	 */
-	private function serve( string $version, string $bytes, ?string $signed_version = null, ?string $signed_bytes = null ): void {
-		$sha = hash( 'sha256', $signed_bytes ?? $bytes );
-		$sig = sodium_crypto_sign_detached( Updater::signing_message( $signed_version ?? $version, $sha ), INMOLINK_TEST_SIGNING_SECRET );
+	private function serve( string $version, string $bytes, ?string $signed_version = null, ?string $signed_bytes = null, ?string $served_changelog = null ): void {
+		$sha       = hash( 'sha256', $signed_bytes ?? $bytes );
+		$changelog = "Signed updates.\n<script>alert(1)</script>";
+		$meta      = array(
+			'version'     => $signed_version ?? $version,
+			'sha256'      => $sha,
+			'requires'    => '6.4',
+			'requiresPhp' => '8.1',
+			'tested'      => '6.8',
+			'releasedAt'  => '2026-10-23T10:00:00.000Z',
+			'changelog'   => $changelog,
+		);
+		$sig       = sodium_crypto_sign_detached( Updater::signing_message( $meta ), INMOLINK_TEST_SIGNING_SECRET );
 		$this->api->on(
 			'/v2/plugin/update',
 			array(
@@ -128,7 +139,7 @@ final class UpdaterTest extends TestCase {
 					'requiresPhp' => '8.1',
 					'tested'      => '6.8',
 					'releasedAt'  => '2026-10-23T10:00:00.000Z',
-					'changelog'   => "Signed updates.\n<script>alert(1)</script>",
+					'changelog'   => $served_changelog ?? $changelog,
 					'package'     => '/v2/plugin/package/' . $version,
 				),
 			)
@@ -252,13 +263,140 @@ final class UpdaterTest extends TestCase {
 		$this->assertSame( '0.1.0', self::installed_version() );
 		$error = $this->updater->pre_download( false, FakeApi::BASE . '/v2/plugin/package/0.2.0' );
 		$this->assertWPError( $error );
-		$this->assertSame( 'inmolink_update_signature', $error->get_error_code() );
+		$this->assertSame( 'inmolink_update_unknown', $error->get_error_code(), 'a signature that does not cover the metadata is refused before any download' );
 
 		$other = sodium_crypto_sign_keypair();
 		$file  = $this->zip;
-		$sha   = hash_file( 'sha256', $file );
-		$sig   = base64_encode( sodium_crypto_sign_detached( Updater::signing_message( '0.2.0', $sha ), sodium_crypto_sign_secretkey( $other ) ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
-		$this->assertSame( 'inmolink_update_signature', Updater::verify_file( $file, '0.2.0', $sha, $sig )->get_error_code() );
+		$meta  = array(
+			'version'     => '0.2.0',
+			'sha256'      => hash_file( 'sha256', $file ),
+			'requires'    => '6.4',
+			'requiresPhp' => '8.1',
+			'tested'      => '6.8',
+			'releasedAt'  => '2026-10-23T10:00:00.000Z',
+			'changelog'   => 'x',
+		);
+		$meta['signature'] = base64_encode( sodium_crypto_sign_detached( Updater::signing_message( $meta ), sodium_crypto_sign_secretkey( $other ) ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+		$this->assertSame( 'inmolink_update_signature', Updater::verify_file( $file, $meta )->get_error_code() );
+	}
+
+	/**
+	 * Metadata for a release signed with the test key.
+	 *
+	 * @param string $version     Version.
+	 * @param string $released_at Release date.
+	 * @param array<string,string> $over Field overrides (signed as given).
+	 * @return array<string,string>
+	 */
+	private function signed_meta( string $version, string $released_at, array $over = array() ): array {
+		$meta              = array_merge(
+			array(
+				'version'     => $version,
+				'sha256'      => hash( 'sha256', $version ),
+				'requires'    => '6.4',
+				'requiresPhp' => '8.1',
+				'tested'      => '6.8',
+				'releasedAt'  => $released_at,
+				'changelog'   => 'Notes',
+			),
+			$over
+		);
+		$meta['signature'] = base64_encode( sodium_crypto_sign_detached( Updater::signing_message( $meta ), INMOLINK_TEST_SIGNING_SECRET ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+		$meta['package']   = '/v2/plugin/package/' . $version;
+		return $meta;
+	}
+
+	/**
+	 * [S9-F3] Cross-language vector: the same fields give the same bytes as the TypeScript signing code, and its
+	 * signature (made with a fixed test key in service.test.ts) verifies here.
+	 */
+	public function test_s9_f3_signing_message_matches_the_typescript_vector(): void {
+		$message = Updater::signing_message(
+			array(
+				'version'     => '1.2.3',
+				'sha256'      => str_repeat( 'ab', 32 ),
+				'requires'    => '6.4',
+				'requiresPhp' => '8.1',
+				'tested'      => '6.8',
+				'releasedAt'  => '2026-10-23T10:00:00.000Z',
+				'changelog'   => "Línea 1\n日本語 — ñ 😀\n\n\"quoted\" <b>",
+			)
+		);
+		$this->assertSame( '696e6d6f6c696e6b2d77702d706c7567696e2f76320a353a312e322e332c36343a616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261622c333a362e342c333a382e312c333a362e382c32343a323032362d31302d32335431303a30303a30302e3030305a2c34343a4cc3ad6e656120310ae697a5e69cace8aa9e20e2809420c3b120f09f98800a0a2271756f74656422203c623e2c', bin2hex( $message ) );
+		// phpcs:disable WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- fixed test vector.
+		$this->assertTrue( sodium_crypto_sign_verify_detached( base64_decode( 'A/d4bTu14ziH7t81U4xMWluxqxCYajJ99lvpQt8Dmf5KWViQk9W14vgbHvm30CIlOpYU5WX250lHeclkXcBdAQ==' ), $message, base64_decode( 'A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=' ) ) );
+		// phpcs:enable
+	}
+
+	/**
+	 * [S9-F3] A present-but-malformed signed field (even one that is signed as served, like a trailing newline) rejects
+	 * the manifest.
+	 */
+	public function test_s9_f3_malformed_signed_field_rejects_the_manifest(): void {
+		foreach ( array(
+			'requires'   => "6.4\n",
+			'tested'     => 'latest',
+			'releasedAt' => "2026-10-23T10:00:00.000Z\n",
+		) as $field => $bad ) {
+			$meta           = $this->signed_meta( '0.2.0', '2026-10-23T10:00:00.000Z', array( $field => $bad ) );
+			$this->api->on( '/v2/plugin/update', array( 'body' => $meta + array( 'slug' => 'inmolink' ) ) );
+			$this->assertNull( $this->updater->info( true ), $field );
+		}
+	}
+
+	/**
+	 * [S9-F3] The replay floor includes the installed version: a signed manifest older than what runs offers nothing.
+	 */
+	public function test_s9_f3_floor_is_the_installed_version(): void {
+		$installed = new Updater( self::BASENAME, '0.5.0' );
+		$this->api->on( '/v2/plugin/update', array( 'body' => $this->signed_meta( '0.4.0', '2026-09-01T10:00:00.000Z' ) + array( 'slug' => 'inmolink' ) ) );
+		$this->assertNull( $installed->info( true ) );
+		$this->assertSame( '0.4.0 < 0.5.0', \Inmolink\Plugin\Admin\Health::report()['update_replay'] );
+	}
+
+	/**
+	 * [S9-F3] A manifest whose changelog (or requirements, or date) was altered after signing offers no update.
+	 */
+	public function test_s9_f3_altered_changelog_offers_no_update(): void {
+		$bytes = (string) file_get_contents( $this->zip );
+		$this->serve( '0.2.0', $bytes, null, null, 'Totally legit notes. Click <a href="https://evil.example">here</a>.' );
+		$transient          = new \stdClass();
+		$transient->checked = array( self::BASENAME => '0.1.0' );
+		$offer              = $this->updater->filter_update_transient( $transient );
+		$this->assertArrayNotHasKey( self::BASENAME, (array) ( $offer->response ?? array() ) );
+		$this->assertNull( $this->updater->plugins_api( null, 'plugin_information', (object) array( 'slug' => 'inmolink' ) ) );
+		$this->assertNotTrue( $this->upgrade() );
+		$this->assertSame( '0.1.0', self::installed_version() );
+
+		// The untouched manifest is offered.
+		delete_site_transient( Updater::INFO_TRANSIENT );
+		$this->serve( '0.2.0', $bytes );
+		$transient          = new \stdClass();
+		$transient->checked = array( self::BASENAME => '0.1.0' );
+		$this->assertSame( '0.2.0', $this->updater->filter_update_transient( $transient )->response[ self::BASENAME ]->new_version );
+	}
+
+	/**
+	 * [S9-F3] [S8-F27] A replayed older (validly signed) manifest offers no update once a newer version was seen, and
+	 * the health page flags it.
+	 */
+	public function test_s9_f3_replayed_older_manifest_is_refused_and_flagged(): void {
+		$this->api->on( '/v2/plugin/update', array( 'body' => $this->signed_meta( '0.3.0', '2026-10-23T10:00:00.000Z' ) + array( 'slug' => 'inmolink' ) ) );
+		$this->assertSame( '0.3.0', $this->updater->info( true )['version'] );
+		$this->assertSame( '', \Inmolink\Plugin\Admin\Health::report()['update_replay'] );
+
+		// An attacker replays the older signed manifest: no update for a site on 0.1.0, and a flag.
+		$this->api->on( '/v2/plugin/update', array( 'body' => $this->signed_meta( '0.2.0', '2026-09-01T10:00:00.000Z' ) + array( 'slug' => 'inmolink' ) ) );
+		$this->assertNull( $this->updater->info( true ) );
+		$transient          = new \stdClass();
+		$transient->checked = array( self::BASENAME => '0.1.0' );
+		$this->assertArrayNotHasKey( self::BASENAME, (array) ( $this->updater->filter_update_transient( $transient )->response ?? array() ) );
+		$this->assertSame( '0.2.0 < 0.3.0', \Inmolink\Plugin\Admin\Health::report()['update_replay'] );
+
+		// The real latest clears the flag.
+		$this->api->on( '/v2/plugin/update', array( 'body' => $this->signed_meta( '0.3.0', '2026-10-23T10:00:00.000Z' ) + array( 'slug' => 'inmolink' ) ) );
+		$this->assertSame( '0.3.0', $this->updater->info( true )['version'] );
+		$this->assertSame( '', \Inmolink\Plugin\Admin\Health::report()['update_replay'] );
 	}
 
 	/**

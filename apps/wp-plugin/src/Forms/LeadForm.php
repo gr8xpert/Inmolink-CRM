@@ -137,7 +137,7 @@ class LeadForm {
 		}
 
 		if ( 'own' === $mode ) {
-			if ( ! Turnstile::verify( $token, $ip, $idem ) ) {
+			if ( ! Turnstile::verify( $token, $ip, hash( 'sha256', $idem . '|' . (string) wp_json_encode( $body ) ) ) ) {
 				return 'invalid';
 			}
 			// Allowed only because the plugin itself just verified the visitor (S7-05).
