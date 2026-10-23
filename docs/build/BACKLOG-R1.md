@@ -1174,6 +1174,31 @@ Ref §9.4 · Mod wp-plugin · Dep S8-03
 **Build:** an admin notice when the WordPress salts are stored in the database rather than wp-config.php (a database dump alone could then decrypt the key).
 **Done when:** the notice shows with DB salts and not with wp-config salts (PHPUnit)
 
+### S8-F21 · Plugin: Polylang and WPML on real installs (S8-04) · [H15]
+Ref §9.4 · Mod wp-plugin · Dep S8-04
+**Build:** check the language adapters on real Polylang and WPML installs: Polylang directory mode vs our rewrite rules (double prefix), WPML's request URI / home URL rewriting, the extra `lang=` query var; fix what differs from the fake adapter.
+**Done when:** listing and development URLs route and canonicalise per locale on a test site with each plugin (manual + PHPUnit on the adapters)
+
+### S8-F22 · Plugin: translatable editor strings (S8-04 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-F15
+**Build:** block attribute labels through a label map and `wp_set_script_translations`; included in the S8-F15 `.pot`.
+**Done when:** the block sidebar renders in Spanish (PHPUnit on the registered translations)
+
+### S8-F23 · Plugin: API host address checks (S8-04 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-03
+**Build:** per-IP limit on uncached API calls; refuse link-local, carrier-grade NAT and private IPv6 API hosts, also after DNS resolution.
+**Done when:** a base resolving to 169.254.0.0/16, 100.64.0.0/10 or fc00::/7 is refused (PHPUnit)
+
+### S8-F24 · Developments in the plugin sitemap (S8-04 review)
+Ref §9.4 · Mod wp-plugin, website-api · Dep S8-04
+**Build:** `/v2/sitemap` gains DEVELOPMENT entries (contract + OpenAPI + `pnpm sdk:generate`); the plugin's provider lists them.
+**Done when:** a site's developments appear in its WP sitemap with lastmod (PHPUnit + API int test)
+
+### S8-F25 · Plugin: SEO plugin coexistence (S8-04 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-04
+**Build:** silence Yoast / RankMath canonicals and titles on routed pages; an end-to-end `template_redirect` test.
+**Done when:** a routed listing page has one canonical with Yoast active (PHPUnit)
+
 ---
 
 ## S9 — Portal exports

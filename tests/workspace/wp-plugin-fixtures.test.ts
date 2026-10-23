@@ -1,11 +1,20 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { WebsiteChangesPage, WebsiteDetail, WebsiteListingPage, WebsiteSitemapPage } from '@inmolink/contracts';
+import {
+  WebsiteChangesPage,
+  WebsiteDetail,
+  WebsiteDevelopmentDetail,
+  WebsiteDevelopmentPage,
+  WebsiteListingPage,
+  WebsiteSitemapPage,
+  WebsiteTypesDto,
+  WebsiteUnitPage,
+} from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
 
 /**
- * The WordPress plugin's PHPUnit suite (S8-03) mocks the website API with these JSON files; this test keeps them
+ * The WordPress plugin's PHPUnit suite (S8-03, S8-04) mocks the website API with these JSON files; this test keeps them
  * exactly in the v2 contract shapes, so a contract change that breaks the plugin's assumptions fails here.
  */
 const DIR = join(import.meta.dirname, '../../apps/wp-plugin/tests/fixtures');
@@ -15,6 +24,11 @@ const SCHEMA_BY_PREFIX: [string, z.ZodType][] = [
   ['listing.', WebsiteDetail],
   ['listings.', WebsiteListingPage],
   ['sitemap.', WebsiteSitemapPage],
+  // S8-04
+  ['developments.', WebsiteDevelopmentPage],
+  ['development.', WebsiteDevelopmentDetail],
+  ['units.', WebsiteUnitPage],
+  ['taxonomy.types.', WebsiteTypesDto],
 ];
 
 describe('WordPress plugin fixtures (S8-03)', () => {

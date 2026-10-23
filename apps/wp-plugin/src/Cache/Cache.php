@@ -51,11 +51,21 @@ class Cache {
 	 * @return Result|null The body (fresh or stale), or null when there is none.
 	 */
 	public function get( string $path, array $query = array(), bool $keep_stale = true ): ?Result {
-		$key    = self::key( $path, $query );
+		$key = self::key( $path, $query );
+		$raw = get_transient( $key );
+		if ( is_array( $raw ) && ! empty( $raw['not_found'] ) ) {
+			return null;
+		}
 		$entry  = $this->read( $key );
 		$now    = time();
 		$ttl    = (int) Settings::get( 'cache_ttl' );
 		$stored = null !== $entry;
+
+		if ( $stored && ! $entry['keep_stale'] && $entry['fresh_until'] <= $now ) {
+			// A TTL-only entry (free text, deep page) past its TTL is never served as a stale copy.
+			$entry  = null;
+			$stored = false;
+		}
 
 		if ( $stored && $entry['fresh_until'] > $now ) {
 			// Still stale when it is only "fresh" because of a failure back-off.
@@ -69,16 +79,18 @@ class Cache {
 			return new Result( $response->body, $now, false );
 		}
 		if ( Response::NOT_MODIFIED === $response->kind && $stored ) {
+			$keep_stale = $keep_stale && $entry['keep_stale'];
 			$this->write( $key, $entry['body'], $response->etag ?? $entry['etag'], $now, $now + $ttl, $keep_stale );
 			return new Result( $entry['body'], $now, false );
 		}
 		if ( Response::NOT_FOUND === $response->kind ) {
-			delete_transient( $key );
+			// Remembered briefly, so unknown references cannot make an API call per request.
+			set_transient( $key, array( 'not_found' => true ), \Inmolink\Plugin\Listings::NOT_FOUND_TTL );
 			return null;
 		}
 		if ( $stored ) {
 			// Unreachable: serve the stale copy, back off for a minute.
-			$this->write( $key, $entry['body'], $entry['etag'], $entry['fetched_at'], $now + self::BACKOFF, true );
+			$this->write( $key, $entry['body'], $entry['etag'], $entry['fetched_at'], $now + self::BACKOFF, $entry['keep_stale'] );
 			return new Result( $entry['body'], $entry['fetched_at'], true );
 		}
 		return null;
@@ -108,7 +120,7 @@ class Cache {
 	 * Reads an entry.
 	 *
 	 * @param string $key Transient name.
-	 * @return array{body:array<string,mixed>,etag:?string,fetched_at:int,fresh_until:int}|null
+	 * @return array{body:array<string,mixed>,etag:?string,fetched_at:int,fresh_until:int,keep_stale:bool}|null
 	 */
 	private function read( string $key ): ?array {
 		$entry = get_transient( $key );
@@ -120,6 +132,7 @@ class Cache {
 			'etag'        => isset( $entry['etag'] ) && is_string( $entry['etag'] ) ? $entry['etag'] : null,
 			'fetched_at'  => (int) $entry['fetched_at'],
 			'fresh_until' => (int) $entry['fresh_until'],
+			'keep_stale'  => isset( $entry['keep_stale'] ) && true === $entry['keep_stale'],
 		);
 	}
 
@@ -141,6 +154,7 @@ class Cache {
 				'etag'        => $etag,
 				'fetched_at'  => $fetched_at,
 				'fresh_until' => $fresh_until,
+				'keep_stale'  => $keep_stale,
 			),
 			$keep_stale ? (int) Settings::get( 'stale_days' ) * DAY_IN_SECONDS : max( 1, $fresh_until - time() )
 		);

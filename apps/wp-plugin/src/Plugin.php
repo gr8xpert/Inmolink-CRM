@@ -8,6 +8,12 @@
 namespace Inmolink\Plugin;
 
 use Inmolink\Plugin\Admin\SettingsPage;
+use Inmolink\Plugin\Blocks\Blocks;
+use Inmolink\Plugin\Routing\Router;
+use Inmolink\Plugin\Seo\Head;
+use Inmolink\Plugin\Seo\SitemapIndex;
+use Inmolink\Plugin\Seo\SitemapProvider;
+use Inmolink\Plugin\Shortcodes\Shortcodes;
 use Inmolink\Plugin\Mirror\Mirror;
 use Inmolink\Plugin\Sync\DeltaSync;
 
@@ -57,6 +63,13 @@ final class Plugin {
 		add_action( DeltaSync::HOOK, array( self::class, 'run_sync' ) );
 		add_action( 'init', array( self::class, 'init' ) );
 		add_action( 'plugins_loaded', array( Mirror::class, 'maybe_upgrade' ) );
+		add_action( DeltaSync::HOOK, array( self::class, 'refresh_sitemaps' ), 20 );
+
+		Router::register();
+		Head::register();
+		Blocks::register();
+		Shortcodes::register();
+		SitemapProvider::register();
 
 		if ( is_admin() ) {
 			( new SettingsPage() )->register();
@@ -87,6 +100,15 @@ final class Plugin {
 			'display'  => __( 'Every five minutes (Inmolink)', 'inmolink' ),
 		);
 		return $schedules;
+	}
+
+	/**
+	 * Cron: rebuilds the sitemap index of each locale when it is due.
+	 */
+	public static function refresh_sitemaps(): void {
+		if ( Settings::is_configured() ) {
+			SitemapIndex::from_settings()->refresh_due();
+		}
 	}
 
 	/**

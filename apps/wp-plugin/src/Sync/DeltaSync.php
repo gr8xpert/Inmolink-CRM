@@ -44,7 +44,7 @@ class DeltaSync {
 	public const FIRST_RUN_OVERLAP = 300;
 	public const PAGE_LIMIT        = 100;
 	public const SITEMAP_LIMIT     = 500;
-	private const REF              = '/^\S{1,64}$/';
+	private const REF              = \Inmolink\Plugin\Listings::REF_PATTERN;
 
 	/**
 	 * Creates the sync.

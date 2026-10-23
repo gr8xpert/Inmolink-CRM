@@ -23,3 +23,6 @@ define( 'WP_TESTS_EMAIL', 'admin@example.org' );
 define( 'WP_TESTS_TITLE', 'Inmolink Tests' );
 define( 'WP_PHP_BINARY', 'php' );
 define( 'WPLANG', '' );
+
+// Production-like: no local API opt-in (Settings::sanitize_base_for() covers the opted-in branch).
+define( 'INMOLINK_ALLOW_LOCAL_API', false );

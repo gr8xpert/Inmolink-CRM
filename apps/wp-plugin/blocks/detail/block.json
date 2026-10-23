@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "inmolink/detail",
+	"title": "Property detail",
+	"description": "One listing by reference (or the listing of the current pretty URL).",
+	"category": "widgets",
+	"icon": "admin-home",
+	"textdomain": "inmolink",
+	"attributes": {
+		"ref": {
+			"type": "string",
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": [
+			"wide",
+			"full"
+		]
+	},
+	"editorScript": "inmolink-blocks-editor"
+}

@@ -30,7 +30,7 @@ final class SettingsPage {
 	public const SYNC       = 'inmolink_sync_now';
 
 	/** Notice codes a redirect may carry, with their messages (nothing from the query string is printed). */
-	private const NOTICES = array( 'saved', 'key_invalid', 'test_ok', 'test_failed', 'synced', 'sync_failed' );
+	private const NOTICES = array( 'saved', 'key_invalid', 'key_reentry', 'test_ok', 'test_failed', 'synced', 'sync_failed' );
 
 	/**
 	 * Registers the admin hooks.
@@ -103,6 +103,8 @@ final class SettingsPage {
 				Settings::clear_api_key();
 			} elseif ( '' !== $key && ! Settings::set_api_key( $key ) ) {
 				$notice = 'key_invalid';
+			} elseif ( '' === $key && '' !== $before_key && Settings::get( 'api_base' ) !== $before_base ) {
+				$notice = 'key_reentry';
 			}
 		}
 
@@ -186,6 +188,17 @@ final class SettingsPage {
 					<tr>
 						<th scope="row"><label for="inmolink-default-locale"><?php esc_html_e( 'Default locale', 'inmolink' ); ?></label></th>
 						<td><input type="text" class="small-text" id="inmolink-default-locale" name="inmolink[default_locale]" value="<?php echo esc_attr( $settings['default_locale'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="inmolink-listing-base"><?php esc_html_e( 'Property URL base', 'inmolink' ); ?></label></th>
+						<td>
+							<input type="text" class="regular-text" id="inmolink-listing-base" name="inmolink[listing_base]" value="<?php echo esc_attr( $settings['listing_base'] ); ?>" />
+							<p class="description"><?php esc_html_e( 'e.g. property, or property, es:propiedad, de:immobilie for one per locale. Pages live at /{base}/{reference}/{slug}/.', 'inmolink' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="inmolink-development-base"><?php esc_html_e( 'Development URL base', 'inmolink' ); ?></label></th>
+						<td><input type="text" class="regular-text" id="inmolink-development-base" name="inmolink[development_base]" value="<?php echo esc_attr( $settings['development_base'] ); ?>" /></td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="inmolink-cache-ttl"><?php esc_html_e( 'Search cache (seconds)', 'inmolink' ); ?></label></th>
@@ -277,6 +290,7 @@ final class SettingsPage {
 		}
 		$messages               = array(
 			'saved'       => array( 'success', __( 'Settings saved.', 'inmolink' ) ),
+			'key_reentry' => array( 'warning', __( 'Settings saved. The API URL changed, so the stored key was removed: enter the key for the new URL.', 'inmolink' ) ),
 			'key_invalid' => array( 'error', __( 'Settings saved, but the API key was not: enter a secret key (inl_live_sk… or inl_test_sk…).', 'inmolink' ) ),
 			'test_ok'     => array( 'success', __( 'The API answered.', 'inmolink' ) ),
 			'test_failed' => array( 'error', __( 'The API could not be reached with these settings.', 'inmolink' ) ),

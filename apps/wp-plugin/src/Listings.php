@@ -26,15 +26,22 @@ class Listings {
 	/** A mirror row older than this is revalidated on view (a safety net; the delta sync normally keeps it fresh). */
 	public const MIRROR_MAX_AGE = DAY_IN_SECONDS;
 
-	private const UUID    = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
-	private const CURSOR  = '/^[A-Za-z0-9_-]{1,200}$/';
-	private const REF     = '/^\S{1,64}$/';
-	private const SORTS   = array( 'newest', 'price_asc', 'price_desc', 'beds_desc', 'area_desc' );
-	private const STATUS  = array( 'ACTIVE', 'UNDER_OFFER', 'AVAILABLE', 'RESERVED' );
-	private const TXN     = array( 'SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM' );
-	private const KINDS   = array( 'LISTING', 'UNIT' );
-	private const FACETS  = array( 'propertyTypeId', 'locationIds', 'featureIds', 'beds', 'transactionType' );
-	private const INT_MAX = 9007199254740991;
+	private const UUID   = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
+	private const CURSOR = '/^[A-Za-z0-9_-]{1,200}$/';
+	/**
+	 * A reference as the plugin accepts it (URLs, block attributes, the change feed): letters, digits, `.`, `_`, `-`,
+	 * starting with a letter or digit — so `.` / `..` can never turn `/v2/listings/{ref}` into another API path.
+	 */
+	public const REF_PATTERN = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/';
+	private const REF        = self::REF_PATTERN;
+	/** Seconds an unknown reference is remembered (no API call for it meanwhile). */
+	public const NOT_FOUND_TTL = 300;
+	private const SORTS        = array( 'newest', 'price_asc', 'price_desc', 'beds_desc', 'area_desc' );
+	private const STATUS       = array( 'ACTIVE', 'UNDER_OFFER', 'AVAILABLE', 'RESERVED' );
+	private const TXN          = array( 'SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM' );
+	private const KINDS        = array( 'LISTING', 'UNIT' );
+	private const FACETS       = array( 'propertyTypeId', 'locationIds', 'featureIds', 'beds', 'transactionType' );
+	private const INT_MAX      = 9007199254740991;
 
 	/**
 	 * Creates the service.
@@ -62,11 +69,13 @@ class Listings {
 	 *
 	 * @param array<string,mixed> $args Raw search arguments (shortcode attributes, query vars); unknown or invalid
 	 *                                  values are dropped.
+	 * @param bool                $canonical Whether the arguments are a block's own (not the visitor's).
 	 */
-	public function search( array $args ): ?Result {
+	public function search( array $args, bool $canonical = true ): ?Result {
 		$query = self::search_query( $args );
-		// Free-text searches and deep pages are not kept as stale fallbacks (unbounded key space).
-		return $this->cache->get( '/v2/listings', $query, ! isset( $query['q'] ) && ! isset( $query['cursor'] ) );
+		// Only canonical searches (a block's own filters) keep a stale copy: visitor filters, free text and deep pages
+		// are an unbounded key space and live for the TTL only.
+		return $this->cache->get( '/v2/listings', $query, $canonical && ! isset( $query['q'] ) && ! isset( $query['cursor'] ) );
 	}
 
 	/**
@@ -86,6 +95,10 @@ class Listings {
 		if ( null !== $row && $row['fetched_at'] > $now - self::MIRROR_MAX_AGE ) {
 			return new Result( $row['payload'], $row['fetched_at'], false );
 		}
+		$missing = 'inmolink_nf_' . md5( $ref . '|' . $lang );
+		if ( null === $row && false !== get_transient( $missing ) ) {
+			return null;
+		}
 
 		$response = $this->client->get( '/v2/listings/' . rawurlencode( $ref ), array( 'lang' => $lang ), $row['etag'] ?? null );
 
@@ -99,6 +112,7 @@ class Listings {
 		}
 		if ( Response::NOT_FOUND === $response->kind ) {
 			$this->mirror->delete( $ref, $lang );
+			set_transient( $missing, 1, self::NOT_FOUND_TTL );
 			return null;
 		}
 		return null !== $row ? new Result( $row['payload'], $row['fetched_at'], true ) : null;

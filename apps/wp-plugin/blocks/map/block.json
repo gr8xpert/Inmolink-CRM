@@ -1,0 +1,40 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "inmolink/map",
+	"title": "Property map",
+	"description": "Listings as map points: a key-free list of coordinates by default, enhanced by a theme map script if present.",
+	"category": "widgets",
+	"icon": "location",
+	"textdomain": "inmolink",
+	"attributes": {
+		"transaction": {
+			"type": "string",
+			"default": ""
+		},
+		"types": {
+			"type": "string",
+			"default": ""
+		},
+		"locations": {
+			"type": "string",
+			"default": ""
+		},
+		"limit": {
+			"type": "number",
+			"default": 50
+		},
+		"useQuery": {
+			"type": "boolean",
+			"default": true
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": [
+			"wide",
+			"full"
+		]
+	},
+	"editorScript": "inmolink-blocks-editor"
+}

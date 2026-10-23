@@ -26,6 +26,7 @@ final class Installer {
 	public static function activate(): void {
 		Mirror::install();
 		self::schedule();
+		Routing\Router::schedule_flush();
 	}
 
 	/**
@@ -34,6 +35,7 @@ final class Installer {
 	public static function deactivate(): void {
 		wp_clear_scheduled_hook( DeltaSync::HOOK );
 		delete_option( DeltaSync::LOCK_OPTION );
+		delete_option( 'rewrite_rules' ); // Rebuilt on the next request, without ours.
 	}
 
 	/**

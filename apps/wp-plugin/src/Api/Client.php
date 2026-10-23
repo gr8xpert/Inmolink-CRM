@@ -84,8 +84,8 @@ class Client {
 				'redirection'         => 0,
 				'headers'             => $headers,
 				'limit_response_size' => self::MAX_BODY,
-				// Private / loopback targets are refused (multisite site admins set the URL), except a local dev API.
-				'reject_unsafe_urls'  => ! Settings::is_local_base( $this->base ),
+				// Loopback / private targets are refused unless wp-config opts in (INMOLINK_ALLOW_LOCAL_API).
+				'reject_unsafe_urls'  => ! Settings::allow_local_api(),
 			)
 		);
 

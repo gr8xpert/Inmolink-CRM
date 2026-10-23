@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "ref": "DEV-77-A1",
+      "kind": "UNIT",
+      "slug": "mar-azul-a1",
+      "updatedAt": "2026-10-21T07:00:00.000Z"
+    }
+  ],
+  "nextCursor": null
+}

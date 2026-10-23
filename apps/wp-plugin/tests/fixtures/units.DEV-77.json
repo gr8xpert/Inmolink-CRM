@@ -1,0 +1,66 @@
+{
+  "items": [
+    {
+      "kind": "UNIT",
+      "id": "7c5e0f19-3d8a-4b7c-8e8f-8a9b0c1d2e37",
+      "ref": "DEV-77-A1",
+      "slug": "mar-azul-a1",
+      "title": "Mar Azul A1",
+      "textLocale": "en",
+      "status": "AVAILABLE",
+      "propertyType": {
+        "id": "4f2b7e96-0a5c-4d4e-9e5b-5d6c7b8a9f04",
+        "name": "Apartment",
+        "slug": "apartment"
+      },
+      "price": {
+        "amountCents": 45000000,
+        "currency": "EUR",
+        "period": null,
+        "onRequest": false
+      },
+      "bedrooms": 2,
+      "bathrooms": 2,
+      "internalM2": 95,
+      "terraceM2": 20,
+      "plotM2": null,
+      "floor": 1,
+      "orientation": "S",
+      "place": {
+        "country": {
+          "id": "0b8f3a52-6c1e-4f0a-9a1d-1f2e3d4c5b60",
+          "name": "Spain",
+          "slug": "spain"
+        },
+        "region": {
+          "id": "1c9e4b63-7d2f-4a1b-8b2e-2a3f4e5d6c71",
+          "name": "Andalusia",
+          "slug": "andalusia"
+        },
+        "city": {
+          "id": "2d0f5c74-8e3a-4b2c-9c3f-3b4a5f6e7d82",
+          "name": "Marbella",
+          "slug": "marbella"
+        },
+        "area": {
+          "id": "3e1a6d85-9f4b-4c3d-8d4a-4c5b6a7f8e93",
+          "name": "Nueva Andalucía",
+          "slug": "nueva-andalucia"
+        }
+      },
+      "geo": {
+        "lat": 36.51,
+        "lng": -4.88,
+        "precision": "EXACT"
+      },
+      "development": {
+        "id": "6b4d9e08-2c7f-4a6b-9d7e-7f8e9d0a1b26",
+        "name": "Mar Azul Residences",
+        "status": "UNDER_CONSTRUCTION",
+        "completionDate": "2027-06-30",
+        "ref": "DEV-77"
+      }
+    }
+  ],
+  "nextCursor": null
+}

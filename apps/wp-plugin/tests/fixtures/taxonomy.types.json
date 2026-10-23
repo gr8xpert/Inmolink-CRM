@@ -1,0 +1,19 @@
+{
+  "locale": "en",
+  "propertyTypes": [
+    {
+      "id": "4f2b7e96-0a5c-4d4e-9e5b-5d6c7b8a9f04",
+      "key": "house",
+      "name": "House",
+      "slug": "house",
+      "types": [
+        {
+          "id": "8d6f1a2b-4e9b-4c8d-9f0a-9b0c1d2e3f48",
+          "key": "villa",
+          "name": "Villa",
+          "slug": "villa"
+        }
+      ]
+    }
+  ]
+}

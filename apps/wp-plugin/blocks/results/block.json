@@ -1,0 +1,68 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "inmolink/results",
+	"title": "Property results",
+	"description": "Listing results from the Inmolink website API; visitors' search filters apply when enabled.",
+	"category": "widgets",
+	"icon": "grid-view",
+	"textdomain": "inmolink",
+	"attributes": {
+		"transaction": {
+			"type": "string",
+			"default": ""
+		},
+		"types": {
+			"type": "string",
+			"default": ""
+		},
+		"locations": {
+			"type": "string",
+			"default": ""
+		},
+		"features": {
+			"type": "string",
+			"default": ""
+		},
+		"kind": {
+			"type": "string",
+			"default": ""
+		},
+		"development": {
+			"type": "string",
+			"default": ""
+		},
+		"sort": {
+			"type": "string",
+			"default": "newest"
+		},
+		"limit": {
+			"type": "number",
+			"default": 12
+		},
+		"priceMin": {
+			"type": "number",
+			"default": 0
+		},
+		"priceMax": {
+			"type": "number",
+			"default": 0
+		},
+		"bedsMin": {
+			"type": "number",
+			"default": 0
+		},
+		"useQuery": {
+			"type": "boolean",
+			"default": true
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": [
+			"wide",
+			"full"
+		]
+	},
+	"editorScript": "inmolink-blocks-editor"
+}

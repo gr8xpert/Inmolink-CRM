@@ -123,7 +123,7 @@ final class SettingsTest extends TestCase {
 		$this->assertSame( '', Settings::sanitize_base( 'https://user:pw@api.example.com' ) );
 		$this->assertSame( '', Settings::sanitize_base( 'ftp://api.example.com' ) );
 		$this->assertSame( '', Settings::sanitize_base( 'http://api.example.com' ), 'no plain http: the key travels in a header' );
-		$this->assertSame( 'http://localhost:3001', Settings::sanitize_base( 'http://localhost:3001' ) );
+		$this->assertSame( '', Settings::sanitize_base( 'http://localhost:3001' ), 'a local API needs the wp-config opt-in' );
 	}
 
 	/**

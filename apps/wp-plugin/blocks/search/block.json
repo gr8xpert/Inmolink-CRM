@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "inmolink/search",
+	"title": "Property search",
+	"description": "Search form for the site's listings; sends visitors to a results page.",
+	"category": "widgets",
+	"icon": "search",
+	"textdomain": "inmolink",
+	"attributes": {
+		"resultsUrl": {
+			"type": "string",
+			"default": ""
+		},
+		"fields": {
+			"type": "string",
+			"default": "q,transaction,types,priceMin,priceMax,bedsMin"
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": [
+			"wide",
+			"full"
+		]
+	},
+	"editorScript": "inmolink-blocks-editor"
+}
