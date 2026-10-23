@@ -80,7 +80,7 @@ jobs:
   integration:
     name: Integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35 # ~22 min usual; a slow apt mirror for Chromium's deps once took 9 min (0d8e7a2)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false, fetch-depth: 0 }
@@ -93,6 +93,7 @@ jobs:
         run: pnpm turbo run test:int $AFFECTED --concurrency=1
       - name: Browser (Chromium, for the JS widget test)
         run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 12
       - name: Workspace integration tests
         run: pnpm test:int:root
       - name: Throughput checks
@@ -200,7 +201,7 @@ jobs:
           cache-from: type=gha,scope=wp-plugin
           cache-to: type=gha,scope=wp-plugin,mode=max
       - name: PHPCS + PHPUnit
-        run: docker compose -f apps/wp-plugin/docker-compose.test.yml run --rm --no-build php
+        run: docker compose -f apps/wp-plugin/docker-compose.test.yml run --rm php
       - name: Stack down
         if: always()
         run: docker compose -f apps/wp-plugin/docker-compose.test.yml down --volumes
