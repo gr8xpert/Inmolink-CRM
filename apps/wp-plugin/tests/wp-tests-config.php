@@ -6,6 +6,9 @@
  */
 
 define( 'ABSPATH', dirname( __DIR__ ) . '/vendor/roots/wordpress-no-content/' );
+// The no-content WordPress build has no wp-content: plugins installed by the update test live in a scratch folder.
+define( 'WP_CONTENT_DIR', sys_get_temp_dir() . '/inmolink-wp-content' );
+define( 'FS_METHOD', 'direct' );
 define( 'WP_DEFAULT_THEME', 'default' );
 define( 'WP_DEBUG', true );
 

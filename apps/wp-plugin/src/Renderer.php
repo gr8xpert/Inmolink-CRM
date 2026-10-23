@@ -10,6 +10,8 @@ namespace Inmolink\Plugin;
 use Inmolink\Plugin\Api\Client;
 use Inmolink\Plugin\Cache\Cache;
 use Inmolink\Plugin\Cache\Result;
+use Inmolink\Plugin\Forms\LeadForm;
+use Inmolink\Plugin\Forms\Turnstile;
 use Inmolink\Plugin\I18n\Locale;
 use Inmolink\Plugin\Routing\Router;
 use Inmolink\Plugin\Routing\Urls;
@@ -209,6 +211,50 @@ class Renderer {
 	}
 
 	/**
+	 * The enquiry / viewing form (`inmolink/lead-form`): for its `ref`, or the listing of the current pretty URL; ''
+	 * when forms are not available (no Turnstile keys or the API is not set up).
+	 *
+	 * @param array<string,mixed> $attributes Block attributes (`ref`, `kind`).
+	 */
+	public function lead_form( array $attributes ): string {
+		if ( ! LeadForm::available() ) {
+			return '';
+		}
+		$ref = isset( $attributes['ref'] ) && is_string( $attributes['ref'] ) ? trim( $attributes['ref'] ) : '';
+		if ( '' === $ref ) {
+			$route = Router::current();
+			$ref   = null !== $route && 'listing' === $route['kind'] && null !== $route['result'] ? $route['ref'] : '';
+		}
+		$kind = isset( $attributes['kind'] ) && 'viewing' === $attributes['kind'] ? 'viewing' : 'enquiry';
+		if ( 'viewing' === $kind && '' === $ref ) {
+			return '';
+		}
+		// phpcs:disable WordPress.WP.EnqueuedResourceParameters.MissingVersion -- Cloudflare asks for the script URL unchanged.
+		wp_enqueue_script(
+			'inmolink-turnstile',
+			Turnstile::SCRIPT_URL,
+			array(),
+			null,
+			array(
+				'strategy'  => 'defer',
+				'in_footer' => true,
+			)
+		);
+		// phpcs:enable
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a result code to display, matched against a fixed list.
+		$result = isset( $_GET[ LeadForm::RESULT_PARAM ] ) ? sanitize_key( wp_unslash( $_GET[ LeadForm::RESULT_PARAM ] ) ) : '';
+		return $this->template(
+			'lead-form',
+			array(
+				'hidden'  => LeadForm::hidden_fields( $ref, $kind ),
+				'action'  => admin_url( 'admin-post.php' ),
+				'result'  => in_array( $result, LeadForm::RESULTS, true ) ? $result : '',
+				'privacy' => (string) get_privacy_policy_url(),
+			)
+		);
+	}
+
+	/**
 	 * A full page for a routed listing or development (theme header and footer around the detail view).
 	 *
 	 * @param string $kind   `listing` or `development`.
@@ -298,6 +344,7 @@ class Renderer {
 				'url'     => $url,
 				'stale'   => null !== $result && $result->stale,
 				'jsonld'  => $jsonld && null !== $listing ? JsonLd::script( JsonLd::listing( $listing, $url ) ) : '',
+				'form'    => null !== $listing && ! $jsonld && null !== Router::current() ? $this->lead_form( array() ) : '',
 			)
 		);
 	}

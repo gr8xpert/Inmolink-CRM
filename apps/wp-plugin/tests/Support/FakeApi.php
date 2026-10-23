@@ -19,7 +19,7 @@ final class FakeApi {
 	/**
 	 * Requests seen: path, query, headers.
 	 *
-	 * @var list<array{path:string,query:array<string,string>,headers:array<string,string>}>
+	 * @var list<array{path:string,query:array<string,string>,headers:array<string,string>,method:string,body:mixed}>
 	 */
 	public array $requests = array();
 
@@ -91,7 +91,11 @@ final class FakeApi {
 	 */
 	public function handle( $pre, $args, $url ) {
 		if ( 0 !== strpos( $url, self::BASE ) ) {
-			return $pre;
+			if ( false !== $pre || 0 === strpos( $url, 'https://challenges.cloudflare.com/' ) ) {
+				return $pre;
+			}
+			// Tests never reach the network (e.g. WordPress's own update checks after an upgrade).
+			return new \WP_Error( 'http_request_blocked', 'blocked in tests: ' . $url );
 		}
 		$parts = wp_parse_url( $url );
 		$query = array();
@@ -103,6 +107,8 @@ final class FakeApi {
 			'path'    => $path,
 			'query'   => $query,
 			'headers' => $headers,
+			'method'  => strtoupper( (string) ( $args['method'] ?? 'GET' ) ),
+			'body'    => isset( $args['body'] ) && is_string( $args['body'] ) ? json_decode( $args['body'], true ) : null,
 		);
 
 		if ( $this->down ) {
@@ -124,7 +130,9 @@ final class FakeApi {
 		}
 
 		$status = (int) ( $spec['status'] ?? 200 );
-		if ( isset( $spec['fixture'] ) ) {
+		if ( isset( $spec['raw'] ) ) {
+			$body = (string) $spec['raw'];
+		} elseif ( isset( $spec['fixture'] ) ) {
 			$body = (string) file_get_contents( dirname( __DIR__ ) . '/fixtures/' . $spec['fixture'] );
 		} else {
 			$body = (string) wp_json_encode( $spec['body'] ?? array() );
@@ -133,6 +141,13 @@ final class FakeApi {
 
 		if ( null !== $etag && isset( $headers['if-none-match'] ) && $headers['if-none-match'] === $etag ) {
 			return self::response( 304, '', $etag );
+		}
+		if ( ! empty( $args['stream'] ) && ! empty( $args['filename'] ) ) {
+			// A download (download_url()): the body goes to the file WordPress asked for.
+			file_put_contents( (string) $args['filename'], $body );
+			$response             = self::response( $status, '', $etag );
+			$response['filename'] = (string) $args['filename'];
+			return $response;
 		}
 		return self::response( $status, $body, $etag );
 	}

@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "inmolink/lead-form",
+	"title": "Property enquiry form",
+	"description": "Enquiry or viewing-request form, sent server-side to the agency (Turnstile protected).",
+	"category": "widgets",
+	"icon": "email",
+	"textdomain": "inmolink",
+	"attributes": {
+		"ref": {
+			"type": "string",
+			"default": ""
+		},
+		"kind": {
+			"type": "string",
+			"default": "enquiry"
+		}
+	},
+	"supports": {
+		"html": false,
+		"align": [
+			"wide",
+			"full"
+		]
+	},
+	"editorScript": "inmolink-blocks-editor"
+}

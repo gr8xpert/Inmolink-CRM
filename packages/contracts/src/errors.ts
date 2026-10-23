@@ -70,6 +70,9 @@ export const ErrorCodes = {
   TURNSTILE_FAILED: 403,
   /** The `Idempotency-Key` was already used on this site with another body: send a new key for a new submission. */
   IDEMPOTENCY_KEY_REUSED: 422,
+  // websites: WordPress plugin updates (S8-05)
+  /** No plugin release published yet, or not this version. */
+  PLUGIN_RELEASE_NOT_FOUND: 404,
   // agencies (S1-01)
   /** Name or tax id of a verified (or suspended) agency: changed only through staff re-verification. */
   AGENCY_DETAILS_LOCKED: 409,

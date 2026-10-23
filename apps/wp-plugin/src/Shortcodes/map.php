@@ -92,5 +92,15 @@ return array(
 		'source'      => 'v2 default (no legacy name known; H15)',
 	),
 
+	'inmolink_lead_form'    => array(
+		'block'       => 'inmolink/lead-form',
+		'attributes'  => array(
+			'ref'  => 'ref',
+			'kind' => 'kind',
+		),
+		'provisional' => true,
+		'source'      => 'v2 default (no legacy name known; H15)',
+	),
+
 	// Legacy (H15): none known yet.
 );

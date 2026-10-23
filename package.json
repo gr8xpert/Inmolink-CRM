@@ -38,6 +38,7 @@
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
     "ops:cdn-rules": "tsx scripts/ops/cdn-rules.ts",
     "ops:widget-publish": "tsx --conditions=@inmolink/source scripts/ops/widget-publish.ts",
+    "ops:wp-plugin-release": "tsx --conditions=@inmolink/source scripts/ops/wp-plugin-release.ts",
     "staff:grant": "tsx --conditions=@inmolink/source scripts/ops/staff.ts grant",
     "staff:revoke": "tsx --conditions=@inmolink/source scripts/ops/staff.ts revoke",
     "db:generate": "pnpm --filter @inmolink/db db:generate",

@@ -46,7 +46,7 @@ final class Router {
 		add_filter( 'query_vars', array( self::class, 'query_vars' ) );
 		add_filter( 'pre_handle_404', array( self::class, 'pre_handle_404' ), 10, 2 );
 		add_action( 'template_redirect', array( self::class, 'template_redirect' ), 1 );
-		add_filter( 'pre_get_document_title', array( self::class, 'document_title' ) );
+		add_filter( 'document_title_parts', array( self::class, 'document_title_parts' ) );
 		add_filter( 'posts_pre_query', array( self::class, 'posts_pre_query' ), 10, 2 );
 		add_action( 'parse_query', array( self::class, 'parse_query' ) );
 	}
@@ -263,7 +263,7 @@ final class Router {
 	}
 
 	/**
-	 * The document title of a routed page: the API's meta title, else its title.
+	 * The document title of a routed page as plain text: the API's meta title, else its title.
 	 *
 	 * @param string $title Title so far.
 	 */
@@ -275,9 +275,26 @@ final class Router {
 		$body = $route['result']->body;
 		foreach ( array( 'metaTitle', 'title', 'name' ) as $field ) {
 			if ( ! empty( $body[ $field ] ) && is_string( $body[ $field ] ) ) {
-				return $body[ $field ];
+				// Plain text: the API's texts are never markup.
+				return trim( wp_strip_all_tags( $body[ $field ] ) );
 			}
 		}
 		return $title;
+	}
+
+	/**
+	 * `document_title_parts`: the routed page's title as the page part. WordPress escapes the parts when it builds
+	 * the `<title>` (unlike `pre_get_document_title`, whose value is printed as is).
+	 *
+	 * @param array<string,string> $parts Title parts.
+	 * @return array<string,string>
+	 */
+	public static function document_title_parts( $parts ): array {
+		$parts = is_array( $parts ) ? $parts : array();
+		$title = self::document_title( '' );
+		if ( '' !== $title ) {
+			$parts['title'] = $title;
+		}
+		return $parts;
 	}
 }

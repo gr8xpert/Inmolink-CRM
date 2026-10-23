@@ -4,6 +4,7 @@ import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@
 import { apiKeyPlugin, type LocalFailedChecks } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
 import { legacyV1Routes } from './routes/legacy-v1/routes';
+import { pluginUpdateRoutes } from './routes/plugin-updates/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { feedTokenIdentity, websiteFeedRoutes } from './routes/website-api/feeds';
 import { websiteLeadRoutes } from './routes/website-api/leads';
@@ -62,5 +63,6 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   await app.register(websiteLeadRoutes);
   await app.register(websiteFeedRoutes);
   await app.register(legacyV1Routes);
+  await app.register(pluginUpdateRoutes);
   return app;
 }

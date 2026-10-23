@@ -38,6 +38,9 @@ describe('edge-cache rules (S8-F2)', () => {
       '/v2/taxonomy/types': taxonomy,
       '/v2/taxonomy/features': taxonomy,
       '/v2/feeds/:token/:file': `url ${websiteApi.SITE_FEED_TTL}s sie=${websiteApi.SITE_FEED_STALE_IF_ERROR} cursor:no params:[]`,
+      // S8-05: plugin updates, public for everyone (no key, no parameters).
+      '/v2/plugin/update': 'always 60s sie=86400 cursor:no params:[]',
+      '/v2/plugin/package/:version': 'always 31536000s sie=86400 cursor:no params:[]',
       // S8-02: the v1 shim's URLs carry the key itself — never public.
       '/v1/properties': 'never sie=0 cursor:no params:schema',
       '/v1/properties/:id': 'never sie=0 cursor:no params:schema',

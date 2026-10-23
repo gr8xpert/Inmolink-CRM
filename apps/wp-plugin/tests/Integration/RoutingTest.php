@@ -254,6 +254,31 @@ final class RoutingTest extends TestCase {
 	}
 
 	/**
+	 * [S8-04] A hostile API title or description cannot inject markup into the head.
+	 */
+	public function test_s8_04_hostile_texts_are_escaped_in_head(): void {
+		$this->api->on(
+			'/v2/listings/INM-1001',
+			static function (): array {
+				$body                    = json_decode( (string) file_get_contents( dirname( __DIR__ ) . '/fixtures/listing.INM-1001.json' ), true );
+				$body['metaTitle']       = '</title><script>alert(1)</script>Villa';
+				$body['metaDescription'] = '"><script>alert(2)</script>';
+				return array( 'body' => $body );
+			}
+		);
+		$this->visit( home_url( '/property/INM-1001/villa-sol/' ) );
+
+		$title = wp_get_document_title();
+		$this->assertStringNotContainsString( '<', $title );
+		$this->assertStringNotContainsString( '</title>', $title );
+		$this->assertStringContainsString( 'Villa', $title );
+
+		$head = Head::render();
+		$this->assertStringNotContainsString( '<script>alert', $head );
+		$this->assertStringNotContainsString( '"><', $head );
+	}
+
+	/**
 	 * [S8-04] An unknown reference gets a 404 page, no index, no redirect and no API error.
 	 */
 	public function test_s8_04_unknown_reference_is_not_found(): void {

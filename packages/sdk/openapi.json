@@ -1191,6 +1191,7 @@
                             "QUOTA_EXCEEDED",
                             "TURNSTILE_FAILED",
                             "IDEMPOTENCY_KEY_REUSED",
+                            "PLUGIN_RELEASE_NOT_FOUND",
                             "AGENCY_DETAILS_LOCKED",
                             "AGENCY_NOT_ONBOARDED",
                             "VERIFICATION_ALREADY_SUBMITTED",
@@ -3260,6 +3261,426 @@
           }
         },
         "summary": "A listing or unit by the reference the site shows (own reference, or `<prefix>-<code>`)",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/plugin/package/{version}": {
+      "get": {
+        "operationId": "websiteV2.getPluginPackage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "pattern": "^(0|[1-9]\\d{0,3})\\.(0|[1-9]\\d{0,3})\\.(0|[1-9]\\d{0,3})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "application/zip",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "application/zip"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Not modified (`If-None-Match`)",
+                  "enum": [null],
+                  "nullable": true,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Not modified (`If-None-Match`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "description": "PLUGIN_RELEASE_NOT_FOUND: no such version",
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "BAD_REQUEST",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "SERVICE_UNAVAILABLE",
+                            "FORBIDDEN",
+                            "NOT_AUTHENTICATED",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "VERSION_CONFLICT",
+                            "PLAN_REQUIRED",
+                            "VERIFICATION_REQUIRED",
+                            "RATE_LIMITED",
+                            "INTERNAL",
+                            "LISTING_NOT_FOUND",
+                            "INVALID_CREDENTIALS",
+                            "EMAIL_NOT_VERIFIED",
+                            "TOKEN_INVALID",
+                            "SESSION_REVOKED",
+                            "INVITE_EMAIL_IN_USE",
+                            "ALREADY_MEMBER",
+                            "MFA_REQUIRED",
+                            "MFA_CODE_INVALID",
+                            "MFA_ALREADY_ENABLED",
+                            "API_KEY_INVALID",
+                            "API_KEY_ORIGIN_DENIED",
+                            "API_KEY_SCOPE_DENIED",
+                            "API_KEY_LIMIT_REACHED",
+                            "SITE_NOT_FOUND",
+                            "SITE_LIMIT_REACHED",
+                            "SITE_FEED_NOT_FOUND",
+                            "API_KEY_SITE_REQUIRED",
+                            "CHANGES_EXPIRED",
+                            "QUOTA_EXCEEDED",
+                            "TURNSTILE_FAILED",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "PLUGIN_RELEASE_NOT_FOUND",
+                            "AGENCY_DETAILS_LOCKED",
+                            "AGENCY_NOT_ONBOARDED",
+                            "VERIFICATION_ALREADY_SUBMITTED",
+                            "VERIFICATION_DOCUMENTS_REQUIRED",
+                            "VERIFICATION_NOT_OPEN",
+                            "VERIFICATION_STALE",
+                            "DOCUMENT_TYPE_NOT_ALLOWED",
+                            "DOCUMENT_LIMIT_REACHED",
+                            "DOCUMENT_LOCKED",
+                            "PREFERRED_AGENCY_INVALID",
+                            "PREFERRED_AGENCY_EXISTS",
+                            "PREFERRED_AGENCY_LIMIT_REACHED",
+                            "IMPERSONATION_ENDED",
+                            "IMPERSONATION_TARGET_INVALID",
+                            "LOCATION_NOT_FOUND",
+                            "LOCATION_PARENT_INVALID",
+                            "LOCATION_SLUG_TAKEN",
+                            "LOCATION_ALIAS_TAKEN",
+                            "TAXONOMY_NOT_FOUND",
+                            "TAXONOMY_KEY_TAKEN",
+                            "TAXONOMY_SLUG_TAKEN",
+                            "TAXONOMY_ALIAS_TAKEN",
+                            "LOCATION_POLYGON_INVALID",
+                            "TAXONOMY_ORDER_INVALID",
+                            "VIDEO_URL_NOT_ALLOWED",
+                            "VIDEO_ALREADY_ADDED",
+                            "ENERGY_RATING_REQUIRED",
+                            "LISTING_STATUS_INVALID",
+                            "LISTING_RESTORE_UNAVAILABLE",
+                            "LISTING_PRICE_MISSING",
+                            "LISTING_VIEW_NOT_FOUND",
+                            "LISTING_VIEW_LIMIT",
+                            "LISTING_VIEW_NAME_TAKEN",
+                            "LISTING_BULK_NOT_FOUND",
+                            "LISTING_BULK_BUSY",
+                            "LISTING_BULK_TOO_MANY",
+                            "BOOKMARK_FOLDER_NOT_FOUND",
+                            "BOOKMARK_FOLDER_LIMIT",
+                            "BOOKMARK_FOLDER_NAME_TAKEN",
+                            "BOOKMARK_FOLDER_FULL",
+                            "BOOKMARK_NOT_FOUND",
+                            "BOOKMARK_EXISTS",
+                            "LISTING_OVERRIDE_NOT_FOUND",
+                            "LISTING_OVERRIDE_OWN_TARGET",
+                            "MEDIA_TYPE_NOT_ALLOWED",
+                            "MEDIA_NOT_UPLOADED",
+                            "MEDIA_LIMIT_REACHED",
+                            "MEDIA_NOT_FOUND",
+                            "MEDIA_ORDER_STALE",
+                            "DEVELOPMENT_NOT_FOUND",
+                            "DEVELOPMENT_REF_TAKEN",
+                            "UNIT_NOT_FOUND",
+                            "UNIT_REF_TAKEN",
+                            "DEVELOPMENT_UNIT_LIMIT",
+                            "PRICE_LIST_NOT_FOUND",
+                            "PRICE_LIST_REVIEWED",
+                            "PRICE_LIST_SUPERSEDED",
+                            "DEVELOPMENT_DOCUMENT_NOT_FOUND",
+                            "FEED_CONNECTION_NOT_FOUND",
+                            "FEED_RUN_NOT_FOUND",
+                            "FEED_MAPPING_PROFILE_NOT_FOUND",
+                            "FEED_CONNECTOR_UNKNOWN",
+                            "FEED_URL_NOT_ALLOWED",
+                            "FEED_RUN_ACTIVE",
+                            "FEED_CONNECTION_DISABLED",
+                            "FEED_CONNECTION_PAUSED",
+                            "FEED_SAMPLE_INVALID",
+                            "FEED_MAPPING_INVALID",
+                            "FEED_MAPPING_REQUIRED",
+                            "FEED_SETTINGS_INVALID"
+                          ],
+                          "type": "string"
+                        },
+                        "details": {
+                          "additionalProperties": {},
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "PLUGIN_RELEASE_NOT_FOUND: no such version"
+          }
+        },
+        "summary": "A WordPress plugin release zip (immutable; verify its signature from `/v2/plugin/update`)",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/plugin/update": {
+      "get": {
+        "operationId": "websiteV2.getPluginUpdate",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "changelog": {
+                      "default": "",
+                      "maxLength": 4000,
+                      "type": "string"
+                    },
+                    "package": {
+                      "pattern": "^\\/v2\\/plugin\\/package\\/\\d+\\.\\d+\\.\\d+$",
+                      "type": "string"
+                    },
+                    "releasedAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string"
+                    },
+                    "requires": {
+                      "pattern": "^\\d{1,2}\\.\\d{1,2}(\\.\\d{1,2})?$",
+                      "type": "string"
+                    },
+                    "requiresPhp": {
+                      "pattern": "^\\d{1,2}\\.\\d{1,2}(\\.\\d{1,2})?$",
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "pattern": "^[0-9a-f]{64}$",
+                      "type": "string"
+                    },
+                    "signature": {
+                      "pattern": "^[A-Za-z0-9+/]{86}==$",
+                      "type": "string"
+                    },
+                    "sizeBytes": {
+                      "exclusiveMinimum": true,
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "slug": {
+                      "enum": ["inmolink"],
+                      "type": "string"
+                    },
+                    "tested": {
+                      "pattern": "^\\d{1,2}\\.\\d{1,2}(\\.\\d{1,2})?$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "pattern": "^(0|[1-9]\\d{0,3})\\.(0|[1-9]\\d{0,3})\\.(0|[1-9]\\d{0,3})$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "slug",
+                    "version",
+                    "sha256",
+                    "signature",
+                    "sizeBytes",
+                    "requires",
+                    "requiresPhp",
+                    "tested",
+                    "releasedAt",
+                    "changelog",
+                    "package"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Not modified (`If-None-Match`)",
+                  "enum": [null],
+                  "nullable": true,
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Not modified (`If-None-Match`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "description": "PLUGIN_RELEASE_NOT_FOUND: nothing published yet",
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "BAD_REQUEST",
+                            "PAYLOAD_TOO_LARGE",
+                            "UNSUPPORTED_MEDIA_TYPE",
+                            "SERVICE_UNAVAILABLE",
+                            "FORBIDDEN",
+                            "NOT_AUTHENTICATED",
+                            "NOT_FOUND",
+                            "VALIDATION_FAILED",
+                            "VERSION_CONFLICT",
+                            "PLAN_REQUIRED",
+                            "VERIFICATION_REQUIRED",
+                            "RATE_LIMITED",
+                            "INTERNAL",
+                            "LISTING_NOT_FOUND",
+                            "INVALID_CREDENTIALS",
+                            "EMAIL_NOT_VERIFIED",
+                            "TOKEN_INVALID",
+                            "SESSION_REVOKED",
+                            "INVITE_EMAIL_IN_USE",
+                            "ALREADY_MEMBER",
+                            "MFA_REQUIRED",
+                            "MFA_CODE_INVALID",
+                            "MFA_ALREADY_ENABLED",
+                            "API_KEY_INVALID",
+                            "API_KEY_ORIGIN_DENIED",
+                            "API_KEY_SCOPE_DENIED",
+                            "API_KEY_LIMIT_REACHED",
+                            "SITE_NOT_FOUND",
+                            "SITE_LIMIT_REACHED",
+                            "SITE_FEED_NOT_FOUND",
+                            "API_KEY_SITE_REQUIRED",
+                            "CHANGES_EXPIRED",
+                            "QUOTA_EXCEEDED",
+                            "TURNSTILE_FAILED",
+                            "IDEMPOTENCY_KEY_REUSED",
+                            "PLUGIN_RELEASE_NOT_FOUND",
+                            "AGENCY_DETAILS_LOCKED",
+                            "AGENCY_NOT_ONBOARDED",
+                            "VERIFICATION_ALREADY_SUBMITTED",
+                            "VERIFICATION_DOCUMENTS_REQUIRED",
+                            "VERIFICATION_NOT_OPEN",
+                            "VERIFICATION_STALE",
+                            "DOCUMENT_TYPE_NOT_ALLOWED",
+                            "DOCUMENT_LIMIT_REACHED",
+                            "DOCUMENT_LOCKED",
+                            "PREFERRED_AGENCY_INVALID",
+                            "PREFERRED_AGENCY_EXISTS",
+                            "PREFERRED_AGENCY_LIMIT_REACHED",
+                            "IMPERSONATION_ENDED",
+                            "IMPERSONATION_TARGET_INVALID",
+                            "LOCATION_NOT_FOUND",
+                            "LOCATION_PARENT_INVALID",
+                            "LOCATION_SLUG_TAKEN",
+                            "LOCATION_ALIAS_TAKEN",
+                            "TAXONOMY_NOT_FOUND",
+                            "TAXONOMY_KEY_TAKEN",
+                            "TAXONOMY_SLUG_TAKEN",
+                            "TAXONOMY_ALIAS_TAKEN",
+                            "LOCATION_POLYGON_INVALID",
+                            "TAXONOMY_ORDER_INVALID",
+                            "VIDEO_URL_NOT_ALLOWED",
+                            "VIDEO_ALREADY_ADDED",
+                            "ENERGY_RATING_REQUIRED",
+                            "LISTING_STATUS_INVALID",
+                            "LISTING_RESTORE_UNAVAILABLE",
+                            "LISTING_PRICE_MISSING",
+                            "LISTING_VIEW_NOT_FOUND",
+                            "LISTING_VIEW_LIMIT",
+                            "LISTING_VIEW_NAME_TAKEN",
+                            "LISTING_BULK_NOT_FOUND",
+                            "LISTING_BULK_BUSY",
+                            "LISTING_BULK_TOO_MANY",
+                            "BOOKMARK_FOLDER_NOT_FOUND",
+                            "BOOKMARK_FOLDER_LIMIT",
+                            "BOOKMARK_FOLDER_NAME_TAKEN",
+                            "BOOKMARK_FOLDER_FULL",
+                            "BOOKMARK_NOT_FOUND",
+                            "BOOKMARK_EXISTS",
+                            "LISTING_OVERRIDE_NOT_FOUND",
+                            "LISTING_OVERRIDE_OWN_TARGET",
+                            "MEDIA_TYPE_NOT_ALLOWED",
+                            "MEDIA_NOT_UPLOADED",
+                            "MEDIA_LIMIT_REACHED",
+                            "MEDIA_NOT_FOUND",
+                            "MEDIA_ORDER_STALE",
+                            "DEVELOPMENT_NOT_FOUND",
+                            "DEVELOPMENT_REF_TAKEN",
+                            "UNIT_NOT_FOUND",
+                            "UNIT_REF_TAKEN",
+                            "DEVELOPMENT_UNIT_LIMIT",
+                            "PRICE_LIST_NOT_FOUND",
+                            "PRICE_LIST_REVIEWED",
+                            "PRICE_LIST_SUPERSEDED",
+                            "DEVELOPMENT_DOCUMENT_NOT_FOUND",
+                            "FEED_CONNECTION_NOT_FOUND",
+                            "FEED_RUN_NOT_FOUND",
+                            "FEED_MAPPING_PROFILE_NOT_FOUND",
+                            "FEED_CONNECTOR_UNKNOWN",
+                            "FEED_URL_NOT_ALLOWED",
+                            "FEED_RUN_ACTIVE",
+                            "FEED_CONNECTION_DISABLED",
+                            "FEED_CONNECTION_PAUSED",
+                            "FEED_SAMPLE_INVALID",
+                            "FEED_MAPPING_INVALID",
+                            "FEED_MAPPING_REQUIRED",
+                            "FEED_SETTINGS_INVALID"
+                          ],
+                          "type": "string"
+                        },
+                        "details": {
+                          "additionalProperties": {},
+                          "type": "object"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "PLUGIN_RELEASE_NOT_FOUND: nothing published yet"
+          }
+        },
+        "summary": "The latest WordPress plugin release: version, requirements, package path, SHA-256 and signature",
         "tags": ["website-v2"]
       }
     },

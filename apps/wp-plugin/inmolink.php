@@ -2,8 +2,9 @@
 /**
  * Plugin Name: Inmolink
  * Description: Inmolink listings for WordPress, served from the Inmolink website API v2 with a local cache and a stale fallback.
- * Version: 0.1.0
+ * Version: 0.2.0
  * Requires at least: 6.4
+ * Tested up to: 6.8
  * Requires PHP: 8.1
  * Author: Inmolink
  * License: GPL-2.0-or-later
@@ -19,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const VERSION     = '0.1.0';
+const VERSION     = '0.2.0';
 const PLUGIN_FILE = __FILE__;
 
 require_once __DIR__ . '/src/Autoloader.php';

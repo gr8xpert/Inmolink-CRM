@@ -21,5 +21,6 @@ Claude builds around missing items with fixtures and mocks, but these set the re
 | H15 | Legacy WordPress plugin source + list of shortcodes/templates actually used on client sites | S8-03, S8-04 | days | |
 | H16 | Royalty-free music licence for video reels | R3-10 | days | |
 | H17 | Choose e-signature approach (built-in simple e-signature vs provider) after lawyer input | R2-05 | — | |
+| H18 | Generate the WordPress plugin release signing key (Ed25519) on an offline machine (any Ed25519 tool; the release script takes a 32-byte seed or libsodium's 64-byte secret, base64): store the secret as `INMOLINK_PLUGIN_SIGNING_KEY` in the release secret store (never in the repo or CI logs), give Claude the public key to pin in `Updater::PUBLIC_KEY`, and give the release operator a storage token that may write the feeds bucket | S8-05 | hours | Losing the secret means a new key and a plugin release pinning it; a leak means rotating at once |
 
 When an item is done, add the date and details to `STATUS.md` → **Human actions** and tell Claude in the next session.

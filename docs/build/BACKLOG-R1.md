@@ -1199,6 +1199,33 @@ Ref §9.4 · Mod wp-plugin · Dep S8-04
 **Build:** silence Yoast / RankMath canonicals and titles on routed pages; an end-to-end `template_redirect` test.
 **Done when:** a routed listing page has one canonical with Yoast active (PHPUnit)
 
+### S8-F26 · Legacy key flag and lookup functions locked at the database (S8-02 re-audit)
+Ref §9.3 · Mod db, identity · Dep S8-02
+**Build:** `app_user` gets column-level `UPDATE` on `api_keys` without `legacy_query_key` (registry column grants, regenerated RLS); `alter function legacy_target_ids(text[]), legacy_ids_of(uuid[]) owner to app_owner` emitted by `pnpm db:rls`; optionally the functions take the site's inventory agency ids. Brought forward from S8-F19's guard (which waits on S14-03).
+**Done when:**
+- An `app_user` update of `legacy_query_key` fails with 42501 (isolation test)
+- `app_user`, `app_intake`, `app_auth` and `app_staff` calling either lookup function get 42501, and a seeded `contact` map row never comes back from `legacy_target_ids` (isolation test)
+
+### S8-F27 · Plugin: update freeze protection (S8-05 review)
+Ref §9.4 · Mod wp-plugin, plugin-updates · Dep S8-05
+**Build:** sign `releasedAt` too and refuse metadata older than N days, or remember the highest version seen, so a replayed old manifest cannot freeze a site on a vulnerable version.
+**Done when:** a replayed older manifest offers no update and the health page flags it (PHPUnit)
+
+### S8-F28 · Plugin: real API probe on the health page (S8-05 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-05
+**Build:** a cached cheap API call for "API reachable" instead of inferring it from the back-off and the last sync.
+**Done when:** the health page shows reachable / unreachable within one probe interval of a change (PHPUnit)
+
+### S8-F29 · Plugin: limit failed form posts, trusted proxy CIDRs (S8-05 review)
+Ref §9.4 · Mod wp-plugin · Dep S8-05
+**Build:** a per-IP limit on form posts that fail Turnstile; a trusted-proxy CIDR list instead of a single header name.
+**Done when:** the 6th failing post from one IP in 10 minutes is refused without a Cloudflare call (PHPUnit)
+
+### S8-F30 · Release race and reproducible zips (S8-05 review)
+Ref §9.4 · Mod plugin-updates, platform · Dep S8-05
+**Build:** a conditional put in the storage adapter so two concurrent releases cannot race on `latest.json`; a byte-reproducible plugin zip across git versions.
+**Done when:** two concurrent releases leave `latest.json` at the higher version (test); the same commit zipped twice is byte-identical (test)
+
 ---
 
 ### S8-F10 · v1 cutover on the legacy hostname (S8-02) · [H5]

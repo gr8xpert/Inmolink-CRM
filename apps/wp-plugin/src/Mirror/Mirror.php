@@ -261,6 +261,27 @@ class Mirror {
 	}
 
 	/**
+	 * Rows and the oldest / newest copy per locale (the health page's cache age).
+	 *
+	 * @return array<string,array{rows:int,oldest:int,newest:int}>
+	 */
+	public function stats(): array {
+		global $wpdb;
+		$table = self::table();
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- plugin table; admin page only.
+		$rows = $wpdb->get_results( "SELECT lang, COUNT(*) AS n, MIN(fetched_at) AS oldest, MAX(fetched_at) AS newest FROM {$table} GROUP BY lang ORDER BY lang", ARRAY_A );
+		$out  = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $r ) {
+			$out[ (string) $r['lang'] ] = array(
+				'rows'   => (int) $r['n'],
+				'oldest' => (int) strtotime( $r['oldest'] . ' UTC' ),
+				'newest' => (int) strtotime( $r['newest'] . ' UTC' ),
+			);
+		}
+		return $out;
+	}
+
+	/**
 	 * Every row as (ref, lang, sha1 of payload), ordered — a state fingerprint for tests and the health view.
 	 *
 	 * @return list<array{ref:string,lang:string,hash:string}>

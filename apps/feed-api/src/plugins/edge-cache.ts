@@ -80,6 +80,15 @@ export const EDGE_CACHE_RULES = {
   '/v1/properties': legacy,
   '/v1/properties/:id': legacy,
   '/v1/types': legacy,
+  // S8-05: the WordPress plugin's update server — the same for every site, no key; the package is immutable.
+  '/v2/plugin/update': { gate: 'always', sMaxAge: 60, staleIfError: DAY, cursorPages: false, params: [] },
+  '/v2/plugin/package/:version': {
+    gate: 'always',
+    sMaxAge: 365 * DAY,
+    staleIfError: DAY,
+    cursorPages: false,
+    params: [],
+  },
   // A short stale-if-error: a revoked or rotated token's copy never outlives a failed purge by a day (S7-07).
   '/v2/feeds/:token/:file': {
     gate: 'url',

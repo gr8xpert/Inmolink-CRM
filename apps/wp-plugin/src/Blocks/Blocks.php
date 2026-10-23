@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 final class Blocks {
 
-	public const NAMES = array( 'search', 'results', 'detail', 'developments', 'map' );
+	public const NAMES = array( 'search', 'results', 'detail', 'developments', 'map', 'lead-form' );
 
 	/**
 	 * Hooks registration into `init`.
@@ -45,7 +45,7 @@ final class Blocks {
 		foreach ( self::NAMES as $name ) {
 			register_block_type(
 				dirname( PLUGIN_FILE ) . '/blocks/' . $name,
-				array( 'render_callback' => array( self::class, 'render_' . $name ) )
+				array( 'render_callback' => array( self::class, 'render_' . str_replace( '-', '_', $name ) ) )
 			);
 		}
 	}
@@ -93,6 +93,15 @@ final class Blocks {
 	 */
 	public static function render_map( $attributes ): string {
 		return self::wrap( 'map', Renderer::from_settings()->map( (array) $attributes ) );
+	}
+
+	/**
+	 * `inmolink/lead-form`.
+	 *
+	 * @param array<string,mixed> $attributes Block attributes.
+	 */
+	public static function render_lead_form( $attributes ): string {
+		return self::wrap( 'lead-form', Renderer::from_settings()->lead_form( (array) $attributes ) );
 	}
 
 	/**

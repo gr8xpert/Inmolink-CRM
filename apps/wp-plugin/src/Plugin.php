@@ -7,7 +7,10 @@
 
 namespace Inmolink\Plugin;
 
+use Inmolink\Plugin\Admin\Health;
 use Inmolink\Plugin\Admin\SettingsPage;
+use Inmolink\Plugin\Forms\LeadForm;
+use Inmolink\Plugin\Updates\Updater;
 use Inmolink\Plugin\Blocks\Blocks;
 use Inmolink\Plugin\Routing\Router;
 use Inmolink\Plugin\Seo\Head;
@@ -70,9 +73,12 @@ final class Plugin {
 		Blocks::register();
 		Shortcodes::register();
 		SitemapProvider::register();
+		LeadForm::register();
+		Updater::for_plugin()->register();
 
 		if ( is_admin() ) {
 			( new SettingsPage() )->register();
+			Health::register();
 		}
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'inmolink', Cli::class );

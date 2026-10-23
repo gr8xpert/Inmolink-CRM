@@ -299,6 +299,18 @@ describe('website lead intake over HTTP (S7-05)', () => {
     ).toBe('404 LISTING_NOT_FOUND');
   });
 
+  it("[S8-05] the WordPress plugin's server-verified post (secret key, serverVerified) lands with the site's agency", async () => {
+    const body = lead({ serverVerified: true, ref: listingRef, email: `wp-${newId()}@example.com` });
+    const res = await post('/v2/leads', body, { key: secret });
+    expect(res.statusCode).toBe(201);
+    const rows = await adminQuery('select agency_id, verification, shown_ref from website_leads where id = $1', [
+      (res.json() as WebsiteLeadAccepted).id,
+    ]);
+    expect(rows).toEqual([{ agency_id: founder.agencyId, verification: 'SERVER_KEY', shown_ref: listingRef }]);
+    // A publishable key may not claim a server check (refused: the browser path needs its Turnstile token).
+    expect((await post('/v2/leads', lead({ serverVerified: true }))).statusCode).toBe(422);
+  });
+
   it('[S7-05] query budget: a new lead 2 statements, a replay 3, an unknown reference 1 (feed-api ≤ 3)', async () => {
     const body = lead({ serverVerified: true, ref: listingRef });
     const idem = `form-${newId()}`;

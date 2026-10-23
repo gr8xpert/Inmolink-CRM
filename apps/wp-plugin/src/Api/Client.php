@@ -121,6 +121,48 @@ class Client {
 	}
 
 	/**
+	 * `POST` JSON to a website API path (lead intake). Never cached, never retried here: the `Idempotency-Key` lets the
+	 * caller resend safely. The answer's error code (`error.code`) is kept in `error` for non-2xx statuses.
+	 *
+	 * @param string              $path            Path starting with `/v2/`.
+	 * @param array<string,mixed> $body            JSON body.
+	 * @param string              $idempotency_key `Idempotency-Key` header.
+	 */
+	public function post( string $path, array $body, string $idempotency_key ): Response {
+		if ( '' === $this->base || '' === $this->api_key ) {
+			return new Response( Response::FAILED, 0, null, null, 'not_configured' );
+		}
+		$raw = wp_remote_post(
+			$this->base . $path,
+			array(
+				'timeout'             => $this->timeout,
+				'redirection'         => 0,
+				'reject_unsafe_urls'  => ! Settings::allow_local_api(),
+				'limit_response_size' => 65536,
+				'headers'             => array(
+					'Accept'          => 'application/json',
+					'Content-Type'    => 'application/json',
+					'X-Api-Key'       => $this->api_key,
+					'Idempotency-Key' => $idempotency_key,
+					'User-Agent'      => 'Inmolink-WordPress/' . VERSION . '; ' . home_url( '/' ),
+				),
+				'body'                => (string) wp_json_encode( $body ),
+			)
+		);
+		if ( is_wp_error( $raw ) ) {
+			return new Response( Response::FAILED, 0, null, null, 'network' );
+		}
+		$status  = (int) wp_remote_retrieve_response_code( $raw );
+		$decoded = json_decode( (string) wp_remote_retrieve_body( $raw ), true );
+		$decoded = is_array( $decoded ) ? $decoded : null;
+		if ( 200 === $status || 201 === $status ) {
+			return null === $decoded ? new Response( Response::FAILED, $status, null, null, 'invalid_json' ) : new Response( Response::OK, $status, $decoded );
+		}
+		$code = isset( $decoded['error']['code'] ) && is_string( $decoded['error']['code'] ) ? $decoded['error']['code'] : 'http_' . $status;
+		return new Response( 404 === $status ? Response::NOT_FOUND : Response::FAILED, $status, null, null, $code );
+	}
+
+	/**
 	 * Remembers for {@see BACKOFF} seconds that the API is unreachable (or asked us to slow down).
 	 */
 	private function mark_down(): void {

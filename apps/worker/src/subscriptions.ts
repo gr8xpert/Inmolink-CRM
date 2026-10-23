@@ -7,6 +7,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
+import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
 import * as search from '@inmolink/core/modules/search';
@@ -35,6 +36,7 @@ export const MODULES = {
   imports,
   websites,
   'website-api': websiteApi,
+  'plugin-updates': pluginUpdates,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */

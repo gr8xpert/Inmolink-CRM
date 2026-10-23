@@ -37,24 +37,25 @@ final class Settings {
 	/**
 	 * Defaults for every setting except the key.
 	 *
-	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string}
+	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string,turnstile_site_key:string}
 	 */
 	public static function defaults(): array {
 		return array(
-			'api_base'         => self::DEFAULT_API_BASE,
-			'locales'          => array( 'en' ),
-			'default_locale'   => 'en',
-			'cache_ttl'        => self::DEFAULT_TTL,
-			'stale_days'       => self::DEFAULT_STALE_DAYS,
-			'listing_base'     => 'property',
-			'development_base' => 'development',
+			'api_base'           => self::DEFAULT_API_BASE,
+			'locales'            => array( 'en' ),
+			'default_locale'     => 'en',
+			'cache_ttl'          => self::DEFAULT_TTL,
+			'stale_days'         => self::DEFAULT_STALE_DAYS,
+			'listing_base'       => 'property',
+			'development_base'   => 'development',
+			'turnstile_site_key' => '',
 		);
 	}
 
 	/**
 	 * The current settings, sanitized and merged over the defaults.
 	 *
-	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string}
+	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string,turnstile_site_key:string}
 	 */
 	public static function all(): array {
 		static $memo_raw = null, $memo_values = null;
@@ -87,7 +88,7 @@ final class Settings {
 	 * Sanitizes raw settings input (the admin form, or the stored option).
 	 *
 	 * @param array<string,mixed> $input Raw values.
-	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string}
+	 * @return array{api_base:string,locales:list<string>,default_locale:string,cache_ttl:int,stale_days:int,listing_base:string,development_base:string,turnstile_site_key:string}
 	 */
 	public static function sanitize( array $input ): array {
 		$out = self::defaults();
@@ -133,6 +134,10 @@ final class Settings {
 					$out[ $name ] = $value;
 				}
 			}
+		}
+		if ( isset( $input['turnstile_site_key'] ) && is_string( $input['turnstile_site_key'] ) ) {
+			$key                       = trim( $input['turnstile_site_key'] );
+			$out['turnstile_site_key'] = Forms\Turnstile::valid_site_key( $key ) ? $key : '';
 		}
 		if ( self::bases_overlap( $out['listing_base'], $out['development_base'], $out['locales'] ) ) {
 			$out['development_base'] = self::defaults()['development_base'];

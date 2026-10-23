@@ -9,6 +9,7 @@ namespace Inmolink\Plugin\Admin;
 
 use Inmolink\Plugin\Api\Client;
 use Inmolink\Plugin\Cache\Cache;
+use Inmolink\Plugin\Forms\Turnstile;
 use Inmolink\Plugin\Mirror\Mirror;
 use Inmolink\Plugin\Settings;
 use Inmolink\Plugin\Sync\DeltaSync;
@@ -108,6 +109,13 @@ final class SettingsPage {
 			}
 		}
 
+		$secret = isset( $input['turnstile_secret'] ) && is_string( $input['turnstile_secret'] ) ? trim( $input['turnstile_secret'] ) : '';
+		if ( ! empty( $input['clear_turnstile_secret'] ) ) {
+			Turnstile::clear_secret();
+		} elseif ( '' !== $secret && ! Turnstile::set_secret( $secret ) ) {
+			$notice = 'key_invalid';
+		}
+
 		if ( Settings::get( 'api_base' ) !== $before_base || Settings::api_key() !== $before_key ) {
 			// Another site's (or agency's) data must not keep rendering here, not even as a stale fallback.
 			DeltaSync::reset();
@@ -199,6 +207,22 @@ final class SettingsPage {
 					<tr>
 						<th scope="row"><label for="inmolink-development-base"><?php esc_html_e( 'Development URL base', 'inmolink' ); ?></label></th>
 						<td><input type="text" class="regular-text" id="inmolink-development-base" name="inmolink[development_base]" value="<?php echo esc_attr( $settings['development_base'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="inmolink-turnstile-site-key"><?php esc_html_e( 'Turnstile site key', 'inmolink' ); ?></label></th>
+						<td>
+							<input type="text" class="regular-text" id="inmolink-turnstile-site-key" name="inmolink[turnstile_site_key]" value="<?php echo esc_attr( $settings['turnstile_site_key'] ); ?>" <?php disabled( defined( 'INMOLINK_TURNSTILE_SITE_KEY' ) ); ?> />
+							<p class="description"><?php esc_html_e( 'Enquiry forms need Cloudflare Turnstile. With a secret below the site verifies visitors itself; without one the token is checked by Inmolink.', 'inmolink' ); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="inmolink-turnstile-secret"><?php esc_html_e( 'Turnstile secret', 'inmolink' ); ?></label></th>
+						<td>
+							<input type="password" class="regular-text" id="inmolink-turnstile-secret" name="inmolink[turnstile_secret]" value="" autocomplete="new-password" placeholder="<?php echo esc_attr( Turnstile::has_secret() ? __( 'Stored — leave empty to keep it', 'inmolink' ) : '' ); ?>" />
+							<?php if ( Turnstile::has_secret() ) : ?>
+								<label><input type="checkbox" name="inmolink[clear_turnstile_secret]" value="1" /> <?php esc_html_e( 'Remove the stored secret', 'inmolink' ); ?></label>
+							<?php endif; ?>
+						</td>
 					</tr>
 					<tr>
 						<th scope="row"><label for="inmolink-cache-ttl"><?php esc_html_e( 'Search cache (seconds)', 'inmolink' ); ?></label></th>

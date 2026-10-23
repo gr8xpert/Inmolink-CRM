@@ -339,6 +339,30 @@ export type GetListingResponse = ({
   };
 });
 
+/** A WordPress plugin release zip (immutable; verify its signature from `/v2/plugin/update`) */
+export type GetPluginPackageParams = {
+  version: string;
+};
+export type GetPluginPackageQuery = Record<string, never>;
+export type GetPluginPackageResponse = string;
+
+/** The latest WordPress plugin release: version, requirements, package path, SHA-256 and signature */
+export type GetPluginUpdateParams = Record<string, never>;
+export type GetPluginUpdateQuery = Record<string, never>;
+export type GetPluginUpdateResponse = {
+  slug: "inmolink";
+  version: string;
+  sha256: string;
+  signature: string;
+  sizeBytes: number;
+  requires: string;
+  requiresPhp: string;
+  tested: string;
+  releasedAt: string;
+  changelog: string;
+  package: string;
+};
+
 /** The site's listing pages (reference, slug in `lang`, last change), one page per `cursor` */
 export type GetSitemapParams = Record<string, never>;
 export type GetSitemapQuery = {
@@ -819,6 +843,8 @@ export const OPERATIONS = {
   getDevelopment: { method: "GET", path: "/v2/developments/{ref}" },
   getFeed: { method: "GET", path: "/v2/feeds/{token}/{file}" },
   getListing: { method: "GET", path: "/v2/listings/{ref}" },
+  getPluginPackage: { method: "GET", path: "/v2/plugin/package/{version}" },
+  getPluginUpdate: { method: "GET", path: "/v2/plugin/update" },
   getSitemap: { method: "GET", path: "/v2/sitemap" },
   getTaxonomyCatalog: { method: "GET", path: "/v2/taxonomy/catalog" },
   getTaxonomyFeatures: { method: "GET", path: "/v2/taxonomy/features" },
@@ -837,6 +863,8 @@ export interface Operations {
   getDevelopment: { params: GetDevelopmentParams; query: GetDevelopmentQuery; body?: never; headers?: never; response: GetDevelopmentResponse };
   getFeed: { params: GetFeedParams; query: GetFeedQuery; body?: never; headers?: never; response: GetFeedResponse };
   getListing: { params: GetListingParams; query: GetListingQuery; body?: never; headers?: never; response: GetListingResponse };
+  getPluginPackage: { params: GetPluginPackageParams; query: GetPluginPackageQuery; body?: never; headers?: never; response: GetPluginPackageResponse };
+  getPluginUpdate: { params: GetPluginUpdateParams; query: GetPluginUpdateQuery; body?: never; headers?: never; response: GetPluginUpdateResponse };
   getSitemap: { params: GetSitemapParams; query: GetSitemapQuery; body?: never; headers?: never; response: GetSitemapResponse };
   getTaxonomyCatalog: { params: GetTaxonomyCatalogParams; query: GetTaxonomyCatalogQuery; body?: never; headers?: never; response: GetTaxonomyCatalogResponse };
   getTaxonomyFeatures: { params: GetTaxonomyFeaturesParams; query: GetTaxonomyFeaturesQuery; body?: never; headers?: never; response: GetTaxonomyFeaturesResponse };
@@ -869,6 +897,8 @@ export function bindOperations(
     getDevelopment: (params: GetDevelopmentParams, query?: GetDevelopmentQuery) => call('getDevelopment', { params, query }),
     getFeed: (params: GetFeedParams, query?: GetFeedQuery) => call('getFeed', { params, query }),
     getListing: (params: GetListingParams, query?: GetListingQuery) => call('getListing', { params, query }),
+    getPluginPackage: (params: GetPluginPackageParams, query?: GetPluginPackageQuery) => call('getPluginPackage', { params, query }),
+    getPluginUpdate: (query?: GetPluginUpdateQuery) => call('getPluginUpdate', { query }),
     getSitemap: (query?: GetSitemapQuery) => call('getSitemap', { query }),
     getTaxonomyCatalog: (query?: GetTaxonomyCatalogQuery) => call('getTaxonomyCatalog', { query }),
     getTaxonomyFeatures: (query?: GetTaxonomyFeaturesQuery) => call('getTaxonomyFeatures', { query }),

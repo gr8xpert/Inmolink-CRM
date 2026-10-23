@@ -8,6 +8,7 @@
  * @var string                   $url     Canonical URL ('' when unavailable).
  * @var bool                     $stale   Served from the stale mirror.
  * @var string                   $jsonld  JSON-LD script ('' on routed pages: the head prints it).
+ * @var string                   $form    Enquiry form on routed pages ('' elsewhere or when forms are off).
  */
 
 use Inmolink\Plugin\Renderer;
@@ -76,5 +77,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</ul>
 		<?php endif; ?>
 		<?php echo $jsonld; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JsonLd::script() output: JSON with <, >, & hex-escaped. ?>
+		<?php echo $form; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- rendered by templates/lead-form.php, which escapes. ?>
 	</article>
 <?php endif; ?>

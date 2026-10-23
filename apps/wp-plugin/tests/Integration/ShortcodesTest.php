@@ -7,7 +7,9 @@
 
 namespace Inmolink\Plugin\Tests\Integration;
 
+use Inmolink\Plugin\Settings;
 use Inmolink\Plugin\Shortcodes\Shortcodes;
+use Inmolink\Plugin\Tests\FakeApi;
 use Inmolink\Plugin\Tests\TestCase;
 
 /**
@@ -25,7 +27,17 @@ final class ShortcodesTest extends TestCase {
 		'inmolink_listing'      => array( '[inmolink_listing ref="INM-1001"]', '<!-- wp:inmolink/detail {"ref":"INM-1001"} /-->' ),
 		'inmolink_developments' => array( '[inmolink_developments limit="5"]', '<!-- wp:inmolink/developments {"limit":5} /-->' ),
 		'inmolink_map'          => array( '[inmolink_map transaction="SALE" limit="10"]', '<!-- wp:inmolink/map {"transaction":"SALE","limit":10} /-->' ),
+		'inmolink_lead_form'    => array( '[inmolink_lead_form ref="INM-1001" kind="viewing"]', '<!-- wp:inmolink/lead-form {"ref":"INM-1001","kind":"viewing"} /-->' ),
 	);
+
+	/**
+	 * Per-render values (a form's Idempotency-Key and signed stamp) replaced, so two renders compare.
+	 *
+	 * @param string $html Rendered HTML.
+	 */
+	private static function normalize( string $html ): string {
+		return trim( (string) preg_replace( '/name="(idem|stamp)" value="[^"]*"/', 'name="$1" value="*"', $html ) );
+	}
 
 	/**
 	 * Fixtures for every block.
@@ -37,6 +49,15 @@ final class ShortcodesTest extends TestCase {
 		$this->api->on( '/v2/listings/INM-1001', array( 'fixture' => 'listing.INM-1001.json' ) );
 		$this->api->on( '/v2/developments', array( 'fixture' => 'developments.page.json' ) );
 		$this->api->on( '/v2/taxonomy/types', array( 'fixture' => 'taxonomy.types.json' ) );
+		// Forms render only with Turnstile configured.
+		Settings::save(
+			array(
+				'api_base'           => FakeApi::BASE,
+				'locales'            => 'en',
+				'turnstile_site_key' => '0x4AAAAAAAtestSiteKey',
+			)
+		);
+		Settings::set_api_key( self::KEY );
 	}
 
 	/**
@@ -59,7 +80,7 @@ final class ShortcodesTest extends TestCase {
 			$from_shortcode = do_shortcode( $shortcode );
 			$from_block     = do_blocks( $block );
 			$this->assertNotSame( '', trim( $from_block ), $tag . ' renders something' );
-			$this->assertSame( trim( $from_block ), trim( $from_shortcode ), $tag );
+			$this->assertSame( self::normalize( $from_block ), self::normalize( $from_shortcode ), $tag );
 		}
 
 		// The mapped attributes really reach the API (not just render identically).

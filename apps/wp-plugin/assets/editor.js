@@ -16,7 +16,7 @@
 	var TextControl = wp.components.TextControl;
 	var ToggleControl = wp.components.ToggleControl;
 	var ServerSideRender = wp.serverSideRender;
-	var NAMES = [ 'search', 'results', 'detail', 'developments', 'map' ];
+	var NAMES = [ 'search', 'results', 'detail', 'developments', 'map', 'lead-form' ];
 
 	function label( name ) {
 		return name.replace( /([A-Z])/g, ' $1' ).replace( /^./, function ( c ) {

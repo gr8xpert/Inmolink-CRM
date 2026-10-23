@@ -27,6 +27,7 @@ final class Installer {
 		Mirror::install();
 		self::schedule();
 		Routing\Router::schedule_flush();
+		Updates\Updater::for_plugin()->enable_auto_update_once();
 	}
 
 	/**
@@ -44,9 +45,11 @@ final class Installer {
 	public static function uninstall(): void {
 		self::deactivate();
 		Mirror::drop();
-		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION ) as $option ) {
+		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, Forms\Turnstile::SECRET_OPTION ) as $option ) {
 			delete_option( $option );
 		}
+		delete_site_transient( Updates\Updater::INFO_TRANSIENT );
+		delete_site_option( 'inmolink_auto_update_init' );
 		delete_transient( Client::DOWN_TRANSIENT );
 		self::delete_cached_answers();
 	}
