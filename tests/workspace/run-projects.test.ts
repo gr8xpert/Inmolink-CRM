@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { runGroups, summary } from '../../scripts/ci/root-projects';
 
 const ROOT = join(import.meta.dirname, '..', '..');
-const GROUPS = ['infra,queue', 'adapters', 'apps', 'seed', 'ci', 'ops'];
+const GROUPS = ['infra,queue', 'adapters', 'apps', 'seed', 'ci', 'ops', 'golden'];
 
 describe('root integration projects (S2-F3)', () => {
   it('[S2-F3] a planted failure in the queue project still runs and reports the other root projects', () => {
