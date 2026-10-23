@@ -4,7 +4,7 @@ import { BullMQOtel } from 'bullmq-otel';
 import { Redis, type RedisOptions } from 'ioredis';
 import { loadConfig, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
-import { Fairness } from './fairness';
+import { defineFairnessCommands, Fairness } from './fairness';
 
 export interface QueueConfig {
   /** redis-queue (noeviction + AOF). Defaults to `REDIS_QUEUE_URL`. */
@@ -63,6 +63,8 @@ export function producerConnection(): Redis {
   const s = current();
   if (!s.producer) {
     s.producer = new Redis(s.url, { ...base, maxRetriesPerRequest: 1, enableAutoPipelining: true });
+    // Auto-pipelined: custom commands must exist before the first command opens a pipeline (S10-F11).
+    defineFairnessCommands(s.producer);
     s.producer.on('error', (err) => s.logger.warn({ err }, 'redis-queue producer error'));
   }
   return s.producer;

@@ -65,13 +65,25 @@ export interface BacklogEntry {
 
 type FairEnqueueMany = (numKeys: number, ...args: (string | number)[]) => Promise<number[]>;
 
+/**
+ * Defines the fair-share Lua commands (EVALSHA with transparent script loading) on `redis`. Idempotent.
+ *
+ * S10-F11: call it right after creating the client, before it sends anything. ioredis copies a client's custom commands
+ * into an auto-pipeline when it opens one, so a command defined while a pipeline is open (a command earlier in the same
+ * tick, or one queued behind an in-flight pipeline) is missing from it: `pipeline[functionName] is not a function`,
+ * and an uncaught `results[i] is not iterable` when that pipeline replies.
+ */
+export function defineFairnessCommands(redis: Redis): void {
+  if (!('inlFairEnqueueMany' in redis)) redis.defineCommand('inlFairEnqueueMany', { lua: ENQUEUE_MANY });
+}
+
 export class Fairness {
+  /** `redis` must have its commands defined before first use (`defineFairnessCommands`) if it auto-pipelines. */
   constructor(
     private readonly redis: Redis,
     private readonly prefix: string,
   ) {
-    // EVALSHA with transparent script loading.
-    if (!('inlFairEnqueueMany' in redis)) redis.defineCommand('inlFairEnqueueMany', { lua: ENQUEUE_MANY });
+    defineFairnessCommands(redis);
   }
 
   /**
