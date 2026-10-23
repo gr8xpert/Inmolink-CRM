@@ -75,6 +75,8 @@ revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_i
 grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
+alter function legacy_target_ids(text[]) owner to app_owner;
+alter function legacy_ids_of(uuid[]) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -258,7 +260,14 @@ create policy own_rows on public."api_keys" to app_user
 create policy public_read on public."api_keys" for select to app_public
   using (revoked_at is null and agency_active);
 revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."api_keys" to app_user;
+grant select, insert, delete on table public."api_keys" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."api_keys"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['legacy_query_key']);
+  execute format('grant update (%s) on table public."api_keys" to app_user', cols);
+end $$;
 grant select, insert, update, delete on table public."api_keys" to app_system;
 grant select on table public."api_keys" to app_public;
 

@@ -220,6 +220,8 @@ describe('RLS generator', () => {
       expect(body).toContain("in ('listing', 'unit')");
     }
     expect(out).toContain('grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;');
+    expect(out).toContain('alter function legacy_target_ids(text[]) owner to app_owner;');
+    expect(out).toContain('alter function legacy_ids_of(uuid[]) owner to app_owner;');
     expect(() =>
       generateRlsSql({
         ...registry,
@@ -602,5 +604,16 @@ describe('RLS generator', () => {
 
   it('[S0-05] the production registry generates valid SQL', () => {
     expect(() => generateRlsSql(registry)).not.toThrow();
+  });
+});
+
+describe('userNoUpdateColumns', () => {
+  it('[S8-F26] api_keys: app_user gets UPDATE on a column list without legacy_query_key; other privileges unchanged', () => {
+    const sqlOut = tablesSql(registry);
+    const part = sqlOut.split('-- api_keys:')[1]?.split('\n\n')[0] ?? '';
+    expect(part).toContain("attname <> all (array['legacy_query_key'])");
+    expect(part).toContain(`grant update (%s) on table public."api_keys" to app_user`);
+    expect(part).not.toMatch(/grant [^;]*\bupdate\b[^;(]* on table public\."api_keys" to app_user;/);
+    expect(registry.tenant.api_keys?.userNoUpdateColumns).toEqual(['legacy_query_key']);
   });
 });

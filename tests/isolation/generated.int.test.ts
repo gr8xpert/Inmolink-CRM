@@ -997,3 +997,142 @@ describe.each(globalNames)('global table %s', (table) => {
     });
   }
 });
+
+// S8-F26: the legacy-key flag and the v1 shim's two id lookups are locked at the database.
+describe('legacy key flag and id lookups (S8-F26)', () => {
+  const agencyId = newId();
+  const keyId = newId();
+  const listingNew = newId();
+  const contactNew = newId();
+  const siteId = newId();
+  const tag = `iso-${keyId.slice(0, 8)}`;
+
+  beforeAll(async () => {
+    const keyCols = await columnsOf(admin, 'api_keys');
+    const mapCols = await columnsOf(admin, 'legacy_id_maps');
+    await withReplicaRole(admin, async () => {
+      await seed(admin, 'api_keys', buildRow('api_keys', keyCols, { id: keyId, agency_id: agencyId }));
+      await seed(
+        admin,
+        'website_sites',
+        buildRow('website_sites', await columnsOf(admin, 'website_sites'), {
+          ...isolationRegistry.tenant.website_sites?.base,
+          id: siteId,
+          agency_id: agencyId,
+        }),
+      );
+      await seed(
+        admin,
+        'legacy_id_maps',
+        buildRow('legacy_id_maps', mapCols, { entity: 'listing', legacy_id: `${tag}-l`, new_id: listingNew }),
+      );
+      await seed(
+        admin,
+        'legacy_id_maps',
+        buildRow('legacy_id_maps', mapCols, { entity: 'contact', legacy_id: `${tag}-c`, new_id: contactNew }),
+      );
+    });
+  });
+
+  afterAll(async () => {
+    await admin.query('delete from api_keys where id = $1', [keyId]);
+    await withReplicaRole(admin, () => admin.query('delete from website_sites where id = $1', [siteId]));
+    await admin.query('delete from legacy_id_maps where legacy_id like $1', [`${tag}%`]);
+  });
+
+  it('[S8-F26] app_user cannot update api_keys.legacy_query_key (42501), but still updates the other columns', async () => {
+    await expectSqlState(
+      () =>
+        withTenant({ agencyId }, (tx) =>
+          tx.execute(sql`update api_keys set legacy_query_key = true where id = ${keyId}`),
+        ),
+      DENIED,
+    );
+    await expectSqlState(
+      () =>
+        withTenant({ agencyId }, (tx) =>
+          tx.execute(sql`update api_keys set legacy_query_key = legacy_query_key where id = ${keyId}`),
+        ),
+      DENIED,
+    );
+    await rolledBack(agencyId, async (tx) => {
+      const r = await tx.execute(
+        sql`update api_keys set updated_at = now(), rate_tier = rate_tier where id = ${keyId}`,
+      );
+      expect(r.rowCount).toBe(1);
+    });
+    const { rows } = await admin.query('select legacy_query_key from api_keys where id = $1', [keyId]);
+    expect(rows[0].legacy_query_key).toBe(false);
+  });
+
+  it('[S8-F26] an app_user insert that sets legacy_query_key gets 42501 from the guard; false passes the guard', async () => {
+    const userId = newId();
+    const insert = (flag: boolean) =>
+      withTenant({ agencyId, userId }, (tx) =>
+        tx.execute(sql`insert into api_keys (id, agency_id, name, kind, prefix, key_hash, scopes, created_by, site_id, legacy_query_key)
+          values (${newId()}, ${agencyId}, 'k', 'SECRET', ${`${tag}-${flag}`}, 'h', '{}', ${userId}, ${siteId}, ${flag})`),
+      );
+    const err = await insert(true).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(sqlState(err)).toBe('42501');
+    expect(String((err as Error).message + (err as { cause?: Error }).cause?.message)).toMatch(/not a legacy key/);
+    // The control: the same row without the flag is refused only by the agency FK (the guard let it through).
+    await expectSqlState(() => insert(false), PASSED_RLS);
+  });
+
+  it('[S8-F26] app_system can still set the flag', async () => {
+    const system = new pg.Client({ connectionString: systemUrl });
+    await system.connect();
+    try {
+      const r = await system.query('update api_keys set legacy_query_key = true where id = $1', [keyId]);
+      expect(r.rowCount).toBe(1);
+      await system.query('update api_keys set legacy_query_key = false where id = $1', [keyId]);
+    } finally {
+      await system.end();
+    }
+  });
+
+  const lookups = [
+    sql`select * from public.legacy_target_ids(array['x']::text[])`,
+    sql`select * from public.legacy_ids_of(array[${newId()}]::uuid[])`,
+  ];
+
+  it('[S8-F26] app_user, app_intake, app_auth and app_staff get 42501 calling either lookup', async () => {
+    for (const q of lookups) {
+      await expectSqlState(() => withTenant({ agencyId }, (tx) => tx.execute(q)), DENIED);
+      await expectSqlState(() => withIntake({ agencyId }, (tx) => tx.execute(q)), DENIED);
+      await expectSqlState(() => withAuth((tx) => tx.execute(q)), DENIED);
+      await expectSqlState(() => asStaff((tx) => tx.execute(q)), DENIED);
+    }
+  });
+
+  it('[S8-F26] app_public gets listing ids only: a contact map row never comes back, from either lookup', async () => {
+    const got = await withPublicRead(async (tx) => ({
+      target: (
+        await tx.execute(
+          sql`select entity, legacy_id, new_id from public.legacy_target_ids(array[${`${tag}-l`}, ${`${tag}-c`}]::text[])`,
+        )
+      ).rows,
+      of: (
+        await tx.execute(
+          sql`select new_id, legacy_id from public.legacy_ids_of(array[${listingNew}, ${contactNew}]::uuid[])`,
+        )
+      ).rows,
+    }));
+    expect(got.target).toEqual([{ entity: 'listing', legacy_id: `${tag}-l`, new_id: listingNew }]);
+    expect(got.of).toEqual([{ new_id: listingNew, legacy_id: `${tag}-l` }]);
+  });
+
+  it('[S8-F26] both lookups are owned by app_owner', async () => {
+    const { rows } = await admin.query(
+      `select p.proname, pg_get_userbyid(p.proowner) as owner from pg_proc p
+        where p.proname in ('legacy_target_ids', 'legacy_ids_of') and p.pronamespace = 'public'::regnamespace`,
+    );
+    expect(rows.map((r) => `${r.proname}:${r.owner}`).sort()).toEqual([
+      'legacy_ids_of:app_owner',
+      'legacy_target_ids:app_owner',
+    ]);
+  });
+});

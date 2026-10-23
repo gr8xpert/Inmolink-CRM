@@ -42,6 +42,11 @@ interface TenantBase {
    */
   hiddenColumns?: readonly string[];
   /**
+   * Columns `app_user` may read but never UPDATE (S8-F26): UPDATE is granted on every other column (a column list
+   * read from the catalog when the SQL runs). Flags only a worker or script (`app_system`) may change.
+   */
+  userNoUpdateColumns?: readonly string[];
+  /**
    * STRICT only: `app_user` may INSERT its own agency's rows and nothing else (no SELECT, UPDATE or
    * DELETE) — write-only queues such as the outbox. Reads and acknowledgements go through `withSystem()`.
    */
@@ -373,6 +378,8 @@ export const tenantTables: Record<string, TenantTable> = {
   api_keys: {
     kind: 'PUBLIC_READ',
     guardedInsert: true,
+    // S8-F26: the legacy-query-key mark (S8-02) is set by the key import / `pnpm legacy:key-flag` (app_system) only.
+    userNoUpdateColumns: ['legacy_query_key'],
     triggers: ['api_keys_guard'],
     publicReadSql: 'revoked_at is null and agency_active',
     samples: {

@@ -80,6 +80,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     for (const c of hiddenColumnsOf(def)) {
       if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
     }
+    for (const c of def.userNoUpdateColumns ?? []) {
+      if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a no-update column`);
+    }
     for (const c of def.mediaRead?.columns ?? []) {
       if (!IDENT.test(c)) throw new Error(`${name}: "${c}" is not a column name`);
     }
@@ -423,6 +426,10 @@ end $$;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
+    // S8-F26: both lookups read legacy_id_maps through its `definer_read` policy (app_owner), so they must be OWNED by
+    // app_owner whichever role ran the migration (a function runs as its owner).
+    `alter function legacy_target_ids(text[]) owner to app_owner;`,
+    `alter function legacy_ids_of(uuid[]) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,
@@ -449,7 +456,34 @@ export function publicHiddenColumnsOf(def: TenantTable): readonly string[] {
  * A role's grant. With hidden columns the table-level SELECT becomes a column list of every other column, read from
  * the catalog when the SQL runs (ADR 0016); INSERT, UPDATE and DELETE stay table-wide.
  */
-function grantSql(t: string, role: AppRole, privileges: readonly Privilege[], hidden: readonly string[]): string {
+function grantSql(
+  t: string,
+  role: AppRole,
+  privileges: readonly Privilege[],
+  hidden: readonly string[],
+  noWrite: readonly string[] = [],
+): string {
+  const colWrites = noWrite.length > 0 ? privileges.filter((p) => p === 'UPDATE') : [];
+  if (colWrites.length > 0) {
+    // S8-F26: UPDATE becomes a column list of every column but `noWrite` (catalog read when the SQL runs);
+    // the excluded column keeps its default on insert.
+    const literals = noWrite.map((c) => `'${c}'`).join(', ');
+    const rest = privileges.filter((p) => p !== 'UPDATE');
+    return [
+      rest.length ? grantSql(t, role, rest, hidden) : '',
+      ...colWrites.map(
+        (p) => `do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = '${t}'::regclass and attnum > 0 and not attisdropped and attname <> all (array[${literals}]);
+  execute format('grant ${p.toLowerCase()} (%s) on table ${t} to ${role}', cols);
+end $$;`,
+      ),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
   if (hidden.length === 0 || !privileges.includes('SELECT')) {
     return `grant ${grantList([...privileges])} on table ${t} to ${role};`;
   }
@@ -485,7 +519,7 @@ function staffGrantSql(t: string, staff: StaffAccess): string[] {
 
 /** `app_user`'s grant: its hidden columns are `hiddenColumns` and `userSelect.hiddenColumns`. */
 function userGrantSql(t: string, def: TenantTable): string {
-  return grantSql(t, 'app_user', expectedPrivileges(def).app_user, hiddenColumnsOf(def));
+  return grantSql(t, 'app_user', expectedPrivileges(def).app_user, hiddenColumnsOf(def), def.userNoUpdateColumns);
 }
 
 function tenantTableSql(name: string, def: TenantTable): string[] {

@@ -289,6 +289,26 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
     }
   }
 
+  // S8-F26: app_user may not UPDATE the registry's `userNoUpdateColumns`, and may UPDATE every other column.
+  for (const [name, def] of Object.entries(registry.tenant)) {
+    if (!seen.has(name) || !def.userNoUpdateColumns?.length) continue;
+    for (const priv of ['UPDATE'] as const) {
+      const cols = await client.query<{ column: string; granted: boolean }>(
+        `select a.attname as column, has_column_privilege('app_user', c.oid, a.attnum, $2) as granted
+           from pg_attribute a join pg_class c on c.oid = a.attrelid
+          where c.oid = $1::regclass and a.attnum > 0 and not a.attisdropped`,
+        [`public."${name}"`, priv],
+      );
+      for (const c of cols.rows) {
+        const locked = def.userNoUpdateColumns.includes(c.column);
+        if (locked && c.granted) problems.push(`${name}: app_user can ${priv.toLowerCase()} locked column ${c.column}`);
+        if (!locked && !c.granted) {
+          problems.push(`${name}: app_user cannot ${priv.toLowerCase()} column ${c.column} (run pnpm db:rls)`);
+        }
+      }
+    }
+  }
+
   // S6-08: staff column allowlists — app_staff reads and writes exactly the listed columns.
   for (const [name, def] of Object.entries(registry.tenant)) {
     if (!seen.has(name) || !def.staff) continue;
