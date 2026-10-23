@@ -45,7 +45,11 @@ final class Installer {
 	public static function uninstall(): void {
 		self::deactivate();
 		Mirror::drop();
-		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, Forms\Turnstile::SECRET_OPTION ) as $option ) {
+		$host = wp_parse_url( (string) Settings::get( 'api_base' ), PHP_URL_HOST );
+		if ( is_string( $host ) ) {
+			delete_transient( 'inmolink_dns_' . md5( strtolower( $host ) ) );
+		}
+		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION ) as $option ) {
 			delete_option( $option );
 		}
 		delete_site_transient( Updates\Updater::INFO_TRANSIENT );

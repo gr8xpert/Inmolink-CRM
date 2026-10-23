@@ -11,6 +11,8 @@ use Inmolink\Plugin\Api\Client;
 use Inmolink\Plugin\Api\Response;
 use Inmolink\Plugin\I18n\Locale;
 use Inmolink\Plugin\Listings;
+use Inmolink\Plugin\Net\Counter;
+use Inmolink\Plugin\Net\Ip;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -32,6 +34,20 @@ class LeadForm {
 	/** Submissions per IP per window. */
 	public const RATE_LIMIT  = 5;
 	public const RATE_WINDOW = 10 * MINUTE_IN_SECONDS;
+	/** Posts per IP per window that failed Turnstile; the next one is refused without a Cloudflare call (S8-F29). */
+	public const FAIL_LIMIT  = 5;
+	public const FAIL_WINDOW = 10 * MINUTE_IN_SECONDS;
+	/**
+	 * The contract's field caps (`LEAD_LIMITS` in packages/contracts/src/values.ts). The shared fixture
+	 * tests/fixtures/leads/cases.json holds the contract's values; both test suites assert them (S9-F5).
+	 */
+	public const LIMITS = array(
+		'name'    => 120,
+		'email'   => 254,
+		'phone'   => 25,
+		'message' => 4000,
+		'pageUrl' => 2048,
+	);
 	/** A form sent faster than this after rendering is a bot. */
 	public const MIN_FILL_SECONDS = 3;
 	/** Long enough for page caches: the stamp only proves the form was rendered by this site, a while ago. */
@@ -110,14 +126,17 @@ class LeadForm {
 	 * @return string Result code ({@see RESULTS}).
 	 */
 	public function submit( array $post, string $ip ): string {
-		$field = static fn ( string $name ): string => isset( $post[ $name ] ) && is_string( $post[ $name ] ) ? trim( $post[ $name ] ) : '';
+		$field = static fn ( string $name ): string => isset( $post[ $name ] ) && is_string( $post[ $name ] ) ? self::js_trim( $post[ $name ] ) : '';
 
 		// Bots: a filled honeypot or an instant post look like success (nothing is sent; nothing tells them why).
 		if ( '' !== $field( self::HONEYPOT ) || ! self::stamp_ok( $field( 'stamp' ) ) ) {
 			return 'sent';
 		}
-		if ( self::rate_used( $ip ) >= self::RATE_LIMIT ) {
+		if ( self::rate_used( $ip ) >= self::RATE_LIMIT || self::fail_used( $ip ) >= self::FAIL_LIMIT ) {
 			return 'busy';
+		}
+		if ( ! self::utf8_ok( $post ) ) {
+			return 'invalid';
 		}
 		$mode = Turnstile::mode();
 		if ( 'none' === $mode ) {
@@ -138,6 +157,7 @@ class LeadForm {
 
 		if ( 'own' === $mode ) {
 			if ( ! Turnstile::verify( $token, $ip, hash( 'sha256', $idem . '|' . (string) wp_json_encode( $body ) ) ) ) {
+				self::fail_count( $ip );
 				return 'invalid';
 			}
 			// Allowed only because the plugin itself just verified the visitor (S7-05).
@@ -160,29 +180,47 @@ class LeadForm {
 	}
 
 	/**
+	 * The API body for a form post (field rules of the website API contract), or null when a field is invalid.
+	 *
+	 * @param array<string,mixed> $post The form fields (unslashed).
+	 * @return array<string,mixed>|null
+	 */
+	public function validate_post( array $post ): ?array {
+		if ( ! self::utf8_ok( $post ) ) {
+			return null;
+		}
+		return $this->body( static fn ( string $name ): string => isset( $post[ $name ] ) && is_string( $post[ $name ] ) ? self::js_trim( $post[ $name ] ) : '' );
+	}
+
+	/**
 	 * The API body from the form fields, or null when a field is invalid.
 	 *
 	 * @param callable $field Field reader.
 	 * @return array<string,mixed>|null
 	 */
 	private function body( callable $field ): ?array {
-		$name    = sanitize_text_field( $field( 'name' ) );
-		$email   = sanitize_email( $field( 'email' ) );
-		$phone   = $field( 'phone' );
-		$message = sanitize_textarea_field( $field( 'message' ) );
+		$name    = self::js_trim( $field( 'name' ) );
+		$phone   = self::js_trim( $field( 'phone' ) );
+		$message = self::js_trim( $field( 'message' ) );
+		if ( ! self::name_ok( $name ) || self::js_length( $phone ) > self::LIMITS['phone'] || self::js_length( $message ) > self::LIMITS['message'] || self::has_control( $message ) ) {
+			return null;
+		}
+		$name    = sanitize_text_field( $name );
+		$email   = is_email( $field( 'email' ) ) ? sanitize_email( $field( 'email' ) ) : '';
+		$message = sanitize_textarea_field( $message );
 		$ref     = $field( 'ref' );
 		$kind    = $field( 'kind' );
 
-		if ( '' === $name || mb_strlen( $name ) > 120 || preg_match( '/[<>]|https?:\/\/|www\.|\d{2,}/i', $name ) ) {
+		if ( '' === $name ) {
 			return null;
 		}
-		if ( '' === $email || strlen( $email ) > 254 || ! is_email( $email ) ) {
+		if ( '' === $email || strlen( $email ) > self::LIMITS['email'] || ! is_email( $email ) ) {
 			return null;
 		}
-		if ( '' !== $phone && ! preg_match( '/^\+?[0-9 ().-]{6,24}$/', $phone ) ) {
+		if ( '' !== $phone && ! preg_match( '/^\+?[0-9 ().-]{6,' . ( self::LIMITS['phone'] - 1 ) . '}\z/', $phone ) ) {
 			return null;
 		}
-		if ( mb_strlen( $message ) > 4000 || '1' !== $field( 'privacy' ) ) {
+		if ( '1' !== $field( 'privacy' ) ) {
 			return null;
 		}
 		if ( '' !== $ref && ! preg_match( Listings::REF_PATTERN, $ref ) ) {
@@ -213,11 +251,14 @@ class LeadForm {
 		if ( 'viewing' === $kind ) {
 			$date = $field( 'date' );
 			$time = $field( 'time_of_day' );
-			if ( '' === $ref || ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) || ! in_array( $time, self::TIMES_OF_DAY, true ) ) {
+			if ( '' === $ref || ! preg_match( '/^\d{4}-\d{2}-\d{2}\z/', $date ) || ! in_array( $time, self::TIMES_OF_DAY, true ) ) {
 				return null;
 			}
 			list( $y, $m, $d ) = array_map( 'intval', explode( '-', $date ) );
-			if ( ! checkdate( $m, $d, $y ) ) {
+			// From today (a day of slack for time zones) to a year ahead, like the contract.
+			$day   = intdiv( (int) gmmktime( 0, 0, 0, $m, $d, $y ), DAY_IN_SECONDS );
+			$today = intdiv( time(), DAY_IN_SECONDS );
+			if ( ! checkdate( $m, $d, $y ) || $day < $today - 1 || $day > $today + 366 ) {
 				return null;
 			}
 			$body['slots'] = array(
@@ -269,7 +310,7 @@ class LeadForm {
 	 * @param string $ip IP.
 	 */
 	private static function rate_used( string $ip ): int {
-		return (int) get_transient( self::rate_key( $ip ) );
+		return Counter::count( 'form', $ip );
 	}
 
 	/**
@@ -278,16 +319,81 @@ class LeadForm {
 	 * @param string $ip IP.
 	 */
 	private static function rate_count( string $ip ): void {
-		set_transient( self::rate_key( $ip ), self::rate_used( $ip ) + 1, self::RATE_WINDOW );
+		Counter::hit( 'form', $ip, self::RATE_WINDOW );
 	}
 
 	/**
-	 * The rate-limit transient of an IP (hashed: no address is stored).
+	 * Whether every string field is valid UTF-8 (anything else is refused outright: a regex on invalid UTF-8 fails
+	 * silently, which would let a malformed value through the control-character check).
+	 *
+	 * @param array<string,mixed> $post Form fields.
+	 */
+	private static function utf8_ok( array $post ): bool {
+		foreach ( $post as $value ) {
+			if ( is_string( $value ) && ! mb_check_encoding( $value, 'UTF-8' ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * A name per the contract (`LeadName`): 1 to 120 characters, one line without control characters or markup brackets,
+	 * and no links, domains (`.xx`) or digit runs.
+	 *
+	 * @param string $name Trimmed name.
+	 */
+	public static function name_ok( string $name ): bool {
+		return '' !== $name
+			&& self::js_length( $name ) <= self::LIMITS['name']
+			&& 1 === preg_match( '/^[^\p{Cc}<>]*\z/u', $name )
+			&& 1 !== preg_match( '/(?:https?:\/\/|www\.|\.[a-z]{2,}|\d{2,})/i', $name );
+	}
+
+	/**
+	 * Control characters (C0, DEL, C1) other than tab, line feed and carriage return.
+	 *
+	 * @param string $text Text.
+	 */
+	private static function has_control( string $text ): bool {
+		return 1 === preg_match( '/[\x{0}-\x{8}\x{B}\x{C}\x{E}-\x{1F}\x{7F}-\x{9F}]/u', $text );
+	}
+
+	/**
+	 * JavaScript's `String.prototype.trim` (Unicode white space), so a value is trimmed as the contract trims it.
+	 *
+	 * @param string $text Text.
+	 */
+	private static function js_trim( string $text ): string {
+		$space = '[\t\n\x{B}\f\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]';
+		return (string) preg_replace( '/^' . $space . '+|' . $space . '+\z/u', '', $text );
+	}
+
+	/**
+	 * Length in UTF-16 code units, which is what the contract's `.max()` counts.
+	 *
+	 * @param string $text Text.
+	 */
+	private static function js_length( string $text ): int {
+		return (int) ( strlen( (string) mb_convert_encoding( $text, 'UTF-16LE', 'UTF-8' ) ) / 2 );
+	}
+
+	/**
+	 * Posts that failed Turnstile for the IP in the current window.
 	 *
 	 * @param string $ip IP.
 	 */
-	private static function rate_key( string $ip ): string {
-		return 'inmolink_rl_' . md5( wp_salt( 'nonce' ) . '|' . $ip );
+	private static function fail_used( string $ip ): int {
+		return Counter::count( 'fail', $ip );
+	}
+
+	/**
+	 * Counts a post that failed Turnstile.
+	 *
+	 * @param string $ip IP.
+	 */
+	private static function fail_count( string $ip ): void {
+		Counter::hit( 'fail', $ip, self::FAIL_WINDOW );
 	}
 
 	/**
@@ -318,16 +424,10 @@ class LeadForm {
 	}
 
 	/**
-	 * The visitor's IP: `REMOTE_ADDR`, or — only when wp-config.php names it, because the site sits behind that proxy
-	 * (e.g. `INMOLINK_TRUSTED_PROXY_HEADER` = `HTTP_CF_CONNECTING_IP`) — the proxy's client-IP header. Proxy headers
-	 * are forgeable otherwise, so none is read by default.
+	 * The visitor's IP: `REMOTE_ADDR`, or behind a trusted proxy the client address from its header
+	 * (see {@see Ip::client()}: `INMOLINK_TRUSTED_PROXIES` CIDRs, `INMOLINK_TRUSTED_PROXY_HEADER`).
 	 */
 	public static function remote_ip(): string {
-		$name = defined( 'INMOLINK_TRUSTED_PROXY_HEADER' ) && is_string( INMOLINK_TRUSTED_PROXY_HEADER ) && preg_match( '/^HTTP_[A-Z0-9_]{1,60}$/', INMOLINK_TRUSTED_PROXY_HEADER )
-			? INMOLINK_TRUSTED_PROXY_HEADER
-			: 'REMOTE_ADDR';
-		$ip   = isset( $_SERVER[ $name ] ) && is_string( $_SERVER[ $name ] ) ? sanitize_text_field( wp_unslash( $_SERVER[ $name ] ) ) : '';
-		$ip   = trim( explode( ',', $ip )[0] );
-		return false !== filter_var( $ip, FILTER_VALIDATE_IP ) ? $ip : '';
+		return Ip::client();
 	}
 }

@@ -289,7 +289,7 @@ final class LeadFormTest extends TestCase {
 
 		// Junk posts do not count (a shared IP is not locked out by them); verified submissions do.
 		$this->verdict = array( 'success' => false );
-		for ( $i = 0; $i < 2 * LeadForm::RATE_LIMIT; $i++ ) {
+		for ( $i = 0; $i < LeadForm::FAIL_LIMIT - 1; $i++ ) {
 			$form->submit( $this->form(), '192.0.2.9' );
 		}
 		$this->verdict = array(
@@ -312,6 +312,27 @@ final class LeadFormTest extends TestCase {
 		$this->assertSame( 'none', Turnstile::mode() );
 		$this->assertSame( 'unavailable', $form->submit( $this->form(), '192.0.2.10' ) );
 		$this->assertStringNotContainsString( '<form', do_blocks( '<!-- wp:inmolink/lead-form {"ref":"INM-1001"} /-->' ), 'no form without Turnstile' );
+	}
+
+	/**
+	 * [S8-F29] The 6th post from one IP that fails Turnstile in 10 minutes is refused without a Cloudflare call.
+	 */
+	public function test_s8_f29_failing_posts_are_limited_per_ip(): void {
+		$form          = LeadForm::from_settings();
+		$this->verdict = array( 'success' => false );
+		for ( $i = 0; $i < LeadForm::FAIL_LIMIT; $i++ ) {
+			$this->assertSame( 'invalid', $form->submit( $this->form( array( 'cf-turnstile-response' => 'bad-' . $i ) ), '198.51.100.50' ) );
+		}
+		$this->assertCount( LeadForm::FAIL_LIMIT, $this->verifications );
+		$this->assertSame( 'busy', $form->submit( $this->form( array( 'cf-turnstile-response' => 'bad-6' ) ), '198.51.100.50' ), 'the 6th failing post' );
+		$this->verdict = array(
+			'success'  => true,
+			'action'   => 'website-lead',
+			'hostname' => 'example.org',
+		);
+		$this->assertSame( 'busy', $form->submit( $this->form( array( 'cf-turnstile-response' => 'good' ) ), '198.51.100.50' ), 'still locked out for the window' );
+		$this->assertCount( LeadForm::FAIL_LIMIT, $this->verifications, 'no Cloudflare call after the limit' );
+		$this->assertSame( 'sent', $form->submit( $this->form( array( 'cf-turnstile-response' => 'good' ) ), '198.51.100.51' ), 'another IP is unaffected' );
 	}
 
 	/**

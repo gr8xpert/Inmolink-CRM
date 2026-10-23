@@ -12,6 +12,7 @@
  */
 
 use Inmolink\Plugin\Forms\LeadForm;
+use Inmolink\Plugin\Forms\Turnstile;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -39,9 +40,9 @@ $inmolink_viewing  = 'viewing' === $hidden['kind'];
 		<p class="inmolink-hp" aria-hidden="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden">
 			<label><?php esc_html_e( 'Leave this field empty', 'inmolink' ); ?> <input type="text" name="<?php echo esc_attr( LeadForm::HONEYPOT ); ?>" value="" tabindex="-1" autocomplete="off" /></label>
 		</p>
-		<label><?php esc_html_e( 'Name', 'inmolink' ); ?> <input type="text" name="name" required maxlength="120" autocomplete="name" /></label>
-		<label><?php esc_html_e( 'Email', 'inmolink' ); ?> <input type="email" name="email" required maxlength="254" autocomplete="email" /></label>
-		<label><?php esc_html_e( 'Phone', 'inmolink' ); ?> <input type="tel" name="phone" maxlength="24" autocomplete="tel" /></label>
+		<label><?php esc_html_e( 'Name', 'inmolink' ); ?> <input type="text" name="name" required maxlength="<?php echo (int) LeadForm::LIMITS['name']; ?>" autocomplete="name" /></label>
+		<label><?php esc_html_e( 'Email', 'inmolink' ); ?> <input type="email" name="email" required maxlength="<?php echo (int) LeadForm::LIMITS['email']; ?>" autocomplete="email" /></label>
+		<label><?php esc_html_e( 'Phone', 'inmolink' ); ?> <input type="tel" name="phone" maxlength="<?php echo (int) LeadForm::LIMITS['phone']; ?>" autocomplete="tel" /></label>
 		<?php if ( $inmolink_viewing ) : ?>
 			<label><?php esc_html_e( 'Preferred day', 'inmolink' ); ?> <input type="date" name="date" required min="<?php echo esc_attr( gmdate( 'Y-m-d' ) ); ?>" /></label>
 			<label><?php esc_html_e( 'Time of day', 'inmolink' ); ?>
@@ -53,7 +54,7 @@ $inmolink_viewing  = 'viewing' === $hidden['kind'];
 				</select>
 			</label>
 		<?php endif; ?>
-		<label><?php esc_html_e( 'Message', 'inmolink' ); ?> <textarea name="message" maxlength="4000" rows="4"></textarea></label>
+		<label><?php esc_html_e( 'Message', 'inmolink' ); ?> <textarea name="message" maxlength="<?php echo (int) LeadForm::LIMITS['message']; ?>" rows="4"></textarea></label>
 		<label class="inmolink-consent">
 			<input type="checkbox" name="privacy" value="1" required />
 			<?php if ( '' !== $privacy ) : ?>
@@ -69,7 +70,7 @@ $inmolink_viewing  = 'viewing' === $hidden['kind'];
 			<?php endif; ?>
 		</label>
 		<label class="inmolink-consent"><input type="checkbox" name="marketing" value="1" /> <?php esc_html_e( 'Send me similar properties by email.', 'inmolink' ); ?></label>
-		<div class="cf-turnstile" data-sitekey="<?php echo esc_attr( $hidden['site_key'] ); ?>" data-action="website-lead"></div>
+		<div class="cf-turnstile" data-sitekey="<?php echo esc_attr( $hidden['site_key'] ); ?>" data-action="<?php echo esc_attr( Turnstile::ACTION ); ?>"></div>
 		<button type="submit"><?php echo esc_html( $inmolink_viewing ? __( 'Request a viewing', 'inmolink' ) : __( 'Send', 'inmolink' ) ); ?></button>
 	</form>
 </div>

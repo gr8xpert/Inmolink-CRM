@@ -7,6 +7,8 @@
 
 namespace Inmolink\Plugin;
 
+use Inmolink\Plugin\Net\Ip;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -278,6 +280,14 @@ final class Settings {
 		}
 		if ( ! preg_match( '/^(\[[0-9a-f:]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)$/', $host ) ) {
 			return '';
+		}
+		if ( ! $allow_local ) {
+			// An address literal must be public (S8-F23); so-called numeric hosts such as `2130706433` or `0x7f.1` are
+			// read as addresses by resolvers and never accepted. Names are checked after DNS resolution (ApiGuard).
+			$bare = trim( $host, '[]' );
+			if ( Ip::valid( $bare ) ? ! Ip::is_public( $bare ) : 1 === preg_match( '/(^|\.)(0x[0-9a-f]*|[0-9]+)$/', $host ) ) {
+				return '';
+			}
 		}
 		return $scheme . '://' . $host . ( isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '' );
 	}

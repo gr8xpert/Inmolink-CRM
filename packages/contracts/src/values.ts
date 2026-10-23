@@ -155,7 +155,7 @@ export const EMAIL_MAX_LENGTH = 254;
 export const LEAD_LIMITS = {
   name: 120,
   email: EMAIL_MAX_LENGTH,
-  phone: 32,
+  phone: 25,
   message: 4_000,
   pageUrl: 2_048,
   turnstileToken: 2_048,

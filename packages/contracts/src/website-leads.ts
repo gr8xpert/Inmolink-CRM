@@ -29,11 +29,12 @@ const LeadName = z
   .regex(LINE)
   .refine((s) => !LINK.test(s), { message: 'no links, domains or numbers' });
 
+/** Digits, spaces and `() . -`, 6 or more, with an optional leading `+`; the whole value is at most `LEAD_LIMITS.phone`. */
 const LeadPhone = z
   .string()
   .trim()
   .max(LEAD_LIMITS.phone)
-  .regex(/^\+?[0-9 ().-]{6,24}$/);
+  .regex(new RegExp(`^\\+?[0-9 ().-]{6,${LEAD_LIMITS.phone - 1}}$`));
 
 const LeadMessage = z
   .string()

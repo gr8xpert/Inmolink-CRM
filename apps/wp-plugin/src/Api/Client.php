@@ -7,6 +7,9 @@
 
 namespace Inmolink\Plugin\Api;
 
+use Inmolink\Plugin\Net\ApiGuard;
+use Inmolink\Plugin\Net\Counter;
+use Inmolink\Plugin\Net\Ip;
 use Inmolink\Plugin\Settings;
 use const Inmolink\Plugin\VERSION;
 
@@ -29,6 +32,9 @@ class Client {
 	/** Seconds no call is made after a network error, 5xx, 401, 403 or 429. */
 	public const BACKOFF        = 60;
 	public const DOWN_TRANSIENT = 'inmolink_api_down';
+	/** Uncached API calls one visitor IP may cause per window (S8-F23); more are answered from the stale cache. */
+	public const CALL_LIMIT  = 30;
+	public const CALL_WINDOW = MINUTE_IN_SECONDS;
 
 	/**
 	 * Creates a client.
@@ -67,6 +73,19 @@ class Client {
 			// The API failed moments ago: do not make visitors wait for another timeout.
 			return new Response( Response::FAILED, 0, null, null, 'backoff' );
 		}
+		if ( $this->over_call_limit() ) {
+			// One visitor IP is causing many uncached calls (a crawler walking filter combinations): serve stale.
+			return new Response( Response::FAILED, 0, null, null, 'rate_limited' );
+		}
+		$checked = ApiGuard::check( $this->base );
+		if ( ! $checked['ok'] ) {
+			// A refused address stays refused for as long as DNS says so: back off. A name that merely does not resolve
+			// (a DNS blip) is retried on the next call.
+			if ( 'blocked_address' === $checked['error'] ) {
+				$this->mark_down();
+			}
+			return new Response( Response::FAILED, 0, null, null, $checked['error'] );
+		}
 
 		$headers = array(
 			'Accept'     => 'application/json',
@@ -77,15 +96,19 @@ class Client {
 			$headers['If-None-Match'] = $etag;
 		}
 
-		$raw = wp_remote_get(
-			$this->url( $path, $query ),
-			array(
-				'timeout'             => $this->timeout,
-				'redirection'         => 0,
-				'headers'             => $headers,
-				'limit_response_size' => self::MAX_BODY,
-				// Loopback / private targets are refused unless wp-config opts in (INMOLINK_ALLOW_LOCAL_API).
-				'reject_unsafe_urls'  => ! Settings::allow_local_api(),
+		$url = $this->url( $path, $query );
+		$raw = ApiGuard::pinned(
+			$checked,
+			fn () => wp_remote_get(
+				$url,
+				array(
+					'timeout'             => $this->timeout,
+					'redirection'         => 0,
+					'headers'             => $headers,
+					'limit_response_size' => self::MAX_BODY,
+					// Loopback / private targets are refused unless wp-config opts in (INMOLINK_ALLOW_LOCAL_API).
+					'reject_unsafe_urls'  => ! Settings::allow_local_api(),
+				)
 			)
 		);
 
@@ -132,21 +155,28 @@ class Client {
 		if ( '' === $this->base || '' === $this->api_key ) {
 			return new Response( Response::FAILED, 0, null, null, 'not_configured' );
 		}
-		$raw = wp_remote_post(
-			$this->base . $path,
-			array(
-				'timeout'             => $this->timeout,
-				'redirection'         => 0,
-				'reject_unsafe_urls'  => ! Settings::allow_local_api(),
-				'limit_response_size' => 65536,
-				'headers'             => array(
-					'Accept'          => 'application/json',
-					'Content-Type'    => 'application/json',
-					'X-Api-Key'       => $this->api_key,
-					'Idempotency-Key' => $idempotency_key,
-					'User-Agent'      => 'Inmolink-WordPress/' . VERSION . '; ' . home_url( '/' ),
-				),
-				'body'                => (string) wp_json_encode( $body ),
+		$checked = ApiGuard::check( $this->base );
+		if ( ! $checked['ok'] ) {
+			return new Response( Response::FAILED, 0, null, null, $checked['error'] );
+		}
+		$raw = ApiGuard::pinned(
+			$checked,
+			fn () => wp_remote_post(
+				$this->base . $path,
+				array(
+					'timeout'             => $this->timeout,
+					'redirection'         => 0,
+					'reject_unsafe_urls'  => ! Settings::allow_local_api(),
+					'limit_response_size' => 65536,
+					'headers'             => array(
+						'Accept'          => 'application/json',
+						'Content-Type'    => 'application/json',
+						'X-Api-Key'       => $this->api_key,
+						'Idempotency-Key' => $idempotency_key,
+						'User-Agent'      => 'Inmolink-WordPress/' . VERSION . '; ' . home_url( '/' ),
+					),
+					'body'                => (string) wp_json_encode( $body ),
+				)
 			)
 		);
 		if ( is_wp_error( $raw ) ) {
@@ -160,6 +190,25 @@ class Client {
 		}
 		$code = isset( $decoded['error']['code'] ) && is_string( $decoded['error']['code'] ) ? $decoded['error']['code'] : 'http_' . $status;
 		return new Response( 404 === $status ? Response::NOT_FOUND : Response::FAILED, $status, null, null, $code );
+	}
+
+	/**
+	 * Counts this call against the visitor's IP and says whether the IP is over {@see CALL_LIMIT} in {@see CALL_WINDOW}.
+	 * Background work (WP-CLI, cron) has no visitor and is never limited. The `inmolink_api_caller_ip` filter sets the
+	 * IP (tests, custom setups).
+	 */
+	private function over_call_limit(): bool {
+		$ip = ( 'cli' === PHP_SAPI || wp_doing_cron() ) ? '' : Ip::client();
+		$ip = apply_filters( 'inmolink_api_caller_ip', $ip );
+		if ( ! is_string( $ip ) || '' === $ip ) {
+			return false;
+		}
+		// Counted per IPv4 address / IPv6 /64, in bounded storage (see Counter).
+		if ( Counter::count( 'api', $ip ) >= self::CALL_LIMIT ) {
+			return true;
+		}
+		Counter::hit( 'api', $ip, self::CALL_WINDOW );
+		return false;
 	}
 
 	/**

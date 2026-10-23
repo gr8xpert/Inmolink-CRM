@@ -41,6 +41,8 @@ abstract class TestCase extends \WP_UnitTestCase {
 		);
 		$this->assertTrue( Settings::set_api_key( self::KEY ) );
 		Client::reset_backoff();
+		// The fake API's host does not exist: it resolves to a public address (the address guard, S8-F23).
+		add_filter( 'inmolink_resolve_host', static fn ( $pre ) => null === $pre ? array( '93.184.216.34' ) : $pre, 5 );
 		$this->api = new FakeApi();
 		$this->api->install();
 	}
