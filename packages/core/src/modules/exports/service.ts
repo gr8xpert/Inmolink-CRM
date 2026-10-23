@@ -40,6 +40,7 @@ import { encryptCredentials, tokenKey } from './config';
 import { exportsEvents } from './events';
 import { assertCan } from './policy';
 import { feedFileOf } from './profiles';
+import { isPushChannel, pushChannelEnabled } from './push/registry';
 import * as repo from './repo';
 import { ruleOf, type SelectionRule, selectionBatch, selectionPage } from './selection';
 
@@ -68,6 +69,7 @@ function toDto(row: repo.ConnectionRow, counts: { include: number; exclude: numb
             validCount: row.lastValidCount ?? 0,
             invalidCount: row.lastInvalidCount ?? 0,
           },
+    pushError: row.pushError,
     includeCount: counts?.include ?? 0,
     excludeCount: counts?.exclude ?? 0,
     feed: feedOf(row),
@@ -124,7 +126,20 @@ function listingCursor(cursor: string | undefined): string | null {
 /** The portals an agency can connect (and the ones still planned). */
 export async function listChannels(ctx: Ctx): Promise<PortalChannelList> {
   assertCan(ctx, 'exports.read');
-  return { items: await repo.listChannels(ctx.tx) };
+  const channels = await repo.listChannels(ctx.tx);
+  // S9-04: a push portal (idealista, Fotocasa) is PLANNED in the catalog and AVAILABLE for an agency whose flag is on.
+  // A plain loop: the flag reads share this transaction.
+  const items: repo.ChannelRow[] = [];
+  for (const c of channels) {
+    items.push(c.status === 'PLANNED' && (await pushChannelEnabled(ctx, c.code)) ? { ...c, status: 'AVAILABLE' } : c);
+  }
+  return { items };
+}
+
+/** Whether the agency may connect the channel: AVAILABLE in the catalog, or a push portal with its flag on (S9-04). */
+async function channelUsable(ctx: Ctx, channel: repo.ChannelRow | null): Promise<boolean> {
+  if (!channel) return false;
+  return channel.status === 'AVAILABLE' || (await pushChannelEnabled(ctx, channel.code));
 }
 
 /**
@@ -198,7 +213,7 @@ export async function createConnection(
   const userId = requireUser(ctx);
   const { agencyId } = ctx.tenant;
   const channel = await repo.getChannel(ctx.tx, input.channelCode);
-  if (channel?.status !== 'AVAILABLE') throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
+  if (!channel || !(await channelUsable(ctx, channel))) throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
   if (input.credentials) assertCredentialKeys(channel, input.credentials);
   // Serialises concurrent creates of the agency, so the cap and the name check cannot be raced.
   await agencies.lockAgencyStatus(ctx.tx, agencyId, 'update');
@@ -263,7 +278,7 @@ export async function updateConnection(
     } else {
       // A portal that left the catalog (or is not available) accepts no credentials: never skip the allowlist.
       const channel = await repo.getChannel(ctx.tx, current.channelCode);
-      if (channel?.status !== 'AVAILABLE') throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
+      if (!channel || !(await channelUsable(ctx, channel))) throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
       assertCredentialKeys(channel, input.credentials);
       credentialsEnc = encryptCredentials(agencyId, current.id, input.credentials);
       credentialKeys = Object.keys(input.credentials).sort();
@@ -284,7 +299,15 @@ export async function updateConnection(
     next.credentialsEnc !== current.credentialsEnc && 'credentials',
   ].filter((f): f is string => typeof f === 'string');
   if (changed.length === 0) return dtoOf(ctx.tx, current);
-  const row = await repo.updateConnection(ctx.tx, agencyId, current.id, next, clock.now());
+  // A new set of credentials, or switching the connection off and on, lets the push job try again (S9-04).
+  const retryPush = changed.includes('credentials') || changed.includes('enabled');
+  const row = await repo.updateConnection(
+    ctx.tx,
+    agencyId,
+    current.id,
+    retryPush ? { ...next, pushError: null } : next,
+    clock.now(),
+  );
   await emit(
     ctx.tx,
     exportsEvents.connectionChanged({ connectionId: row.id, agencyId, action: 'UPDATED', version: row.version }),
@@ -339,6 +362,11 @@ export async function deleteConnection(ctx: Ctx, params: PortalConnectionParams)
   assertCan(ctx, 'exports.manage');
   const { agencyId } = ctx.tenant;
   const current = await loadConnection(ctx, params.connectionId, true);
+  // S9-04: a push portal's adverts must be taken down while the credentials exist. Turn the connection off, wait for the
+  // push job to withdraw them (`pushError` shows a stop), then delete. A feed portal has nothing to take down.
+  if (isPushChannel(current.channelCode) && (await repo.hasLiveAdverts(ctx.tx, agencyId, current.id))) {
+    throw new AppError('VALIDATION_FAILED', { field: 'connection', reason: 'ADVERTS_LIVE' });
+  }
   await repo.deleteConnection(ctx.tx, agencyId, current.id);
   await emit(
     ctx.tx,

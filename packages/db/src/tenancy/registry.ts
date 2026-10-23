@@ -424,6 +424,11 @@ export const tenantTables: Record<string, TenantTable> = {
       finished_at: '2026-01-01T00:00:00Z',
     },
   },
+  // Push portals' per-listing state (S9-04): the portal's id and the hash of the payload last sent.
+  portal_listing_sync: {
+    kind: 'STRICT',
+    base: { state: 'SYNCED', payload_hash: 'isolation', synced_at: '2026-01-01T00:00:00Z' },
+  },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
   // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
   // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.

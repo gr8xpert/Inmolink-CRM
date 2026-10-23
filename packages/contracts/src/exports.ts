@@ -86,6 +86,8 @@ export const PortalConnectionDto = z.strictObject({
   tokenActive: z.boolean(),
   tokenHint: z.string(),
   tokenCreatedAt: z.iso.datetime(),
+  /** Push portals (S9-04): why the last push run stopped for good (`AUTH_REJECTED`, ...); null: nothing standing. */
+  pushError: z.string().nullable(),
   /** Per-property choices: how many listings are always sent / never sent. */
   includeCount: z.number().int(),
   excludeCount: z.number().int(),

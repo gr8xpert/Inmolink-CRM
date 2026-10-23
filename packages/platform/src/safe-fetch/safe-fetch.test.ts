@@ -233,6 +233,47 @@ describe('safeFetch', () => {
     expect(res.bytesRead()).toBe(18);
   });
 
+  it('[S9-04] POST / PUT / DELETE send their body, set the length and follow no redirect', async () => {
+    const bodies: { method?: string; body: string; type?: string; length?: string }[] = [];
+    route('/push', (req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => {
+        body += c.toString();
+      });
+      req.on('end', () => {
+        bodies.push({
+          method: req.method,
+          body,
+          type: req.headers['content-type'],
+          length: req.headers['content-length'],
+        });
+        res.writeHead(201, { 'content-type': 'application/json' }).end('{"id":"x"}');
+      });
+    });
+    route('/moved', (_req, res) => res.writeHead(307, { location: `${otherOrigin}/elsewhere` }).end());
+    const json = { 'content-type': 'application/json' };
+    const post = await safeFetch(`${origin}/push`, { method: 'POST', headers: json, body: '{"a":1}' });
+    expect(post.status).toBe(201);
+    expect(await post.text()).toBe('{"id":"x"}');
+    await (await safeFetch(`${origin}/push`, { method: 'PUT', headers: json, body: '{"b":2}' })).text();
+    await (await safeFetch(`${origin}/push`, { method: 'DELETE' })).text();
+    expect(bodies.map((b) => [b.method, b.body, b.type, b.length])).toEqual([
+      ['POST', '{"a":1}', 'application/json', '7'],
+      ['PUT', '{"b":2}', 'application/json', '7'],
+      ['DELETE', '', undefined, undefined],
+    ]);
+    // A write is never replayed at the redirect's target: the 3xx comes back as it is.
+    const otherBefore = otherSeen.length;
+    const moved = await safeFetch(`${origin}/moved`, { method: 'POST', headers: json, body: '{}' });
+    expect(moved.status).toBe(307);
+    expect(otherSeen).toHaveLength(otherBefore);
+    // A body on a read, or an oversized one, is refused.
+    expect(await code(safeFetch(`${origin}/push`, { body: 'x' }))).toBe('INVALID_REQUEST');
+    expect(await code(safeFetch(`${origin}/push`, { method: 'POST', body: 'x'.repeat(2 * 1024 * 1024 + 1) }))).toBe(
+      'INVALID_REQUEST',
+    );
+  });
+
   it('[S6-01] the test escape hatch accepts loopback origins only', () => {
     expect(() => allowLoopbackOriginsForTests(['http://10.0.0.1:80'])).toThrow();
     expect(() => allowLoopbackOriginsForTests(['http://example.com'])).toThrow();

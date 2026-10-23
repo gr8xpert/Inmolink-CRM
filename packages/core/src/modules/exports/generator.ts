@@ -51,6 +51,9 @@ export function configurePortalFeeds(next: PortalFeedsConfig): void {
   config = next;
 }
 
+/** The media CDN base the push engine builds image URLs under (S9-04). */
+export const portalFeedMediaBase = (): string => configured().mediaBaseUrl.replace(/\/+$/, '');
+
 function configured(): PortalFeedsConfig {
   if (!config) throw new Error('exports: configurePortalFeeds() was not called');
   return config;
@@ -112,6 +115,8 @@ export type PortalFeedTrigger = repo.FeedRunTrigger;
 
 export interface PortalFeedsRunResult {
   skipped?: FeedPlan['skipped'];
+  /** S9-04: push-portal connections of the pass: the push job sends their listings, or takes the adverts down. */
+  push: string[];
   written: string[];
   unchanged: string[];
   /** Failed, or lost the race to another run of the connection (`SUPERSEDED`). */
@@ -155,6 +160,7 @@ export async function generatePortalFeeds(
   const plan = await planAgencyFeeds(agencyId, opts.connectionIds ?? 'live');
   const fullPass = opts.connectionIds === undefined;
   const result: PortalFeedsRunResult = {
+    push: plan.push,
     written: [],
     unchanged: [],
     failed: [],

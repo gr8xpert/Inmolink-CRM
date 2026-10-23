@@ -59,6 +59,17 @@ try {
   // S9-03: portal feeds (exports pool) — image URLs under the media CDN, the nightly hour and the pool caps.
   if (config.WORKER_POOLS.includes('exports') && config.MEDIA_CDN_URL) {
     exportsWorker.configurePortalFeeds({ mediaBaseUrl: config.MEDIA_CDN_URL });
+    // S9-04: push portals' partner API endpoints (sandbox until H6 completes); a portal without both is not configured.
+    exportsWorker.configurePortalPush({
+      endpoints: {
+        ...(config.IDEALISTA_API_BASE && config.IDEALISTA_TOKEN_URL
+          ? { idealista: { apiBase: config.IDEALISTA_API_BASE, tokenUrl: config.IDEALISTA_TOKEN_URL } }
+          : {}),
+        ...(config.FOTOCASA_API_BASE && config.FOTOCASA_TOKEN_URL
+          ? { fotocasa: { apiBase: config.FOTOCASA_API_BASE, tokenUrl: config.FOTOCASA_TOKEN_URL } }
+          : {}),
+      },
+    });
     exportsWorker.configurePortalFeedJobs({
       ...(config.EXPORTS_NIGHTLY_HOUR_UTC !== undefined ? { nightlyHourUtc: config.EXPORTS_NIGHTLY_HOUR_UTC } : {}),
       ...(config.EXPORTS_NIGHTLY_LANES ? { nightlyLanes: config.EXPORTS_NIGHTLY_LANES } : {}),

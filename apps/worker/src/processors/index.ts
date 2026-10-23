@@ -53,6 +53,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     exportsJobs.generatePortalFeeds,
     exportsJobs.generateNightlyPortalFeeds,
     exportsJobs.sweepNightlyPortalFeeds,
+    // S9-04: push portals (idealista, Fotocasa).
+    exportsJobs.pushPortalListings,
   ],
   email: [
     identityJobs.sendAuthEmail,

@@ -29,6 +29,7 @@ import { clock } from '@inmolink/platform/clock';
 import { defineJob, type JobContext, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { generatePortalFeeds, PortalFeedError } from './generator';
+import { pushPortalListings } from './push/engine';
 import * as repo from './repo';
 
 /** A listing change (any of the agency's connections may send it): one pass this long after the first change. */
@@ -37,6 +38,10 @@ export const PORTAL_FEED_THROTTLE_MS = 5 * 60_000;
 export const PORTAL_FEED_CONNECTION_THROTTLE_MS = 60_000;
 /** A new connection or token: a run within seconds. */
 export const PORTAL_FEED_SOON_MS = 5_000;
+/** A push run (idealista, Fotocasa) this long after the feed pass that found a push connection (S9-04). */
+export const PORTAL_PUSH_THROTTLE_MS = 30_000;
+/** A run that stopped on its call or time budget continues this long after. */
+export const PORTAL_PUSH_CONTINUE_MS = 60_000;
 /** Runs of a pass before it gives up (each failure is in the run history). */
 export const PORTAL_FEED_ATTEMPTS = 3;
 /** A pass's time limit (the perf test checks a 20,000-listing agency against it). */
@@ -123,8 +128,18 @@ async function pass(
       signal: opts.signal,
       log: opts.log,
     });
+    if (result.push.length > 0) {
+      // S9-04: the push portals of the pass, sent by their own job (own retries and budget, same agency group).
+      if (opts.trigger === 'NIGHTLY') {
+        await withSystem('exports.nightly push mark', (tx) => repo.markNightly(tx, agencyId, result.push, clock.now()));
+      }
+      await queueAgencyPortalPush(agencyId, opts.connectionId ? [opts.connectionId] : undefined, {
+        retryStopped: opts.trigger === 'NIGHTLY',
+      });
+    }
     return {
       skipped: result.skipped,
+      push: result.push.length,
       written: result.written.length,
       unchanged: result.unchanged.length,
       failed: result.failed.length,
@@ -153,6 +168,57 @@ export const exportsJobs = {
     backoff: { type: 'exponential', delay: 30_000 },
     timeoutMs: PORTAL_FEED_TIMEOUT_MS,
     run: (p, { log, signal }) => pass(p.agencyId, { connectionId: p.connectionId, trigger: 'EVENT', signal, log }),
+  }),
+
+  /**
+   * S9-04: sends an agency's push-portal connections (idealista, Fotocasa) what changed, or takes their adverts down
+   * (connection off, flag off, agency unverified) - see `push/engine.ts`. Same pool, group and caps as the feed passes,
+   * so the agency's fair share and the pool's database load are one budget; queued by the feed passes (events, nightly)
+   * and the agency status subscriber. A run that ran out of calls or time queues its own continuation (with the
+   * cursor, and the portal's `Retry-After` if it asked for one); `retry` (the nightly pass) tries connections that
+   * stopped on a standing problem again.
+   */
+  pushPortalListings: defineJob({
+    name: 'exports.pushPortalListings',
+    pool: 'exports',
+    payload: z.object({
+      agencyId: z.uuid(),
+      connectionId: z.uuid().optional(),
+      /** A continuation: the selection round to resume at (needs `connectionId`). */
+      cursor: z.uuid().optional(),
+      retry: z.boolean().optional(),
+    }),
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    perProcessConcurrency: () => jobsConfig.runsPerProcess,
+    globalConcurrency: () => jobsConfig.maxConcurrentRuns,
+    attempts: PORTAL_FEED_ATTEMPTS,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: PORTAL_FEED_TIMEOUT_MS,
+    async run(p, { log, signal }) {
+      const result = await pushPortalListings(p.agencyId, {
+        connectionIds: p.connectionId ? [p.connectionId] : undefined,
+        cursor: p.connectionId ? p.cursor : undefined,
+        retryStopped: p.retry,
+        signal,
+        log,
+      });
+      // A connection that ran out of calls or time (or was told to wait) continues from where it was.
+      for (const c of result.connections) {
+        if (!c.more) continue;
+        await queuePushContinuation(p.agencyId, c.connectionId, c.resume, c.retryAfterMs);
+      }
+      return {
+        skipped: result.skipped,
+        connections: result.connections.length,
+        published: result.connections.reduce((n, c) => n + c.published, 0),
+        updated: result.connections.reduce((n, c) => n + c.updated, 0),
+        withdrawn: result.connections.reduce((n, c) => n + c.withdrawn, 0),
+        failed: result.connections.reduce((n, c) => n + c.failed, 0),
+        stopped: result.connections.filter((c) => c.stopped).length,
+        more: result.connections.filter((c) => c.more).length,
+      };
+    },
   }),
 
   /**
@@ -243,5 +309,34 @@ export async function queueConnectionPortalFeed(
   await exportsJobs.generatePortalFeeds.enqueue(
     { agencyId, connectionId },
     { throttleMs, debounceKey: `portal-feed:${connectionId}` },
+  );
+}
+
+/** A push run for the agency (or one connection), at most one per throttle window. */
+export async function queueAgencyPortalPush(
+  agencyId: string,
+  connectionIds?: readonly string[],
+  opts: { throttleMs?: number; retryStopped?: boolean } = {},
+): Promise<void> {
+  const only = connectionIds?.length === 1 ? connectionIds[0] : undefined;
+  await exportsJobs.pushPortalListings.enqueue(
+    { agencyId, ...(only ? { connectionId: only } : {}), ...(opts.retryStopped ? { retry: true } : {}) },
+    { throttleMs: opts.throttleMs ?? PORTAL_PUSH_THROTTLE_MS, debounceKey: `portal-push:${only ?? agencyId}` },
+  );
+}
+
+/** The rest of a connection's push run: after `PORTAL_PUSH_CONTINUE_MS`, or the portal's `Retry-After` if longer. */
+export async function queuePushContinuation(
+  agencyId: string,
+  connectionId: string,
+  cursor: string | null | undefined,
+  retryAfterMs?: number,
+): Promise<void> {
+  await exportsJobs.pushPortalListings.enqueue(
+    { agencyId, connectionId, ...(cursor ? { cursor } : {}) },
+    {
+      throttleMs: Math.max(retryAfterMs ?? 0, PORTAL_PUSH_CONTINUE_MS),
+      debounceKey: `portal-push-more:${connectionId}`,
+    },
   );
 }

@@ -34,11 +34,24 @@ export {
   PORTAL_FEED_SOON_MS,
   PORTAL_FEED_THROTTLE_MS,
   PORTAL_FEED_TIMEOUT_MS,
+  PORTAL_PUSH_CONTINUE_MS,
+  PORTAL_PUSH_THROTTLE_MS,
   portalFeedJobsConfig,
   queueAgencyPortalFeeds,
+  queueAgencyPortalPush,
   queueConnectionPortalFeed,
+  queuePushContinuation,
   seedNightlyLanes,
 } from './jobs';
+export {
+  PUSH_RUN_BUDGET_MS,
+  type PushConnectionOutcome,
+  type PushRunResult,
+  payloadHash,
+  pushPortalListings,
+} from './push/engine';
+export { OAuthPortalHttp, type PortalEndpoints } from './push/http';
+export { configurePortalPush, type PortalPushConfig } from './push/registry';
 export {
   LIVE_CACHE_MS,
   registerExportsSubscriptions,

@@ -29,7 +29,7 @@
  * interleaved runs would mix their range deletes and summaries); runs of different agencies are independent.
  */
 import { type ListingDetailDoc, type PortalIssue, WebsiteDetail, type WebsiteImage } from '@inmolink/contracts';
-import { withSystem } from '@inmolink/db';
+import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import type { Logger } from '@inmolink/platform/logger';
 import { XmlWriter } from '@inmolink/platform/xml';
@@ -46,6 +46,7 @@ import * as agencies from '../agencies';
 import * as search from '../search';
 import { PortalFeedError } from './feed-error';
 import { PORTAL_PREFERRED_LOCALE, type PortalProfile, portalWriterEnabled, profileOf } from './profiles';
+import { isPushChannel } from './push/registry';
 import * as repo from './repo';
 import { selectConnectionListings, type WorkerConnection, workerConnections } from './service';
 import { validateItem } from './validate';
@@ -165,6 +166,8 @@ export interface FeedPlan {
   agencyId: string;
   skipped?: Extract<PortalFeedSkip, 'not-verified' | 'no-locales'>;
   ready: PlannedConnection[];
+  /** S9-04: connections of push portals (idealista, Fotocasa) the pass found: no file; `push/engine.ts` sends or takes down. */
+  push: string[];
   skippedConnections: { connectionId: string; reason: PortalFeedSkip }[];
   locales: string[];
   baseLocale: string;
@@ -181,12 +184,15 @@ export async function planAgencyFeeds(agencyId: string, connectionIds: readonly 
     const rows = await workerConnections(tx, agencyId, connectionIds === 'live' ? null : connectionIds);
     const byId = new Map(rows.map((r) => [r.id, r]));
     const ready: PlannedConnection[] = [];
+    const push: string[] = [];
     const skippedConnections: FeedPlan['skippedConnections'] = [];
     const wanted = connectionIds === 'live' ? rows.map((r) => r.id) : [...new Set(connectionIds)];
     for (const id of wanted) {
       const connection = byId.get(id);
       const skip = (reason: PortalFeedSkip) => skippedConnections.push({ connectionId: id, reason });
       if (!connection) skip('no-connection');
+      else if (isPushChannel(connection.channelCode))
+        push.push(id); // the push engine decides: send or take down
       else if (!connection.enabled) skip('disabled');
       else if (connection.revokedAt) skip('revoked');
       else {
@@ -196,32 +202,44 @@ export async function planAgencyFeeds(agencyId: string, connectionIds: readonly 
         else ready.push({ connection, profile });
       }
     }
-    const empty = { agencyId, ready, skippedConnections, locales: [], baseLocale: '', presenter: NO_PRESENTER };
-    if (ready.length === 0) return empty;
-    const owner = (await agencies.readModelOwnersOf(tx, [agencyId])).get(agencyId);
-    // A suspended or unverified agency's listings are not public (S6-F1): nothing to send, and not a fault of any listing.
-    if (!owner?.publishes) return { ...empty, skipped: 'not-verified' as const };
-    const locales = owner.locales;
-    if (locales.length === 0) return { ...empty, skipped: 'no-locales' as const };
-    const listed = (await agencies.publicAgencies(tx, [agencyId])).get(agencyId);
-    const name = listed?.name ?? (await agencies.getAgencyName(tx, agencyId)) ?? '';
-    return {
-      agencyId,
-      ready,
-      skippedConnections,
-      locales,
-      baseLocale: locales.includes(PORTAL_PREFERRED_LOCALE) ? PORTAL_PREFERRED_LOCALE : (locales[0] as string),
-      presenter: {
-        name,
-        email: listed?.contactEmail ?? null,
-        phone: listed?.contactPhone ?? null,
-        whatsapp: null,
-        website: listed?.websiteUrl ?? null,
-        primaryColor: listed?.primaryColor ?? null,
-        accentColor: listed?.accentColor ?? null,
-      },
-    };
+    const empty = { agencyId, ready, push, skippedConnections, locales: [], baseLocale: '', presenter: NO_PRESENTER };
+    if (ready.length === 0 && push.length === 0) return empty;
+    const shown = await agencyPresentation(tx, agencyId);
+    if ('skipped' in shown) return { ...empty, skipped: shown.skipped };
+    return { agencyId, ready, push, skippedConnections, ...shown };
   });
+}
+
+/**
+ * What every export of an agency shares (feeds and pushes): its content locales, the base locale and the presenting
+ * agency; or why nothing may be sent (unverified agency, no locales). One transaction, read once per pass.
+ */
+export async function agencyPresentation(
+  tx: Tx,
+  agencyId: string,
+): Promise<
+  { skipped: 'not-verified' | 'no-locales' } | { locales: string[]; baseLocale: string; presenter: FeedPresenter }
+> {
+  const owner = (await agencies.readModelOwnersOf(tx, [agencyId])).get(agencyId);
+  // A suspended or unverified agency's listings are not public (S6-F1): nothing to send, and not a fault of any listing.
+  if (!owner?.publishes) return { skipped: 'not-verified' };
+  const locales = owner.locales;
+  if (locales.length === 0) return { skipped: 'no-locales' };
+  const listed = (await agencies.publicAgencies(tx, [agencyId])).get(agencyId);
+  const name = listed?.name ?? (await agencies.getAgencyName(tx, agencyId)) ?? '';
+  return {
+    locales,
+    baseLocale: locales.includes(PORTAL_PREFERRED_LOCALE) ? PORTAL_PREFERRED_LOCALE : (locales[0] as string),
+    presenter: {
+      name,
+      email: listed?.contactEmail ?? null,
+      phone: listed?.contactPhone ?? null,
+      whatsapp: null,
+      website: listed?.websiteUrl ?? null,
+      primaryColor: listed?.primaryColor ?? null,
+      accentColor: listed?.accentColor ?? null,
+    },
+  };
 }
 
 const NO_PRESENTER: FeedPresenter = {

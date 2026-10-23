@@ -55,8 +55,18 @@ export interface ResolvedAddress {
 /** Resolves a host name to all its addresses (tests inject answers; production uses the system resolver). */
 export type Resolver = (hostname: string) => Promise<ResolvedAddress[]>;
 
+export type SafeMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+/** Largest request body `safeFetch` sends. */
+export const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+
 export interface SafeFetchOptions {
-  method?: 'GET' | 'HEAD';
+  /**
+   * GET and HEAD read; POST, PUT, PATCH and DELETE are for partner APIs the platform pushes to (S9-04). A request with a
+   * method other than GET / HEAD follows no redirect (a 3xx is returned as it is): a body is never replayed elsewhere.
+   */
+  method?: SafeMethod;
+  /** Request body (POST / PUT / PATCH / DELETE), at most `MAX_REQUEST_BYTES`. The caller sets `content-type`. */
+  body?: string | Uint8Array;
   /** Request headers (e.g. `authorization` for a feed's credentials). Never logged. */
   headers?: Record<string, string>;
   /** Deadline for the whole exchange, body included. Default 30 s. */
@@ -304,7 +314,8 @@ function requestOnce(
   url: URL,
   addresses: ResolvedAddress[],
   headers: Record<string, string>,
-  method: 'GET' | 'HEAD',
+  method: SafeMethod,
+  body: string | Uint8Array | undefined,
   idleTimeoutMs: number,
   signal: AbortSignal,
 ): Promise<Exchange> {
@@ -336,7 +347,8 @@ function requestOnce(
         },
       }),
     );
-    req.end();
+    if (body === undefined) req.end();
+    else req.end(body);
   });
 }
 
@@ -347,9 +359,17 @@ const asSafeError = (err: unknown): Error =>
 export async function safeFetch(input: string | URL, options: SafeFetchOptions = {}): Promise<SafeResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
   const maxBytes = options.maxBytes ?? DEFAULTS.maxBytes;
-  const maxRedirects = Math.min(options.maxRedirects ?? DEFAULTS.maxRedirects, 10);
-  const resolver = options.resolver ?? systemResolver;
   const method = options.method ?? 'GET';
+  const reads = method === 'GET' || method === 'HEAD';
+  const body = options.body;
+  if (body !== undefined) {
+    if (reads || Buffer.byteLength(body) > MAX_REQUEST_BYTES) {
+      throw new SafeFetchError('INVALID_REQUEST', 'the request body is not allowed for this method or is too large');
+    }
+  }
+  // A request that writes is never replayed at another address: no redirects.
+  const maxRedirects = reads ? Math.min(options.maxRedirects ?? DEFAULTS.maxRedirects, 10) : 0;
+  const resolver = options.resolver ?? systemResolver;
   let headers: Record<string, string> = Object.fromEntries(
     Object.entries(options.headers ?? {}).map(([k, v]) => {
       const name = k.toLowerCase();
@@ -388,6 +408,7 @@ export async function safeFetch(input: string | URL, options: SafeFetchOptions =
         addresses,
         headers,
         method,
+        body,
         options.idleTimeoutMs ?? DEFAULTS.idleTimeoutMs,
         controller.signal,
       );
@@ -395,7 +416,7 @@ export async function safeFetch(input: string | URL, options: SafeFetchOptions =
       const { response } = current;
       const status = response.statusCode ?? 0;
       const location = response.headers.location;
-      if (REDIRECTS.has(status) && location) {
+      if (reads && REDIRECTS.has(status) && location) {
         response.resume(); // discard the redirect's body
         current.abort(new Error('redirect'));
         if (hop >= maxRedirects) throw new SafeFetchError('TOO_MANY_REDIRECTS', `more than ${maxRedirects} redirects`);

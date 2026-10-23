@@ -1,0 +1,2 @@
+ALTER TABLE "agency_portal_connections" ADD COLUMN "push_error" text;--> statement-breakpoint
+ALTER TABLE "agency_portal_connections" ADD CONSTRAINT "agency_portal_connections_push_error_ck" CHECK ("agency_portal_connections"."push_error" is null or char_length("agency_portal_connections"."push_error") <= 40);

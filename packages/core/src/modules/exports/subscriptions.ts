@@ -11,8 +11,10 @@ import {
   PORTAL_FEED_CONNECTION_THROTTLE_MS,
   PORTAL_FEED_SOON_MS,
   queueAgencyPortalFeeds,
+  queueAgencyPortalPush,
   queueConnectionPortalFeed,
 } from './jobs';
+import { PUSH_CHANNEL_CODES } from './push/registry';
 import * as repo from './repo';
 
 let unsubscribe: (() => void)[] | undefined;
@@ -109,6 +111,14 @@ export function registerExportsSubscriptions(): void {
           ids.map((id) => ({ kind: 'p' as const, id })),
           meta.createdAt,
         );
+        // S9-04: a suspended agency's adverts come down while the credentials are readable; verified again, they go up.
+        if (
+          await withSystem('exports.feed push connections', (tx) =>
+            repo.hasChannelConnection(tx, payload.agencyId, PUSH_CHANNEL_CODES),
+          )
+        ) {
+          await queueAgencyPortalPush(payload.agencyId, undefined, { throttleMs: PORTAL_FEED_SOON_MS });
+        }
       },
       { name: 'exports.feed.agencyStatus' },
     ),

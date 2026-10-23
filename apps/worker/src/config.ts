@@ -11,6 +11,7 @@ import {
   mediaCdnEnv,
   mediaEnv,
   portalFeedsEnv,
+  portalPushEnv,
   portVar,
   redisEnv,
   searchEnv,
@@ -109,7 +110,7 @@ const leadEmailEnv = {
  * `app_public`, image URLs under the media CDN (the same variables as the lead acknowledgements). S9-03: portal feeds'
  * nightly hour and pool caps.
  */
-const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv };
+const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv, ...portalPushEnv };
 
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and

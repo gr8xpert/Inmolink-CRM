@@ -109,6 +109,12 @@ export const agencyPortalConnections = pgTable(
     feedGeneratedAt: timestamp('feed_generated_at', { withTimezone: true }),
     /** The start of the last nightly run that covered this connection (S9-03): the nightly sweep's due check. */
     nightlyAt: timestamp('nightly_at', { withTimezone: true }),
+    /**
+     * S9-04, push portals: why the last push run stopped for good (`AUTH_REJECTED`, `CREDENTIALS_MISSING`,
+     * `NOT_CONFIGURED`); the push job skips the connection until its credentials or on/off state change (a nightly run
+     * tries again). Null: no standing problem. Worker state: never bumps `version`.
+     */
+    pushError: text('push_error'),
     /** The admin who created the connection (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
     /** Bumped on every change (optimistic concurrency, `VERSION_CONFLICT`). */
@@ -136,6 +142,7 @@ export const agencyPortalConnections = pgTable(
         and (${t.selectionTag} is null or (char_length(${t.selectionTag}) between 1 and 40 and ${t.selectionTag} = lower(btrim(${t.selectionTag}))))`,
     ),
     check('agency_portal_connections_hint_ck', sql`length(${t.tokenHint}) = 4`),
+    check('agency_portal_connections_push_error_ck', sql`${t.pushError} is null or char_length(${t.pushError}) <= 40`),
   ],
 );
 
@@ -240,5 +247,47 @@ export const portalFeedRuns = pgTable(
     // the dashboard's run list and the retention delete: where agency_id = ? and connection_id = ? order by id desc
     index('portal_feed_runs_connection_idx').on(t.agencyId, t.connectionId, t.id),
     check('portal_feed_runs_reason_ck', sql`${t.reason} is null or char_length(${t.reason}) <= 40`),
+  ],
+);
+
+/** S9-04: SYNCED — the portal holds the payload hashed in `payload_hash` · FAILED — the portal refused that payload for good · WITHDRAWN — taken down at the portal. */
+export const portalSyncStateEnum = pgEnum('portal_sync_state', ['SYNCED', 'FAILED', 'WITHDRAWN']);
+
+/**
+ * Per-listing state of a push-style portal connection (idealista, Fotocasa; S9-04): the id the portal gave the listing
+ * and the hash of the payload last sent (or refused), so a run pushes only what changed and withdraws what left the
+ * selection. One row per (connection, listing) that was ever pushed; feed portals have none. Written by the push job
+ * (`app_system`) only. The listing FK cascades: a purged listing's row goes with it (listings are soft-deleted
+ * first, which the selection turns into a withdrawal).
+ */
+export const portalListingSync = pgTable(
+  'portal_listing_sync',
+  {
+    connectionId: uuid('connection_id').notNull(),
+    propertyId: uuid('property_id').notNull(),
+    agencyId: uuid('agency_id').notNull(),
+    state: portalSyncStateEnum('state').notNull(),
+    /** The portal's own id for the advert (null until the first successful publish). */
+    remoteId: text('remote_id'),
+    /** SYNCED: hash of the payload the portal holds · FAILED: hash of the payload it refused. */
+    payloadHash: text('payload_hash').notNull(),
+    /** FAILED: the error code (`PortalPushError.code`). */
+    errorCode: text('error_code'),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.connectionId, t.propertyId] }),
+    foreignKey({
+      name: 'portal_listing_sync_connection_fk',
+      columns: [t.agencyId, t.connectionId],
+      foreignColumns: [agencyPortalConnections.agencyId, agencyPortalConnections.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'portal_listing_sync_property_fk',
+      columns: [t.propertyId, t.agencyId],
+      foreignColumns: [properties.id, properties.agencyId],
+    }).onDelete('cascade'),
+    index('portal_listing_sync_property_idx').on(t.propertyId),
+    check('portal_listing_sync_error_ck', sql`${t.errorCode} is null or char_length(${t.errorCode}) <= 40`),
   ],
 );

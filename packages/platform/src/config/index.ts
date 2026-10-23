@@ -227,6 +227,18 @@ export const portalFeedsEnv = {
 };
 
 /**
+ * Push portals (S9-04): idealista's and Fotocasa's partner API base URLs and OAuth2 token URLs - the sandbox's until a
+ * sandbox run has succeeded, then production's (H6 delivers both with the partner credentials). Both of a portal or
+ * neither: unset, its connections stop with `NOT_CONFIGURED`. https only.
+ */
+export const portalPushEnv = {
+  IDEALISTA_API_BASE: url(['https']).optional(),
+  IDEALISTA_TOKEN_URL: url(['https']).optional(),
+  FOTOCASA_API_BASE: url(['https']).optional(),
+  FOTOCASA_TOKEN_URL: url(['https']).optional(),
+};
+
+/**
  * Edge cache purging (S7-06): the worker purges `Cache-Tag`s of changed listings, sites and keys through Cloudflare's
  * API. Zone id and an API token with the zone's "Cache Purge" permission only; both or neither (unset: nothing to
  * purge, answers expire with their TTL). `CDN_PURGE_MIN_INTERVAL_MS`: pacing per process (250: Pro and up; 12000 on

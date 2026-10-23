@@ -11,8 +11,25 @@ import {
   portalConnectionIssues,
   portalConnectionProperties,
   portalFeedRuns,
+  portalListingSync,
 } from '@inmolink/db/schema/exports';
-import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ChannelStatus = (typeof portalChannels.$inferSelect)['status'];
@@ -76,6 +93,8 @@ export interface ConnectionRow {
   lastCheckedAt: Date | null;
   lastValidCount: number | null;
   lastInvalidCount: number | null;
+  /** S9-04: why the last push run stopped for good (push portals); null: no standing problem. */
+  pushError: string | null;
   feedRunId: string | null;
   feedSha256: string | null;
   feedBytes: number | null;
@@ -102,6 +121,7 @@ const connectionColumns = {
   lastCheckedAt: agencyPortalConnections.lastCheckedAt,
   lastValidCount: agencyPortalConnections.lastValidCount,
   lastInvalidCount: agencyPortalConnections.lastInvalidCount,
+  pushError: agencyPortalConnections.pushError,
   feedRunId: agencyPortalConnections.feedRunId,
   feedSha256: agencyPortalConnections.feedSha256,
   feedBytes: agencyPortalConnections.feedBytes,
@@ -223,6 +243,8 @@ export interface ConnectionFields {
   selectionTag: string | null;
   credentialsEnc: string | null;
   credentialKeys: string[];
+  /** Set to null when the credentials or the on/off state change: the push job tries again. */
+  pushError?: null;
 }
 
 /** Writes a locked connection's new setup and bumps its version. */
@@ -756,4 +778,171 @@ export async function feedByTokenHash(tx: Tx, tokenHash: string): Promise<Served
   const row = res.rows[0];
   if (!row) return null;
   return { connectionId: row.connection_id, channelCode: row.channel_code, runId: row.run_id, sha256: row.sha256 };
+}
+
+// -- Push portals (S9-04) ------------------------------------------------------------------------------------------
+
+export type SyncState = (typeof portalListingSync.$inferSelect)['state'];
+
+export interface SyncRow {
+  propertyId: string;
+  state: SyncState;
+  remoteId: string | null;
+  payloadHash: string;
+  errorCode: string | null;
+}
+
+/**
+ * The connection's sync rows with a listing id in `(after, upTo]` (`upTo` null: to the end) - exactly the range one
+ * selection round examined, so the rows there that the selection did not return are the ones to withdraw. One
+ * statement, primary-key range. Bounded by the listings the connection ever pushed in the range.
+ */
+export async function syncRowsInRange(
+  tx: Tx,
+  agencyId: string,
+  connectionId: string,
+  range: { after: string | null; upTo: string | null },
+): Promise<SyncRow[]> {
+  return tx
+    .select({
+      propertyId: portalListingSync.propertyId,
+      state: portalListingSync.state,
+      remoteId: portalListingSync.remoteId,
+      payloadHash: portalListingSync.payloadHash,
+      errorCode: portalListingSync.errorCode,
+    })
+    .from(portalListingSync)
+    .where(
+      and(
+        eq(portalListingSync.agencyId, agencyId),
+        eq(portalListingSync.connectionId, connectionId),
+        range.after ? gt(portalListingSync.propertyId, range.after) : undefined,
+        range.upTo ? lte(portalListingSync.propertyId, range.upTo) : undefined,
+      ),
+    )
+    .orderBy(asc(portalListingSync.propertyId));
+}
+
+export interface SyncWrite extends SyncRow {
+  errorCode: string | null;
+  syncedAt: Date;
+}
+
+/** Records the outcome of pushes (one statement). Idempotent: the row is replaced. */
+export async function upsertSyncRows(
+  tx: Tx,
+  agencyId: string,
+  connectionId: string,
+  rows: readonly SyncWrite[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  await tx
+    .insert(portalListingSync)
+    .values(rows.map((r) => ({ ...r, agencyId, connectionId })))
+    .onConflictDoUpdate({
+      target: [portalListingSync.connectionId, portalListingSync.propertyId],
+      set: {
+        state: sql`excluded.state`,
+        remoteId: sql`excluded.remote_id`,
+        payloadHash: sql`excluded.payload_hash`,
+        errorCode: sql`excluded.error_code`,
+        syncedAt: sql`excluded.synced_at`,
+      },
+    });
+}
+
+/** A pass that covered push connections counts as the night's run for them (they write no feed run). */
+export async function markNightly(tx: Tx, agencyId: string, ids: readonly string[], at: Date): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .update(agencyPortalConnections)
+    .set({ nightlyAt: at })
+    .where(and(eq(agencyPortalConnections.agencyId, agencyId), inArray(agencyPortalConnections.id, [...ids])));
+}
+
+/** The error code a refused withdrawal is stored with: the advert is still up, and is not asked to come down again. */
+export const WITHDRAW_REJECTED = 'WITHDRAW_REJECTED';
+
+/**
+ * Adverts of the connection that are still up and may be taken down: a remote id, any state but WITHDRAWN, not a
+ * refused withdrawal. A page by listing id (teardown: the connection is off, unflagged or its agency unverified).
+ * Processed rows leave the set, so the next page is read from the start.
+ */
+export async function liveAdverts(tx: Tx, agencyId: string, connectionId: string, limit: number): Promise<SyncRow[]> {
+  return tx
+    .select({
+      propertyId: portalListingSync.propertyId,
+      state: portalListingSync.state,
+      remoteId: portalListingSync.remoteId,
+      payloadHash: portalListingSync.payloadHash,
+      errorCode: portalListingSync.errorCode,
+    })
+    .from(portalListingSync)
+    .where(
+      and(
+        eq(portalListingSync.agencyId, agencyId),
+        eq(portalListingSync.connectionId, connectionId),
+        isNotNull(portalListingSync.remoteId),
+        ne(portalListingSync.state, 'WITHDRAWN'),
+        sql`${portalListingSync.errorCode} is distinct from ${WITHDRAW_REJECTED}`,
+      ),
+    )
+    .orderBy(asc(portalListingSync.propertyId))
+    .limit(limit);
+}
+
+/** Whether the connection still has an advert up at its portal (a delete is refused until they are withdrawn). */
+export async function hasLiveAdverts(tx: Tx, agencyId: string, connectionId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ one: sql<number>`1` })
+    .from(portalListingSync)
+    .where(
+      and(
+        eq(portalListingSync.agencyId, agencyId),
+        eq(portalListingSync.connectionId, connectionId),
+        isNotNull(portalListingSync.remoteId),
+        ne(portalListingSync.state, 'WITHDRAWN'),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** The push job's view of its connections in one statement: the credentials envelope and the standing stop. */
+export async function pushStateOf(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<Map<string, { credentialsEnc: string | null; pushError: string | null }>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: agencyPortalConnections.id,
+      credentialsEnc: agencyPortalConnections.credentialsEnc,
+      pushError: agencyPortalConnections.pushError,
+    })
+    .from(agencyPortalConnections)
+    .where(and(eq(agencyPortalConnections.agencyId, agencyId), inArray(agencyPortalConnections.id, [...ids])));
+  return new Map(rows.map((r) => [r.id, { credentialsEnc: r.credentialsEnc, pushError: r.pushError }]));
+}
+
+/** Records (or clears) the standing stop of a push connection. Worker state: `version` stays. */
+export async function setPushError(tx: Tx, agencyId: string, id: string, code: string | null): Promise<void> {
+  await tx
+    .update(agencyPortalConnections)
+    .set({ pushError: code })
+    .where(and(eq(agencyPortalConnections.agencyId, agencyId), eq(agencyPortalConnections.id, id)));
+}
+
+/** Whether the agency has a connection to any of these channels (an index probe). */
+export async function hasChannelConnection(tx: Tx, agencyId: string, codes: readonly string[]): Promise<boolean> {
+  if (codes.length === 0) return false;
+  const [row] = await tx
+    .select({ one: sql<number>`1` })
+    .from(agencyPortalConnections)
+    .where(
+      and(eq(agencyPortalConnections.agencyId, agencyId), inArray(agencyPortalConnections.channelCode, [...codes])),
+    )
+    .limit(1);
+  return row !== undefined;
 }
