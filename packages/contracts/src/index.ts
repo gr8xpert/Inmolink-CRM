@@ -16,7 +16,6 @@ export * from './imports';
 export * from './legacy-v1';
 export * from './media';
 export * from './migration';
-export * from './plugin-updates';
 export * from './preferred-agencies';
 export * from './properties';
 export * from './quality';
