@@ -1,11 +1,14 @@
-// pnpm legacy:record [--traffic tests/golden/traffic.json] [--out tests/golden] [--volatile <key>] [--delay-ms 250]
+// pnpm legacy:record [--traffic tests/golden/traffic.json] [--out tests/golden/recorded] [--volatile <key>] [--delay-ms 250]
 // pnpm legacy:record --check [--traffic …] [--out …]
 //
 // Legacy API golden files (S8-01, PLAN §9.3, H2). Replays the representative requests of the traffic report
 // (`pnpm legacy:traffic`) against the legacy API, one at a time, and stores each normalized answer as
 // `<out>/<endpoint>/<case>.json` — the parity target of the v1 shim (S8-02). Normalized: JSON objects with sorted
 // keys and volatile fields (server time, request ids, timings, `--volatile`) replaced by `<volatile>`; the legacy
-// base URL replaced by `{LEGACY_BASE}`; text answers with LF line ends and no trailing spaces.
+// base URL replaced by `{LEGACY_BASE}`; the test key (raw or URL-encoded, e.g. echoed in a paging link) replaced by
+// `<key>`; text answers with LF line ends and no trailing spaces. A case whose normalized file still holds the key is
+// not written and fails the run (S9-F1). After recording, the personal-data scan (`scan.ts`) runs on `<out>`.
+// `tests/golden/recorded/` is gitignored until the H2 sign-off (S8-F20); run `pnpm legacy:scan` before committing.
 // --check: exits 1 unless every endpoint of the report's 99% set has at least one golden file.
 //
 // Only GET/HEAD cases are replayed; another method, or a case with a redacted personal value, is listed as manual
@@ -17,6 +20,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import { formatFinding, scanPaths } from './scan';
 import type { EndpointReport, RepresentativeRequest, TrafficReport } from './traffic';
 
 const ROOT = join(import.meta.dirname, '..', '..');
@@ -38,22 +42,42 @@ export function endpointSlug(key: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-/** Sorted keys, volatile fields masked, the legacy base URL replaced. Arrays keep their order (parity cares). */
-export function normalizeJson(value: unknown, base: string, volatile: RegExp = VOLATILE): unknown {
-  if (Array.isArray(value)) return value.map((v) => normalizeJson(v, base, volatile));
-  if (typeof value === 'string') return base ? value.replaceAll(base, '{LEGACY_BASE}') : value;
+/** The forms a key can take in a body, longest first: raw and URL-encoded (a paging link echoing the request). */
+export function keyForms(key: string): string[] {
+  if (!key) return [];
+  const forms = [key, encodeURIComponent(key), new URLSearchParams({ k: key }).toString().slice(2)];
+  return [...new Set(forms)].sort((a, b) => b.length - a.length);
+}
+
+function replaceKnown(text: string, base: string, secrets: readonly string[]): string {
+  let out = base ? text.replaceAll(base, '{LEGACY_BASE}') : text;
+  for (const s of secrets) out = out.replaceAll(s, '<key>');
+  return out;
+}
+
+/**
+ * Sorted keys, volatile fields masked, the legacy base URL and `secrets` (`keyForms`) replaced in string values.
+ * Arrays keep their order (parity cares).
+ */
+export function normalizeJson(
+  value: unknown,
+  base: string,
+  volatile: RegExp = VOLATILE,
+  secrets: readonly string[] = [],
+): unknown {
+  if (Array.isArray(value)) return value.map((v) => normalizeJson(v, base, volatile, secrets));
+  if (typeof value === 'string') return replaceKnown(value, base, secrets);
   if (value === null || typeof value !== 'object') return value;
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(value).sort()) {
     const v = (value as Record<string, unknown>)[key];
-    out[key] = volatile.test(key) && v !== null ? '<volatile>' : normalizeJson(v, base, volatile);
+    out[key] = volatile.test(key) && v !== null ? '<volatile>' : normalizeJson(v, base, volatile, secrets);
   }
   return out;
 }
 
-export function normalizeText(text: string, base: string): string {
-  const replaced = base ? text.replaceAll(base, '{LEGACY_BASE}') : text;
-  return replaced
+export function normalizeText(text: string, base: string, secrets: readonly string[] = []): string {
+  return replaceKnown(text, base, secrets)
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((l) => l.trimEnd())
@@ -83,6 +107,7 @@ const replayable = (c: RepresentativeRequest) => (c.method === 'GET' || c.method
 export async function recordGolden(report: TrafficReport, opts: RecordOptions): Promise<RecordResult> {
   const base = opts.baseUrl.replace(/\/+$/, '');
   const doFetch = opts.fetch ?? fetch;
+  const secrets = keyForms(opts.apiKey);
   const result: RecordResult = { recorded: [], manual: [], failed: [] };
   for (const ep of report.endpoints) {
     for (const c of ep.cases) {
@@ -112,22 +137,25 @@ export async function recordGolden(report: TrafficReport, opts: RecordOptions): 
             json = undefined;
           }
         }
-        if (json !== undefined) response.json = normalizeJson(json, base, opts.volatile);
-        else response.text = normalizeText(body, base);
+        if (json !== undefined) response.json = normalizeJson(json, base, opts.volatile, secrets);
+        else response.text = normalizeText(body, base, secrets);
         const file: GoldenFile = {
           endpoint: ep.key,
           case: c.id,
           request: { method: c.method, path: c.path, query: c.query },
           response,
         };
+        const text = `${JSON.stringify(file, null, 2)}\n`;
+        // A form normalization does not reach (an object key, a re-encoded link) must never land in a golden file.
+        if (secrets.some((s) => text.includes(s))) throw new Error('the API key survived normalization: not written');
         const dir = join(opts.outDir, endpointSlug(ep.key));
         mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, `${c.id}.json`), `${JSON.stringify(file, null, 2)}\n`);
+        writeFileSync(join(dir, `${c.id}.json`), text);
         result.recorded.push(label);
       } catch (err) {
         // The URL carries the key: report only the case and the error's class/message without it.
         const message = err instanceof Error ? err.message : String(err);
-        result.failed.push({ case: label, error: message.replaceAll(opts.apiKey, '<key>') });
+        result.failed.push({ case: label, error: replaceKnown(message, '', secrets) });
       }
       if (opts.delayMs) await sleep(opts.delayMs);
     }
@@ -162,7 +190,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       traffic: { type: 'string', default: join(ROOT, 'tests', 'golden', 'traffic.json') },
-      out: { type: 'string', default: join(ROOT, 'tests', 'golden') },
+      out: { type: 'string', default: join(ROOT, 'tests', 'golden', 'recorded') },
       volatile: { type: 'string', multiple: true },
       'delay-ms': { type: 'string', default: '250' },
       check: { type: 'boolean', default: false },
@@ -202,7 +230,11 @@ async function main(): Promise<void> {
   const { coveredShare, missing } = goldenCoverage(report, values.out);
   console.log(`golden files cover ${(coveredShare * 100).toFixed(2)}% of legacy traffic`);
   if (missing.length > 0) console.warn(`99% set still missing:\n- ${missing.join('\n- ')}`);
-  if (result.failed.length > 0 || missing.length > 0) process.exit(1);
+  const personal = scanPaths([values.out]);
+  for (const f of personal) console.error(`personal data: ${formatFinding(f)}`);
+  if (personal.length > 0)
+    console.error('remove each value, or allow it (pnpm legacy:scan --allow), before committing');
+  if (result.failed.length > 0 || missing.length > 0 || personal.length > 0) process.exit(1);
 }
 
 if (process.argv[1] && import.meta.filename === process.argv[1]) {

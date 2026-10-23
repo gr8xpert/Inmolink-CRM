@@ -1,15 +1,18 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   endpointSlug,
   type GoldenFile,
   goldenCoverage,
+  keyForms,
   normalizeJson,
+  normalizeText,
   recordGolden,
 } from '../../scripts/legacy-api/record';
+import { formatFinding, scanPaths, scanValue } from '../../scripts/legacy-api/scan';
 import { analyzeLogs, parseLogLine, pathTemplate } from '../../scripts/legacy-api/traffic';
 
 // Synthetic legacy traffic (H2 logs not provided yet): 2 sites by API key, 1 by referer only, 5 endpoints, the
@@ -176,5 +179,111 @@ describe('legacy API capture and golden files (S8-01)', () => {
       generated_at: null,
       request_id: '<volatile>',
     });
+  });
+});
+
+describe('legacy recordings carry no key or personal data (S9-F1)', () => {
+  // A key with characters that URL-encode differently (`+`, `/`, `=`), as legacy keys often are.
+  const KEY = 'k3y+S9/f1=';
+  const encoded = encodeURIComponent(KEY);
+  /** A stub legacy API echoing the key back: in a paging link (encoded), raw in XML, and — planted — as a JSON key. */
+  const echoingFetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.searchParams.get('api_key') !== KEY) return new Response('forbidden', { status: 403 });
+    if (url.pathname === '/api/properties')
+      return Response.json({
+        next: `https://legacy.example.test/api/properties?page=2&api_key=${encoded}`,
+        raw: `key=${KEY}`,
+        items: [{ id: 1 }],
+      });
+    if (url.pathname === '/api/types')
+      return new Response(`<types next="/api/types?api_key=${url.searchParams.toString().split('api_key=')[1]}"/>`, {
+        headers: { 'content-type': 'application/xml' },
+      });
+    if (url.pathname.startsWith('/api/properties/')) return Response.json({ [KEY]: true, id: 7 });
+    return Response.json({ ok: true });
+  }) as typeof fetch;
+
+  it('[S9-F1] a stub API echoing the key in a paging link records <key>, and a planted leftover fails the recording', async () => {
+    const report = await fixtureReport();
+    const out = join(dir, 'recorded-key');
+    const result = await recordGolden(report, {
+      baseUrl: 'https://legacy.example.test',
+      apiKey: KEY,
+      keyParam: 'api_key',
+      outDir: out,
+      fetch: echoingFetch,
+    });
+    const list = JSON.parse(
+      readFileSync(join(out, 'get_api_properties', readdirSync(join(out, 'get_api_properties'))[0] ?? ''), 'utf8'),
+    ) as GoldenFile;
+    expect(list.response.json).toMatchObject({
+      next: '{LEGACY_BASE}/api/properties?page=2&api_key=<key>',
+      raw: 'key=<key>',
+    });
+    const types = JSON.parse(
+      readFileSync(join(out, 'get_api_types', readdirSync(join(out, 'get_api_types'))[0] ?? ''), 'utf8'),
+    ) as GoldenFile;
+    expect(types.response.text).toBe('<types next="/api/types?api_key=<key>"/>');
+    // The detail stub echoes the key as an object key, which normalization does not rewrite: nothing is written.
+    expect(result.failed.length).toBeGreaterThan(0);
+    for (const f of result.failed) {
+      expect(f.case).toMatch(/^GET \/api\/properties\/\{id\} /);
+      expect(f.error).toBe('the API key survived normalization: not written');
+    }
+    expect(readdirSync(out)).not.toContain('get_api_properties_id');
+    const written = readdirSync(out, { recursive: true, encoding: 'utf8' })
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => readFileSync(join(out, f), 'utf8'))
+      .join('\n');
+    for (const form of keyForms(KEY)) expect(written).not.toContain(form);
+    expect(normalizeText(`a ${encoded} b`, '', keyForms(KEY))).toBe('a <key> b');
+  });
+
+  it('[S9-F1] a recorded body with an e-mail or phone fails the scan', () => {
+    const out = join(dir, 'scan');
+    const golden = (name: string, response: GoldenFile['response']) => {
+      mkdirSync(join(out, 'get_api_properties_id'), { recursive: true });
+      const file: GoldenFile = {
+        endpoint: 'GET /api/properties/{id}',
+        case: name,
+        request: { method: 'GET', path: '/api/properties/1', query: { lang: 'en' } },
+        response,
+      };
+      writeFileSync(join(out, 'get_api_properties_id', `${name}.json`), JSON.stringify(file));
+    };
+    golden('clean', {
+      status: 200,
+      contentType: 'application/json',
+      json: {
+        id: 1234567,
+        ref: 'R987654321',
+        price: 695000,
+        phone_visible: false,
+        email: '<redacted>',
+        size: '120 m2',
+      },
+    });
+    expect(scanPaths([out])).toEqual([]);
+
+    golden('email', { status: 200, contentType: 'application/json', json: { agent: { note: 'mail ana.p@mail.es' } } });
+    golden('phone', { status: 200, contentType: 'application/json', json: { contact: { telefono: '952 123 456' } } });
+    golden('xml', {
+      status: 200,
+      contentType: 'application/xml',
+      text: '<p><desc>Call +34 600 11 22 33</desc><ref_catastral>9872023VH5797S0001WX</ref_catastral></p>',
+    });
+    const findings = scanPaths([out]);
+    expect(findings.map((f) => [basename(f.file ?? ''), f.kind, f.path])).toEqual([
+      ['email.json', 'email', '$.response.json.agent.note'],
+      ['phone.json', 'phone', '$.response.json.contact.telefono'],
+      ['xml.json', 'phone', '$.response.text'],
+      ['xml.json', 'cadastral', '$.response.text'],
+      ['xml.json', 'cadastral', '$.response.text<ref_catastral>'],
+    ]);
+    // The report masks each value; an allowed public value (the agency's office) is not a finding.
+    expect(findings.map(formatFinding).join()).not.toContain('ana.p@mail.es');
+    expect(scanPaths([out], ['ANA.P@mail.es']).map((f) => f.kind)).not.toContain('email');
+    expect(scanValue({ phones: ['+44 20 7946 0958'] }).map((f) => f.kind)).toEqual(['phone']);
   });
 });

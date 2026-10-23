@@ -54,3 +54,6 @@ apps/web/public/maplibre/
 
 # S6-F4: real Resales Online recordings (scripts/ops/resales-record.mjs): reviewed and force-added only with the agency's consent
 tests/fixtures/resales/recorded/
+
+# S9-F1: recorded legacy API golden files (pnpm legacy:record) stay local until the H2 sign-off (S8-F20); pnpm legacy:scan first
+tests/golden/recorded/

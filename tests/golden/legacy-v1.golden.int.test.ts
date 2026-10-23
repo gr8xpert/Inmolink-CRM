@@ -4,6 +4,7 @@ import { LEGACY_KEY_PARAM, legacyShimPath } from '@inmolink/contracts';
 import * as migration from '@inmolink/core/modules/migration';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { type GoldenFile, goldenCoverage, normalizeJson, normalizeText } from '../../scripts/legacy-api/record';
+import { allowList, formatFinding, scanPaths } from '../../scripts/legacy-api/scan';
 import type { TrafficReport } from '../../scripts/legacy-api/traffic';
 import { type FeedApp, type Fixture, loadWorld, startWorld, stopWorld } from './world';
 
@@ -13,7 +14,8 @@ import { type FeedApp, type Fixture, loadWorld, startWorld, stopWorld } from './
  * normalized answer byte for byte — status, content type and body, normalized exactly as the recorder does (sorted
  * keys, volatile fields `<volatile>`, the fixture's base URL `{LEGACY_BASE}`).
  *
- * - **Recorded** golden files (`tests/golden/<endpoint>/<case>.json`, `pnpm legacy:record`, S8-01 / H2) replay against
+ * - **Recorded** golden files (`tests/golden/recorded/<endpoint>/<case>.json`, `pnpm legacy:record`, S8-01 / H2;
+ *   gitignored until the H2 sign-off, S9-F1) replay against
  *   `tests/golden/fixture.json`: the public read-path rows of the H2 test account as the legacy migration loaded them
  *   (S14). None exist yet, so this check passes with no case; the moment one is added it must match.
  * - **Synthetic** golden files (`tests/golden/synthetic/…`, `"synthetic": true`) replay against
@@ -23,11 +25,15 @@ import { type FeedApp, type Fixture, loadWorld, startWorld, stopWorld } from './
  * - **Coverage:** with `tests/golden/traffic.json` (`pnpm legacy:traffic`), every endpoint of its 99% set needs a
  *   recorded golden file.
  *
+ * - **Personal data:** recorded files, `fixture.json` and `traffic.json` carry no e-mail, phone or cadastral value
+ *   (`pnpm legacy:scan`, S9-F1; a public one is listed in `tests/golden/scan-allow.json`).
+ *
  * Updating a golden file needs a STATUS note (testing rules); `/v1` is frozen once recorded parity holds.
  */
 
 const GOLDEN = import.meta.dirname;
 const SYNTHETIC = join(GOLDEN, 'synthetic');
+const RECORDED = join(GOLDEN, 'recorded');
 
 /** Golden files of `dir`'s endpoint folders (`<dir>/<endpoint>/<case>.json`), in a stable order. */
 function goldenFiles(dir: string, skip: readonly string[] = []): GoldenFile[] {
@@ -88,7 +94,7 @@ beforeAll(async () => {
 
 afterAll(() => stopWorld(app));
 
-const recorded = goldenFiles(GOLDEN, ['synthetic']);
+const recorded = goldenFiles(RECORDED);
 const trafficPath = join(GOLDEN, 'traffic.json');
 
 it(
@@ -99,7 +105,7 @@ it(
     if (existsSync(trafficPath)) {
       // The traffic report's 99% set: each endpoint needs a recorded golden file.
       const report = JSON.parse(readFileSync(trafficPath, 'utf8')) as TrafficReport;
-      expect(goldenCoverage(report, GOLDEN).missing).toEqual([]);
+      expect(goldenCoverage(report, RECORDED).missing).toEqual([]);
     }
     if (recorded.length === 0) return;
     const fixturePath = join(GOLDEN, 'fixture.json');
@@ -111,6 +117,11 @@ it(
     expect(failures).toEqual([]);
   },
 );
+
+it('[S9-F1] recorded legacy files, the fixture export and the traffic report carry no e-mail, phone or cadastral value', () => {
+  const paths = [RECORDED, join(GOLDEN, 'fixture.json'), trafficPath];
+  expect(scanPaths(paths, allowList(GOLDEN)).map(formatFinding)).toEqual([]);
+});
 
 it('[S8-02] synthetic golden files (assumed legacy contract) match the v1 shim byte for byte', async () => {
   const fixture = JSON.parse(readFileSync(join(SYNTHETIC, 'fixture.json'), 'utf8')) as Fixture;
