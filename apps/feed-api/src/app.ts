@@ -1,7 +1,7 @@
 import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
-import { apiKeyPlugin } from './plugins/api-key';
+import { apiKeyPlugin, type LocalFailedChecks } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { feedTokenIdentity, websiteFeedRoutes } from './routes/website-api/feeds';
@@ -28,6 +28,8 @@ export interface FeedApiDeps {
   limiter: RateLimiter;
   /** `WEBSITE_EDGE_CACHE` (S7-06): site answers public for the CDN (first pages and details). Default off. */
   edgeCache?: boolean;
+  /** Tests: the in-process failed-key-check windows (S8-F6; default one per app, 10,000 addresses). */
+  localFailures?: LocalFailedChecks;
 }
 
 export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
@@ -40,7 +42,7 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     successLogLevel: 'debug',
   });
   app.decorate('websiteEdgeCache', deps.edgeCache === true);
-  apiKeyPlugin(app, { limiter: deps.limiter });
+  apiKeyPlugin(app, { limiter: deps.limiter, localFailures: deps.localFailures });
   websiteCors(app);
   edgeSafeErrors(app);
   await app.register(rateLimitPlugin, {

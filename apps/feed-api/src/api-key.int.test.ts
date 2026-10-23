@@ -9,6 +9,7 @@ import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
+import { createLocalFailedChecks, type LocalFailedChecks } from './plugins/api-key';
 
 /** `requireApiKey` over HTTP (S1-05): a stand-in website route, as feed-api's v2 routes will use it (S7). */
 
@@ -42,13 +43,14 @@ function limiter(deny: Set<string>, seen: RateLimitRule[] = []): RateLimiter {
 const deny = new Set<string>();
 const consumed: RateLimitRule[] = [];
 
-async function build() {
+async function build(localFailures?: LocalFailedChecks) {
   const app = await buildApp({
     logger: createLogger({ level: 'silent' }),
     trustProxy: false,
     docsUi: false,
     limiter: limiter(deny, consumed),
     checks: {},
+    ...(localFailures ? { localFailures } : {}),
   });
   app.get('/v2/test-listings', { onRequest: [app.requireApiKey('listings:read')] }, async (req) => ({
     agencyId: req.apiKey?.agencyId,
@@ -61,6 +63,7 @@ let app: Awaited<ReturnType<typeof build>>;
 let agencyId: string;
 let secretKey: string;
 let publishableKey: string;
+let founder: { userId: string; agencyId: string };
 
 async function issue(founder: { userId: string; agencyId: string }, input: CreateApiKeyInput): Promise<string> {
   const issued = await withMemberCtx(
@@ -74,7 +77,7 @@ beforeAll(async () => {
   await setupTestDb('http');
   await configureCache({ prefix: `t:feedkeys:${newId().slice(-12)}` });
   identity.configureIdentity({ hmacKey: 'test-hmac-key-0123456789abcdef0123456789', apiKeyEnv: 'test' });
-  const founder = await createFounder();
+  founder = await createFounder();
   await setAgencyStatus(founder.agencyId, 'VERIFIED');
   agencyId = founder.agencyId;
   const scopes: ApiKeyScope[] = ['listings:read'];
@@ -241,4 +244,53 @@ describe('requireApiKey', () => {
     // Another address is not affected.
     expect((await get({ 'x-api-key': guessed(20_000) }, '198.51.100.78')).statusCode).toBe(401);
   });
+
+  it('[S8-F6] a request flood filling the failed-check map: a new IP with an uncached key still authenticates, the boxed IP stays boxed', async () => {
+    const small = await build(createLocalFailedChecks(20));
+    try {
+      const boxed = '198.51.100.90';
+      for (let i = 0; i < identity.API_KEY_FAILURE_RULE.limit; i++) {
+        await small.inject({
+          method: 'GET',
+          url: '/v2/test-listings',
+          headers: { 'x-api-key': guessed(30_000 + i) },
+          remoteAddress: boxed,
+        });
+      }
+      // The flood: more failing addresses than the map holds, one bad key each.
+      for (let i = 0; i < 40; i++) {
+        const res = await small.inject({
+          method: 'GET',
+          url: '/v2/test-listings',
+          headers: { 'x-api-key': guessed(40_000 + i) },
+          remoteAddress: `203.0.113.${i + 1}`,
+        });
+        expect(res.statusCode).toBe(401);
+      }
+      // A key no cache knows yet (a lookup), from an address the map does not track: authenticated.
+      const fresh = await issue(founder, {
+        name: 'Fresh',
+        kind: 'SECRET',
+        scopes: ['listings:read'],
+        allowedOrigins: [],
+      });
+      const ok = await small.inject({
+        method: 'GET',
+        url: '/v2/test-listings',
+        headers: { 'x-api-key': fresh },
+        remoteAddress: '192.0.2.200',
+      });
+      expect(ok.statusCode).toBe(200);
+      // The address in the penalty box survived the flood.
+      const refused = await small.inject({
+        method: 'GET',
+        url: '/v2/test-listings',
+        headers: { 'x-api-key': guessed(50_000) },
+        remoteAddress: boxed,
+      });
+      expect(refused.statusCode).toBe(429);
+    } finally {
+      await small.close();
+    }
+  }, 60_000);
 });

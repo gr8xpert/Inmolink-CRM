@@ -15,13 +15,13 @@ import {
 } from '../honeytokens';
 import {
   checkWebsiteLimits,
+  createLocalWriteWindows,
   creditChangeFeed,
   resetLocalWriteCaps,
   SYNC_CREDIT_POOL,
   sliceSignature,
   websiteRequestChecks,
 } from '../limits';
-import { LocalWriteCaps } from '../local-caps';
 import { configureWebsiteApi, type WebsiteAlert } from '../settings';
 
 /** Quotas, paging rules and honeytokens (S7-04) without Redis: a scripted limiter. */
@@ -314,32 +314,72 @@ describe('website form posts while the limits Redis is down (S8-F4)', () => {
   it('[S8-F4] tracks at most MAX_TRACKED identities; browser floods never evict a key window', () => {
     const clock = useFakeClock('2026-10-22T10:00:00Z');
     try {
-      const caps = new LocalWriteCaps(5);
-      const keyCap = { identity: 'k|secret', limit: 2, windowMs: 3_600_000, pool: 'key' as const };
-      const browser = (ip: string) => ({
-        identity: `b|widget|${ip}`,
-        limit: 2,
-        windowMs: 600_000,
-        pool: 'browser' as const,
-      });
+      const caps = createLocalWriteWindows(5, 600_000);
+      const keyCap = { identity: 'k|secret', limit: 2, pool: 'key' as const };
+      const browser = (ip: string) => ({ identity: `b|widget|${ip}`, limit: 2, pool: 'browser' as const });
       expect(caps.reserve([keyCap])).toMatchObject({ allowed: true });
       expect(caps.reserve([keyCap])).toMatchObject({ allowed: true });
-      for (let i = 0; i < 5; i++) expect(caps.reserve([browser(`ip${i}`)])).toMatchObject({ allowed: true });
-      // Full: a new browser is refused until the oldest browser window ends; live windows are not forgotten.
-      expect(caps.reserve([browser('ip-new')])).toMatchObject({ allowed: false, retryAfterSeconds: 600 });
-      expect(caps.size).toEqual({ keys: 1, browsers: 5 });
+      for (let i = 0; i < 20; i++) expect(caps.reserve([browser(`ip${i}`)])).toMatchObject({ allowed: true });
+      expect([caps.size('key'), caps.size('browser')]).toEqual([1, 5]);
       // The key's window survived the flood: still used up.
       expect(caps.reserve([keyCap])).toMatchObject({ allowed: false, retryAfterSeconds: 3_600 });
-      // Expired browser windows are swept before a new browser is refused.
+      // Expired browser windows are swept.
       clock.advance(600_000);
       expect(caps.reserve([browser('ip-new')])).toMatchObject({ allowed: true });
-      expect(caps.size).toEqual({ keys: 1, browsers: 1 });
-      // The key map is bounded too: past MAX_TRACKED keys its oldest window goes.
+      expect([caps.size('key'), caps.size('browser')]).toEqual([1, 1]);
+      // The key map is bounded too.
       for (let i = 0; i < 6; i++) caps.reserve([{ ...keyCap, identity: `k|${i}` }]);
-      expect(caps.size.keys).toBe(5);
+      expect(caps.size('key')).toBe(5);
     } finally {
       restoreClock();
     }
+  });
+
+  it('[S8-F6] a full browser pool still lets a new browser post; windows at their limit survive', () => {
+    useFakeClock('2026-10-23T10:00:00Z');
+    try {
+      const caps = createLocalWriteWindows(3, 600_000);
+      const keyCap = { identity: 'pk|widget', limit: 100, pool: 'key' as const };
+      const browser = (ip: string) => ({ identity: `b|widget|${ip}`, limit: 2, pool: 'browser' as const });
+      // A browser at its limit, then a flood of new browsers filling the pool.
+      caps.reserve([keyCap, browser('boxed')]);
+      caps.reserve([keyCap, browser('boxed')]);
+      for (let i = 0; i < 10; i++) {
+        expect(caps.reserve([keyCap, browser(`flood${i}`)])).toMatchObject({ allowed: true });
+      }
+      expect(caps.size('browser')).toBe(3);
+      expect(caps.reserve([keyCap, browser('boxed')])).toMatchObject({
+        allowed: false,
+        check: { pool: 'browser' },
+        retryAfterSeconds: 600,
+      });
+      // Every window at its limit: a new browser goes through untracked, still counted on its key.
+      const full = createLocalWriteWindows(2, 600_000);
+      const smallKey = { ...keyCap, limit: 6 };
+      for (const ip of ['a', 'a', 'b', 'b']) full.reserve([smallKey, browser(ip)]);
+      expect(full.reserve([smallKey, browser('c')])).toMatchObject({ allowed: true });
+      expect(full.size('browser')).toBe(2);
+      expect(full.reserve([smallKey, browser('d')])).toMatchObject({ allowed: true });
+      expect(full.reserve([smallKey, browser('e')])).toMatchObject({ allowed: false, check: { pool: 'key' } });
+    } finally {
+      restoreClock();
+    }
+  });
+
+  it('[S8-F6] a released post frees the window it started', () => {
+    const caps = createLocalWriteWindows(5, 600_000);
+    const browser = { identity: 'b|widget|ip', limit: 2, pool: 'browser' as const };
+    const first = caps.reserve([browser]);
+    expect(caps.size('browser')).toBe(1);
+    if (first.allowed) first.release();
+    expect(caps.size('browser')).toBe(0);
+    // A window someone else also holds stays.
+    const a = caps.reserve([browser]);
+    const b = caps.reserve([browser]);
+    if (a.allowed) a.release();
+    expect(caps.size('browser')).toBe(1);
+    if (b.allowed) b.release();
+    expect(caps.size('browser')).toBe(1);
   });
 });
 

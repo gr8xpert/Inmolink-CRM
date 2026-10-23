@@ -23,18 +23,19 @@
 
 import { WebsiteDevelopmentsQuery, WebsiteListingsQuery } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
-import type {
-  RateLimitCheck,
-  RateLimiter,
-  RateLimitResult,
-  RateLimitRule,
-  RateScope,
+import {
+  LocalFixedWindows,
+  type LocalWindowCheck,
+  type RateLimitCheck,
+  type RateLimiter,
+  type RateLimitResult,
+  type RateLimitRule,
+  type RateScope,
 } from '@inmolink/platform/rate-limit';
 import type { ApiKeyPrincipal } from '../identity';
 import * as identity from '../identity';
 import { raiseWebsiteAlert } from './alerts';
 import { readSearchCursor } from './cursor';
-import { type LocalCap, LocalWriteCaps } from './local-caps';
 import { websiteLimits } from './settings';
 
 export interface WebsiteRequestFacts {
@@ -477,24 +478,62 @@ function publishableIpRule(): RateLimitRule {
   return { name: 'feed.pk.ip', scope: 'ip', limit: websiteLimits().publishablePerIpMinute, windowSeconds: 60 };
 }
 
-/** Form posts this process let through (S8-F4): the caps that hold while the limits Redis fails open. */
-const localWrites = new LocalWriteCaps();
+/**
+ * Form posts this process let through (S8-F4): the caps that hold while the limits Redis fails open (it fails open so
+ * an outage does not take websites offline; without these a leaked secret key stating `serverVerified: true` could post
+ * leads, and trigger acknowledgement e-mails, without bound).
+ *
+ * - **Same limits as the shared form-spam rules**, fixed windows, so while Redis answers the shared rule denies first
+ *   (the publishable per-key cap has no shared twin: it alone refuses a widget site posting more than
+ *   `leadsPerKeyHour` leads an hour through one process). Per process: N processes let up to N × a cap through.
+ * - **Pools (S8-F6 `LocalFixedWindows`):** `key` (an hour) and `browser` (key × client IP, `leadWindowSeconds`) are
+ *   tracked apart, so a flood of browser identities never evicts a key's window. A full pool never refuses for lack of
+ *   room: it evicts its oldest window under its limit, or lets the post through untracked when every window is at its
+ *   limit (a browser's post is then still bounded by its key's cap). Accepted: someone holding more than
+ *   `LOCAL_WRITE_TRACKED` keys can rotate the `key` pool during an outage (each key still counts in the shared rules).
+ * - **Not covered:** the iFrame embed pages' lead posts (`checkEmbedLimits`): each needs a Turnstile token solved on the
+ *   public origin (fail closed without Turnstile), and acknowledgements are capped per site and day in the database.
+ */
+export const LOCAL_WRITE_TRACKED = 10_000;
+
+type LocalWritePool = 'key' | 'browser';
+
+/** In-process form-post windows (exported for tests; `size` per pool). */
+export function createLocalWriteWindows(
+  max = LOCAL_WRITE_TRACKED,
+  browserWindowMs = websiteLimits().leadWindowSeconds * 1_000,
+): LocalFixedWindows<LocalWritePool> {
+  return new LocalFixedWindows<LocalWritePool>({
+    key: { max, windowMs: HOUR_SECONDS * 1_000 },
+    browser: { max, windowMs: browserWindowMs },
+  });
+}
+
+let localWrites: LocalFixedWindows<LocalWritePool> | undefined;
+
+/** The process's form-post windows, rebuilt when `leadWindowSeconds` changes (one length per pool). */
+function localWriteWindows(): LocalFixedWindows<LocalWritePool> {
+  const browserWindowMs = websiteLimits().leadWindowSeconds * 1_000;
+  if (localWrites?.windowMs('browser') !== browserWindowMs) {
+    localWrites = createLocalWriteWindows(LOCAL_WRITE_TRACKED, browserWindowMs);
+  }
+  return localWrites;
+}
 
 /** Tests: forget the in-process form-post counts. */
 export function resetLocalWriteCaps(): void {
-  localWrites.clear();
+  localWrites = undefined;
 }
 
 /**
  * The in-process caps of a form post (S8-F4): per key per hour (`feed.leads.key.*`'s limit — publishable keys too),
  * and for publishable keys per browser per `leadWindowSeconds` (`feed.leads.browser`).
  */
-function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalCap[] {
+function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalWindowCheck<LocalWritePool>[] {
   const l = websiteLimits();
-  const perKey: LocalCap = {
+  const perKey: LocalWindowCheck<LocalWritePool> = {
     identity: `${key.kind === 'SECRET' ? 'k' : 'pk'}|${key.keyId}`,
     limit: l.leadsPerKeyHour[key.rateTier],
-    windowMs: HOUR_SECONDS * 1_000,
     pool: 'key',
   };
   if (key.kind === 'SECRET') return [perKey];
@@ -503,7 +542,6 @@ function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalCap[] {
     {
       identity: `b|${key.keyId}|${ip}`,
       limit: l.leadsPerBrowser,
-      windowMs: l.leadWindowSeconds * 1_000,
       pool: 'browser',
     },
   ];
@@ -513,7 +551,7 @@ function localWriteCaps(key: ApiKeyPrincipal, ip: string): LocalCap[] {
  * Checks one website API request against its quotas and limits (one Redis round trip) and raises
  * `WebsiteScrapingDetected` when a rule trips. Fails open like every website limit (Redis down must not take every
  * website offline): the limiter answers allowed. Form posts first take a post from their in-process caps (S8-F4,
- * `LocalWriteCaps`, synchronously, before the round trip), given back when the shared limits refuse, so an outage does
+ * `LocalFixedWindows`, synchronously, before the round trip), given back when the shared limits refuse, so an outage does
  * not leave lead writes unbounded.
  */
 export async function checkWebsiteLimits(
@@ -522,13 +560,13 @@ export async function checkWebsiteLimits(
   facts: WebsiteRequestFacts,
 ): Promise<WebsiteLimitDecision> {
   if (!facts.write) return sharedLimits(limiter, key, facts);
-  const reservation = localWrites.reserve(localWriteCaps(key, facts.ip));
+  const reservation = localWriteWindows().reserve(localWriteCaps(key, facts.ip));
   if (!reservation.allowed) {
     return {
       allowed: false,
       kind: 'rate',
-      scope: reservation.cap.pool === 'key' ? 'key' : 'ip',
-      limit: reservation.cap.limit,
+      scope: reservation.check.pool === 'key' ? 'key' : 'ip',
+      limit: reservation.check.limit,
       resetAtMs: clock.nowMs() + reservation.retryAfterSeconds * 1_000,
       retryAfterSeconds: reservation.retryAfterSeconds,
     };

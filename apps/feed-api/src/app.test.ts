@@ -1,10 +1,12 @@
+import * as identity from '@inmolink/core/modules/identity';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { coreEnv, httpEnv, loadConfig } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 import { assertFeedApiTrustProxy, feedApiEnv } from './config';
-import { LocalFailedChecks } from './plugins/api-key';
+import { createLocalFailedChecks, FAILED_CHECKS_TRACKED } from './plugins/api-key';
 
 const allowAll = {
   consume: async () => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 }),
@@ -97,18 +99,23 @@ describe('feed-api app', () => {
   }, 30_000);
 
   it('[S7-F9] the in-process failed-check count: the rule limit per IP per window, bounded memory', () => {
-    let now = 0;
-    const local = new LocalFailedChecks(3, 60_000, () => now);
-    for (let i = 0; i < 2; i++) local.record('a');
-    expect(local.blockedFor('a')).toBe(0);
-    local.record('a');
-    expect(local.blockedFor('a')).toBe(60);
-    expect(local.blockedFor('b')).toBe(0);
-    now = 45_000;
-    expect(local.blockedFor('a')).toBe(15);
-    now = 60_000;
-    expect(local.blockedFor('a')).toBe(0);
-    for (let i = 0; i < LocalFailedChecks.MAX_TRACKED + 5; i++) local.record(`ip${i}`);
-    expect((local as unknown as { windows: Map<string, unknown> }).windows.size).toBe(LocalFailedChecks.MAX_TRACKED);
+    const clock = useFakeClock('2026-10-23T10:00:00Z');
+    try {
+      const local = createLocalFailedChecks();
+      const { limit, windowSeconds } = identity.API_KEY_FAILURE_RULE;
+      for (let i = 0; i < limit - 1; i++) local.hit('ip', 'a', limit);
+      expect(local.peek('ip', 'a', limit)).toBe(0);
+      local.hit('ip', 'a', limit);
+      expect(local.peek('ip', 'a', limit)).toBe(windowSeconds);
+      expect(local.peek('ip', 'b', limit)).toBe(0);
+      clock.advance((windowSeconds - 15) * 1_000);
+      expect(local.peek('ip', 'a', limit)).toBe(15);
+      clock.advance(15_000);
+      expect(local.peek('ip', 'a', limit)).toBe(0);
+      for (let i = 0; i < FAILED_CHECKS_TRACKED + 5; i++) local.hit('ip', `ip${i}`, limit);
+      expect(local.size('ip')).toBe(FAILED_CHECKS_TRACKED);
+    } finally {
+      restoreClock();
+    }
   });
 });

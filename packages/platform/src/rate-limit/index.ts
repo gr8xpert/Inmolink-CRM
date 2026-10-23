@@ -24,6 +24,12 @@ export {
   retryAfterMs,
 } from './limiter';
 export {
+  LocalFixedWindows,
+  type LocalPoolOptions,
+  type LocalWindowCheck,
+  type LocalWindowReservation,
+} from './local-windows';
+export {
   createUploadSlots,
   LISTING_DOCUMENT_UPLOAD_SLOTS,
   LISTING_DOCUMENT_UPLOAD_TOTAL,
