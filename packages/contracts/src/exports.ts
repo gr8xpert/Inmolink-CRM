@@ -93,6 +93,18 @@ export const PortalConnectionDto = z.strictObject({
   validation: z
     .strictObject({ checkedAt: z.iso.datetime(), validCount: z.number().int(), invalidCount: z.number().int() })
     .nullable(),
+  /**
+   * The served feed file (S9-03): its name in the feed URL (`/v2/portal-feeds/<token>/<file>`), when its content last
+   * changed, its gzip size and listing count. null: not generated yet.
+   */
+  feed: z
+    .strictObject({
+      file: z.string(),
+      generatedAt: z.iso.datetime(),
+      bytes: z.number().int(),
+      itemCount: z.number().int(),
+    })
+    .nullable(),
   version: z.number().int(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -190,3 +202,62 @@ export const PortalIssueDto = z.strictObject({
 export type PortalIssueDto = z.infer<typeof PortalIssueDto>;
 export const PortalIssuePage = pageOf(PortalIssueDto);
 export type PortalIssuePage = z.infer<typeof PortalIssuePage>;
+
+// ── Feed generation and delivery (S9-03) ──────────────────────────────────────────────────────────────────────────
+
+/** The file a portal feed URL names: Kyero v3 (Kyero, thinkSPAIN, A Place in the Sun) or the generic XML. */
+export const PORTAL_FEED_FILES = ['kyero.xml', 'inmolink.xml'] as const;
+export const PortalFeedFile = z.enum(PORTAL_FEED_FILES);
+export type PortalFeedFile = z.infer<typeof PortalFeedFile>;
+
+/** `GET /v2/portal-feeds/{token}/{file}` (feed-api): the token is the credential (32 random bytes, base64url). */
+export const PortalFeedParams = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  file: PortalFeedFile,
+});
+export type PortalFeedParams = z.infer<typeof PortalFeedParams>;
+
+export const PortalFeedRunTrigger = z.enum(['EVENT', 'NIGHTLY']);
+/** WRITTEN: a new file · UNCHANGED: same content, not rewritten · FAILED: the previous file stays · SKIPPED: nothing generated. */
+export const PortalFeedRunStatus = z.enum(['WRITTEN', 'UNCHANGED', 'FAILED', 'SKIPPED']);
+export type PortalFeedRunStatus = z.infer<typeof PortalFeedRunStatus>;
+
+/**
+ * Why a run failed (upper case: `TOO_LARGE` over the 64 MiB gzip cap, `GENERATION_FAILED`, `WRITER_DROPPED` a
+ * validated listing the writer refused, `SUPERSEDED` another run of the connection recorded its file first) or was
+ * skipped (lower case: the connection is gone, off or revoked, the portal's writer is not enabled, the agency is not
+ * verified or has no content language).
+ */
+export const PORTAL_FEED_RUN_REASONS = [
+  'TOO_LARGE',
+  'GENERATION_FAILED',
+  'WRITER_DROPPED',
+  'SUPERSEDED',
+  'no-connection',
+  'disabled',
+  'revoked',
+  'no-profile',
+  'writer-disabled',
+  'not-verified',
+  'no-locales',
+] as const;
+export const PortalFeedRunReason = z.enum(PORTAL_FEED_RUN_REASONS);
+export type PortalFeedRunReason = z.infer<typeof PortalFeedRunReason>;
+
+/** One generator run of a connection's feed. `reason`: the failure code or why it was skipped. */
+export const PortalFeedRunDto = z.strictObject({
+  id: z.uuid(),
+  trigger: PortalFeedRunTrigger,
+  status: PortalFeedRunStatus,
+  startedAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime(),
+  validCount: z.number().int().nullable(),
+  invalidCount: z.number().int().nullable(),
+  bytes: z.number().int().nullable(),
+  reason: PortalFeedRunReason.nullable(),
+});
+export type PortalFeedRunDto = z.infer<typeof PortalFeedRunDto>;
+
+/** `GET .../runs`: the connection's latest runs, newest first (the history is bounded: no paging). */
+export const PortalFeedRunList = z.strictObject({ items: z.array(PortalFeedRunDto) });
+export type PortalFeedRunList = z.infer<typeof PortalFeedRunList>;

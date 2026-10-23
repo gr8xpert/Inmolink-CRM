@@ -1,4 +1,5 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
+import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
@@ -54,6 +55,18 @@ try {
     config.MEDIA_CDN_URL
   ) {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  }
+  // S9-03: portal feeds (exports pool) — image URLs under the media CDN, the nightly hour and the pool caps.
+  if (config.WORKER_POOLS.includes('exports') && config.MEDIA_CDN_URL) {
+    exportsWorker.configurePortalFeeds({ mediaBaseUrl: config.MEDIA_CDN_URL });
+    exportsWorker.configurePortalFeedJobs({
+      ...(config.EXPORTS_NIGHTLY_HOUR_UTC !== undefined ? { nightlyHourUtc: config.EXPORTS_NIGHTLY_HOUR_UTC } : {}),
+      ...(config.EXPORTS_NIGHTLY_LANES ? { nightlyLanes: config.EXPORTS_NIGHTLY_LANES } : {}),
+      ...(config.EXPORTS_PORTAL_FEEDS_MAX_CONCURRENT
+        ? { maxConcurrentRuns: config.EXPORTS_PORTAL_FEEDS_MAX_CONCURRENT }
+        : {}),
+      ...(config.EXPORTS_PORTAL_FEEDS_PER_PROCESS ? { runsPerProcess: config.EXPORTS_PORTAL_FEEDS_PER_PROCESS } : {}),
+    });
   }
   // S7-06: the indexing pool purges the website API's edge cache (same tag key as feed-api); without a zone and token
   // there is nothing to purge and cached answers expire with their TTL.

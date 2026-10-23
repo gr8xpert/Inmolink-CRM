@@ -166,8 +166,8 @@ describe('RLS generator', () => {
   });
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
-    // S8-02 adds the two legacy-id lookups (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(4);
+    // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(5);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -226,6 +226,27 @@ describe('RLS generator', () => {
         global: { ...registry.global, x: { reason: 'x', publicRead: true, publicReadSql: 'true' } },
       }),
     ).toThrow(/publicReadSql is only valid with publicRead and noUserRead/);
+  });
+
+  it('[S9-03] portal feed tokens resolve through a SECURITY DEFINER lookup for app_public; the connections table stays closed to it', () => {
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('portal_feed_by_token');
+    expect(out).toContain('drop function if exists portal_feed_by_token(text);');
+    const body = out.split('create function portal_feed_by_token(')[1]?.split('$$;')[0] ?? '';
+    // Only what feed-api uses: the connection, its portal, the served run and its content hash.
+    expect(body).toContain('returns table(connection_id uuid, channel_code text, run_id uuid, sha256 text)');
+    expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+    // Only the served file's columns: never the credentials, selection or names.
+    expect(body).not.toMatch(/credentials|credential_keys|selection_|\bname\b/);
+    expect(body).toContain("g.status = 'VERIFIED'");
+    expect(body).toContain('c.revoked_at is null');
+    expect(out).toContain('grant execute on function portal_feed_by_token(text) to app_public;');
+    expect(out).not.toMatch(/portal_feed_by_token\(text\) to [^;]*app_(?:user|system|auth|staff)/);
+    const tables = tablesSql(registry);
+    const table = tables.split('-- agency_portal_connections:')[1]?.split('\n\n')[0] ?? '';
+    expect(table).toContain(
+      'create policy definer_read on public."agency_portal_connections" for select to app_owner using (true);',
+    );
+    expect(table).not.toMatch(/to [^;]*app_public/);
   });
 
   it('[S7-03] the website network gate is SECURITY DEFINER, executable by app_public only; its tables open to the owner only', () => {

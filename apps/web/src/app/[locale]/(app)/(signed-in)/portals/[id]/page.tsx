@@ -6,6 +6,7 @@ import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation
 import {
   fetchPortalChannels,
   fetchPortalConnection,
+  fetchPortalFeedRuns,
   fetchPortalIssues,
   fetchPortalOverrides,
   fetchPortalSelection,
@@ -28,7 +29,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * One portal connection (S9-01): its setup and selection rule, the feed token (rotate or turn off), the listings
- * chosen one by one, and a preview of what it sends now. Members see it; only admins can change it (the API refuses
+ * chosen one by one, and a preview of what it sends now. S9-03: the served feed file and the run history. Members see it; only admins can change it (the API refuses
  * everyone else).
  */
 export default async function PortalConnectionPage({
@@ -47,19 +48,21 @@ export default async function PortalConnectionPage({
   const q = await searchParams;
   // The reasons list is paged by listing id: `?issuesCursor=` continues it.
   const issuesCursor = typeof q.issuesCursor === 'string' && UUID.test(q.issuesCursor) ? q.issuesCursor : undefined;
-  const [res, channels, overrides, selection, issues] = await Promise.all([
+  const [res, channels, overrides, selection, issues, runs] = await Promise.all([
     fetchPortalConnection(ref, id),
     fetchPortalChannels(ref),
     fetchPortalOverrides(ref, id),
     fetchPortalSelection(ref, id),
     fetchPortalIssues(ref, id, issuesCursor),
+    fetchPortalFeedRuns(ref, id),
   ]);
   if (
     res === 'revoked' ||
     channels === 'revoked' ||
     overrides === 'revoked' ||
     selection === 'revoked' ||
-    issues === 'revoked'
+    issues === 'revoked' ||
+    runs === 'revoked'
   ) {
     redirect('/session/expired');
   }
@@ -270,6 +273,76 @@ export default async function PortalConnectionPage({
             {t('issues.more')}
           </Link>
         ) : null}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-runs-title">
+        <h2 id="portal-runs-title" className="text-lg font-semibold">
+          {t('runs.title')}
+        </h2>
+        <p className="text-sm text-muted-foreground">{t('runs.intro')}</p>
+        <p className="text-sm" data-testid="portal-feed-file">
+          {c.feed
+            ? t('runs.file', {
+                file: c.feed.file,
+                count: c.feed.itemCount,
+                size: t('runs.kb', { kb: fmt.number(Math.max(1, Math.round(c.feed.bytes / 1024))) }),
+                date: fmt.dateTime(new Date(c.feed.generatedAt), { dateStyle: 'medium', timeStyle: 'short' }),
+              })
+            : t('runs.noFile')}
+        </p>
+        {runs.ok && runs.data.items.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm" data-testid="portal-runs">
+              <thead>
+                <tr className="border-b">
+                  <th scope="col" className="py-1 pr-3 font-medium">
+                    {t('runs.columns.started')}
+                  </th>
+                  <th scope="col" className="py-1 pr-3 font-medium">
+                    {t('runs.columns.trigger')}
+                  </th>
+                  <th scope="col" className="py-1 pr-3 font-medium">
+                    {t('runs.columns.status')}
+                  </th>
+                  <th scope="col" className="py-1 pr-3 font-medium">
+                    {t('runs.columns.listings')}
+                  </th>
+                  <th scope="col" className="py-1 font-medium">
+                    {t('runs.columns.size')}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.data.items.map((r) => (
+                  <tr key={r.id} className="border-b last:border-0 align-top">
+                    <td className="py-1 pr-3">
+                      {fmt.dateTime(new Date(r.startedAt), { dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                    <td className="py-1 pr-3">{t(`runs.triggers.${r.trigger}`)}</td>
+                    <td className="py-1 pr-3">
+                      {t(`runs.statuses.${r.status}`)}
+                      {r.reason ? (
+                        <span className="block text-xs text-muted-foreground">{t(`runs.reasons.${r.reason}`)}</span>
+                      ) : null}
+                    </td>
+                    <td className="py-1 pr-3">
+                      {r.validCount !== null
+                        ? t('runs.listings', { valid: r.validCount, invalid: r.invalidCount ?? 0 })
+                        : ''}
+                    </td>
+                    <td className="py-1">
+                      {r.bytes !== null
+                        ? t('runs.kb', { kb: fmt.number(Math.max(1, Math.round(r.bytes / 1024))) })
+                        : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">{t('runs.empty')}</p>
+        )}
       </section>
 
       <form action={deletePortalAction}>

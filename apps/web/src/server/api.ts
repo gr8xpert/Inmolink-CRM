@@ -78,6 +78,7 @@ import {
   PortalConnectionDto,
   PortalConnectionPage,
   PortalConnectionSecretDto,
+  PortalFeedRunList,
   PortalIssuePage,
   PortalOverridePage,
   PortalSelectionPage,
@@ -1550,4 +1551,9 @@ export function fetchPortalIssues(
     `/v1/portal-connections/${encodeURIComponent(id)}/issues?${page(cursor, 25)}`,
     PortalIssuePage,
   );
+}
+
+/** The connection's latest feed runs, newest first (S9-03). */
+export function fetchPortalFeedRuns(session: SessionRef, id: string): Promise<ApiResult<PortalFeedRunList>> {
+  return apiRequest(session, `/v1/portal-connections/${encodeURIComponent(id)}/runs`, PortalFeedRunList);
 }

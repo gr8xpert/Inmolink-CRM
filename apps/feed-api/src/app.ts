@@ -3,6 +3,7 @@ import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from 
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { apiKeyPlugin, type LocalFailedChecks } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
+import { portalFeedRoutes } from './routes/exports/portal-feeds';
 import { legacyV1Routes } from './routes/legacy-v1/routes';
 import { pluginUpdateRoutes } from './routes/plugin-updates/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
@@ -30,6 +31,8 @@ export interface FeedApiDeps {
   limiter: RateLimiter;
   /** `WEBSITE_EDGE_CACHE` (S7-06): site answers public for the CDN (first pages and details). Default off. */
   edgeCache?: boolean;
+  /** S9-03: portal feed requests per minute per IP (`PORTAL_FEED_IP_PER_MINUTE`; default `PORTAL_FEED_IP_DEFAULT`). */
+  portalFeedIpPerMinute?: number;
   /** Tests: the in-process failed-key-check windows (S8-F6; default one per app, 10,000 addresses). */
   localFailures?: LocalFailedChecks;
 }
@@ -62,6 +65,7 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   await app.register(websiteApiRoutes);
   await app.register(websiteLeadRoutes);
   await app.register(websiteFeedRoutes);
+  await app.register(portalFeedRoutes, { ipPerMinute: deps.portalFeedIpPerMinute });
   await app.register(legacyV1Routes);
   await app.register(pluginUpdateRoutes);
   return app;

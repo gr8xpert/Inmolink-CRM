@@ -14,6 +14,8 @@ import {
   type PortalConnectionPage,
   type PortalConnectionParams,
   type PortalConnectionSecretDto,
+  type PortalFeedRunList,
+  PortalFeedRunReason,
   PortalIssue,
   type PortalIssuePage,
   type PortalOverridePage,
@@ -37,6 +39,7 @@ import * as properties from '../properties';
 import { encryptCredentials, tokenKey } from './config';
 import { exportsEvents } from './events';
 import { assertCan } from './policy';
+import { feedFileOf } from './profiles';
 import * as repo from './repo';
 import { ruleOf, type SelectionRule, selectionBatch, selectionPage } from './selection';
 
@@ -67,9 +70,22 @@ function toDto(row: repo.ConnectionRow, counts: { include: number; exclude: numb
           },
     includeCount: counts?.include ?? 0,
     excludeCount: counts?.exclude ?? 0,
+    feed: feedOf(row),
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** The served file (S9-03) as the dashboard shows it; null before the first written run. */
+function feedOf(row: repo.ConnectionRow): PortalConnectionDto['feed'] {
+  const file = feedFileOf(row.channelCode);
+  if (!file || row.feedRunId === null || row.feedGeneratedAt === null) return null;
+  return {
+    file,
+    generatedAt: row.feedGeneratedAt.toISOString(),
+    bytes: row.feedBytes ?? 0,
+    itemCount: row.feedItemCount ?? 0,
   };
 }
 
@@ -476,19 +492,14 @@ export interface WorkerConnection {
   enabled: boolean;
   /** Set: the feed token was revoked (nothing to serve). */
   revokedAt: Date | null;
-  /** The connection's version when read: a run compares it with a fresh read at the end (a change re-queues it). */
+  /** The connection's version when the pass loaded it (a change meanwhile queues its own run: `exports.connection.changed`). */
   version: number;
   rule: SelectionRule;
+  /** S9-03: the served file when read (its run and content hash); null: none yet. */
+  feed: { runId: string; sha256: string } | null;
 }
 
-/** Worker side (`withSystem`, no ctx): a connection of a known agency, read once; null: no such connection. */
-export async function connectionForWorker(
-  tx: Tx,
-  agencyId: string,
-  connectionId: string,
-): Promise<WorkerConnection | null> {
-  const row = await repo.getConnection(tx, agencyId, connectionId);
-  if (!row) return null;
+function workerConnectionOf(row: repo.ConnectionRow): WorkerConnection {
   return {
     id: row.id,
     agencyId: row.agencyId,
@@ -498,7 +509,30 @@ export async function connectionForWorker(
     revokedAt: row.revokedAt,
     version: row.version,
     rule: ruleOf(row),
+    feed: row.feedRunId && row.feedSha256 ? { runId: row.feedRunId, sha256: row.feedSha256 } : null,
   };
+}
+
+/**
+ * Worker side (S9-03): the connections of one pass over an agency — these ids, or (`ids` null) every live one. One
+ * statement.
+ */
+export async function workerConnections(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[] | null,
+): Promise<WorkerConnection[]> {
+  return (await repo.connectionsForPass(tx, agencyId, ids)).map(workerConnectionOf);
+}
+
+/** Worker side (`withSystem`, no ctx): a connection of a known agency, read once; null: no such connection. */
+export async function connectionForWorker(
+  tx: Tx,
+  agencyId: string,
+  connectionId: string,
+): Promise<WorkerConnection | null> {
+  const row = await repo.getConnection(tx, agencyId, connectionId);
+  return row ? workerConnectionOf(row) : null;
 }
 
 /**
@@ -570,5 +604,31 @@ export async function listIssues(
       checkedAt: (connection.lastCheckedAt ?? r.checkedAt).toISOString(),
     })),
     nextCursor: rows.length > q.limit ? (page.at(-1)?.propertyId ?? null) : null,
+  };
+}
+
+// ── Feed generation (S9-03) ───────────────────────────────────────────────────────────────────────────────────────
+
+/** Runs kept per connection (the generator deletes older ones in each run's transaction). */
+export const FEED_RUNS_KEPT = 30;
+
+/** The connection's latest feed runs, newest first (bounded by `FEED_RUNS_KEPT`: no paging). */
+export async function listFeedRuns(ctx: Ctx, params: PortalConnectionParams): Promise<PortalFeedRunList> {
+  assertCan(ctx, 'exports.read');
+  const connection = await loadConnection(ctx, params.connectionId);
+  const rows = await repo.feedRuns(ctx.tx, ctx.tenant.agencyId, connection.id, FEED_RUNS_KEPT);
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      trigger: r.trigger,
+      status: r.status,
+      startedAt: r.startedAt.toISOString(),
+      finishedAt: r.finishedAt.toISOString(),
+      validCount: r.validCount,
+      invalidCount: r.invalidCount,
+      bytes: r.bytes,
+      // A reason retired since reads as none.
+      reason: PortalFeedRunReason.safeParse(r.reason).data ?? null,
+    })),
   };
 }

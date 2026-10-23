@@ -29,6 +29,7 @@ export const HELPER_FUNCTIONS = [
   'website_network_open',
   'legacy_target_ids',
   'legacy_ids_of',
+  'portal_feed_by_token',
 ] as const;
 
 /**
@@ -407,7 +408,19 @@ end $$;`,
           from public.legacy_id_maps m
          where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
          group by m.new_id $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]) from public;`,
+    // S9-03: a portal feed URL's served file. feed-api (app_public) cannot read agency_portal_connections (credentials,
+    // selection, names): for one token hash it gets the live connection's id, portal, served run and content hash —
+    // enabled, token not revoked, its agency VERIFIED — and nothing else (S9-03 review: not even the agency or the hash).
+    // One index probe (unique token hash). Dropped first: `create or replace` cannot change a function's result columns.
+    `drop function if exists portal_feed_by_token(text);`,
+    `create function portal_feed_by_token(hash text) returns table(connection_id uuid, channel_code text, run_id uuid, sha256 text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select c.id, c.channel_code, c.feed_run_id, c.feed_sha256
+          from public.agency_portal_connections c
+          join public.agencies g on g.agency_id = c.agency_id and g.status = 'VERIFIED'
+         where c.token_hash = hash and c.enabled and c.revoked_at is null and c.feed_run_id is not null $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text) from public;`,
+    `grant execute on function portal_feed_by_token(text) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,

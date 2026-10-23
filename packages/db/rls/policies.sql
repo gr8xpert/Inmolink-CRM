@@ -64,7 +64,15 @@ create or replace function legacy_ids_of(new_ids uuid[]) returns table(new_id uu
           from public.legacy_id_maps m
          where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
          group by m.new_id $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]) from public;
+drop function if exists portal_feed_by_token(text);
+create function portal_feed_by_token(hash text) returns table(connection_id uuid, channel_code text, run_id uuid, sha256 text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select c.id, c.channel_code, c.feed_run_id, c.feed_sha256
+          from public.agency_portal_connections c
+          join public.agencies g on g.agency_id = c.agency_id and g.status = 'VERIFIED'
+         where c.token_hash = hash and c.enabled and c.revoked_at is null and c.feed_run_id is not null $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text) from public;
+grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
@@ -78,7 +86,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -175,6 +183,7 @@ create policy own_rows on public."agency_portal_connections" to app_user
 revoke all on table public."agency_portal_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."agency_portal_connections" to app_user;
 grant select, insert, update, delete on table public."agency_portal_connections" to app_system;
+create policy definer_read on public."agency_portal_connections" for select to app_owner using (true);
 
 -- agency_profiles: PUBLIC_READ
 alter table public."agency_profiles" enable row level security;
@@ -793,6 +802,15 @@ create policy own_rows on public."portal_connection_properties" to app_user
 revoke all on table public."portal_connection_properties" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."portal_connection_properties" to app_user;
 grant select, insert, update, delete on table public."portal_connection_properties" to app_system;
+
+-- portal_feed_runs: STRICT
+alter table public."portal_feed_runs" enable row level security;
+alter table public."portal_feed_runs" force row level security;
+create policy own_rows on public."portal_feed_runs" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."portal_feed_runs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."portal_feed_runs" to app_user;
+grant select, insert, update, delete on table public."portal_feed_runs" to app_system;
 
 -- preferred_agencies: NETWORK_READ
 alter table public."preferred_agencies" enable row level security;

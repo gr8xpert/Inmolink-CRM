@@ -1127,3 +1127,17 @@ export async function pruneSourceHashes(
      where agency_id = ${scope.agencyId}::uuid and connection_id = ${scope.connectionId}::uuid
        and last_run_id <> ${scope.runId}::uuid`);
 }
+
+/**
+ * S9-03: whether a feed run of the agency is queued or running (an import is rewriting its listings). Portal feed
+ * passes wait for `imports.run.finished` instead of running every few minutes meanwhile. Served by the small partial
+ * index `feed_runs_active_idx` (active runs only).
+ */
+export async function agencyImportActive(tx: Tx, agencyId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ id: feedRuns.id })
+    .from(feedRuns)
+    .where(and(inArray(feedRuns.state, ['QUEUED', 'RUNNING']), eq(feedRuns.agencyId, agencyId)))
+    .limit(1);
+  return rows.length > 0;
+}

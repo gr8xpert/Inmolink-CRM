@@ -1,3 +1,4 @@
+import * as exportsModule from '@inmolink/core/modules/exports';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
@@ -38,6 +39,8 @@ describe('edge-cache rules (S8-F2)', () => {
       '/v2/taxonomy/types': taxonomy,
       '/v2/taxonomy/features': taxonomy,
       '/v2/feeds/:token/:file': `url ${websiteApi.SITE_FEED_TTL}s sie=${websiteApi.SITE_FEED_STALE_IF_ERROR} cursor:no params:[]`,
+      // S9-03: portal feeds, like the site feeds.
+      '/v2/portal-feeds/:token/:file': `url ${exportsModule.PORTAL_FEED_TTL}s sie=${exportsModule.PORTAL_FEED_STALE_IF_ERROR} cursor:no params:[]`,
       // S8-05: plugin updates, public for everyone (no key, no parameters).
       '/v2/plugin/update': 'always 60s sie=86400 cursor:no params:[]',
       '/v2/plugin/package/:version': 'always 31536000s sie=86400 cursor:no params:[]',

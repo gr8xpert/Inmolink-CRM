@@ -363,6 +363,14 @@ export type GetPluginUpdateResponse = {
   package: string;
 };
 
+/** A portal connection's XML feed: `kyero.xml` (Kyero v3) or `inmolink.xml` (generic). The token URL is the credential */
+export type GetPortalFeedParams = {
+  token: string;
+  file: "kyero.xml" | "inmolink.xml";
+};
+export type GetPortalFeedQuery = Record<string, never>;
+export type GetPortalFeedResponse = string;
+
 /** The site's listing pages (reference, slug in `lang`, last change), one page per `cursor` */
 export type GetSitemapParams = Record<string, never>;
 export type GetSitemapQuery = {
@@ -845,6 +853,7 @@ export const OPERATIONS = {
   getListing: { method: "GET", path: "/v2/listings/{ref}" },
   getPluginPackage: { method: "GET", path: "/v2/plugin/package/{version}" },
   getPluginUpdate: { method: "GET", path: "/v2/plugin/update" },
+  getPortalFeed: { method: "GET", path: "/v2/portal-feeds/{token}/{file}" },
   getSitemap: { method: "GET", path: "/v2/sitemap" },
   getTaxonomyCatalog: { method: "GET", path: "/v2/taxonomy/catalog" },
   getTaxonomyFeatures: { method: "GET", path: "/v2/taxonomy/features" },
@@ -865,6 +874,7 @@ export interface Operations {
   getListing: { params: GetListingParams; query: GetListingQuery; body?: never; headers?: never; response: GetListingResponse };
   getPluginPackage: { params: GetPluginPackageParams; query: GetPluginPackageQuery; body?: never; headers?: never; response: GetPluginPackageResponse };
   getPluginUpdate: { params: GetPluginUpdateParams; query: GetPluginUpdateQuery; body?: never; headers?: never; response: GetPluginUpdateResponse };
+  getPortalFeed: { params: GetPortalFeedParams; query: GetPortalFeedQuery; body?: never; headers?: never; response: GetPortalFeedResponse };
   getSitemap: { params: GetSitemapParams; query: GetSitemapQuery; body?: never; headers?: never; response: GetSitemapResponse };
   getTaxonomyCatalog: { params: GetTaxonomyCatalogParams; query: GetTaxonomyCatalogQuery; body?: never; headers?: never; response: GetTaxonomyCatalogResponse };
   getTaxonomyFeatures: { params: GetTaxonomyFeaturesParams; query: GetTaxonomyFeaturesQuery; body?: never; headers?: never; response: GetTaxonomyFeaturesResponse };
@@ -899,6 +909,7 @@ export function bindOperations(
     getListing: (params: GetListingParams, query?: GetListingQuery) => call('getListing', { params, query }),
     getPluginPackage: (params: GetPluginPackageParams, query?: GetPluginPackageQuery) => call('getPluginPackage', { params, query }),
     getPluginUpdate: (query?: GetPluginUpdateQuery) => call('getPluginUpdate', { query }),
+    getPortalFeed: (params: GetPortalFeedParams, query?: GetPortalFeedQuery) => call('getPortalFeed', { params, query }),
     getSitemap: (query?: GetSitemapQuery) => call('getSitemap', { query }),
     getTaxonomyCatalog: (query?: GetTaxonomyCatalogQuery) => call('getTaxonomyCatalog', { query }),
     getTaxonomyFeatures: (query?: GetTaxonomyFeaturesQuery) => call('getTaxonomyFeatures', { query }),

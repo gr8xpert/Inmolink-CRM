@@ -5,8 +5,11 @@ import { aadFor, type Keyring } from '@inmolink/platform/crypto';
  * feed server later decrypt and verify). Configuration only — never tenant or user state (CLAUDE.md rule 4).
  */
 export interface ExportsConfig {
-  /** `ENCRYPTION_KEYS` / `ENCRYPTION_ACTIVE_KEY_ID` (platform/crypto, AES-256-GCM with key IDs). */
-  keyring: Keyring;
+  /**
+   * `ENCRYPTION_KEYS` / `ENCRYPTION_ACTIVE_KEY_ID` (platform/crypto, AES-256-GCM with key IDs). Optional (S9-03):
+   * feed-api only verifies feed tokens and never holds the encryption keys.
+   */
+  keyring?: Keyring;
   /** `HMAC_KEY`: feed tokens are stored as their keyed hash (purpose `exports.feed-token`). */
   tokenKey: string;
 }
@@ -26,6 +29,12 @@ function configured(): ExportsConfig {
 export const tokenKey = (): Buffer => Buffer.from(configured().tokenKey);
 
 /** Ciphertext is bound to the agency, table, column and row: copied elsewhere it does not decrypt. */
+function keyring(): Keyring {
+  const k = configured().keyring;
+  if (!k) throw new Error('exports: no keyring configured (credentials cannot be encrypted or decrypted here)');
+  return k;
+}
+
 const aad = (agencyId: string, connectionId: string) =>
   aadFor({ agencyId, table: 'agency_portal_connections', column: 'credentials_enc', rowId: connectionId });
 
@@ -34,9 +43,9 @@ export function encryptCredentials(
   connectionId: string,
   credentials: Record<string, string>,
 ): string {
-  return configured().keyring.encrypt(JSON.stringify(credentials), aad(agencyId, connectionId));
+  return keyring().encrypt(JSON.stringify(credentials), aad(agencyId, connectionId));
 }
 
 export function decryptCredentials(agencyId: string, connectionId: string, envelope: string): Record<string, string> {
-  return JSON.parse(configured().keyring.decrypt(envelope, aad(agencyId, connectionId))) as Record<string, string>;
+  return JSON.parse(keyring().decrypt(envelope, aad(agencyId, connectionId))) as Record<string, string>;
 }

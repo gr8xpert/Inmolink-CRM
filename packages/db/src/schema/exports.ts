@@ -27,6 +27,13 @@ export const portalChannelStatusEnum = pgEnum('portal_channel_status', ['AVAILAB
 /** Which of the agency's listings a connection sends: every PUBLIC one · the ones carrying a tag · only the chosen. */
 export const portalSelectionModeEnum = pgEnum('portal_selection_mode', ['ALL_PUBLIC', 'TAGGED', 'MANUAL']);
 export const portalOverrideActionEnum = pgEnum('portal_override_action', ['INCLUDE', 'EXCLUDE']);
+/** S9-03: what started a feed run — an event (listing, selection, connection change) or the nightly sweep. */
+export const portalFeedRunTriggerEnum = pgEnum('portal_feed_run_trigger', ['EVENT', 'NIGHTLY']);
+/**
+ * S9-03: WRITTEN — a new file is served · UNCHANGED — same content hash, nothing rewritten · FAILED — the previous
+ * file stays served · SKIPPED — nothing generated (turned off, writer not enabled, agency not verified).
+ */
+export const portalFeedRunStatusEnum = pgEnum('portal_feed_run_status', ['WRITTEN', 'UNCHANGED', 'FAILED', 'SKIPPED']);
 
 /**
  * The catalog of portals an agency can feed (S9-01): Kyero, thinkSPAIN, A Place in the Sun, generic XML; idealista
@@ -89,6 +96,19 @@ export const agencyPortalConnections = pgTable(
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     lastValidCount: integer('last_valid_count'),
     lastInvalidCount: integer('last_invalid_count'),
+    /**
+     * The served feed file (S9-03, written by the generator, never bumps `version`): the run whose object
+     * (`portal-feeds/<connection>/<run>/feed.xml.gz`) is live, the SHA-256 (base64url) of its XML — the content hash
+     * that decides whether a run rewrites it, and the strong ETag — its gzip size and listing count, and when its
+     * content last changed. Null: no file yet. Read by feed-api only through `portal_feed_by_token()`.
+     */
+    feedRunId: uuid('feed_run_id'),
+    feedSha256: text('feed_sha256'),
+    feedBytes: integer('feed_bytes'),
+    feedItemCount: integer('feed_item_count'),
+    feedGeneratedAt: timestamp('feed_generated_at', { withTimezone: true }),
+    /** The start of the last nightly run that covered this connection (S9-03): the nightly sweep's due check. */
+    nightlyAt: timestamp('nightly_at', { withTimezone: true }),
     /** The admin who created the connection (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
     /** Bumped on every change (optimistic concurrency, `VERSION_CONFLICT`). */
@@ -103,6 +123,10 @@ export const agencyPortalConnections = pgTable(
     unique('agency_portal_connections_agency_id_uq').on(t.agencyId, t.id),
     // the token's lookup (S9-04): where token_hash = ?
     uniqueIndex('agency_portal_connections_token_uq').on(t.tokenHash),
+    // nightly sweep (S9-03): agencies with a live connection, keyset by agency_id
+    index('agency_portal_connections_live_idx')
+      .on(t.agencyId, t.nightlyAt)
+      .where(sql`${t.enabled} and ${t.revokedAt} is null`),
     // one connection per name and portal
     uniqueIndex('agency_portal_connections_name_uq').on(t.agencyId, t.channelCode, sql`lower(${t.name})`),
     check('agency_portal_connections_name_ck', sql`char_length(${t.name}) between 1 and 80`),
@@ -179,5 +203,42 @@ export const portalConnectionIssues = pgTable(
       foreignColumns: [properties.id, properties.agencyId],
     }).onDelete('cascade'),
     index('portal_connection_issues_property_idx').on(t.propertyId),
+  ],
+);
+
+/**
+ * Run history of a connection's feed (S9-03): one row per generator run, shown on `/portals/[id]`. Retention-bounded:
+ * the generator keeps the newest `FEED_RUNS_KEPT` per connection (older ones are deleted in the run's own
+ * transaction), so the table stays at most connections × that many rows.
+ */
+export const portalFeedRuns = pgTable(
+  'portal_feed_runs',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    connectionId: uuid('connection_id').notNull(),
+    trigger: portalFeedRunTriggerEnum('trigger').notNull(),
+    status: portalFeedRunStatusEnum('status').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }).notNull(),
+    validCount: integer('valid_count'),
+    invalidCount: integer('invalid_count'),
+    /** Gzip size of the file the run produced (WRITTEN, UNCHANGED). */
+    bytes: integer('bytes'),
+    /** WRITTEN / UNCHANGED: the content hash; FAILED / SKIPPED: null. */
+    sha256: text('sha256'),
+    /** FAILED: an error code (`TOO_LARGE`, `GENERATION_FAILED`); SKIPPED: why (`disabled`, `writer-disabled`, …). */
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: 'portal_feed_runs_connection_fk',
+      columns: [t.agencyId, t.connectionId],
+      foreignColumns: [agencyPortalConnections.agencyId, agencyPortalConnections.id],
+    }).onDelete('cascade'),
+    // the dashboard's run list and the retention delete: where agency_id = ? and connection_id = ? order by id desc
+    index('portal_feed_runs_connection_idx').on(t.agencyId, t.connectionId, t.id),
+    check('portal_feed_runs_reason_ck', sql`${t.reason} is null or char_length(${t.reason}) <= 40`),
   ],
 );

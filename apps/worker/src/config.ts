@@ -10,6 +10,7 @@ import {
   loadConfigOrExit,
   mediaCdnEnv,
   mediaEnv,
+  portalFeedsEnv,
   portVar,
   redisEnv,
   searchEnv,
@@ -105,9 +106,10 @@ const leadEmailEnv = {
 
 /**
  * The `exports` pool's per-site XML feeds (S7-07): the site's inventory through the website API's read path as
- * `app_public`, image URLs under the media CDN (the same variables as the lead acknowledgements).
+ * `app_public`, image URLs under the media CDN (the same variables as the lead acknowledgements). S9-03: portal feeds'
+ * nightly hour and pool caps.
  */
-const siteFeedEnv = leadEmailEnv;
+const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv };
 
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
@@ -136,7 +138,15 @@ export function workerEnvFor(pools: readonly Pool[]) {
 }
 
 /** Every variable any pool reads (the deploy-config check lists them). */
-export const workerEnv = { ...baseEnv, ...systemEnv, ...mediaPoolEnv, ...emailEnv, ...leadEmailEnv, ...indexingEnv };
+export const workerEnv = {
+  ...baseEnv,
+  ...systemEnv,
+  ...mediaPoolEnv,
+  ...emailEnv,
+  ...leadEmailEnv,
+  ...siteFeedEnv,
+  ...indexingEnv,
+};
 type Full = Config<typeof workerEnv>;
 /** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */
 export type WorkerConfig = Config<typeof baseEnv> & Partial<Omit<Full, keyof Config<typeof baseEnv>>>;

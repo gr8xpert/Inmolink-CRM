@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as migration from '@inmolink/core/modules/migration';
 import * as search from '@inmolink/core/modules/search';
@@ -55,6 +56,8 @@ try {
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
   // S7-07: per-site XML feeds — tokens hashed with HMAC_KEY, files read from the feeds bucket only.
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
+  // S9-03: portal feeds — the same token key (purpose `exports.feed-token`); no encryption keys here.
+  exportsModule.configureExports({ tokenKey: config.HMAC_KEY });
   configureStorage(storageConfigForBuckets(config, { feeds: config.S3_BUCKET_FEEDS ?? config.S3_BUCKET_EXPORTS }));
   if (!config.TURNSTILE_SECRET_KEY)
     logger.warn('no TURNSTILE_SECRET_KEY: website forms through publishable keys are refused');
@@ -87,6 +90,8 @@ try {
     limiter: rateLimiter(),
     // S7-06: public first pages and details for the CDN, only once its cache rules are live (runbook cdn.md).
     edgeCache: config.WEBSITE_EDGE_CACHE === 'true',
+    // S9-03: portal crawlers fetch many feeds from one address (the per-token limit protects each feed).
+    portalFeedIpPerMinute: config.PORTAL_FEED_IP_PER_MINUTE,
     checks: {
       db: () => pingDb('app_public'),
       dbIntake: () => pingDb('app_intake'),

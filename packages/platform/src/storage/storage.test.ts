@@ -5,6 +5,7 @@ import {
   createMemoryStore,
   createS3Store,
   detectFileType,
+  MIN_UPLOAD_PART_BYTES,
   parseListPage,
   StorageError,
   storageConfigForBuckets,
@@ -65,6 +66,39 @@ describe('storage', () => {
     await memory.put('work', 'a', new Uint8Array([1, 2]), { contentType: 'image/png' });
     await memory.copy('work', 'a', 'b');
     expect(memory.objects.get('work/b')).toMatchObject({ contentType: 'image/png', body: new Uint8Array([1, 2]) });
+  });
+
+  it('[S9-03] aborting a started multipart upload throws when the store refuses it (404: already gone)', async () => {
+    let abortStatus = 500;
+    const store = createS3Store({
+      ...storageConfigForBuckets(
+        { S3_ENDPOINT: 'http://localhost:9000', S3_REGION: 'auto', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 's' },
+        { feeds: 'f' },
+      ),
+      partBytes: MIN_UPLOAD_PART_BYTES,
+      fetch: async (req) => {
+        const r = req as Request;
+        if (r.method === 'POST') {
+          return new Response('<InitiateMultipartUploadResult><UploadId>u1</UploadId></InitiateMultipartUploadResult>');
+        }
+        if (r.method === 'PUT') return new Response('', { status: 200, headers: { etag: '"p1"' } });
+        return new Response(null, { status: abortStatus });
+      },
+    });
+    const started = async () => {
+      const up = store.upload('feeds', 'portal-feeds/x/y/feed.xml.gz', {
+        contentType: 'application/gzip',
+        partBytes: MIN_UPLOAD_PART_BYTES,
+      });
+      // One full part: the upload has started (an id exists), so the abort is a request.
+      await up.write(new Uint8Array(MIN_UPLOAD_PART_BYTES));
+      return up;
+    };
+    await expect((await started()).abort()).rejects.toThrow(/abort failed \(500\)/);
+    abortStatus = 404;
+    await expect((await started()).abort()).resolves.toBeUndefined();
+    abortStatus = 204;
+    await expect((await started()).abort()).resolves.toBeUndefined();
   });
 
   it('[S1-03] detects uploads by magic bytes, not by name or header', () => {

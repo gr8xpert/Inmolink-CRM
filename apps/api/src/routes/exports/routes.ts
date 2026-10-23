@@ -7,6 +7,7 @@ import {
   PortalConnectionPage,
   PortalConnectionParams,
   PortalConnectionSecretDto,
+  PortalFeedRunList,
   PortalIssuePage,
   PortalOverridePage,
   PortalSelectionPage,
@@ -234,5 +235,21 @@ export async function exportsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => exportsModule.listIssues(ctx, req.params, req.query)),
+  );
+
+  app.get(
+    '/v1/portal-connections/:connectionId/runs',
+    {
+      schema: {
+        tags,
+        operationId: 'exports.listPortalFeedRuns',
+        summary: "The connection's latest feed runs (written, unchanged, failed, skipped), newest first",
+        params: PortalConnectionParams,
+        response: { 200: PortalFeedRunList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => exportsModule.listFeedRuns(ctx, req.params)),
   );
 }

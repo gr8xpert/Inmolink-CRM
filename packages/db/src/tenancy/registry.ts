@@ -403,14 +403,27 @@ export const tenantTables: Record<string, TenantTable> = {
     samples: { visible: [{}], hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }] },
   },
   // Portal connections (S9-01): an agency's feeds to Kyero, thinkSPAIN, … Credentials are an encrypted envelope, the
-  // feed token only a keyed hash; the serving read for the token (S9-04) is added with the feed server.
+  // feed token only a keyed hash. S9-03: feed-api (app_public) never reads the table; the SECURITY DEFINER lookup
+  // `portal_feed_by_token(hash)` (owner app_owner, `definerRead`) answers the served file of one live token and no
+  // other column — never the credentials.
   agency_portal_connections: {
     kind: 'STRICT',
     base: { channel_code: 'isolation-portal', name: 'Isolation', token_hint: 'abcd' },
+    definerRead: true,
   },
   portal_connection_properties: { kind: 'STRICT', base: { action: 'INCLUDE' } },
   // Listings a connection's last run left out and why (S9-02).
   portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
+  // A connection's feed runs (S9-03): written by the generator, read by the dashboard.
+  portal_feed_runs: {
+    kind: 'STRICT',
+    base: {
+      trigger: 'EVENT',
+      status: 'WRITTEN',
+      started_at: '2026-01-01T00:00:00Z',
+      finished_at: '2026-01-01T00:00:00Z',
+    },
+  },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's
   // owner never reads the client's details. feed-api writes them as `app_intake` (`withIntake`, pinned to the site's
   // agency) and reads back only the idempotency columns; the worker acknowledges them as `app_system`.

@@ -13,7 +13,15 @@
  */
 export { DEFAULT_WEBSITE_LIMITS, type WebsiteLimits } from './config';
 export { wrapSearchCursor as searchCursorFor } from './cursor';
-export { configureEdgeCache, EDGE_MAX_TAGS, EDGE_PURGE_HORIZON_MS, edgeTag, edgeTagsOf, WEBSITE_API_TTL } from './edge';
+export {
+  configureEdgeCache,
+  EDGE_MAX_TAGS,
+  EDGE_PURGE_HORIZON_MS,
+  edgeTag,
+  edgeTagsConfigured,
+  edgeTagsOf,
+  WEBSITE_API_TTL,
+} from './edge';
 export {
   checkEmbedLimits,
   type EmbedSite,
@@ -27,7 +35,7 @@ export { brandStyle, type EmbedBranding, embedBranding, embedFrameAncestors } fr
 export { websiteApiErrors } from './errors';
 export { websiteApiEvents } from './events';
 export { isHoneytokenRef } from './honeytokens';
-export { configureSiteFeedFanout, websiteApiJobs } from './jobs';
+export { configureSiteFeedFanout, queueEdgePurge, websiteApiJobs } from './jobs';
 export { LEAD_TURNSTILE_ACTION, type LeadRequestFacts, submitLead } from './leads';
 export { legacyProperties, legacyProperty, legacyTypes, resetLegacyCaches } from './legacy-v1';
 export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_POOL, sliceSignature } from './limits';

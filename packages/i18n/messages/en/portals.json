@@ -118,5 +118,44 @@
       "DESCRIPTION_TOO_SHORT": "The description has {actual} characters; this portal needs at least {min}.",
       "DESCRIPTION_TOO_LONG": "The description has {actual} characters; this portal takes at most {max}."
     }
+  },
+  "runs": {
+    "title": "Feed runs",
+    "intro": "The feed is regenerated when your listings or this connection change, and every night. A run whose content did not change leaves the file as it is.",
+    "file": "Feed file {file}: {count, plural, one {# listing} other {# listings}}, {size}, last changed {date}.",
+    "noFile": "No feed file yet. It is generated within minutes of the connection being set up.",
+    "empty": "No runs yet.",
+    "kb": "{kb} KB",
+    "columns": {
+      "started": "Started",
+      "trigger": "Trigger",
+      "status": "Result",
+      "listings": "Listings",
+      "size": "Size"
+    },
+    "triggers": {
+      "EVENT": "Change",
+      "NIGHTLY": "Nightly"
+    },
+    "statuses": {
+      "WRITTEN": "New file",
+      "UNCHANGED": "Unchanged",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped"
+    },
+    "listings": "{valid} sent, {invalid} left out",
+    "reasons": {
+      "TOO_LARGE": "The feed is larger than the 64 MB limit.",
+      "GENERATION_FAILED": "The feed could not be generated; it is retried automatically.",
+      "WRITER_DROPPED": "A listing that passed the checks could not be written; the feed was not changed. Support has been told.",
+      "SUPERSEDED": "Another run of this feed finished first; its file is the one served.",
+      "disabled": "The connection is turned off.",
+      "revoked": "The feed URL is turned off.",
+      "writer-disabled": "This portal is not available yet.",
+      "no-profile": "This portal is not available yet.",
+      "not-verified": "Your agency is not verified, so no listing can be published.",
+      "no-locales": "Your agency has no content language.",
+      "no-connection": "The connection was deleted."
+    }
   }
 }

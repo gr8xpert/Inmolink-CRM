@@ -19,6 +19,7 @@ import {
   websiteApiEnv,
   websiteSearchEnv,
 } from '@inmolink/platform/config';
+import { z } from 'zod';
 
 /**
  * Website API: `app_public` for reads (read models, PUBLIC_READ) and `app_intake` for website forms (S7-05: inbound
@@ -58,6 +59,13 @@ export const feedApiEnv = {
   /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */
   NETWORK_GIVE_TO_GET_MIN_SHARED: networkEnv.NETWORK_GIVE_TO_GET_MIN_SHARED,
   NETWORK_GIVE_TO_GET_GRACE_DAYS: networkEnv.NETWORK_GIVE_TO_GET_GRACE_DAYS,
+  /**
+   * S9-03: portal feed requests per minute per IP. Portals crawl many agencies' feeds from a few addresses, and a
+   * nightly regeneration purges them all, so the origin sees every feed of a portal from one address at once; the
+   * per-token limit (60 / hour) protects each feed. Raise it for a portal that fetches more feeds than this per
+   * minute.
+   */
+  PORTAL_FEED_IP_PER_MINUTE: z.coerce.number().int().min(60).max(100_000).default(3_000),
   ...cryptoEnv,
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;
@@ -79,10 +87,20 @@ export function assertFeedApiTrustProxy(config: Pick<FeedApiConfig, 'NODE_ENV' |
   ]);
 }
 
-/** feed-api's configuration, checked (`assertFeedApiTrustProxy`); throws `ConfigError`. */
+/**
+ * S9-03 review: in production feed-api reads site and portal feeds from their own bucket (`S3_BUCKET_FEEDS`,
+ * `inmolink-feeds`, read-only token); the fallback to the exports bucket is for local stacks only.
+ */
+export function assertFeedApiFeedsBucket(config: Pick<FeedApiConfig, 'NODE_ENV' | 'S3_BUCKET_FEEDS'>): void {
+  if (config.NODE_ENV !== 'production' || config.S3_BUCKET_FEEDS) return;
+  throw new ConfigError([{ key: 'S3_BUCKET_FEEDS', message: 'must name the feeds bucket in production' }]);
+}
+
+/** feed-api's configuration, checked (`assertFeedApiTrustProxy`, `assertFeedApiFeedsBucket`); throws `ConfigError`. */
 export function feedApiConfig(env: Record<string, string | undefined>): FeedApiConfig {
   const config = loadConfig(feedApiEnv, { ...env, APP_ROLE: 'http' });
   assertFeedApiTrustProxy(config);
+  assertFeedApiFeedsBucket(config);
   return config;
 }
 

@@ -1,6 +1,7 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
+import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
@@ -42,12 +43,16 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.purgeEdgeCache,
   ],
   matching: [],
-  // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep.
+  // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
     websiteApiJobs.generateSiteFeed,
     websiteApiJobs.refreshSiteFeeds,
     websiteApiJobs.deleteSiteFeedFiles,
     websiteApiJobs.sweepNetworkFeeds,
+    // S9-03: portal feeds — one pass per agency (events, nightly) and the nightly sweep.
+    exportsJobs.generatePortalFeeds,
+    exportsJobs.generateNightlyPortalFeeds,
+    exportsJobs.sweepNightlyPortalFeeds,
   ],
   email: [
     identityJobs.sendAuthEmail,

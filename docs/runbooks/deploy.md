@@ -77,7 +77,11 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
      only**, *Apply to specific buckets only* → `inmolink-feeds` (per-site XML feeds, `site-feeds/<site>/<run>/`).
      Create the bucket `inmolink-feeds` (no public access, no custom domain) first and add it to the workers'
      `S3_ACCESS_KEY_ID` token (Object Read & Write; the exports pool writes the feeds). `S3_BUCKET_FEEDS` names it
-     (Kamal); unset, the feeds go to the exports bucket (local stacks only).
+     (Kamal; feed-api refuses to boot in production without it, S9-03); unset, the feeds go to the exports bucket
+     (local stacks only). S9-03: portal feeds live there too (`portal-feeds/<connection>/<run>/`). On the bucket add
+     the lifecycle rule **Abort incomplete multipart uploads after 1 day** (whole bucket; R2 → bucket → Settings →
+     Object lifecycle rules): an unchanged portal feed aborts its upload, and a worker that dies mid-upload or an abort
+     the store refuses leaves parts no feed serves.
    Then create the Meilisearch **search-only** key for api and feed-api (they never get the master key;
    production config refuses it for http apps) and put its `key` in `MEILI_SEARCH_KEY`:
 

@@ -105,3 +105,16 @@ export async function portalWriterEnabled(ctx: FlagCtx, profile: PortalProfile |
   if (!profile) return false;
   return profile.confirmed || (await flag(ctx, portalFlagKey(profile.code)));
 }
+
+/** S9-03: the file name a format is served under (`/v2/portal-feeds/<token>/<file>`). */
+export const FEED_FILE_OF_FORMAT = { 'kyero-v3': 'kyero.xml', 'generic-v1': 'inmolink.xml' } as const satisfies Record<
+  PortalFormat,
+  string
+>;
+export type PortalFeedFileName = (typeof FEED_FILE_OF_FORMAT)[PortalFormat];
+
+/** The feed file a portal's connection serves, or null for a portal without a profile. */
+export function feedFileOf(channelCode: string): PortalFeedFileName | null {
+  const profile = profileOf(channelCode);
+  return profile ? FEED_FILE_OF_FORMAT[profile.format] : null;
+}

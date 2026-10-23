@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import { isDeclaredEvent } from '@inmolink/platform/outbox';
 import { describe, expect, it } from 'vitest';
 import { POOL_JOBS } from './processors';
@@ -30,7 +31,8 @@ describe('worker subscriptions', () => {
     for (const name of moduleDirs) {
       const files = readdirSync(join(MODULES_DIR, name));
       if (files.includes('subscriptions.ts')) {
-        expect(body, name).toMatch(new RegExp(String.raw`\b${camel(name)}\.register\w*Subscriptions\(\)`));
+        // A module whose subscriptions enqueue worker-only jobs registers them through its worker entry (S9-03).
+        expect(body, name).toMatch(new RegExp(String.raw`\b${camel(name)}(?:Worker)?\.register\w*Subscriptions\(\)`));
       }
     }
   });
@@ -43,5 +45,7 @@ describe('worker subscriptions', () => {
         | undefined;
       for (const job of Object.values(jobs ?? {})) expect(pooled.has(job.name), job.name).toBe(true);
     }
+    // Worker-only entries (S9-03): their jobs too.
+    for (const job of Object.values(exportsWorker.exportsJobs)) expect(pooled.has(job.name), job.name).toBe(true);
   });
 });

@@ -462,6 +462,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
           if (uploadId === null) return;
           const res = await send(at({ uploadId }), { method: 'DELETE' });
           await res.body?.cancel();
+          // S9-03 review: a refused abort leaves the parts billed until the bucket's lifecycle rule removes them
+          // (runbook deploy.md step 6) — the caller must know. 404: already gone (aborted or completed elsewhere).
+          if (!res.ok && res.status !== 404) {
+            throw new StorageError(`storage upload abort failed (${res.status})`, res.status);
+          }
         },
       };
     },

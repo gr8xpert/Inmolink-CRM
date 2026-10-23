@@ -118,5 +118,44 @@
       "DESCRIPTION_TOO_SHORT": "La descripción tiene {actual} caracteres; este portal necesita al menos {min}.",
       "DESCRIPTION_TOO_LONG": "La descripción tiene {actual} caracteres; este portal admite como máximo {max}."
     }
+  },
+  "runs": {
+    "title": "Generaciones del feed",
+    "intro": "El feed se vuelve a generar cuando cambian tus inmuebles o esta conexión, y cada noche. Si el contenido no ha cambiado, el archivo se deja como está.",
+    "file": "Archivo del feed {file}: {count, plural, one {# inmueble} other {# inmuebles}}, {size}, último cambio {date}.",
+    "noFile": "Todavía no hay archivo del feed. Se genera a los pocos minutos de configurar la conexión.",
+    "empty": "Todavía no hay generaciones.",
+    "kb": "{kb} KB",
+    "columns": {
+      "started": "Inicio",
+      "trigger": "Motivo",
+      "status": "Resultado",
+      "listings": "Inmuebles",
+      "size": "Tamaño"
+    },
+    "triggers": {
+      "EVENT": "Cambio",
+      "NIGHTLY": "Nocturna"
+    },
+    "statuses": {
+      "WRITTEN": "Archivo nuevo",
+      "UNCHANGED": "Sin cambios",
+      "FAILED": "Fallida",
+      "SKIPPED": "Omitida"
+    },
+    "listings": "{valid} enviados, {invalid} excluidos",
+    "reasons": {
+      "TOO_LARGE": "El feed supera el límite de 64 MB.",
+      "GENERATION_FAILED": "No se pudo generar el feed; se reintenta automáticamente.",
+      "WRITER_DROPPED": "Un inmueble que pasó las comprobaciones no se pudo escribir; el feed no se ha cambiado. Se ha avisado a soporte.",
+      "SUPERSEDED": "Otra generación de este feed terminó antes; se sirve su archivo.",
+      "disabled": "La conexión está desactivada.",
+      "revoked": "La URL del feed está desactivada.",
+      "writer-disabled": "Este portal todavía no está disponible.",
+      "no-profile": "Este portal todavía no está disponible.",
+      "not-verified": "Tu agencia no está verificada, así que no se puede publicar ningún inmueble.",
+      "no-locales": "Tu agencia no tiene idioma de contenido.",
+      "no-connection": "La conexión se ha eliminado."
+    }
   }
 }

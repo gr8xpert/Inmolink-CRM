@@ -3,14 +3,16 @@
  * `@inmolink/db/schema/exports`. Every connection query names the agency (RLS would hide other agencies' rows
  * anyway).
  */
+import type { PortalFeedRunReason } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import {
   agencyPortalConnections,
   portalChannels,
   portalConnectionIssues,
   portalConnectionProperties,
+  portalFeedRuns,
 } from '@inmolink/db/schema/exports';
-import { and, asc, count, eq, gt, inArray, lte, ne, notInArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 
 export type ChannelStatus = (typeof portalChannels.$inferSelect)['status'];
@@ -74,6 +76,11 @@ export interface ConnectionRow {
   lastCheckedAt: Date | null;
   lastValidCount: number | null;
   lastInvalidCount: number | null;
+  feedRunId: string | null;
+  feedSha256: string | null;
+  feedBytes: number | null;
+  feedItemCount: number | null;
+  feedGeneratedAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -95,6 +102,11 @@ const connectionColumns = {
   lastCheckedAt: agencyPortalConnections.lastCheckedAt,
   lastValidCount: agencyPortalConnections.lastValidCount,
   lastInvalidCount: agencyPortalConnections.lastInvalidCount,
+  feedRunId: agencyPortalConnections.feedRunId,
+  feedSha256: agencyPortalConnections.feedSha256,
+  feedBytes: agencyPortalConnections.feedBytes,
+  feedItemCount: agencyPortalConnections.feedItemCount,
+  feedGeneratedAt: agencyPortalConnections.feedGeneratedAt,
   version: agencyPortalConnections.version,
   createdAt: agencyPortalConnections.createdAt,
   updatedAt: agencyPortalConnections.updatedAt,
@@ -483,4 +495,265 @@ export async function issuePage(
     )
     .orderBy(asc(portalConnectionIssues.propertyId))
     .limit(q.limit);
+}
+
+// ── Feed generation and delivery (S9-03) ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Worker: the agency's connections a pass writes — these ids, or (`ids` null) every live one (enabled, token not
+ * revoked; `agency_portal_connections_live_idx`). At most `MAX_PORTAL_CONNECTIONS` rows.
+ */
+export async function connectionsForPass(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[] | null,
+): Promise<ConnectionRow[]> {
+  if (ids !== null && ids.length === 0) return [];
+  return tx
+    .select(connectionColumns)
+    .from(agencyPortalConnections)
+    .where(
+      and(
+        eq(agencyPortalConnections.agencyId, agencyId),
+        ids === null
+          ? and(eq(agencyPortalConnections.enabled, true), isNull(agencyPortalConnections.revokedAt))
+          : inArray(agencyPortalConnections.id, [...ids]),
+      ),
+    )
+    .orderBy(asc(agencyPortalConnections.id));
+}
+
+/** Every connection id of the agency (≤ `MAX_PORTAL_CONNECTIONS`): its edge copies are purged on a status change. */
+export async function connectionIdsOf(tx: Tx, agencyId: string): Promise<string[]> {
+  const rows = await tx
+    .select({ id: agencyPortalConnections.id })
+    .from(agencyPortalConnections)
+    .where(eq(agencyPortalConnections.agencyId, agencyId));
+  return rows.map((r) => r.id);
+}
+
+/** Whether the agency has a live connection (an index probe): listing events of other agencies queue nothing. */
+export async function hasLiveConnection(tx: Tx, agencyId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ id: agencyPortalConnections.id })
+    .from(agencyPortalConnections)
+    .where(
+      and(
+        eq(agencyPortalConnections.agencyId, agencyId),
+        eq(agencyPortalConnections.enabled, true),
+        isNull(agencyPortalConnections.revokedAt),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * The nightly lane of an agency (0 … lanes - 1): a stable hash of its id, so the agencies split evenly whatever their
+ * id order. SQL, so the lane's next agency is found in one statement.
+ */
+const laneOf = (lanes: number) =>
+  sql`mod(hashtext(${agencyPortalConnections.agencyId}::text)::bigint + 2147483648, ${lanes})`;
+
+const nightlyDue = (before: Date) =>
+  and(
+    eq(agencyPortalConnections.enabled, true),
+    isNull(agencyPortalConnections.revokedAt),
+    or(isNull(agencyPortalConnections.nightlyAt), lt(agencyPortalConnections.nightlyAt, before)),
+  );
+
+/**
+ * Nightly lanes (S9-03 review): the first agency of each lane still due tonight (a live connection with no full pass
+ * since `before`), in agency-id order. One statement over the partial live index (≤ connections rows).
+ */
+export async function firstNightlyAgencies(
+  tx: Tx,
+  q: { before: Date; lanes: number },
+): Promise<{ lane: number; agencyId: string }[]> {
+  const res = await tx.execute<{ lane: string | number; agency_id: string }>(sql`
+    select distinct on (lane) lane, agency_id
+      from (select ${laneOf(q.lanes)} as lane, ${agencyPortalConnections.agencyId} as agency_id
+              from ${agencyPortalConnections}
+             where ${nightlyDue(q.before)}) s
+     order by lane, agency_id`);
+  return res.rows.map((r) => ({ lane: Number(r.lane), agencyId: r.agency_id }));
+}
+
+/** The lane's next agency due tonight after `after` (keyset by agency id), or null: the lane is done. */
+export async function nextNightlyAgency(
+  tx: Tx,
+  q: { before: Date; lanes: number; lane: number; after: string },
+): Promise<string | null> {
+  const [row] = await tx
+    .select({ agencyId: agencyPortalConnections.agencyId })
+    .from(agencyPortalConnections)
+    .where(
+      and(nightlyDue(q.before), gt(agencyPortalConnections.agencyId, q.after), sql`${laneOf(q.lanes)} = ${q.lane}`),
+    )
+    .orderBy(asc(agencyPortalConnections.agencyId))
+    .limit(1);
+  return row?.agencyId ?? null;
+}
+
+export type FeedRunStatus = (typeof portalFeedRuns.$inferSelect)['status'];
+export type FeedRunTrigger = (typeof portalFeedRuns.$inferSelect)['trigger'];
+
+export interface FeedRunRecord {
+  /** UUIDv7 allocated when the pass started: a connection's runs sort by start. */
+  id: string;
+  agencyId: string;
+  connectionId: string;
+  trigger: FeedRunTrigger;
+  status: FeedRunStatus;
+  startedAt: Date;
+  finishedAt: Date;
+  validCount: number | null;
+  invalidCount: number | null;
+  bytes: number | null;
+  sha256: string | null;
+  reason: PortalFeedRunReason | null;
+}
+
+/**
+ * Records a pass's runs (worker, one transaction, three statements whatever the connection count):
+ *
+ * 1. one UPDATE of the connections (`jsonb_to_recordset`): the nightly mark (`nightly_at`, for a full pass — every
+ *    live connection, NIGHTLY or not), the validation totals of a completed run (WRITTEN, UNCHANGED), and — for a
+ *    WRITTEN run — the served file, but only if the served file is still `expectedRunId` (compare-and-set; set
+ *    expressions read the row as locked, re-read after a concurrent update). `RETURNING` tells which WRITTEN runs won;
+ * 2. one INSERT of the history rows: a WRITTEN run that lost is stored as FAILED `SUPERSEDED` (no size, no hash: its
+ *    object is deleted);
+ * 3. one DELETE of the history beyond the newest `keep` of each of the pass's connections.
+ *
+ * Returns, per run, the recorded run and the object no longer served (`stale`): the previous file of a run that won,
+ * the run's own object when it lost.
+ */
+export async function recordFeedRuns(
+  tx: Tx,
+  agencyId: string,
+  runs: readonly { run: FeedRunRecord; expectedRunId: string | null }[],
+  opts: { keep: number; fullPass: boolean },
+): Promise<{ run: FeedRunRecord; stale: string | null }[]> {
+  if (runs.length === 0) return [];
+  const rows = runs.map(({ run, expectedRunId }) => ({
+    connection_id: run.connectionId,
+    run_id: run.id,
+    expected: expectedRunId,
+    written: run.status === 'WRITTEN',
+    completed: run.status === 'WRITTEN' || run.status === 'UNCHANGED',
+    nightly: opts.fullPass || run.trigger === 'NIGHTLY',
+    started_at: run.startedAt.toISOString(),
+    finished_at: run.finishedAt.toISOString(),
+    valid: run.validCount,
+    invalid: run.invalidCount,
+    bytes: run.bytes,
+    sha: run.sha256,
+  }));
+  const updated = await tx.execute<{ id: string; served: string | null }>(sql`
+    update ${agencyPortalConnections} c
+       set nightly_at = case when v.nightly then v.started_at else c.nightly_at end,
+           last_checked_at = case when v.completed then v.started_at else c.last_checked_at end,
+           last_valid_count = case when v.completed then v.valid else c.last_valid_count end,
+           last_invalid_count = case when v.completed then v.invalid else c.last_invalid_count end,
+           feed_run_id = case when v.written and c.feed_run_id is not distinct from v.expected
+                              then v.run_id else c.feed_run_id end,
+           feed_sha256 = case when v.written and c.feed_run_id is not distinct from v.expected
+                              then v.sha else c.feed_sha256 end,
+           feed_bytes = case when v.written and c.feed_run_id is not distinct from v.expected
+                             then v.bytes else c.feed_bytes end,
+           feed_item_count = case when v.written and c.feed_run_id is not distinct from v.expected
+                                  then v.valid else c.feed_item_count end,
+           feed_generated_at = case when v.written and c.feed_run_id is not distinct from v.expected
+                                    then v.finished_at else c.feed_generated_at end
+      from jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) as v(
+             connection_id uuid, run_id uuid, expected uuid, written boolean, completed boolean, nightly boolean,
+             started_at timestamptz, finished_at timestamptz, valid integer, invalid integer, bytes integer, sha text)
+     where c.agency_id = ${agencyId} and c.id = v.connection_id
+     returning c.id, c.feed_run_id as served`);
+  const served = new Map(updated.rows.map((r) => [r.id, r.served]));
+  const out = runs.map(({ run, expectedRunId }) => {
+    if (run.status !== 'WRITTEN') return { run, stale: null };
+    if (served.get(run.connectionId) === run.id) return { run, stale: expectedRunId };
+    const lost: FeedRunRecord = { ...run, status: 'FAILED', reason: 'SUPERSEDED', bytes: null, sha256: null };
+    return { run: lost, stale: run.id };
+  });
+  // A connection deleted meanwhile has no row to attach history to (the FK would refuse it).
+  const recordable = out.filter((o) => served.has(o.run.connectionId));
+  if (recordable.length > 0) await tx.insert(portalFeedRuns).values(recordable.map((o) => o.run));
+  const ids = [...new Set(recordable.map((o) => o.run.connectionId))];
+  if (ids.length > 0) {
+    // Retention: the newest `keep` runs of each connection (index (agency_id, connection_id, id); ids are UUIDv7).
+    await tx.execute(sql`
+      delete from ${portalFeedRuns} r
+       using (select k.id as connection_id,
+                     (select x.id from ${portalFeedRuns} x
+                       where x.agency_id = ${agencyId} and x.connection_id = k.id
+                       order by x.id desc offset ${opts.keep - 1} limit 1) as cutoff
+                from (select jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid as id) k) k
+       where r.agency_id = ${agencyId} and r.connection_id = k.connection_id and r.id < k.cutoff`);
+  }
+  return out;
+}
+
+/**
+ * Worker: forgets the served file of a connection (so a revived one regenerates its file instead of pointing at
+ * deleted objects). Without `force`, only when it is no longer live (turned off or token revoked); with `force`
+ * (S9-03 review: the portal's writer is off, the agency is not verified) whatever its state. True: nothing is served
+ * any more (gone, forgotten).
+ */
+export async function forgetFeedFile(tx: Tx, agencyId: string, id: string, force = false): Promise<boolean> {
+  const where = and(eq(agencyPortalConnections.agencyId, agencyId), eq(agencyPortalConnections.id, id));
+  const [row] = await tx
+    .select({ enabled: agencyPortalConnections.enabled, revokedAt: agencyPortalConnections.revokedAt })
+    .from(agencyPortalConnections)
+    .where(where)
+    .for('update');
+  if (!row) return true;
+  if (!force && row.enabled && row.revokedAt === null) return false;
+  await tx
+    .update(agencyPortalConnections)
+    .set({ feedRunId: null, feedSha256: null, feedBytes: null, feedItemCount: null, feedGeneratedAt: null })
+    .where(where);
+  return true;
+}
+
+/** The connection's latest runs, newest first (ids are allocated when a pass starts: start order). */
+export async function feedRuns(tx: Tx, agencyId: string, connectionId: string, limit: number) {
+  return tx
+    .select({
+      id: portalFeedRuns.id,
+      trigger: portalFeedRuns.trigger,
+      status: portalFeedRuns.status,
+      startedAt: portalFeedRuns.startedAt,
+      finishedAt: portalFeedRuns.finishedAt,
+      validCount: portalFeedRuns.validCount,
+      invalidCount: portalFeedRuns.invalidCount,
+      bytes: portalFeedRuns.bytes,
+      reason: portalFeedRuns.reason,
+    })
+    .from(portalFeedRuns)
+    .where(and(eq(portalFeedRuns.agencyId, agencyId), eq(portalFeedRuns.connectionId, connectionId)))
+    .orderBy(desc(portalFeedRuns.id))
+    .limit(limit);
+}
+
+export interface ServedFeedRow {
+  connectionId: string;
+  channelCode: string;
+  runId: string;
+  sha256: string;
+}
+
+/**
+ * feed-api (`app_public`): the served file of the live connection with this token hash, through the SECURITY DEFINER
+ * `portal_feed_by_token` (app_public reads no connection column itself; the function answers only these four). One
+ * statement.
+ */
+export async function feedByTokenHash(tx: Tx, tokenHash: string): Promise<ServedFeedRow | null> {
+  const res = await tx.execute<{ connection_id: string; channel_code: string; run_id: string; sha256: string }>(
+    sql`select connection_id, channel_code, run_id, sha256 from portal_feed_by_token(${tokenHash})`,
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  return { connectionId: row.connection_id, channelCode: row.channel_code, runId: row.run_id, sha256: row.sha256 };
 }

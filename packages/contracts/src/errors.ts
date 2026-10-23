@@ -66,6 +66,11 @@ export const ErrorCodes = {
   PORTAL_CONNECTION_NAME_TAKEN: 409,
   /** A connection can hold only so many per-property choices. */
   PORTAL_OVERRIDE_LIMIT_REACHED: 409,
+  /**
+   * S9-03: no portal feed answers this URL — an unknown, rotated or revoked token, a connection turned off, an agency
+   * not verified, or a feed not generated yet. The same answer for each, so a token cannot be probed.
+   */
+  PORTAL_FEED_NOT_FOUND: 404,
   // websites: API v2 (S7-03)
   /** A key created before websites existed (no site): website API v2 needs a key bound to a site — issue a new one. */
   API_KEY_SITE_REQUIRED: 403,

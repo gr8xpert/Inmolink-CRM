@@ -10,12 +10,14 @@ import { z } from 'zod';
 import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
 
 export const FEED_ROUTE = '/v2/feeds/:token/:file';
+/** S9-03: portal feeds (`routes/exports/portal-feeds.ts`), the same token-URL shape and limits. */
+export const PORTAL_FEED_ROUTE = '/v2/portal-feeds/:token/:file';
 
 /**
  * Feed consumers poll (hourly at most); the CDN answers the rest, so the origin sees cache misses only. Per IP, and per
  * token (scope `key`: `feedTokenIdentity`) — a token in a public script cannot be used to load the origin.
  */
-const FEED_LIMITS: readonly RateLimitRule[] = [
+export const FEED_LIMITS: readonly RateLimitRule[] = [
   { name: 'feed.xml.ip', scope: 'ip', limit: 60, windowSeconds: 60 },
   { name: 'feed.xml.token', scope: 'key', limit: 120, windowSeconds: 3_600 },
 ];
@@ -25,14 +27,16 @@ const FEED_LIMITS: readonly RateLimitRule[] = [
  * S7-04 limiter counts per feed. Undefined for any other route.
  */
 export function feedTokenIdentity(req: FastifyRequest): string | undefined {
-  if (req.routeOptions.url !== FEED_ROUTE) return undefined;
+  const route = req.routeOptions.url;
+  if (route !== FEED_ROUTE && route !== PORTAL_FEED_ROUTE) return undefined;
   const token = (req.params as { token?: unknown } | undefined)?.token;
   if (typeof token !== 'string') return undefined;
-  return `feed:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}`;
+  const kind = route === FEED_ROUTE ? 'feed' : 'portal-feed';
+  return `${kind}:${createHash('sha256').update(token).digest('base64url').slice(0, 22)}`;
 }
 
 /** Whether the client takes gzip (`Accept-Encoding`, ignoring `gzip;q=0`). */
-function acceptsGzip(req: FastifyRequest): boolean {
+export function acceptsGzip(req: FastifyRequest): boolean {
   const header = req.headers['accept-encoding'];
   const value = Array.isArray(header) ? header.join(',') : (header ?? '');
   return value.split(',').some((part) => {
@@ -44,7 +48,7 @@ function acceptsGzip(req: FastifyRequest): boolean {
 }
 
 /** The XML document (OpenAPI only: the body is streamed, never serialized). */
-const FeedXml = z.string().describe('The feed document, `application/xml; charset=utf-8` (gzip when accepted)');
+export const FeedXml = z.string().describe('The feed document, `application/xml; charset=utf-8` (gzip when accepted)');
 
 /**
  * Per-site XML feeds (S7-07, PLAN §9.5): `GET /v2/feeds/{token}/kyero.xml` (Kyero v3) and `/inmolink.xml` (generic),

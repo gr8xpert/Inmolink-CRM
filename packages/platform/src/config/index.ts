@@ -213,6 +213,20 @@ export const siteFeedNetworkEnv = {
 };
 
 /**
+ * Portal feeds (S9-03): the nightly regeneration of every live portal connection starts at
+ * `EXPORTS_NIGHTLY_HOUR_UTC` and runs as `EXPORTS_NIGHTLY_LANES` chains of one agency at a time; `EXPORTS_PORTAL_FEEDS_MAX_CONCURRENT` agency passes run at once across the `exports`
+ * pool (database load: other pools and request paths keep their share), `EXPORTS_PORTAL_FEEDS_PER_PROCESS` in one
+ * worker process (memory: one upload part per connection being written).
+ */
+export const portalFeedsEnv = {
+  EXPORTS_NIGHTLY_HOUR_UTC: z.coerce.number().int().min(0).max(23).default(2),
+  /** Nightly chains at once (S9-03 review: lanes, never a queue of every agency); at most the pool-wide cap. */
+  EXPORTS_NIGHTLY_LANES: z.coerce.number().int().min(1).max(64).default(6),
+  EXPORTS_PORTAL_FEEDS_MAX_CONCURRENT: z.coerce.number().int().min(1).max(64).default(8),
+  EXPORTS_PORTAL_FEEDS_PER_PROCESS: z.coerce.number().int().min(1).max(8).default(2),
+};
+
+/**
  * Edge cache purging (S7-06): the worker purges `Cache-Tag`s of changed listings, sites and keys through Cloudflare's
  * API. Zone id and an API token with the zone's "Cache Purge" permission only; both or neither (unset: nothing to
  * purge, answers expire with their TTL). `CDN_PURGE_MIN_INTERVAL_MS`: pacing per process (250: Pro and up; 12000 on

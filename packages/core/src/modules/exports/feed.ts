@@ -21,8 +21,12 @@
  * per-listing checks either way. Running twice over unchanged data writes the same bytes (no timestamp in the
  * document, the agency's public name as the header) and no rows: idempotent.
  *
- * Concurrency: runs of ONE connection must not overlap (the generator, S9-03, serializes them per connection — two
- * interleaved runs would mix their range deletes and summaries); runs of different connections are independent.
+ * One pass per agency (S9-03): `planAgencyFeeds` + `writePlannedFeeds` write several connections of one agency at
+ * once, reading each batch's documents once for all of them (see `writePlannedFeeds`); `writeConnectionFeed` is the
+ * one-connection case.
+ *
+ * Concurrency: runs of ONE connection must not overlap (the generator, S9-03, serializes them per agency — two
+ * interleaved runs would mix their range deletes and summaries); runs of different agencies are independent.
  */
 import { type ListingDetailDoc, type PortalIssue, WebsiteDetail, type WebsiteImage } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
@@ -40,9 +44,10 @@ import {
 } from '../../feed-xml';
 import * as agencies from '../agencies';
 import * as search from '../search';
+import { PortalFeedError } from './feed-error';
 import { PORTAL_PREFERRED_LOCALE, type PortalProfile, portalWriterEnabled, profileOf } from './profiles';
 import * as repo from './repo';
-import { connectionForWorker, selectConnectionListings, type WorkerConnection } from './service';
+import { selectConnectionListings, type WorkerConnection, workerConnections } from './service';
 import { validateItem } from './validate';
 
 /** Listings per batch (one selection page, then one document statement, one issue write). */
@@ -66,7 +71,7 @@ export interface PortalFeedResult {
   /** Listings written / left out for an issue. */
   valid?: number;
   invalid?: number;
-  /** The connection's version when read: the generator re-queues when it changed meanwhile. */
+  /** The connection's version when read (a change meanwhile queues its own run through `exports.connection.changed`). */
   version?: number;
 }
 
@@ -144,35 +149,66 @@ export function buildItems(
   return { items, missing };
 }
 
-interface Setup {
+/** A connection a pass writes: loaded once, with its portal's profile. */
+export interface PlannedConnection {
   connection: WorkerConnection;
   profile: PortalProfile;
+}
+
+export type PortalFeedSkip = NonNullable<PortalFeedResult['skipped']>;
+
+/**
+ * What one pass over an agency writes (S9-03): the agency's content locales and presenter (read once), the connections
+ * ready to write and the ones skipped with why. `skipped` set: nothing at all is written for the agency.
+ */
+export interface FeedPlan {
+  agencyId: string;
+  skipped?: Extract<PortalFeedSkip, 'not-verified' | 'no-locales'>;
+  ready: PlannedConnection[];
+  skippedConnections: { connectionId: string; reason: PortalFeedSkip }[];
   locales: string[];
   baseLocale: string;
   presenter: FeedPresenter;
 }
 
-async function setup(agencyId: string, connectionId: string): Promise<Setup | PortalFeedResult> {
-  return withSystem('exports.writeConnectionFeed setup', async (tx) => {
-    const connection = await connectionForWorker(tx, agencyId, connectionId);
-    if (!connection) return { skipped: 'no-connection' as const };
-    if (!connection.enabled) return { skipped: 'disabled' as const };
-    if (connection.revokedAt) return { skipped: 'revoked' as const };
-    const profile = profileOf(connection.channelCode);
-    if (!profile) return { skipped: 'no-profile' as const };
-    if (!(await portalWriterEnabled({ tx, tenant: { agencyId } }, profile))) {
-      return { skipped: 'writer-disabled' as const };
+/**
+ * Loads a pass (one transaction): `connectionIds` the connections to write, or `'live'` for every live one (enabled,
+ * token not revoked) of the agency. A named connection that is gone, off, revoked or whose portal writer is not enabled
+ * is skipped with that reason.
+ */
+export async function planAgencyFeeds(agencyId: string, connectionIds: readonly string[] | 'live'): Promise<FeedPlan> {
+  return withSystem('exports.planAgencyFeeds', async (tx) => {
+    const rows = await workerConnections(tx, agencyId, connectionIds === 'live' ? null : connectionIds);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const ready: PlannedConnection[] = [];
+    const skippedConnections: FeedPlan['skippedConnections'] = [];
+    const wanted = connectionIds === 'live' ? rows.map((r) => r.id) : [...new Set(connectionIds)];
+    for (const id of wanted) {
+      const connection = byId.get(id);
+      const skip = (reason: PortalFeedSkip) => skippedConnections.push({ connectionId: id, reason });
+      if (!connection) skip('no-connection');
+      else if (!connection.enabled) skip('disabled');
+      else if (connection.revokedAt) skip('revoked');
+      else {
+        const profile = profileOf(connection.channelCode);
+        if (!profile) skip('no-profile');
+        else if (!(await portalWriterEnabled({ tx, tenant: { agencyId } }, profile))) skip('writer-disabled');
+        else ready.push({ connection, profile });
+      }
     }
+    const empty = { agencyId, ready, skippedConnections, locales: [], baseLocale: '', presenter: NO_PRESENTER };
+    if (ready.length === 0) return empty;
     const owner = (await agencies.readModelOwnersOf(tx, [agencyId])).get(agencyId);
     // A suspended or unverified agency's listings are not public (S6-F1): nothing to send, and not a fault of any listing.
-    if (!owner?.publishes) return { skipped: 'not-verified' as const };
+    if (!owner?.publishes) return { ...empty, skipped: 'not-verified' as const };
     const locales = owner.locales;
-    if (locales.length === 0) return { skipped: 'no-locales' as const };
+    if (locales.length === 0) return { ...empty, skipped: 'no-locales' as const };
     const listed = (await agencies.publicAgencies(tx, [agencyId])).get(agencyId);
     const name = listed?.name ?? (await agencies.getAgencyName(tx, agencyId)) ?? '';
     return {
-      connection,
-      profile,
+      agencyId,
+      ready,
+      skippedConnections,
       locales,
       baseLocale: locales.includes(PORTAL_PREFERRED_LOCALE) ? PORTAL_PREFERRED_LOCALE : (locales[0] as string),
       presenter: {
@@ -188,76 +224,208 @@ async function setup(agencyId: string, connectionId: string): Promise<Setup | Po
   });
 }
 
-/** Writes the connection's feed to `sink` and records each listing's check. See the file comment. */
+const NO_PRESENTER: FeedPresenter = {
+  name: '',
+  email: null,
+  phone: null,
+  whatsapp: null,
+  website: null,
+  primaryColor: null,
+  accentColor: null,
+};
+
+export interface PlannedFeedOptions {
+  /** Media CDN base (`MEDIA_CDN_URL`): image variant keys are served under it. */
+  mediaBaseUrl: string;
+  batchSize?: number;
+  signal?: AbortSignal;
+  log?: Logger;
+  /**
+   * Write each completed connection's totals (`last_*`) here (default). The generator (S9-03) passes false and records
+   * them with the run, after its upload completed.
+   */
+  recordSummary?: boolean;
+}
+
+/** One connection's outcome in a pass: written (totals) or failed (its sink threw; the others went on). */
+export type PlannedFeedOutcome =
+  | { connectionId: string; valid: number; invalid: number; version: number; checkedAt: Date }
+  | { connectionId: string; error: unknown };
+
+interface Lane {
+  planned: PlannedConnection;
+  sink: (chunk: string) => Promise<void>;
+  w: XmlWriter;
+  cursor: string | null;
+  done: boolean;
+  valid: number;
+  invalid: number;
+  error?: unknown;
+}
+
+/**
+ * Writes the planned connections' feeds in **one pass** over the agency (S9-03, S9-02 review follow-up 2): each
+ * round, every unfinished connection takes its next selection page (ids only); the round is cut at the smallest
+ * `next` among the pages that continue, so every connection covers the same key range; the documents of the union
+ * of their ids are read **once** (one statement) and built once; each connection validates them against its own
+ * portal profile, stores its issues for the range, and writes its valid listings into its own writer and sink (after
+ * the round's transaction has ended). A listing's document is read once per pass however many connections send it.
+ * A sink that throws fails its connection alone; the others finish. A database error fails the pass.
+ */
+export async function writePlannedFeeds(
+  plan: FeedPlan,
+  sinks: ReadonlyMap<string, (chunk: string) => Promise<void>>,
+  opts: PlannedFeedOptions,
+): Promise<PlannedFeedOutcome[]> {
+  if (plan.skipped) return [];
+  const { agencyId, locales, baseLocale, presenter } = plan;
+  const runStart = clock.now();
+  const mediaBase = opts.mediaBaseUrl.replace(/\/+$/, '');
+  const size = opts.batchSize ?? FEED_BATCH;
+  const lanes: Lane[] = [];
+  for (const planned of plan.ready) {
+    const sink = sinks.get(planned.connection.id);
+    if (!sink) continue;
+    const w = new XmlWriter();
+    if (planned.profile.format === 'kyero-v3') writeKyeroStart(w);
+    // The agency's public name, never the connection's label (an internal name); no timestamp: same data, same bytes.
+    else writeGenericStart(w, { generatedAt: null, siteName: presenter.name, locales, agency: presenter });
+    lanes.push({ planned, sink, w, cursor: null, done: false, valid: 0, invalid: 0 });
+  }
+  const fail = (lane: Lane, err: unknown) => {
+    lane.error = err;
+    lane.done = true;
+    opts.log?.warn(
+      { connectionId: lane.planned.connection.id, err: err instanceof Error ? err.name : 'error' },
+      'portal feed sink failed',
+    );
+  };
+
+  for (;;) {
+    const open = lanes.filter((l) => !l.done);
+    if (open.length === 0) break;
+    opts.signal?.throwIfAborted();
+    // One transaction per round: every connection's selection page, the documents once, the issue rows. The sinks run
+    // after it has ended.
+    const round = await withSystem('exports.writeFeeds batch', async (tx) => {
+      const pages: { ids: string[]; nextCursor: string | null }[] = [];
+      for (const lane of open) {
+        pages.push(await selectConnectionListings(tx, lane.planned.connection, { cursor: lane.cursor, limit: size }));
+      }
+      // Ids compare as lower-case canonical UUID text, like Postgres' uuid order (`selection.ts`).
+      let bound: string | null = null;
+      for (const p of pages)
+        if (p.nextCursor !== null && (bound === null || p.nextCursor < bound)) bound = p.nextCursor;
+      const kept = pages.map((p) => (bound === null ? p.ids : p.ids.filter((id) => id <= (bound as string))));
+      const upTo = pages.map((p, i) =>
+        bound === null || (p.nextCursor === null && kept[i]?.length === p.ids.length) ? null : bound,
+      );
+      const union = [...new Set(kept.flat())].sort();
+      const docs = union.length > 0 ? await search.ownListingDetails(tx, agencyId, union, locales) : [];
+      const built = buildItems(union, docs, { locales, baseLocale, mediaBase, presenter });
+      const items = new Map(built.items.map((x) => [x.id, x.item]));
+      const missing = new Set(built.missing);
+      const out: { ready: FeedItem[]; upTo: string | null }[] = [];
+      for (const [i, lane] of open.entries()) {
+        const { connection, profile } = lane.planned;
+        const failures: { propertyId: string; errors: PortalIssue[] }[] = [];
+        const ready: FeedItem[] = [];
+        for (const id of kept[i] ?? []) {
+          const item = items.get(id);
+          if (!item || missing.has(id)) {
+            failures.push({ propertyId: id, errors: [{ code: 'NO_DOCUMENT' }] });
+            continue;
+          }
+          const issues = validateItem(profile, item);
+          if (issues.length > 0) failures.push({ propertyId: id, errors: issues });
+          else ready.push(item);
+        }
+        // Everything this connection's selection examined for the round is `(cursor, upTo]`: rows there that no longer
+        // fail go.
+        const range = { after: lane.cursor, upTo: upTo[i] ?? null };
+        await repo.syncIssues(tx, connection, range, failures, runStart);
+        lane.invalid += failures.length;
+        out.push({ ready, upTo: range.upTo });
+      }
+      return out;
+    });
+
+    for (const [i, lane] of open.entries()) {
+      const { ready, upTo } = round[i] as { ready: FeedItem[]; upTo: string | null };
+      const { profile } = lane.planned;
+      try {
+        for (const item of ready) {
+          if (profile.format === 'kyero-v3') {
+            // Validation refused everything the writer would drop: a drop here is a bug, never a silent loss.
+            if (!writeKyeroProperty(lane.w, item, { maxImages: profile.maxPhotos ?? undefined })) {
+              opts.log?.error(
+                { connectionId: lane.planned.connection.id, ref: item.base.ref, channel: profile.code },
+                'portal feed: a validated listing was dropped by the writer',
+              );
+              throw new PortalFeedError('WRITER_DROPPED');
+            }
+          } else writeGenericItem(lane.w, item);
+          lane.valid++;
+          // Bounded buffer: per listing, not per batch (a listing is at most a few tens of KB).
+          if (lane.w.pending >= FLUSH_CHARS) await lane.sink(lane.w.take());
+        }
+        lane.cursor = upTo;
+        if (upTo === null) {
+          if (profile.format === 'kyero-v3') writeKyeroEnd(lane.w);
+          else writeGenericEnd(lane.w);
+          await lane.sink(lane.w.end());
+          lane.done = true;
+        }
+      } catch (err) {
+        fail(lane, err);
+      }
+    }
+  }
+
+  const outcomes: PlannedFeedOutcome[] = lanes.map((l) =>
+    l.error !== undefined
+      ? { connectionId: l.planned.connection.id, error: l.error }
+      : {
+          connectionId: l.planned.connection.id,
+          valid: l.valid,
+          invalid: l.invalid,
+          version: l.planned.connection.version,
+          checkedAt: runStart,
+        },
+  );
+  if (opts.recordSummary !== false) {
+    const written = outcomes.filter((o): o is Extract<PlannedFeedOutcome, { valid: number }> => 'valid' in o);
+    if (written.length > 0) {
+      // Only connections whose sink completed are recorded: a failed one keeps its last good totals.
+      await withSystem('exports.writeFeeds record', async (tx) => {
+        for (const o of written) {
+          await repo.setValidationSummary(tx, agencyId, o.connectionId, {
+            checkedAt: o.checkedAt,
+            valid: o.valid,
+            invalid: o.invalid,
+          });
+        }
+      });
+    }
+  }
+  for (const o of outcomes) {
+    if ('valid' in o)
+      opts.log?.info({ connectionId: o.connectionId, valid: o.valid, invalid: o.invalid }, 'portal feed written');
+  }
+  return outcomes;
+}
+
+/** Writes one connection's feed to `sink` and records each listing's check (S9-02). See the file comment. */
 export async function writeConnectionFeed(
   agencyId: string,
   connectionId: string,
   opts: PortalFeedOptions,
 ): Promise<PortalFeedResult> {
-  const prepared = await setup(agencyId, connectionId);
-  if (!('connection' in prepared)) return prepared;
-  const { connection, profile, locales, baseLocale, presenter } = prepared;
-  const runStart = clock.now();
-  const mediaBase = opts.mediaBaseUrl.replace(/\/+$/, '');
-  const size = opts.batchSize ?? FEED_BATCH;
-  const w = new XmlWriter();
-  const flush = async (force = false) => {
-    if (force || w.pending >= FLUSH_CHARS) await opts.sink(w.take());
-  };
-
-  if (profile.format === 'kyero-v3') writeKyeroStart(w);
-  // The agency's public name, never the connection's label (an internal name); no timestamp: same data, same bytes.
-  else writeGenericStart(w, { generatedAt: null, siteName: presenter.name, locales, agency: presenter });
-  let valid = 0;
-  let invalid = 0;
-  let cursor: string | null = null;
-  for (;;) {
-    opts.signal?.throwIfAborted();
-    // One transaction per batch: selection, documents and the issue rows. The sink runs after it has ended.
-    const batch: { ready: FeedItem[]; next: string | null } = await withSystem(
-      'exports.writeConnectionFeed batch',
-      async (tx) => {
-        const page = await selectConnectionListings(tx, connection, { cursor, limit: size });
-        const docs = await search.ownListingDetails(tx, agencyId, page.ids, locales);
-        const built = buildItems(page.ids, docs, { locales, baseLocale, mediaBase, presenter });
-        const failures: { propertyId: string; errors: PortalIssue[] }[] = built.missing.map((propertyId) => ({
-          propertyId,
-          errors: [{ code: 'NO_DOCUMENT' }],
-        }));
-        const ready: FeedItem[] = [];
-        for (const { id, item } of built.items) {
-          const issues = validateItem(profile, item);
-          if (issues.length > 0) failures.push({ propertyId: id, errors: issues });
-          else ready.push(item);
-        }
-        // Everything the selection examined for this batch is `(cursor, next]`: rows there that no longer fail go.
-        await repo.syncIssues(tx, connection, { after: cursor, upTo: page.nextCursor }, failures, runStart);
-        invalid += failures.length;
-        return { ready, next: page.nextCursor };
-      },
-    );
-    for (const item of batch.ready) {
-      if (profile.format === 'kyero-v3') {
-        // Validation refused everything the writer would drop: a drop here is a bug, never a silent loss.
-        if (!writeKyeroProperty(w, item, { maxImages: profile.maxPhotos ?? undefined })) {
-          throw new Error(`exports: validated listing ${item.base.ref} was dropped by the ${profile.code} writer`);
-        }
-      } else writeGenericItem(w, item);
-      valid++;
-      // Bounded buffer: per listing, not per batch (a listing is at most a few tens of KB).
-      await flush();
-    }
-    if (batch.next === null) break;
-    cursor = batch.next;
-  }
-  if (profile.format === 'kyero-v3') writeKyeroEnd(w);
-  else writeGenericEnd(w);
-  await opts.sink(w.end());
-
-  // Only a run whose sink completed is recorded: a failed run leaves the last good totals (S9-03 retries it).
-  await withSystem('exports.writeConnectionFeed record', (tx) =>
-    repo.setValidationSummary(tx, agencyId, connection.id, { checkedAt: runStart, valid, invalid }),
-  );
-  opts.log?.info({ connectionId, channel: profile.code, valid, invalid }, 'portal feed written');
-  return { valid, invalid, version: connection.version };
+  const plan = await planAgencyFeeds(agencyId, [connectionId]);
+  const skipped = plan.skippedConnections[0]?.reason ?? plan.skipped;
+  if (skipped) return { skipped };
+  const [outcome] = await writePlannedFeeds(plan, new Map([[connectionId, opts.sink]]), opts);
+  if (!outcome) return { skipped: 'no-connection' };
+  if ('error' in outcome) throw outcome.error;
+  return { valid: outcome.valid, invalid: outcome.invalid, version: outcome.version };
 }

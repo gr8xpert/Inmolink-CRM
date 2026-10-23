@@ -1,3 +1,4 @@
+import * as exportsModule from '@inmolink/core/modules/exports';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { cacheControl } from '@inmolink/platform/http';
 import type { FastifyRequest } from 'fastify';
@@ -94,6 +95,14 @@ export const EDGE_CACHE_RULES = {
     gate: 'url',
     sMaxAge: websiteApi.SITE_FEED_TTL,
     staleIfError: websiteApi.SITE_FEED_STALE_IF_ERROR,
+    cursorPages: false,
+    params: [],
+  },
+  // S9-03: portal feeds, like the site feeds (the token URL is the key; a revoked token's copy dies within minutes).
+  '/v2/portal-feeds/:token/:file': {
+    gate: 'url',
+    sMaxAge: exportsModule.PORTAL_FEED_TTL,
+    staleIfError: exportsModule.PORTAL_FEED_STALE_IF_ERROR,
     cursorPages: false,
     params: [],
   },

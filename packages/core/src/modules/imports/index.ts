@@ -72,6 +72,8 @@ export {
   type ImportsAction,
   type StaffImportsAction,
 } from './policy';
+/** S9-03: is an import of the agency queued or running (raw `tx`, worker side)? */
+export { agencyImportActive } from './repo';
 export { resalesConnector } from './resales/connector';
 export { classifyRunError, executeRun, LeaseLostError, type RunOutcome } from './runner';
 export {

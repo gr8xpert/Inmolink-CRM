@@ -5,7 +5,7 @@ import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from './app';
-import { assertFeedApiTrustProxy, feedApiEnv } from './config';
+import { assertFeedApiFeedsBucket, assertFeedApiTrustProxy, feedApiEnv } from './config';
 import { createLocalFailedChecks, FAILED_CHECKS_TRACKED } from './plugins/api-key';
 
 const allowAll = {
@@ -55,6 +55,18 @@ describe('feed-api app', () => {
     for (const NODE_ENV of ['development', 'test']) {
       expect(() => assertFeedApiTrustProxy(parse({ NODE_ENV }))).not.toThrow();
       expect(() => assertFeedApiTrustProxy(parse({ NODE_ENV, TRUST_PROXY: '1' }))).not.toThrow();
+    }
+  });
+
+  it('[S9-03] production requires the feeds bucket (no fallback to the exports bucket); dev and test may fall back', () => {
+    const parse = (env: Record<string, string>) =>
+      loadConfig({ NODE_ENV: coreEnv.NODE_ENV, S3_BUCKET_FEEDS: feedApiEnv.S3_BUCKET_FEEDS }, env);
+    expect(() => assertFeedApiFeedsBucket(parse({ NODE_ENV: 'production' }))).toThrow(/S3_BUCKET_FEEDS/);
+    expect(() =>
+      assertFeedApiFeedsBucket(parse({ NODE_ENV: 'production', S3_BUCKET_FEEDS: 'inmolink-feeds' })),
+    ).not.toThrow();
+    for (const NODE_ENV of ['development', 'test']) {
+      expect(() => assertFeedApiFeedsBucket(parse({ NODE_ENV }))).not.toThrow();
     }
   });
 
