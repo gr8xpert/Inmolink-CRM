@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { createLogger, REDACTED, redactPaths, stripQuery, withRequestId } from './index';
+import { createLogger, REDACTED, redactPaths, redactPathsInText, stripQuery, withRequestId } from './index';
 
 function capture() {
   const lines: Record<string, unknown>[] = [];
@@ -169,6 +169,14 @@ describe('logger', () => {
       expect(text).not.toContain(secret);
     }
     expect(out.lines[0]).toMatchObject({ whatsapp: REDACTED, turnstileToken: REDACTED, leadId: 'keep-me' });
+  });
+
+  it('[S8-02] a legacy api_key quoted in a text is redacted, other parameters kept', () => {
+    const text = 'GET https://legacy.example/api/properties?page=2&api_key=lk_secret123&lang=es failed';
+    expect(redactPathsInText(text)).toBe(
+      `GET https://legacy.example/api/properties?page=2&api_key=${REDACTED}&lang=es failed`,
+    );
+    expect(redactPathsInText('"/v1/types?api_key=abc"')).toBe(`"/v1/types?api_key=${REDACTED}"`);
   });
 
   it('[S0-03] bindings cannot overwrite the request id', () => {

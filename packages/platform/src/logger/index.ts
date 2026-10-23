@@ -97,8 +97,12 @@ function errSerializer(err: unknown): unknown {
  * trace or an error report.
  */
 const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/];
-/** The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). */
-const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [/(\/v2\/feeds\/)[^/?#\s"'<>]+/g];
+/**
+ * The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). Also the
+ * legacy `api_key` query parameter (S8-02: the v1 shim takes a flagged legacy key in the URL), which a quoted URL in a
+ * message would otherwise carry into an error report.
+ */
+const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [/(\/v2\/feeds\/)[^/?#\s"'<>]+/g, /([?&]api_key=)[^&#\s"'<>]+/g];
 
 /** A path with its credential segments replaced by `[REDACTED]`. */
 export function redactPath(path: string): string {
