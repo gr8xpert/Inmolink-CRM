@@ -7,7 +7,8 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import * as media from '../index';
 
 /**
- * The public media host (S3-F4): only variant keys (`v<n>/<32 hex>/…`) of the `media` bucket are readable without
+ * The public media host (S3-F4): only variant keys (`v<n>/<32 hex>/…`, and since S8-F8 the JS widget's
+ * `vwidget/<32 hex>/inmolink-widget.iife.js`) of the `media` bucket are readable without
  * credentials. Locally the MinIO bucket policy (`infra/storage/media-public-policy.json`, applied by the compose
  * init); in production the R2 rule of `docs/runbooks/media-public-host.md` holds the same line.
  */
@@ -40,5 +41,23 @@ it('[S3-F4] a request for a key outside v<n>/… on the public media host is ref
     keys.push(key);
   }
   expect(await anonymous(variant)).toBe(200);
+  for (const key of outside) expect(await anonymous(key), key).toBe(403);
+});
+
+it('[S8-F8] the JS widget key is public on the media host, nothing else under vwidget/', async () => {
+  const hash = createHash('sha256').update(newId()).digest('hex').slice(0, 32);
+  const widget = `vwidget/${hash}/inmolink-widget.iife.js`;
+  const outside = [`vwidget/${hash}/other.js`, `vwidget/${hash.slice(1)}/inmolink-widget.iife.js`];
+  for (const key of [widget, ...outside]) {
+    await storage().put('media', key, new TextEncoder().encode('(()=>{})();'), {
+      contentType: 'text/javascript; charset=utf-8',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+    keys.push(key);
+  }
+  const res = await fetch(`${endpoint}/inmolink-media/${widget}`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+  expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   for (const key of outside) expect(await anonymous(key), key).toBe(403);
 });

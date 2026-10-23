@@ -20,7 +20,12 @@
  *
  * Nothing about the visitor is logged (name, e-mail, phone, message, IP): log lines carry the site, key and request.
  */
-import type { WebsiteLeadAccepted, WebsiteLeadBody, WebsiteViewingRequestBody } from '@inmolink/contracts';
+import {
+  WEBSITE_LEAD_TURNSTILE_ACTION,
+  type WebsiteLeadAccepted,
+  type WebsiteLeadBody,
+  type WebsiteViewingRequestBody,
+} from '@inmolink/contracts';
 import { withIntake } from '@inmolink/db';
 import { hmacSha256 } from '@inmolink/platform/crypto';
 import { AppError, isAppError } from '@inmolink/platform/errors';
@@ -31,7 +36,7 @@ import { type ApiSite, langOf, listingNotFound } from './service';
 import { leadSecret, turnstileVerifier } from './settings';
 
 /** The Turnstile widget action website forms render with (`data-action`): a token solved for another form is refused. */
-export const LEAD_TURNSTILE_ACTION = 'website-lead';
+export const LEAD_TURNSTILE_ACTION = WEBSITE_LEAD_TURNSTILE_ACTION;
 
 export type LeadKind = 'ENQUIRY' | 'VIEWING_REQUEST';
 

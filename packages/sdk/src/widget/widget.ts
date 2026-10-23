@@ -2,13 +2,15 @@ import { formatter } from '@inmolink/i18n';
 import { createWebsiteClient, type WebsiteApiError, type WebsiteClient } from '../client';
 import type { GetListingResponse, ListListingsQuery, ListListingsResponse } from '../website-v2.generated';
 import { safeBaseUrl } from './connection';
+import { el } from './dom';
+import { leadForm } from './lead-form';
 import { type MessageKey, pickLang, translate, type WidgetLang } from './messages';
 import { WIDGET_CSS } from './styles';
 
 /**
- * The JS widget (S8-06, PLAN §9.5): search form, result cards and a detail modal on the website API v2 with a
- * publishable key (the page's origin must be on the key's allowlist). Plain DOM in a shadow root; every API string goes
- * in as `textContent` or a checked attribute, never as HTML. It shows what the API returns for the site's key — the
+ * The JS widget (S8-06, PLAN §9.5): search form, result cards and a detail modal (with the S8-F8 lead form) on the
+ * website API v2 with a publishable key (the page's origin must be on the key's allowlist). Plain DOM in a shadow root;
+ * every API string goes in as `textContent` or a checked attribute, never as HTML. It shows what the API returns for the site's key — the
  * API is white-label already (no owner agency, commission or internal notes), the widget adds nothing to that.
  */
 export interface WidgetOptions {
@@ -22,6 +24,13 @@ export interface WidgetOptions {
   pageSize?: number;
   /** Brand colour for buttons (`#rrggbb`). */
   primaryColor?: string;
+  /**
+   * The site's Cloudflare Turnstile site key (S8-F8). With it the detail modal shows the enquiry / viewing-request
+   * form (publishable keys need the visitor's Turnstile token); without it, no form (the API would refuse it).
+   */
+  turnstileSiteKey?: string;
+  /** The site's privacy notice (`https:`), linked from the form's consent box. */
+  privacyUrl?: string;
   /** Test hook: a `fetch` to use instead of the global one. */
   fetch?: typeof fetch;
 }
@@ -47,17 +56,6 @@ const TRANSACTIONS = [
   ['RENT_LONG_TERM', 'rentLong'],
   ['RENT_SHORT_TERM', 'rentShort'],
 ] as const;
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Record<string, string> = {},
-  ...children: (Node | string)[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) node.setAttribute(k, v);
-  node.append(...children);
-  return node;
-}
 
 /** Only https image URLs reach an `<img src>`. */
 const safeUrl = (u: string | undefined): string | undefined => (u && /^https:\/\//i.test(u) ? u : undefined);
@@ -117,7 +115,8 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
   adoptStyles(root);
   root.append(container);
 
-  // --- search form (structured search; the natural-language box waits for `/v2/search/ai`, Decisions S8-06)
+  // --- search form: structured only. The natural-language box comes with `/v2/search/ai` (S12-08): until the SDK has
+  // that operation there is no AI box (a test checks), so no text is ever turned into prices or facts here.
   const text = (name: string, label: MessageKey, attrs: Record<string, string>) => {
     const field = el('input', { name, ...attrs });
     return { field, label: el('label', {}, t(label), field) };
@@ -257,6 +256,7 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
 
   // --- detail modal
   let closeModal: (() => void) | undefined;
+  const siteKey = options.turnstileSiteKey?.trim();
 
   async function openDetail(ref: string, opener: HTMLElement): Promise<void> {
     closeModal?.();
@@ -281,8 +281,10 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
         return;
       }
       if (e.key !== 'Tab') return;
-      // Keep focus inside the dialog: it holds the close button and the contact links.
-      const focusable = [...modal.querySelectorAll<HTMLElement>('button, a[href]')];
+      // Keep focus inside the dialog: the close button, the contact links and the lead form's visible controls.
+      const focusable = [...modal.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea')].filter(
+        (n) => !n.closest('[hidden]'),
+      );
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first || !last) return;
@@ -294,7 +296,9 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
         first.focus();
       }
     };
+    let lead: ReturnType<typeof leadForm> | undefined;
     function close() {
+      lead?.destroy();
       overlay.remove();
       container.inert = false;
       document.removeEventListener('keydown', onKey, true);
@@ -313,6 +317,21 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
       if (closeModal !== close) return;
       heading.textContent = detail.title;
       body.replaceChildren(...detailNodes(detail));
+      if (siteKey) {
+        lead = leadForm({
+          client,
+          lang,
+          t,
+          ref: detail.ref,
+          turnstileSiteKey: siteKey,
+          privacyUrl: options.privacyUrl,
+          host,
+          id: ++uid,
+          onSent: (sent) =>
+            host.dispatchEvent(new CustomEvent('inmolink:lead', { bubbles: true, composed: true, detail: sent })),
+        });
+        body.append(lead.node);
+      }
     } catch {
       if (closeModal !== close) return;
       heading.textContent = ref;

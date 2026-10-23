@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { build } from 'tsdown';
-import { WIDGET_FILE, widgetConfig } from './tsdown.widget.ts';
+import { WIDGET_FILE, widgetConfig } from './tsdown.widget';
 
 /** Builds the script into `outDir` (tests: a temp directory of their own, never the shared `dist-widget/`). */
 export async function buildWidget(outDir: string): Promise<string> {

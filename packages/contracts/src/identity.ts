@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CompanyName, SignupAgencyKind } from './agencies';
 import { pageOf } from './common';
+import { EMAIL_MAX_LENGTH } from './values';
 
 /**
  * Identity DTOs (S0-09): sign-up, email verification, login, password reset, access tokens.
@@ -10,7 +11,7 @@ import { pageOf } from './common';
 export const PASSWORD_MIN_LENGTH = 10;
 export const PASSWORD_MAX_LENGTH = 128;
 
-export const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
+export const Email = z.string().trim().toLowerCase().pipe(z.email().max(EMAIL_MAX_LENGTH));
 export const Password = z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH);
 /** UI locale code (`en`, `es`, …); the set comes from `@inmolink/i18n`. */
 export const UiLocale = z.string().regex(/^[a-z]{2}(-[A-Z]{2})?$/);

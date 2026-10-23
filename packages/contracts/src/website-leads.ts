@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Email } from './identity';
+import { LEAD_LIMITS, VIEWING_TIMES_OF_DAY } from './values';
 import { WebsiteLang, WebsiteListingParams } from './websites';
 
 /**
@@ -19,15 +20,6 @@ const hasControl = (s: string) => /\p{Cc}/u.test(s.replace(/[\t\n\r]/g, ''));
 const LINE = /^[^\p{Cc}<>]*$/u;
 /** Names never carry links or domains (form spam, phishing via the acknowledgement does), nor digit runs. */
 const LINK = /(?:https?:\/\/|www\.|\.[a-z]{2,}|\d{2,})/i;
-
-export const LEAD_LIMITS = {
-  name: 120,
-  phone: 32,
-  message: 4_000,
-  pageUrl: 2_048,
-  turnstileToken: 2_048,
-  viewingSlots: 3,
-} as const;
 
 const LeadName = z
   .string()
@@ -88,7 +80,7 @@ export const WebsiteLeadBody = z.strictObject({
 });
 export type WebsiteLeadBody = z.infer<typeof WebsiteLeadBody>;
 
-export const ViewingTimeOfDay = z.enum(['MORNING', 'AFTERNOON', 'EVENING', 'ANY']);
+export const ViewingTimeOfDay = z.enum(VIEWING_TIMES_OF_DAY);
 
 const DAY_MS = 86_400_000;
 /** A slot day from today (a day of slack for time zones) to a year ahead, read at validation time. */

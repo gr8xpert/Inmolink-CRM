@@ -148,3 +148,23 @@ export const SHEET_URL_PREFIX = 'upload://';
 /** CSV / Excel limits (S6-05): rows with a value (header included) and columns; `platform/sheet` enforces them. */
 export const SHEET_MAX_ROWS = 50_000;
 export const SHEET_MAX_COLUMNS = 200;
+
+/** Longest e-mail address (RFC 5321 path limit): the `Email` schema and the widget's lead form (S8-F8). */
+export const EMAIL_MAX_LENGTH = 254;
+/** Website lead form caps (S7-05; zod-free since S8-F8, so the JS widget sets the same `maxlength` without zod). */
+export const LEAD_LIMITS = {
+  name: 120,
+  email: EMAIL_MAX_LENGTH,
+  phone: 32,
+  message: 4_000,
+  pageUrl: 2_048,
+  turnstileToken: 2_048,
+  viewingSlots: 3,
+} as const;
+/**
+ * The Turnstile widget action website lead forms render with (`data-action`, S7-05): the website API refuses a token
+ * solved for another action. The JS widget (S8-F8) and core `website-api` both read it here.
+ */
+export const WEBSITE_LEAD_TURNSTILE_ACTION = 'website-lead';
+/** A viewing request slot's part of the day (S7-05). */
+export const VIEWING_TIMES_OF_DAY = ['MORNING', 'AFTERNOON', 'EVENING', 'ANY'] as const;

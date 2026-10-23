@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { IdempotencyKey, LEAD_LIMITS, WebsiteLeadBody, WebsiteViewingRequestBody } from './website-leads';
+import { LEAD_LIMITS } from './values';
+import { IdempotencyKey, WebsiteLeadBody, WebsiteViewingRequestBody } from './website-leads';
 
 const base = { name: 'Ana Buyer', email: ' Ana@Example.com ', privacyAccepted: true };
 const ok = (schema: { safeParse(v: unknown): { success: boolean } }, v: unknown) => schema.safeParse(v).success;

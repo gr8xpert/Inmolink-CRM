@@ -5,9 +5,9 @@ export const WIDGET_CSS = `
 :focus-visible{outline:3px solid var(--il-accent);outline-offset:2px}
 form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;align-items:end;margin:0 0 1rem}
 label{display:flex;flex-direction:column;gap:.25rem;font-size:.875rem}
-input,select{border:1px solid #6b7280;border-radius:6px;padding:.5rem;font:inherit;background:#fff;color:inherit;min-width:0}
+input,select,textarea{border:1px solid #6b7280;border-radius:6px;padding:.5rem;font:inherit;background:#fff;color:inherit;min-width:0}
 button{background:var(--il-primary);color:#fff;border:0;border-radius:6px;padding:.6rem 1rem;font:inherit;font-weight:600;cursor:pointer}
-button[disabled]{opacity:.6;cursor:default}
+button[disabled],button[aria-disabled=true]{opacity:.6;cursor:default}
 .muted{color:#4b5563;margin:.25rem 0}
 .list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem}
 .card{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;background:#fff}
@@ -34,4 +34,11 @@ h3{font-size:1rem}
 .contact{display:flex;flex-wrap:wrap;gap:.5rem 1rem}
 .contact a{color:var(--il-primary);font-weight:600}
 .error{color:#991b1b}
+.lead{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.wide{grid-column:1/-1}
+.check{flex-direction:row;align-items:flex-start;gap:.5rem}
+.check input{margin:.2rem 0 0}
+textarea{resize:vertical}
+[hidden]{display:none!important}
+.sent{font-weight:600;color:#166534}
 `;

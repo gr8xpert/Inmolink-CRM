@@ -157,6 +157,31 @@ everything).
 6. Record the results in STATUS (S7-06 row) and turn `WEBSITE_EDGE_CACHE` on for production the same way. Production
    needs `--apply` and `--verify` too.
 
+## JS widget script (S8-F8, open until H3)
+
+The widget (`inmolink-widget.iife.js`) is served from the media host at a versioned, immutable URL.
+
+1. **Media host first (once):** the media host's WAF rule and `X-Content-Type-Options: nosniff` header from
+   `docs/runbooks/media-public-host.md` (steps 2–3) must be in place. The rule's second clause
+   (`^/vwidget/[0-9a-f]{32}/inmolink-widget\.iife\.js$`) is what lets the widget through. Without it the URL answers 403.
+2. **Token:** create an R2 API token for the publish only: Object Read & Write on `inmolink-media`, nothing else. R2
+   tokens are scoped by bucket and cannot be limited to the `vwidget/` prefix, so give it a short TTL (or revoke it after
+   the publish) and never put it in an app's secrets.
+3. **Publish** from a clean checkout of the deployed commit: `pnpm ops:widget-publish` with that token as
+   `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`, the environment's other `S3_*` values and `MEDIA_CDN_URL`. It refuses
+   uncommitted changes and fails without credentials (`--local` only for the local stack). It builds the script, puts it
+   at `vwidget/<32 hex of its SHA-256>/inmolink-widget.iife.js` with `Cache-Control: public, max-age=31536000,
+   immutable`, and prints the URL and the commit. Give that URL to sites for their `<script>` tag. Old versions stay, so
+   a page that pins one keeps working.
+4. **Check:** `curl -sI <url>`: expect 200, `content-type: text/javascript; charset=utf-8`,
+   `x-content-type-options: nosniff`, the immutable `cache-control`, and `cf-cache-status: HIT` on the second request.
+5. **Sites:** for the lead form a site adds `data-turnstile-site-key="<the Turnstile widget's site key>"` (H3) and
+   optionally `data-privacy-url`, on the same element as the key/URL pair (script tag or widget element). The
+   Turnstile widget's hostnames must include the site's domains. The page's CSP must allow
+   `https://challenges.cloudflare.com` for `script-src` and `frame-src`. Turnstile's `api.js` is loaded without SRI
+   (Cloudflare changes it in place and does not support pinning it). The widget pins its origin and the host's CSP
+   limits it (accepted risk, STATUS Decisions S8-F8).
+
 ## Rollback
 
 Set `WEBSITE_EDGE_CACHE: "false"` and deploy feed-api. Answers turn `private` at once. Cached entries expire within

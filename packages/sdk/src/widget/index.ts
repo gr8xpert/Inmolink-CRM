@@ -7,7 +7,8 @@ import { mountWidget, type WidgetHandle, type WidgetOptions } from './widget';
  * `<div data-inmolink-widget></div>` mounts the widget; `InmolinkWidget.mount(element, options)` does it by hand.
  *
  * The key and the API URL are a pair: both from the script tag, or both from the element (which may also set
- * `data-lang`, `data-page-size`, `data-primary-color`). The script's key is never sent to an element's own URL, so
+ * `data-lang`, `data-page-size`, `data-primary-color`). The lead form's `data-turnstile-site-key` and
+ * `data-privacy-url` (S8-F8) come from the same place as the pair. The script's key is never sent to an element's own URL, so
  * markup an attacker adds to the page cannot redirect it. The API URL must be `https:` (`http://localhost` for tests).
  */
 export type { WidgetHandle, WidgetOptions };

@@ -5,7 +5,9 @@ import { gzipSync } from 'node:zlib';
 import locales from '@inmolink/i18n/locales.json' with { type: 'json' };
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildWidget } from '../../widget-build';
+import { OPERATIONS } from '../website-v2.generated';
 import { connection, safeBaseUrl } from './connection';
+import { formKey } from './lead-form';
 import { pickLang, translate, WIDGET_LANGS } from './messages';
 
 const MAX_GZIP_BYTES = 60 * 1024;
@@ -21,6 +23,8 @@ describe('JS widget (S8-06)', () => {
     expect(script.toString()).not.toMatch(/\brequire\(|\bimport\(|^import /m);
     // Nothing left external: an unresolved workspace import becomes a free `_inmolink_…` global (found on CI).
     expect(script.toString()).not.toMatch(/_inmolink|@inmolink/);
+    // The lead form's caps come from the zod-free contracts values (S8-F8): no zod in the script.
+    expect(script.toString()).not.toMatch(/ZodError|\bzod\b/);
   }, 120_000);
 
   it('[S8-06] UI strings come in every UI language of locales.json, English for any other language', () => {
@@ -49,5 +53,36 @@ describe('JS widget (S8-06)', () => {
     expect(safeBaseUrl('not a url')).toBeUndefined();
     expect(safeBaseUrl('http://localhost:3000/x')).toBe('http://localhost:3000');
     expect(connection({}, { apiKey: 'k', baseUrl: 'http://feed.example' })).toBeUndefined();
+  });
+});
+
+describe('JS widget lead form and AI box (S8-F8)', () => {
+  it('[S8-F8] each form gets a fresh Idempotency-Key the website API accepts', () => {
+    const a = formKey();
+    // The contracts' IdempotencyKey: 16–128 characters of [A-Za-z0-9_.:-].
+    expect(a).toMatch(/^[A-Za-z0-9_.:-]{16,128}$/);
+    expect(formKey()).not.toBe(a);
+  });
+
+  it('[S8-F8] the lead form settings come with the key and URL pair, never across pairs', () => {
+    const script = {
+      apiKey: 'inl_test_pk1',
+      baseUrl: 'https://feed.example',
+      turnstileSiteKey: 'site-key-script',
+      privacyUrl: 'https://agency.example/privacy',
+    };
+    expect(connection({}, script)).toEqual(script);
+    // An element with its own pair gets none of the script's lead settings…
+    expect(connection({ apiKey: 'k', baseUrl: 'https://own.example' }, script)).toEqual({
+      apiKey: 'k',
+      baseUrl: 'https://own.example',
+    });
+    // …and an element without a pair cannot change the script's.
+    expect(connection({ turnstileSiteKey: 'other', privacyUrl: 'https://evil.example' }, script)).toEqual(script);
+  });
+
+  it('[S8-F8] the AI box is absent while the SDK has no /v2/search/ai operation', () => {
+    // When S12-08 adds the endpoint and `pnpm sdk:generate` the operation, this fails: build the widget's AI box then.
+    expect(Object.values(OPERATIONS).map((op): string => op.path)).not.toContain('/v2/search/ai');
   });
 });
