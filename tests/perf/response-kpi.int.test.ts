@@ -9,11 +9,14 @@ import { responseAggregatesQuery } from '../../packages/core/src/modules/crm/res
  * Response-time KPI at scale (S10-09): the aggregate behind `GET /v1/crm/kpis/response-time` (the agency's and each
  * responder's median) on 60,000 leads of one agency received over 90 days. The statement is the repo's own
  * (`responseAggregatesQuery`), explained as `app_user` under RLS. The rows are committed (the visibility map needs a
- * VACUUM, which cannot run in a rolled-back transaction) and deleted afterwards.
+ * VACUUM, which cannot run in a rolled-back transaction) and deleted afterwards. Four other agencies' leads
+ * (`NOISE_AGENCIES`) make the agency a fifth of the table, as on a shared production table: on a fresh CI database the
+ * agency alone was 90 % of `leads`, so the 92-day range rightly planned a Seq Scan (CI 0aa81c3).
  */
 
 const LEADS = 60_000;
 const DAY = 86_400_000;
+const NOISE_AGENCIES = [1, 2, 3, 4].map((i) => `00000000-0000-7000-8000-0000005109f${i}`);
 let founder: Founder;
 
 beforeAll(async () => {
@@ -30,12 +33,21 @@ beforeAll(async () => {
            case when g % 5 <> 0 then now() end, case when g % 5 <> 0 then (g * 7919) % 10800 end,
            case when g % 5 <> 0 then ('00000000-0000-7000-8000-00000000000' || (g % 8))::uuid end
       from generate_series(1, ${LEADS}) g;
+    insert into leads (id, agency_id, contact_id, source, status, stage_id, stage_rank, stage_entered_at, created_at)
+    select gen_random_uuid(), (array['${NOISE_AGENCIES.join("','")}'])[1 + g % 4]::uuid, gen_random_uuid(), 'WEBSITE',
+           'NEW', gen_random_uuid(), 'i', now(), now() - (g * 90.0 / ${4 * LEADS}) * interval '1 day'
+      from generate_series(1, ${4 * LEADS}) g;
     commit;`);
   await adminQuery('vacuum analyze leads');
 }, 180_000);
 
 afterAll(async () => {
-  await adminQuery(`delete from leads where agency_id = '${founder.agencyId}'`);
+  // The rows have no dependents (inserted with triggers off): skip the FK cascade probes of every activities
+  // partition, which made a 300k-row delete outlast the hook.
+  await adminQuery(`begin;
+    set local session_replication_role = replica;
+    delete from leads where agency_id in ('${founder.agencyId}', '${NOISE_AGENCIES.join("','")}');
+    commit;`);
   await adminQuery('vacuum analyze leads');
   await closeDb();
 }, 120_000);
