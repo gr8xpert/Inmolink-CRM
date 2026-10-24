@@ -24,7 +24,8 @@
     "preferredAgencies": "Agencias preferentes",
     "staffAccess": "Accesos del personal",
     "staffConsole": "Consola de staff",
-    "staffVerification": "Cola de verificación (staff)"
+    "staffVerification": "Cola de verificación (staff)",
+    "pipeline": "Embudo comercial"
   },
   "account": {
     "label": "Tu cuenta",

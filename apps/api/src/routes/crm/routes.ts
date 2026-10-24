@@ -27,6 +27,7 @@ import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { crmActivityRoutes } from './activities';
 import { crmLeadRoutes } from './leads';
+import { crmPipelineRoutes } from './pipeline';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -252,6 +253,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   await app.register(crmLeadRoutes);
   // S10-04: the activity timeline.
   await app.register(crmActivityRoutes);
+  // S10-03: pipeline stages, the board, a drag, stage history and the report.
+  await app.register(crmPipelineRoutes);
 }
 
 /** One upload at a time per member, four per process: a 25 MB body each. */

@@ -129,6 +129,12 @@ interface TenantBase {
    */
   userReadOnly?: true;
   /**
+   * STRICT + userReadOnly only (S10-03): rows a trigger appends through these SECURITY DEFINER functions — created in
+   * a migration, owned by `app_owner`, executable by no app role (triggers fire without EXECUTE). The `definer_append`
+   * policy lets `app_owner` insert (forced RLS binds the owner); the guard accepts these functions as definers.
+   */
+  definerAppend?: { functions: readonly string[] };
+  /**
    * `app_owner` (the owner of SECURITY DEFINER functions) may read every row (S7-03): a definer function reads the table
    * for a public path and answers less than a row (`website_network_open`: one boolean per agency). No application
    * role gains anything; forced RLS binds the owner too, hence the explicit policy.
@@ -832,7 +838,36 @@ export const tenantTables: Record<string, TenantTable> = {
   // rows are never writable by readers); nobody changes or removes it (immutable: the holder appends it with the lead,
   // and the lead's deletion cascades as the table owner). The readable side with a real lead is tested in the crm
   // module.
-  leads: { kind: 'STRICT', base: { source: 'MANUAL', kind: 'ENQUIRY', status: 'NEW' } },
+  // S10-03: `leads_stage_guard` (BEFORE INSERT / UPDATE OF stage_id, status) refuses a status that is not its stage's;
+  // `leads_stage_history` (AFTER) appends the move through a definer function (`lead_stage_history`). The suite's rows
+  // name a stage it does not create (its own insert then fails the FK, after RLS).
+  leads: {
+    kind: 'STRICT',
+    base: {
+      source: 'MANUAL',
+      kind: 'ENQUIRY',
+      status: 'NEW',
+      stage_id: '01900000-0000-7000-8000-00000000a003',
+      stage_rank: 'i',
+    },
+    triggers: ['leads_stage_guard', 'leads_stage_history'],
+  },
+  // S10-03: the agency's pipeline stages (names, order, the status each stands for) — own agency only.
+  // `pipeline_stages_guard`: app_user never deletes one (archived instead) nor changes its status, seed key, agency or
+  // idempotency hashes.
+  pipeline_stages: {
+    kind: 'STRICT',
+    base: { status: 'IN_PROGRESS', position: 0, name: 'isolation' },
+    triggers: ['pipeline_stages_guard'],
+  },
+  // S10-03: every stage a lead entered (time in stage, reports) — own agency only, read-only for app_user: only the
+  // `leads_stage_history` trigger appends (`lead_stage_history_append()`, SECURITY DEFINER owned by app_owner, through
+  // the `definer_append` policy). The lead's deletion cascades.
+  lead_stage_history: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    definerAppend: { functions: ['lead_stage_history_append'] },
+  },
   lead_introductions: {
     kind: 'NETWORK_READ',
     immutable: true,

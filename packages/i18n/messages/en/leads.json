@@ -105,5 +105,108 @@
       "LEAD_NOT_FOUND": "This lead does not exist.",
       "LEAD_TARGET_NOT_FOUND": "This property does not exist or you cannot see it."
     }
+  },
+  "pipeline": {
+    "title": "Pipeline",
+    "intro": "Your leads by stage. Drag a card to another column, or use its Move controls.",
+    "views": {
+      "label": "View",
+      "board": "Board",
+      "list": "List"
+    },
+    "filter": {
+      "label": "Leads",
+      "all": "Everyone's",
+      "me": "Mine",
+      "unassigned": "Unassigned"
+    },
+    "manage": "Manage stages",
+    "stages": {
+      "NEW": "New",
+      "IN_PROGRESS": "In progress",
+      "WON": "Won",
+      "LOST": "Lost",
+      "SPAM": "Spam"
+    },
+    "kinds": {
+      "OPEN": "Open",
+      "WON": "Won",
+      "LOST": "Lost"
+    },
+    "sources": {
+      "WEBSITE": "Website",
+      "IFRAME": "iFrame",
+      "SELECTION": "Selection",
+      "PORTFOLIO": "Portfolio",
+      "PORTAL": "Portal",
+      "MARKETPLACE": "Marketplace",
+      "DEVELOPER_PORTAL": "Developer portal",
+      "CHATBOT": "Chatbot",
+      "WHATSAPP": "WhatsApp",
+      "MANUAL": "Manual"
+    },
+    "board": {
+      "label": "Pipeline board",
+      "count": "{count, plural, one {# lead} other {# leads}}",
+      "countCapped": "{count}+",
+      "empty": "No leads",
+      "noName": "No name",
+      "assigned": "Assigned",
+      "unassigned": "Unassigned",
+      "since": "In stage since {date}",
+      "justMoved": "Just moved",
+      "more": "Load more",
+      "dragHint": "Drag a card onto a column, or focus a card and use Move to, Up and Down.",
+      "moveTo": "Move to",
+      "move": "Move",
+      "up": "Up",
+      "down": "Down",
+      "moved": "{name} moved to {stage}.",
+      "saving": "Saving…",
+      "noStages": "No stages yet: your pipeline appears with your first lead, or when an admin adds a stage."
+    },
+    "list": {
+      "label": "Leads",
+      "stage": "Stage",
+      "allStages": "All stages",
+      "filter": "Show",
+      "contact": "Contact",
+      "source": "Source",
+      "received": "Received",
+      "assignee": "Assignee",
+      "empty": "No leads in this view.",
+      "next": "Next page"
+    },
+    "settings": {
+      "title": "Pipeline stages",
+      "intro": "Name, order and add the stages of your pipeline. Each stage counts as open, won or lost in reports. Only agency admins can change them.",
+      "back": "Back to the pipeline",
+      "name": "Name",
+      "kind": "Counts as",
+      "entry": "New leads start here",
+      "archived": "Archived",
+      "rename": "Rename",
+      "resetName": "Use the default name",
+      "archive": "Archive",
+      "restore": "Restore",
+      "up": "Move up",
+      "down": "Move down",
+      "addTitle": "Add a stage",
+      "add": "Add stage",
+      "done": "Saved.",
+      "archivedTitle": "Archived stages"
+    },
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "VERSION_CONFLICT": "Someone else changed this meanwhile. The board was reloaded: try again.",
+      "FORBIDDEN": "You cannot do this. Only agency admins change the stages.",
+      "PIPELINE_STAGE_NOT_FOUND": "This stage no longer exists.",
+      "PIPELINE_STAGE_DUPLICATE": "Another stage already has this name.",
+      "PIPELINE_STAGE_LIMIT": "Your pipeline already has the most stages allowed.",
+      "PIPELINE_STAGE_LOCKED": "This stage cannot be archived: it is where new leads start, it still has leads, or it is the last open stage.",
+      "PIPELINE_ORDER_INVALID": "The stages changed meanwhile. Reload and try again.",
+      "VALIDATION_FAILED": "Check the values and try again.",
+      "LEAD_NOT_FOUND": "This lead no longer exists."
+    }
   }
 }

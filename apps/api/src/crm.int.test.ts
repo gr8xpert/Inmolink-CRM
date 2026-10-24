@@ -273,3 +273,104 @@ describe('crm activity routes', () => {
     expect(none.statusCode).toBe(422);
   });
 });
+
+describe('crm pipeline routes', () => {
+  it('[S10-03] board, stage settings, a drag, stage history and the report over HTTP', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const contact = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/crm/contacts',
+        headers,
+        payload: { firstName: 'Pia', emails: [`api-pipe-${RUN}@example.com`] },
+      })
+    ).json();
+    const lead = (
+      await app.inject({ method: 'POST', url: '/v1/crm/leads', headers, payload: { contactId: contact.id } })
+    ).json();
+
+    const board = await app.inject({ method: 'GET', url: '/v1/crm/pipeline/board?limit=5', headers });
+    expect(board.statusCode).toBe(200);
+    expect(board.headers['cache-control']).toBe('no-store');
+    const columns = board.json().columns as { stage: { id: string; key: string | null }; items: { id: string }[] }[];
+    expect(columns.map((c) => c.stage.key)).toEqual(['NEW', 'IN_PROGRESS', 'WON', 'LOST', 'SPAM']);
+    expect(columns[0]?.items.map((l) => l.id)).toEqual([lead.id]);
+
+    const key = { 'idempotency-key': `api-stage-${RUN}-0001` };
+    const added = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/pipeline/stages',
+      headers: { ...headers, ...key },
+      payload: { name: 'Viewing booked', kind: 'OPEN', position: 1 },
+    });
+    expect(added.statusCode).toBe(201);
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/pipeline/stages',
+      headers: { ...headers, ...key },
+      payload: { name: 'Viewing booked', kind: 'OPEN', position: 1 },
+    });
+    expect(replay.statusCode).toBe(200);
+    const stage = added.json();
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/pipeline/stages/${stage.id}`,
+      headers,
+      payload: { version: stage.version, name: 'Viewing' },
+    });
+    expect(renamed.json()).toMatchObject({ name: 'Viewing', status: 'IN_PROGRESS', kind: 'OPEN' });
+    const order = (await app.inject({ method: 'GET', url: '/v1/crm/pipeline/stages', headers })).json().items as {
+      id: string;
+    }[];
+    const reorder = await app.inject({
+      method: 'PUT',
+      url: '/v1/crm/pipeline/stages/order',
+      headers,
+      payload: { stageIds: order.slice(1).map((s) => s.id) },
+    });
+    expect(reorder.statusCode).toBe(409);
+    expect(reorder.json().error.code).toBe('PIPELINE_ORDER_INVALID');
+
+    const moved = await app.inject({
+      method: 'POST',
+      url: `/v1/crm/leads/${lead.id}/move`,
+      headers,
+      payload: { version: lead.version, stageId: stage.id, afterLeadId: null },
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json()).toMatchObject({ stageId: stage.id, status: 'IN_PROGRESS', version: lead.version + 1 });
+    const stale = await app.inject({
+      method: 'POST',
+      url: `/v1/crm/leads/${lead.id}/move`,
+      headers,
+      payload: { version: lead.version, stageId: stage.id },
+    });
+    expect(stale.statusCode).toBe(409);
+    const column = await app.inject({ method: 'GET', url: `/v1/crm/pipeline/stages/${stage.id}/leads`, headers });
+    expect(column.json().items.map((l: { id: string }) => l.id)).toEqual([lead.id]);
+    const list = await app.inject({ method: 'GET', url: `/v1/crm/leads?stageId=${stage.id}`, headers });
+    expect(list.json().items.map((l: { id: string }) => l.id)).toEqual([lead.id]);
+
+    const history = await app.inject({ method: 'GET', url: `/v1/crm/leads/${lead.id}/stage-history`, headers });
+    expect(history.json().items).toMatchObject([{ toStageId: stage.id }, { fromStageId: null }]);
+    const from = new Date(Date.now() - 3_600_000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const report = await app.inject({
+      method: 'GET',
+      url: `/v1/crm/pipeline/report?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      headers,
+    });
+    expect(report.statusCode).toBe(200);
+    expect(report.json().stages.find((s: { stage: { id: string } }) => s.stage.id === stage.id)).toMatchObject({
+      current: 1,
+      entered: 1,
+    });
+    const tooLong = await app.inject({
+      method: 'GET',
+      url: `/v1/crm/pipeline/report?from=2020-01-01T00:00:00.000Z&to=${encodeURIComponent(to)}`,
+      headers,
+    });
+    expect(tooLong.statusCode).toBe(422);
+  });
+});

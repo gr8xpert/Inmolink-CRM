@@ -2,6 +2,7 @@ import { type SQL, sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -22,6 +23,12 @@ import { agencies } from './agencies';
  * readable by another agency, the network or the public — except `lead_introductions` (S10-02), which the introduced
  * owner agency reads and which holds nothing of the client. `activities` (S10-04) is partitioned by month.
  */
+
+/**
+ * `text COLLATE "C"`: byte order, whatever the database's collation — a board rank (`leads.stage_rank`) is compared
+ * and midpointed as a base-36 digit string, so its order must be the bytes' (`text_lt` is leakproof under RLS).
+ */
+const textC = customType<{ data: string }>({ dataType: () => 'text COLLATE "C"' });
 
 /** `date_trunc('milliseconds', col, 'UTC')`: the keyset sort key (`keysetOrder`, S2-F1), indexable. */
 const keysetTime = (col: unknown) => sql`date_trunc('milliseconds', ${col}, 'UTC')`;
@@ -277,6 +284,75 @@ const leadSourceList = sql.raw(
 );
 
 /**
+ * An agency's pipeline stage (S10-03, PLAN §7 M8): named, ordered (`position` among the active ones), and standing for
+ * one lead status — so its kind (`OPEN`, `WON`, `LOST`, stored) is known to reports whatever the agency calls it. Every
+ * agency gets the five default stages (`seed_key` NEW, IN_PROGRESS, WON, LOST, SPAM; `name` null: the dashboard shows
+ * them translated): migration 0124 for the agencies then, the crm service (`DEFAULT_STAGES`) in its write paths after
+ * (an agency's first lead or stage change). Stages are archived, never deleted (the history names them). The `NEW`
+ * stage is the entry stage: one per agency, never archived. `pipeline_stages_guard` keeps `status`, `seed_key`,
+ * `agency_id` and the idempotency hashes as inserted, and refuses app_user deletes.
+ */
+export const pipelineStages = pgTable(
+  'pipeline_stages',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** A default stage's key (`PIPELINE_STAGE_KEYS`); null for a stage an admin added. */
+    seedKey: text('seed_key'),
+    /** The agency's name; null: a default stage's translated name. */
+    name: text('name'),
+    /** The lead status of a lead in this stage (checked). */
+    status: text('status').notNull(),
+    /** `OPEN` (`NEW`, `IN_PROGRESS`), `WON` or `LOST` (`LOST`, `SPAM`): what reports count. */
+    kind: text('kind')
+      .notNull()
+      .generatedAlwaysAs(
+        (): SQL => sql`case when status = 'WON' then 'WON' when status in ('LOST', 'SPAM') then 'LOST' else 'OPEN' end`,
+      ),
+    /** Order among the agency's active stages (ties by id). */
+    position: integer('position').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    /** SHA-256 of the creating admin's `Idempotency-Key` (with their user id) and of the request body (24 h replay). */
+    idempotencyHash: text('idempotency_hash'),
+    requestHash: text('request_hash'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the composite FKs of `leads` and `lead_stage_history` (a lead's stage is one of its agency's)
+    unique('pipeline_stages_agency_id_uq').on(t.agencyId, t.id),
+    // the stages of an agency in order: where agency_id = ? order by position, id
+    index('pipeline_stages_agency_position_idx').on(t.agencyId, t.position, t.id),
+    // seeding once: insert … on conflict do nothing
+    uniqueIndex('pipeline_stages_seed_uq').on(t.agencyId, t.seedKey).where(sql`${t.seedKey} is not null`),
+    // one entry stage per agency (where agency_id = ? and status = 'NEW')
+    uniqueIndex('pipeline_stages_entry_uq').on(t.agencyId).where(sql`${t.status} = 'NEW'`),
+    // two active stages never share a name
+    uniqueIndex('pipeline_stages_name_uq')
+      .on(t.agencyId, sql`lower(${t.name})`)
+      .where(sql`${t.name} is not null and ${t.archivedAt} is null`),
+    // POST replay: where agency_id = ? and idempotency_hash = ?. Unique for good, not only for the 24 h replay window: a
+    // key reused after it gets IDEMPOTENCY_KEY_REUSED (as `leads_idempotency_uq`), never a second stage.
+    uniqueIndex('pipeline_stages_idempotency_uq')
+      .on(t.agencyId, t.idempotencyHash)
+      .where(sql`${t.idempotencyHash} is not null`),
+    check('pipeline_stages_status_ck', sql`${t.status} in ('NEW', 'IN_PROGRESS', 'WON', 'LOST', 'SPAM')`),
+    check(
+      'pipeline_stages_seed_ck',
+      sql`${t.seedKey} is null or (${t.seedKey} in ('NEW', 'IN_PROGRESS', 'WON', 'LOST', 'SPAM') and ${t.seedKey} = ${t.status})`,
+    ),
+    check('pipeline_stages_name_ck', sql`${t.name} is not null or ${t.seedKey} is not null`),
+    check('pipeline_stages_name_len_ck', sql`${t.name} is null or length(${t.name}) between 1 and 60`),
+    check('pipeline_stages_entry_ck', sql`${t.status} <> 'NEW' or ${t.archivedAt} is null`),
+    check('pipeline_stages_position_ck', sql`${t.position} >= 0`),
+    check('pipeline_stages_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+  ],
+);
+
+/**
  * A lead (S10-02, PLAN §3 #12, §7 M8): a client's enquiry about a listing, development or unit — or a general one — in
  * the inbox of the agency it is routed to (`agency_id`, the holder). Routing by source (`crm/routing.ts`): marketplace
  * → the listing owner; website, iFrame, selection, portfolio, portal, chatbot, WhatsApp, manual → the presenting
@@ -297,8 +373,21 @@ export const leads = pgTable(
     source: text('source').notNull(),
     /** `ENQUIRY` or `VIEWING_REQUEST`. */
     kind: text('kind').notNull().default('ENQUIRY'),
-    /** `NEW` → `IN_PROGRESS` → `WON` | `LOST`; `SPAM` (checked). Customizable stages are S10-03's. */
+    /**
+     * `NEW`, `IN_PROGRESS`, `WON`, `LOST` or `SPAM` (checked): since S10-03 always the status of the lead's stage —
+     * the crm service writes both, `leads_stage_guard` refuses a mismatch (the inbox's status filter keeps working).
+     */
     status: text('status').notNull().default('NEW'),
+    /** The pipeline stage (S10-03, `pipeline_stages`): a new lead's is the agency's entry stage (crm service). */
+    stageId: uuid('stage_id').notNull(),
+    /**
+     * The lead's place in its board column (ascending), a base-36 fraction (`crm/rank.ts`): a lead entering a stage
+     * without a drop place gets a time key that sorts the newest first (`timeRank`); a drag writes a key between its
+     * new neighbours. Never ends in `0` (checked), so a key strictly between any two exists.
+     */
+    stageRank: textC('stage_rank').notNull(),
+    /** When the lead entered its stage (crm service): time in stage; the history row's `changed_at`. */
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull(),
     /** The agency that presented the target to the client (a site's agency); null: the owner's own channel. */
     presentingAgencyId: uuid('presenting_agency_id'),
     /** The target's owner when it is not the holder (network listing, developer's unit): the introduced agency. */
@@ -350,6 +439,14 @@ export const leads = pgTable(
     index('leads_agency_status_created_idx').on(t.agencyId, t.status, t.createdMs, t.id),
     // source filter: … and source = ?, same keyset
     index('leads_agency_source_created_idx').on(t.agencyId, t.source, t.createdMs, t.id),
+    // the list view of one stage (S10-03): … and stage_id = ?, same keyset; also the FK to pipeline_stages
+    index('leads_agency_stage_created_idx').on(t.agencyId, t.stageId, t.createdMs, t.id),
+    // a board column: where agency_id = ? and stage_id = ? and (stage_rank, id) > (?, ?) order by stage_rank, id;
+    // the counts per stage (index-only) and a drag's neighbour (… and (stage_rank, id) > (?, ?) order by … limit 1);
+    // `stage_entered_at` last (no INCLUDE in drizzle): the report's leads per stage and their age, index-only
+    index('leads_agency_stage_rank_idx').on(t.agencyId, t.stageId, t.stageRank, t.id, t.stageEnteredAt),
+    // a board column of one member's (or the unassigned) leads: … and assigned_user_id = ? (or is null), same order
+    index('leads_agency_stage_assigned_rank_idx').on(t.agencyId, t.stageId, t.assignedUserId, t.stageRank, t.id),
     // FK + a merge re-points a contact's leads: where agency_id = ? and contact_id = ?
     index('leads_contact_idx').on(t.agencyId, t.contactId),
     // promotion: one lead per inbound lead (where agency_id = ? and inbound_lead_id = ?)
@@ -375,10 +472,72 @@ export const leads = pgTable(
     ),
     check('leads_assigned_ck', sql`(${t.assignedUserId} is null) = (${t.assignedAt} is null)`),
     check('leads_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    check('leads_stage_rank_ck', sql`${t.stageRank} ~ '^[0-9a-z]*[1-9a-z]$' and length(${t.stageRank}) <= 200`),
     foreignKey({
       name: 'leads_contact_fk',
       columns: [t.agencyId, t.contactId],
       foreignColumns: [contacts.agencyId, contacts.id],
+    }),
+    foreignKey({
+      name: 'leads_stage_fk',
+      columns: [t.agencyId, t.stageId],
+      foreignColumns: [pipelineStages.agencyId, pipelineStages.id],
+    }),
+  ],
+);
+
+/**
+ * A lead's passage between stages (S10-03): written only by the `leads_stage_history` trigger (AFTER INSERT / UPDATE OF
+ * stage_id on `leads`, `lead_stage_history_append()` SECURITY DEFINER owned by app_owner) — the lead's first stage
+ * (`from_stage_id` null) and every move. app_user only reads it (`userReadOnly`): a request can neither forge nor
+ * rewrite a move. Each row closes the stay in `from_stage_id` (`from_entered_at` → `changed_at`), so reports read time
+ * in stage without a window over the whole history. The agency is the lead's (composite FK); stages are never deleted,
+ * so the stage FKs need no index.
+ */
+export const leadStageHistory = pgTable(
+  'lead_stage_history',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id').notNull(),
+    leadId: uuid('lead_id').notNull(),
+    fromStageId: uuid('from_stage_id'),
+    /** When the lead had entered `from_stage_id` (null with it). */
+    fromEnteredAt: timestamp('from_entered_at', { withTimezone: true }),
+    toStageId: uuid('to_stage_id').notNull(),
+    /** When it moved, to the millisecond (checked): the lead history's keyset key and the reports' range. */
+    changedAt: timestamp('changed_at', { withTimezone: true }).notNull(),
+    /** The member who moved it (`app.user_id` of the transaction); null for a system writer (a lead received). */
+    actorUserId: uuid('actor_user_id'),
+  },
+  (t) => [
+    // a lead's history: where agency_id = ? and lead_id = ? and (changed_at, id) < (?, ?) order by changed_at desc,
+    // id desc (keyset); also the FK to leads
+    index('lead_stage_history_lead_idx').on(t.agencyId, t.leadId, t.changedAt, t.id),
+    // reports: where agency_id = ? and changed_at >= ? and changed_at < ? (moves in a range), index-only: the stages
+    // and the stay's start ride along (no INCLUDE in drizzle)
+    index('lead_stage_history_agency_changed_idx').on(
+      t.agencyId,
+      t.changedAt,
+      t.fromStageId,
+      t.toStageId,
+      t.fromEnteredAt,
+    ),
+    check('lead_stage_history_from_ck', sql`(${t.fromStageId} is null) = (${t.fromEnteredAt} is null)`),
+    check('lead_stage_history_ms_ck', sql`${t.changedAt} = date_trunc('milliseconds', ${t.changedAt}, 'UTC')`),
+    foreignKey({
+      name: 'lead_stage_history_lead_fk',
+      columns: [t.agencyId, t.leadId],
+      foreignColumns: [leads.agencyId, leads.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'lead_stage_history_to_fk',
+      columns: [t.agencyId, t.toStageId],
+      foreignColumns: [pipelineStages.agencyId, pipelineStages.id],
+    }),
+    foreignKey({
+      name: 'lead_stage_history_from_fk',
+      columns: [t.agencyId, t.fromStageId],
+      foreignColumns: [pipelineStages.agencyId, pipelineStages.id],
     }),
   ],
 );
@@ -431,7 +590,7 @@ export const leadIntroductions = pgTable(
 
 /** The activity types (`ACTIVITY_TYPES` in contracts), as a check constraint's list. */
 const activityTypeList = sql.raw(
-  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED'`,
+  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED', 'STAGE_CHANGED'`,
 );
 
 /**

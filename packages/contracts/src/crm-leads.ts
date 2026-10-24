@@ -66,6 +66,8 @@ const leadFields = {
   source: LeadSource,
   kind: LeadKind,
   status: LeadStatus,
+  /** The pipeline stage it is in (S10-03); `status` is that stage's. */
+  stageId: z.uuid(),
   contact: LeadContactDto,
   /** The agency that presented the target to the client; null: the owner's own channel (marketplace). */
   presentingAgencyId: z.uuid().nullable(),
@@ -113,6 +115,8 @@ export type LeadDto = z.infer<typeof LeadDto>;
  */
 export const ListLeadsQuery = PageQuery.extend({
   status: LeadStatus.optional(),
+  /** One pipeline stage (S10-03: the list view of the board). */
+  stageId: z.uuid().optional(),
   source: LeadSource.optional(),
   assigned: z.union([z.literal('me'), z.literal('unassigned'), z.uuid()]).optional(),
 });
@@ -144,7 +148,10 @@ export const CreateLeadBody = z.strictObject({
 export type CreateLeadBody = z.infer<typeof CreateLeadBody>;
 export type CreateLeadInput = z.input<typeof CreateLeadBody>;
 
-/** `PATCH /v1/crm/leads/:id`: status and assignment (`null`: unassign), at `version`. */
+/**
+ * `PATCH /v1/crm/leads/:id`: status and assignment (`null`: unassign), at `version`. A status moves the lead to the
+ * agency's first active stage standing for it (S10-03), like a move on the board.
+ */
 export const UpdateLeadBody = z
   .strictObject({
     version: z.number().int().min(1),

@@ -307,7 +307,10 @@ describe('writers', () => {
     const { lead } = await as(a, (ctx) =>
       crm.createLead(ctx, CreateLeadBody.parse({ contactId: survivor.id, target: { kind: 'LISTING', id: listingId } })),
     );
-    await as(a, (ctx) => crm.updateLead(ctx, lead.id, { version: lead.version, status: 'IN_PROGRESS' }));
+    // S10-03: a status is a stage change (STAGE_CHANGED); the assignment is LEAD_UPDATED
+    await as(a, (ctx) =>
+      crm.updateLead(ctx, lead.id, { version: lead.version, status: 'IN_PROGRESS', assignedUserId: a.userId }),
+    );
     // the duplicate's own lead: the merge re-points it (a new version) without a crm.lead.updated
     const { lead: dupLead } = await as(a, (ctx) =>
       crm.createLead(ctx, CreateLeadBody.parse({ contactId: duplicate.id })),
@@ -319,23 +322,30 @@ describe('writers', () => {
     const call = (await log(a, { type: 'CALL', contactId: duplicate.id, body: 'Asked for the floor plan' })).activity;
     await as(a, (ctx) => crm.mergeContacts(ctx, survivor.id, { duplicateId: duplicate.id, version: survivor.version }));
 
-    const types = ['crm.lead.created', 'crm.lead.updated', 'crm.contact.merged', 'properties.listing.statusChanged'];
+    const types = [
+      'crm.lead.created',
+      'crm.lead.updated',
+      'crm.lead.stageChanged',
+      'crm.contact.merged',
+      'properties.listing.statusChanged',
+    ];
     const delivered = await deliver(a.agencyId, types, 2);
-    expect(delivered).toBeGreaterThanOrEqual(4);
+    expect(delivered).toBeGreaterThanOrEqual(5);
 
     const ofContact = await timeline(a, { subject: 'CONTACT', subjectId: survivor.id, limit: 100 });
     const byType = (items: { type: string }[]) => items.map((i) => i.type).sort();
     // twice delivered, recorded once; the duplicate's note and call moved with the merge
     // (the duplicate's lead moved with it: its LEAD_CREATED, and no LEAD_UPDATED from the merge)
     expect(byType(ofContact.items)).toEqual(
-      ['CALL', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_CREATED', 'LEAD_UPDATED', 'NOTE_ADDED'].sort(),
+      ['CALL', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_CREATED', 'LEAD_UPDATED', 'NOTE_ADDED', 'STAGE_CHANGED'].sort(),
     );
     const byKind = Object.fromEntries(ofContact.items.map((i) => [i.type, i]));
     expect(byKind.CONTACT_MERGED?.data).toEqual({ mergedId: duplicate.id });
     const created = ofContact.items.filter((i) => i.type === 'LEAD_CREATED');
     expect(created.find((i) => i.leadId === lead.id)).toMatchObject({ listingId, data: { source: 'MANUAL' } });
     expect(created.find((i) => i.leadId === dupLead.id)).toMatchObject({ contactId: survivor.id, listingId: null });
-    expect(byKind.LEAD_UPDATED).toMatchObject({ leadId: lead.id, data: { status: 'IN_PROGRESS' } });
+    expect(byKind.LEAD_UPDATED).toMatchObject({ leadId: lead.id, data: { assignedUserId: a.userId } });
+    expect(byKind.STAGE_CHANGED).toMatchObject({ leadId: lead.id, listingId, data: { status: 'IN_PROGRESS' } });
     const dupUpdates = await rows<{ n: number }>(
       sql`select count(*)::int as n from outbox_events
           where type = 'crm.lead.updated' and payload->>'leadId' = ${dupLead.id}`,
@@ -347,9 +357,14 @@ describe('writers', () => {
     expect(byKind.CALL?.id).toBe(call.id);
 
     const ofLead = await timeline(a, { subject: 'LEAD', subjectId: lead.id });
-    expect(byType(ofLead.items)).toEqual(['LEAD_CREATED', 'LEAD_UPDATED']);
+    expect(byType(ofLead.items)).toEqual(['LEAD_CREATED', 'LEAD_UPDATED', 'STAGE_CHANGED']);
     const ofListing = await timeline(a, { subject: 'LISTING', subjectId: listingId });
-    expect(byType(ofListing.items)).toEqual(['LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED']);
+    expect(byType(ofListing.items)).toEqual([
+      'LEAD_CREATED',
+      'LEAD_UPDATED',
+      'LISTING_STATUS_CHANGED',
+      'STAGE_CHANGED',
+    ]);
     const status = ofListing.items.find((i) => i.type === 'LISTING_STATUS_CHANGED');
     expect(status?.data).toEqual({ from: 'DRAFT', to: 'ACTIVE' });
     const filtered = await timeline(a, { subject: 'LISTING', subjectId: listingId, type: 'LISTING_STATUS_CHANGED' });

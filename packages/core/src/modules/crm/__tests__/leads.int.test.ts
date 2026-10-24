@@ -601,20 +601,23 @@ describe('the inbox', () => {
 
   it('[S10-02] the inbox and introduction lists are index conditions under RLS, deep pages included', async () => {
     // At scale: a 5,000-lead agency among 200 others (25k leads, introductions to one owner); FK checks off in this
-    // rolled-back seed; analysed, EXPLAINed as app_user (RLS on).
+    // rolled-back seed; analysed, EXPLAINed as app_user (RLS on). Replica mode skips `leads_stage_sync` (S10-03): the
+    // rows name a stage and rank themselves.
     const plans = await withAdminRollback(['leads', 'lead_introductions'], async (q) => {
       await q('set local session_replication_role = replica');
       await q(
-        `insert into leads (id, agency_id, contact_id, source, status, assigned_user_id, assigned_at, created_at)
+        `insert into leads (id, agency_id, contact_id, source, status, assigned_user_id, assigned_at, created_at,
+                            stage_id, stage_rank, stage_entered_at)
          select gen_random_uuid(), $1, gen_random_uuid(), case when g % 20 = 0 then 'PORTAL' else 'WEBSITE' end,
                 case when g % 10 = 0 then 'WON' else 'NEW' end,
-                case when g % 5 = 0 then $2::uuid end, case when g % 5 = 0 then now() end, now() - g * interval '1 minute'
+                case when g % 5 = 0 then $2::uuid end, case when g % 5 = 0 then now() end, now() - g * interval '1 minute',
+                gen_random_uuid(), 'i', now()
          from generate_series(1, 5000) g`,
         [a.agencyId, agentId],
       );
       await q(
-        `insert into leads (id, agency_id, contact_id, source)
-         select gen_random_uuid(), ag.id, gen_random_uuid(), 'MANUAL'
+        `insert into leads (id, agency_id, contact_id, source, stage_id, stage_rank, stage_entered_at)
+         select gen_random_uuid(), ag.id, gen_random_uuid(), 'MANUAL', gen_random_uuid(), 'i', now()
          from (select gen_random_uuid() as id from generate_series(1, 200)) ag, generate_series(1, 100) g`,
       );
       await q(

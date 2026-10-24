@@ -1,8 +1,10 @@
 import type { Tx } from '@inmolink/db';
-import { contacts, leadIntroductions, leadRoutingSettings, leads } from '@inmolink/db/schema/crm';
+import { contacts, leadIntroductions, leadRoutingSettings, leads, pipelineStages } from '@inmolink/db/schema/crm';
+import { newId } from '@inmolink/platform/ids';
 import { and, eq, gt, isNull, type SQL, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
+import { DEFAULT_STAGES } from './pipeline-defaults';
 
 /**
  * Lead queries (S10-02, PATTERNS §5): the holder's leads (STRICT), the owner's introductions (NETWORK_READ on
@@ -17,6 +19,7 @@ const ownColumns = {
   source: leads.source,
   kind: leads.kind,
   status: leads.status,
+  stageId: leads.stageId,
   presentingAgencyId: leads.presentingAgencyId,
   ownerAgencyId: leads.ownerAgencyId,
   targetKind: leads.targetKind,
@@ -56,6 +59,7 @@ export interface LeadListRow {
   source: string;
   kind: string;
   status: string;
+  stageId: string;
   presentingAgencyId: string | null;
   ownerAgencyId: string | null;
   targetKind: string | null;
@@ -85,6 +89,7 @@ export interface LeadRow extends LeadListRow {
   updatedAt: Date;
 }
 
+/** A new lead, with its stage, rank and entry time (`pipeline.entryStage`, `placement`). */
 export type NewLead = Omit<typeof leads.$inferInsert, 'version' | 'createdAt' | 'updatedAt'> & { id: string };
 
 /** Inserts a lead and answers the columns the database set (the caller builds the answer without reading it back). */
@@ -150,6 +155,8 @@ export async function getLead(tx: Tx, id: string, opts: { forUpdate?: boolean } 
 
 export interface LeadListFilter {
   status?: string;
+  /** One pipeline stage (S10-03, `leads_agency_stage_created_idx`). */
+  stageId?: string;
   source?: string;
   /** A member's id, or null: unassigned leads. */
   assignedUserId?: string | null;
@@ -169,6 +176,7 @@ export async function listLeads(
 ): Promise<LeadListRow[]> {
   const where: (SQL | undefined)[] = [eq(leads.agencyId, agencyId), rowAfter(leads.createdMs, leads.id, page.cursor)];
   if (filter.status) where.push(eq(leads.status, filter.status));
+  if (filter.stageId) where.push(eq(leads.stageId, filter.stageId));
   if (filter.source) where.push(eq(leads.source, filter.source));
   if (filter.assignedUserId !== undefined) {
     where.push(
@@ -299,6 +307,57 @@ export async function saveRouting(
     .where(and(eq(leadRoutingSettings.agencyId, agencyId), eq(leadRoutingSettings.version, version)))
     .returning(returning);
   return row ?? null;
+}
+
+/**
+ * What receiving a lead starts from, in one statement: the holder's entry stage (`NEW`) — seeding its default stages
+ * (`DEFAULT_STAGES`) when it has none — and its assignment rule (unlocked). `stageId` is null only when a concurrent
+ * first seed won (its rows are not in this statement's snapshot): the caller reads the stage again.
+ */
+export async function entryStageAndRule(
+  tx: Tx,
+  agencyId: string,
+): Promise<{ stageId: string | null; rule: RoutingRow | null }> {
+  const values = sql.join(
+    DEFAULT_STAGES.map((key, position) => sql`(${newId()}::uuid, ${key}, ${position}::int)`),
+    sql`, `,
+  );
+  const res = await tx.execute<{
+    stage_id: string | null;
+    mode: string | null;
+    agent_user_ids: string[] | null;
+    last_assigned_user_id: string | null;
+    version: number | null;
+  }>(sql`
+    with seeded as (
+      insert into ${pipelineStages} (id, agency_id, seed_key, status, position)
+      select d.id, ${agencyId}::uuid, d.k, d.k, d.pos from (values ${values}) as d(id, k, pos)
+       where not exists (select 1 from ${pipelineStages} e where e.agency_id = ${agencyId})
+      on conflict do nothing
+      returning id, status
+    ),
+    entry as (
+      select id from seeded where status = 'NEW'
+      union all
+      select id from ${pipelineStages} where agency_id = ${agencyId} and status = 'NEW'
+      limit 1
+    )
+    select (select id from entry) as stage_id, r.mode, r.agent_user_ids, r.last_assigned_user_id, r.version
+      from (values (1)) as one(x)
+      left join ${leadRoutingSettings} r on r.agency_id = ${agencyId}`);
+  const row = res.rows[0];
+  return {
+    stageId: row?.stage_id ? String(row.stage_id) : null,
+    rule:
+      row?.mode != null
+        ? {
+            mode: row.mode,
+            agentUserIds: (row.agent_user_ids ?? []).map(String),
+            lastAssignedUserId: row.last_assigned_user_id ? String(row.last_assigned_user_id) : null,
+            version: Number(row.version),
+          }
+        : null,
+  };
 }
 
 /** The round robin's position after an assignment (the row is locked by the caller). */

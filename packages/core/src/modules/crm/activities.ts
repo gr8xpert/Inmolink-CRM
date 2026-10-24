@@ -25,6 +25,7 @@ import { assertCan } from './policy';
  *  - a note on a contact records `NOTE_ADDED` in the note's own transaction (`service.addContactNote`);
  *  - other changes arrive through the outbox (`subscriptions.ts` → `crm.recordActivity`, one job per event):
  *    `crm.lead.created` (`LEAD_CREATED`, website leads included once promoted), `crm.lead.updated` (`LEAD_UPDATED`),
+ *    `crm.lead.stageChanged` (`STAGE_CHANGED`, S10-03),
  *    `crm.contact.merged` (`CONTACT_MERGED` on the survivor) and `properties.listing.statusChanged`
  *    (`LISTING_STATUS_CHANGED`). The row takes the event's id and time, so a redelivery adds nothing.
  * A purged listing leaves the timelines (`forgetListingActivities`). Activities never point at a closed contact: a
@@ -196,7 +197,7 @@ export interface RecordedActivity {
   agencyId: string;
   /** The event's time (ISO): the activity's, so a redelivery maps to the same row. */
   occurredAt: string;
-  type: 'LEAD_CREATED' | 'LEAD_UPDATED' | 'CONTACT_MERGED' | 'LISTING_STATUS_CHANGED';
+  type: 'LEAD_CREATED' | 'LEAD_UPDATED' | 'STAGE_CHANGED' | 'CONTACT_MERGED' | 'LISTING_STATUS_CHANGED';
   contactId?: string | undefined;
   leadId?: string | undefined;
   listingId?: string | undefined;

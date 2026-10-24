@@ -112,6 +112,14 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if (def.userReadOnly && (def.appendOnly || def.immutable || def.userSelect || def.userInsert !== undefined)) {
       throw new Error(`${name}: userReadOnly is not valid with appendOnly, immutable, userSelect or userInsert`);
     }
+    if (def.definerAppend) {
+      if (def.kind !== 'STRICT' || !def.userReadOnly) {
+        throw new Error(`${name}: definerAppend is only valid for STRICT userReadOnly tables`);
+      }
+      if (def.definerAppend.functions.length === 0 || def.definerAppend.functions.some((f) => !IDENT.test(f))) {
+        throw new Error(`${name}: definerAppend needs function names`);
+      }
+    }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
     for (const c of [...(def.staff?.selectColumns ?? []), ...(def.staff?.updateColumns ?? [])]) {
@@ -280,6 +288,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   }
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   if (def.definerRead) out.push({ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] });
+  if (def.definerAppend) out.push({ name: 'definer_append', cmd: 'INSERT', roles: ['app_owner'] });
   return out;
 }
 
@@ -656,6 +665,10 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   if (def.definerRead) {
     // S7-03: read by a SECURITY DEFINER function only (owned by app_owner); no application role gains a row.
     out.push(`create policy definer_read on ${t} for select to app_owner using (true);`);
+  }
+  if (def.definerAppend) {
+    // S10-03: appended by a SECURITY DEFINER trigger function only (owned by app_owner); app_user reads, never writes.
+    out.push(`create policy definer_append on ${t} for insert to app_owner with check (true);`);
   }
   return out;
 }

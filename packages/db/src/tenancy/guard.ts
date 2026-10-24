@@ -237,11 +237,17 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
   }
 
   const helpers = new Set<string>(HELPER_FUNCTIONS);
+  // S10-03: trigger functions a registry entry names as its definer appenders — SECURITY DEFINER, but callable by no app
+  // role (the check above still applies to them).
+  const appenders = new Set<string>(
+    Object.values(registry.tenant).flatMap((def) => def.definerAppend?.functions ?? []),
+  );
   for (const f of functions.rows) {
     const label = f.schema === 'public' ? f.name : `${f.schema}.${f.name}`;
     const ours = f.schema === 'public' && helpers.has(f.name);
+    const appender = f.schema === 'public' && appenders.has(f.name);
     if (f.executable && !ours) problems.push(`${label}(): executable by an app role but not a generated helper`);
-    if (f.definer && !ours) problems.push(`${label}(): SECURITY DEFINER outside the generated helpers`);
+    if (f.definer && !ours && !appender) problems.push(`${label}(): SECURITY DEFINER outside the generated helpers`);
   }
 
   // Guard triggers carry the rules RLS cannot express (S1-07 review): each registered one must exist and

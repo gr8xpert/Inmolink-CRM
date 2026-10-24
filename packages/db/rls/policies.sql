@@ -89,7 +89,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -645,6 +645,16 @@ revoke all on table public."lead_routing_settings" from public, app_user, app_sy
 grant select, insert, update, delete on table public."lead_routing_settings" to app_user;
 grant select, insert, update, delete on table public."lead_routing_settings" to app_system;
 
+-- lead_stage_history: STRICT
+alter table public."lead_stage_history" enable row level security;
+alter table public."lead_stage_history" force row level security;
+create policy own_rows on public."lead_stage_history" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."lead_stage_history" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."lead_stage_history" to app_user;
+grant select, insert, update, delete on table public."lead_stage_history" to app_system;
+create policy definer_append on public."lead_stage_history" for insert to app_owner with check (true);
+
 -- leads: STRICT
 alter table public."leads" enable row level security;
 alter table public."leads" force row level security;
@@ -887,6 +897,15 @@ grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
   with check ((select public.app_is_staff()) and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid)));
 grant insert on table public."outbox_events" to app_staff;
+
+-- pipeline_stages: STRICT
+alter table public."pipeline_stages" enable row level security;
+alter table public."pipeline_stages" force row level security;
+create policy own_rows on public."pipeline_stages" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."pipeline_stages" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."pipeline_stages" to app_user;
+grant select, insert, update, delete on table public."pipeline_stages" to app_system;
 
 -- portal_channels: GLOBAL
 alter table public."portal_channels" enable row level security;

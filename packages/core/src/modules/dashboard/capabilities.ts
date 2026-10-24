@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
+import * as crm from '../crm';
 import * as developments from '../developments';
 import * as exportsModule from '../exports';
 import * as identity from '../identity';
@@ -17,6 +18,8 @@ import * as websites from '../websites';
  */
 const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boolean]> = [
   ['listings', (ctx) => properties.can(ctx, 'listing.read')],
+  // The CRM pipeline (S10-03): members who work clients (not partners, not Client Mode).
+  ['pipeline', (ctx) => crm.can(ctx, 'crm.leads.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
   ['network', (ctx) => search.can(ctx, 'search.network')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).

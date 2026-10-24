@@ -27,6 +27,7 @@ describe('getMyCapabilities', () => {
   it('[S1-10] role-based navigation: admins of either family see every section, agents only the shared ones', () => {
     const all = [
       'listings',
+      'pipeline',
       'network',
       'developments',
       'imports',
@@ -47,6 +48,7 @@ describe('getMyCapabilities', () => {
     for (const role of ['AGENT', 'DEVELOPER_AGENT']) {
       expect(getMyCapabilities(ctxAs(role)).sections).toEqual([
         'listings',
+        'pipeline',
         'network',
         'developments',
         'imports',
@@ -84,6 +86,7 @@ describe('getMyCapabilities', () => {
     // Read-only areas stay visible; nothing forbidden to staff is offered (not the agency's staff-access record).
     expect(caps.sections).toEqual([
       'listings',
+      'pipeline',
       'network',
       'developments',
       'imports',

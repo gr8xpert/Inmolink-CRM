@@ -105,5 +105,108 @@
       "LEAD_NOT_FOUND": "Este lead no existe.",
       "LEAD_TARGET_NOT_FOUND": "Este inmueble no existe o no puede verlo."
     }
+  },
+  "pipeline": {
+    "title": "Embudo comercial",
+    "intro": "Tus leads por etapa. Arrastra una tarjeta a otra columna o usa sus controles de Mover.",
+    "views": {
+      "label": "Vista",
+      "board": "Tablero",
+      "list": "Lista"
+    },
+    "filter": {
+      "label": "Leads",
+      "all": "De todos",
+      "me": "Míos",
+      "unassigned": "Sin asignar"
+    },
+    "manage": "Gestionar etapas",
+    "stages": {
+      "NEW": "Nuevo",
+      "IN_PROGRESS": "En curso",
+      "WON": "Ganado",
+      "LOST": "Perdido",
+      "SPAM": "Spam"
+    },
+    "kinds": {
+      "OPEN": "Abierta",
+      "WON": "Ganada",
+      "LOST": "Perdida"
+    },
+    "sources": {
+      "WEBSITE": "Web",
+      "IFRAME": "iFrame",
+      "SELECTION": "Selección",
+      "PORTFOLIO": "Cartera",
+      "PORTAL": "Portal",
+      "MARKETPLACE": "Marketplace",
+      "DEVELOPER_PORTAL": "Portal de promotores",
+      "CHATBOT": "Chatbot",
+      "WHATSAPP": "WhatsApp",
+      "MANUAL": "Manual"
+    },
+    "board": {
+      "label": "Tablero del embudo",
+      "count": "{count, plural, one {# lead} other {# leads}}",
+      "countCapped": "{count}+",
+      "empty": "Sin leads",
+      "noName": "Sin nombre",
+      "assigned": "Asignado",
+      "unassigned": "Sin asignar",
+      "since": "En la etapa desde {date}",
+      "justMoved": "Movido ahora",
+      "more": "Cargar más",
+      "dragHint": "Arrastra una tarjeta a una columna, o selecciona una tarjeta y usa Mover a, Subir y Bajar.",
+      "moveTo": "Mover a",
+      "move": "Mover",
+      "up": "Subir",
+      "down": "Bajar",
+      "moved": "{name} se ha movido a {stage}.",
+      "saving": "Guardando…",
+      "noStages": "Aún no hay etapas: tu embudo aparece con tu primer lead o cuando un administrador añade una etapa."
+    },
+    "list": {
+      "label": "Leads",
+      "stage": "Etapa",
+      "allStages": "Todas las etapas",
+      "filter": "Mostrar",
+      "contact": "Contacto",
+      "source": "Origen",
+      "received": "Recibido",
+      "assignee": "Asignado a",
+      "empty": "No hay leads en esta vista.",
+      "next": "Página siguiente"
+    },
+    "settings": {
+      "title": "Etapas del embudo",
+      "intro": "Pon nombre, ordena y añade las etapas de tu embudo. Cada etapa cuenta como abierta, ganada o perdida en los informes. Solo los administradores de la agencia pueden cambiarlas.",
+      "back": "Volver al embudo",
+      "name": "Nombre",
+      "kind": "Cuenta como",
+      "entry": "Los leads nuevos empiezan aquí",
+      "archived": "Archivada",
+      "rename": "Renombrar",
+      "resetName": "Usar el nombre por defecto",
+      "archive": "Archivar",
+      "restore": "Restaurar",
+      "up": "Subir",
+      "down": "Bajar",
+      "addTitle": "Añadir una etapa",
+      "add": "Añadir etapa",
+      "done": "Guardado.",
+      "archivedTitle": "Etapas archivadas"
+    },
+    "errors": {
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "VERSION_CONFLICT": "Otra persona lo ha cambiado mientras tanto. Hemos recargado el tablero: inténtalo de nuevo.",
+      "FORBIDDEN": "No puedes hacer esto. Solo los administradores de la agencia cambian las etapas.",
+      "PIPELINE_STAGE_NOT_FOUND": "Esta etapa ya no existe.",
+      "PIPELINE_STAGE_DUPLICATE": "Ya hay otra etapa con este nombre.",
+      "PIPELINE_STAGE_LIMIT": "Tu embudo ya tiene el máximo de etapas permitido.",
+      "PIPELINE_STAGE_LOCKED": "No se puede archivar esta etapa: es donde empiezan los leads nuevos, aún tiene leads o es la última etapa abierta.",
+      "PIPELINE_ORDER_INVALID": "Las etapas han cambiado mientras tanto. Recarga e inténtalo de nuevo.",
+      "VALIDATION_FAILED": "Revisa los valores e inténtalo de nuevo.",
+      "LEAD_NOT_FOUND": "Este lead ya no existe."
+    }
   }
 }

@@ -663,4 +663,21 @@ describe('userNoUpdateColumns', () => {
     expect(part).not.toMatch(/grant [^;]*\bupdate\b[^;(]* on table public\."api_keys" to app_user;/);
     expect(registry.tenant.api_keys?.userNoUpdateColumns).toEqual(['legacy_query_key']);
   });
+
+  it('[S10-03] definerAppend: app_user only reads; app_owner appends through a definer_append policy; STRICT userReadOnly only', () => {
+    const history = registry.tenant.lead_stage_history;
+    expect(history).toMatchObject({ kind: 'STRICT', userReadOnly: true });
+    expect(history?.definerAppend?.functions).toEqual(['lead_stage_history_append']);
+    expect(expectedPolicies(history as TenantTable)).toContainEqual({
+      name: 'definer_append',
+      cmd: 'INSERT',
+      roles: ['app_owner'],
+    });
+    const part = tablesSql(registry).split('-- lead_stage_history: STRICT')[1]?.split('\n\n')[0] ?? '';
+    expect(part).toContain('create policy definer_append on public."lead_stage_history" for insert to app_owner');
+    expect(part).not.toMatch(/grant [^;]*insert[^;]* to app_user/);
+    const bad = (def: TenantTable) => () => tablesSql({ tenant: { t: def }, global: {} });
+    expect(bad({ kind: 'STRICT', definerAppend: { functions: ['f'] } })).toThrow(/definerAppend/);
+    expect(bad({ kind: 'STRICT', userReadOnly: true, definerAppend: { functions: [] } })).toThrow(/definerAppend/);
+  });
 });

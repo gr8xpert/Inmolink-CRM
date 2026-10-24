@@ -1278,7 +1278,12 @@
                             "CONTACT_IMPORT_FILE_INVALID",
                             "LEAD_NOT_FOUND",
                             "LEAD_TARGET_NOT_FOUND",
-                            "ACTIVITY_DATE_OUT_OF_RANGE"
+                            "ACTIVITY_DATE_OUT_OF_RANGE",
+                            "PIPELINE_STAGE_NOT_FOUND",
+                            "PIPELINE_STAGE_DUPLICATE",
+                            "PIPELINE_STAGE_LIMIT",
+                            "PIPELINE_STAGE_LOCKED",
+                            "PIPELINE_ORDER_INVALID"
                           ],
                           "type": "string"
                         },
@@ -3476,7 +3481,12 @@
                             "CONTACT_IMPORT_FILE_INVALID",
                             "LEAD_NOT_FOUND",
                             "LEAD_TARGET_NOT_FOUND",
-                            "ACTIVITY_DATE_OUT_OF_RANGE"
+                            "ACTIVITY_DATE_OUT_OF_RANGE",
+                            "PIPELINE_STAGE_NOT_FOUND",
+                            "PIPELINE_STAGE_DUPLICATE",
+                            "PIPELINE_STAGE_LIMIT",
+                            "PIPELINE_STAGE_LOCKED",
+                            "PIPELINE_ORDER_INVALID"
                           ],
                           "type": "string"
                         },

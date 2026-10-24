@@ -139,6 +139,8 @@ export const DashboardSection = z.enum([
   'verification',
   'preferredAgencies',
   'staffAccess',
+  /** The CRM pipeline board and list (S10-03). */
+  'pipeline',
 ]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 

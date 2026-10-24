@@ -33,6 +33,8 @@ import * as websites from '../websites';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
 import { distinct, normalizeEmail, normalizePhone } from './normalize';
+import { placement, stageForStatus } from './pipeline';
+import * as pipelineRepo from './pipeline-repo';
 import { assertCan } from './policy';
 import * as repo from './repo';
 import { routeLead } from './routing';
@@ -59,6 +61,7 @@ function toListItem(row: leadsRepo.LeadListRow): LeadListItemDto {
     source: row.source as LeadSource,
     kind: row.kind as LeadKind,
     status: row.status as LeadStatus,
+    stageId: row.stageId,
     contact: {
       id: row.contactId,
       firstName: row.contactFirstName,
@@ -103,8 +106,8 @@ function toLeadDto(row: leadsRepo.LeadRow): LeadDto {
 // ---- assignment -----------------------------------------------------------------------------------------------------
 
 /**
- * The member the holder's rule assigns a new lead to, or null (`UNASSIGNED`, no rule, nobody in the pool). ≤ 4
- * statements; only a round-robin turn locks the rule's row (until the transaction ends), so concurrent leads take turns
+ * The member the holder's rule (`rule`, read unlocked with the entry stage) assigns a new lead to, or null
+ * (`UNASSIGNED`, no rule, nobody in the pool). ≤ 3 statements; only a round-robin turn locks the rule's row (until the transaction ends), so concurrent leads take turns
  * and leads of an `UNASSIGNED` agency never wait on each other.
  *
  * - `OWNER_AGENT`: the target listing's responsible agent when the holder owns it and they are an active member;
@@ -112,8 +115,12 @@ function toLeadDto(row: leadsRepo.LeadRow): LeadDto {
  * - `ROUND_ROBIN`: the next member after the last one assigned, in user-id order, among the pool (`agent_user_ids`, or
  *   every active member who works clients) — members deactivated since are skipped.
  */
-async function pickAssignee(tx: Tx, agencyId: string, listingAgentId: string | null): Promise<string | null> {
-  const rule = await leadsRepo.getRouting(tx, agencyId);
+async function pickAssignee(
+  tx: Tx,
+  agencyId: string,
+  listingAgentId: string | null,
+  rule: leadsRepo.RoutingRow | null,
+): Promise<string | null> {
   if (!rule || rule.mode === 'UNASSIGNED') return null;
   const active = await identity.activeClientMemberIds(tx, agencyId, ROUND_ROBIN_MEMBERS);
   if (rule.mode === 'OWNER_AGENT' && listingAgentId && active.includes(listingAgentId)) return listingAgentId;
@@ -177,10 +184,15 @@ export async function receiveLead(tx: Tx, holderAgencyId: string, lead: Incoming
     ownerAgencyId: lead.target?.ownerAgencyId ?? null,
   });
   if (route.holderAgencyId !== holderAgencyId) throw new AppError('FORBIDDEN');
+  // S10-03: every lead starts in the holder's entry stage (seeded on its first lead), newest first in its column; the
+  // same statement reads the assignment rule
+  const start = await leadsRepo.entryStageAndRule(tx, holderAgencyId);
+  const stageId = start.stageId ?? (await pipelineRepo.stageForStatus(tx, holderAgencyId, 'NEW'))?.id;
+  if (!stageId) throw new AppError('INTERNAL', { reason: 'no_entry_stage' });
   const assignedUserId =
     lead.assignedUserId !== undefined
       ? lead.assignedUserId
-      : await pickAssignee(tx, holderAgencyId, lead.listingAgentId);
+      : await pickAssignee(tx, holderAgencyId, lead.listingAgentId, start.rule);
   const id = newId();
   const values = {
     id,
@@ -189,6 +201,8 @@ export async function receiveLead(tx: Tx, holderAgencyId: string, lead: Incoming
     source: lead.source,
     kind: lead.kind,
     status: 'NEW',
+    stageId,
+    ...placement(id, new Date()),
     presentingAgencyId: lead.presentingAgencyId,
     ownerAgencyId: route.introducedAgencyId,
     targetKind: lead.target?.kind ?? null,
@@ -477,6 +491,7 @@ export async function listLeads(ctx: Ctx, query: ListLeadsQuery): Promise<LeadPa
   const cursor = decodeCursor(query.cursor);
   const filter: leadsRepo.LeadListFilter = {};
   if (query.status) filter.status = query.status;
+  if (query.stageId) filter.stageId = query.stageId;
   if (query.source) filter.source = query.source;
   if (query.assigned === 'unassigned') filter.assignedUserId = null;
   else if (query.assigned === 'me') filter.assignedUserId = userIdOf(ctx);
@@ -491,7 +506,9 @@ export async function listLeads(ctx: Ctx, query: ListLeadsQuery): Promise<LeadPa
 }
 
 /**
- * `PATCH /v1/crm/leads/:id` (optimistic concurrency on `version`): status and assignment. Leaving `NEW` the first
+ * `PATCH /v1/crm/leads/:id` (optimistic concurrency on `version`): status and assignment. A status moves the lead to
+ * the agency's first active stage standing for it (S10-03: like a drag to the top of that column — the history row
+ * from the database, `crm.lead.stageChanged` here); an assignment emits `crm.lead.updated`. Leaving `NEW` the first
  * time records the response time (`firstRespondedAt`).
  */
 export async function updateLead(ctx: Ctx, id: string, input: UpdateLeadBody): Promise<LeadDto> {
@@ -502,8 +519,13 @@ export async function updateLead(ctx: Ctx, id: string, input: UpdateLeadBody): P
   if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
   const patch: Parameters<typeof leadsRepo.updateLeadWithVersion>[3] = {};
   const now = new Date();
+  let toStageId: string | null = null;
   if (input.status && input.status !== current.status) {
+    // S10-03: a status is a move to the top of the first active stage standing for it
+    toStageId = (await stageForStatus(ctx, input.status)).id;
+    patch.stageId = toStageId;
     patch.status = input.status;
+    Object.assign(patch, placement(id, now));
     if (current.status === 'NEW' && !current.firstRespondedAt) patch.firstRespondedAt = now;
   }
   if (input.assignedUserId !== undefined && input.assignedUserId !== current.assignedUserId) {
@@ -514,16 +536,31 @@ export async function updateLead(ctx: Ctx, id: string, input: UpdateLeadBody): P
   if (Object.keys(patch).length === 0) return toLeadDto(current);
   const updated = await leadsRepo.updateLeadWithVersion(ctx.tx, id, input.version, patch);
   if (!updated) throw new AppError('VERSION_CONFLICT');
-  await emit(
-    ctx.tx,
-    crmEvents.leadUpdated({
-      agencyId: current.agencyId,
-      leadId: id,
-      version: updated.version,
-      status: patch.status ?? current.status,
-      assignedUserId: patch.assignedUserId !== undefined ? patch.assignedUserId : current.assignedUserId,
-    }),
-  );
+  if (toStageId) {
+    await emit(
+      ctx.tx,
+      crmEvents.leadStageChanged({
+        agencyId: current.agencyId,
+        leadId: id,
+        fromStageId: current.stageId,
+        toStageId,
+        status: patch.status ?? current.status,
+        version: updated.version,
+      }),
+    );
+  }
+  if (patch.assignedUserId !== undefined) {
+    await emit(
+      ctx.tx,
+      crmEvents.leadUpdated({
+        agencyId: current.agencyId,
+        leadId: id,
+        version: updated.version,
+        status: patch.status ?? current.status,
+        assignedUserId: patch.assignedUserId,
+      }),
+    );
+  }
   return loadLead(ctx, id);
 }
 

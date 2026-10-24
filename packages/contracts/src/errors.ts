@@ -254,6 +254,19 @@ export const ErrorCodes = {
   // crm: activities (S10-04)
   /** A logged activity's `occurredAt` is ahead of now or more than `CRM_ACTIVITY_LIMITS.backdateDays` back. */
   ACTIVITY_DATE_OUT_OF_RANGE: 422,
+  // crm: pipeline (S10-03)
+  PIPELINE_STAGE_NOT_FOUND: 404,
+  /** Another active stage of the agency already has this name. */
+  PIPELINE_STAGE_DUPLICATE: 409,
+  /** The agency already has `CRM_PIPELINE_LIMITS.stages` active stages. */
+  PIPELINE_STAGE_LIMIT: 409,
+  /**
+   * The stage cannot be archived (`details.reason`): `entry` (the stage new leads enter), `not_empty` (leads are still
+   * in it: move them first) or `last_open` (the pipeline keeps at least one open stage).
+   */
+  PIPELINE_STAGE_LOCKED: 409,
+  /** A reorder that does not name every active stage exactly once (the pipeline changed meanwhile: reload it). */
+  PIPELINE_ORDER_INVALID: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

@@ -27,6 +27,17 @@ export {
   updateLead,
   updateLeadRouting,
 } from './leads';
+export {
+  createPipelineStage,
+  getPipelineBoard,
+  getPipelineReport,
+  listLeadStageHistory,
+  listPipelineStages,
+  listStageLeads,
+  moveLead,
+  reorderPipelineStages,
+  updatePipelineStage,
+} from './pipeline';
 export { CLIENT_MODE_ALLOWED, CRM_ACTIONS, CRM_IMPERSONATION, type CrmAction, can } from './policy';
 export { type Route, type RouteInput, routeLead } from './routing';
 export {

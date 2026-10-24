@@ -68,7 +68,7 @@ export const crmJobs = {
       eventId: z.uuid(),
       agencyId: z.uuid(),
       occurredAt: z.iso.datetime(),
-      type: z.enum(['LEAD_CREATED', 'LEAD_UPDATED', 'CONTACT_MERGED', 'LISTING_STATUS_CHANGED']),
+      type: z.enum(['LEAD_CREATED', 'LEAD_UPDATED', 'STAGE_CHANGED', 'CONTACT_MERGED', 'LISTING_STATUS_CHANGED']),
       contactId: z.uuid().optional(),
       leadId: z.uuid().optional(),
       listingId: z.uuid().optional(),

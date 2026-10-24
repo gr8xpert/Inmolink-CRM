@@ -24,8 +24,8 @@ const at = (meta: EventMeta) => ({
  * event's time. Website leads appear once promoted (`crm.lead.created`), not as `websites.lead.received` too. Left out
  * on purpose: contact created / updated (the contact shows its own dates; imports would flood the queue), listing
  * edits and feed imports (volume; the listing's history is S13's), notes (written in the note's transaction).
- * `crm.lead.updated` is only emitted for a status or assignee change (a merge re-points leads without it), so every
- * one is a real `LEAD_UPDATED`. A purged listing (`properties.listing.purged`) leaves the timelines
+ * `crm.lead.updated` is only emitted for an assignee change (a merge re-points leads without it), so every one is a
+ * real `LEAD_UPDATED`; a stage change (a drag, a status set) is `crm.lead.stageChanged` → `STAGE_CHANGED` (S10-03). A purged listing (`properties.listing.purged`) leaves the timelines
  * (`crm.forgetListingActivities`).
  */
 export function registerCrmSubscriptions(): void {
@@ -62,6 +62,22 @@ export function registerCrmSubscriptions(): void {
           data: { status: payload.status, assignedUserId: payload.assignedUserId, version: payload.version },
         }),
       { name: 'crm.activity.leadUpdated' },
+    ),
+    subscribe(
+      crmEvents.leadStageChanged,
+      (payload, meta) =>
+        crmJobs.recordActivity.enqueue({
+          ...at(meta),
+          type: 'STAGE_CHANGED',
+          leadId: payload.leadId,
+          data: {
+            fromStageId: payload.fromStageId,
+            toStageId: payload.toStageId,
+            status: payload.status,
+            version: payload.version,
+          },
+        }),
+      { name: 'crm.activity.stageChanged' },
     ),
     subscribe(
       crmEvents.contactMerged,

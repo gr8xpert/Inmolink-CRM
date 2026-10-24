@@ -24,7 +24,8 @@
     "preferredAgencies": "Preferred agencies",
     "staffAccess": "Staff access",
     "staffConsole": "Staff console",
-    "staffVerification": "Verification queue (staff)"
+    "staffVerification": "Verification queue (staff)",
+    "pipeline": "Pipeline"
   },
   "account": {
     "label": "Your account",

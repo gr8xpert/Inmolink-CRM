@@ -10,6 +10,7 @@ export * from './compliance';
 export * from './crm';
 export * from './crm-activities';
 export * from './crm-leads';
+export * from './crm-pipeline';
 export * from './developments';
 export * from './developments-csv';
 export * from './errors';

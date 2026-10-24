@@ -15,6 +15,7 @@ export const RECORDED_ACTIVITY_TYPES = [
   'LEAD_CREATED',
   'LEAD_UPDATED',
   'LISTING_STATUS_CHANGED',
+  'STAGE_CHANGED',
 ] as const;
 export const ACTIVITY_TYPES = [...MANUAL_ACTIVITY_TYPES, ...RECORDED_ACTIVITY_TYPES] as const;
 export const ActivityType = z.enum(ACTIVITY_TYPES);
@@ -38,7 +39,7 @@ export const ActivityDto = z.strictObject({
   /** The member who logged it; null when the system recorded it. */
   actorUserId: z.uuid().nullable(),
   body: z.string().nullable(),
-  /** A recorded activity's detail: `{ status, assignedUserId }`, `{ from, to }`, `{ mergedId }`, `{ noteId }`. */
+  /** A recorded activity's detail: `{ status, assignedUserId }`, `{ from, to }` (a listing's status, a lead's stages: `{ fromStageId, toStageId, status }`), `{ mergedId }`, `{ noteId }`. */
   data: z.record(z.string(), z.unknown()),
 });
 export type ActivityDto = z.infer<typeof ActivityDto>;

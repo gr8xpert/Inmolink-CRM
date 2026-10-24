@@ -15,7 +15,11 @@ import { z } from 'zod';
  * - `crm.lead.created` (S10-02) — a lead reached the holder's inbox (`inboundLeadId`: promoted from a website lead;
  *   `assignedUserId`: the member the routing rule or the creator chose). website-api notifies the agency from it — the
  *   assigned agent, else the site contact or the admins.
- * - `crm.lead.updated` (S10-02) — a lead's status or assignment changed; `version` is the new one.
+ * - `crm.lead.updated` (S10-02) — a lead's assignment changed; `version` is the new one (since S10-03 a status change
+ *   is a stage change: `crm.lead.stageChanged`).
+ * - `crm.lead.stageChanged` (S10-03) — a lead moved to another pipeline stage (a drag on the board, or a status set);
+ *   `status` is the new stage's. The move's history row is already written (`lead_stage_history`); the activity
+ *   timeline records `STAGE_CHANGED` from it.
  */
 export const crmEvents = {
   contactCreated: defineEvent(
@@ -54,6 +58,18 @@ export const crmEvents = {
       version: z.number().int(),
       status: z.string(),
       assignedUserId: z.uuid().nullable(),
+    }),
+  ),
+  leadStageChanged: defineEvent(
+    'crm.lead.stageChanged',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      leadId: z.uuid(),
+      fromStageId: z.uuid(),
+      toStageId: z.uuid(),
+      status: z.string(),
+      version: z.number().int(),
     }),
   ),
 };
