@@ -29,6 +29,7 @@ import * as developments from '../developments';
 import * as identity from '../identity';
 import * as properties from '../properties';
 import * as websites from '../websites';
+import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
 import { linkedListing } from './listing-ref';
@@ -459,7 +460,9 @@ export async function createLead(
 
 export async function getLead(ctx: Ctx, id: string): Promise<LeadDto> {
   assertCan(ctx, 'crm.leads.read');
-  return loadLead(ctx, id);
+  const lead = await loadLead(ctx, id);
+  await auditImpersonatedRead(ctx, 'leads', { target: { type: 'lead', id } });
+  return lead;
 }
 
 /**
@@ -482,7 +485,9 @@ export async function listLeads(ctx: Ctx, query: ListLeadsQuery): Promise<LeadPa
     filter,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.createdMs, id: r.id }), toListItem);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdMs, id: r.id }), toListItem);
+  await auditImpersonatedRead(ctx, 'leads', { count: page.items.length });
+  return page;
 }
 
 /**

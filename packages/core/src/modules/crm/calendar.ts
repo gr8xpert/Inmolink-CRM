@@ -20,7 +20,9 @@ import { newId } from '@inmolink/platform/ids';
 import type { Ctx } from '../../context';
 import { advisoryLock, idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
+import * as compliance from '../compliance';
 import * as identity from '../identity';
+import { auditImpersonatedRead } from './audit';
 import { renderEventReminder } from './calendar-emails';
 import { type IcsEvent, renderIcs } from './calendar-ics';
 import * as repo from './calendar-repo';
@@ -184,6 +186,7 @@ export async function listCalendarEvents(ctx: Ctx, query: ListCalendarEventsQuer
   const page = rows.slice(0, query.limit);
   const dtos = await toDtos(ctx, page);
   const byId = new Map(dtos.map((d) => [d.id, d]));
+  await auditImpersonatedRead(ctx, 'calendar', { count: page.length });
   return toPage(
     rows,
     query.limit,
@@ -197,6 +200,7 @@ export async function getCalendarEvent(ctx: Ctx, id: string): Promise<CalendarEv
   const row = await repo.getEvent(ctx.tx, ctx.tenant.agencyId, id);
   if (!row) throw new AppError('CALENDAR_EVENT_NOT_FOUND');
   const [dto] = await toDtos(ctx, [row]);
+  await auditImpersonatedRead(ctx, 'calendar', { target: { type: 'calendarEvent', id } });
   return dto as CalendarEventDto;
 }
 
@@ -459,23 +463,32 @@ export async function rotateCalendarFeed(ctx: Ctx): Promise<CalendarFeedSecretDt
   const agencyId = ctx.tenant.agencyId;
   await advisoryLock(ctx.tx, `calendar-feed:${agencyId}:${me}`);
   const now = new Date();
-  await repo.revokeFeed(ctx.tx, agencyId, me, now);
+  const previousId = await repo.revokeFeed(ctx.tx, agencyId, me, now);
   const token = newToken(32);
+  const id = newId();
   const row = await repo.insertFeed(ctx.tx, {
-    id: newId(),
+    id,
     agencyId,
     userId: me,
     tokenHash: feedTokenHash(token),
     tokenHint: token.slice(-4),
     createdAt: now,
   });
+  // A credential: who issued it, never the token (the hint is not recorded either).
+  await compliance.audit(
+    ctx,
+    previousId ? 'crm.calendarFeed.rotated' : 'crm.calendarFeed.issued',
+    { type: 'calendarFeed', id },
+    previousId ? { previousId } : {},
+  );
   return { feed: toFeedDto(row), token, path: calendarFeedPath(token) };
 }
 
 /** `DELETE /v1/crm/calendar/feed`: the caller's feed URL stops working at once. */
 export async function revokeCalendarFeed(ctx: Ctx): Promise<CalendarFeedDto> {
   const me = feedMember(ctx);
-  await repo.revokeFeed(ctx.tx, ctx.tenant.agencyId, me, new Date());
+  const revokedId = await repo.revokeFeed(ctx.tx, ctx.tenant.agencyId, me, new Date());
+  if (revokedId) await compliance.audit(ctx, 'crm.calendarFeed.revoked', { type: 'calendarFeed', id: revokedId });
   return toFeedDto(null);
 }
 

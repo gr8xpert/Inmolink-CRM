@@ -27,6 +27,7 @@ import * as identity from '../identity';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import * as activitiesRepo from './activities-repo';
+import { auditImpersonatedRead } from './audit';
 import { assertCan, can } from './policy';
 import * as prospectsRepo from './prospects-repo';
 import { isRank, rankBetween, spreadRank, timeRank } from './rank';
@@ -141,6 +142,10 @@ export async function listProspects(ctx: Ctx, query: ListProspectsQuery): Promis
     { ...(query.stage ? { stage: query.stage } : {}), assigned: assignedOf(ctx, query.assigned) },
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
+  await auditImpersonatedRead(ctx, 'prospects', {
+    count: Math.min(rows.length, query.limit),
+    filter: { assigned: query.assigned, stage: query.stage },
+  });
   return toPage(
     rows,
     query.limit,
@@ -160,6 +165,7 @@ export async function listProspectFollowUps(ctx: Ctx, query: ProspectFollowUpsQu
     new Date(query.to),
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
+  await auditImpersonatedRead(ctx, 'prospects', { count: Math.min(rows.length, query.limit) });
   return toPage(
     rows,
     query.limit,
@@ -202,6 +208,7 @@ export async function getProspectBoard(ctx: Ctx, query: ProspectBoardQuery): Pro
   const counts = await prospectsRepo.stageCounts(ctx.tx, agencyId, PROSPECT_STAGES, CRM_PROSPECT_LIMITS.countCap + 1);
   const byStage = new Map<string, prospectsRepo.ProspectRow[]>();
   for (const c of cards) byStage.set(c.stage, [...(byStage.get(c.stage) ?? []), c]);
+  await auditImpersonatedRead(ctx, 'prospects', { count: cards.length });
   return {
     columns: PROSPECT_STAGES.map((stage) => {
       const n = counts.get(stage) ?? 0;
@@ -229,12 +236,15 @@ export async function listStageProspects(
     stage,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
+  await auditImpersonatedRead(ctx, 'prospects', { count: Math.min(rows.length, query.limit), filter: { stage } });
   return columnPage(ctx, rows, query.limit);
 }
 
 export async function getProspect(ctx: Ctx, id: string): Promise<ProspectDto> {
   assertCan(ctx, 'crm.prospects.read');
-  return prospectDto(ctx, id);
+  const prospect = await prospectDto(ctx, id);
+  await auditImpersonatedRead(ctx, 'prospects', { target: { type: 'prospect', id } });
+  return prospect;
 }
 
 /**

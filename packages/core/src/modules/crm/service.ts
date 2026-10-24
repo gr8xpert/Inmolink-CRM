@@ -24,8 +24,10 @@ import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { idempotencyHashOf, idempotencyWindowStart, isUniqueViolation } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
+import * as compliance from '../compliance';
 import * as identity from '../identity';
 import { recordNoteAdded } from './activities';
+import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import { distinct, normalizeEmail, normalizePhone } from './normalize';
 import { assertCan } from './policy';
@@ -301,7 +303,9 @@ async function mergeInto(
 
 export async function getContact(ctx: Ctx, id: string): Promise<ContactDto> {
   assertCan(ctx, 'crm.contacts.read');
-  return loadContact(ctx, id);
+  const contact = await loadContact(ctx, id);
+  await auditImpersonatedRead(ctx, 'contacts', { target: { type: 'contact', id } });
+  return contact;
 }
 
 /** `GET /v1/crm/contacts`: newest first, keyset (≤ 100 per page, one query); filters by tag, type and owner. */
@@ -321,7 +325,9 @@ export async function listContacts(ctx: Ctx, query: ListContactsQuery): Promise<
     filter,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.createdMs, id: r.id }), toListItem);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdMs, id: r.id }), toListItem);
+  await auditImpersonatedRead(ctx, 'contacts', { count: page.items.length });
+  return page;
 }
 
 /**
@@ -335,6 +341,7 @@ export async function lookupContacts(ctx: Ctx, input: ContactLookupBody): Promis
   const phones = distinct(input.phones.map((p) => normalizePhone(p, country)).filter((p): p is string => p !== null));
   const owners = await repo.identifierOwners(ctx.tx, ctx.tenant.agencyId, emails, phones);
   const rows = await repo.listContactsByIds(ctx.tx, ctx.tenant.agencyId, distinct(owners.map((o) => o.contactId)));
+  await auditImpersonatedRead(ctx, 'contacts', { count: rows.length });
   return { items: rows.map(toListItem), matches: matchesOf(owners) };
 }
 
@@ -448,6 +455,7 @@ export async function mergeContacts(ctx: Ctx, survivorId: string, input: MergeCo
   await repo.closeMerged(ctx.tx, agencyId, duplicate.id, survivor.id);
   await repo.refreshPrimaries(ctx.tx, agencyId, [survivor.id]);
   await repo.syncFacets(ctx.tx, agencyId, [survivor.id, duplicate.id]);
+  await compliance.audit(ctx, 'crm.contact.merged', { type: 'contact', id: survivor.id }, { mergedId: duplicate.id });
   await emit(ctx.tx, [
     crmEvents.contactMerged({ agencyId, survivorId: survivor.id, mergedId: duplicate.id }),
     crmEvents.contactUpdated({
@@ -492,5 +500,7 @@ export async function listContactNotes(ctx: Ctx, contactId: string, query: PageQ
     contactId,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toNoteDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toNoteDto);
+  await auditImpersonatedRead(ctx, 'contactNotes', { count: page.items.length, parentId: contactId });
+  return page;
 }

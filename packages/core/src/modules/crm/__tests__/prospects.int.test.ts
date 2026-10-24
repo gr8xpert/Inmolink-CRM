@@ -22,7 +22,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as crm from '../index';
@@ -405,12 +405,8 @@ describe('conversion', () => {
 describe('confidential notes', () => {
   it('[S10-07] confidential notes are the agency’s members’ only: not staff impersonating, never Client Mode', async () => {
     const { prospect } = await create(a, { title: title('Secret'), confidentialNotes: NOTES });
-    const impersonated = await as(a, (ctx) =>
-      crm.getProspect(
-        { ...ctx, actor: { ...(ctx.actor as Extract<Ctx['actor'], { kind: 'user' }>), impersonatedBy: STAFF } },
-        prospect.id,
-      ),
-    );
+    // S11-F2: an impersonated read writes an audit row, so the transaction carries the staff member (RLS)
+    const impersonated = await as(a, async (ctx) => crm.getProspect(await impersonatedCtx(ctx, STAFF), prospect.id));
     expect(impersonated.id).toBe(prospect.id);
     expect(impersonated.confidentialNotes).toBeNull();
     expect(await refusal(as(a, (ctx) => crm.getProspect({ ...ctx, clientMode: true }, prospect.id)))).toBe('FORBIDDEN');

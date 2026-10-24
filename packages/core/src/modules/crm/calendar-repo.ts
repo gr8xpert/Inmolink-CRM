@@ -425,14 +425,14 @@ export async function liveFeed(tx: Tx, agencyId: string, userId: string): Promis
   return row ?? null;
 }
 
-/** Revokes the member's live feed; whether there was one. */
-export async function revokeFeed(tx: Tx, agencyId: string, userId: string, now: Date): Promise<boolean> {
+/** Revokes the member's live feed; answers its id, or null when there was none. */
+export async function revokeFeed(tx: Tx, agencyId: string, userId: string, now: Date): Promise<string | null> {
   const rows = await tx
     .update(calendarFeeds)
     .set({ revokedAt: now })
     .where(and(eq(calendarFeeds.agencyId, agencyId), eq(calendarFeeds.userId, userId), isNull(calendarFeeds.revokedAt)))
     .returning({ id: calendarFeeds.id });
-  return rows.length > 0;
+  return rows[0]?.id ?? null;
 }
 
 export async function insertFeed(

@@ -30,6 +30,7 @@ import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
+import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
 import * as pipelineRepo from './pipeline-repo';
@@ -299,6 +300,7 @@ export async function getPipelineBoard(ctx: Ctx, query: PipelineBoardQuery): Pro
   }
   const order = (a: pipelineRepo.CardRow, b: pipelineRepo.CardRow) =>
     a.stageRank < b.stageRank ? -1 : a.stageRank > b.stageRank ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  await auditImpersonatedRead(ctx, 'pipeline', { count: cards.length, filter: { assigned: query.assigned } });
   return {
     columns: stages.map((stage) => ({
       stage: toStageDto(stage),
@@ -321,6 +323,11 @@ export async function listStageLeads(ctx: Ctx, stageId: string, query: PipelineC
     assignedOf(ctx, query.assigned),
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
+  await auditImpersonatedRead(ctx, 'pipeline', {
+    count: Math.min(rows.length, query.limit),
+    parentId: stageId,
+    filter: { assigned: query.assigned },
+  });
   return columnPage(rows, query.limit);
 }
 
@@ -422,6 +429,7 @@ export async function listLeadStageHistory(ctx: Ctx, leadId: string, query: Page
     leadId,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
+  await auditImpersonatedRead(ctx, 'stageHistory', { count: Math.min(rows.length, query.limit), parentId: leadId });
   return toPage(
     rows,
     query.limit,

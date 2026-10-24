@@ -94,6 +94,17 @@ export const AUDIT_TYPES = [
   'mls.registration.conflicted',
   // S11-02: one side accepted a viewing request's terms snapshot (the introducer by requesting, the owner by accepting).
   'mls.viewing.termsAccepted',
+  // S11-F2: a member's ICS feed URL (a credential) issued (none before), rotated (replacing a live one) or revoked.
+  'crm.calendarFeed.issued',
+  'crm.calendarFeed.rotated',
+  'crm.calendarFeed.revoked',
+  // S11-F2: two contacts merged (target: the survivor; metadata: the closed contact's id).
+  'crm.contact.merged',
+  // S11-F2: a bulk contact import queued (target: the import; metadata: rows, duplicate policy).
+  'crm.contactImport.started',
+  // S11-F2: client data (contacts, leads, activities, calendar, prospects, tasks, pipeline) read by staff
+  // impersonating a member — one row per list / get call; never written for the member's own reads.
+  'crm.clientData.read',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
@@ -115,7 +126,14 @@ export interface AuditTarget {
     | 'site'
     | 'portalConnection'
     | 'dataExport'
-    | 'viewingRequest';
+    | 'viewingRequest'
+    | 'calendarFeed'
+    | 'calendarEvent'
+    | 'contact'
+    | 'contactImport'
+    | 'lead'
+    | 'prospect'
+    | 'task';
   id: string;
 }
 

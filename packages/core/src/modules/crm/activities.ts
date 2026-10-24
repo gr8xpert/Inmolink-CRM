@@ -12,6 +12,7 @@ import type { Ctx } from '../../context';
 import { idempotencyOf, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as activitiesRepo from './activities-repo';
+import { auditImpersonatedRead } from './audit';
 import { linkedListing } from './listing-ref';
 import { assertCan } from './policy';
 import { RESPONSE_ACTIVITY_TYPES, recordHumanResponse } from './response';
@@ -83,7 +84,12 @@ export async function listActivities(ctx: Ctx, query: ListActivitiesQuery): Prom
     filter,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.occurredAt, id: r.id }), toActivityDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.occurredAt, id: r.id }), toActivityDto);
+  await auditImpersonatedRead(ctx, 'activities', {
+    count: page.items.length,
+    ...(filter.subject ? { parentId: filter.subject.id } : {}),
+  });
+  return page;
 }
 
 /**

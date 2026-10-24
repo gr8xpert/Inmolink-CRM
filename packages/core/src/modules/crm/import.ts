@@ -21,6 +21,8 @@ import { detectSheetKind, isSheetError, readSheetRows, type SheetKind } from '@i
 import { storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as compliance from '../compliance';
+import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import { distinct, normalizeEmail, normalizePhone } from './normalize';
 import { assertCan } from './policy';
@@ -186,6 +188,12 @@ export async function startContactImport(
     throw new AppError('VALIDATION_FAILED', { field: 'mapping', reason: 'column' });
   }
   await repo.updateImport(ctx.tx, id, { status: 'QUEUED', mapping: settings satisfies ImportSettings, onDuplicate });
+  await compliance.audit(
+    ctx,
+    'crm.contactImport.started',
+    { type: 'contactImport', id },
+    { kind: current.fileKind, onDuplicate, mappedColumns: columns.length },
+  );
   await emit(ctx.tx, crmEvents.importRequested({ agencyId: current.agencyId, importId: id }));
   const row = await repo.getImport(ctx.tx, id);
   if (!row) throw new AppError('CONTACT_IMPORT_NOT_FOUND');
@@ -196,6 +204,7 @@ export async function getContactImport(ctx: Ctx, id: string): Promise<ContactImp
   assertCan(ctx, 'crm.contacts.read');
   const row = await repo.getImport(ctx.tx, id);
   if (!row) throw new AppError('CONTACT_IMPORT_NOT_FOUND');
+  await auditImpersonatedRead(ctx, 'contactImports', { target: { type: 'contactImport', id } });
   return toImportDto(row);
 }
 
@@ -207,7 +216,9 @@ export async function listContactImports(ctx: Ctx, query: PageQuery): Promise<Co
     ctx.tenant.agencyId,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toImportDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toImportDto);
+  await auditImpersonatedRead(ctx, 'contactImports', { count: page.items.length });
+  return page;
 }
 
 // ---- the run ------------------------------------------------------------------------------------------------------

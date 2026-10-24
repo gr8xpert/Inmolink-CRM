@@ -13,6 +13,7 @@ import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
 import * as activitiesRepo from './activities-repo';
+import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import { linkedListing } from './listing-ref';
 import { assertCan } from './policy';
@@ -105,13 +106,16 @@ export async function listTasks(ctx: Ctx, query: ListTasksQuery): Promise<TaskPa
     filter,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.dueSortMs, id: r.id }), toTaskDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.dueSortMs, id: r.id }), toTaskDto);
+  await auditImpersonatedRead(ctx, 'tasks', { count: page.items.length });
+  return page;
 }
 
 export async function getTask(ctx: Ctx, id: string): Promise<TaskDto> {
   assertCan(ctx, 'crm.tasks.read');
   const row = await tasksRepo.getTask(ctx.tx, ctx.tenant.agencyId, id);
   if (!row) throw new AppError('TASK_NOT_FOUND');
+  await auditImpersonatedRead(ctx, 'tasks', { target: { type: 'task', id } });
   return toTaskDto(row);
 }
 
