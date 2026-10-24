@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Approvals round 2026-10-25: `workers` Kamal role capped at 768 MB like `media` (import sizing); S12-F25 filed (minimum-commission edit limit + audit); S5-06 scheduled in S12.
 - S11 review: notification digests run in their own `digest` pool and live pushes in a `realtime` pool, with per-pool queue-age metrics and alerts; full collaboration flow E2E; S12-F1 … S12-F24 filed; S5-06 moved to S12 (pending approval).
 - CRM member columns reference `agency_members` (composite FKs; leads validated later), stage-history definer search_path pinned; migration 0138 (S11-F5).
 - CRM report rollups: pipeline report and response KPI read worker-maintained rollups (stage counts, per-day move and response histograms, exact medians), 1.5–11 ms at 60k leads; event `crm.lead.responded`; migration 0137 (S11-F10). Contact erasure: tombstone contact, identifiers / notes / lead messages / task and prospect text cleared in the request, activity bodies, inbound website leads and listing seller links by an after-commit job; `POST /v1/crm/contacts/:id/erase` (admins, confirm) (S11-F12). No new dependency.

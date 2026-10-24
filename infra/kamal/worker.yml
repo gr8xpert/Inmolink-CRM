@@ -21,6 +21,9 @@ servers:
     proxy: false
     # Workers finish or release in-flight jobs on SIGTERM (S0-06); long jobs get time.
     stop_timeout: 90
+    # Container cap like the media role's (S6 review sizing, approved 2026-10-25): V8 below is sized for it.
+    options:
+      memory: 768m
     env:
       clear:
         # Every pool but `media` (its own role below). S11 review: `realtime` (live socket pushes) and `digest`
@@ -28,7 +31,7 @@ servers:
         WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,realtime,digest,ai,social,pdf,maintenance"
         # V8 sized like the media role's (S6-F5; the feed-import perf test runs with these): unsized on a large host
         # it idles at ~300 MB instead of ~150 MB (young generation grown at load), most of the 512 MB RSS budget.
-        # A fixed glibc mmap threshold returns freed feed batches to the OS. Container cap: pending (STATUS).
+        # A fixed glibc mmap threshold returns freed feed batches to the OS. Container cap: `options` above.
         NODE_OPTIONS: "--max-old-space-size=384 --max-semi-space-size=16"
         MALLOC_MMAP_THRESHOLD_: "131072"
         EMAIL_DRIVER: "smtp"

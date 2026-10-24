@@ -633,7 +633,7 @@ Ref §7 M9 · Mod matching · Dep S5-05 S11-04
 **Build:** agent saved searches; alerts on new listing, price drop, back on market (event-driven + daily digest); notification + email.
 **Done when:** a new matching listing produces exactly one alert per saved search (deduplicated)
 *(Note: depends on S11-04 notifications — build alert generation first, delivery when S11-04 is done.)*
-*(S11 review: not built in S11 — it was outside the S11 run's scope; moved to S12 pending Shahzaib's approval. S11-04 notifications (`raiseNotifications`, digest) is DONE, so delivery is ready.)*
+*(S11 review: not built in S11 — it was outside the S11 run's scope; moved to S12 — approved by Shahzaib 2026-10-25. S11-04 notifications (`raiseNotifications`, digest) is DONE, so delivery is ready.)*
 
 ### S5-F1 · Development access and audit hardening (S4 review) 🔒
 Ref §3 #21 §5 · Mod developments, db, tests · Dep S4-F5
@@ -1733,6 +1733,11 @@ Ref §5 §15 · Mod web, taxonomy, db · Dep S2-04
 Ref §9 · Mod quality, platform, tests · Dep S8
 **Build:** the e2e worker logged 293 `quality.recomputeListings` failures "ERR value is not an integer or out of range" (a Redis script argument) and ~2,000 `crm.recordActivity` retries hitting FKs of pruned agencies; find the script bug, and make jobs for agencies that no longer exist finish (no retry) instead of failing.
 **Done when:** a regression test reproduces the Redis error and passes; a job for a deleted agency completes without retries (test)
+
+### S12-F25 · Minimum-commission edits limited and audited (S7-F10 security review) 🔒
+Ref §3 #21 · Mod websites, compliance, contracts · Dep S7-F10
+**Build:** a site's minimum commission (CUSTOM site) can change only a few times a day per agency (limit in config, platform limiter), answering a neutral `RATE_LIMITED` with retry-after; every change writes a `compliance.audit` entry (actor, site, old → new basis points). Decision 2026-10-25 (Shahzaib: limit and log) — stops binary-searching another agency's commission.
+**Done when:** the edit past the daily limit is refused (test); each accepted edit has one audit row with old and new values (test)
 
 ---
 
