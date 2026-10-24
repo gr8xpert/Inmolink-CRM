@@ -1277,7 +1277,8 @@
                             "CONTACT_IMPORT_STARTED",
                             "CONTACT_IMPORT_FILE_INVALID",
                             "LEAD_NOT_FOUND",
-                            "LEAD_TARGET_NOT_FOUND"
+                            "LEAD_TARGET_NOT_FOUND",
+                            "ACTIVITY_DATE_OUT_OF_RANGE"
                           ],
                           "type": "string"
                         },
@@ -3474,7 +3475,8 @@
                             "CONTACT_IMPORT_STARTED",
                             "CONTACT_IMPORT_FILE_INVALID",
                             "LEAD_NOT_FOUND",
-                            "LEAD_TARGET_NOT_FOUND"
+                            "LEAD_TARGET_NOT_FOUND",
+                            "ACTIVITY_DATE_OUT_OF_RANGE"
                           ],
                           "type": "string"
                         },

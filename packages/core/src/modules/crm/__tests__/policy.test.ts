@@ -42,6 +42,14 @@ describe('crm policy', () => {
     expect(can(admin, 'crm.leads.routing')).toBe(true);
   });
 
+  it('[S10-04] members read the timeline and log activities of their own agency; partners do not', () => {
+    for (const action of ['crm.activities.read', 'crm.activities.write'] as const) {
+      expect(can(agent, action, { agencyId: AGENCY })).toBe(true);
+      expect(can(agent, action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs('PARTNER'), action)).toBe(false);
+    }
+  });
+
   it('[S10-01] denies other agencies and non-user actors', () => {
     expect(can(agent, 'crm.contacts.read', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs('AGENT', { kind: 'system', reason: 'test' }), 'crm.contacts.read')).toBe(false);

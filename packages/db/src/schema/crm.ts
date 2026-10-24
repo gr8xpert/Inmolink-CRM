@@ -20,7 +20,7 @@ import { agencies } from './agencies';
  * Tables owned by the crm module (PATTERNS §2). Only `packages/core/src/modules/crm` imports
  * this file (`pnpm check:boundaries`). Every table is STRICT — contacts are the agency's clients (PII) and never
  * readable by another agency, the network or the public — except `lead_introductions` (S10-02), which the introduced
- * owner agency reads and which holds nothing of the client.
+ * owner agency reads and which holds nothing of the client. `activities` (S10-04) is partitioned by month.
  */
 
 /** `date_trunc('milliseconds', col, 'UTC')`: the keyset sort key (`keysetOrder`, S2-F1), indexable. */
@@ -423,6 +423,98 @@ export const leadIntroductions = pgTable(
     check('lead_introductions_source_ck', sql`${t.source} in (${leadSourceList})`),
     foreignKey({
       name: 'lead_introductions_lead_fk',
+      columns: [t.agencyId, t.leadId],
+      foreignColumns: [leads.agencyId, leads.id],
+    }).onDelete('cascade'),
+  ],
+);
+
+/** The activity types (`ACTIVITY_TYPES` in contracts), as a check constraint's list. */
+const activityTypeList = sql.raw(
+  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED'`,
+);
+
+/**
+ * The activity timeline (S10-04, PLAN §6 CRM `Activity` [P]): what happened with a contact, a lead or a listing — a
+ * call, e-mail, meeting or viewing logged by a member, a note, and what other changes record through the outbox (a
+ * lead received or moved, a contact merged in, a listing's status). Polymorphic by columns, not by a `(type, id)`
+ * pair: a row names every subject it concerns (a lead's activity also names its contact and its listing), so it shows
+ * on each of their timelines with one index per subject.
+ *
+ * PARTITIONED by month on `occurred_at` (`PARTITION BY RANGE`, hand-added to the migration; pg_partman like
+ * `audit_logs`), so the primary key and every unique index include it. `occurred_at` is stored to the millisecond
+ * (checked): it is the keyset key itself, a plain column, so the cursor's `(occurred_at, id) < (?, ?)` is an index
+ * condition under RLS (the S10-02 rule) and also prunes the newer months. Rows written from an outbox event carry its
+ * id and the event's time: a redelivered event conflicts on `activities_event_uq` and adds nothing.
+ */
+export const activities = pgTable(
+  'activities',
+  {
+    id: uuid('id').notNull(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** When it happened, to the millisecond: the partition key and the timeline's sort key. */
+    occurredAt: timestamp('occurred_at', { withTimezone: true })
+      .notNull()
+      .default(sql`date_trunc('milliseconds', now(), 'UTC')`),
+    /** `ACTIVITY_TYPES` (checked): logged by hand (`CALL` … `OTHER`) or recorded by the system. */
+    type: text('type').notNull(),
+    /** The subjects (at least one). A merge re-points `contact_id` (`CONTACT_REFERENCES`). */
+    contactId: uuid('contact_id'),
+    leadId: uuid('lead_id'),
+    /** A listing of the agency (no FK: properties' table). */
+    listingId: uuid('listing_id'),
+    /** The member who logged it; null for activities recorded from events. No FK: a removed member's stay. */
+    actorUserId: uuid('actor_user_id'),
+    /** The outbox event that recorded it (idempotent writers); null for activities logged by hand. */
+    eventId: uuid('event_id'),
+    /** SHA-256 of the logging member's `Idempotency-Key` (with their user id) and of the request body (24 h replay). */
+    idempotencyHash: text('idempotency_hash'),
+    requestHash: text('request_hash'),
+    /** What the member wrote (a call's summary), or a note's opening. Internal: never in Client Mode. */
+    body: text('body'),
+    /** Small structured detail of a recorded activity (`{ status }`, `{ from, to }`, `{ mergedId }`): IDs and codes only. */
+    data: jsonb('data').notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id, t.occurredAt] }),
+    // a contact's timeline: where agency_id = ? and contact_id = ? and (occurred_at, id) < (?, ?)
+    // order by occurred_at desc, id desc (keyset); also the FK and a merge's re-pointing (where contact_id = ?)
+    index('activities_contact_idx')
+      .on(t.agencyId, t.contactId, t.occurredAt, t.id)
+      .where(sql`${t.contactId} is not null`),
+    // a lead's timeline (same keyset) and the FK
+    index('activities_lead_idx').on(t.agencyId, t.leadId, t.occurredAt, t.id).where(sql`${t.leadId} is not null`),
+    // a listing's timeline (same keyset)
+    index('activities_listing_idx')
+      .on(t.agencyId, t.listingId, t.occurredAt, t.id)
+      .where(sql`${t.listingId} is not null`),
+    // the agency's feed (no subject): where agency_id = ? and (occurred_at, id) < (?, ?) (same keyset)
+    index('activities_agency_idx').on(t.agencyId, t.occurredAt, t.id),
+    // the agency's feed of one type: … and type = ?, same keyset
+    index('activities_agency_type_idx').on(t.agencyId, t.type, t.occurredAt, t.id),
+    // event writers: one row per outbox event (insert … on conflict do nothing)
+    uniqueIndex('activities_event_uq').on(t.agencyId, t.eventId, t.occurredAt).where(sql`${t.eventId} is not null`),
+    // POST replay: where agency_id = ? and idempotency_hash = ? (under the key's advisory lock)
+    index('activities_idempotency_idx').on(t.agencyId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
+    check('activities_type_ck', sql`${t.type} in (${activityTypeList})`),
+    check(
+      'activities_subject_ck',
+      sql`${t.contactId} is not null or ${t.leadId} is not null or ${t.listingId} is not null`,
+    ),
+    check('activities_ms_ck', sql`${t.occurredAt} = date_trunc('milliseconds', ${t.occurredAt}, 'UTC')`),
+    check('activities_body_ck', sql`${t.body} is null or length(${t.body}) between 1 and 4000`),
+    check('activities_data_ck', sql`jsonb_typeof(${t.data}) = 'object' and octet_length(${t.data}::text) <= 2048`),
+    check('activities_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    foreignKey({
+      name: 'activities_contact_fk',
+      columns: [t.agencyId, t.contactId],
+      foreignColumns: [contacts.agencyId, contacts.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'activities_lead_fk',
       columns: [t.agencyId, t.leadId],
       foreignColumns: [leads.agencyId, leads.id],
     }).onDelete('cascade'),

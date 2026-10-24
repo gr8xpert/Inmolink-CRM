@@ -1,7 +1,9 @@
 import {
+  CreateActivityBody,
   CreateContactBody,
   type CreateContactInput,
   CreateLeadBody,
+  ListActivitiesQuery,
   StartContactImportBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
@@ -257,10 +259,10 @@ describe('consent', () => {
 
 describe('merge', () => {
   it('[S10-01] merge moves leads, activities, tasks and registrations to the surviving contact', async () => {
-    // Leads (S10-02) move with the merge; activities (S10-04) and tasks (S10-05) do not exist yet: they plug into the
-    // same mechanism — every table in CONTACT_REFERENCES (notes, leads) moves in the merge, and crm.contact.merged is
-    // emitted for registrations and other modules (the next test fails when a crm table with contact_id is not
-    // registered).
+    // Leads (S10-02) and activities (S10-04) move with the merge; tasks (S10-05) do not exist yet: they plug into the
+    // same mechanism — every table in CONTACT_REFERENCES (notes, leads, activities) moves in the merge, and
+    // crm.contact.merged is emitted for registrations and other modules (the next test fails when a crm table with
+    // contact_id is not registered).
     const survivor = await create(a, {
       firstName: 'Hugo',
       emails: [email('hugo')],
@@ -281,6 +283,9 @@ describe('merge', () => {
     await as(a, (ctx) => crm.addContactNote(ctx, survivor.id, { body: 'First visit' }));
     const lead = await as(a, (ctx) => crm.createLead(ctx, CreateLeadBody.parse({ contactId: duplicate.id })));
     expect(lead.lead.contact.id).toBe(duplicate.id);
+    const call = await as(a, (ctx) =>
+      crm.logActivity(ctx, CreateActivityBody.parse({ type: 'CALL', contactId: duplicate.id, body: 'Wants a pool' })),
+    );
 
     const merged = await as(a, (ctx) =>
       crm.mergeContacts(ctx, survivor.id, { duplicateId: duplicate.id, version: survivor.version }),
@@ -310,6 +315,13 @@ describe('merge', () => {
     const movedLead = await as(a, (ctx) => crm.getLead(ctx, lead.lead.id));
     expect(movedLead.contact.id).toBe(survivor.id);
     expect(movedLead.version).toBe(lead.lead.version + 1);
+    // the duplicate's activities (its logged call, its note) are on the survivor's timeline (S10-04)
+    const activities = await as(a, (ctx) =>
+      crm.listActivities(ctx, ListActivitiesQuery.parse({ subject: 'CONTACT', subjectId: survivor.id })),
+    );
+    expect(activities.items.map((i) => i.id)).toContain(call.activity.id);
+    expect(activities.items.filter((i) => i.type === 'NOTE_ADDED')).toHaveLength(2);
+    expect(activities.items.every((i) => i.contactId === survivor.id)).toBe(true);
 
     const events = await rows<{ payload: { survivorId: string; mergedId: string } }>(
       sql`select payload from outbox_events where type = 'crm.contact.merged' and agency_id = ${a.agencyId}

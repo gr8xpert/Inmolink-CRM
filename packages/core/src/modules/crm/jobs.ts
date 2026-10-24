@@ -1,5 +1,7 @@
+import { isAppError } from '@inmolink/platform/errors';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import { forgetListingActivities, recordActivity } from './activities';
 import { runContactImport, sweepContactImports } from './import';
 import { promoteInboundLead } from './leads';
 
@@ -18,6 +20,12 @@ const IMPORT_ATTEMPTS = 3;
  *   lead in the presenting agency's inbox, assigned by its rule (S10-02, < 10 s p95 from the event). Idempotent per
  *   inbound lead (advisory lock + `leads_inbound_uq`), one per agency at a time. A retry follows a lost race on a
  *   contact's e-mail or phone; a lead never promoted is still announced to the agency (website-api's fallback).
+ * - `crm.recordActivity` (pool `indexing` — a projection like the read models; one per subscribed outbox event, job ID
+ *   = the event's id, S10-04): the event's activity on the timeline. Idempotent: the row carries the event's id and time
+ *   (`activities_event_uq`), so a redelivered event or a retried job writes nothing more. A row no month can hold (23514)
+ *   fails at once, non-retryable, logged with the event's id.
+ * - `crm.forgetListingActivities` (pool `maintenance`, one per `properties.listing.purged` event, job ID = the event's
+ *   id): the purged listing leaves the agency's timelines, in batches of 1,000.
  */
 export const crmJobs = {
   importContacts: defineJob({
@@ -50,6 +58,48 @@ export const crmJobs = {
       const result = await promoteInboundLead(p);
       if (result.created) log.info({ leadId: result.leadId, inboundLeadId: p.inboundLeadId }, 'website lead promoted');
       return result;
+    },
+  }),
+
+  recordActivity: defineJob({
+    name: 'crm.recordActivity',
+    pool: 'indexing',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      occurredAt: z.iso.datetime(),
+      type: z.enum(['LEAD_CREATED', 'LEAD_UPDATED', 'CONTACT_MERGED', 'LISTING_STATUS_CHANGED']),
+      contactId: z.uuid().optional(),
+      leadId: z.uuid().optional(),
+      listingId: z.uuid().optional(),
+      data: z.record(z.string(), z.union([z.string().max(64), z.number(), z.null()])),
+    }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      try {
+        return await recordActivity(p);
+      } catch (err) {
+        if (isAppError(err) && !err.retryable) log.error({ eventId: p.eventId, type: p.type }, 'activity not recorded');
+        throw err;
+      }
+    },
+  }),
+
+  forgetListingActivities: defineJob({
+    name: 'crm.forgetListingActivities',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), listingId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p) {
+      return forgetListingActivities(p);
     },
   }),
 

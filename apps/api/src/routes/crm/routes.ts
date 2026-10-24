@@ -25,6 +25,7 @@ import * as crm from '@inmolink/core/modules/crm';
 import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { crmActivityRoutes } from './activities';
 import { crmLeadRoutes } from './leads';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -249,6 +250,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   await app.register(contactImportUploadRoute);
   // S10-02: leads, inbox, introductions and the assignment rule.
   await app.register(crmLeadRoutes);
+  // S10-04: the activity timeline.
+  await app.register(crmActivityRoutes);
 }
 
 /** One upload at a time per member, four per process: a 25 MB body each. */

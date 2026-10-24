@@ -18,6 +18,10 @@ export const CRM_ACTIONS = [
   'crm.leads.write',
   /** The agency's lead assignment rule (round robin, owner agent). */
   'crm.leads.routing',
+  /** The activity timeline of a contact, lead or listing, and the agency's feed (S10-04). */
+  'crm.activities.read',
+  /** Log a call, e-mail, meeting or viewing. */
+  'crm.activities.write',
 ] as const;
 export type CrmAction = (typeof CRM_ACTIONS)[number];
 
@@ -36,6 +40,8 @@ export const CRM_IMPERSONATION: ImpersonationRules<CrmAction> = {
   'crm.leads.read': 'allowed',
   'crm.leads.write': 'forbidden',
   'crm.leads.routing': 'forbidden',
+  'crm.activities.read': 'allowed',
+  'crm.activities.write': 'forbidden',
 };
 
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -54,6 +60,8 @@ export function can(ctx: Ctx, action: CrmAction, resource?: { agencyId: string }
     case 'crm.contacts.merge':
     case 'crm.leads.read':
     case 'crm.leads.write':
+    case 'crm.activities.read':
+    case 'crm.activities.write':
       return MEMBER_ROLES.has(role);
     case 'crm.contacts.import':
     case 'crm.leads.routing':

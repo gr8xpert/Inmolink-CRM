@@ -842,6 +842,13 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // The agency's lead assignment rule (S10-02): one row per agency, admins write it.
   lead_routing_settings: { kind: 'STRICT', singleRow: true, base: { mode: 'UNASSIGNED', agent_user_ids: '{}' } },
+  // S10-04: the activity timeline (calls, notes, lead and listing changes about the agency's clients) — own agency only;
+  // monthly partitions (pg_partman, reached only through the parent). Not immutable: a contact merge re-points rows.
+  activities: {
+    kind: 'STRICT',
+    partitioned: true,
+    base: { type: 'OTHER', listing_id: '01900000-0000-7000-8000-00000000a001' },
+  },
 };
 
 /**

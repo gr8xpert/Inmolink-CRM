@@ -44,6 +44,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     searchJobs.repairIndex,
     // S7-06: purges the website API's edge cache when public listings, sites or keys change.
     websiteApiJobs.purgeEdgeCache,
+    // S10-04: the activity timeline's writers from outbox events (lead, merge, listing status).
+    crmJobs.recordActivity,
   ],
   matching: [],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
@@ -94,6 +96,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     importsJobs.sweepSheets,
     // S10-01: contact import uploads never started are expired daily.
     crmJobs.sweepContactImports,
+    // S10-04: a purged listing leaves the activity timelines.
+    crmJobs.forgetListingActivities,
   ],
   ai: [],
   social: [],

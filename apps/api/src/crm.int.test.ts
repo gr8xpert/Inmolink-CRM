@@ -211,3 +211,65 @@ describe('crm lead routes', () => {
     expect(intros.json()).toEqual({ items: [], nextCursor: null });
   });
 });
+
+describe('crm activity routes', () => {
+  it('[S10-04] a call logged over HTTP is on the contact’s timeline; Idempotency-Key replays; filters validated', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const contact = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/crm/contacts',
+        headers,
+        payload: { firstName: 'Tim', emails: [`api-activity-${RUN}@example.com`] },
+      })
+    ).json();
+    const key = { 'idempotency-key': `api-activity-${RUN}-0001` };
+    const payload = { type: 'CALL', contactId: contact.id, body: 'Called back about the terrace' };
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/activities',
+      headers: { ...headers, ...key },
+      payload,
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.headers['cache-control']).toBe('no-store');
+    const activity = created.json();
+    expect(activity).toMatchObject({ type: 'CALL', contactId: contact.id, actorUserId: f.userId, data: {} });
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/activities',
+      headers: { ...headers, ...key },
+      payload,
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().id).toBe(activity.id);
+    await app.inject({
+      method: 'POST',
+      url: `/v1/crm/contacts/${contact.id}/notes`,
+      headers,
+      payload: { body: 'Sea view only' },
+    });
+
+    const all = await app.inject({
+      method: 'GET',
+      url: `/v1/crm/activities?subject=CONTACT&subjectId=${contact.id}`,
+      headers,
+    });
+    expect(all.statusCode).toBe(200);
+    expect(all.json().items.map((i: { type: string }) => i.type)).toEqual(['NOTE_ADDED', 'CALL']);
+    const calls = await app.inject({
+      method: 'GET',
+      url: `/v1/crm/activities?subject=CONTACT&subjectId=${contact.id}&type=CALL&limit=10`,
+      headers,
+    });
+    expect(calls.json()).toEqual({ items: [activity], nextCursor: null });
+
+    const half = await app.inject({ method: 'GET', url: '/v1/crm/activities?subject=CONTACT', headers });
+    expect(half.statusCode).toBe(422);
+    const badType = await app.inject({ method: 'GET', url: '/v1/crm/activities?type=NOPE', headers });
+    expect(badType.statusCode).toBe(422);
+    const none = await app.inject({ method: 'POST', url: '/v1/crm/activities', headers, payload: { type: 'CALL' } });
+    expect(none.statusCode).toBe(422);
+  });
+});

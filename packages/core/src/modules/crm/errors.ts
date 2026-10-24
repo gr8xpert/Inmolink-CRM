@@ -12,4 +12,5 @@ export const crmErrors = [
   'CONTACT_IMPORT_FILE_INVALID',
   'LEAD_NOT_FOUND',
   'LEAD_TARGET_NOT_FOUND',
+  'ACTIVITY_DATE_OUT_OF_RANGE',
 ] as const satisfies readonly ErrorCode[];

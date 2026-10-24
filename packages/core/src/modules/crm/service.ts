@@ -25,6 +25,7 @@ import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
+import { recordNoteAdded } from './activities';
 import { crmEvents } from './events';
 import { distinct, normalizeEmail, normalizePhone } from './normalize';
 import { assertCan } from './policy';
@@ -409,8 +410,8 @@ export async function updateContact(ctx: Ctx, id: string, input: UpdateContactBo
  *  1. both rows are locked and loaded in one query (id order: two merges of the same pair never deadlock);
  *  2. a result over `CONTACT_LIMITS` is refused (`CONTACT_MERGE_LIMIT`);
  *  3. the duplicate's e-mails and phones move to the survivor, after its own (one statement);
- *  4. every crm row pointing at the duplicate moves (`repo.CONTACT_REFERENCES`, one statement: notes and leads;
- *     activities and tasks when S10-04/05 register theirs);
+ *  4. every crm row pointing at the duplicate moves (`repo.CONTACT_REFERENCES`, one statement: notes, leads and
+ *     activities; tasks when S10-05 registers theirs);
  *  5. the survivor takes what it lacks (types, tags, names, language, the more recent consent, do-not-contact);
  *  6. the duplicate is closed (`merged_into_id`, `deleted_at`) and `crm.contact.merged` is emitted, so modules outside
  *     crm (registrations, a listing's seller contact) move their references too.
@@ -484,6 +485,7 @@ export async function addContactNote(
     { agencyId: contact.agencyId, contactId, authorUserId: userIdOf(ctx), body: input.body },
   ]);
   if (!note) throw new AppError('CONTACT_NOT_FOUND');
+  await recordNoteAdded(ctx.tx, { ...note, agencyId: contact.agencyId });
   return toNoteDto(note);
 }
 

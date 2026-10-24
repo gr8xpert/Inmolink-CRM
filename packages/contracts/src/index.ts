@@ -8,6 +8,7 @@ export * from './billing';
 export * from './common';
 export * from './compliance';
 export * from './crm';
+export * from './crm-activities';
 export * from './crm-leads';
 export * from './developments';
 export * from './developments-csv';

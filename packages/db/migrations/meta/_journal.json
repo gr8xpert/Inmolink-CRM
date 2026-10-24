@@ -862,6 +862,13 @@
       "when": 1792804714512,
       "tag": "0122_s10_f4_portal_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1792805422294,
+      "tag": "0123_s10_04_crm_activities",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import {
+  activities,
   contactEmails,
   contactFacets,
   contactImports,
@@ -433,6 +434,9 @@ export const CONTACT_REFERENCES = [
   // S10-02: a merged contact's leads follow it, with a new version (an open edit form conflicts); their introductions
   // name no contact.
   { name: 'leads', table: leads, versioned: true },
+  // S10-04: the duplicate's activities join the survivor's timeline (partitioned: `activities_contact_idx` on each
+  // month serves the update).
+  { name: 'activities', table: activities, versioned: false },
 ] as const;
 
 /** Moves every reference of `fromId` to `toId` (one statement); returns the rows moved per table. */

@@ -7,8 +7,8 @@ import { z } from 'zod';
  * - `crm.contact.created` — a contact was created (form, import, later inbound leads).
  * - `crm.contact.updated` — a contact's details changed (a merge into it included).
  * - `crm.contact.merged` — `mergedId` was merged into `survivorId` and closed. CRM tables that point at a contact
- *   are re-pointed in the merge's own transaction (`repo.CONTACT_REFERENCES`: notes now; leads S10-02, activities
- *   S10-04, tasks S10-05 add theirs there). **Other modules that keep a contact id react to this event** and move
+ *   are re-pointed in the merge's own transaction (`repo.CONTACT_REFERENCES`: notes, leads S10-02, activities
+ *   S10-04; tasks S10-05 add theirs there). **Other modules that keep a contact id react to this event** and move
  *   their rows to `survivorId` — client registrations (S12) and `property_privates.seller_contact_id` (S10-07).
  *   Delivery is at least once: re-pointing `mergedId` → `survivorId` is idempotent by nature.
  * - `crm.import.requested` — a contact import was started; the subscription queues `crm.importContacts`.

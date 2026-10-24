@@ -1,4 +1,11 @@
 /** crm — public API (PATTERNS §1). The only import path for other modules and apps. */
+export {
+  listActivities,
+  logActivity,
+  NOTE_EXCERPT_CHARS,
+  type RecordedActivity,
+  recordActivity,
+} from './activities';
 export { crmErrors } from './errors';
 export { crmEvents } from './events';
 export {

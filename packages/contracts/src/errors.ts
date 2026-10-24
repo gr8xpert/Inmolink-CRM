@@ -251,6 +251,9 @@ export const ErrorCodes = {
   LEAD_NOT_FOUND: 404,
   /** The lead's target is not a listing, development or unit the agency can see. */
   LEAD_TARGET_NOT_FOUND: 422,
+  // crm: activities (S10-04)
+  /** A logged activity's `occurredAt` is ahead of now or more than `CRM_ACTIVITY_LIMITS.backdateDays` back. */
+  ACTIVITY_DATE_OUT_OF_RANGE: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;
