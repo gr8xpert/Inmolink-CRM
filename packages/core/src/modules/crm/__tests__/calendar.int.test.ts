@@ -9,6 +9,7 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { formatter } from '@inmolink/i18n';
 import { configureHmacRotation } from '@inmolink/platform/crypto';
 import {
   closeEmail,
@@ -336,6 +337,18 @@ describe('reminders', () => {
     expect(agents[0]?.subject).toContain('Visita'); // the member's language
     expect(agents[0]?.idempotencyKey).toBe(`event-reminder:${e.id}:${remindMs}:${agent.userId}`);
     expect(mail.sent.filter((m) => m.to === `nomail-${RUN}@example.com`)).toEqual([]);
+  });
+
+  it('[S11-F11] the event reminder shows the start in the agency’s zone: a Canary-Islands agency, an hour behind Madrid', async () => {
+    const canary = await createFounder();
+    await rows(sql`update agency_settings set time_zone = 'Atlantic/Canary' where agency_id = ${canary.agencyId}`);
+    const e = (await create(canary, { type: 'MEETING', title: title('canary'), ...slot(5), remindMinutes: 0 })).event;
+    const [claim] = (await sweepAt(new Date(new Date(e.startsAt).getTime() + 1_000), [e.id])).flat();
+    expect((await crm.sendEventReminder(claim as NonNullable<typeof claim>)).sent).toBe(true);
+    const text = sentTo(canary.email, e.title)[0]?.text ?? '';
+    const shown = (zone: string) => ['en', 'es'].map((l) => formatter(l, zone).dateTime(new Date(e.startsAt)));
+    expect(shown('Atlantic/Canary').some((s) => text.includes(s))).toBe(true);
+    expect(shown('Europe/Madrid').some((s) => text.includes(s))).toBe(false);
   });
 
   it('[S10-06] a send known not to have gone out gives the claim back; a cancelled or moved event sends nothing', async () => {

@@ -53,7 +53,8 @@
     "fields": {
       "registrationValidityDays": "Validez del registro de un cliente (días)",
       "viewingResponseDays": "Días para responder a una solicitud de visita",
-      "enabledLocales": "Idiomas en los que se publican tus inmuebles y tu web"
+      "enabledLocales": "Idiomas en los que se publican tus inmuebles y tu web",
+      "timeZone": "Zona horaria (el «hoy» de tus tareas, los días del calendario y los avisos por e-mail)"
     },
     "whiteLabel": {
       "title": "Marca blanca",

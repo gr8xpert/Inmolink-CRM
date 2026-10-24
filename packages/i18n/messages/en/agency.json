@@ -53,7 +53,8 @@
     "fields": {
       "registrationValidityDays": "Client registration valid for (days)",
       "viewingResponseDays": "Days to answer a viewing request",
-      "enabledLocales": "Languages your listings and website are published in"
+      "enabledLocales": "Languages your listings and website are published in",
+      "timeZone": "Time zone (your tasks' \"today\", calendar days and reminder e-mails)"
     },
     "whiteLabel": {
       "title": "White label",

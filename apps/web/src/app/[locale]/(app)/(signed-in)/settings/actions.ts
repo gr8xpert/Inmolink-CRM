@@ -41,6 +41,7 @@ function valuesOf(form: FormData): SettingsValues {
     registrationValidityDays: text(form, 'registrationValidityDays'),
     viewingResponseDays: text(form, 'viewingResponseDays'),
     enabledLocales: form.getAll('enabledLocales').filter((v): v is string => typeof v === 'string'),
+    timeZone: text(form, 'timeZone'),
     referencePrefix: text(form, 'referencePrefix'),
     showPoweredBy: form.get('showPoweredBy') === 'on',
     emailSenderName: text(form, 'emailSenderName'),
@@ -67,6 +68,7 @@ function bodyOf(version: number, v: SettingsValues): unknown {
     registrationValidityDays: Number(v.registrationValidityDays),
     viewingResponseDays: Number(v.viewingResponseDays),
     enabledLocales: v.enabledLocales,
+    ...(v.timeZone ? { timeZone: v.timeZone } : {}),
     whiteLabel: {
       referencePrefix: v.referencePrefix || null,
       showPoweredBy: v.showPoweredBy,

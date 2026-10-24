@@ -1,6 +1,6 @@
 /**
  * Day arithmetic of the acquisition board's by-date view (S10-07): follow-ups grouped by the agency's calendar day in
- * the platform time zone (`DEFAULT_TIME_ZONE`), and the `datetime-local` value of a follow-up for the edit form.
+ * the agency's time zone, and the `datetime-local` value of a follow-up for the edit form.
  */
 
 function parts(at: Date, timeZone: string): Record<string, string> {

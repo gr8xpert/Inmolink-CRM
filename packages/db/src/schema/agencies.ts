@@ -106,6 +106,11 @@ export const agencySettings = pgTable(
     defaultSplitBp: integer('default_split_bp').notNull().default(5000),
     /** The agency's currency (S5-F3): the default of its new developments (ISO 4217). */
     currency: char('currency', { length: 3 }).notNull().default('EUR'),
+    /**
+     * The agency's IANA time zone (S11-F11): its "today" and "overdue" tabs, calendar days and reminder e-mail times.
+     * The check is the name's shape; the service and contract validate it against `Intl`.
+     */
+    timeZone: text('time_zone').notNull().default('Europe/Madrid'),
     /** Days the agency has to answer a viewing request from another agency (M10). */
     viewingResponseDays: integer('viewing_response_days').notNull().default(3),
     /** White-label (PLAN §3 #6): prefix of listing references shown to clients (`CH-1234`). */
@@ -124,6 +129,10 @@ export const agencySettings = pgTable(
   (t) => [
     check('agency_settings_locales_ck', sql`cardinality(${t.enabledLocales}) between 1 and 20`),
     check('agency_settings_split_ck', sql`${t.defaultSplitBp} between 0 and 10000`),
+    check(
+      'agency_settings_time_zone_ck',
+      sql`char_length(${t.timeZone}) <= 64 and ${t.timeZone} ~ '^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$'`,
+    ),
     check('agency_settings_currency_ck', sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check('agency_settings_registration_days_ck', sql`${t.registrationValidityDays} between 1 and 1095`),
     check('agency_settings_viewing_days_ck', sql`${t.viewingResponseDays} between 1 and 30`),

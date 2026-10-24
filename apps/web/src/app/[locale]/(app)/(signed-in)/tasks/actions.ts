@@ -1,12 +1,12 @@
 'use server';
 
 import { CreateTaskBody, UpdateTaskBody } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { readAgencyTimeZone } from '@/server/agency-time-zone';
 import type { ApiResult, SessionRef } from '@/server/api';
 import { sessionRef } from '@/server/api';
 import { createTask, deleteTask, updateTask } from '@/server/crm-api';
@@ -47,8 +47,11 @@ async function settle(form: FormData, res: ApiResult<unknown>): Promise<never> {
 }
 
 export async function addTaskAction(form: FormData): Promise<void> {
+  const session = await requireSession();
   const due = text(form, 'dueAt');
-  const dueAt = due ? parseLocalDateTime(due, DEFAULT_TIME_ZONE) : undefined;
+  const timeZone = due ? await readAgencyTimeZone(session) : null;
+  if (due && !timeZone) return back(form, { error: 'generic' });
+  const dueAt = due && timeZone ? parseLocalDateTime(due, timeZone) : undefined;
   const key = text(form, 'idempotencyKey');
   const parsed = CreateTaskBody.safeParse({
     title: text(form, 'title'),
@@ -59,7 +62,7 @@ export async function addTaskAction(form: FormData): Promise<void> {
   if ((due && !dueAt) || !parsed.success || !/^[A-Za-z0-9-]{16,64}$/.test(key)) {
     return back(form, { error: 'VALIDATION_FAILED' });
   }
-  return settle(form, await createTask(await requireSession(), parsed.data, key));
+  return settle(form, await createTask(session, parsed.data, key));
 }
 
 /** Completes, reopens or deletes one task (`intent`), at the `version` the member saw. */

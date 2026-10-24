@@ -1,0 +1,3 @@
+ALTER TABLE "agency_settings" ADD COLUMN "time_zone" text DEFAULT 'Europe/Madrid' NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "leads_agency_assigned_status_created_idx" ON "leads" USING btree ("agency_id","assigned_user_id","status","created_ms","id");--> statement-breakpoint
+ALTER TABLE "agency_settings" ADD CONSTRAINT "agency_settings_time_zone_ck" CHECK (char_length("agency_settings"."time_zone") <= 64 and "agency_settings"."time_zone" ~ '^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$');

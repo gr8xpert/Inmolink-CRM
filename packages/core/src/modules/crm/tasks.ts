@@ -6,10 +6,8 @@ import {
   type TaskPage,
   type UpdateTaskBody,
 } from '@inmolink/contracts';
-import { withSystem, withTenant } from '@inmolink/db';
-import { EmailSendError, mailer } from '@inmolink/platform/email';
+import { withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
-import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
@@ -18,6 +16,7 @@ import * as activitiesRepo from './activities-repo';
 import { crmEvents } from './events';
 import { linkedListing } from './listing-ref';
 import { assertCan } from './policy';
+import { sendReminder, sweepReminders } from './reminders';
 import { renderTaskReminder } from './task-emails';
 import * as tasksRepo from './tasks-repo';
 
@@ -27,7 +26,7 @@ import * as tasksRepo from './tasks-repo';
  *
  * Reminders — the real guarantee is **at most once per due time**, and exactly once unless a worker dies or the mail
  * provider answers ambiguously between the claim and the send:
- *  1. `crm.sweepTaskReminders` (every minute) claims the open, armed tasks that came due — at most `SWEEP_PER_AGENCY` per
+ *  1. `crm.sweepTaskReminders` (every minute) claims the open, armed tasks that came due — at most `REMINDER_SWEEP.perAgency` per
  *     agency per batch, `for update skip locked`, so concurrent sweeps take different rows — sets `reminded_at` and
  *     writes `crm.task.reminderDue` in that transaction;
  *  2. the event becomes one `crm.sendTaskReminder` job (id: task + due time + claim time); the job claims the send
@@ -43,16 +42,12 @@ import * as tasksRepo from './tasks-repo';
  *     already past when it is set sends nothing. Reassigning keeps the reminder state (the new assignee is reminded if
  *     the reminder is still to come; not again after it was sent).
  * There is no in-app notification yet (no notifications module): the reminder is an e-mail, and "my tasks" lists what
- * is due. Times are shown in the platform time zone (`DEFAULT_TIME_ZONE`).
+ * is due. Times are shown in the agency's time zone (`agency_settings.time_zone`, S11-F11).
  */
 
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 /** How long after its due time a task can still be reminded (a longer worker outage skips it). */
 export const REMINDER_GRACE_MS = 24 * 3_600_000;
-const SWEEP_BATCH = 200;
-/** One agency's share of a batch: a backlog in one agency never takes the whole of it. */
-const SWEEP_PER_AGENCY = 50;
-const SWEEP_MAX_BATCHES = 25;
 const COMPLETED_EXCERPT_CHARS = 280;
 
 export function toTaskDto(row: tasksRepo.TaskRow): TaskDto {
@@ -264,77 +259,47 @@ export interface ClaimedTaskReminder {
 
 /**
  * `crm.sweepTaskReminders`: claims the tasks that came due (within `REMINDER_GRACE_MS`), up to
- * `SWEEP_BATCH × SWEEP_MAX_BATCHES` per pass, oldest due first with at most `SWEEP_PER_AGENCY` of one agency per batch. Each batch is one
+ * `REMINDER_SWEEP.batch × maxBatches` per pass, oldest due first with at most `perAgency` of one agency per batch. Each batch is one
  * system transaction: the claim (`reminded_at`) and the outbox events (one per task, tenant = the task's agency) commit
  * together. Returns what it claimed.
  */
 export async function sweepTaskReminders(
   opts: { now?: Date; signal?: AbortSignal } = {},
 ): Promise<{ claimed: ClaimedTaskReminder[] }> {
-  const now = opts.now ?? new Date();
-  const claimed: ClaimedTaskReminder[] = [];
-  for (let i = 0; i < SWEEP_MAX_BATCHES; i++) {
-    if (opts.signal?.aborted) break;
-    const batch = await withSystem('crm.sweepTaskReminders', async (tx) => {
-      const rows = await tasksRepo.claimDueReminders(tx, now, REMINDER_GRACE_MS, SWEEP_BATCH, SWEEP_PER_AGENCY);
-      await emit(
-        tx,
-        rows.map((r) =>
-          crmEvents.taskReminderDue({ agencyId: r.agencyId, taskId: r.id, dueMs: r.dueMs, remindedMs: r.remindedMs }),
-        ),
-      );
-      return rows;
-    });
-    claimed.push(
-      ...batch.map((r) => ({ taskId: r.id, agencyId: r.agencyId, dueMs: r.dueMs, remindedMs: r.remindedMs })),
-    );
-    // a batch can be short because of the per-agency share: stop only when nothing is left
-    if (batch.length === 0) break;
-  }
-  return { claimed };
+  const rows = await sweepReminders({
+    job: 'crm.sweepTaskReminders',
+    ...opts,
+    claim: (tx, now, limits) => tasksRepo.claimDueReminders(tx, now, REMINDER_GRACE_MS, limits.batch, limits.perAgency),
+    events: (r) =>
+      crmEvents.taskReminderDue({ agencyId: r.agencyId, taskId: r.id, dueMs: r.dueMs, remindedMs: r.remindedMs }),
+  });
+  return {
+    claimed: rows.map((r) => ({ taskId: r.id, agencyId: r.agencyId, dueMs: r.dueMs, remindedMs: r.remindedMs })),
+  };
 }
 
-/** Failures known to precede the send: a message the adapter refused, a provider 4xx refusal. */
-const wasNotSent = (err: unknown) => err instanceof TypeError || (err instanceof EmailSendError && err.notSent);
-
 /**
- * `crm.sendTaskReminder`: the e-mail of a claimed reminder (see the guarantee above). Claims the send (system role,
- * the agency named in every statement), looks the assignee up (an active member; gone: nothing is sent), sends outside
- * any transaction with the provider's idempotency key, and gives the claim back only after a failure known to precede
- * the send, so the retry can send.
+ * `crm.sendTaskReminder`: the e-mail of a claimed reminder (see the guarantee above; the flow is `sendReminder`).
  */
-export async function sendTaskReminder(p: Omit<ClaimedTaskReminder, 'remindedMs'>): Promise<{ sent: boolean }> {
-  const task = await withSystem('crm.sendTaskReminder claim', (tx) =>
-    tasksRepo.claimReminderSend(tx, p.agencyId, p.taskId, p.dueMs),
-  );
-  if (!task) return { sent: false };
-  let beforeSend = true;
-  try {
-    const to = await withSystem('crm.sendTaskReminder recipient', (tx) =>
-      identity.memberRecipient(tx, p.agencyId, task.assignedUserId),
-    );
-    if (!to) return { sent: false };
-    beforeSend = false;
-    await mailer().send({
-      ...renderTaskReminder({
+export function sendTaskReminder(p: Omit<ClaimedTaskReminder, 'remindedMs'>): Promise<{ sent: boolean }> {
+  return sendReminder({
+    job: 'crm.sendTaskReminder',
+    agencyId: p.agencyId,
+    claim: (tx) => tasksRepo.claimReminderSend(tx, p.agencyId, p.taskId, p.dueMs),
+    recipientUserId: (task) => task.assignedUserId,
+    render: (task, to, timeZone) =>
+      renderTaskReminder({
         to: to.email,
         name: to.name,
         locale: to.locale,
         title: task.title,
         description: task.description,
         dueAt: task.dueAt,
+        timeZone,
       }),
-      idempotencyKey: `task-reminder:${p.taskId}:${p.dueMs}`,
-    });
-    return { sent: true };
-  } catch (err) {
-    if (beforeSend || wasNotSent(err)) {
-      await withSystem('crm.sendTaskReminder release', (tx) =>
-        tasksRepo.releaseReminderSend(tx, p.agencyId, p.taskId, p.dueMs),
-      );
-    }
-    throw err;
-  }
+    idempotencyKey: `task-reminder:${p.taskId}:${p.dueMs}`,
+    release: (tx) => tasksRepo.releaseReminderSend(tx, p.agencyId, p.taskId, p.dueMs),
+  });
 }
 
 /** A purged listing leaves the agency's tasks (they stay, without the listing). */

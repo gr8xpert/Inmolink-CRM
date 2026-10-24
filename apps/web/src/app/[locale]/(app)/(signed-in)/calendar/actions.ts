@@ -1,12 +1,12 @@
 'use server';
 
 import { CreateCalendarEventBody, UpdateCalendarEventBody } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { readAgencyTimeZone } from '@/server/agency-time-zone';
 import type { ApiResult, SessionRef } from '@/server/api';
 import { sessionRef } from '@/server/api';
 import {
@@ -56,7 +56,10 @@ async function settle(form: FormData, res: ApiResult<unknown>): Promise<never> {
 }
 
 export async function addEventAction(form: FormData): Promise<void> {
-  const startsAt = parseLocalDateTime(text(form, 'startsAt'), DEFAULT_TIME_ZONE);
+  const session = await requireSession();
+  const timeZone = await readAgencyTimeZone(session);
+  if (!timeZone) return back(form, { error: 'generic' });
+  const startsAt = parseLocalDateTime(text(form, 'startsAt'), timeZone);
   const duration = Number(text(form, 'duration'));
   const remind = text(form, 'remind');
   const key = text(form, 'idempotencyKey');
@@ -72,7 +75,7 @@ export async function addEventAction(form: FormData): Promise<void> {
     remindMinutes: remind === 'none' ? null : Number(remind),
   });
   if (!parsed.success) return back(form, { error: 'VALIDATION_FAILED' });
-  return settle(form, await createCalendarEvent(await requireSession(), parsed.data, key));
+  return settle(form, await createCalendarEvent(session, parsed.data, key));
 }
 
 /** Cancels or restores one event (`intent`), at the `version` the member saw. */

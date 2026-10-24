@@ -9,7 +9,7 @@ import {
   ListActivitiesQuery,
   UpdateListingBody,
 } from '@inmolink/contracts';
-import { closeDb, withSystem } from '@inmolink/db';
+import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { adminQuery, setupTestDb, withAdminRollback } from '@inmolink/db/testing';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -213,6 +213,68 @@ describe('timeline', () => {
     expect(await refusal(timeline(b, { subject: 'CONTACT', subjectId: c.id }))).toBe('CONTACT_NOT_FOUND');
     const feed = await timeline(b, { limit: 100 });
     expect(feed.items.filter((i) => i.contactId === c.id)).toEqual([]);
+  }, 120_000);
+
+  it('[S11-F6] activities pages (subject, type, several types, cursor) take at most 2 queries; several types merge into one ordered, gap-free walk', async () => {
+    const c = await contact(a, 'typed');
+    await system(async (tx) => {
+      await tx.execute(sql`
+        insert into activities (id, agency_id, occurred_at, type, contact_id, body)
+        select gen_random_uuid(), ${a.agencyId}, date_trunc('milliseconds', now() - g * interval '3 minutes', 'UTC'),
+               (array['CALL', 'EMAIL', 'MEETING', 'VIEWING'])[1 + g % 4], ${c.id}, 'typed'
+        from generate_series(1, 400) g`);
+    });
+    const budget = async (q: ListActivitiesInput) => {
+      let page: Awaited<ReturnType<typeof timeline>> | undefined;
+      // the member context opens with its own statements (`setupQueries`): only the page's are counted
+      const total = await countQueries(async () => {
+        page = await timeline(a, q);
+      });
+      const setup = await countQueries(() => as(a, async () => null));
+      return { page: page as Awaited<ReturnType<typeof timeline>>, queries: total - setup };
+    };
+    const subject = await budget({ subject: 'CONTACT', subjectId: c.id, limit: 50 });
+    const oneType = await budget({ type: 'VIEWING', limit: 50 });
+    const severalTypes = await budget({ type: 'VIEWING,MEETING,CALL', limit: 50 });
+    const subjectTypes = await budget({ subject: 'CONTACT', subjectId: c.id, type: 'CALL,EMAIL', limit: 50 });
+    const deeper = await budget({
+      type: 'VIEWING,MEETING',
+      limit: 20,
+      cursor: severalTypes.page.nextCursor ?? undefined,
+    });
+    for (const r of [subject, oneType, severalTypes, subjectTypes, deeper]) expect(r.queries).toBeLessThanOrEqual(2);
+    expect(new Set(oneType.page.items.map((i) => i.type))).toEqual(new Set(['VIEWING']));
+    expect(new Set(severalTypes.page.items.map((i) => i.type))).toEqual(new Set(['VIEWING', 'MEETING', 'CALL']));
+
+    // the merged walk equals the plain walk, filtered: same rows, same order, no gaps or repeats across pages
+    const walk = async (type: string | undefined) => {
+      const out: string[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 40; i++) {
+        const p = await timeline(a, {
+          subject: 'CONTACT',
+          subjectId: c.id,
+          limit: 30,
+          ...(type ? { type } : {}),
+          ...(cursor ? { cursor } : {}),
+        });
+        out.push(...p.items.map((x) => `${x.id}:${x.type}`));
+        if (!p.nextCursor) break;
+        cursor = p.nextCursor;
+      }
+      return out;
+    };
+    const merged: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 40; i++) {
+      const p = await timeline(a, { type: 'VIEWING,MEETING', limit: 30, ...(cursor ? { cursor } : {}) });
+      merged.push(...p.items.filter((x) => x.contactId === c.id).map((x) => `${x.id}:${x.type}`));
+      if (!p.nextCursor) break;
+      cursor = p.nextCursor;
+    }
+    const expected = (await walk(undefined)).filter((x) => /:(VIEWING|MEETING)$/.test(x));
+    expect(merged).toEqual(expected);
+    expect(new Set(merged).size).toBe(merged.length);
   }, 120_000);
 
   it('[S10-04] the timeline lists are index conditions under RLS on every partition, deep pages included', async () => {

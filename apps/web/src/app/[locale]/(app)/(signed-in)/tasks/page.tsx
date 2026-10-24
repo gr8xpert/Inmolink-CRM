@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { TaskDto } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
+import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import { fetchTasks, type TaskListOptions } from '@/server/crm-api';
 import { addTaskAction, taskIntentAction } from './actions';
@@ -18,8 +18,8 @@ const ERROR_CODES = ['generic', 'VERSION_CONFLICT', 'TASK_NOT_FOUND', 'VALIDATIO
 type ErrorCode = (typeof ERROR_CODES)[number];
 
 /** What each tab asks the API for (days are the agency's calendar days). */
-function queryFor(tab: Tab, now: Date): Omit<TaskListOptions, 'assignee' | 'cursor'> {
-  const { end } = dayBounds(now, DEFAULT_TIME_ZONE);
+function queryFor(tab: Tab, now: Date, timeZone: string): Omit<TaskListOptions, 'assignee' | 'cursor'> {
+  const { end } = dayBounds(now, timeZone);
   switch (tab) {
     case 'overdue':
       return { status: 'OPEN', dueTo: now };
@@ -48,8 +48,10 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const t = await getTranslations('tasks');
   const format = await getFormatter();
-  const res = await fetchTasks(sessionRef(session.user), {
-    ...queryFor(tab, new Date()),
+  const ref = sessionRef(session.user);
+  const timeZone = await agencyTimeZone(ref);
+  const res = await fetchTasks(ref, {
+    ...queryFor(tab, new Date(), timeZone),
     assignee: scope === 'all' ? 'any' : 'me',
     cursor,
   });
@@ -148,7 +150,11 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
                 <span className="text-muted-foreground">
                   {task.dueAt
                     ? t('meta.due', {
-                        when: format.dateTime(new Date(task.dueAt), { dateStyle: 'medium', timeStyle: 'short' }),
+                        when: format.dateTime(new Date(task.dueAt), {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                          timeZone,
+                        }),
                       })
                     : t('meta.noDue')}
                   {task.reminderSent ? ` · ${t('meta.reminded')}` : ''}

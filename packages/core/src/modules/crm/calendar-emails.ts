@@ -14,7 +14,7 @@ const typeOf = (type: string): EventType =>
   (EVENT_TYPES as readonly string[]).includes(type) ? (type as EventType) : 'MEETING';
 
 /**
- * A calendar reminder (S10-06) in the member's UI language (EN / ES written by hand); the time in the platform's zone.
+ * A calendar reminder (S10-06) in the member's UI language (EN / ES written by hand); the time in the agency's zone.
  * No attendees' details: the member opens the calendar for them.
  */
 export function renderEventReminder(input: {
@@ -25,10 +25,12 @@ export function renderEventReminder(input: {
   title: string;
   location: string | null;
   startsAt: Date;
+  /** The agency's IANA time zone (S11-F11); the platform's when missing. */
+  timeZone?: string;
 }): EmailMessage {
   const locale = isUiLocale(input.locale) ? input.locale : DEFAULT_UI_LOCALE;
   const t = translator(locale, 'calendar');
-  const when = formatter(locale).dateTime(input.startsAt);
+  const when = formatter(locale, input.timeZone).dateTime(input.startsAt);
   const kind = t(`types.${typeOf(input.type)}`);
   const greeting = t('email.greeting', { name: line(input.name, 80) });
   const starts = t('email.starts', { when });

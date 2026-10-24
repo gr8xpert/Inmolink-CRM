@@ -1,11 +1,11 @@
 import { PROSPECT_STAGES, type ProspectDto, ProspectStage } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { EmptyState } from '@inmolink/ui';
 import dynamic from 'next/dynamic';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
+import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import { fetchProspectBoard, fetchProspectFollowUps, fetchProspectList } from '@/server/prospects-api';
 import { dayBounds } from '../tasks/time';
@@ -44,6 +44,7 @@ export default async function AcquisitionPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const view: View = (VIEWS as readonly string[]).includes(params.view ?? '') ? (params.view as View) : 'board';
   const ref = sessionRef(session.user);
+  const timeZone = await agencyTimeZone(ref);
   const t = await getTranslations('acquisition');
   const format = await getFormatter();
   const stageLabel = (s: string) => t(`stages.${s}` as `stages.NEW`);
@@ -123,7 +124,7 @@ export default async function AcquisitionPage({ searchParams }: { searchParams: 
                   ? format.dateTime(new Date(p.nextFollowUpAt), {
                       dateStyle: 'medium',
                       timeStyle: 'short',
-                      timeZone: DEFAULT_TIME_ZONE,
+                      timeZone,
                     })
                   : ''}
               </td>
@@ -191,7 +192,7 @@ export default async function AcquisitionPage({ searchParams }: { searchParams: 
   }
 
   if (view === 'dates') {
-    const today = dayBounds(new Date(), DEFAULT_TIME_ZONE).start;
+    const today = dayBounds(new Date(), timeZone).start;
     // overdue follow-ups (up to a month back) first, then the next month day by day
     const from = new Date(today.getTime() - DATES_DAYS * 86_400_000);
     const to = new Date(today.getTime() + DATES_DAYS * 86_400_000);
@@ -199,7 +200,7 @@ export default async function AcquisitionPage({ searchParams }: { searchParams: 
     const page = await fetchProspectFollowUps(ref, { from, to, cursor });
     if (page === 'revoked') redirect('/session/expired');
     if (!page.ok) return failed(page.status);
-    const groups = groupByDay(page.data.items, (p) => new Date(p.nextFollowUpAt ?? 0), DEFAULT_TIME_ZONE);
+    const groups = groupByDay(page.data.items, (p) => new Date(p.nextFollowUpAt ?? 0), timeZone);
     return (
       <div className="flex flex-col gap-4 p-6">
         {header}
@@ -214,7 +215,7 @@ export default async function AcquisitionPage({ searchParams }: { searchParams: 
               return (
                 <section key={g.day} aria-labelledby={`day-${g.day}`} className="flex flex-col gap-2">
                   <h2 id={`day-${g.day}`} className="text-sm font-semibold">
-                    {format.dateTime(day, { dateStyle: 'full', timeZone: DEFAULT_TIME_ZONE })}
+                    {format.dateTime(day, { dateStyle: 'full', timeZone: timeZone })}
                     {overdue ? ` · ${t('dates.overdue')}` : ''}
                   </h2>
                   {table(g.items, g.day)}

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
+import { agencyTimeZone } from '@/server/agency-time-zone';
 import { fetchTaxonomy, sessionRef } from '@/server/api';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { createProspectAction } from '../actions';
@@ -36,7 +37,13 @@ export default async function NewProspectPage({ searchParams }: { searchParams: 
       ) : null}
       <form action={createProspectAction} className="flex flex-col gap-3">
         <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-        <ProspectFields labels={await fieldLabels()} propertyTypes={propertyTypes} locations={locations} notes />
+        <ProspectFields
+          labels={await fieldLabels()}
+          propertyTypes={propertyTypes}
+          locations={locations}
+          notes
+          timeZone={await agencyTimeZone(ref)}
+        />
         <button type="submit" className="h-9 self-start rounded-md border px-4 text-sm font-medium">
           {t('form.create')}
         </button>

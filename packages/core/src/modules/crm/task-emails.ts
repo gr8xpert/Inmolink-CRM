@@ -8,7 +8,7 @@ const escapeHtml = (s: string) =>
 /** One header-safe line. */
 const line = (s: string, max: number) => s.replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').slice(0, max);
 
-/** A task reminder in the assignee's UI language (EN / ES written by hand); the time in the platform's zone. */
+/** A task reminder in the assignee's UI language (EN / ES written by hand); the time in the agency's zone. */
 export function renderTaskReminder(input: {
   to: string;
   name: string;
@@ -16,10 +16,12 @@ export function renderTaskReminder(input: {
   title: string;
   description: string | null;
   dueAt: Date;
+  /** The agency's IANA time zone (S11-F11); the platform's when missing. */
+  timeZone?: string;
 }): EmailMessage {
   const locale = isUiLocale(input.locale) ? input.locale : DEFAULT_UI_LOCALE;
   const t = translator(locale, 'tasks');
-  const when = formatter(locale).dateTime(input.dueAt);
+  const when = formatter(locale, input.timeZone).dateTime(input.dueAt);
   const greeting = t('email.greeting', { name: line(input.name, 80) });
   const due = t('email.due', { when });
   const text = [

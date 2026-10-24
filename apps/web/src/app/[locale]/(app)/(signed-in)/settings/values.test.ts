@@ -39,6 +39,7 @@ describe('settings form values', () => {
       defaultCommission: { type: 'PCT', basisPoints: 500, includesVat: false },
       defaultSplitBp: 5000,
       currency: 'EUR',
+      timeZone: 'Europe/Madrid',
       registrationValidityDays: 180,
       viewingResponseDays: 3,
       enabledLocales: ['es'],

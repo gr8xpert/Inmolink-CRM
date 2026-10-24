@@ -7,12 +7,12 @@ import {
   ProspectStage,
   UpdateProspectBody,
 } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { readAgencyTimeZone } from '@/server/agency-time-zone';
 import type { ApiResult, SessionRef } from '@/server/api';
 import { sessionRef } from '@/server/api';
 import {
@@ -92,7 +92,7 @@ async function to(path: string, query: Record<string, string> = {}): Promise<nev
 }
 
 /** The form's fields as a body: empty inputs are `null` (cleared) or left out (`omitEmpty`, a new prospect). */
-function fields(form: FormData, omitEmpty: boolean): Record<string, unknown> | null {
+function fields(form: FormData, omitEmpty: boolean, timeZone: string | null): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
   const put = (key: string, value: unknown) => {
     if (value === null && omitEmpty) return;
@@ -111,7 +111,9 @@ function fields(form: FormData, omitEmpty: boolean): Record<string, unknown> | n
   }
   if (form.has('nextFollowUpAt')) {
     const value = text(form, 'nextFollowUpAt');
-    const at = value ? parseLocalDateTime(value, DEFAULT_TIME_ZONE) : null;
+    // a typed local time is read in the agency's zone; when that cannot be read the form is refused
+    if (value && !timeZone) return null;
+    const at = value && timeZone ? parseLocalDateTime(value, timeZone) : null;
     if (value && !at) return null;
     put('nextFollowUpAt', at ? at.toISOString() : null);
   }
@@ -119,12 +121,13 @@ function fields(form: FormData, omitEmpty: boolean): Record<string, unknown> | n
 }
 
 export async function createProspectAction(form: FormData): Promise<void> {
-  const body = fields(form, true);
+  const s = await requireSession();
+  const body = fields(form, true, text(form, 'nextFollowUpAt') ? await readAgencyTimeZone(s) : null);
   const parsed = body ? CreateProspectBody.safeParse({ ...body, title: text(form, 'title') }) : null;
   const key = text(form, 'idempotencyKey');
   if (!parsed?.success || !/^[A-Za-z0-9-]{8,64}$/.test(key))
     return to('/acquisition/new', { error: 'VALIDATION_FAILED' });
-  const res = await createProspect(await requireSession(), parsed.data, key);
+  const res = await createProspect(s, parsed.data, key);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok) return to('/acquisition/new', { error: res.error?.code ?? 'generic' });
   return to(`/acquisition/${res.data.id}`, { done: 'created' });
@@ -133,12 +136,13 @@ export async function createProspectAction(form: FormData): Promise<void> {
 export async function updateProspectAction(form: FormData): Promise<void> {
   const id = text(form, 'id');
   if (!Uuid.safeParse(id).success) return to('/acquisition', { error: 'VALIDATION_FAILED' });
-  const body = fields(form, false);
+  const s = await requireSession();
+  const body = fields(form, false, text(form, 'nextFollowUpAt') ? await readAgencyTimeZone(s) : null);
   const parsed = body
     ? UpdateProspectBody.safeParse({ ...body, title: text(form, 'title'), version: Number(text(form, 'version')) })
     : null;
   if (!parsed?.success) return to(`/acquisition/${id}`, { error: 'VALIDATION_FAILED' });
-  const res = await updateProspect(await requireSession(), id, parsed.data);
+  const res = await updateProspect(s, id, parsed.data);
   if (res === 'revoked') redirect('/session/expired');
   return to(`/acquisition/${id}`, res.ok ? { done: 'saved' } : { error: res.error?.code ?? 'generic' });
 }

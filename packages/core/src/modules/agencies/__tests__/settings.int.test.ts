@@ -304,6 +304,30 @@ describe('agency settings', () => {
     ).toBe('FORBIDDEN');
   });
 
+  it('[S11-F11] the time zone defaults to Europe/Madrid, an admin changes it, an unknown or malformed one is refused', async () => {
+    const f = await createFounder();
+    const before = await as(f, (ctx) => agencies.getMyAgencySettings(ctx));
+    expect(before.timeZone).toBe('Europe/Madrid');
+    const saved = await as(f, (ctx) =>
+      agencies.updateAgencySettings(ctx, { ...settingsBody(before), timeZone: 'Atlantic/Canary' }),
+    );
+    expect(saved.timeZone).toBe('Atlantic/Canary');
+    expect(await eventsOf('agencies.settings.changed', f.agencyId)).toHaveLength(1);
+    expect(await withSystem('test', (tx) => agencies.agencyTimeZone(tx, f.agencyId))).toBe('Atlantic/Canary');
+    // omitted: kept
+    const kept = await as(f, (ctx) => agencies.updateAgencySettings(ctx, settingsBody(saved)));
+    expect(kept.timeZone).toBe('Atlantic/Canary');
+    for (const bad of ['Mars/Olympus', 'Madrid', '', 'Europe/../Madrid']) {
+      expect(UpdateAgencySettingsBody.safeParse({ ...settingsBody(saved), timeZone: bad }).success, bad).toBe(false);
+    }
+    expect(UpdateAgencySettingsBody.safeParse({ ...settingsBody(saved), timeZone: 'UTC' }).success).toBe(true);
+    const write = (zone: string) =>
+      withTenant({ agencyId: f.agencyId, userId: f.userId }, (tx) =>
+        tx.execute(sql`update agency_settings set time_zone = ${zone} where agency_id = ${f.agencyId}`),
+      );
+    expect(await sqlState(write('not a zone!'))).toBe('23514');
+  });
+
   it('[S1-06] a direct table write cannot store settings the service would refuse (CHECK constraints)', async () => {
     const f = await createFounder();
     const write = (assignment: ReturnType<typeof sql>) =>

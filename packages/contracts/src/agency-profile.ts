@@ -59,6 +59,22 @@ const ParagraphText = (max: number) =>
 /** Content locale code; the service checks it against the configured content locales. */
 const LocaleCode = z.string().regex(/^[a-z]{2}$/);
 
+/** An IANA time zone name (`Europe/Madrid`, `Atlantic/Canary`), checked against the runtime's `Intl` (S11-F11). */
+const TimeZoneShape = z
+  .string()
+  .max(64)
+  .regex(/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+){0,2}$/);
+/** The shape only (what the database stores and the DTO serves); `TimeZoneName` also asks `Intl`. */
+export const TimeZoneName = TimeZoneShape.refine((v) => {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: v });
+    return true;
+  } catch {
+    return false;
+  }
+}, 'unknown time zone');
+export const DEFAULT_AGENCY_TIME_ZONE = 'Europe/Madrid';
+
 export const AgencyTranslation = z
   .object({
     locale: LocaleCode,
@@ -204,6 +220,8 @@ export const AgencySettingsDto = z.object({
   ...settingsFields,
   /** The agency's currency (S5-F3): new developments default to it. */
   currency: CurrencyCode,
+  /** The agency's time zone (S11-F11): its "today" and "overdue", calendar days and reminder e-mail times. */
+  timeZone: TimeZoneShape,
   version: z.number().int(),
   updatedAt: z.iso.datetime(),
 });
@@ -211,7 +229,12 @@ export type AgencySettingsDto = z.infer<typeof AgencySettingsDto>;
 
 /** `PUT /v1/agency/settings` — replaces the settings (optimistic `version`); no `currency` keeps the current one. */
 export const UpdateAgencySettingsBody = z
-  .object({ version: z.number().int().positive(), ...settingsFields, currency: CurrencyCode.optional() })
+  .object({
+    version: z.number().int().positive(),
+    ...settingsFields,
+    currency: CurrencyCode.optional(),
+    timeZone: TimeZoneName.optional(),
+  })
   .strict();
 export type UpdateAgencySettingsBody = z.infer<typeof UpdateAgencySettingsBody>;
 export type UpdateAgencySettingsInput = z.input<typeof UpdateAgencySettingsBody>;

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
+import { agencyTimeZone } from '@/server/agency-time-zone';
 import { fetchTaxonomy, sessionRef } from '@/server/api';
 import { fetchProspect } from '@/server/prospects-api';
 import { listingTaxonomy } from '../../listings/taxonomy';
@@ -119,6 +120,7 @@ export default async function ProspectPage({
           propertyTypes={propertyTypes}
           locations={locations}
           notes
+          timeZone={await agencyTimeZone(ref)}
         />
         <button type="submit" className="h-9 self-start rounded-md border px-4 text-sm font-medium">
           {t('form.save')}

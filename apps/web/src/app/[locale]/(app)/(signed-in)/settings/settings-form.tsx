@@ -3,7 +3,7 @@
 import { Button, Input, Label } from '@inmolink/ui';
 import { type ReactNode, useActionState, useEffect } from 'react';
 import { type SettingsState, saveSettingsAction } from './actions';
-import type { SettingsValues } from './values';
+import { type SettingsValues, timeZoneOptions } from './values';
 
 export interface SettingsLabels {
   commission: {
@@ -21,6 +21,7 @@ export interface SettingsLabels {
   registrationValidityDays: string;
   viewingResponseDays: string;
   enabledLocales: string;
+  timeZone: string;
   whiteLabel: { title: string; referencePrefix: string; showPoweredBy: string; emailSenderName: string };
   clientMode: { title: string; intro: string; pinMinLength: string; pinMaxAttempts: string };
   submit: string;
@@ -141,6 +142,23 @@ export function SettingsForm(props: Props) {
           {(aria) => <Input {...aria} type="number" min={1} max={30} defaultValue={v.viewingResponseDays} />}
         </Field>
       </div>
+
+      <Field id="timeZone" label={l.timeZone} invalid={invalid('timeZone')}>
+        {(aria) => (
+          <select
+            {...aria}
+            name="timeZone"
+            defaultValue={v.timeZone}
+            className="h-9 rounded-md border bg-background px-2 text-sm"
+          >
+            {timeZoneOptions(v.timeZone).map((zone) => (
+              <option key={zone} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
 
       <fieldset className="flex flex-col gap-2" aria-invalid={invalid('enabledLocales')}>
         <legend className="mb-2 text-sm font-medium">{l.enabledLocales}</legend>

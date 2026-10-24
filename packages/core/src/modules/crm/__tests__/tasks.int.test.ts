@@ -11,6 +11,7 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
+import { formatter } from '@inmolink/i18n';
 import {
   closeEmail,
   configureEmail,
@@ -261,6 +262,26 @@ describe('reminders', () => {
     expect(sent[0]?.text).toContain(t.title);
     expect((await as(a, (ctx) => crm.getTask(ctx, t.id))).reminderSent).toBe(true);
     expect(sent[0]?.idempotencyKey).toBe(`task-reminder:${t.id}:${due}`);
+  });
+
+  it('[S11-F11] the reminder e-mail shows the due time in the agency’s zone: a Canary-Islands agency, an hour behind Madrid', async () => {
+    const canary = await createFounder();
+    await rows(sql`update agency_settings set time_zone = 'Atlantic/Canary' where agency_id = ${canary.agencyId}`);
+    const t = (await create(canary, { title: title('canary'), dueAt: minutes(10).toISOString() })).task;
+    const due = ms(t.dueAt);
+    const [claim] = (await sweepAt(new Date(due + 1_000), [t.id])).flat();
+    expect((await crm.sendTaskReminder(claim as NonNullable<typeof claim>)).sent).toBe(true);
+    const text = sentTo(canary.email, t.title)[0]?.text ?? '';
+    const shown = (zone: string, at = due) => ['en', 'es'].map((l) => formatter(l, zone).dateTime(new Date(at)));
+    expect(shown('Atlantic/Canary').some((s) => text.includes(s))).toBe(true);
+    expect(shown('Europe/Madrid').some((s) => text.includes(s))).toBe(false);
+    // the other agency (default zone) is shown Madrid time
+    const m = (await create(a, { title: title('madrid'), dueAt: minutes(10).toISOString() })).task;
+    const [claimA] = (await sweepAt(new Date(ms(m.dueAt) + 1_000), [m.id])).flat();
+    await crm.sendTaskReminder(claimA as NonNullable<typeof claimA>);
+    expect(shown('Europe/Madrid', ms(m.dueAt)).some((s) => (sentTo(a.email, m.title)[0]?.text ?? '').includes(s))).toBe(
+      true,
+    );
   });
 
   it('[S10-05] a send known not to have gone out gives the claim back: the retry sends, once', async () => {

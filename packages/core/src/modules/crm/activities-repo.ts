@@ -1,6 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { activities, contacts, leads } from '@inmolink/db/schema/crm';
-import { and, eq, gt, gte, isNull, lte, type SQL, sql } from 'drizzle-orm';
+import { and, eq, gt, gte, isNull, lte, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
+import { unionAll } from 'drizzle-orm/pg-core';
 import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 
@@ -92,9 +93,12 @@ export interface ActivityFilter {
 }
 
 /**
- * One page of the timeline, newest first: where agency_id = ? [and <subject>_id = ?] [and type = any(?)]
+ * One page of the timeline, newest first: where agency_id = ? [and <subject>_id = ?] [and type …]
  * and (occurred_at, id) < (?, ?) order by occurred_at desc, id desc — `activities_<subject>_idx` (or
- * `activities_agency_idx`) on each partition, merged; the type filter is a Filter on that index.
+ * `activities_agency_idx`) on each partition, merged. The agency feed filtered by type (S11-F6) is index-driven:
+ * one type is `type = ?` on `activities_agency_type_idx`; several types read one keyset page per type there and
+ * merge them (`union all`, at most `typesPerFilter` branches), never `type = any(?)` as a Filter over the whole feed.
+ * A subject's own timeline is bounded, so its type filter stays a Filter on the subject's index.
  */
 export async function listActivities(
   tx: Tx,
@@ -102,20 +106,46 @@ export async function listActivities(
   filter: ActivityFilter,
   page: { limit: number; cursor?: KeysetCursor },
 ): Promise<ActivityRow[]> {
-  const conds: (SQL | undefined)[] = [eq(activities.agencyId, agencyId)];
-  if (filter.subject) conds.push(eq(subjectColumn[filter.subject.column], filter.subject.id));
-  if (filter.types && filter.types.length > 0) {
-    conds.push(sql`${activities.type} = any(${sql.param([...filter.types])}::text[])`);
+  return await activitiesPageQuery(tx, agencyId, filter, page);
+}
+
+/** The statement of `listActivities`, not yet run (the EXPLAIN tests run the repo's own query). */
+export function activitiesPageQuery(
+  tx: Tx,
+  agencyId: string,
+  filter: ActivityFilter,
+  page: { limit: number; cursor?: KeysetCursor },
+): PromiseLike<ActivityRow[]> & SQLWrapper {
+  const types = filter.types ? [...new Set(filter.types)] : [];
+  const branch = (typeConds: SQL[]) => {
+    const conds: (SQL | undefined)[] = [eq(activities.agencyId, agencyId), ...typeConds];
+    if (filter.subject) conds.push(eq(subjectColumn[filter.subject.column], filter.subject.id));
+    if (page.cursor) {
+      // the row comparison is the index condition; the plain bound prunes the partitions after the cursor's month
+      conds.push(
+        lte(activities.occurredAt, page.cursor.at),
+        rowAfter(activities.occurredAt, activities.id, page.cursor),
+      );
+    }
+    return tx
+      .select(activityColumns)
+      .from(activities)
+      .where(and(...conds))
+      .orderBy(...rowOrder(activities.occurredAt, activities.id))
+      .limit(page.limit + 1);
+  };
+  if (types.length === 0) return branch([]);
+  if (types.length === 1 || filter.subject) {
+    return branch(
+      types.length === 1
+        ? [eq(activities.type, types[0] as string)]
+        : [sql`${activities.type} = any(${sql.param(types)}::text[])`],
+    );
   }
-  if (page.cursor) {
-    // the row comparison is the index condition; the plain bound prunes the partitions after the cursor's month
-    conds.push(lte(activities.occurredAt, page.cursor.at), rowAfter(activities.occurredAt, activities.id, page.cursor));
-  }
-  return tx
-    .select(activityColumns)
-    .from(activities)
-    .where(and(...conds))
-    .orderBy(...rowOrder(activities.occurredAt, activities.id))
+  // here `types.length >= 2` (0 and 1 returned above), so `first` and `second` exist
+  const [first, second, ...rest] = types.map((t) => branch([eq(activities.type, t)]));
+  return unionAll(first as NonNullable<typeof first>, second as NonNullable<typeof second>, ...rest)
+    .orderBy(sql`occurred_at desc`, sql`id desc`)
     .limit(page.limit + 1);
 }
 

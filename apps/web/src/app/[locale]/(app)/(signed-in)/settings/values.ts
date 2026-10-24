@@ -11,12 +11,42 @@ export interface SettingsValues {
   registrationValidityDays: string;
   viewingResponseDays: string;
   enabledLocales: string[];
+  timeZone: string;
   referencePrefix: string;
   showPoweredBy: boolean;
   emailSenderName: string;
   pinMinLength: string;
   pinMaxAttempts: string;
 }
+
+/** The zones the settings form offers: Spain's three (the peninsula, Ceuta and Melilla, the Canary Islands) first. */
+export const TIME_ZONES = [
+  'Europe/Madrid',
+  'Atlantic/Canary',
+  'Africa/Ceuta',
+  'Europe/Lisbon',
+  'Atlantic/Madeira',
+  'Atlantic/Azores',
+  'Europe/London',
+  'Europe/Dublin',
+  'Europe/Paris',
+  'Europe/Brussels',
+  'Europe/Amsterdam',
+  'Europe/Berlin',
+  'Europe/Zurich',
+  'Europe/Vienna',
+  'Europe/Rome',
+  'Europe/Copenhagen',
+  'Europe/Oslo',
+  'Europe/Stockholm',
+  'Europe/Helsinki',
+  'Europe/Athens',
+  'UTC',
+] as const;
+
+/** The options of the zone select: the list, plus the agency's current zone when it is not in it. */
+export const timeZoneOptions = (current: string): string[] =>
+  (TIME_ZONES as readonly string[]).includes(current) ? [...TIME_ZONES] : [current, ...TIME_ZONES];
 
 /**
  * A typed amount or percentage → integer hundredths (percent → basis points, amount → cents), or NaN
@@ -45,6 +75,7 @@ export function settingsValues(s: AgencySettingsDto): SettingsValues {
     registrationValidityDays: String(s.registrationValidityDays),
     viewingResponseDays: String(s.viewingResponseDays),
     enabledLocales: s.enabledLocales,
+    timeZone: s.timeZone,
     referencePrefix: s.whiteLabel.referencePrefix ?? '',
     showPoweredBy: s.whiteLabel.showPoweredBy,
     emailSenderName: s.whiteLabel.emailSenderName ?? '',

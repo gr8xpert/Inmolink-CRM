@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { CALENDAR_EVENT_TYPES, type CalendarEventDto } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
+import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import { fetchCalendarEvents, fetchCalendarFeed } from '@/server/calendar-api';
 import { addEventAction, eventIntentAction, revokeCalendarFeedAction, rotateCalendarFeedAction } from './actions';
@@ -41,15 +41,18 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const view = params.view === 'list' ? 'list' : 'week';
   const scope = params.scope === 'all' ? 'all' : 'mine';
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
-  const week = weekOf(params.week, new Date(), DEFAULT_TIME_ZONE);
+  const ref = sessionRef(session.user);
+  const [timeZone, feed] = await Promise.all([agencyTimeZone(ref), fetchCalendarFeed(ref)]);
+  const week = weekOf(params.week, new Date(), timeZone);
   const to = view === 'list' ? new Date(week.start.getTime() + LIST_DAYS * 86_400_000) : week.end;
   const t = await getTranslations('calendar');
   const format = await getFormatter();
-  const ref = sessionRef(session.user);
-  const [res, feed] = await Promise.all([
-    fetchCalendarEvents(ref, { from: week.start, to, attendee: scope === 'all' ? 'any' : 'me', cursor }),
-    fetchCalendarFeed(ref),
-  ]);
+  const res = await fetchCalendarEvents(ref, {
+    from: week.start,
+    to,
+    attendee: scope === 'all' ? 'any' : 'me',
+    cursor,
+  });
   if (res === 'revoked' || feed === 'revoked') redirect('/session/expired');
 
   const base = { ...(view === 'list' ? { view } : {}), ...(scope === 'all' ? { scope } : {}) };
@@ -66,14 +69,14 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
       <input type="hidden" name="scope" value={scope} />
     </>
   );
-  const time = (iso: string) => format.dateTime(new Date(iso), { timeStyle: 'short' });
-  const dayLabel = (d: Date) => format.dateTime(d, { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = (iso: string) => format.dateTime(new Date(iso), { timeStyle: 'short', timeZone });
+  const dayLabel = (d: Date) => format.dateTime(d, { weekday: 'short', day: 'numeric', month: 'short', timeZone });
   const events = res.ok ? res.data.items : [];
   const byDay = new Map<string, CalendarEventDto[]>();
   for (const e of events) {
     // an event that began before the range (still running at its start) shows on its first day
     const start = new Date(e.startsAt);
-    const k = start < week.start ? (week.days[0]?.key ?? '') : dayKey(start, DEFAULT_TIME_ZONE);
+    const k = start < week.start ? (week.days[0]?.key ?? '') : dayKey(start, timeZone);
     byDay.set(k, [...(byDay.get(k) ?? []), e]);
   }
 

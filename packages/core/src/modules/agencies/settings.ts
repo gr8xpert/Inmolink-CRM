@@ -5,10 +5,13 @@ import {
   type AgencySettingsDto,
   type ClientModePolicy,
   type Commission,
+  DEFAULT_AGENCY_TIME_ZONE,
   type SignedUrlDto,
+  TimeZoneName,
   type UpdateAgencyProfileBody,
   type UpdateAgencySettingsBody,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES, isContentLocale } from '@inmolink/i18n';
 import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
@@ -79,6 +82,7 @@ export function toSettingsDto(row: repo.SettingsRow): AgencySettingsDto {
     defaultCommission: toCommission(row),
     defaultSplitBp: row.defaultSplitBp,
     currency: row.currency,
+    timeZone: row.timeZone,
     registrationValidityDays: row.registrationValidityDays,
     viewingResponseDays: row.viewingResponseDays,
     enabledLocales: row.enabledLocales,
@@ -97,6 +101,7 @@ function toSettingsPatch(input: UpdateAgencySettingsBody, current: repo.Settings
   const c = input.defaultCommission;
   return {
     currency: input.currency ?? current.currency,
+    timeZone: input.timeZone ?? current.timeZone,
     enabledLocales: input.enabledLocales,
     registrationValidityDays: input.registrationValidityDays,
     defaultCommissionType: c.type,
@@ -118,6 +123,7 @@ const SETTINGS_FIELDS = [
   'defaultCommission',
   'defaultSplitBp',
   'currency',
+  'timeZone',
   'registrationValidityDays',
   'viewingResponseDays',
   'enabledLocales',
@@ -203,6 +209,15 @@ export async function getAgencyDefaultCommission(ctx: Ctx): Promise<AgencyCommis
   assertCan(ctx, 'agencies.commission.read');
   const settings = await loadSettings(ctx);
   return { commission: settings.defaultCommission, splitBp: settings.defaultSplitBp };
+}
+
+/**
+ * An agency's time zone for a worker (S11-F11, `withSystem`): its reminder e-mails show times in it. Falls back to the
+ * default (`Europe/Madrid`) for an agency without a settings row.
+ */
+export async function agencyTimeZone(tx: Tx, agencyId: string): Promise<string> {
+  const zone = await repo.timeZoneOf(tx, agencyId);
+  return zone && TimeZoneName.safeParse(zone).success ? zone : DEFAULT_AGENCY_TIME_ZONE;
 }
 
 /**

@@ -11,14 +11,12 @@ import {
   type ListCalendarEventsQuery,
   type UpdateCalendarEventBody,
 } from '@inmolink/contracts';
-import { withPublicRead, withSystem, withTenant } from '@inmolink/db';
+import { withPublicRead, withTenant } from '@inmolink/db';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import { hmacSha256, hmacSha256Candidates, newToken } from '@inmolink/platform/crypto';
-import { EmailSendError, mailer } from '@inmolink/platform/email';
 import { etagFor } from '@inmolink/platform/http';
 import { newId } from '@inmolink/platform/ids';
-import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { advisoryLock, idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
@@ -29,6 +27,7 @@ import * as repo from './calendar-repo';
 import { crmEvents } from './events';
 import { linkedListing } from './listing-ref';
 import { assertCan, canManageEvent } from './policy';
+import { sendReminder, sweepReminders } from './reminders';
 
 /**
  * Calendar (S10-06, PLAN §7 M8): viewings, meetings and calls with member and contact attendees, an e-mail reminder to
@@ -38,7 +37,7 @@ import { assertCan, canManageEvent } from './policy';
  *   the events the member attends (the organizer always attends). A contact attendee is the agency's client: the feed
  *   shows their name only (no e-mail, no phone), and contacts never get mail from the calendar.
  * - **Reminders** (the S10-05 design, per member attendee): `crm.sweepEventReminders` (every minute) claims the
- *   scheduled events whose `remind_at` came — at most `SWEEP_PER_AGENCY` per agency per batch, `for update skip
+ *   scheduled events whose `remind_at` came — at most `REMINDER_SWEEP.perAgency` per agency per batch, `for update skip
  *   locked` — sets `reminded_at` and writes one `crm.calendarEvent.reminderDue` event per member attendee in that
  *   transaction; each becomes one `crm.sendEventReminder` job that claims the attendee's `reminder_sent_for` before it
  *   sends (Resend idempotency key: event + remind time + member). At most once per member and remind time; the claim is
@@ -60,9 +59,6 @@ import { assertCan, canManageEvent } from './policy';
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 /** How long after its remind time an event can still be reminded (a longer worker outage skips it). */
 export const EVENT_REMINDER_GRACE_MS = 2 * 3_600_000;
-const SWEEP_BATCH = 200;
-const SWEEP_PER_AGENCY = 50;
-const SWEEP_MAX_BATCHES = 25;
 
 export const FEED_PAST_DAYS = 30;
 export const FEED_FUTURE_DAYS = 365;
@@ -368,56 +364,34 @@ export async function updateCalendarEvent(
 
 /**
  * `crm.sweepEventReminders`: claims the events whose reminder came (within `EVENT_REMINDER_GRACE_MS`), up to
- * `SWEEP_BATCH × SWEEP_MAX_BATCHES` per pass, at most `SWEEP_PER_AGENCY` of one agency per batch. Each batch is one
+ * `REMINDER_SWEEP.batch × maxBatches` per pass, at most `perAgency` of one agency per batch. Each batch is one
  * system transaction: the claim and one outbox event per member attendee commit together.
  */
 export async function sweepEventReminders(
   opts: { now?: Date; signal?: AbortSignal } = {},
 ): Promise<{ claimed: repo.ClaimedEventReminder[] }> {
-  const now = opts.now ?? new Date();
-  const claimed: repo.ClaimedEventReminder[] = [];
-  for (let i = 0; i < SWEEP_MAX_BATCHES; i++) {
-    if (opts.signal?.aborted) break;
-    const batch = await withSystem('crm.sweepEventReminders', async (tx) => {
-      const rows = await repo.claimDueReminders(tx, now, EVENT_REMINDER_GRACE_MS, SWEEP_BATCH, SWEEP_PER_AGENCY);
-      await emit(
-        tx,
-        rows.map((r) =>
-          crmEvents.eventReminderDue({
-            agencyId: r.agencyId,
-            eventId: r.eventId,
-            userId: r.userId,
-            remindMs: r.remindMs,
-          }),
-        ),
-      );
-      return rows;
-    });
-    claimed.push(...batch);
-    if (batch.length === 0) break;
-  }
+  const claimed = await sweepReminders({
+    job: 'crm.sweepEventReminders',
+    ...opts,
+    claim: (tx, now, limits) =>
+      repo.claimDueReminders(tx, now, EVENT_REMINDER_GRACE_MS, limits.batch, limits.perAgency),
+    events: (r) =>
+      crmEvents.eventReminderDue({ agencyId: r.agencyId, eventId: r.eventId, userId: r.userId, remindMs: r.remindMs }),
+  });
   return { claimed };
 }
 
-const wasNotSent = (err: unknown) => err instanceof TypeError || (err instanceof EmailSendError && err.notSent);
-
 /**
- * `crm.sendEventReminder`: one member's reminder e-mail of a claimed event. Claims the send (system role, the agency
- * named), looks the member up (an active member; gone: nothing is sent), sends outside any transaction with the
- * provider's idempotency key, and gives the claim back only after a failure known to precede the send.
+ * `crm.sendEventReminder`: one member's reminder e-mail of a claimed event (the flow is `sendReminder`).
  */
-export async function sendEventReminder(p: repo.ClaimedEventReminder): Promise<{ sent: boolean }> {
-  const event = await withSystem('crm.sendEventReminder claim', (tx) => repo.claimReminderSend(tx, p));
-  if (!event) return { sent: false };
-  let beforeSend = true;
-  try {
-    const to = await withSystem('crm.sendEventReminder recipient', (tx) =>
-      identity.memberRecipient(tx, p.agencyId, p.userId),
-    );
-    if (!to) return { sent: false };
-    beforeSend = false;
-    await mailer().send({
-      ...renderEventReminder({
+export function sendEventReminder(p: repo.ClaimedEventReminder): Promise<{ sent: boolean }> {
+  return sendReminder({
+    job: 'crm.sendEventReminder',
+    agencyId: p.agencyId,
+    claim: (tx) => repo.claimReminderSend(tx, p),
+    recipientUserId: () => p.userId,
+    render: (event, to, timeZone) =>
+      renderEventReminder({
         to: to.email,
         name: to.name,
         locale: to.locale,
@@ -425,16 +399,11 @@ export async function sendEventReminder(p: repo.ClaimedEventReminder): Promise<{
         title: event.title,
         location: event.location,
         startsAt: event.startsAt,
+        timeZone,
       }),
-      idempotencyKey: `event-reminder:${p.eventId}:${p.remindMs}:${p.userId}`,
-    });
-    return { sent: true };
-  } catch (err) {
-    if (beforeSend || wasNotSent(err)) {
-      await withSystem('crm.sendEventReminder release', (tx) => repo.releaseReminderSend(tx, p));
-    }
-    throw err;
-  }
+    idempotencyKey: `event-reminder:${p.eventId}:${p.remindMs}:${p.userId}`,
+    release: (tx) => repo.releaseReminderSend(tx, p),
+  });
 }
 
 /** A purged listing leaves the agency's events (they stay, without the listing). */

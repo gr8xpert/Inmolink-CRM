@@ -1,6 +1,5 @@
 import type { ProspectDto } from '@inmolink/contracts';
 import { CRM_PROSPECT_LIMITS } from '@inmolink/contracts';
-import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import type { Option, OptionGroup } from '../listings/taxonomy';
 import { localInputValue } from './dates';
 import { SellerSelect } from './seller-select';
@@ -37,6 +36,8 @@ export function ProspectFields(props: {
   propertyTypes: OptionGroup[];
   locations: Option[];
   notes: boolean;
+  /** The agency's zone: the follow-up's `datetime-local` value is its wall clock. */
+  timeZone: string;
 }) {
   const { labels: l, value: v } = props;
   return (
@@ -118,7 +119,7 @@ export function ProspectFields(props: {
         <input
           type="datetime-local"
           name="nextFollowUpAt"
-          defaultValue={v?.nextFollowUpAt ? localInputValue(new Date(v.nextFollowUpAt), DEFAULT_TIME_ZONE) : ''}
+          defaultValue={v?.nextFollowUpAt ? localInputValue(new Date(v.nextFollowUpAt), props.timeZone) : ''}
           className={INPUT}
         />
       </label>

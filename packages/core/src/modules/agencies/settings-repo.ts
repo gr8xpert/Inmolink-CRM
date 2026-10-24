@@ -19,6 +19,7 @@ const settingsColumns = {
   defaultCommissionIncludesVat: agencySettings.defaultCommissionIncludesVat,
   defaultSplitBp: agencySettings.defaultSplitBp,
   currency: agencySettings.currency,
+  timeZone: agencySettings.timeZone,
   viewingResponseDays: agencySettings.viewingResponseDays,
   whiteLabelReferencePrefix: agencySettings.whiteLabelReferencePrefix,
   whiteLabelShowPoweredBy: agencySettings.whiteLabelShowPoweredBy,
@@ -39,6 +40,7 @@ export interface SettingsRow {
   defaultCommissionIncludesVat: boolean;
   defaultSplitBp: number;
   currency: string;
+  timeZone: string;
   viewingResponseDays: number;
   whiteLabelReferencePrefix: string | null;
   whiteLabelShowPoweredBy: boolean;
@@ -218,4 +220,13 @@ export async function existingLogoKeys(tx: Tx, keys: string[]): Promise<Set<stri
     .from(agencyProfiles)
     .where(inArray(agencyProfiles.logoStorageKey, keys));
   return new Set(rows.flatMap((r) => (r.key ? [r.key] : [])));
+}
+
+/** An agency's time zone by id (S11-F11), for a worker under `withSystem` (reminder e-mails). */
+export async function timeZoneOf(tx: Tx, agencyId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ timeZone: agencySettings.timeZone })
+    .from(agencySettings)
+    .where(eq(agencySettings.agencyId, agencyId));
+  return row?.timeZone ?? null;
 }

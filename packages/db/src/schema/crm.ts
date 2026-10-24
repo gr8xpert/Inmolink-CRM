@@ -451,6 +451,8 @@ export const leads = pgTable(
     index('leads_agency_created_idx').on(t.agencyId, t.createdMs, t.id),
     // my / unassigned leads: … and assigned_user_id = ? (or is null), same keyset
     index('leads_agency_assigned_created_idx').on(t.agencyId, t.assignedUserId, t.createdMs, t.id),
+    // "my open leads" (S11-F6): … and assigned_user_id = ? and status = ?, same keyset
+    index('leads_agency_assigned_status_created_idx').on(t.agencyId, t.assignedUserId, t.status, t.createdMs, t.id),
     // status filter: … and status = ?, same keyset
     index('leads_agency_status_created_idx').on(t.agencyId, t.status, t.createdMs, t.id),
     // source filter: … and source = ?, same keyset

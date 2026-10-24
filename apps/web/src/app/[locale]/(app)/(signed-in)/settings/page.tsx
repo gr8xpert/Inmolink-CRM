@@ -56,6 +56,7 @@ export default async function SettingsPage() {
             registrationValidityDays: t('settings.fields.registrationValidityDays'),
             viewingResponseDays: t('settings.fields.viewingResponseDays'),
             enabledLocales: t('settings.fields.enabledLocales'),
+            timeZone: t('settings.fields.timeZone'),
             whiteLabel: {
               title: t('settings.whiteLabel.title'),
               referencePrefix: t('settings.whiteLabel.referencePrefix'),

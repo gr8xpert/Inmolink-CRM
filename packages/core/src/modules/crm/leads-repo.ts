@@ -175,6 +175,16 @@ export async function listLeads(
   filter: LeadListFilter,
   page: { limit: number; cursor?: KeysetCursor },
 ): Promise<LeadListRow[]> {
+  return (await leadsPageQuery(tx, agencyId, filter, page)) as LeadListRow[];
+}
+
+/** The statement of `listLeads`, not yet run (the EXPLAIN tests run the repo's own query). */
+export function leadsPageQuery(
+  tx: Tx,
+  agencyId: string,
+  filter: LeadListFilter,
+  page: { limit: number; cursor?: KeysetCursor },
+) {
   const where: (SQL | undefined)[] = [eq(leads.agencyId, agencyId), rowAfter(leads.createdMs, leads.id, page.cursor)];
   if (filter.status) where.push(eq(leads.status, filter.status));
   if (filter.stageId) where.push(eq(leads.stageId, filter.stageId));
@@ -184,14 +194,13 @@ export async function listLeads(
       filter.assignedUserId === null ? isNull(leads.assignedUserId) : eq(leads.assignedUserId, filter.assignedUserId),
     );
   }
-  const rows = await tx
+  return tx
     .select(leadColumns)
     .from(leads)
     .innerJoin(contacts, and(eq(contacts.agencyId, leads.agencyId), eq(contacts.id, leads.contactId)))
     .where(and(...where))
     .orderBy(...rowOrder(leads.createdMs, leads.id))
     .limit(page.limit + 1);
-  return rows as LeadListRow[];
 }
 
 export async function updateLeadWithVersion(
