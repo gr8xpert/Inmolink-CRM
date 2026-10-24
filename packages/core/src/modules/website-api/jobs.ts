@@ -6,8 +6,11 @@
  * search path (`searchListings`: the site's policy, white-labelled cards, `<prefix>-<code>` references), never a table
  * join. Search failing or finding nothing never holds the e-mail back: it goes without suggestions.
  *
- * `websiteApi.notifyLeadAgency` (same event): the presenting agency's notification — to the site's contact e-mail, or
- * the agency's active admins when the site and profile publish none.
+ * `websiteApi.notifyLeadAgency` (on `crm.lead.created` of a promoted website lead, S10-02): the presenting agency's
+ * notification — to the agent the agency's assignment rule chose; without one (rule `UNASSIGNED`, nobody in the pool,
+ * the agent deactivated since), to the site's contact e-mail, or the agency's active admins when the site and profile
+ * publish none. `websiteApi.notifyLeadAgencyFallback` (on `websites.lead.received`, 2 minutes later) does the same for a
+ * lead the CRM never promoted.
  *
  * Both idempotent per lead (`jobId`, and `ack_sent_at` / `agency_notified_at` checked before sending), fair-shared per
  * agency, retried 5× with backoff. The acknowledgement's slot is reserved atomically before the send (caps hold under
@@ -32,6 +35,7 @@ import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as crm from '../crm';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
@@ -62,6 +66,8 @@ export const SIMILAR_LISTINGS = 3;
 const PRICE_BAND = 0.3;
 
 const payload = z.object({ eventId: z.uuid(), leadId: z.uuid(), agencyId: z.uuid() });
+/** The agency notification: `leadId` is the website lead; `assignedUserId` the CRM lead's agent (S10-02), if any. */
+const notifyPayload = payload.extend({ assignedUserId: z.uuid().nullable().default(null) });
 
 /** One agency's pending edge purges (S7-06): the tags wait in redis-cache (`edge-purge.ts`), the job drains them. */
 const purgePayload = z.object({ agencyId: z.uuid() });
@@ -116,6 +122,51 @@ export async function similarListings(site: ApiSite, lead: websites.LeadRow): Pr
   }
   return found;
 }
+
+/**
+ * Who gets a website lead's agency notification (`notifyLeadRecipient`'s `recipient`): the agent the CRM lead was
+ * assigned to (S10-02: the assignment rule replaces the default choice) while they are an active member; otherwise the
+ * site's contact e-mail (`contact`), or each active admin when the site and profile publish none.
+ */
+export async function leadNotifyRecipients(
+  agencyId: string,
+  siteHasContact: boolean,
+  assignedUserId: string | null,
+): Promise<string[]> {
+  const agent = assignedUserId
+    ? await withSystem('websiteApi.notifyLeadAgency agent', (tx) =>
+        identity.memberRecipient(tx, agencyId, assignedUserId),
+      )
+    : null;
+  if (agent) return [agent.userId];
+  if (siteHasContact) return ['contact'];
+  const admins = await withSystem('websiteApi.notifyLeadAgency', (tx) => identity.listAgencyAdmins(tx, agencyId));
+  return admins.map((a) => a.userId);
+}
+
+/** Fans a website lead's agency notification out (once: `agency_notified_at`), one job per recipient. */
+async function notifyAgency(
+  p: { leadId: string; agencyId: string; assignedUserId: string | null },
+  log: { info: (obj: object, msg: string) => void },
+): Promise<{ queued: number }> {
+  const loaded = await load(p.leadId, 'agencyNotifiedAt', `lead-notify:${p.leadId}`);
+  if (!loaded) return { queued: 0 };
+  const { lead, site } = loaded;
+  const recipients = await leadNotifyRecipients(lead.agencyId, Boolean(site.scope.presenter.email), p.assignedUserId);
+  for (const recipient of recipients) {
+    await websiteApiJobs.notifyLeadRecipient.enqueue({ leadId: lead.id, agencyId: lead.agencyId, recipient });
+  }
+  const at = clock.now();
+  await withSystem('websiteApi.notifyLeadAgency', (tx) => websites.markLeadSent(tx, lead.id, 'agency', at));
+  log.info({ leadId: lead.id, recipients: recipients.length }, 'lead notifications queued');
+  return { queued: recipients.length };
+}
+
+/**
+ * How long after a website lead its fallback notification runs (`notifyLeadAgencyFallback`): beyond the promotion
+ * job's retries (5 attempts, 1 s exponential backoff ≈ 15 s, plus the outbox and the queue).
+ */
+export const LEAD_NOTIFY_FALLBACK_MS = 2 * 60_000;
 
 /** The lead and its site, or null when there is nothing (left) to send. */
 async function load(leadId: string, done: 'ackSentAt' | 'agencyNotifiedAt', requestId: string) {
@@ -292,11 +343,31 @@ export const websiteApiJobs = {
   }),
 
   /**
-   * Fans the agency's notification out: one `notifyLeadRecipient` job per recipient (the site's contact, else each
-   * active admin), so a retry never e-mails a recipient twice.
+   * Fans the agency's notification out: one `notifyLeadRecipient` job per recipient (the assigned agent, else the site's
+   * contact, else each active admin), so a retry never e-mails a recipient twice.
    */
   notifyLeadAgency: defineJob({
     name: 'websiteApi.notifyLeadAgency',
+    pool: 'email',
+    payload: notifyPayload,
+    jobId: (p) => p.leadId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      return notifyAgency(p, log);
+    },
+  }),
+
+  /**
+   * S10-02 review: the agency hears of every website lead, also one the CRM never promoted (the promotion failed for
+   * good, or found no lead). Queued with the acknowledgement on `websites.lead.received`, run `LEAD_NOTIFY_FALLBACK_MS`
+   * later (after the promotion's retries): a promoted lead is announced by `notifyLeadAgency` (to its agent) and this
+   * does nothing; otherwise it notifies the default recipients. `agency_notified_at` keeps it to one notification.
+   */
+  notifyLeadAgencyFallback: defineJob({
+    name: 'websiteApi.notifyLeadAgencyFallback',
     pool: 'email',
     payload,
     jobId: (p) => p.leadId,
@@ -305,25 +376,12 @@ export const websiteApiJobs = {
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: 30_000,
     async run(p, { log }) {
-      const loaded = await load(p.leadId, 'agencyNotifiedAt', `lead-notify:${p.leadId}`);
-      if (!loaded) return { queued: 0 };
-      const { lead, site } = loaded;
-      const recipients: string[] = site.scope.presenter.email
-        ? ['contact']
-        : (await withSystem('websiteApi.notifyLeadAgency', (tx) => identity.listAgencyAdmins(tx, lead.agencyId))).map(
-            (a) => a.userId,
-          );
-      for (const recipient of recipients) {
-        await websiteApiJobs.notifyLeadRecipient.enqueue({ leadId: lead.id, agencyId: lead.agencyId, recipient });
-      }
-      const at = clock.now();
-      await withSystem('websiteApi.notifyLeadAgency', (tx) => websites.markLeadSent(tx, lead.id, 'agency', at));
-      log.info({ leadId: lead.id, recipients: recipients.length }, 'lead notifications queued');
-      return { queued: recipients.length };
+      if (await crm.isInboundLeadPromoted(p.agencyId, p.leadId)) return { queued: 0, promoted: true };
+      return { ...(await notifyAgency({ ...p, assignedUserId: null }, log)), promoted: false };
     },
   }),
 
-  /** One recipient's notification (`recipient`: `contact` — the site's contact e-mail — or an admin's user id). */
+  /** One recipient's notification (`recipient`: `contact` — the site's contact e-mail — or a member's user id). */
   notifyLeadRecipient: defineJob({
     name: 'websiteApi.notifyLeadRecipient',
     pool: 'email',
@@ -346,9 +404,9 @@ export const websiteApiJobs = {
           ? site.scope.presenter.email
             ? { email: site.scope.presenter.email, locale: site.scope.defaultLocale }
             : null
-          : ((
-              await withSystem('websiteApi.notifyLeadRecipient', (tx) => identity.listAgencyAdmins(tx, lead.agencyId))
-            ).find((a) => a.userId === p.recipient) ?? null);
+          : await withSystem('websiteApi.notifyLeadRecipient', (tx) =>
+              identity.memberRecipient(tx, lead.agencyId, p.recipient),
+            );
       if (!to) {
         log.info({ leadId: lead.id }, 'lead notification recipient gone');
         return { sent: false };

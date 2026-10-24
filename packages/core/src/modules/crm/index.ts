@@ -9,7 +9,19 @@ export {
   uploadContactImport,
 } from './import';
 export { crmJobs } from './jobs';
+export {
+  createLead,
+  getLead,
+  getLeadRouting,
+  isInboundLeadPromoted,
+  listLeadIntroductions,
+  listLeads,
+  promoteInboundLead,
+  updateLead,
+  updateLeadRouting,
+} from './leads';
 export { CLIENT_MODE_ALLOWED, CRM_ACTIONS, CRM_IMPERSONATION, type CrmAction, can } from './policy';
+export { type Route, type RouteInput, routeLead } from './routing';
 export {
   addContactNote,
   type CreateContactResult,

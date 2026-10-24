@@ -1,5 +1,6 @@
 import { CreateListingBody, UpdateListingBody, type WebsiteLeadAccepted } from '@inmolink/contracts';
 import { closeDb, withMemberCtx } from '@inmolink/core';
+import * as crm from '@inmolink/core/modules/crm';
 import * as identity from '@inmolink/core/modules/identity';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
@@ -24,7 +25,7 @@ import { LEAD_BODY_LIMIT } from './routes/website-api/leads';
 /**
  * Website lead intake over HTTP (S7-05): Turnstile for browser forms, idempotent posts, validation and size caps, form
  * spam limits, CORS — and speed-to-lead end to end: POST → outbox event → email queue (BullMQ) → acknowledgement sent
- * through the e-mail adapter, measured per lead.
+ * through the e-mail adapter, measured per lead; the agency's notification after the CRM promotion (S10-02).
  */
 
 const RUN = newId().slice(-8);
@@ -342,12 +343,15 @@ describe('website lead intake over HTTP (S7-05)', () => {
 
   it('[S7-05] auto-ack is sent in < 60 s p95 (POST → outbox → email queue → e-mail adapter) and uses the site branding', async () => {
     websiteApi.registerWebsiteApiSubscriptions();
+    // S10-02: the agency's notification follows the lead's promotion to the CRM inbox (`crm.lead.created`).
+    crm.registerCrmSubscriptions();
     pool = registerPool(
       'email',
       [
         websiteApi.websiteApiJobs.sendLeadAcknowledgement,
         websiteApi.websiteApiJobs.notifyLeadAgency,
         websiteApi.websiteApiJobs.notifyLeadRecipient,
+        crm.crmJobs.promoteInboundLead,
       ],
       {
         shutdownMs: 5_000,
@@ -368,7 +372,8 @@ describe('website lead intake over HTTP (S7-05)', () => {
         }>(
           `update outbox_events set processed_at = now(), attempts = attempts + 1
             where id in (select id from outbox_events
-                          where agency_id = $1 and type = 'websites.lead.received' and processed_at is null
+                          where agency_id = $1 and type in ('websites.lead.received', 'crm.lead.created')
+                            and processed_at is null
                           order by available_at, id limit 50 for update skip locked)
            returning id, agency_id, type, version, payload, created_at`,
           [founder.agencyId],
@@ -428,6 +433,7 @@ describe('website lead intake over HTTP (S7-05)', () => {
       dispatching = false;
       await dispatcher;
       websiteApi.unregisterWebsiteApiSubscriptions();
+      crm.unregisterCrmSubscriptions();
     }
   }, 180_000);
 });

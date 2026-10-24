@@ -59,10 +59,12 @@ export {
   verifyEmail,
 } from './service';
 export {
+  activeClientMemberIds,
   getStaffRole,
   grantStaff,
   isUserActive,
   listAgencyAdmins,
+  memberRecipient,
   revokeStaff,
   STAFF_ROLES,
   type StaffRole,

@@ -42,5 +42,68 @@
       "ANY": "any time"
     },
     "footer": "The visitor has already received an automatic acknowledgement. Reply soon: response times are measured."
+  },
+  "inbox": {
+    "title": "Leads",
+    "empty": "No leads yet.",
+    "mine": "My leads",
+    "unassigned": "Unassigned",
+    "fields": {
+      "source": "Source",
+      "status": "Status",
+      "contact": "Client",
+      "target": "Property",
+      "assignedTo": "Assigned to",
+      "receivedAt": "Received",
+      "message": "Message",
+      "presentedBy": "Presented by",
+      "owner": "Listing owner"
+    },
+    "sources": {
+      "WEBSITE": "Website",
+      "IFRAME": "Embedded listings (iFrame)",
+      "SELECTION": "Selection",
+      "PORTFOLIO": "Portfolio",
+      "PORTAL": "Portal",
+      "MARKETPLACE": "Marketplace",
+      "DEVELOPER_PORTAL": "Developer portal",
+      "CHATBOT": "Chatbot",
+      "WHATSAPP": "WhatsApp",
+      "MANUAL": "Added by hand"
+    },
+    "statuses": {
+      "NEW": "New",
+      "IN_PROGRESS": "In progress",
+      "WON": "Won",
+      "LOST": "Lost",
+      "SPAM": "Spam"
+    },
+    "kinds": {
+      "ENQUIRY": "Enquiry",
+      "VIEWING_REQUEST": "Viewing request"
+    },
+    "create": {
+      "title": "New lead",
+      "submit": "Add lead"
+    },
+    "routing": {
+      "title": "Lead assignment",
+      "mode": "Assign new leads",
+      "UNASSIGNED": "Leave them unassigned (the whole team sees them)",
+      "ROUND_ROBIN": "Take turns among these agents",
+      "OWNER_AGENT": "To the listing's agent (otherwise take turns)",
+      "agents": "Agents taking turns (none selected: everyone)",
+      "save": "Save"
+    },
+    "introductions": {
+      "title": "Clients introduced by other agencies",
+      "empty": "No other agency has introduced a client for your listings yet.",
+      "introducedBy": "Introduced by {agency}",
+      "privacy": "The client's details stay with the introducing agency until the client is registered."
+    },
+    "errors": {
+      "LEAD_NOT_FOUND": "This lead does not exist.",
+      "LEAD_TARGET_NOT_FOUND": "This property does not exist or you cannot see it."
+    }
   }
 }

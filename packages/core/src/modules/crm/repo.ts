@@ -6,10 +6,12 @@ import {
   contactNotes,
   contactPhones,
   contacts,
+  leads,
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
 import { and, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { rowAfter, rowOrder } from './keyset';
 
 /**
  * crm queries (PATTERNS §5). Takes `tx`, selects only the columns it needs, paginates by cursor.
@@ -113,12 +115,14 @@ const listColumns = {
   doNotContact: contacts.doNotContact,
   ownerUserId: contacts.ownerUserId,
   createdAt: contacts.createdAt,
+  createdMs: contacts.createdMs,
 };
 export type ContactListRow = { [K in keyof typeof listColumns]: (typeof contacts.$inferSelect)[K] };
 
 /**
- * The agency's open contacts, newest first (keyset on `contacts_agency_created_idx` / `…_owner_created_idx`); a tag
- * or type filter is a semi-join on `contact_facets_agency_facet_idx` (leakproof `=`, usable under RLS).
+ * The agency's open contacts, newest first (keyset on `contacts_agency_created_idx` / `…_owner_created_idx`, the
+ * cursor a row comparison on the stored `created_ms`: an index condition under RLS, S10-02 review); a tag or type
+ * filter is a semi-join on `contact_facets_agency_facet_idx` (leakproof `=`, usable under RLS).
  */
 export async function listContacts(
   tx: Tx,
@@ -129,7 +133,7 @@ export async function listContacts(
   const where: (SQL | undefined)[] = [
     eq(contacts.agencyId, agencyId),
     isNull(contacts.deletedAt),
-    keysetAfter(contacts.createdAt, contacts.id, page.cursor, 'desc'),
+    rowAfter(contacts.createdMs, contacts.id, page.cursor),
   ];
   if (filter.ownerUserId) where.push(eq(contacts.ownerUserId, filter.ownerUserId));
   for (const facet of [filter.tag && `tag:${filter.tag}`, filter.type && `type:${filter.type}`]) {
@@ -148,7 +152,7 @@ export async function listContacts(
     .select(listColumns)
     .from(contacts)
     .where(and(...where))
-    .orderBy(...keysetOrder(contacts.createdAt, contacts.id, 'desc'))
+    .orderBy(...rowOrder(contacts.createdMs, contacts.id))
     .limit(page.limit + 1);
 }
 
@@ -159,7 +163,7 @@ export async function listContactsByIds(tx: Tx, agencyId: string, ids: readonly 
     .select(listColumns)
     .from(contacts)
     .where(and(eq(contacts.agencyId, agencyId), inArray(contacts.id, [...ids]), isNull(contacts.deletedAt)))
-    .orderBy(...keysetOrder(contacts.createdAt, contacts.id, 'desc'));
+    .orderBy(...rowOrder(contacts.createdMs, contacts.id));
 }
 
 export interface IdentifierOwner {
@@ -419,12 +423,17 @@ const toRecord = (p: AbsorbPatch) => ({
 
 /**
  * Every crm table that points at a contact. A merge moves their rows from the closed contact to the survivor in its
- * own transaction — all of them in one statement (`repointReferences`), whatever their number. **S10-02 (leads),
- * S10-04 (activities) and S10-05 (tasks) add their table here** (`contacts.int.test.ts` fails on a crm table with a
+ * own transaction — all of them in one statement (`repointReferences`), whatever their number. Leads (S10-02) are
+ * here; **S10-04 (activities) and S10-05 (tasks) add their table here** (`contacts.int.test.ts` fails on a crm table with a
  * `contact_id` column that is missing); modules outside crm (registrations, `property_privates`) react to
  * `crm.contact.merged` instead (events.ts).
  */
-export const CONTACT_REFERENCES = [{ name: 'contact_notes', table: contactNotes }] as const;
+export const CONTACT_REFERENCES = [
+  { name: 'contact_notes', table: contactNotes, versioned: false },
+  // S10-02: a merged contact's leads follow it, with a new version (an open edit form conflicts); their introductions
+  // name no contact.
+  { name: 'leads', table: leads, versioned: true },
+] as const;
 
 /** Moves every reference of `fromId` to `toId` (one statement); returns the rows moved per table. */
 export async function repointReferences(
@@ -434,7 +443,9 @@ export async function repointReferences(
   toId: string,
 ): Promise<Record<string, number>> {
   const ctes = CONTACT_REFERENCES.map(
-    (ref, i) => sql`${sql.raw(`r${i}`)} as (update ${ref.table} set contact_id = ${toId}
+    (ref, i) => sql`${sql.raw(`r${i}`)} as (update ${ref.table} set contact_id = ${toId}${
+      ref.versioned ? sql`, version = version + 1, updated_at = now()` : sql``
+    }
       where agency_id = ${agencyId} and contact_id = ${fromId} returning 1)`,
   );
   const counts = CONTACT_REFERENCES.map(

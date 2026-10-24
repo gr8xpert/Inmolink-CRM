@@ -3,6 +3,7 @@
  * page of results — the unit's own commission, else its development's — read under the caller's RLS (a unit of a
  * development the caller may not see has no terms and is left out). Agent side only: never in Client Mode.
  */
+import type { Tx } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { assertCan } from './policy';
@@ -42,4 +43,12 @@ export async function networkUnitTerms(ctx: Ctx, ids: readonly string[]): Promis
       commissionIncludesVat: own ? r.unitCommissionIncludesVat : r.developmentCommissionIncludesVat,
     };
   });
+}
+
+/**
+ * S10-02 (CRM leads, raw `tx` of the caller's agency): the developer agency of a development or unit a lead is about,
+ * or null when the caller cannot read it (RLS) or it is deleted.
+ */
+export function leadTargetOwner(tx: Tx, kind: 'DEVELOPMENT' | 'UNIT', id: string): Promise<string | null> {
+  return repo.leadTargetOwner(tx, kind, id);
 }

@@ -217,7 +217,7 @@ export const CreateContactHeaders = z.object({
 
 /**
  * `POST /v1/crm/contacts/:id/merge`: `duplicateId` is merged into the contact of the path (the survivor, at `version`).
- * Its e-mails, phones and notes move to the survivor (as will the leads, activities and tasks of S10-02/04/05, and
+ * Its e-mails, phones, notes and leads move to the survivor (as will the activities and tasks of S10-04/05, and
  * registrations via `crm.contact.merged`); the duplicate is closed (it answers `CONTACT_NOT_FOUND` from then on). A
  * result over `CONTACT_LIMITS` (e-mails, phones, tags) is refused with `CONTACT_MERGE_LIMIT`.
  */

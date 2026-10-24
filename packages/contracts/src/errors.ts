@@ -247,6 +247,10 @@ export const ErrorCodes = {
   CONTACT_IMPORT_STARTED: 409,
   /** The upload is not a CSV / Excel file we can read, or it has no data rows (`details.reason`). */
   CONTACT_IMPORT_FILE_INVALID: 422,
+  // crm: leads (S10-02)
+  LEAD_NOT_FOUND: 404,
+  /** The lead's target is not a listing, development or unit the agency can see. */
+  LEAD_TARGET_NOT_FOUND: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

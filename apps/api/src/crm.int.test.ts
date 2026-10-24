@@ -145,3 +145,69 @@ describe('crm contact routes', () => {
     expect(start.json()).toMatchObject({ id: body.id, status: 'QUEUED' });
   });
 });
+
+describe('crm lead routes', () => {
+  it('[S10-02] a lead entered by hand lands in the inbox; status, assignment and the rule over HTTP', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const contact = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/crm/contacts',
+        headers,
+        payload: { firstName: 'Leo', emails: [`api-lead-${RUN}@example.com`] },
+      })
+    ).json();
+    const key = { 'idempotency-key': `api-lead-${RUN}-0001` };
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/leads',
+      headers: { ...headers, ...key },
+      payload: { contactId: contact.id, message: 'Wants a sea view' },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.headers['cache-control']).toBe('no-store');
+    const lead = created.json();
+    expect(lead).toMatchObject({ source: 'MANUAL', status: 'NEW', contact: { id: contact.id }, assignedUserId: null });
+    const replay = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/leads',
+      headers: { ...headers, ...key },
+      payload: { contactId: contact.id, message: 'Wants a sea view' },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().id).toBe(lead.id);
+
+    const inbox = await app.inject({ method: 'GET', url: '/v1/crm/leads?status=NEW&limit=10', headers });
+    expect(inbox.statusCode).toBe(200);
+    expect(inbox.json().items.map((l: { id: string }) => l.id)).toEqual([lead.id]);
+
+    const patched = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/leads/${lead.id}`,
+      headers,
+      payload: { version: lead.version, status: 'IN_PROGRESS', assignedUserId: f.userId },
+    });
+    expect(patched.statusCode).toBe(200);
+    expect(patched.json()).toMatchObject({ status: 'IN_PROGRESS', assignedUserId: f.userId });
+    const stale = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/leads/${lead.id}`,
+      headers,
+      payload: { version: lead.version, status: 'WON' },
+    });
+    expect(stale.statusCode).toBe(409);
+
+    const rule = await app.inject({
+      method: 'PUT',
+      url: '/v1/crm/lead-routing',
+      headers,
+      payload: { version: 0, mode: 'ROUND_ROBIN', agentUserIds: [f.userId] },
+    });
+    expect(rule.statusCode).toBe(200);
+    expect(rule.json()).toEqual({ mode: 'ROUND_ROBIN', agentUserIds: [f.userId], version: 1 });
+    const intros = await app.inject({ method: 'GET', url: '/v1/crm/lead-introductions', headers });
+    expect(intros.statusCode).toBe(200);
+    expect(intros.json()).toEqual({ items: [], nextCursor: null });
+  });
+});

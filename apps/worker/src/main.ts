@@ -17,7 +17,7 @@ import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/stora
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { startWorker } from './app';
 import { emailConfig, loadWorkerConfig } from './config';
-import { POOL_JOBS } from './processors';
+import { POOL_JOBS, POOL_OPTIONS } from './processors';
 import { registerSubscriptions } from './subscriptions';
 
 loadStackEnv('dev', { allowExample: false });
@@ -133,6 +133,7 @@ try {
     logger,
     pools: config.WORKER_POOLS,
     jobs: POOL_JOBS,
+    poolOverrides: POOL_OPTIONS,
     createDispatcher: () => createOutboxDispatcher({ logger }),
     trustProxy: config.TRUST_PROXY,
     checks: { db: () => pingDb(mediaOnly ? 'app_media' : 'app_system'), redisQueue: redisCheck(producerConnection) },

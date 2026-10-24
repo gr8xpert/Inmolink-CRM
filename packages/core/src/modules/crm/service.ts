@@ -330,7 +330,7 @@ export async function listContacts(ctx: Ctx, query: ListContactsQuery): Promise<
     filter,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  return toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toListItem);
+  return toPage(rows, query.limit, (r) => ({ at: r.createdMs, id: r.id }), toListItem);
 }
 
 /**
@@ -409,8 +409,8 @@ export async function updateContact(ctx: Ctx, id: string, input: UpdateContactBo
  *  1. both rows are locked and loaded in one query (id order: two merges of the same pair never deadlock);
  *  2. a result over `CONTACT_LIMITS` is refused (`CONTACT_MERGE_LIMIT`);
  *  3. the duplicate's e-mails and phones move to the survivor, after its own (one statement);
- *  4. every crm row pointing at the duplicate moves (`repo.CONTACT_REFERENCES`, one statement: notes today; leads,
- *     activities and tasks when S10-02/04/05 register theirs);
+ *  4. every crm row pointing at the duplicate moves (`repo.CONTACT_REFERENCES`, one statement: notes and leads;
+ *     activities and tasks when S10-04/05 register theirs);
  *  5. the survivor takes what it lacks (types, tags, names, language, the more recent consent, do-not-contact);
  *  6. the duplicate is closed (`merged_into_id`, `deleted_at`) and `crm.contact.merged` is emitted, so modules outside
  *     crm (registrations, a listing's seller contact) move their references too.

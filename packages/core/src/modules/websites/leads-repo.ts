@@ -74,6 +74,8 @@ export interface LeadRow {
   kind: LeadKind;
   targetKind: string | null;
   targetId: string | null;
+  /** The target's owner when it is not the presenting agency's (a network listing): the introduced agency (S10-02). */
+  ownerAgencyId: string | null;
   shownRef: string | null;
   locale: string;
   name: string;
@@ -91,7 +93,10 @@ export interface LeadRow {
   createdAt: Date;
 }
 
-/** A lead as the acknowledgement and notification jobs read it (`app_system`, by id). */
+/**
+ * A lead as the acknowledgement and notification jobs (`app_system`) and the CRM promotion (S10-02: the site agency's
+ * own `tx`, RLS) read it, by id.
+ */
 export async function leadById(tx: Tx, id: string): Promise<LeadRow | null> {
   const rows = await tx
     .select({
@@ -101,6 +106,7 @@ export async function leadById(tx: Tx, id: string): Promise<LeadRow | null> {
       kind: websiteLeads.kind,
       targetKind: websiteLeads.targetKind,
       targetId: websiteLeads.targetId,
+      ownerAgencyId: websiteLeads.ownerAgencyId,
       shownRef: websiteLeads.shownRef,
       locale: websiteLeads.locale,
       name: websiteLeads.name,

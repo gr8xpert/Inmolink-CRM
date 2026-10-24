@@ -32,6 +32,16 @@ describe('crm policy', () => {
     expect(can(admin, 'crm.contacts.import')).toBe(true);
   });
 
+  it('[S10-02] members read and work their agency’s leads; only admins set the assignment rule', () => {
+    for (const action of ['crm.leads.read', 'crm.leads.write'] as const) {
+      expect(can(agent, action, { agencyId: AGENCY })).toBe(true);
+      expect(can(agent, action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs('PARTNER'), action)).toBe(false);
+    }
+    expect(can(agent, 'crm.leads.routing')).toBe(false);
+    expect(can(admin, 'crm.leads.routing')).toBe(true);
+  });
+
   it('[S10-01] denies other agencies and non-user actors', () => {
     expect(can(agent, 'crm.contacts.read', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs('AGENT', { kind: 'system', reason: 'test' }), 'crm.contacts.read')).toBe(false);

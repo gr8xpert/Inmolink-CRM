@@ -10,4 +10,6 @@ export const crmErrors = [
   'CONTACT_IMPORT_NOT_FOUND',
   'CONTACT_IMPORT_STARTED',
   'CONTACT_IMPORT_FILE_INVALID',
+  'LEAD_NOT_FOUND',
+  'LEAD_TARGET_NOT_FOUND',
 ] as const satisfies readonly ErrorCode[];

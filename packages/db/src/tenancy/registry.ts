@@ -808,6 +808,23 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     base: { file_kind: 'csv', file_bytes: 1, status: 'UPLOADED', on_duplicate: 'SKIP', errors: '[]' },
   },
+  // S10-02: CRM leads — the holder's only (the client, the message: PII). When the target is another agency's (a
+  // network listing, a developer's unit) the holder also writes a `lead_introductions` row, which the target's owner
+  // reads (`owner_agency_id = app_agency()`, verified readers only): introducer, source and target — no client column
+  // exists there, so the owner never reads the client's details (PLAN §3 #12). The owner cannot write it (NETWORK_READ
+  // rows are never writable by readers); nobody changes or removes it (immutable: the holder appends it with the lead,
+  // and the lead's deletion cascades as the table owner). The readable side with a real lead is tested in the crm
+  // module.
+  leads: { kind: 'STRICT', base: { source: 'MANUAL', kind: 'ENQUIRY', status: 'NEW' } },
+  lead_introductions: {
+    kind: 'NETWORK_READ',
+    immutable: true,
+    networkReadSql: 'owner_agency_id = app_agency()',
+    base: { source: 'WEBSITE', kind: 'ENQUIRY', target_kind: 'LISTING' },
+    samples: { visible: [{ owner_agency_id: SAMPLE_READER }], hidden: [{}] },
+  },
+  // The agency's lead assignment rule (S10-02): one row per agency, admins write it.
+  lead_routing_settings: { kind: 'STRICT', singleRow: true, base: { mode: 'UNASSIGNED', agent_user_ids: '{}' } },
 };
 
 /**

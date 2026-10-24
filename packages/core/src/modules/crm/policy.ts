@@ -12,12 +12,18 @@ export const CRM_ACTIONS = [
   'crm.contacts.merge',
   /** Import a CSV / Excel file of contacts. */
   'crm.contacts.import',
+  /** The lead inbox and the introductions to the agency's own listings (S10-02). */
+  'crm.leads.read',
+  /** Enter leads, change their status and assignment. */
+  'crm.leads.write',
+  /** The agency's lead assignment rule (round robin, owner agent). */
+  'crm.leads.routing',
 ] as const;
 export type CrmAction = (typeof CRM_ACTIONS)[number];
 
 /**
- * Client Mode (PATTERNS §6) is read-only — and contacts are other clients' personal data and the agency's owner
- * contacts: nothing of the CRM is open in Client Mode.
+ * Client Mode (PATTERNS §6) is read-only — and contacts and leads are other clients' personal data and the agency's
+ * owner contacts: nothing of the CRM is open in Client Mode.
  */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<CrmAction> = new Set<CrmAction>();
 
@@ -27,6 +33,9 @@ export const CRM_IMPERSONATION: ImpersonationRules<CrmAction> = {
   'crm.contacts.write': 'forbidden',
   'crm.contacts.merge': 'forbidden',
   'crm.contacts.import': 'forbidden',
+  'crm.leads.read': 'allowed',
+  'crm.leads.write': 'forbidden',
+  'crm.leads.routing': 'forbidden',
 };
 
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -43,8 +52,11 @@ export function can(ctx: Ctx, action: CrmAction, resource?: { agencyId: string }
     case 'crm.contacts.read':
     case 'crm.contacts.write':
     case 'crm.contacts.merge':
+    case 'crm.leads.read':
+    case 'crm.leads.write':
       return MEMBER_ROLES.has(role);
     case 'crm.contacts.import':
+    case 'crm.leads.routing':
       return ADMIN_ROLES.has(role);
   }
 }

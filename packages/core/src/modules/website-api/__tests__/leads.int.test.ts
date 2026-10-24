@@ -14,6 +14,7 @@ import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } fro
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeQueues, configureQueue } from '@inmolink/platform/queue';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { sql } from 'drizzle-orm';
@@ -21,13 +22,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
+import * as crm from '../../crm';
 import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
 import { honeytokenRef } from '../honeytokens';
 import * as websiteApi from '../index';
-import { ackCapReached } from '../jobs';
+import { ackCapReached, leadNotifyRecipients, websiteApiJobs } from '../jobs';
 
 /**
  * Website lead intake (S7-05): leads belong to the presenting agency (the site's), duplicates with one idempotency key
@@ -481,6 +483,58 @@ describe('website lead intake (S7-05)', () => {
       tx.execute<{ ack_sent_at: Date | null }>(sql`select ack_sent_at from website_leads where id = ${accepted.id}`),
     );
     expect(sentAt.rows[0]?.ack_sent_at).not.toBeNull();
+  });
+
+  it('[S10-02] the assignment rule replaces the agency e-mail’s recipient: the assigned agent is written to', async () => {
+    // assigned (an active member): that agent; nobody assigned, or not a member (any more): the site's contact
+    expect(await leadNotifyRecipients(a.agencyId, true, a.userId)).toEqual([a.userId]);
+    expect(await leadNotifyRecipients(a.agencyId, true, null)).toEqual(['contact']);
+    expect(await leadNotifyRecipients(a.agencyId, true, b.userId)).toEqual(['contact']);
+    expect(await leadNotifyRecipients(a.agencyId, false, null)).toEqual([a.userId]); // the admins
+    const { accepted } = await websiteApi.submitLead(
+      await site(),
+      { kind: 'ENQUIRY', body: enquiry({ ref: await refOf(L.aVilla as string) }) },
+      secret(),
+    );
+    await websiteApi.websiteApiJobs.notifyLeadRecipient.spec.run(
+      { leadId: accepted.id, agencyId: a.agencyId, recipient: a.userId },
+      jobCtx('notify-agent'),
+    );
+    expect(mail.sent.map((m) => m.to)).toEqual([a.email]);
+    expect(mail.sent[0]?.tag).toBe('website.lead-notify');
+  });
+
+  it('[S10-02] a website lead the CRM never promoted is still announced to the agency (delayed fallback)', async () => {
+    await configureQueue({ prefix: `wa-fallback-${newId().slice(-8)}`, logger: log });
+    try {
+      const ref = await refOf(L.aVilla as string);
+      const lost = (await websiteApi.submitLead(await site(), { kind: 'ENQUIRY', body: enquiry({ ref }) }, secret()))
+        .accepted.id;
+      const job = (leadId: string) => ({ eventId: newId(), leadId, agencyId: a.agencyId });
+      // never promoted (the promotion failed for good): the default recipients are notified, once
+      expect(await websiteApiJobs.notifyLeadAgencyFallback.spec.run(job(lost), jobCtx('fallback'))).toEqual({
+        queued: 1,
+        promoted: false,
+      });
+      const notified = await system((tx) =>
+        tx.execute<{ at: Date | null }>(sql`select agency_notified_at as at from website_leads where id = ${lost}`),
+      );
+      expect(notified.rows[0]?.at).not.toBeNull();
+      expect(await websiteApiJobs.notifyLeadAgencyFallback.spec.run(job(lost), jobCtx('fallback-2'))).toEqual({
+        queued: 0,
+        promoted: false,
+      });
+      // promoted: `notifyLeadAgency` (to the assigned agent) announces it, the fallback does nothing
+      const kept = (await websiteApi.submitLead(await site(), { kind: 'ENQUIRY', body: enquiry({ ref }) }, secret()))
+        .accepted.id;
+      await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId: kept });
+      expect(await websiteApiJobs.notifyLeadAgencyFallback.spec.run(job(kept), jobCtx('fallback-3'))).toEqual({
+        queued: 0,
+        promoted: true,
+      });
+    } finally {
+      await closeQueues();
+    }
   });
 
   it('[S7-05] the presenting agency is notified with the visitor details; a viewing request lists its slots', async () => {

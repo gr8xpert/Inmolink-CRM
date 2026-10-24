@@ -25,6 +25,7 @@ import * as crm from '@inmolink/core/modules/crm';
 import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { crmLeadRoutes } from './leads';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -44,8 +45,8 @@ const IMPORT_LIMITS: readonly RateLimitRule[] = [
 const tags = ['crm'];
 
 /**
- * CRM contacts (S10-01): contacts with duplicate detection and merge, notes, and CSV / Excel imports. Contacts are
- * PII: every answer is `no-store`, and nothing of it is open in Client Mode (policy).
+ * CRM contacts (S10-01): contacts with duplicate detection and merge, notes, and CSV / Excel imports; leads (S10-02,
+ * `leads.ts`). Contacts and leads are PII: every answer is `no-store`, and nothing of it is open in Client Mode (policy).
  */
 export async function crmRoutes(app: FastifyZod): Promise<void> {
   app.addHook('onSend', async (_req, reply) => {
@@ -246,6 +247,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   );
 
   await app.register(contactImportUploadRoute);
+  // S10-02: leads, inbox, introductions and the assignment rule.
+  await app.register(crmLeadRoutes);
 }
 
 /** One upload at a time per member, four per process: a 25 MB body each. */

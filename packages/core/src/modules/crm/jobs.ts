@@ -1,6 +1,7 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { runContactImport, sweepContactImports } from './import';
+import { promoteInboundLead } from './leads';
 
 const IMPORT_ATTEMPTS = 3;
 
@@ -12,6 +13,11 @@ const IMPORT_ATTEMPTS = 3;
  *   One import per agency at a time.
  * - `crm.sweepContactImports` (pool `maintenance`, daily): expires uploads never started within 24 h and deletes the
  *   files still in storage (those uploads, and finished runs whose own delete failed).
+ * - `crm.promoteInboundLead` (pool `email` — the speed-to-lead pool, with the acknowledgement and the agency
+ *   notification; one per `websites.lead.received` event, job ID = the inbound lead's id): the website lead becomes a
+ *   lead in the presenting agency's inbox, assigned by its rule (S10-02, < 10 s p95 from the event). Idempotent per
+ *   inbound lead (advisory lock + `leads_inbound_uq`), one per agency at a time. A retry follows a lost race on a
+ *   contact's e-mail or phone; a lead never promoted is still announced to the agency (website-api's fallback).
  */
 export const crmJobs = {
   importContacts: defineJob({
@@ -26,6 +32,24 @@ export const crmJobs = {
     timeoutMs: 30 * 60_000,
     async run(p, job) {
       return runContactImport(p, { log: job.log, signal: job.signal, lastAttempt: job.attempt >= IMPORT_ATTEMPTS });
+    },
+  }),
+
+  promoteInboundLead: defineJob({
+    name: 'crm.promoteInboundLead',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), inboundLeadId: z.uuid() }),
+    jobId: (p) => p.inboundLeadId,
+    group: (p) => p.agencyId,
+    // one promotion per agency at a time: a burst of one agency's leads never holds the e-mail pool's slots
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 1_000 },
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const result = await promoteInboundLead(p);
+      if (result.created) log.info({ leadId: result.leadId, inboundLeadId: p.inboundLeadId }, 'website lead promoted');
+      return result;
     },
   }),
 

@@ -69,6 +69,16 @@ export async function listAgencyAdmins(tx: Tx, agencyId: string) {
   return repo.listAdminRecipients(tx, agencyId);
 }
 
+/** S10-02: the agency's active members who work clients, by user id (lead round robin; the tenant's own `tx`). */
+export async function activeClientMemberIds(tx: Tx, agencyId: string, limit = 500): Promise<string[]> {
+  return repo.activeClientMemberIds(tx, agencyId, limit);
+}
+
+/** S10-02: an active member as a notification recipient (e-mail, name, UI locale), or null (`withSystem`). */
+export async function memberRecipient(tx: Tx, agencyId: string, userId: string) {
+  return repo.memberRecipient(tx, agencyId, userId);
+}
+
 /**
  * Members' names and e-mails by agency (S7-F5: the search index removes them from their agency's listing text), one
  * statement for all of them. Worker-facing: raw `tx` under `withSystem`.

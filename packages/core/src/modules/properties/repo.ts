@@ -1405,6 +1405,24 @@ export async function networkListingTerms(tx: Tx, selfId: string, ids: readonly 
 }
 
 /**
+ * S10-02: a lead's target listing as the caller's RLS shows it (its own, or a network listing it may read): the owner
+ * agency, and the responsible agent only when the caller owns it. Deleted listings are not a target.
+ */
+export async function leadTargetListing(
+  tx: Tx,
+  selfId: string,
+  id: string,
+): Promise<{ agencyId: string; ownerUserId: string | null; ref: string | null } | null> {
+  const [row] = await tx
+    .select({ agencyId: properties.agencyId, ownerUserId: properties.ownerUserId, ref: properties.ref })
+    .from(properties)
+    .where(and(eq(properties.id, id), isNull(properties.deletedAt)));
+  if (!row) return null;
+  const own = row.agencyId === selfId;
+  return { agencyId: row.agencyId, ownerUserId: own ? row.ownerUserId : null, ref: own ? row.ref : null };
+}
+
+/**
  * Give-to-get (S5-05): the agency's listings on the network now and shared with every agency (PREFERRED ones need not
  * reach anyone: security review), up to `cap` (`properties_agency_network_idx`, scope checked on its rows).
  */

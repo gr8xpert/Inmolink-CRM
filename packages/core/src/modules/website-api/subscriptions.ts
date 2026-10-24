@@ -1,10 +1,12 @@
 import { withSystem } from '@inmolink/db';
 import { type EventMeta, subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
+import * as crm from '../crm';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
 import {
+  LEAD_NOTIFY_FALLBACK_MS,
   queueEdgePurge,
   queueNetworkFeedSweep,
   queueNetworkFeeds,
@@ -30,8 +32,10 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
 }
 
 /**
- * Outbox → speed-to-lead (S7-05): a website lead queues the visitor's acknowledgement and the agency's notification,
- * one job each per lead (enqueueing again for a redelivered event is a no-op: `jobId`).
+ * Outbox → speed-to-lead (S7-05): a website lead queues the visitor's acknowledgement; once crm has promoted it to a
+ * lead (`crm.lead.created` with its `inboundLeadId`, S10-02) the agency's notification follows, to the assigned agent;
+ * a delayed fallback announces a lead the CRM never promoted — one job each per lead (enqueueing again for a
+ * redelivered event is a no-op: `jobId`).
  *
  * Outbox → edge cache purge (S7-06): what websites show changed — public documents (read models rebuilt: `t`, `d`), a
  * site's setup (`s`), a key rotated or revoked (`k`), an agency's status (its sites' `s`), a preferred agency added or
@@ -65,10 +69,25 @@ export function registerWebsiteApiSubscriptions(): void {
         const job = { eventId: meta.eventId, leadId: payload.leadId, agencyId: payload.agencyId };
         await Promise.all([
           websiteApiJobs.sendLeadAcknowledgement.enqueue(job),
-          websiteApiJobs.notifyLeadAgency.enqueue(job),
+          // the agency hears of the lead even if the CRM never promotes it (a no-op once it did)
+          websiteApiJobs.notifyLeadAgencyFallback.enqueue(job, { delayMs: LEAD_NOTIFY_FALLBACK_MS }),
         ]);
       },
       { name: 'websiteApi.lead.received' },
+    ),
+    subscribe(
+      crm.crmEvents.leadCreated,
+      async (payload, meta) => {
+        // S10-02: the agency is told once the lead is in its inbox, so the e-mail goes to the agent it was assigned to.
+        if (!payload.inboundLeadId) return;
+        await websiteApiJobs.notifyLeadAgency.enqueue({
+          eventId: meta.eventId,
+          leadId: payload.inboundLeadId,
+          agencyId: meta.agencyId,
+          assignedUserId: payload.assignedUserId,
+        });
+      },
+      { name: 'websiteApi.lead.notify' },
     ),
     subscribe(
       search.searchEvents.publicDocsChanged,

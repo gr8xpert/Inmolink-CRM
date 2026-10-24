@@ -12,6 +12,10 @@ import { z } from 'zod';
  *   their rows to `survivorId` — client registrations (S12) and `property_privates.seller_contact_id` (S10-07).
  *   Delivery is at least once: re-pointing `mergedId` → `survivorId` is idempotent by nature.
  * - `crm.import.requested` — a contact import was started; the subscription queues `crm.importContacts`.
+ * - `crm.lead.created` (S10-02) — a lead reached the holder's inbox (`inboundLeadId`: promoted from a website lead;
+ *   `assignedUserId`: the member the routing rule or the creator chose). website-api notifies the agency from it — the
+ *   assigned agent, else the site contact or the admins.
+ * - `crm.lead.updated` (S10-02) — a lead's status or assignment changed; `version` is the new one.
  */
 export const crmEvents = {
   contactCreated: defineEvent(
@@ -30,4 +34,26 @@ export const crmEvents = {
     z.object({ agencyId: z.uuid(), survivorId: z.uuid(), mergedId: z.uuid() }),
   ),
   importRequested: defineEvent('crm.import.requested', 1, z.object({ agencyId: z.uuid(), importId: z.uuid() })),
+  leadCreated: defineEvent(
+    'crm.lead.created',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      leadId: z.uuid(),
+      source: z.string(),
+      inboundLeadId: z.uuid().nullable(),
+      assignedUserId: z.uuid().nullable(),
+    }),
+  ),
+  leadUpdated: defineEvent(
+    'crm.lead.updated',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      leadId: z.uuid(),
+      version: z.number().int(),
+      status: z.string(),
+      assignedUserId: z.uuid().nullable(),
+    }),
+  ),
 };

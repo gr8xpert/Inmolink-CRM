@@ -56,7 +56,12 @@ export {
   withdrawMissingImports,
 } from './imports';
 export { propertiesJobs } from './jobs';
-export { countNetworkSharedListings, type NetworkListingTerms, networkListingTerms } from './network';
+export {
+  countNetworkSharedListings,
+  leadTargetListing,
+  type NetworkListingTerms,
+  networkListingTerms,
+} from './network';
 export {
   applyListingOverrides,
   deleteListingOverride,

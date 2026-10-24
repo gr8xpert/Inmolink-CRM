@@ -11,7 +11,7 @@ import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
 import { websiteApiJobs } from '@inmolink/core/modules/website-api';
 import { websitesJobs } from '@inmolink/core/modules/websites';
-import type { JobDef } from '@inmolink/platform/queue';
+import type { JobDef, PoolOptions } from '@inmolink/platform/queue';
 import type { Pool } from '../config';
 
 /**
@@ -67,6 +67,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.sendLeadAcknowledgement,
     websiteApiJobs.notifyLeadAgency,
     websiteApiJobs.notifyLeadRecipient,
+    websiteApiJobs.notifyLeadAgencyFallback,
+    // S10-02: website leads promoted to CRM leads (speed-to-lead: the inbox within seconds).
+    crmJobs.promoteInboundLead,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,
@@ -95,4 +98,13 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   ai: [],
   social: [],
   pdf: [],
+};
+
+/**
+ * Pool options over the defaults. `email` (S10-02): the speed-to-lead pool's one group-capped job is
+ * `crm.promoteInboundLead` (one per agency at a time); a lead waiting for its agency's previous one re-polls within
+ * 1 s instead of backing off to 5 s (+ jitter), so a burst of one agency's leads stays inside the 10 s target.
+ */
+export const POOL_OPTIONS: Partial<Record<Exclude<Pool, 'outbox'>, PoolOptions>> = {
+  email: { groupRetryMs: 100, groupRetryMaxMs: 1_000 },
 };

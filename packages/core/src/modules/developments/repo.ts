@@ -752,6 +752,26 @@ export async function readModelUnitIdsPage(
   return rows.map((r) => r.id);
 }
 
+/**
+ * S10-02: a development or unit as a lead's target, as the caller's RLS shows it (its own, or one shared with it): the
+ * developer agency. A deleted development (and its units) is not a target.
+ */
+export async function leadTargetOwner(tx: Tx, kind: 'DEVELOPMENT' | 'UNIT', id: string): Promise<string | null> {
+  if (kind === 'DEVELOPMENT') {
+    const [row] = await tx
+      .select({ agencyId: developments.agencyId })
+      .from(developments)
+      .where(and(eq(developments.id, id), isNull(developments.deletedAt)));
+    return row?.agencyId ?? null;
+  }
+  const [row] = await tx
+    .select({ agencyId: units.agencyId })
+    .from(units)
+    .innerJoin(developments, eq(developments.id, units.developmentId))
+    .where(and(eq(units.id, id), isNull(developments.deletedAt)));
+  return row?.agencyId ?? null;
+}
+
 /** Network search terms (S5-05): other agencies' units among `ids` with their development's commission, under RLS. */
 export async function networkUnitTerms(tx: Tx, selfId: string, ids: readonly string[]) {
   if (ids.length === 0) return [];

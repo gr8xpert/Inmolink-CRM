@@ -571,6 +571,47 @@ export async function listAdminRecipients(
 }
 
 /**
+ * S10-02: the agency's active members who work clients (lead round robin), by user id — the tenant's own rows
+ * (`agency_members`, RLS), at most `limit`.
+ */
+export async function activeClientMemberIds(tx: Tx, agencyId: string, limit: number): Promise<string[]> {
+  const rows = await tx
+    .select({ userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .where(
+      and(
+        eq(agencyMembers.agencyId, agencyId),
+        inArray(agencyMembers.role, ['AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT']),
+        isNull(agencyMembers.deactivatedAt),
+      ),
+    )
+    .orderBy(asc(agencyMembers.userId))
+    .limit(limit);
+  return rows.map((r) => r.userId);
+}
+
+/** S10-02: an active member's login e-mail, name and UI locale, for a lead notification (`app_system`). */
+export async function memberRecipient(
+  tx: Tx,
+  agencyId: string,
+  userId: string,
+): Promise<{ userId: string; email: string; name: string; locale: string } | null> {
+  const [row] = await tx
+    .select({ userId: users.id, email: users.email, name: users.name, locale: users.locale })
+    .from(agencyMembers)
+    .innerJoin(users, eq(users.id, agencyMembers.userId))
+    .where(
+      and(
+        eq(agencyMembers.agencyId, agencyId),
+        eq(agencyMembers.userId, userId),
+        isNull(agencyMembers.deactivatedAt),
+        eq(users.status, 'ACTIVE'),
+      ),
+    );
+  return row ?? null;
+}
+
+/**
  * Maintenance (S1-F4, `app_system`): deletes up to `limit` link tokens that expired or were used
  * before `before`. Returns how many went.
  */

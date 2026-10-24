@@ -1,4 +1,9 @@
-import { CreateContactBody, type CreateContactInput, StartContactImportBody } from '@inmolink/contracts';
+import {
+  CreateContactBody,
+  type CreateContactInput,
+  CreateLeadBody,
+  StartContactImportBody,
+} from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import * as crmSchema from '@inmolink/db/schema/crm';
 import { contactEmails, contactFacets, contactPhones } from '@inmolink/db/schema/crm';
@@ -252,9 +257,10 @@ describe('consent', () => {
 
 describe('merge', () => {
   it('[S10-01] merge moves leads, activities, tasks and registrations to the surviving contact', async () => {
-    // Leads (S10-02), activities (S10-04) and tasks (S10-05) do not exist yet: this checks the mechanism they plug
-    // into — every table in CONTACT_REFERENCES (notes today) moves in the merge, and crm.contact.merged is emitted
-    // for registrations and other modules (the next test fails when a crm table with contact_id is not registered).
+    // Leads (S10-02) move with the merge; activities (S10-04) and tasks (S10-05) do not exist yet: they plug into the
+    // same mechanism — every table in CONTACT_REFERENCES (notes, leads) moves in the merge, and crm.contact.merged is
+    // emitted for registrations and other modules (the next test fails when a crm table with contact_id is not
+    // registered).
     const survivor = await create(a, {
       firstName: 'Hugo',
       emails: [email('hugo')],
@@ -273,6 +279,8 @@ describe('merge', () => {
     });
     await as(a, (ctx) => crm.addContactNote(ctx, duplicate.id, { body: 'Called about the villa' }));
     await as(a, (ctx) => crm.addContactNote(ctx, survivor.id, { body: 'First visit' }));
+    const lead = await as(a, (ctx) => crm.createLead(ctx, CreateLeadBody.parse({ contactId: duplicate.id })));
+    expect(lead.lead.contact.id).toBe(duplicate.id);
 
     const merged = await as(a, (ctx) =>
       crm.mergeContacts(ctx, survivor.id, { duplicateId: duplicate.id, version: survivor.version }),
@@ -298,6 +306,10 @@ describe('merge', () => {
     }
     const notes = await as(a, (ctx) => crm.listContactNotes(ctx, survivor.id, { limit: 10 }));
     expect(notes.items.map((n) => n.body).sort()).toEqual(['Called about the villa', 'First visit']);
+    // the duplicate's lead now belongs to the survivor, at a new version (S10-02)
+    const movedLead = await as(a, (ctx) => crm.getLead(ctx, lead.lead.id));
+    expect(movedLead.contact.id).toBe(survivor.id);
+    expect(movedLead.version).toBe(lead.lead.version + 1);
 
     const events = await rows<{ payload: { survivorId: string; mergedId: string } }>(
       sql`select payload from outbox_events where type = 'crm.contact.merged' and agency_id = ${a.agencyId}
@@ -420,7 +432,7 @@ describe('list', () => {
     expect(queries - setup).toBe(1); // the page
   });
 
-  it('[S10-01] the tag and type filters are index conditions under RLS (contact_facets)', async () => {
+  it('[S10-01] the tag and type filters are index conditions under RLS (contact_facets); so is a deep page cursor (S10-02 review)', async () => {
     // At scale: a 5,000-contact agency among 200 others (25k contacts with their facets; FK checks off in this
     // rolled-back seed), a rare tag and a rare type; analysed, EXPLAINed as app_user (RLS on).
     const plan = await withAdminRollback(['contacts', 'contact_facets'], async (q) => {
@@ -452,17 +464,27 @@ describe('list', () => {
           `explain select id from contacts
            where agency_id = $1 and deleted_at is null
              and id in (select contact_id from contact_facets where agency_id = $1 and facet = $2)
-           order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc limit 26`,
+           order by created_ms desc, id desc limit 26`,
           [a.agencyId, facet],
         );
         out.push(rows.map((r) => String(Object.values(r)[0])).join('\n'));
       }
-      return out;
+      // S10-02 review: a deep page of the plain list — the cursor is a row comparison on the stored `created_ms`
+      const deep = await q(
+        `explain select id from contacts where agency_id = $1 and deleted_at is null
+           and (created_ms, id) < (now() - interval '2500 minutes', 'ffffffff-ffff-7fff-bfff-ffffffffffff'::uuid)
+         order by created_ms desc, id desc limit 26`,
+        [a.agencyId],
+      );
+      return { facets: out, deep: deep.map((r) => String(Object.values(r)[0])).join('\n') };
     });
-    for (const text of plan) {
+    for (const text of plan.facets) {
       expect(text).toContain('contact_facets_agency_facet_idx');
       expect(text).not.toMatch(/Seq Scan/);
     }
+    expect(plan.deep).toContain('contacts_agency_created_idx');
+    expect(plan.deep).toMatch(/Index Cond: .*ROW\(created_ms, id\) </);
+    expect(plan.deep).not.toMatch(/Filter: .*created_ms/);
   });
 });
 

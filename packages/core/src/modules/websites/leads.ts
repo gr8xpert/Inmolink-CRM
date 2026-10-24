@@ -124,7 +124,10 @@ export function markAckSkipped(tx: Tx, id: string, reason: repo.AckSkipReason, a
   return repo.markAckSkipped(tx, id, reason, at);
 }
 
-/** A lead by id, for the acknowledgement and notification jobs (`app_system` transaction). */
+/**
+ * A lead by id, for the acknowledgement and notification jobs (`app_system` transaction) and the CRM promotion (S10-02,
+ * the site agency's own transaction).
+ */
 export function inboundLead(tx: Tx, id: string): Promise<repo.LeadRow | null> {
   return repo.leadById(tx, id);
 }

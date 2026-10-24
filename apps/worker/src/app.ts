@@ -19,6 +19,8 @@ export interface WorkerDeps {
   checks: Record<string, HealthCheck>;
   trustProxy: false | number | string[];
   poolOptions?: PoolOptions;
+  /** Options of one pool over `poolOptions` (`POOL_OPTIONS`). */
+  poolOverrides?: Partial<Record<Pool, PoolOptions>>;
 }
 
 export interface WorkerApp {
@@ -43,7 +45,9 @@ export async function startWorker(deps: WorkerDeps): Promise<WorkerApp> {
       deps.logger.info({ pool }, 'pool has no jobs yet; not started');
       continue;
     }
-    handles.push(registerPool(pool, jobs, { shutdownMs: POOL_SHUTDOWN_MS, ...deps.poolOptions }));
+    handles.push(
+      registerPool(pool, jobs, { shutdownMs: POOL_SHUTDOWN_MS, ...deps.poolOptions, ...deps.poolOverrides?.[pool] }),
+    );
   }
   deps.logger.info({ pools: deps.pools, running: handles.map((h) => h.pool) }, 'worker started');
 

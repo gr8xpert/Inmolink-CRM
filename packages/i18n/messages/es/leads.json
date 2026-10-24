@@ -42,5 +42,68 @@
       "ANY": "a cualquier hora"
     },
     "footer": "El visitante ya ha recibido un acuse de recibo automático. Responda pronto: se miden los tiempos de respuesta."
+  },
+  "inbox": {
+    "title": "Leads",
+    "empty": "Todavía no hay leads.",
+    "mine": "Mis leads",
+    "unassigned": "Sin asignar",
+    "fields": {
+      "source": "Origen",
+      "status": "Estado",
+      "contact": "Cliente",
+      "target": "Inmueble",
+      "assignedTo": "Asignado a",
+      "receivedAt": "Recibido",
+      "message": "Mensaje",
+      "presentedBy": "Presentado por",
+      "owner": "Propietario del inmueble"
+    },
+    "sources": {
+      "WEBSITE": "Web",
+      "IFRAME": "Inmuebles incrustados (iFrame)",
+      "SELECTION": "Selección",
+      "PORTFOLIO": "Cartera",
+      "PORTAL": "Portal",
+      "MARKETPLACE": "Marketplace",
+      "DEVELOPER_PORTAL": "Portal del promotor",
+      "CHATBOT": "Chatbot",
+      "WHATSAPP": "WhatsApp",
+      "MANUAL": "Añadido a mano"
+    },
+    "statuses": {
+      "NEW": "Nuevo",
+      "IN_PROGRESS": "En curso",
+      "WON": "Ganado",
+      "LOST": "Perdido",
+      "SPAM": "Spam"
+    },
+    "kinds": {
+      "ENQUIRY": "Consulta",
+      "VIEWING_REQUEST": "Solicitud de visita"
+    },
+    "create": {
+      "title": "Nuevo lead",
+      "submit": "Añadir lead"
+    },
+    "routing": {
+      "title": "Asignación de leads",
+      "mode": "Asignar los leads nuevos",
+      "UNASSIGNED": "Dejarlos sin asignar (los ve todo el equipo)",
+      "ROUND_ROBIN": "Por turnos entre estos agentes",
+      "OWNER_AGENT": "Al agente del inmueble (si no, por turnos)",
+      "agents": "Agentes que se turnan (ninguno seleccionado: todos)",
+      "save": "Guardar"
+    },
+    "introductions": {
+      "title": "Clientes presentados por otras agencias",
+      "empty": "Ninguna otra agencia ha presentado todavía un cliente para sus inmuebles.",
+      "introducedBy": "Presentado por {agency}",
+      "privacy": "Los datos del cliente quedan en la agencia que lo presenta hasta que el cliente se registre."
+    },
+    "errors": {
+      "LEAD_NOT_FOUND": "Este lead no existe.",
+      "LEAD_TARGET_NOT_FOUND": "Este inmueble no existe o no puede verlo."
+    }
   }
 }
