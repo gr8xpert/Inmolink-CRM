@@ -29,7 +29,7 @@ import { buildApp, type RealtimeApp } from './app';
 
 /**
  * S11-03 acceptance, end to end: `chat.sendMessage` (a member's request transaction, commit) → outbox → the dispatcher
- * (250 ms poll, ADR 0014) → the `chat.deliverMessage` job (BullMQ, pool `email`) → `publishUserEvents` → two realtime
+ * (250 ms poll, ADR 0014) → the `chat.deliverMessage` job (BullMQ, pool `realtime`) → `publishUserEvents` → two realtime
  * nodes (Redis adapter) → each recipient's socket. 1,000 members of one agency are connected (`CHAT_E2E_SOCKETS`), in
  * 100 threads of 10; latency = before the send call → receipt, per recipient (the sender's own socket not counted).
  * Everything runs in this process (one clock; the sockets' CPU counts against the servers: pessimistic). The dispatcher
@@ -157,7 +157,7 @@ beforeAll(async () => {
 
   // the worker side: the chat subscriptions, the outbox dispatcher and the delivery job's pool
   chat.registerChatSubscriptions();
-  pool = registerPool('email', [chat.chatJobs.deliverMessage], { concurrency: 16 });
+  pool = registerPool('realtime', [chat.chatJobs.deliverMessage], { concurrency: 16 });
   dispatcher = createOutboxDispatcher({ logger: log });
   await dispatcher.start();
 
