@@ -26,8 +26,8 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
 
 // "mark all read" rewrites up to 500 rows a call: a handful a minute is what a person clicks
 const MARK_ALL_LIMITS: readonly RateLimitRule[] = [
-  { name: 'notifications.readAll.ip', scope: 'ip', limit: 30, windowSeconds: 60 },
-  { name: 'notifications.readAll.user', scope: 'user', limit: 10, windowSeconds: 60 },
+  { name: 'notifications.read-all.ip', scope: 'ip', limit: 30, windowSeconds: 60 },
+  { name: 'notifications.read-all.user', scope: 'user', limit: 10, windowSeconds: 60 },
 ];
 
 const tags = ['notifications'];

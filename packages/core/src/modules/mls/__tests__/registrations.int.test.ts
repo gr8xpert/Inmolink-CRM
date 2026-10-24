@@ -430,8 +430,11 @@ describe('privacy', () => {
       [`email:${email('petra')}`, `phone:+34${phone}`]
         .map((v) => hmacSha256(Buffer.from(key), 'mls.client-fingerprint', v))
         .sort();
-    expect(prints.map((p) => p.fingerprint)).toEqual(keyed(FINGERPRINT_KEY));
-    expect(prints.map((p) => p.fingerprint)).not.toEqual(keyed('another-key-0123456789abcdef0123456789'));
+    // sorted in JS on both sides: `order by` follows the database collation, which orders base64url's - and _
+    // differently from code points (CI 803c4a9)
+    const printed = prints.map((p) => p.fingerprint).sort();
+    expect(printed).toEqual(keyed(FINGERPRINT_KEY));
+    expect(printed).not.toEqual(keyed('another-key-0123456789abcdef0123456789'));
 
     // the details decrypt only through the agency's own read
     expect(registration.client).toEqual({
