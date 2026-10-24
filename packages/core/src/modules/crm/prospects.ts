@@ -392,6 +392,8 @@ export async function convertProspect(
   input: ConvertProspectBody,
 ): Promise<ProspectConversionDto> {
   assertCan(ctx, 'crm.prospects.write');
+  // converting creates a listing: the caller needs the listing policy too (S11-F15), checked before any lock or write
+  if (!properties.can(ctx, 'listing.create')) throw new AppError('FORBIDDEN');
   const agencyId = ctx.tenant.agencyId;
   const current = await prospectsRepo.lockProspect(ctx.tx, agencyId, id);
   if (!current) throw new AppError('PROSPECT_NOT_FOUND');

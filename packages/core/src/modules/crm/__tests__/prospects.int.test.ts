@@ -27,6 +27,17 @@ import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as crm from '../index';
 
+/** S11-F15: a switch that makes the listing policy refuse `listing.create` while the CRM policy still allows. */
+const listingPolicy = vi.hoisted(() => ({ denyCreate: false }));
+vi.mock('../../properties/policy', async (importOriginal) => {
+  const actual = await importOriginal<{ can: typeof properties.can }>();
+  return {
+    ...actual,
+    can: (...args: Parameters<typeof properties.can>) =>
+      listingPolicy.denyCreate && args[1] === 'listing.create' ? false : actual.can(...args),
+  };
+});
+
 /**
  * The seller acquisition board (S10-07): prospects on fixed stages (board, list, by-date), confidential notes, and the
  * one-click conversion into a DRAFT listing with the seller in `property_privates` — never readable by another agency,
@@ -181,6 +192,29 @@ describe('conversion', () => {
     expect(built).toHaveLength(1);
     expect(JSON.stringify(built)).not.toContain(sellerId);
     expect(JSON.stringify(built)).not.toContain(NOTES);
+  });
+
+  it('[S11-F15] a role that manages prospects but cannot create listings gets FORBIDDEN on convert and no listing is created', async () => {
+    const { prospect } = await create(a, {
+      title: title('No listing right'),
+      contactId: sellerId,
+      propertyTypeId: ids.villa,
+      locationId: ids.city,
+    });
+    const listings = () =>
+      rows<{ n: number }>(sql`select count(*)::int as n from properties where agency_id = ${a.agencyId}`).then(
+        (r) => r[0]?.n,
+      );
+    const before = await listings();
+    listingPolicy.denyCreate = true;
+    try {
+      expect(await refusal(convert(a, prospect.id))).toBe('FORBIDDEN');
+    } finally {
+      listingPolicy.denyCreate = false;
+    }
+    expect(await listings()).toBe(before);
+    expect((await as(a, (ctx) => crm.getProspect(ctx, prospect.id))).listingId).toBeNull();
+    expect((await convert(a, prospect.id)).created).toBe(true);
   });
 
   it('[S10-07] conversion is idempotent: converting twice — or twice at once — gives the same listing', async () => {

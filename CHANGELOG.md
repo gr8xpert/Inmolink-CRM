@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Prospect conversion also requires `listing.create` (S11-F15).
 - One Idempotency-Key helper for crm and compliance creates; tasks, calendar events and activities naming an unknown listing answer `LEAD_TARGET_NOT_FOUND` (422, was `LISTING_NOT_FOUND` 404) (S11-F1). CRM dashboard pages for contacts, the lead inbox and data export; a data export requires a fresh 2FA code (`twoFactorCode`) checked in core after policy, replay and conflict; seller picker searches by e-mail or phone without PII in URLs (S11-F14). No new dependency.
 - HMAC_KEY rotation window: `HMAC_KEY_PREVIOUS` / `_UNTIL` (≤ 90 days in production), opt-in dual-key verify and stored-hash lookups, site / portal feed URLs issued under the previous key resolve until the window ends; runbook `docs/runbooks/hmac-key-rotation.md` (S11-F13). No new dependency.
 - Logger redaction covers CRM payloads: visitor fields, `phones` / `emails` arrays, `body`, `description`, `notes` redacted whole (S11-F4). No new dependency.
