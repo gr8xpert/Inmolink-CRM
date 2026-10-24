@@ -264,7 +264,13 @@ async function locationLevels(
 export async function createListing(
   ctx: Ctx,
   input: CreateListingBody,
-  origin: { source?: string; externalRef?: string | null; legacyId?: string | null } = {},
+  origin: {
+    source?: string;
+    externalRef?: string | null;
+    legacyId?: string | null;
+    /** The seller (a crm contact of this agency, checked by the caller — S10-07 conversion): private side only. */
+    sellerContactId?: string | null;
+  } = {},
 ): Promise<ListingDto> {
   assertCan(ctx, 'listing.create');
   const userId = actorId(ctx);
@@ -323,6 +329,7 @@ export async function createListing(
     cadastralRef: input.cadastralRef ?? null,
     internalNotes: input.internalNotes ?? null,
     keysInfo: input.keysInfo ?? null,
+    sellerContactId: origin.sellerContactId ?? null,
     // the feed's id for the listing, with that feed: owner only (S4-F1)
     externalSource: origin.externalRef ? (origin.source ?? 'MANUAL') : null,
     externalRef: origin.externalRef ?? null,

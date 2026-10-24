@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as crm from '@inmolink/core/modules/crm';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
@@ -51,6 +52,8 @@ try {
   media.configureMedia({ urlKey: config.MEDIA_URL_KEY });
   // Per-site XML feed tokens (S7-07): stored as HMACs; feed-api checks them with the same key.
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
+  // S10-06: members' ICS feed tokens — HMACs with the same key (purpose `crm.calendar-feed-token`).
+  crm.configureCalendarFeeds({ tokenKey: config.HMAC_KEY });
   // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
   imports.configureImports({ keyring: keyringFromEnv(config) });
   // Portal connections (S9-01): credentials encrypted and feed tokens hashed when a connection is saved.

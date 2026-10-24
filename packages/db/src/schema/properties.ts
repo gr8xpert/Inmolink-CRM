@@ -290,7 +290,11 @@ export const propertyPrivates = pgTable(
     agencyId: uuid('agency_id').notNull(),
     /** Referencia catastral (PLAN §6: private). */
     cadastralRef: text('cadastral_ref'),
-    /** The seller (contacts arrive in S4; foreign key then). */
+    /**
+     * The seller: a crm contact of this agency (S10-07: a converted seller prospect sets it). No FK — crm's table; a
+     * contact merge re-points it (`crm.contact.merged` → `properties.repointSellerContact`). Never readable by another
+     * agency (STRICT), never in a DTO, a read model or a client view.
+     */
     sellerContactId: uuid('seller_contact_id'),
     internalNotes: text('internal_notes'),
     /** Where the keys are, viewing instructions: internal. */
@@ -341,6 +345,10 @@ export const propertyPrivates = pgTable(
     index('property_privates_import_connection_idx')
       .on(t.agencyId, t.importConnectionId, t.externalRef)
       .where(sql`${t.importConnectionId} is not null`),
+    // a contact merge (S10-07): where agency_id = ? and seller_contact_id = ? (built CONCURRENTLY)
+    index('property_privates_seller_idx')
+      .on(t.agencyId, t.sellerContactId)
+      .where(sql`${t.sellerContactId} is not null`),
     check('property_privates_quality_ck', sql`${t.qualityScore} is null or ${t.qualityScore} between 0 and 100`),
     check('property_privates_import_missed_ck', sql`${t.importMissedRuns} >= 0`),
     check(

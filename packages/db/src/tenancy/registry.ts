@@ -331,8 +331,12 @@ export const tenantTables: Record<string, TenantTable> = {
   // role and deactivation, as an admin, never their own (guard trigger, migration 0008).
   // Staff (S1-09) read every agency's members: the tenant detail lists them, and an impersonation session
   // may only target an active member (0026 guard). Staff never write memberships.
+  // S10-06: `definerRead` — the calendar feed's definer lookup checks the feed's member is active (and in a CRM role)
+  // and reads member attendees' names. A definer function bypasses `own_rows`: every one that reads this table must
+  // filter by the agency it serves (`agency_id = …`).
   agency_members: {
     kind: 'STRICT',
+    definerRead: true,
     guardedInsert: true,
     triggers: ['agency_members_guard'],
     staff: { select: 'true' },
@@ -822,7 +826,9 @@ export const tenantTables: Record<string, TenantTable> = {
   feed_image_queue: { kind: 'STRICT', base: { urls: '{https://example.com/a.jpg}' } },
   feed_image_sources: { kind: 'STRICT', base: { url_key: ISOLATION_SHA256, sha256: ISOLATION_SHA256 } },
   // S10-01: CRM contacts (the agency's clients: PII), their e-mails, phones, notes and CSV imports — own agency only.
-  contacts: { kind: 'STRICT', base: { types: '{BUYER}', source: 'MANUAL' } },
+  // S10-06: `definerRead` — the calendar feed's definer lookup reads a contact attendee's name (nothing else). A definer
+  // function bypasses `own_rows`: every one that reads this table must filter by the agency it serves (`agency_id = …`).
+  contacts: { kind: 'STRICT', definerRead: true, base: { types: '{BUYER}', source: 'MANUAL' } },
   contact_emails: { kind: 'STRICT', base: { email: 'isolation@example.com' } },
   contact_phones: { kind: 'STRICT', base: { phone: '+34600000000' } },
   contact_notes: { kind: 'STRICT', base: { body: 'isolation' } },
@@ -892,6 +898,50 @@ export const tenantTables: Record<string, TenantTable> = {
     userNoUpdateColumns: ['reminder_sent_for', 'idempotency_hash', 'request_hash'],
     base: { title: 'isolation', status: 'OPEN', assigned_user_id: '01900000-0000-7000-8000-00000000a002' },
   },
+  // S10-06: the agency's calendar (viewings, meetings, calls) and who attends — own agency only. A merge re-points an
+  // attendee's `contact_id`; the reminder sweep / send job (app_system) write `reminded_at` / `reminder_sent_for`.
+  // feed-api (app_public) reads none of it itself: the SECURITY DEFINER `calendar_feed_by_token(hash, …)` (owner
+  // app_owner, `definerRead`) answers one live feed token's events — the member's own — with the attendees' names only.
+  calendar_events: {
+    kind: 'STRICT',
+    definerRead: true,
+    userNoUpdateColumns: ['idempotency_hash', 'request_hash'],
+    base: {
+      type: 'MEETING',
+      title: 'isolation',
+      starts_at: '2026-01-01T10:00:00Z',
+      ends_at: '2026-01-01T11:00:00Z',
+      organizer_user_id: '01900000-0000-7000-8000-00000000a002',
+    },
+  },
+  calendar_event_attendees: {
+    kind: 'STRICT',
+    definerRead: true,
+    userNoUpdateColumns: ['reminder_sent_for'],
+    base: {
+      event_id: '01900000-0000-7000-8000-00000000a004',
+      user_id: '01900000-0000-7000-8000-00000000a002',
+      starts_at: '2026-01-01T10:00:00Z',
+    },
+  },
+  // S10-07: seller prospects (the acquisition board: owners the agency is trying to win, confidential notes) — own
+  // agency only, never shared with the network nor read by a public path. A merge re-points `contact_id`; the
+  // idempotency hashes are written once, on insert.
+  seller_prospects: {
+    kind: 'STRICT',
+    userNoUpdateColumns: ['idempotency_hash', 'request_hash', 'created_by'],
+    base: { title: 'isolation', stage: 'NEW', stage_rank: 'i' },
+  },
+  // S10-06: members' ICS feed tokens — the keyed hash only, never readable by app_user; looked up by the definer
+  // function above (definerRead).
+  calendar_feeds: {
+    kind: 'STRICT',
+    definerRead: true,
+    hiddenColumns: ['token_hash'],
+    userNoUpdateColumns: ['token_hash', 'token_hint', 'user_id', 'created_at'],
+    // token_hash and user_id are invented per row (unique token; one live feed per member)
+    base: { token_hint: 'abcd' },
+  },
 };
 
 /**
@@ -907,7 +957,9 @@ export const globalTables: Record<string, GlobalTable> = {
   // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
   feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },
   // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).
-  users: { reason: 'login identity, resolved before a tenant is known', access: 'auth' },
+  // S10-06: `definerRead` — the calendar feed's definer lookup checks the feed member's login is ACTIVE (its status
+  // only). Like every definer read, the function names the row it needs (here the feed's user id), never a scan.
+  users: { reason: 'login identity, resolved before a tenant is known', access: 'auth', definerRead: true },
   auth_tokens: { reason: 'email verification and password reset tokens (hashed)', access: 'auth' },
   // Second factor (S1-04): checked at login and on every access-token mint, before a tenant is known.
   user_mfa: { reason: 'TOTP second factor of a login identity (secret encrypted)', access: 'auth', userScoped: true },

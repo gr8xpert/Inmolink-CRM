@@ -74,6 +74,15 @@ export async function activeClientMemberIds(tx: Tx, agencyId: string, limit = 50
   return repo.activeClientMemberIds(tx, agencyId, limit);
 }
 
+/** S10-06: which of these users are active members of the agency who work clients (the tenant's own `tx`). */
+export async function activeClientMembersAmong(
+  tx: Tx,
+  agencyId: string,
+  userIds: readonly string[],
+): Promise<Set<string>> {
+  return repo.activeClientMembersAmong(tx, agencyId, userIds);
+}
+
 /** S10-02: an active member as a notification recipient (e-mail, name, UI locale), or null (`withSystem`). */
 export async function memberRecipient(tx: Tx, agencyId: string, userId: string) {
   return repo.memberRecipient(tx, agencyId, userId);

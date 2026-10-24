@@ -61,6 +61,7 @@ export {
 } from './service';
 export {
   activeClientMemberIds,
+  activeClientMembersAmong,
   getStaffRole,
   grantStaff,
   isUserActive,

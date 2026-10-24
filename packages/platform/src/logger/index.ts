@@ -77,6 +77,10 @@ export const REDACT_KEYS = [
   'turnstileToken',
   'cf-turnstile-response',
   'CF-Turnstile-Response',
+  // Seller prospects (S10-07): the agency's confidential notes about an owner, the property's address, the seller.
+  'confidentialNotes',
+  'address',
+  'contactName',
   'idempotencyKey',
   'idempotency-key',
   'Idempotency-Key',
@@ -153,10 +157,15 @@ function errSerializer(err: unknown): unknown {
 
 /**
  * Path segments that are credentials (S7-07: per-site XML feed tokens, `/v2/feeds/<token>/…`; S9-01: per-connection
- * portal feed tokens, `/v2/portal-feeds/<token>/…`, served from S9-04): never in a log line, a
+ * portal feed tokens, `/v2/portal-feeds/<token>/…`, served from S9-04; S10-06: members' ICS feed tokens,
+ * `/v2/calendars/<token>/calendar.ics`): never in a log line, a
  * trace or an error report.
  */
-const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/, /^(\/v2\/portal-feeds\/)[^/?#]+/];
+const SECRET_PATHS: readonly RegExp[] = [
+  /^(\/v2\/feeds\/)[^/?#]+/,
+  /^(\/v2\/portal-feeds\/)[^/?#]+/,
+  /^(\/v2\/calendars\/)[^/?#]+/,
+];
 /**
  * The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). Also the
  * legacy `api_key` query parameter (S8-02: the v1 shim takes a flagged legacy key in the URL), which a quoted URL in a
@@ -165,6 +174,7 @@ const SECRET_PATHS: readonly RegExp[] = [/^(\/v2\/feeds\/)[^/?#]+/, /^(\/v2\/por
 const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [
   /(\/v2\/feeds\/)[^/?#\s"'<>]+/g,
   /(\/v2\/portal-feeds\/)[^/?#\s"'<>]+/g,
+  /(\/v2\/calendars\/)[^/?#\s"'<>]+/g,
   /([?&]api_key=)[^&#\s"'<>]+/g,
 ];
 

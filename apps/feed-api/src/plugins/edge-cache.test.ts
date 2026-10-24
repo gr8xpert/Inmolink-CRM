@@ -48,6 +48,8 @@ describe('edge-cache rules (S8-F2)', () => {
       '/v1/properties': 'never sie=0 cursor:no params:schema',
       '/v1/properties/:id': 'never sie=0 cursor:no params:schema',
       '/v1/types': 'never sie=0 cursor:no params:schema',
+      // S10-06: a member's ICS feed — personal data, never public.
+      '/v2/calendars/:token/calendar.ics': 'never sie=0 cursor:no params:schema',
     });
     expect(publicCacheControl(EDGE_CACHE_RULES['/v2/taxonomy/catalog'])).toBe(
       'public, max-age=0, s-maxage=600, stale-while-revalidate=600, stale-if-error=86400',

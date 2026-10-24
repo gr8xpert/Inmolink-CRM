@@ -50,6 +50,35 @@ describe('crm policy', () => {
     }
   });
 
+  it('[S10-06] members use their agency’s calendar and their own feed; partners and staff impersonating do not write', () => {
+    for (const action of ['crm.calendar.read', 'crm.calendar.write', 'crm.calendar.feed'] as const) {
+      expect(can(agent, action, { agencyId: AGENCY })).toBe(true);
+      expect(can(agent, action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs('PARTNER'), action)).toBe(false);
+    }
+    expect(CRM_IMPERSONATION['crm.calendar.read']).toBe('allowed');
+    expect(CRM_IMPERSONATION['crm.calendar.write']).toBe('forbidden');
+    expect(CRM_IMPERSONATION['crm.calendar.feed']).toBe('forbidden');
+  });
+
+  it('[S10-07] members work their agency’s acquisition board; confidential notes never reach staff impersonating', () => {
+    for (const action of ['crm.prospects.read', 'crm.prospects.write', 'crm.prospects.confidential'] as const) {
+      expect(can(agent, action, { agencyId: AGENCY })).toBe(true);
+      expect(can(agent, action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs('PARTNER'), action)).toBe(false);
+      expect(can({ ...agent, clientMode: true }, action)).toBe(false);
+    }
+    const impersonated = ctxAs('AGENT', {
+      kind: 'user',
+      userId: '01900000-0000-7000-8000-0000000000aa',
+      role: 'AGENT',
+      impersonatedBy: STAFF,
+    });
+    expect(can(impersonated, 'crm.prospects.read')).toBe(true);
+    expect(can(impersonated, 'crm.prospects.write')).toBe(false);
+    expect(can(impersonated, 'crm.prospects.confidential')).toBe(false);
+  });
+
   it('[S10-01] denies other agencies and non-user actors', () => {
     expect(can(agent, 'crm.contacts.read', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs('AGENT', { kind: 'system', reason: 'test' }), 'crm.contacts.read')).toBe(false);

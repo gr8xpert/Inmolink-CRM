@@ -166,8 +166,9 @@ describe('RLS generator', () => {
   });
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
-    // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(5);
+    // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
+    // calendar feed token lookup (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(6);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -249,6 +250,36 @@ describe('RLS generator', () => {
       'create policy definer_read on public."agency_portal_connections" for select to app_owner using (true);',
     );
     expect(table).not.toMatch(/to [^;]*app_public/);
+  });
+
+  it('[S10-06] calendar feed tokens resolve through a SECURITY DEFINER lookup for app_public: the member’s own events, names only', () => {
+    const sig = 'calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer)';
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('calendar_feed_by_token');
+    expect(out).toContain(`drop function if exists ${sig};`);
+    const body = out.split('create function calendar_feed_by_token(')[1]?.split('$$;')[0] ?? '';
+    expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+    // the live token of an active member, and only the events that member attends
+    expect(body).toContain('f.token_hash = hash and f.revoked_at is null');
+    expect(body).toContain('m.deactivated_at is null');
+    expect(body).toContain('a.user_id = feed.user_id');
+    // access follows the member: a CRM role, an active login, an agency not suspended; contacts still open
+    expect(body).toContain("m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')");
+    expect(body).toContain("u.status = 'ACTIVE'");
+    expect(body).toContain("g.status <> 'SUSPENDED'");
+    expect(body).toContain('c.deleted_at is null');
+    // attendees' names only: never a contact's or member's e-mail or phone
+    expect(body).not.toMatch(/email|phone|token_hash,|agency_id uuid/);
+    expect(out).toContain(`grant execute on function ${sig} to app_public;`);
+    expect(out).not.toMatch(/calendar_feed_by_token\([^)]*\) to [^;]*app_(?:user|system|auth|staff)/);
+    const owner = `alter function ${sig} owner to app_owner;`;
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create function calendar_feed_by_token('));
+    const tables = tablesSql(registry);
+    expect(tables).toContain('create policy definer_read on public."users" for select to app_owner using (true);');
+    for (const t of ['calendar_feeds', 'calendar_events', 'calendar_event_attendees', 'contacts', 'agency_members']) {
+      const table = tables.split(`-- ${t}:`)[1]?.split('\n\n')[0] ?? '';
+      expect(table).toContain(`create policy definer_read on public."${t}" for select to app_owner using (true);`);
+      expect(table).not.toMatch(/to [^;]*app_public/);
+    }
   });
 
   it('[S9-review] portal_feed_by_token is owned by app_owner (its definer_read policy), set after it is recreated', () => {

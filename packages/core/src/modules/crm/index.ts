@@ -6,6 +6,23 @@ export {
   type RecordedActivity,
   recordActivity,
 } from './activities';
+export {
+  CALENDAR_FEED_MAX_AGE_S,
+  type CalendarFeedFile,
+  calendarFeed,
+  calendarFeedPath,
+  configureCalendarFeeds,
+  createCalendarEvent,
+  forgetListingEvents,
+  getCalendarEvent,
+  getCalendarFeed,
+  listCalendarEvents,
+  revokeCalendarFeed,
+  rotateCalendarFeed,
+  sendEventReminder,
+  sweepEventReminders,
+  updateCalendarEvent,
+} from './calendar';
 export { crmErrors } from './errors';
 export { crmEvents } from './events';
 export {
@@ -39,6 +56,20 @@ export {
   updatePipelineStage,
 } from './pipeline';
 export { CLIENT_MODE_ALLOWED, CRM_ACTIONS, CRM_IMPERSONATION, type CrmAction, can } from './policy';
+export {
+  convertProspect,
+  createProspect,
+  deleteProspect,
+  forgetListingProspects,
+  getProspect,
+  getProspectBoard,
+  listProspectFollowUps,
+  listProspects,
+  listStageProspects,
+  moveProspect,
+  repointSellerListings,
+  updateProspect,
+} from './prospects';
 export { getResponseTimeKpi, recordAutoAck } from './response';
 export { type Route, type RouteInput, routeLead } from './routing';
 export {

@@ -90,6 +90,18 @@ export function registerCrmSubscriptions(): void {
         }),
       { name: 'crm.activity.contactMerged' },
     ),
+    // S10-07: listings whose seller was the closed contact follow the merge (properties never imports crm)
+    subscribe(
+      crmEvents.contactMerged,
+      (payload, meta) =>
+        crmJobs.repointSellerListings.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          survivorId: payload.survivorId,
+          mergedId: payload.mergedId,
+        }),
+      { name: 'crm.prospects.sellerMerged' },
+    ),
     subscribe(
       crmEvents.taskReminderDue,
       (payload, meta) =>
@@ -100,6 +112,17 @@ export function registerCrmSubscriptions(): void {
           remindedMs: payload.remindedMs,
         }),
       { name: 'crm.task.sendReminder' },
+    ),
+    subscribe(
+      crmEvents.eventReminderDue,
+      (payload, meta) =>
+        crmJobs.sendEventReminder.enqueue({
+          agencyId: meta.agencyId,
+          eventId: payload.eventId,
+          userId: payload.userId,
+          remindMs: payload.remindMs,
+        }),
+      { name: 'crm.calendar.sendReminder' },
     ),
     subscribe(
       properties.propertiesEvents.statusChanged,

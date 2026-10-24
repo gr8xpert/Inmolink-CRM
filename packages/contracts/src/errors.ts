@@ -256,6 +256,18 @@ export const ErrorCodes = {
   ACTIVITY_DATE_OUT_OF_RANGE: 422,
   // crm: tasks (S10-05)
   TASK_NOT_FOUND: 404,
+  // crm: calendar (S10-06)
+  /** No such calendar event in the agency. */
+  CALENDAR_EVENT_NOT_FOUND: 404,
+  /** Unknown, rotated or revoked calendar feed token, or its member left the agency. */
+  CALENDAR_FEED_NOT_FOUND: 404,
+  // crm: acquisition board (S10-07)
+  /** No such seller prospect in the agency. */
+  PROSPECT_NOT_FOUND: 404,
+  /** A move into `LISTED` without converting, or a converted prospect moved out of `LISTED`. */
+  PROSPECT_STAGE_INVALID: 409,
+  /** A conversion of a prospect without a property type or a location (send them, or set them on the prospect). */
+  PROSPECT_INCOMPLETE: 422,
   // crm: pipeline (S10-03)
   PIPELINE_STAGE_NOT_FOUND: 404,
   /** Another active stage of the agency already has this name. */

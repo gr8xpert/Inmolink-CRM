@@ -30,6 +30,7 @@ export const HELPER_FUNCTIONS = [
   'legacy_target_ids',
   'legacy_ids_of',
   'portal_feed_by_token',
+  'calendar_feed_by_token',
 ] as const;
 
 /**
@@ -236,7 +237,13 @@ export interface PolicySpec {
 /** Policies a registered table must have — exactly these (name, command, roles), and no others. */
 export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (!('kind' in def)) {
-    if (def.access === 'auth') return [{ name: 'auth_rows', cmd: 'ALL', roles: ['app_auth'] }];
+    if (def.access === 'auth') {
+      // S10-06: an auth table a definer function reads (`users.status` for the calendar feed) has `definer_read` too.
+      const definerAuth: PolicySpec[] = def.definerRead
+        ? [{ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] }]
+        : [];
+      return [...definerAuth, { name: 'auth_rows', cmd: 'ALL', roles: ['app_auth'] }];
+    }
     if (def.access === 'staff') {
       return [
         { name: 'auth_self', cmd: 'SELECT', roles: ['app_auth'] },
@@ -435,7 +442,52 @@ end $$;`,
           from public.agency_portal_connections c
           join public.agencies g on g.agency_id = c.agency_id and g.status = 'VERIFIED'
          where c.token_hash = hash and c.enabled and c.revoked_at is null and c.feed_run_id is not null $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text) from public;`,
+    // S10-06: a member's ICS feed (feed-api, app_public, which reads no crm, member or user table). For one token hash:
+    // the live feed whose member may still use it — an active membership in a role that holds `crm.calendar.feed`
+    // (crm/policy.ts MEMBER_ROLES), an ACTIVE login, an agency not SUSPENDED — and that member's own events (those they
+    // attend, organizer included): the next ones from `now_ts` to `to_ts` (at most max_events, soonest first) and the
+    // latest ones from `from_ts` to `now_ts` (at most max_events, latest first; the caller keeps the upcoming ones
+    // first). Attendees' names only — members' from the team directory, open contacts' first and last name (never an
+    // e-mail or phone). Every join names the feed's agency. One row with a null event when there is none; no row for an
+    // unknown, rotated or revoked token or a member who lost access. One statement: the token's unique index, then two
+    // ordered ranges of the member's attendee index.
+    `drop function if exists calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer);`,
+    `create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
+    max_events integer)
+  returns table(event_id uuid, type text, title text, description text, location text, starts_at timestamptz,
+    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[])
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ with feed as (
+          select f.agency_id, f.user_id from public.calendar_feeds f
+            join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
+             and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
+            join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
+            join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
+           where f.token_hash = hash and f.revoked_at is null),
+        picked as (
+          (select a.agency_id, a.event_id from feed
+             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+            where a.starts_at >= now_ts and a.starts_at < to_ts
+            order by a.starts_at, a.event_id limit greatest(max_events, 0))
+          union all
+          (select a.agency_id, a.event_id from feed
+             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+            where a.starts_at >= from_ts and a.starts_at < now_ts
+            order by a.starts_at desc, a.event_id desc limit greatest(max_events, 0)))
+        select e.id, e.type, e.title, e.description, e.location, e.starts_at, e.ends_at, e.status, e.version,
+               e.updated_at,
+          (select array_agg(m2.name order by m2.name) from public.calendar_event_attendees a2
+             join public.agency_members m2 on m2.agency_id = a2.agency_id and m2.user_id = a2.user_id
+            where a2.agency_id = e.agency_id and a2.event_id = e.id and a2.user_id is not null),
+          (select array_agg(n order by n) from (select distinct btrim(concat_ws(' ', c.first_name, c.last_name)) as n
+             from public.calendar_event_attendees a3
+             join public.contacts c on c.agency_id = a3.agency_id and c.id = a3.contact_id and c.deleted_at is null
+            where a3.agency_id = e.agency_id and a3.event_id = e.id and a3.contact_id is not null) s where n <> '')
+          from feed
+          left join picked p on p.agency_id = feed.agency_id
+          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) from public;`,
+    `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
@@ -446,6 +498,8 @@ end $$;`,
     // S9 review: the portal feed token lookup reads agency_portal_connections through its `definer_read` policy
     // (app_owner) and is recreated (dropped first) on every run, so it is owned by whichever role ran the SQL unless set.
     `alter function portal_feed_by_token(text) owner to app_owner;`,
+    // S10-06: reads the calendar tables, contacts, agency_members, users and agencies through their `definer_read` policies.
+    `alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,
@@ -680,6 +734,7 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
     // userScoped: the table needs a `user_id`; app_auth sees and writes only the scoped user's rows.
     const rows = def.userScoped ? 'user_id = app_user_id()' : 'true';
     return [
+      ...(def.definerRead ? [`create policy definer_read on ${t} for select to app_owner using (true);`] : []),
       `create policy auth_rows on ${t} to app_auth using (${rows}) with check (${rows});`,
       `revoke all on table ${t} from ${APP_ROLES};`,
       `grant select, insert, update on table ${t} to app_auth;`,

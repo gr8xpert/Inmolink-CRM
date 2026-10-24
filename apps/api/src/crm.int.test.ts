@@ -1,4 +1,5 @@
 import { closeDb, pingDb } from '@inmolink/core';
+import * as crm from '@inmolink/core/modules/crm';
 import { createFounder } from '@inmolink/core/test';
 import { setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
@@ -409,5 +410,65 @@ describe('crm task routes', () => {
     expect(deleted.json()).toEqual({ deleted: true });
     const gone = await app.inject({ method: 'GET', url: `/v1/crm/tasks/${task.id}`, headers: auth });
     expect(gone.statusCode).toBe(404);
+  });
+});
+
+describe('crm calendar routes', () => {
+  it('[S10-06] schedule (idempotent), list my calendar, cancel, and turn the ICS feed URL on and off over HTTP', async () => {
+    crm.configureCalendarFeeds({ tokenKey: 'test-hmac-key-0123456789abcdef0123456789' });
+    const f = await createFounder();
+    const auth = await bearer(f.userId, f.agencyId);
+    const start = new Date(Date.now() + 2 * 3_600_000);
+    const payload = {
+      type: 'VIEWING',
+      title: `Viewing ${RUN}`,
+      startsAt: start.toISOString(),
+      endsAt: new Date(start.getTime() + 3_600_000).toISOString(),
+    };
+    const headers = { ...auth, 'idempotency-key': `cal-create-${RUN}-key` };
+    const created = await app.inject({ method: 'POST', url: '/v1/crm/calendar/events', headers, payload });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.headers['cache-control']).toBe('no-store');
+    const event = created.json();
+    expect(event).toMatchObject({ type: 'VIEWING', status: 'SCHEDULED', organizerUserId: f.userId, remindMinutes: 30 });
+    const replay = await app.inject({ method: 'POST', url: '/v1/crm/calendar/events', headers, payload });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().id).toBe(event.id);
+
+    const range = `from=${new Date(Date.now() - 3_600_000).toISOString()}&to=${new Date(Date.now() + 86_400_000).toISOString()}`;
+    const mine = await app.inject({ method: 'GET', url: `/v1/crm/calendar/events?${range}`, headers: auth });
+    expect(mine.statusCode, mine.body).toBe(200);
+    expect(mine.json().items.map((e: { id: string }) => e.id)).toEqual([event.id]);
+    const tooWide = await app.inject({
+      method: 'GET',
+      url: `/v1/crm/calendar/events?from=2026-01-01T00:00:00.000Z&to=2026-06-01T00:00:00.000Z`,
+      headers: auth,
+    });
+    expect(tooWide.statusCode).toBe(422);
+    const cancelled = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/calendar/events/${event.id}`,
+      headers: auth,
+      payload: { version: event.version, status: 'CANCELLED' },
+    });
+    expect(cancelled.json()).toMatchObject({ status: 'CANCELLED', version: event.version + 1 });
+
+    expect((await app.inject({ method: 'GET', url: '/v1/crm/calendar/feed', headers: auth })).json()).toEqual({
+      enabled: false,
+      tokenHint: null,
+      createdAt: null,
+    });
+    const rotated = await app.inject({ method: 'POST', url: '/v1/crm/calendar/feed', headers: auth });
+    expect(rotated.statusCode, rotated.body).toBe(201);
+    expect(rotated.headers['cache-control']).toBe('no-store');
+    const secret = rotated.json();
+    expect(secret.path).toBe(`/v2/calendars/${secret.token}/calendar.ics`);
+    expect((await crm.calendarFeed(secret.token)).body).toContain(`UID:${event.id}@calendar.inmolink`);
+    const status = await app.inject({ method: 'GET', url: '/v1/crm/calendar/feed', headers: auth });
+    expect(status.json()).toMatchObject({ enabled: true, tokenHint: secret.token.slice(-4) });
+    expect(status.body).not.toContain(secret.token);
+    const revoked = await app.inject({ method: 'DELETE', url: '/v1/crm/calendar/feed', headers: auth });
+    expect(revoked.json()).toMatchObject({ enabled: false });
+    await expect(crm.calendarFeed(secret.token)).rejects.toThrow();
   });
 });

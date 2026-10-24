@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- CRM calendar (S10-06): events with member / contact attendees, per-attendee reminders, a per-member ICS feed at a secret revocable URL on feed-api (definer lookup, RFC 5545, size-capped), `/calendar` page; migration 0127. Acquisition board (S10-07): seller prospects with board / list / by-date views, confidential notes, one-click idempotent conversion to a DRAFT listing with the seller in `property_privates`, merge-safe seller re-pointing; migration 0128. No new dependency.
 - Response-time KPI (S10-09): first human response per lead recorded by the crm service, agency and per-member medians at `/v1/crm/kpis/response-time`, dashboard home card; migration 0126. No new dependency.
 - CRM tasks and reminders (S10-05): tasks linked to contacts / leads / listings, my-tasks dashboard page, `/v1/crm/tasks`, reminder e-mail once at the due time (claimed sweep + outbox, per-agency fair share, Resend idempotency key), `TASK_COMPLETED` activity; migration 0125. Platform email: `idempotencyKey`, `EmailSendError.notSent`. No new dependency.
 - CRM pipeline (S10-03): customizable stages, board and list views in the dashboard with drag-and-drop and a keyboard alternative, versioned moves with fractional ranks, stage history (definer-appended) and report, `STAGE_CHANGED` activity; migration 0124. No new dependency.

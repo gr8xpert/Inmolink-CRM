@@ -71,13 +71,50 @@ create function portal_feed_by_token(hash text) returns table(connection_id uuid
           from public.agency_portal_connections c
           join public.agencies g on g.agency_id = c.agency_id and g.status = 'VERIFIED'
          where c.token_hash = hash and c.enabled and c.revoked_at is null and c.feed_run_id is not null $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text) from public;
+drop function if exists calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer);
+create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
+    max_events integer)
+  returns table(event_id uuid, type text, title text, description text, location text, starts_at timestamptz,
+    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[])
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ with feed as (
+          select f.agency_id, f.user_id from public.calendar_feeds f
+            join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
+             and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
+            join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
+            join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
+           where f.token_hash = hash and f.revoked_at is null),
+        picked as (
+          (select a.agency_id, a.event_id from feed
+             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+            where a.starts_at >= now_ts and a.starts_at < to_ts
+            order by a.starts_at, a.event_id limit greatest(max_events, 0))
+          union all
+          (select a.agency_id, a.event_id from feed
+             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+            where a.starts_at >= from_ts and a.starts_at < now_ts
+            order by a.starts_at desc, a.event_id desc limit greatest(max_events, 0)))
+        select e.id, e.type, e.title, e.description, e.location, e.starts_at, e.ends_at, e.status, e.version,
+               e.updated_at,
+          (select array_agg(m2.name order by m2.name) from public.calendar_event_attendees a2
+             join public.agency_members m2 on m2.agency_id = a2.agency_id and m2.user_id = a2.user_id
+            where a2.agency_id = e.agency_id and a2.event_id = e.id and a2.user_id is not null),
+          (select array_agg(n order by n) from (select distinct btrim(concat_ws(' ', c.first_name, c.last_name)) as n
+             from public.calendar_event_attendees a3
+             join public.contacts c on c.agency_id = a3.agency_id and c.id = a3.contact_id and c.deleted_at is null
+            where a3.agency_id = e.agency_id and a3.event_id = e.id and a3.contact_id is not null) s where n <> '')
+          from feed
+          left join picked p on p.agency_id = feed.agency_id
+          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) from public;
+grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
 alter function legacy_target_ids(text[]) owner to app_owner;
 alter function legacy_ids_of(uuid[]) owner to app_owner;
 alter function portal_feed_by_token(text) owner to app_owner;
+alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -89,7 +126,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'seller_prospects', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -186,6 +223,7 @@ grant select, insert, update on table public."agency_members" to app_auth;
 create policy staff_select on public."agency_members" for select to app_staff
   using ((select public.app_is_staff()) and (true));
 grant select on table public."agency_members" to app_staff;
+create policy definer_read on public."agency_members" for select to app_owner using (true);
 
 -- agency_portal_connections: STRICT
 alter table public."agency_portal_connections" enable row level security;
@@ -335,6 +373,64 @@ revoke all on table public."bookmark_folders" from public, app_user, app_system,
 grant select, insert, update, delete on table public."bookmark_folders" to app_user;
 grant select, insert, update, delete on table public."bookmark_folders" to app_system;
 
+-- calendar_event_attendees: STRICT
+alter table public."calendar_event_attendees" enable row level security;
+alter table public."calendar_event_attendees" force row level security;
+create policy own_rows on public."calendar_event_attendees" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."calendar_event_attendees" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, delete on table public."calendar_event_attendees" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."calendar_event_attendees"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['reminder_sent_for']);
+  execute format('grant update (%s) on table public."calendar_event_attendees" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."calendar_event_attendees" to app_system;
+create policy definer_read on public."calendar_event_attendees" for select to app_owner using (true);
+
+-- calendar_events: STRICT
+alter table public."calendar_events" enable row level security;
+alter table public."calendar_events" force row level security;
+create policy own_rows on public."calendar_events" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."calendar_events" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, delete on table public."calendar_events" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."calendar_events"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['idempotency_hash', 'request_hash']);
+  execute format('grant update (%s) on table public."calendar_events" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."calendar_events" to app_system;
+create policy definer_read on public."calendar_events" for select to app_owner using (true);
+
+-- calendar_feeds: STRICT
+alter table public."calendar_feeds" enable row level security;
+alter table public."calendar_feeds" force row level security;
+create policy own_rows on public."calendar_feeds" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."calendar_feeds" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."calendar_feeds"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_hash']);
+  execute format('grant select (%s) on table public."calendar_feeds" to app_user', cols);
+end $$;
+grant insert, delete on table public."calendar_feeds" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."calendar_feeds"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_hash', 'token_hint', 'user_id', 'created_at']);
+  execute format('grant update (%s) on table public."calendar_feeds" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."calendar_feeds" to app_system;
+create policy definer_read on public."calendar_feeds" for select to app_owner using (true);
+
 -- contact_emails: STRICT
 alter table public."contact_emails" enable row level security;
 alter table public."contact_emails" force row level security;
@@ -388,6 +484,7 @@ create policy own_rows on public."contacts" to app_user
 revoke all on table public."contacts" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."contacts" to app_user;
 grant select, insert, update, delete on table public."contacts" to app_system;
+create policy definer_read on public."contacts" for select to app_owner using (true);
 
 -- development_access: NETWORK_READ
 alter table public."development_access" enable row level security;
@@ -1169,6 +1266,22 @@ alter table public."search_index_queue" force row level security;
 revoke all on table public."search_index_queue" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."search_index_queue" to app_system;
 
+-- seller_prospects: STRICT
+alter table public."seller_prospects" enable row level security;
+alter table public."seller_prospects" force row level security;
+create policy own_rows on public."seller_prospects" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."seller_prospects" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, delete on table public."seller_prospects" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."seller_prospects"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['idempotency_hash', 'request_hash', 'created_by']);
+  execute format('grant update (%s) on table public."seller_prospects" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."seller_prospects" to app_system;
+
 -- staff_impersonations: STRICT
 alter table public."staff_impersonations" enable row level security;
 alter table public."staff_impersonations" force row level security;
@@ -1285,6 +1398,7 @@ grant select, insert, update, delete on table public."user_recovery_codes" to ap
 -- users: GLOBAL
 alter table public."users" enable row level security;
 alter table public."users" force row level security;
+create policy definer_read on public."users" for select to app_owner using (true);
 create policy auth_rows on public."users" to app_auth using (true) with check (true);
 revoke all on table public."users" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update on table public."users" to app_auth;

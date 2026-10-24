@@ -33,6 +33,24 @@ export async function insertListing(tx: Tx, row: ListingInsert): Promise<Listing
   return created as ListingRow;
 }
 
+/**
+ * A crm contact merge (S10-07): the agency's listings whose seller was `fromContactId` name `toContactId`. One statement
+ * on `property_privates_seller_idx`; returns the rows moved.
+ */
+export async function repointSeller(
+  tx: Tx,
+  agencyId: string,
+  fromContactId: string,
+  toContactId: string,
+): Promise<number> {
+  const rows = await tx
+    .update(propertyPrivates)
+    .set({ sellerContactId: toContactId, updatedAt: sql`now()` })
+    .where(and(eq(propertyPrivates.agencyId, agencyId), eq(propertyPrivates.sellerContactId, fromContactId)))
+    .returning({ id: propertyPrivates.propertyId });
+  return rows.length;
+}
+
 export async function insertPrivates(tx: Tx, row: typeof propertyPrivates.$inferInsert): Promise<PrivatesRow> {
   const [created] = await tx.insert(propertyPrivates).values(row).returning();
   return created as PrivatesRow;

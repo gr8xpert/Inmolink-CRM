@@ -1,6 +1,8 @@
+import type acquisition from '../messages/en/acquisition.json';
 import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
+import type calendar from '../messages/en/calendar.json';
 import type contacts from '../messages/en/contacts.json';
 import type developments from '../messages/en/developments.json';
 import type embed from '../messages/en/embed.json';
@@ -26,9 +28,11 @@ import type widget from '../messages/en/widget.json';
  * file is added here too.
  */
 export interface Messages {
+  acquisition: typeof acquisition;
   agency: typeof agency;
   'api-keys': typeof apiKeys;
   auth: typeof auth;
+  calendar: typeof calendar;
   contacts: typeof contacts;
   developments: typeof developments;
   embed: typeof embed;

@@ -9,7 +9,8 @@ import { z } from 'zod';
  * - `crm.contact.merged` — `mergedId` was merged into `survivorId` and closed. CRM tables that point at a contact
  *   are re-pointed in the merge's own transaction (`repo.CONTACT_REFERENCES`: notes, leads S10-02, activities
  *   S10-04; tasks S10-05 add theirs there). **Other modules that keep a contact id react to this event** and move
- *   their rows to `survivorId` — client registrations (S12) and `property_privates.seller_contact_id` (S10-07).
+ *   their rows to `survivorId` — client registrations (S12); `property_privates.seller_contact_id` (S10-07) follows through crm's own
+ *   `crm.repointSellerListings` job (properties never imports crm).
  *   Delivery is at least once: re-pointing `mergedId` → `survivorId` is idempotent by nature.
  * - `crm.import.requested` — a contact import was started; the subscription queues `crm.importContacts`.
  * - `crm.lead.created` (S10-02) — a lead reached the holder's inbox (`inboundLeadId`: promoted from a website lead;
@@ -20,6 +21,9 @@ import { z } from 'zod';
  * - `crm.lead.stageChanged` (S10-03) — a lead moved to another pipeline stage (a drag on the board, or a status set);
  *   `status` is the new stage's. The move's history row is already written (`lead_stage_history`); the activity
  *   timeline records `STAGE_CHANGED` from it.
+ * - `crm.calendarEvent.reminderDue` (S10-06) — the reminder sweep claimed a calendar event's remind time (`remindMs`,
+ *   epoch ms); one event per member attendee (`userId`); the subscription queues `crm.sendEventReminder`. Written in the
+ *   claiming transaction.
  * - `crm.task.reminderDue` (S10-05) — the reminder sweep claimed a task that came due (`dueMs`: the due time it claimed, `remindedMs`: when, both
  *   epoch ms); the subscription queues `crm.sendTaskReminder`. Written in the claiming transaction.
  */
@@ -66,6 +70,11 @@ export const crmEvents = {
     'crm.task.reminderDue',
     1,
     z.object({ agencyId: z.uuid(), taskId: z.uuid(), dueMs: z.number().int(), remindedMs: z.number().int() }),
+  ),
+  eventReminderDue: defineEvent(
+    'crm.calendarEvent.reminderDue',
+    1,
+    z.object({ agencyId: z.uuid(), eventId: z.uuid(), userId: z.uuid(), remindMs: z.number().int() }),
   ),
   leadStageChanged: defineEvent(
     'crm.lead.stageChanged',

@@ -1,6 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import {
   activities,
+  calendarEventAttendees,
   contactEmails,
   contactFacets,
   contactImports,
@@ -8,6 +9,7 @@ import {
   contactPhones,
   contacts,
   leads,
+  sellerProspects,
   tasks,
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
@@ -440,6 +442,11 @@ export const CONTACT_REFERENCES = [
   { name: 'activities', table: activities, versioned: false },
   // S10-05: the duplicate's tasks (deleted ones too) follow it, with a new version (an open edit form conflicts).
   { name: 'tasks', table: tasks, versioned: true },
+  // S10-06: the duplicate's calendar attendances (an event with both contacts reads them as one).
+  { name: 'calendar_event_attendees', table: calendarEventAttendees, versioned: false },
+  // S10-07: the duplicate's seller prospects (deleted ones too), with a new version (an open edit form conflicts); the
+  // listings it sold follow through `crm.contact.merged` (`property_privates` is properties').
+  { name: 'seller_prospects', table: sellerProspects, versioned: true },
 ] as const;
 
 /** Moves every reference of `fromId` to `toId` (one statement); returns the rows moved per table. */

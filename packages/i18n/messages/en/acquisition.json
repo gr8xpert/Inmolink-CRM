@@ -1,0 +1,100 @@
+{
+  "title": "Acquisition",
+  "intro": "Property owners you are winning over, from first contact to a signed mandate. Convert one into a draft listing in one click.",
+  "new": "New prospect",
+  "views": {
+    "label": "View",
+    "board": "Board",
+    "list": "List",
+    "dates": "By date"
+  },
+  "stages": {
+    "NEW": "New",
+    "CONTACTED": "Contacted",
+    "VALUATION": "Valuation",
+    "NEGOTIATION": "Negotiation",
+    "MANDATE": "Mandate signed",
+    "LISTED": "Listed",
+    "LOST": "Lost"
+  },
+  "board": {
+    "label": "Acquisition board",
+    "empty": "No prospects here.",
+    "more": "Load more",
+    "dragHint": "Drag a card to another stage, or use its Move to list and arrow buttons. Listed is reached by converting a prospect.",
+    "moveTo": "Move to",
+    "up": "Move up",
+    "down": "Move down",
+    "open": "Open",
+    "converted": "Listing created",
+    "moved": "{name} moved to {stage}.",
+    "saving": "Saving…",
+    "noName": "Seller without a name",
+    "followUp": "Follow up {date}"
+  },
+  "list": {
+    "label": "Seller prospects",
+    "title": "Prospect",
+    "seller": "Seller",
+    "stage": "Stage",
+    "price": "Estimated price",
+    "followUp": "Next follow-up",
+    "allStages": "All stages",
+    "mine": "Only mine",
+    "filter": "Filter",
+    "empty": "No prospects yet.",
+    "next": "Next page"
+  },
+  "dates": {
+    "range": "Follow-ups from the last {days} days to the next {days} days, day by day.",
+    "empty": "No follow-ups planned.",
+    "overdue": "overdue"
+  },
+  "form": {
+    "newTitle": "New seller prospect",
+    "title": "Title",
+    "seller": "Seller",
+    "noSeller": "No seller yet",
+    "sellerHint": "The newest contacts marked as sellers.",
+    "address": "Address",
+    "area": "Area",
+    "propertyType": "Property type",
+    "location": "Location",
+    "choose": "Choose…",
+    "price": "Estimated price",
+    "followUp": "Next follow-up",
+    "notes": "Confidential notes",
+    "notesHint": "Only members of your agency see these notes. They are never shared with partner agencies or clients.",
+    "create": "Add prospect",
+    "save": "Save"
+  },
+  "detail": {
+    "back": "Back to acquisition",
+    "stage": "{stage} since {date}",
+    "convertTitle": "Listing",
+    "convertIntro": "Create a draft listing from this prospect. The seller is linked to it privately.",
+    "convertIncomplete": "Choose a property type and a location to convert this prospect.",
+    "convertSubmit": "Convert to listing",
+    "converted": "Converted on {date}.",
+    "openListing": "Open the listing",
+    "delete": "Delete prospect",
+    "deleted": "Prospect deleted.",
+    "done": {
+      "created": "Prospect added.",
+      "saved": "Changes saved.",
+      "converted": "Draft listing created."
+    }
+  },
+  "errors": {
+    "generic": "Something went wrong. Try again.",
+    "FORBIDDEN": "You do not have access to this.",
+    "VERSION_CONFLICT": "Someone else changed this prospect. The page has been reloaded.",
+    "VALIDATION_FAILED": "Check the fields and try again.",
+    "PROSPECT_NOT_FOUND": "This prospect no longer exists.",
+    "PROSPECT_STAGE_INVALID": "Listed is reached by converting a prospect, and a converted prospect stays there.",
+    "PROSPECT_INCOMPLETE": "Choose a property type and a location first.",
+    "CONTACT_NOT_FOUND": "That seller is no longer a contact of your agency.",
+    "IDEMPOTENCY_KEY_REUSED": "This form was already sent. Reload the page.",
+    "RATE_LIMITED": "Too many changes at once. Wait a moment and try again."
+  }
+}

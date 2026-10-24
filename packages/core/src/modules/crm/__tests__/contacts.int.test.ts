@@ -3,6 +3,7 @@ import {
   CreateContactBody,
   type CreateContactInput,
   CreateLeadBody,
+  CreateProspectBody,
   CreateTaskBody,
   ListActivitiesQuery,
   StartContactImportBody,
@@ -259,7 +260,7 @@ describe('consent', () => {
 });
 
 describe('merge', () => {
-  it('[S10-01] merge moves leads, activities, tasks and registrations to the surviving contact', async () => {
+  it('[S10-01] merge moves leads, activities, tasks, seller prospects and registrations to the surviving contact', async () => {
     // Leads (S10-02), activities (S10-04) and tasks (S10-05) move with the merge: every table in
     // CONTACT_REFERENCES (notes, leads, activities, tasks) moves in the merge, and
     // crm.contact.merged is emitted for registrations and other modules (the next test fails when a crm table with
@@ -289,6 +290,9 @@ describe('merge', () => {
     );
     const task = await as(a, (ctx) =>
       crm.createTask(ctx, CreateTaskBody.parse({ title: 'Send the villa brochure', contactId: duplicate.id })),
+    );
+    const prospect = await as(a, (ctx) =>
+      crm.createProspect(ctx, CreateProspectBody.parse({ title: 'Villa owner', contactId: duplicate.id })),
     );
 
     const merged = await as(a, (ctx) =>
@@ -331,6 +335,11 @@ describe('merge', () => {
     const movedTask = await as(a, (ctx) => crm.getTask(ctx, task.task.id));
     expect(movedTask.contactId).toBe(survivor.id);
     expect(movedTask.version).toBe(task.task.version + 1);
+
+    // the duplicate's seller prospect is the survivor's now, at a new version (S10-07)
+    const movedProspect = await as(a, (ctx) => crm.getProspect(ctx, prospect.prospect.id));
+    expect(movedProspect.contactId).toBe(survivor.id);
+    expect(movedProspect.version).toBe(prospect.prospect.version + 1);
 
     const events = await rows<{ payload: { survivorId: string; mergedId: string } }>(
       sql`select payload from outbox_events where type = 'crm.contact.merged' and agency_id = ${a.agencyId}

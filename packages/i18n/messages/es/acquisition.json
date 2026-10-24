@@ -1,0 +1,100 @@
+{
+  "title": "Captación",
+  "intro": "Propietarios que estás captando, del primer contacto a la firma del encargo. Conviértelos en un anuncio en borrador con un clic.",
+  "new": "Nueva captación",
+  "views": {
+    "label": "Vista",
+    "board": "Tablero",
+    "list": "Lista",
+    "dates": "Por fecha"
+  },
+  "stages": {
+    "NEW": "Nuevo",
+    "CONTACTED": "Contactado",
+    "VALUATION": "Valoración",
+    "NEGOTIATION": "Negociación",
+    "MANDATE": "Encargo firmado",
+    "LISTED": "Publicado",
+    "LOST": "Perdido"
+  },
+  "board": {
+    "label": "Tablero de captación",
+    "empty": "No hay captaciones aquí.",
+    "more": "Cargar más",
+    "dragHint": "Arrastra una tarjeta a otra fase o usa su lista Mover a y las flechas. A Publicado se llega convirtiendo la captación en anuncio.",
+    "moveTo": "Mover a",
+    "up": "Subir",
+    "down": "Bajar",
+    "open": "Abrir",
+    "converted": "Anuncio creado",
+    "moved": "{name} movido a {stage}.",
+    "saving": "Guardando…",
+    "noName": "Vendedor sin nombre",
+    "followUp": "Seguimiento {date}"
+  },
+  "list": {
+    "label": "Captaciones",
+    "title": "Captación",
+    "seller": "Vendedor",
+    "stage": "Fase",
+    "price": "Precio estimado",
+    "followUp": "Próximo seguimiento",
+    "allStages": "Todas las fases",
+    "mine": "Solo las mías",
+    "filter": "Filtrar",
+    "empty": "Aún no hay captaciones.",
+    "next": "Página siguiente"
+  },
+  "dates": {
+    "range": "Seguimientos de los últimos {days} días a los próximos {days} días, día a día.",
+    "empty": "No hay seguimientos previstos.",
+    "overdue": "vencido"
+  },
+  "form": {
+    "newTitle": "Nueva captación",
+    "title": "Título",
+    "seller": "Vendedor",
+    "noSeller": "Sin vendedor todavía",
+    "sellerHint": "Los contactos más recientes marcados como vendedores.",
+    "address": "Dirección",
+    "area": "Zona",
+    "propertyType": "Tipo de inmueble",
+    "location": "Ubicación",
+    "choose": "Elige…",
+    "price": "Precio estimado",
+    "followUp": "Próximo seguimiento",
+    "notes": "Notas confidenciales",
+    "notesHint": "Solo los miembros de tu agencia ven estas notas. Nunca se comparten con agencias colaboradoras ni con clientes.",
+    "create": "Añadir captación",
+    "save": "Guardar"
+  },
+  "detail": {
+    "back": "Volver a captación",
+    "stage": "{stage} desde el {date}",
+    "convertTitle": "Anuncio",
+    "convertIntro": "Crea un anuncio en borrador a partir de esta captación. El vendedor queda vinculado de forma privada.",
+    "convertIncomplete": "Elige un tipo de inmueble y una ubicación para convertir esta captación.",
+    "convertSubmit": "Convertir en anuncio",
+    "converted": "Convertida el {date}.",
+    "openListing": "Abrir el anuncio",
+    "delete": "Eliminar captación",
+    "deleted": "Captación eliminada.",
+    "done": {
+      "created": "Captación añadida.",
+      "saved": "Cambios guardados.",
+      "converted": "Anuncio en borrador creado."
+    }
+  },
+  "errors": {
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "FORBIDDEN": "No tienes acceso a esto.",
+    "VERSION_CONFLICT": "Otra persona ha cambiado esta captación. Se ha recargado la página.",
+    "VALIDATION_FAILED": "Revisa los campos e inténtalo de nuevo.",
+    "PROSPECT_NOT_FOUND": "Esta captación ya no existe.",
+    "PROSPECT_STAGE_INVALID": "A Publicado se llega convirtiendo la captación en anuncio, y una captación convertida se queda ahí.",
+    "PROSPECT_INCOMPLETE": "Elige antes un tipo de inmueble y una ubicación.",
+    "CONTACT_NOT_FOUND": "Ese vendedor ya no es un contacto de tu agencia.",
+    "IDEMPOTENCY_KEY_REUSED": "Este formulario ya se envió. Recarga la página.",
+    "RATE_LIMITED": "Demasiados cambios a la vez. Espera un momento e inténtalo de nuevo."
+  }
+}

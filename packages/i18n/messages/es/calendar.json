@@ -1,0 +1,93 @@
+{
+  "title": "Calendario",
+  "subtitle": "Visitas, reuniones y llamadas.",
+  "types": {
+    "VIEWING": "Visita",
+    "MEETING": "Reunión",
+    "CALL": "Llamada"
+  },
+  "ics": {
+    "name": "Calendario Inmolink",
+    "with": "Con: {names}"
+  },
+  "email": {
+    "subject": "{kind} en breve: {title}",
+    "greeting": "Hola, {name}:",
+    "body": "Recordatorio de tu {kind}:",
+    "starts": "Empieza: {when}",
+    "where": "Lugar: {location}",
+    "footer": "Recibes este recordatorio porque participas en este evento."
+  },
+  "views": {
+    "label": "Vista",
+    "week": "Semana",
+    "list": "Lista"
+  },
+  "scope": {
+    "label": "Mostrar",
+    "mine": "Mi calendario",
+    "all": "Eventos de todos"
+  },
+  "nav": {
+    "previous": "Semana anterior",
+    "next": "Semana siguiente",
+    "today": "Esta semana",
+    "range": "{from} – {to}"
+  },
+  "form": {
+    "heading": "Nuevo evento",
+    "type": "Tipo",
+    "title": "Título",
+    "startsAt": "Empieza",
+    "duration": "Duración",
+    "minutes": "{count} min",
+    "location": "Lugar",
+    "remind": "Recordatorio",
+    "remindNone": "Sin recordatorio",
+    "remindAt": "Al empezar",
+    "remindBefore": "{count} min antes",
+    "remindDay": "1 día antes",
+    "create": "Añadir evento"
+  },
+  "event": {
+    "cancelled": "Cancelado",
+    "with": "Con {names}",
+    "time": "{from} – {to}"
+  },
+  "actions": {
+    "cancel": "Cancelar evento",
+    "restore": "Restaurar"
+  },
+  "empty": {
+    "day": "Nada programado.",
+    "list": "No hay eventos en este periodo."
+  },
+  "loadMore": "Más eventos",
+  "feed": {
+    "heading": "Suscribirse en Google Calendar u Outlook",
+    "intro": "Una dirección privada que muestra tus eventos en tu propia aplicación de calendario. Quien tenga la dirección puede ver tus eventos: mantenla en secreto.",
+    "on": "Dirección de suscripción activa (termina en …{hint}).",
+    "off": "Aún no tienes dirección de suscripción.",
+    "create": "Obtener dirección de suscripción",
+    "rotate": "Sustituir dirección",
+    "rotateHint": "La dirección actual dejará de funcionar.",
+    "revoke": "Desactivar",
+    "issuedTitle": "Tu dirección de suscripción",
+    "issuedIntro": "Cópiala ahora: solo se muestra una vez. En Google Calendar elige «Otros calendarios → Desde URL»; en Outlook «Agregar calendario → Suscribirse desde la web». Los cambios aparecen en la siguiente actualización de la aplicación.",
+    "url": "Dirección",
+    "done": "Hecho",
+    "revoked": "Se ha desactivado la dirección de suscripción.",
+    "errors": {
+      "FORBIDDEN": "No puedes gestionar una dirección de suscripción aquí.",
+      "generic": "No se ha podido crear la dirección. Inténtalo de nuevo."
+    }
+  },
+  "errors": {
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "load": "No se ha podido cargar el calendario.",
+    "VERSION_CONFLICT": "Alguien ha cambiado este evento mientras tanto. Recarga e inténtalo de nuevo.",
+    "CALENDAR_EVENT_NOT_FOUND": "Este evento ya no existe.",
+    "VALIDATION_FAILED": "Revisa los datos del evento.",
+    "FORBIDDEN": "No puedes cambiar el calendario."
+  }
+}

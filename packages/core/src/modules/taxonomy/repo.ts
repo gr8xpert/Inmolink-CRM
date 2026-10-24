@@ -110,6 +110,12 @@ export async function locationAncestors(tx: Tx, ids: string[]): Promise<Map<stri
 }
 
 /** A location's depth and the ids of it and its ancestors by depth (1 country … 4 area). One statement. */
+/** Whether a property type exists (a reference checked before it is stored without a foreign key, S10-07). */
+export async function propertyTypeExists(tx: Tx, id: string): Promise<boolean> {
+  const [row] = await tx.select({ id: propertyTypes.id }).from(propertyTypes).where(eq(propertyTypes.id, id));
+  return row !== undefined;
+}
+
 export async function lineage(tx: Tx, id: string): Promise<{ depth: number; byDepth: Map<number, string> } | null> {
   const res = await tx.execute(sql`
     with recursive up(id, parent_id, depth) as (

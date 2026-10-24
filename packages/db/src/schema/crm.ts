@@ -1,6 +1,8 @@
 import { type SQL, sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
+  char,
   check,
   customType,
   foreignKey,
@@ -834,5 +836,289 @@ export const tasks = pgTable(
       columns: [t.agencyId, t.leadId],
       foreignColumns: [leads.agencyId, leads.id],
     }).onDelete('cascade'),
+  ],
+);
+
+/** The calendar's event types (`CALENDAR_EVENT_TYPES` in contracts), as a check constraint's list. */
+const calendarEventTypeList = sql.raw(`'VIEWING', 'MEETING', 'CALL'`);
+
+/**
+ * A calendar event (S10-06, PLAN §7 M8): a viewing, a meeting or a call, from `starts_at` to `ends_at` (≤ 7 days), with
+ * an organizer (an active member, checked by the service), attendees (members and contacts:
+ * `calendar_event_attendees`) and an optional e-mail reminder `remind_minutes` before the start. Visible to every
+ * member of the agency (R1, like tasks); each member's ICS feed lists only the events they attend (the organizer is an
+ * attendee). Cancelling keeps the row (`status = 'CANCELLED'`): subscribed calendars see `STATUS:CANCELLED`.
+ *
+ * Reminder state (`crm/calendar.ts`, the S10-05 design per attendee): the sweep claims an event whose `remind_at` came
+ * by setting `reminded_at` in the transaction that writes one outbox event per member attendee; each send job claims the
+ * attendee's `reminder_sent_for` before it sends. A new start or reminder offset, or a cancelled event scheduled again,
+ * clears `reminded_at` (the service; `remind_at` and `reminded_at` are the reminder columns members write).
+ */
+export const calendarEvents = pgTable(
+  'calendar_events',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** `VIEWING`, `MEETING` or `CALL`. */
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    location: text('location'),
+    /** To the millisecond (checked): the keyset's sort key is the plain column (an index condition under RLS). */
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    /** `SCHEDULED` or `CANCELLED`. */
+    status: text('status').notNull().default('SCHEDULED'),
+    /** The member it belongs to (also an attendee row). No FK: a removed member's events stay. */
+    organizerUserId: uuid('organizer_user_id').notNull(),
+    createdBy: uuid('created_by'),
+    /** A viewing's listing (the agency's; no FK: properties' table). Cleared when the listing is purged. */
+    listingId: uuid('listing_id'),
+    /** Remind the member attendees this many minutes before the start; null: no reminder. */
+    remindMinutes: integer('remind_minutes'),
+    /** `starts_at - remind_minutes` (the service writes both), null without a reminder. */
+    remindAt: timestamp('remind_at', { withTimezone: true }),
+    /** The sweep claimed the reminder for `remind_at` (its outbox events were written with it). */
+    remindedAt: timestamp('reminded_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /** SHA-256 of the creating member's `Idempotency-Key` (with their user id) and of the request body (24 h replay). */
+    idempotencyHash: text('idempotency_hash'),
+    requestHash: text('request_hash'),
+    /** Bumped on every change (attendees included): the ICS `SEQUENCE` is `version - 1`. */
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the agency's calendar (any member): where agency_id = ? and starts_at >= ? and starts_at < ?
+    // and (starts_at, id) > (?, ?) order by starts_at, id (keyset)
+    index('calendar_events_agency_idx').on(t.agencyId, t.startsAt, t.id),
+    // a purged listing's events: where agency_id = ? and listing_id = ?
+    index('calendar_events_listing_idx').on(t.agencyId, t.listingId).where(sql`${t.listingId} is not null`),
+    // the reminder sweep (all agencies): the next armed, scheduled events
+    index('calendar_events_reminder_idx')
+      .on(t.remindAt, t.id)
+      .where(sql`${t.status} = 'SCHEDULED' and ${t.remindAt} is not null and ${t.remindedAt} is null`),
+    // POST replay: where agency_id = ? and idempotency_hash = ?
+    uniqueIndex('calendar_events_idempotency_uq')
+      .on(t.agencyId, t.idempotencyHash)
+      .where(sql`${t.idempotencyHash} is not null`),
+    // the attendees' composite FK
+    unique('calendar_events_agency_id_uq').on(t.agencyId, t.id),
+    check('calendar_events_type_ck', sql`${t.type} in (${calendarEventTypeList})`),
+    check('calendar_events_status_ck', sql`${t.status} in ('SCHEDULED', 'CANCELLED')`),
+    check('calendar_events_title_ck', sql`length(${t.title}) between 1 and 200`),
+    check(
+      'calendar_events_description_ck',
+      sql`${t.description} is null or length(${t.description}) between 1 and 4000`,
+    ),
+    check('calendar_events_location_ck', sql`${t.location} is null or length(${t.location}) between 1 and 300`),
+    check(
+      'calendar_events_time_ck',
+      sql`${t.startsAt} = date_trunc('milliseconds', ${t.startsAt}, 'UTC') and ${t.endsAt} > ${t.startsAt} and ${t.endsAt} - ${t.startsAt} <= interval '7 days'`,
+    ),
+    check(
+      'calendar_events_remind_ck',
+      sql`(${t.remindMinutes} is null) = (${t.remindAt} is null) and (${t.remindMinutes} is null or ${t.remindMinutes} between 0 and 10080)`,
+    ),
+    check('calendar_events_cancelled_ck', sql`(${t.status} = 'CANCELLED') = (${t.cancelledAt} is not null)`),
+    check('calendar_events_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+  ],
+);
+
+/**
+ * Who attends a calendar event (S10-06): a member (`user_id`) or a contact (`contact_id`), one of the two. The
+ * organizer is a member attendee. `starts_at` is the event's (the service writes both in one transaction), so a
+ * member's calendar and ICS feed are one keyset over `calendar_event_attendees_user_idx`. A merge re-points
+ * `contact_id` (`CONTACT_REFERENCES`; two rows for one contact are read as one); a contact's deletion removes its rows.
+ * Contacts never get mail from the calendar: reminders go to member attendees only (`reminder_sent_for`, worker-only:
+ * the remind time whose e-mail the send job claimed).
+ */
+export const calendarEventAttendees = pgTable(
+  'calendar_event_attendees',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    eventId: uuid('event_id').notNull(),
+    userId: uuid('user_id'),
+    contactId: uuid('contact_id'),
+    /** The event's `starts_at` (copied: the member's keyset). */
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    /** The `remind_at` whose reminder e-mail to this member was claimed (worker-only). */
+    reminderSentFor: timestamp('reminder_sent_for', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // a member's calendar and ICS feed: where agency_id = ? and user_id = ? and starts_at >= ? and starts_at < ?
+    // order by starts_at, event_id (keyset)
+    index('calendar_event_attendees_user_idx')
+      .on(t.agencyId, t.userId, t.startsAt, t.eventId)
+      .where(sql`${t.userId} is not null`),
+    // an event's attendees (and the FK): where agency_id = ? and event_id = any(?)
+    index('calendar_event_attendees_event_idx').on(t.agencyId, t.eventId),
+    // FK + a merge re-points a contact's rows: where agency_id = ? and contact_id = ?
+    index('calendar_event_attendees_contact_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
+    uniqueIndex('calendar_event_attendees_user_uq')
+      .on(t.agencyId, t.eventId, t.userId)
+      .where(sql`${t.userId} is not null`),
+    check('calendar_event_attendees_one_ck', sql`(${t.userId} is null) <> (${t.contactId} is null)`),
+    foreignKey({
+      name: 'calendar_event_attendees_event_fk',
+      columns: [t.agencyId, t.eventId],
+      foreignColumns: [calendarEvents.agencyId, calendarEvents.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'calendar_event_attendees_contact_fk',
+      columns: [t.agencyId, t.contactId],
+      foreignColumns: [contacts.agencyId, contacts.id],
+    }).onDelete('cascade'),
+  ],
+);
+
+/**
+ * A member's ICS feed (S10-06): the secret URL Google / Outlook subscribe to. The token is 32 random bytes, stored only
+ * as its keyed hash (`HMAC_KEY`, purpose `crm.calendar-feed-token`); feed-api (`app_public`) never reads this table —
+ * the SECURITY DEFINER `calendar_feed_by_token(hash, …)` answers one live token's events (`definerRead`). One live feed
+ * per member: rotating revokes the current one and adds a new one; revoking stops the URL at once.
+ */
+export const calendarFeeds = pgTable(
+  'calendar_feeds',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    userId: uuid('user_id').notNull(),
+    /** HMAC-SHA256 of the token (never readable by app_user). */
+    tokenHash: text('token_hash').notNull(),
+    /** The token's last 4 characters, to recognise the URL. */
+    tokenHint: text('token_hint').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    // feed-api: where token_hash = ? and revoked_at is null
+    uniqueIndex('calendar_feeds_token_uq').on(t.tokenHash),
+    // the member's live feed: where agency_id = ? and user_id = ? and revoked_at is null
+    uniqueIndex('calendar_feeds_live_uq').on(t.agencyId, t.userId).where(sql`${t.revokedAt} is null`),
+    check('calendar_feeds_hint_ck', sql`length(${t.tokenHint}) between 1 and 8`),
+  ],
+);
+
+/** The acquisition board's fixed stages (`PROSPECT_STAGES` in contracts), as a check constraint's list. */
+const prospectStageList = sql.raw(`'NEW', 'CONTACTED', 'VALUATION', 'NEGOTIATION', 'MANDATE', 'LISTED', 'LOST'`);
+
+/**
+ * A seller prospect (S10-07, PLAN §7 M8): a property owner the agency is trying to win — the seller (a contact), where
+ * the property is, its type and an estimated price — moving across the fixed acquisition stages (`stage`, board order
+ * `stage_rank` as in `leads.stage_rank`, `crm/rank.ts`), with a next follow-up date (the by-date view) and confidential
+ * notes. STRICT: never another agency's, never the network's, never in a read model (Client Mode never opens CRM).
+ * Converting it creates a DRAFT listing (`listing_id`, once: a second conversion answers the same listing) with the
+ * seller in that listing's `property_privates.seller_contact_id`.
+ */
+export const sellerProspects = pgTable(
+  'seller_prospects',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The seller (a contact of the agency). A merge re-points it (`CONTACT_REFERENCES`); erasing it leaves null. */
+    contactId: uuid('contact_id'),
+    title: text('title').notNull(),
+    /** The property's address and area, as told (free text; the exact pin comes with the listing). */
+    address: text('address'),
+    area: text('area'),
+    /** Taxonomy ids (no FK: taxonomy's tables); both are needed to convert. */
+    propertyTypeId: uuid('property_type_id'),
+    locationId: uuid('location_id'),
+    estimatedPriceCents: bigint('estimated_price_cents', { mode: 'number' }),
+    /** The estimated price's currency: set with the price, null without one. */
+    currency: char('currency', { length: 3 }),
+    stage: text('stage').notNull().default('NEW'),
+    stageRank: textC('stage_rank').notNull(),
+    stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull().defaultNow(),
+    /** The next follow-up, to the millisecond (checked); null: none. */
+    nextFollowUpAt: timestamp('next_follow_up_at', { withTimezone: true }),
+    /** The member working it (an active member, checked by the service). */
+    assignedUserId: uuid('assigned_user_id'),
+    /** Visible to the agency's members only (never impersonating staff, never Client Mode, never a read model). */
+    confidentialNotes: text('confidential_notes'),
+    /** The DRAFT listing it became (no FK: properties' table; cleared when that listing is purged). */
+    listingId: uuid('listing_id'),
+    convertedAt: timestamp('converted_at', { withTimezone: true }),
+    createdBy: uuid('created_by'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    /** SHA-256 of the creating member's `Idempotency-Key` (with their user id) and of the request body (24 h replay). */
+    idempotencyHash: text('idempotency_hash'),
+    requestHash: text('request_hash'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** `created_at` to the millisecond (stored): the list's keyset key (S10-02 rule). */
+    createdMs: timestamp('created_ms', { withTimezone: true })
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`date_trunc('milliseconds', created_at, 'UTC')`),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the board: where agency_id = ? and stage = ? and deleted_at is null order by stage_rank, id (a lateral page per
+    // stage; counts are bounded probes on it)
+    index('seller_prospects_board_idx').on(t.agencyId, t.stage, t.stageRank, t.id).where(sql`${t.deletedAt} is null`),
+    // the list: where agency_id = ? and deleted_at is null and (created_ms, id) < (?, ?) order by created_ms desc, id desc
+    index('seller_prospects_created_idx').on(t.agencyId, t.createdMs, t.id).where(sql`${t.deletedAt} is null`),
+    // the list of one stage, same keyset
+    index('seller_prospects_stage_created_idx')
+      .on(t.agencyId, t.stage, t.createdMs, t.id)
+      .where(sql`${t.deletedAt} is null`),
+    // the by-date view: where agency_id = ? and next_follow_up_at >= ? and < ? and (next_follow_up_at, id) > (?, ?)
+    index('seller_prospects_follow_up_idx')
+      .on(t.agencyId, t.nextFollowUpAt, t.id)
+      .where(sql`${t.nextFollowUpAt} is not null and ${t.deletedAt} is null`),
+    // the FK and a merge's re-pointing (deleted ones too)
+    index('seller_prospects_contact_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
+    // one prospect per listing; a purged listing's prospect: where agency_id = ? and listing_id = ?
+    uniqueIndex('seller_prospects_listing_uq').on(t.agencyId, t.listingId).where(sql`${t.listingId} is not null`),
+    // POST replay: where agency_id = ? and idempotency_hash = ?
+    uniqueIndex('seller_prospects_idempotency_uq')
+      .on(t.agencyId, t.idempotencyHash)
+      .where(sql`${t.idempotencyHash} is not null`),
+    check('seller_prospects_stage_ck', sql`${t.stage} in (${prospectStageList})`),
+    check(
+      'seller_prospects_stage_rank_ck',
+      sql`${t.stageRank} ~ '^[0-9a-z]*[1-9a-z]$' and length(${t.stageRank}) <= 200`,
+    ),
+    check('seller_prospects_title_ck', sql`length(${t.title}) between 1 and 200`),
+    check('seller_prospects_address_ck', sql`${t.address} is null or length(${t.address}) between 1 and 300`),
+    check('seller_prospects_area_ck', sql`${t.area} is null or length(${t.area}) between 1 and 120`),
+    check(
+      'seller_prospects_notes_ck',
+      sql`${t.confidentialNotes} is null or length(${t.confidentialNotes}) between 1 and 4000`,
+    ),
+    check(
+      'seller_prospects_price_ck',
+      sql`${t.estimatedPriceCents} is null or ${t.estimatedPriceCents} between 0 and 100000000000000`,
+    ),
+    check(
+      'seller_prospects_currency_ck',
+      sql`(${t.estimatedPriceCents} is null) = (${t.currency} is null) and (${t.currency} is null or ${t.currency} ~ '^[A-Z]{3}$')`,
+    ),
+    check(
+      'seller_prospects_follow_up_ms_ck',
+      sql`${t.nextFollowUpAt} is null or ${t.nextFollowUpAt} = date_trunc('milliseconds', ${t.nextFollowUpAt}, 'UTC')`,
+    ),
+    // converted: listed, with its listing and time (a purged listing leaves the stage and time)
+    check('seller_prospects_converted_ck', sql`${t.listingId} is null or ${t.convertedAt} is not null`),
+    check('seller_prospects_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    foreignKey({
+      name: 'seller_prospects_contact_fk',
+      columns: [t.agencyId, t.contactId],
+      foreignColumns: [contacts.agencyId, contacts.id],
+      // the migration says `ON DELETE SET NULL ("contact_id")` (PostgreSQL 15+; drizzle cannot express the column
+      // list): an erased contact leaves the prospect and its notes, without the seller
+    }).onDelete('set null'),
   ],
 );

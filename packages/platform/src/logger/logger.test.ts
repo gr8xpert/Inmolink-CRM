@@ -196,6 +196,14 @@ describe('logger', () => {
     );
   });
 
+  it('[S10-06] a calendar feed token in a path or a quoted URL is redacted, the rest kept', () => {
+    const token = 'c'.repeat(43);
+    expect(stripQuery(`/v2/calendars/${token}/calendar.ics?lang=es`)).toBe(`/v2/calendars/${REDACTED}/calendar.ics`);
+    expect(redactPathsInText(`GET https://feed.example/v2/calendars/${token}/calendar.ics failed`)).toBe(
+      `GET https://feed.example/v2/calendars/${REDACTED}/calendar.ics failed`,
+    );
+  });
+
   it('[S10-01] a failed query’s bound values (PII) never reach a log line, its cause or a sanitized error', () => {
     const pg = Object.assign(
       new Error('duplicate key value violates unique constraint "contact_emails_agency_email_uq"'),

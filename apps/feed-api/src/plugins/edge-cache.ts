@@ -113,6 +113,15 @@ export const EDGE_CACHE_RULES = {
     cursorPages: false,
     params: [],
   },
+  // S10-06: a member's ICS feed — personal data, never in a shared cache (private, ETag revalidation): a revoked URL
+  // stops at once.
+  '/v2/calendars/:token/calendar.ics': {
+    gate: 'never',
+    sMaxAge: null,
+    staleIfError: 0,
+    cursorPages: false,
+    params: null,
+  },
 } as const satisfies Record<string, EdgeCacheRule>;
 
 export type EdgeRoute = keyof typeof EDGE_CACHE_RULES;

@@ -1,0 +1,93 @@
+{
+  "title": "Calendar",
+  "subtitle": "Viewings, meetings and calls.",
+  "types": {
+    "VIEWING": "Viewing",
+    "MEETING": "Meeting",
+    "CALL": "Call"
+  },
+  "ics": {
+    "name": "Inmolink calendar",
+    "with": "With: {names}"
+  },
+  "email": {
+    "subject": "{kind} soon: {title}",
+    "greeting": "Hello {name},",
+    "body": "Reminder of your {kind}:",
+    "starts": "Starts: {when}",
+    "where": "Where: {location}",
+    "footer": "You receive this reminder because you attend this event."
+  },
+  "views": {
+    "label": "View",
+    "week": "Week",
+    "list": "List"
+  },
+  "scope": {
+    "label": "Show",
+    "mine": "My calendar",
+    "all": "Everyone's events"
+  },
+  "nav": {
+    "previous": "Previous week",
+    "next": "Next week",
+    "today": "This week",
+    "range": "{from} – {to}"
+  },
+  "form": {
+    "heading": "New event",
+    "type": "Type",
+    "title": "Title",
+    "startsAt": "Starts",
+    "duration": "Duration",
+    "minutes": "{count} min",
+    "location": "Location",
+    "remind": "Reminder",
+    "remindNone": "No reminder",
+    "remindAt": "At the start",
+    "remindBefore": "{count} min before",
+    "remindDay": "1 day before",
+    "create": "Add event"
+  },
+  "event": {
+    "cancelled": "Cancelled",
+    "with": "With {names}",
+    "time": "{from} – {to}"
+  },
+  "actions": {
+    "cancel": "Cancel event",
+    "restore": "Restore"
+  },
+  "empty": {
+    "day": "Nothing scheduled.",
+    "list": "No events in this period."
+  },
+  "loadMore": "More events",
+  "feed": {
+    "heading": "Subscribe in Google Calendar or Outlook",
+    "intro": "A private address that shows your events in your own calendar app. Anyone with the address can see your events: keep it secret.",
+    "on": "Subscription address on (ends in …{hint}).",
+    "off": "No subscription address yet.",
+    "create": "Get subscription address",
+    "rotate": "Replace address",
+    "rotateHint": "The current address stops working.",
+    "revoke": "Turn off",
+    "issuedTitle": "Your subscription address",
+    "issuedIntro": "Copy it now: it is shown only once. In Google Calendar choose “Other calendars → From URL”; in Outlook “Add calendar → Subscribe from web”. Changes appear at the app's next refresh.",
+    "url": "Address",
+    "done": "Done",
+    "revoked": "The subscription address was turned off.",
+    "errors": {
+      "FORBIDDEN": "You cannot manage a subscription address here.",
+      "generic": "The address could not be created. Try again."
+    }
+  },
+  "errors": {
+    "generic": "Something went wrong. Try again.",
+    "load": "The calendar could not be loaded.",
+    "VERSION_CONFLICT": "Someone changed this event meanwhile. Reload and try again.",
+    "CALENDAR_EVENT_NOT_FOUND": "This event no longer exists.",
+    "VALIDATION_FAILED": "Check the event's details.",
+    "FORBIDDEN": "You cannot change the calendar."
+  }
+}

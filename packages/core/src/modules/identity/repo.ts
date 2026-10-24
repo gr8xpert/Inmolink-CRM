@@ -590,6 +590,30 @@ export async function activeClientMemberIds(tx: Tx, agencyId: string, limit: num
   return rows.map((r) => r.userId);
 }
 
+/**
+ * S10-06: which of these users are active members of the agency who work clients (calendar attendees). One statement
+ * (primary key `(agency_id, user_id)`).
+ */
+export async function activeClientMembersAmong(
+  tx: Tx,
+  agencyId: string,
+  userIds: readonly string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const rows = await tx
+    .select({ userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .where(
+      and(
+        eq(agencyMembers.agencyId, agencyId),
+        inArray(agencyMembers.userId, [...userIds]),
+        inArray(agencyMembers.role, ['AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT']),
+        isNull(agencyMembers.deactivatedAt),
+      ),
+    );
+  return new Set(rows.map((r) => r.userId));
+}
+
 /** S10-02: an active member's login e-mail, name and UI locale, for a lead notification (`app_system`). */
 export async function memberRecipient(
   tx: Tx,

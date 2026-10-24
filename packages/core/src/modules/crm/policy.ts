@@ -28,6 +28,18 @@ export const CRM_ACTIONS = [
   'crm.tasks.read',
   /** Create, change, complete and delete tasks. */
   'crm.tasks.write',
+  /** The calendar (S10-06): every event of the agency. */
+  'crm.calendar.read',
+  /** Schedule, change and cancel viewings, meetings and calls. */
+  'crm.calendar.write',
+  /** The caller's own ICS feed URL: turn it on, rotate it, revoke it. */
+  'crm.calendar.feed',
+  /** The acquisition board (S10-07): the agency's seller prospects (without their confidential notes). */
+  'crm.prospects.read',
+  /** Add, change, move, delete and convert seller prospects (converting also needs `listing.create`). */
+  'crm.prospects.write',
+  /** A prospect's confidential notes: the agency's own members only, never impersonating staff. */
+  'crm.prospects.confidential',
 ] as const;
 export type CrmAction = (typeof CRM_ACTIONS)[number];
 
@@ -51,6 +63,14 @@ export const CRM_IMPERSONATION: ImpersonationRules<CrmAction> = {
   'crm.activities.write': 'forbidden',
   'crm.tasks.read': 'allowed',
   'crm.tasks.write': 'forbidden',
+  'crm.calendar.read': 'allowed',
+  'crm.calendar.write': 'forbidden',
+  // a feed URL is a credential to the member's calendar: staff never mint or see one
+  'crm.calendar.feed': 'forbidden',
+  'crm.prospects.read': 'allowed',
+  'crm.prospects.write': 'forbidden',
+  // the seller's confidential notes are the agency's alone: staff diagnosing the board see everything but them
+  'crm.prospects.confidential': 'forbidden',
 };
 
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -73,12 +93,27 @@ export function can(ctx: Ctx, action: CrmAction, resource?: { agencyId: string }
     case 'crm.activities.write':
     case 'crm.tasks.read':
     case 'crm.tasks.write':
+    case 'crm.calendar.read':
+    case 'crm.calendar.write':
+    case 'crm.calendar.feed':
+    case 'crm.prospects.read':
+    case 'crm.prospects.write':
+    case 'crm.prospects.confidential':
       return MEMBER_ROLES.has(role);
     case 'crm.contacts.import':
     case 'crm.leads.routing':
     case 'crm.pipeline.manage':
       return ADMIN_ROLES.has(role);
   }
+}
+
+/**
+ * S10-06: who may change a calendar event (edit, cancel, attendees) once `crm.calendar.write` holds — its organizer or
+ * an agency admin.
+ */
+export function canManageEvent(ctx: Ctx, organizerUserId: string): boolean {
+  if (ctx.actor.kind !== 'user') return false;
+  return ctx.actor.userId === organizerUserId || ADMIN_ROLES.has(ctx.actor.role);
 }
 
 export function assertCan(...args: Parameters<typeof can>): void {

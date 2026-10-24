@@ -26,7 +26,9 @@
     "staffConsole": "Staff console",
     "staffVerification": "Verification queue (staff)",
     "pipeline": "Pipeline",
-    "tasks": "Tasks"
+    "tasks": "Tasks",
+    "calendar": "Calendar",
+    "acquisition": "Acquisition"
   },
   "account": {
     "label": "Your account",

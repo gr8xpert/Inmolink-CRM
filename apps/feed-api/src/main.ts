@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as crm from '@inmolink/core/modules/crm';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as migration from '@inmolink/core/modules/migration';
@@ -56,6 +57,8 @@ try {
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
   // S7-07: per-site XML feeds — tokens hashed with HMAC_KEY, files read from the feeds bucket only.
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
+  // S10-06: members' ICS feed tokens — HMACs with the same key (purpose `crm.calendar-feed-token`).
+  crm.configureCalendarFeeds({ tokenKey: config.HMAC_KEY });
   // S9-03: portal feeds — the same token key (purpose `exports.feed-token`); no encryption keys here.
   exportsModule.configureExports({ tokenKey: config.HMAC_KEY });
   configureStorage(storageConfigForBuckets(config, { feeds: config.S3_BUCKET_FEEDS ?? config.S3_BUCKET_EXPORTS }));

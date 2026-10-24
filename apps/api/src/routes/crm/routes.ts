@@ -26,9 +26,11 @@ import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-l
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { crmActivityRoutes } from './activities';
+import { crmCalendarRoutes } from './calendar';
 import { crmKpiRoutes } from './kpis';
 import { crmLeadRoutes } from './leads';
 import { crmPipelineRoutes } from './pipeline';
+import { crmProspectRoutes } from './prospects';
 import { crmTaskRoutes } from './tasks';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -261,6 +263,10 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   await app.register(crmPipelineRoutes);
   // S10-05: tasks and reminders.
   await app.register(crmTaskRoutes);
+  // S10-06: calendar events and the member's ICS feed URL.
+  await app.register(crmCalendarRoutes);
+  // S10-07: the seller acquisition board.
+  await app.register(crmProspectRoutes);
 }
 
 /** One upload at a time per member, four per process: a 25 MB body each. */

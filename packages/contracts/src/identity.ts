@@ -143,6 +143,10 @@ export const DashboardSection = z.enum([
   'pipeline',
   /** My tasks and reminders (S10-05). */
   'tasks',
+  /** The calendar: viewings, meetings, calls and the ICS feed (S10-06). */
+  'calendar',
+  /** The seller acquisition board, list and follow-ups (S10-07). */
+  'acquisition',
 ]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 

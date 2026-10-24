@@ -48,6 +48,12 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     declaredBy: '0080_feed_loader',
   },
   {
+    // a contact merge (S10-07): the agency's listings whose seller was the closed contact
+    name: 'property_privates_seller_idx',
+    table: 'property_privates',
+    definition: `ON "property_privates" USING btree ("agency_id","seller_contact_id") WHERE "property_privates"."seller_contact_id" is not null`,
+  },
+  {
     // staff import health (S6-08): the last 24 h of runs, index-only; feed_runs grows to millions of rows
     name: 'feed_runs_finished_at_idx',
     table: 'feed_runs',

@@ -3,6 +3,7 @@ import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from 
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { apiKeyPlugin, type LocalFailedChecks } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
+import { calendarFeedRoutes, calendarTokenIdentity } from './routes/crm/calendar-feed';
 import { portalFeedRoutes } from './routes/exports/portal-feeds';
 import { legacyV1Routes } from './routes/legacy-v1/routes';
 import { pluginUpdateRoutes } from './routes/plugin-updates/routes';
@@ -62,7 +63,8 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
     identify: {
       ip: (r) => ipBucket(r.ip),
       // S7-07: feed requests carry no key; their token's hash is their `key` identity.
-      key: (r) => r.apiKey?.keyId ?? feedTokenIdentity(r),
+      // S10-06: a calendar feed's token hash, likewise.
+      key: (r) => r.apiKey?.keyId ?? feedTokenIdentity(r) ?? calendarTokenIdentity(r),
       tenant: (r) => r.apiKey?.agencyId,
     },
   });
@@ -74,5 +76,6 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   await app.register(portalFeedRoutes, { ipPerMinute: deps.portalFeedIpPerMinute });
   await app.register(legacyV1Routes);
   await app.register(pluginUpdateRoutes);
+  await app.register(calendarFeedRoutes);
   return app;
 }

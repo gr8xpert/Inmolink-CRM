@@ -142,5 +142,7 @@ export async function purgeStaleLocationFixtures(olderThanMs = 3_600_000): Promi
   });
 }
 
+/** S10-06: the strict RFC 5545 checker of the calendar feed tests (core and feed-api). */
+export { type ParsedEvent, validateIcs } from './ics-validator';
 /** The white-label check (S7-02), shared with app tests (S7-F8 embed detail page). */
 export { stringsOf, type WhiteLabelOwner, whiteLabelLeaks } from './white-label';

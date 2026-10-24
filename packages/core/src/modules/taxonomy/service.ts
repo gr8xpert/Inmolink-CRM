@@ -232,6 +232,9 @@ export async function resolveFeatureAlias(ctx: Ctx, spelling: string): Promise<F
 /** A location's depth and its line (country, region, city, itself) by depth, or null; for listings (S3-F6). */
 export const locationLineage = (tx: Tx, id: string) => repo.lineage(tx, id);
 
+/** Whether a property type exists (crm's seller prospects keep one without a foreign key, S10-07). */
+export const propertyTypeExists = (tx: Tx, id: string) => repo.propertyTypeExists(tx, id);
+
 /** `locationLineage` for many locations at once (feed imports, S6-02): id → its and its ancestors' ids by depth. */
 export const locationLineages = (tx: Tx, ids: readonly string[]) => repo.lineages(tx, ids);
 

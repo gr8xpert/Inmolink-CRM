@@ -74,6 +74,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.promoteInboundLead,
     // S10-05: task reminder e-mails (one per claimed reminder).
     crmJobs.sendTaskReminder,
+    // S10-06: calendar reminder e-mails (one per claimed member attendee).
+    crmJobs.sendEventReminder,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,
@@ -102,6 +104,10 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.forgetListingActivities,
     // S10-05: the minute-by-minute claim of reminders that came due.
     crmJobs.sweepTaskReminders,
+    // S10-06: the minute-by-minute claim of calendar reminders that came.
+    crmJobs.sweepEventReminders,
+    // S10-07: a contact merge moves the seller of the agency's listings to the survivor.
+    crmJobs.repointSellerListings,
   ],
   ai: [],
   social: [],

@@ -59,7 +59,7 @@ export function sendConditional(req: FastifyRequest, reply: FastifyReply, option
 }
 
 /** Whether the client takes gzip (`Accept-Encoding`, ignoring `gzip;q=0`). */
-function acceptsGzip(req: FastifyRequest): boolean {
+export function acceptsGzip(req: FastifyRequest): boolean {
   const header = req.headers['accept-encoding'];
   const value = Array.isArray(header) ? header.join(',') : (header ?? '');
   return value.split(',').some((part) => {

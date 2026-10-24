@@ -2,8 +2,10 @@ import { isAppError } from '@inmolink/platform/errors';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { forgetListingActivities, recordActivity } from './activities';
+import { forgetListingEvents, sendEventReminder, sweepEventReminders } from './calendar';
 import { runContactImport, sweepContactImports } from './import';
 import { promoteInboundLead } from './leads';
+import { forgetListingProspects, repointSellerListings } from './prospects';
 import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
 
 const IMPORT_ATTEMPTS = 3;
@@ -26,10 +28,18 @@ const IMPORT_ATTEMPTS = 3;
  *   (`activities_event_uq`), so a redelivered event or a retried job writes nothing more. A row no month can hold (23514)
  *   fails at once, non-retryable, logged with the event's id.
  * - `crm.forgetListingActivities` (pool `maintenance`, one per `properties.listing.purged` event, job ID = the event's
- *   id): the purged listing leaves the agency's timelines, in batches of 1,000.
+ *   id): the purged listing leaves the agency's timelines, in batches of 1,000 (and its tasks, events and the seller
+ *   prospect it was converted from, S10-07).
+ * - `crm.repointSellerListings` (pool `maintenance`, one per `crm.contact.merged` event, job ID = the event's id,
+ *   S10-07): the agency's listings whose seller was the closed contact name the survivor (`property_privates`, through
+ *   properties' index). Idempotent: a redelivery finds nothing left to move.
  * - `crm.sweepTaskReminders` (pool `maintenance`, every minute, S10-05): claims the tasks that came due and writes one
  *   `crm.task.reminderDue` event each, in the claiming transaction (`FOR UPDATE SKIP LOCKED`: concurrent passes take
  *   different rows).
+ * - `crm.sweepEventReminders` (pool `maintenance`, every minute, S10-06): claims the calendar events whose reminder
+ *   came and writes one `crm.calendarEvent.reminderDue` event per member attendee, in the claiming transaction.
+ * - `crm.sendEventReminder` (pool `email`, one per `crm.calendarEvent.reminderDue` event, job ID = event + remind time +
+ *   member, S10-06): the member's reminder e-mail, once — the send is claimed in the database before it goes out.
  * - `crm.sendTaskReminder` (pool `email`, one per `crm.task.reminderDue` event, job ID = task + due time + claim time, S10-05): the
  *   reminder e-mail, once — the send is claimed in the database before it goes out (`tasks.ts`).
  */
@@ -124,6 +134,34 @@ export const crmJobs = {
     },
   }),
 
+  sweepEventReminders: defineJob({
+    name: 'crm.sweepEventReminders',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 60_000,
+    attempts: 3,
+    timeoutMs: 2 * 60_000,
+    async run(_p, { log, signal }) {
+      const { claimed } = await sweepEventReminders({ signal });
+      if (claimed.length > 0) log.info({ claimed: claimed.length }, 'calendar reminders claimed');
+      return { claimed: claimed.length };
+    },
+  }),
+
+  sendEventReminder: defineJob({
+    name: 'crm.sendEventReminder',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), eventId: z.uuid(), userId: z.uuid(), remindMs: z.number().int() }),
+    jobId: (p) => `${p.eventId}:${p.remindMs}:${p.userId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return sendEventReminder(p);
+    },
+  }),
+
   forgetListingActivities: defineJob({
     name: 'crm.forgetListingActivities',
     pool: 'maintenance',
@@ -136,7 +174,23 @@ export const crmJobs = {
     async run(p) {
       const activities = await forgetListingActivities(p);
       const tasks = await forgetListingTasks(p);
-      return { ...activities, tasks: tasks.rows };
+      const events = await forgetListingEvents(p);
+      const prospects = await forgetListingProspects(p);
+      return { ...activities, tasks: tasks.rows, events: events.rows, prospects: prospects.rows };
+    },
+  }),
+
+  repointSellerListings: defineJob({
+    name: 'crm.repointSellerListings',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), survivorId: z.uuid(), mergedId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return repointSellerListings(p);
     },
   }),
 

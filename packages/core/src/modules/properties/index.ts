@@ -84,6 +84,7 @@ export {
   READ_MODEL_LISTING_STATUSES,
   type ReadModelListing,
 } from './read-models';
+export { repointSellerContact } from './sellers';
 export {
   assertListingReadable,
   createListing,
