@@ -95,3 +95,73 @@ describe('ICS writer (RFC 5545)', () => {
     expect(validateIcs('BEGIN:VCALENDAR\nVERSION:2.0\r\nEND:VCALENDAR\r\n').problems).not.toEqual([]);
   });
 });
+
+describe('fast paths (S11-F7)', () => {
+  /** The S10-06 implementations, kept as the reference the fast ones must match byte for byte. */
+  const referenceFold = (line: string) => {
+    const out: string[] = [];
+    let current = '';
+    let octets = 0;
+    for (const ch of line) {
+      const size = Buffer.byteLength(ch, 'utf8');
+      if (octets + size > 75) {
+        out.push(current);
+        current = ` ${ch}`;
+        octets = 1 + size;
+      } else {
+        current += ch;
+        octets += size;
+      }
+    }
+    out.push(current);
+    return out.join('\r\n');
+  };
+  const referenceEscape = (value: string) =>
+    value
+      .replace(/\r\n?|[\u2028\u2029]/g, '\n')
+      .replace(/(?![\n\t])\p{Cc}/gu, '')
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\n/g, '\\n');
+
+  it('[S11-F7] folding and escaping give the same bytes as the reference on ASCII, accents, emoji and controls', () => {
+    const alphabet = [
+      'a',
+      'Z',
+      ' ',
+      '~',
+      'é',
+      'ñ',
+      '€',
+      '中',
+      '😀',
+      '\uD800',
+      ';',
+      ',',
+      '\\',
+      '\n',
+      '\r',
+      '\t',
+      '\u0007',
+      '\u2028',
+    ];
+    let seed = 7;
+    const next = () => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed;
+    };
+    for (let n = 0; n < 2_000; n += 1) {
+      const length = next() % 240;
+      let s = '';
+      for (let i = 0; i < length; i += 1) s += alphabet[next() % alphabet.length];
+      expect(escapeText(s)).toBe(referenceEscape(s));
+      const line = `DESCRIPTION:${referenceEscape(s)}`;
+      expect(foldLine(line)).toBe(referenceFold(line));
+      expect(foldLine(s)).toBe(referenceFold(s));
+    }
+    expect(foldLine('')).toBe('');
+    expect(foldLine('x'.repeat(75))).toBe('x'.repeat(75));
+    expect(foldLine('x'.repeat(76))).toBe(`${'x'.repeat(75)}\r\n x`);
+  });
+});

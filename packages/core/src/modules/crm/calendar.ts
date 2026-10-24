@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import {
@@ -497,9 +498,21 @@ export interface CalendarFeedFile {
   body: string;
   /** The same, gzip-compressed (≤ `FEED_MAX_GZIP_BYTES`). */
   gzip: Buffer;
-  /** Strong ETag: the body's hash. */
+  /**
+   * `renderCalendarFeed`: a strong ETag (the body's hash). `calendarFeed`: the feed's weak ETag (`calendarFeedTag`),
+   * so a later If-None-Match is answered from the fingerprint alone.
+   */
   etag: string;
 }
+
+/** Changes every feed's ETag when what a feed renders changes shape (a release that changes the ICS output). */
+const FEED_TAG_FORMAT = 1;
+/**
+ * The ETag also changes every hour: attendees' names (a member or contact renamed, a contact merged) and which events a
+ * capped feed keeps (upcoming ones first, relative to now) change the document without changing any event's version —
+ * they reach subscribers within the hour (plus `CALENDAR_FEED_MAX_AGE_S` and their poll).
+ */
+export const FEED_TAG_BUCKET_MS = 3_600_000;
 
 const gzipAsync = promisify(gzip);
 
@@ -508,9 +521,23 @@ export const FEED_TEXT_CHARS = 300;
 /** The feed's compressed size cap (the feed-api 150 KB budget): the farthest events are dropped to stay under it. */
 export const FEED_MAX_GZIP_BYTES = 150 * 1024;
 
+/** A placeholder no name holds (names are one-line text): where the attendees' names go in the translated line. */
+const NAMES_SLOT = '<<names>>';
+
 const clip = (text: string, max: number) => {
-  const chars = Array.from(text);
-  return chars.length <= max ? text : `${chars.slice(0, max - 1).join('')}…`;
+  // at most `max` UTF-16 units is at most `max` characters: no need to split it (S11-F7)
+  if (text.length <= max) return text;
+  // walk code points only as far as needed (no array of every character)
+  let end = 0;
+  let count = 0;
+  let cut = 0;
+  while (end < text.length) {
+    if (count === max - 1) cut = end;
+    if (count === max) return `${text.slice(0, cut)}…`;
+    end += (text.codePointAt(end) as number) > 0xffff ? 2 : 1;
+    count += 1;
+  }
+  return text;
 };
 
 /**
@@ -530,13 +557,27 @@ export function feedPriority(rows: readonly repo.FeedEventRow[], now: Date, max:
  */
 export async function renderCalendarFeed(
   rows: readonly repo.FeedEventRow[],
-  opts: { locale: string; now: Date },
+  opts: { locale: string; now: Date; etag?: string },
 ): Promise<CalendarFeedFile> {
+  // the caller's ETag when it has one (`calendarFeed`: the fingerprint's), else the body's hash
+  const tagOf = (text: string) => opts.etag ?? etagFor(text);
   const locale = isUiLocale(opts.locale) ? opts.locale : DEFAULT_UI_LOCALE;
   const t = translator(locale, 'calendar');
-  let kept = feedPriority(rows, opts.now, FEED_MAX_EVENTS);
-  for (;;) {
-    const events: IcsEvent[] = [...kept]
+  const kept = feedPriority(rows, opts.now, FEED_MAX_EVENTS);
+  // the attendees line formatted once, filled per event (S11-F7: a message format per event adds up at 1,000)
+  const [withBefore = '', withAfter = ''] = t('ics.with', { names: NAMES_SLOT }).split(NAMES_SLOT);
+  const withLine = (names: string) => `${withBefore}${names}${withAfter}`;
+  const categories = new Map<string, string>();
+  const categoryOf = (type: string) => {
+    let name = categories.get(type);
+    if (name === undefined) {
+      name = t(`types.${type as 'VIEWING' | 'MEETING' | 'CALL'}`);
+      categories.set(type, name);
+    }
+    return name;
+  };
+  const render = (keep: readonly repo.FeedEventRow[]) => {
+    const events: IcsEvent[] = [...keep]
       .sort((x, y) => x.startsAt.getTime() - y.startsAt.getTime() || (x.id < y.id ? -1 : 1))
       .map((r) => {
         const people = [...r.memberNames, ...r.contactNames];
@@ -550,18 +591,70 @@ export async function renderCalendarFeed(
           status: r.status,
           version: r.version,
           updatedAt: r.updatedAt,
-          category: t(`types.${r.type as 'VIEWING' | 'MEETING' | 'CALL'}`),
-          notes: people.length > 0 ? [clip(t('ics.with', { names: people.join(', ') }), FEED_TEXT_CHARS)] : [],
+          category: categoryOf(r.type),
+          notes: people.length > 0 ? [clip(withLine(people.join(', ')), FEED_TEXT_CHARS)] : [],
         };
       });
-    const body = renderIcs({ name: t('ics.name'), refreshMinutes: FEED_REFRESH_MINUTES, events });
-    const zipped = await gzipAsync(Buffer.from(body, 'utf8'));
-    if (zipped.byteLength <= FEED_MAX_GZIP_BYTES || kept.length === 0) {
-      return { body, gzip: zipped, etag: etagFor(body) };
+    return renderIcs({ name: t('ics.name'), refreshMinutes: FEED_REFRESH_MINUTES, events });
+  };
+  const body = render(kept);
+  const zipped = await gzipAsync(Buffer.from(body, 'utf8'));
+  // the common case: one render, one gzip
+  if (zipped.byteLength <= FEED_MAX_GZIP_BYTES || kept.length === 0) return { body, gzip: zipped, etag: tagOf(body) };
+  // over the cap: one cut from the measured ratio, with a 15 % margin (the events dropped are similar to those kept)
+  let n = Math.floor((kept.length * FEED_MAX_GZIP_BYTES * 0.85) / zipped.byteLength);
+  for (;;) {
+    const cutBody = render(kept.slice(0, n));
+    const cutZipped = await gzipAsync(Buffer.from(cutBody, 'utf8'));
+    if (cutZipped.byteLength <= FEED_MAX_GZIP_BYTES || n === 0) {
+      return { body: cutBody, gzip: cutZipped, etag: tagOf(cutBody) };
     }
-    // keep a share that should fit (a little under, so one more pass is rare)
-    kept = kept.slice(0, Math.floor((kept.length * FEED_MAX_GZIP_BYTES * 0.9) / zipped.byteLength));
+    // a margin miss (rare): cut again by the new ratio
+    n = Math.floor((n * FEED_MAX_GZIP_BYTES * 0.85) / cutZipped.byteLength);
   }
+}
+
+function feedRange(now: Date) {
+  return {
+    from: new Date(now.getTime() - FEED_PAST_DAYS * 86_400_000),
+    now,
+    to: new Date(now.getTime() + FEED_FUTURE_DAYS * 86_400_000),
+  };
+}
+
+const feedLocale = (locale: string | undefined) => (locale && isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
+
+/** The weak ETag of a feed: its events' fingerprint, the locale, the hour and the format (opaque, ≤ 40 characters). */
+function feedTag(f: repo.FeedFingerprint, locale: string, now: Date): string {
+  const parts = [FEED_TAG_FORMAT, locale, Math.floor(now.getTime() / FEED_TAG_BUCKET_MS)];
+  parts.push(f.events, f.versions.toString(), f.ids.toString(), f.updatedMs);
+  return `W/"${createHash('sha256').update(parts.join(':')).digest('base64url').slice(0, 27)}"`;
+}
+
+/** The token's candidate hashes, current key first (inside the rotation window, the previous key's too). */
+function tokenHashes(token: string): string[] {
+  if (!tokenKey) throw new Error('crm: configureCalendarFeeds() was not called');
+  return [...hmacSha256Candidates(tokenKey, TOKEN_PURPOSE, token)];
+}
+
+/**
+ * feed-api (`app_public`), before rendering: the weak ETag the feed this token names would answer now — one statement
+ * (the SECURITY DEFINER `calendar_feed_tag`: no names, no texts, no render, no gzip), so a matching If-None-Match is a
+ * 304 at once. `CALENDAR_FEED_NOT_FOUND` like `calendarFeed`.
+ */
+export async function calendarFeedTag(token: string, opts: { locale?: string; now?: Date } = {}): Promise<string> {
+  const now = opts.now ?? new Date();
+  const range = feedRange(now);
+  const hashes = tokenHashes(token);
+  const found = await withPublicRead(async (tx) => {
+    for (const hash of hashes) {
+      const f = await repo.feedFingerprint(tx, hash, range, FEED_MAX_EVENTS);
+      if (f) return f;
+    }
+    return null;
+  });
+  if (!found) throw new AppError('CALENDAR_FEED_NOT_FOUND');
+  return feedTag(found, feedLocale(opts.locale), now);
 }
 
 /**
@@ -574,22 +667,19 @@ export async function calendarFeed(
   token: string,
   opts: { locale?: string; now?: Date } = {},
 ): Promise<CalendarFeedFile> {
-  if (!tokenKey) throw new Error('crm: configureCalendarFeeds() was not called');
-  const key = tokenKey;
   const now = opts.now ?? new Date();
-  const range = {
-    from: new Date(now.getTime() - FEED_PAST_DAYS * 86_400_000),
-    now,
-    to: new Date(now.getTime() + FEED_FUTURE_DAYS * 86_400_000),
-  };
+  const range = feedRange(now);
+  const hashes = tokenHashes(token);
   // the current key, then (inside its window) the previous one: a URL issued before a rotation keeps working
   const rows = await withPublicRead(async (tx) => {
-    for (const hash of hmacSha256Candidates(key, TOKEN_PURPOSE, token)) {
+    for (const hash of hashes) {
       const found = await repo.feedEvents(tx, hash, range, FEED_MAX_EVENTS);
       if (found) return found;
     }
     return null;
   });
   if (!rows) throw new AppError('CALENDAR_FEED_NOT_FOUND');
-  return renderCalendarFeed(rows, { locale: opts.locale ?? DEFAULT_UI_LOCALE, now });
+  const locale = feedLocale(opts.locale);
+  // the weak ETag `calendarFeedTag` answers for the same feed, computed from these rows (no second statement)
+  return renderCalendarFeed(rows, { locale, now, etag: feedTag(repo.fingerprintOf(rows), locale, now) });
 }

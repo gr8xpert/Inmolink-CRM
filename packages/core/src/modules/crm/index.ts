@@ -11,6 +11,7 @@ export {
   type CalendarFeedFile,
   calendarFeed,
   calendarFeedPath,
+  calendarFeedTag,
   configureCalendarFeeds,
   createCalendarEvent,
   forgetListingEvents,

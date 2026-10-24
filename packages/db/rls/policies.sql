@@ -84,30 +84,76 @@ create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts ti
             join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
             join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
            where f.token_hash = hash and f.revoked_at is null),
+        upcoming as (
+          select a.agency_id, a.event_id from feed
+            join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+           where a.starts_at >= now_ts and a.starts_at < to_ts
+           order by a.starts_at, a.event_id limit greatest(max_events, 0)),
         picked as (
-          (select a.agency_id, a.event_id from feed
-             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
-            where a.starts_at >= now_ts and a.starts_at < to_ts
-            order by a.starts_at, a.event_id limit greatest(max_events, 0))
+          select agency_id, event_id from upcoming
           union all
+          -- S11-F7: recent events only fill what the upcoming ones leave (the feed keeps upcoming ones first)
           (select a.agency_id, a.event_id from feed
              join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
             where a.starts_at >= from_ts and a.starts_at < now_ts
-            order by a.starts_at desc, a.event_id desc limit greatest(max_events, 0)))
+            order by a.starts_at desc, a.event_id desc
+            limit greatest(max_events - (select count(*) from upcoming), 0)))
         select e.id, e.type, e.title, e.description, e.location, e.starts_at, e.ends_at, e.status, e.version,
-               e.updated_at,
-          (select array_agg(m2.name order by m2.name) from public.calendar_event_attendees a2
-             join public.agency_members m2 on m2.agency_id = a2.agency_id and m2.user_id = a2.user_id
-            where a2.agency_id = e.agency_id and a2.event_id = e.id and a2.user_id is not null),
-          (select array_agg(n order by n) from (select distinct btrim(concat_ws(' ', c.first_name, c.last_name)) as n
-             from public.calendar_event_attendees a3
-             join public.contacts c on c.agency_id = a3.agency_id and c.id = a3.contact_id and c.deleted_at is null
-            where a3.agency_id = e.agency_id and a3.event_id = e.id and a3.contact_id is not null) s where n <> '')
+               e.updated_at, names.member_names, names.contact_names
           from feed
           left join picked p on p.agency_id = feed.agency_id
-          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) from public;
+          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
+          -- S11-F7: one pass over the event's attendees for both lists (was two)
+          left join lateral (
+            select array_agg(x.member_name order by x.member_name) filter (where x.member_id is not null) as member_names,
+                   array_agg(distinct x.contact_name order by x.contact_name)
+                     filter (where x.contact_name <> '') as contact_names
+              from (select m2.user_id as member_id, m2.name as member_name,
+                           case when c.id is not null then btrim(concat_ws(' ', c.first_name, c.last_name)) end
+                             as contact_name
+                      from public.calendar_event_attendees a2
+                      left join public.agency_members m2
+                        on a2.user_id is not null and m2.agency_id = a2.agency_id and m2.user_id = a2.user_id
+                      left join public.contacts c
+                        on a2.contact_id is not null and c.agency_id = a2.agency_id and c.id = a2.contact_id
+                       and c.deleted_at is null
+                     where a2.agency_id = e.agency_id and a2.event_id = e.id) x) names on e.id is not null $$;
+drop function if exists calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer);
+create function calendar_feed_tag(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
+    max_events integer)
+  returns table(events bigint, versions bigint, ids numeric, updated_ms bigint)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ with feed as (
+          select f.agency_id, f.user_id from public.calendar_feeds f
+            join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
+             and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
+            join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
+            join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
+           where f.token_hash = hash and f.revoked_at is null),
+        upcoming as (
+          select a.agency_id, a.event_id from feed
+            join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+           where a.starts_at >= now_ts and a.starts_at < to_ts
+           order by a.starts_at, a.event_id limit greatest(max_events, 0)),
+        picked as (
+          select agency_id, event_id from upcoming
+          union all
+          -- S11-F7: recent events only fill what the upcoming ones leave (the feed keeps upcoming ones first)
+          (select a.agency_id, a.event_id from feed
+             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
+            where a.starts_at >= from_ts and a.starts_at < now_ts
+            order by a.starts_at desc, a.event_id desc
+            limit greatest(max_events - (select count(*) from upcoming), 0)))
+        select count(e.id), coalesce(sum(e.version), 0)::bigint,
+               coalesce(sum(('x' || right(e.id::text, 12))::bit(48)::bigint), 0),
+               coalesce(floor(extract(epoch from max(e.updated_at)) * 1000)::bigint, 0)
+          from feed
+          left join picked p on p.agency_id = feed.agency_id
+          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
+         group by feed.agency_id, feed.user_id $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) from public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
+grant execute on function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
@@ -115,6 +161,7 @@ alter function legacy_target_ids(text[]) owner to app_owner;
 alter function legacy_ids_of(uuid[]) owner to app_owner;
 alter function portal_feed_by_token(text) owner to app_owner;
 alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
+alter function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;

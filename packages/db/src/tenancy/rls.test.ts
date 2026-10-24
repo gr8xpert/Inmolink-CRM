@@ -167,8 +167,8 @@ describe('RLS generator', () => {
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
     // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
-    // calendar feed token lookup (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(6);
+    // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(7);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -280,6 +280,27 @@ describe('RLS generator', () => {
       expect(table).toContain(`create policy definer_read on public."${t}" for select to app_owner using (true);`);
       expect(table).not.toMatch(/to [^;]*app_public/);
     }
+  });
+
+  it('[S11-F7] calendar_feed_tag fingerprints the same feed and events as calendar_feed_by_token: numbers only, app_public', () => {
+    const sig = 'calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer)';
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('calendar_feed_tag');
+    expect(out).toContain(`drop function if exists ${sig};`);
+    const tag = out.split('create function calendar_feed_tag(')[1]?.split('$$;')[0] ?? '';
+    const events = out.split('create function calendar_feed_by_token(')[1]?.split('$$;')[0] ?? '';
+    expect(tag).toContain('security definer set search_path = pg_catalog, pg_temp');
+    // the same access rules and event set, word for word
+    const shared = (body: string) => body.split('as $$ ')[1]?.split('picked as (')[1]?.split('        select ')[0];
+    expect(shared(tag)).toBeTruthy();
+    expect(shared(tag)).toBe(shared(events));
+    expect(tag).toContain('f.token_hash = hash and f.revoked_at is null');
+    // ids, versions, counts and a timestamp only: no texts, names, e-mails or phones
+    expect(tag).toContain('returns table(events bigint, versions bigint, ids numeric, updated_ms bigint)');
+    expect(tag).not.toMatch(/title|description|location|name|email|phone/);
+    expect(out).toContain(`grant execute on function ${sig} to app_public;`);
+    expect(out).not.toMatch(/calendar_feed_tag\([^)]*\) to [^;]*app_(?:user|system|auth|staff)/);
+    const owner = `alter function ${sig} owner to app_owner;`;
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create function calendar_feed_tag('));
   });
 
   it('[S9-review] portal_feed_by_token is owned by app_owner (its definer_read policy), set after it is recreated', () => {

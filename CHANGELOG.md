@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- ICS calendar feed answers a matching `If-None-Match` with a 304 from one fingerprint statement (`calendar_feed_tag`, weak ETag); ≤ 1,000 rows read, faster render (S11-F7).
 - Chat (S11-03): DIRECT and VIEWING threads with per-agency copies, participant-only message RLS, `/chat` realtime with typing and per-user limits, read receipts, `CHAT_MESSAGE` notifications into the 5-minute digest, WhatsApp / e-mail handoff links; end-to-end fan-out p95 392 ms at 1,000 sockets; migration 0135. No new external dependency (`@inmolink/db` workspace devDependency of apps/realtime).
 - Audit rows for ICS feed issue / rotate / revoke, contact merges, contact import starts and every client-data read made under impersonation (S11-F2). No new dependency.
 - Activities type filter index-driven (per-type keyset merge); `leads_agency_assigned_status_created_idx` for "my open leads" (S11-F6). One reminder helper for tasks and calendar; agency time zone (`agency_settings.time_zone`, default Europe/Madrid) drives today / overdue, calendar, reminder and acquisition times, with a settings select (S11-F11). Migration 0134; no new dependency.

@@ -461,7 +461,7 @@ export interface FeedEventRow {
 /**
  * feed-api (`app_public`): the events of the live feed with this token hash, through the SECURITY DEFINER
  * `calendar_feed_by_token` (app_public reads no calendar, contact, member or user table itself): up to `max` upcoming
- * ones (`[now, to)`) and up to `max` recent ones (`[from, now)`), unordered. Null for an unknown, rotated or revoked
+ * ones (`[now, to)`) and the most recent ones (`[from, now)`) up to `max` in all (S11-F7), unordered. Null for an unknown, rotated or revoked
  * token or a member who lost access; else the events (possibly none). One statement.
  */
 export async function feedEvents(
@@ -506,4 +506,55 @@ export async function feedEvents(
       memberNames: r.member_names ?? [],
       contactNames: r.contact_names ?? [],
     }));
+}
+
+/** The fingerprint of a feed's events (S11-F7): what `feedEvents` answers for the same arguments, as numbers. */
+export interface FeedFingerprint {
+  events: number;
+  /** Sum of the events' versions. */
+  versions: bigint;
+  /** Sum of the events' ids' last 48 bits (UUIDv7: the random tail). */
+  ids: bigint;
+  /** The latest `updated_at`, epoch milliseconds (0 without events). */
+  updatedMs: number;
+}
+
+/**
+ * feed-api (`app_public`): the fingerprint of the live feed with this token hash, through the SECURITY DEFINER
+ * `calendar_feed_tag` — the same feed, access rules and event set as `feedEvents`, without names or texts. Null for an
+ * unknown, rotated or revoked token or a member who lost access. One statement.
+ */
+export async function feedFingerprint(
+  tx: Tx,
+  tokenHash: string,
+  range: { from: Date; now: Date; to: Date },
+  max: number,
+): Promise<FeedFingerprint | null> {
+  const res = await tx.execute(sql`
+    select events, versions, ids::text as ids, updated_ms
+      from calendar_feed_tag(${tokenHash}, ${range.from.toISOString()}::timestamptz,
+        ${range.now.toISOString()}::timestamptz, ${range.to.toISOString()}::timestamptz, ${max})`);
+  const row = res.rows[0] as
+    | { events: string | number; versions: string | number; ids: string; updated_ms: string | number }
+    | undefined;
+  if (!row) return null;
+  return {
+    events: Number(row.events),
+    versions: BigInt(row.versions),
+    ids: BigInt(row.ids),
+    updatedMs: Number(row.updated_ms),
+  };
+}
+
+/** The same fingerprint, from the rows `feedEvents` answered (the 200 path computes its ETag without a second query). */
+export function fingerprintOf(rows: readonly FeedEventRow[]): FeedFingerprint {
+  let versions = 0n;
+  let ids = 0n;
+  let updatedMs = 0;
+  for (const r of rows) {
+    versions += BigInt(r.version);
+    ids += BigInt(`0x${r.id.slice(-12)}`);
+    updatedMs = Math.max(updatedMs, Math.floor(r.updatedAt.getTime()));
+  }
+  return { events: rows.length, versions, ids, updatedMs };
 }

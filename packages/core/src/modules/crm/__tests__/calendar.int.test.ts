@@ -430,7 +430,8 @@ describe('ICS feed', () => {
     expect(ev?.text('DESCRIPTION')).toContain('Agent Calendario');
     expect(ev?.raw('SEQUENCE')).toBe('0');
     expect(feed.body).not.toContain(`marta-${RUN}`);
-    expect(feed.body).not.toContain('600');
+    // the phone's digits, not '600' alone: a DTSTAMP like T143600Z holds those (S11-F7: flaked on the clock)
+    expect(feed.body).not.toMatch(/600 ?111 ?222|600111222/);
     expect(feed.body).not.toContain(agent.email);
     // the agent attends it too, so it is in the agent's feed; the agent's own call as well
     const agentFeed = await crm.calendarFeed((await as(agent, (ctx) => crm.rotateCalendarFeed(ctx))).token);
