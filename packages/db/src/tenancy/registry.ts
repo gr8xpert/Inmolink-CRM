@@ -798,6 +798,16 @@ export const tenantTables: Record<string, TenantTable> = {
   // generated suite seeds no parent listing for the queue (composite FK); its own rows are tested in media.
   feed_image_queue: { kind: 'STRICT', base: { urls: '{https://example.com/a.jpg}' } },
   feed_image_sources: { kind: 'STRICT', base: { url_key: ISOLATION_SHA256, sha256: ISOLATION_SHA256 } },
+  // S10-01: CRM contacts (the agency's clients: PII), their e-mails, phones, notes and CSV imports — own agency only.
+  contacts: { kind: 'STRICT', base: { types: '{BUYER}', source: 'MANUAL' } },
+  contact_emails: { kind: 'STRICT', base: { email: 'isolation@example.com' } },
+  contact_phones: { kind: 'STRICT', base: { phone: '+34600000000' } },
+  contact_notes: { kind: 'STRICT', base: { body: 'isolation' } },
+  contact_facets: { kind: 'STRICT', base: { facet: 'tag:isolation' } },
+  contact_imports: {
+    kind: 'STRICT',
+    base: { file_kind: 'csv', file_bytes: 1, status: 'UPLOADED', on_duplicate: 'SKIP', errors: '[]' },
+  },
 };
 
 /**

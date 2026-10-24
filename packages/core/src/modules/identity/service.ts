@@ -473,6 +473,14 @@ function toInviteDto(row: repo.InviteRow): InviteDto {
   };
 }
 
+/**
+ * Whether `userId` is an active member of the caller's agency (S10-01: a contact's responsible agent). One primary-key
+ * lookup; no authorization of its own — the calling module authorized its use case.
+ */
+export async function isActiveMember(ctx: Ctx, userId: string): Promise<boolean> {
+  return (await repo.findMemberRole(ctx.tx, ctx.tenant.agencyId, userId)) !== null;
+}
+
 /** The caller's team, deactivated members included, oldest first. */
 export async function listMembers(ctx: Ctx, q: PageQuery): Promise<MemberPage> {
   assertCan(ctx, 'identity.members.read');

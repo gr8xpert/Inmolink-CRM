@@ -834,6 +834,13 @@
       "when": 1792767550020,
       "tag": "0118_s8_f26_api_keys_guard_v4",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1792800118390,
+      "tag": "0119_s10_01_crm_contacts",
+      "breakpoints": true
     }
   ]
 }

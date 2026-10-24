@@ -1,5 +1,6 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
+import { crmJobs } from '@inmolink/core/modules/crm';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
@@ -25,6 +26,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     propertiesJobs.runBulkAction,
     mediaJobs.importFeedImages,
     mediaJobs.sweepFeedImages,
+    // S10-01: CSV / Excel contact imports.
+    crmJobs.importContacts,
   ],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [
@@ -86,6 +89,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S7-F1: uploaded sheets — a released file is deleted, idle (30 days) and orphaned files are swept daily.
     importsJobs.deleteSheet,
     importsJobs.sweepSheets,
+    // S10-01: contact import uploads never started are expired daily.
+    crmJobs.sweepContactImports,
   ],
   ai: [],
   social: [],

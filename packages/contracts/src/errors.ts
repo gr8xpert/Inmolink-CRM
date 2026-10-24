@@ -232,6 +232,21 @@ export const ErrorCodes = {
   FEED_MAPPING_REQUIRED: 422,
   /** S6-F4: a connector setting is not valid for this connector (e.g. a Resales filter alias other than 1-4). */
   FEED_SETTINGS_INVALID: 422,
+  // crm: contacts (S10-01)
+  CONTACT_NOT_FOUND: 404,
+  /** An e-mail or phone already belongs to a contact (`details.matches`): offer the merge instead (`mergeInto`). */
+  CONTACT_DUPLICATE: 409,
+  /** A phone is not a valid number for its country (`details.index`: which one). */
+  CONTACT_PHONE_INVALID: 422,
+  /** A merge into itself, or `mergeInto` naming a contact that matches none of the e-mails / phones sent. */
+  CONTACT_MERGE_INVALID: 409,
+  /** The merged contact would have more e-mails, phones or tags than `CONTACT_LIMITS` (`details.field`). */
+  CONTACT_MERGE_LIMIT: 409,
+  CONTACT_IMPORT_NOT_FOUND: 404,
+  /** The import was already started (or expired): upload the file again. */
+  CONTACT_IMPORT_STARTED: 409,
+  /** The upload is not a CSV / Excel file we can read, or it has no data rows (`details.reason`). */
+  CONTACT_IMPORT_FILE_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

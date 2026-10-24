@@ -1,6 +1,7 @@
 import * as agencies from '@inmolink/core/modules/agencies';
 import * as billing from '@inmolink/core/modules/billing';
 import * as compliance from '@inmolink/core/modules/compliance';
+import * as crm from '@inmolink/core/modules/crm';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as developments from '@inmolink/core/modules/developments';
 import * as exports from '@inmolink/core/modules/exports';
@@ -40,6 +41,7 @@ export const MODULES = {
   'website-api': websiteApi,
   'plugin-updates': pluginUpdates,
   exports,
+  crm,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -53,6 +55,8 @@ export function registerSubscriptions(): void {
   developments.registerDevelopmentsSubscriptions();
   search.registerSearchSubscriptions();
   imports.registerImportsSubscriptions();
+  // S10-01: a started contact import queues its run.
+  crm.registerCrmSubscriptions();
   websites.registerWebsitesSubscriptions();
   websiteApi.registerWebsiteApiSubscriptions();
   // S9-03: the portal feed generator's subscriptions live behind the worker-only entry.

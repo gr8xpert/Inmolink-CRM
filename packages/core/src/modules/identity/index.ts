@@ -46,6 +46,7 @@ export {
   changeMemberRole,
   deactivateMember,
   inviteMember,
+  isActiveMember,
   isSessionValid,
   issueAccessToken,
   listInvites,

@@ -1,0 +1,99 @@
+{
+  "title": "Contacts",
+  "empty": "No contacts yet.",
+  "fields": {
+    "firstName": "First name",
+    "lastName": "Last name",
+    "emails": "E-mails",
+    "phones": "Phones",
+    "language": "Language",
+    "source": "Source",
+    "tags": "Tags",
+    "types": "Type",
+    "owner": "Responsible agent",
+    "consentMarketing": "Agrees to marketing",
+    "consentProcessing": "Agrees to data processing",
+    "doNotContact": "Do not contact",
+    "notes": "Notes"
+  },
+  "types": {
+    "BUYER": "Buyer",
+    "SELLER": "Seller",
+    "TENANT": "Tenant",
+    "LANDLORD": "Landlord"
+  },
+  "sources": {
+    "MANUAL": "Added by hand",
+    "WEBSITE": "Website",
+    "PORTAL": "Portal",
+    "IMPORT": "Import",
+    "REFERRAL": "Referral",
+    "WALK_IN": "Walk-in",
+    "PHONE": "Phone call",
+    "SOCIAL": "Social media",
+    "OTHER": "Other"
+  },
+  "duplicate": {
+    "title": "This person may already be a contact",
+    "body": "{count, plural, one {A contact already has this e-mail or phone.} other {# contacts already have these e-mails or phones.}} Add the new details to the existing contact instead of creating a second one.",
+    "merge": "Add to existing contact",
+    "cancel": "Cancel"
+  },
+  "merge": {
+    "title": "Merge contacts",
+    "body": "The other contact's e-mails, phones, notes, leads, activities, tasks and registrations move to this contact, and the other contact is closed. This cannot be undone.",
+    "confirm": "Merge"
+  },
+  "import": {
+    "title": "Import contacts",
+    "upload": "Upload a CSV or Excel file",
+    "mapping": "Which column holds what",
+    "onDuplicate": "When a row matches an existing contact",
+    "SKIP": "Skip the row",
+    "MERGE": "Add its new details to the contact",
+    "defaultTypes": "Type for rows without one",
+    "tags": "Tag every imported contact",
+    "phoneCountry": "Country for phone numbers without a prefix",
+    "consentProcessing": "These people agreed to the processing of their data",
+    "start": "Start import",
+    "mapFields": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "fullName": "Full name",
+      "emails": "E-mail",
+      "phones": "Phone",
+      "language": "Language",
+      "tags": "Tags",
+      "types": "Type",
+      "consentMarketing": "Agrees to marketing (yes/no)",
+      "doNotContact": "Do not contact (yes/no)",
+      "note": "Note"
+    },
+    "status": {
+      "UPLOADED": "Waiting for the mapping",
+      "QUEUED": "Queued",
+      "RUNNING": "Importing",
+      "SUCCEEDED": "Done",
+      "FAILED": "Failed",
+      "EXPIRED": "Expired"
+    },
+    "counts": "{created} created · {merged} merged · {skipped} skipped · {invalid} not imported",
+    "rowErrors": {
+      "NO_IDENTITY": "No name, e-mail or phone",
+      "INVALID_EMAIL": "An e-mail is not valid",
+      "INVALID_PHONE": "A phone number is not valid",
+      "TOO_LONG": "A name is too long",
+      "DUPLICATE_RACE": "Another contact took an e-mail or phone of this row meanwhile"
+    }
+  },
+  "errors": {
+    "CONTACT_NOT_FOUND": "This contact does not exist or was merged into another one.",
+    "CONTACT_DUPLICATE": "An e-mail or phone already belongs to another contact.",
+    "CONTACT_PHONE_INVALID": "A phone number is not valid.",
+    "CONTACT_MERGE_INVALID": "These contacts cannot be merged.",
+    "CONTACT_IMPORT_NOT_FOUND": "This import does not exist.",
+    "CONTACT_IMPORT_STARTED": "This import was already started. Upload the file again to import it once more.",
+    "CONTACT_IMPORT_FILE_INVALID": "This file is not a CSV or Excel file we can read, or it has no rows.",
+    "CONTACT_MERGE_LIMIT": "The merged contact would have too many e-mails, phones or tags. Remove some first."
+  }
+}

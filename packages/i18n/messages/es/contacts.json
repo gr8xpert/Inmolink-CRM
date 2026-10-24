@@ -1,0 +1,99 @@
+{
+  "title": "Contactos",
+  "empty": "Todavía no hay contactos.",
+  "fields": {
+    "firstName": "Nombre",
+    "lastName": "Apellidos",
+    "emails": "Correos electrónicos",
+    "phones": "Teléfonos",
+    "language": "Idioma",
+    "source": "Origen",
+    "tags": "Etiquetas",
+    "types": "Tipo",
+    "owner": "Agente responsable",
+    "consentMarketing": "Acepta comunicaciones comerciales",
+    "consentProcessing": "Acepta el tratamiento de datos",
+    "doNotContact": "No contactar",
+    "notes": "Notas"
+  },
+  "types": {
+    "BUYER": "Comprador",
+    "SELLER": "Vendedor",
+    "TENANT": "Inquilino",
+    "LANDLORD": "Propietario"
+  },
+  "sources": {
+    "MANUAL": "Alta manual",
+    "WEBSITE": "Web",
+    "PORTAL": "Portal",
+    "IMPORT": "Importación",
+    "REFERRAL": "Recomendación",
+    "WALK_IN": "Visita a la oficina",
+    "PHONE": "Llamada",
+    "SOCIAL": "Redes sociales",
+    "OTHER": "Otro"
+  },
+  "duplicate": {
+    "title": "Puede que esta persona ya sea un contacto",
+    "body": "{count, plural, one {Ya hay un contacto con este correo o teléfono.} other {Ya hay # contactos con estos correos o teléfonos.}} Añade los datos nuevos al contacto existente en lugar de crear otro.",
+    "merge": "Añadir al contacto existente",
+    "cancel": "Cancelar"
+  },
+  "merge": {
+    "title": "Fusionar contactos",
+    "body": "Los correos, teléfonos, notas, leads, actividades, tareas y registros del otro contacto pasan a este contacto, y el otro contacto se cierra. No se puede deshacer.",
+    "confirm": "Fusionar"
+  },
+  "import": {
+    "title": "Importar contactos",
+    "upload": "Sube un archivo CSV o Excel",
+    "mapping": "Qué contiene cada columna",
+    "onDuplicate": "Cuando una fila coincide con un contacto existente",
+    "SKIP": "Omitir la fila",
+    "MERGE": "Añadir sus datos nuevos al contacto",
+    "defaultTypes": "Tipo para las filas que no lo indican",
+    "tags": "Etiquetar todos los contactos importados",
+    "phoneCountry": "País de los teléfonos sin prefijo",
+    "consentProcessing": "Estas personas aceptaron el tratamiento de sus datos",
+    "start": "Empezar la importación",
+    "mapFields": {
+      "firstName": "Nombre",
+      "lastName": "Apellidos",
+      "fullName": "Nombre completo",
+      "emails": "Correo electrónico",
+      "phones": "Teléfono",
+      "language": "Idioma",
+      "tags": "Etiquetas",
+      "types": "Tipo",
+      "consentMarketing": "Acepta comunicaciones comerciales (sí/no)",
+      "doNotContact": "No contactar (sí/no)",
+      "note": "Nota"
+    },
+    "status": {
+      "UPLOADED": "Pendiente de asignar columnas",
+      "QUEUED": "En cola",
+      "RUNNING": "Importando",
+      "SUCCEEDED": "Terminada",
+      "FAILED": "Fallida",
+      "EXPIRED": "Caducada"
+    },
+    "counts": "{created} creados · {merged} fusionados · {skipped} omitidos · {invalid} no importados",
+    "rowErrors": {
+      "NO_IDENTITY": "Sin nombre, correo ni teléfono",
+      "INVALID_EMAIL": "Un correo no es válido",
+      "INVALID_PHONE": "Un teléfono no es válido",
+      "TOO_LONG": "Un nombre es demasiado largo",
+      "DUPLICATE_RACE": "Otro contacto obtuvo entretanto un correo o teléfono de esta fila"
+    }
+  },
+  "errors": {
+    "CONTACT_NOT_FOUND": "Este contacto no existe o se fusionó con otro.",
+    "CONTACT_DUPLICATE": "Un correo o teléfono ya pertenece a otro contacto.",
+    "CONTACT_PHONE_INVALID": "Un número de teléfono no es válido.",
+    "CONTACT_MERGE_INVALID": "Estos contactos no se pueden fusionar.",
+    "CONTACT_IMPORT_NOT_FOUND": "Esta importación no existe.",
+    "CONTACT_IMPORT_STARTED": "Esta importación ya se inició. Vuelve a subir el archivo para importarlo otra vez.",
+    "CONTACT_IMPORT_FILE_INVALID": "Este archivo no es un CSV o Excel que podamos leer, o no tiene filas.",
+    "CONTACT_MERGE_LIMIT": "El contacto fusionado tendría demasiados correos, teléfonos o etiquetas. Elimina algunos primero."
+  }
+}

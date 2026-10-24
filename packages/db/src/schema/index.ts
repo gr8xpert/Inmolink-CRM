@@ -6,6 +6,7 @@
 export * from './agencies';
 export * from './billing';
 export * from './compliance';
+export * from './crm';
 export * from './developments';
 export * from './exports';
 export * from './flags';

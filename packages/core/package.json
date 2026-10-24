@@ -43,6 +43,7 @@
     "@opentelemetry/api": "1.9.1",
     "drizzle-orm": "0.45.4",
     "libheif-js": "1.23.2",
+    "libphonenumber-js": "1.12.10",
     "sharp": "0.35.5",
     "zod": "4.6.5"
   },

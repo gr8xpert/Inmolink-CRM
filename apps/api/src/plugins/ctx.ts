@@ -55,6 +55,8 @@ export function ctxPlugin(app: FastifyZod): void {
           event: 'staff.impersonation.request',
           method: request.method,
           route: request.routeOptions.url,
+          // S10-01 review: which record the route touched (`:id` path parameters are opaque ids, never PII).
+          targetId: targetIdOf(request.params),
           requestId: request.id,
           impersonationId: auth.impersonation.id,
           staffUserId: auth.impersonation.staffUserId,
@@ -92,4 +94,12 @@ export function ctxPlugin(app: FastifyZod): void {
       return withStaffCtx({ userId: auth.userId, requestId: request.id, reason }, fn);
     },
   );
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The `:id` path parameter when it is a UUID (the record an impersonated request touched), else undefined. */
+function targetIdOf(params: unknown): string | undefined {
+  const id = (params as { id?: unknown } | null | undefined)?.id;
+  return typeof id === 'string' && UUID.test(id) ? id : undefined;
 }

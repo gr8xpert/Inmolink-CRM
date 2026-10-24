@@ -1,6 +1,15 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { createLogger, REDACTED, redactPaths, redactPathsInText, stripQuery, withRequestId } from './index';
+import {
+  createLogger,
+  REDACTED,
+  redactPaths,
+  redactPathsInText,
+  redactQueryParams,
+  sanitizeError,
+  stripQuery,
+  withRequestId,
+} from './index';
 
 function capture() {
   const lines: Record<string, unknown>[] = [];
@@ -185,6 +194,39 @@ describe('logger', () => {
     expect(redactPathsInText(`GET https://feed.example/v2/portal-feeds/${token}/inmolink.xml failed`)).toBe(
       `GET https://feed.example/v2/portal-feeds/${REDACTED}/inmolink.xml failed`,
     );
+  });
+
+  it('[S10-01] a failed query’s bound values (PII) never reach a log line, its cause or a sanitized error', () => {
+    const pg = Object.assign(
+      new Error('duplicate key value violates unique constraint "contact_emails_agency_email_uq"'),
+      {
+        code: '23505',
+        constraint: 'contact_emails_agency_email_uq',
+        detail: 'Key (agency_id, email)=(a, ana@example.com) already exists.',
+      },
+    );
+    const message =
+      'Failed query: insert into "contact_emails" ("email") values ($1)\nparams: ana@example.com,+34600111222';
+    const make = () =>
+      Object.assign(new Error(message, { cause: pg }), {
+        name: 'DrizzleQueryError',
+        query: 'insert into "contact_emails" ("email") values ($1)',
+        params: ['ana@example.com', '+34600111222'],
+      });
+    const out = capture();
+    createLogger({ destination: out.destination }).error({ err: make() }, 'insert failed');
+    const text = out.raw.join('');
+    expect(text).not.toContain('ana@example.com');
+    expect(text).not.toContain('+34600111222');
+    expect(text).toContain('contact_emails_agency_email_uq');
+    expect(text).toContain('23505');
+
+    const err = sanitizeError(make());
+    expect(err.message).toBe(`Failed query: insert into "contact_emails" ("email") values ($1)\nparams: ${REDACTED}`);
+    expect(err.stack).not.toContain('ana@example.com');
+    expect(err.stack).toContain('    at ');
+    expect((err as unknown as { params: unknown }).params).toBe(REDACTED);
+    expect(redactQueryParams('no params here')).toBe('no params here');
   });
 
   it('[S0-03] bindings cannot overwrite the request id', () => {

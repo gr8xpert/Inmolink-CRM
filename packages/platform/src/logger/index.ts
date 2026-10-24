@@ -84,11 +84,70 @@ export const REDACT_KEYS = [
 
 /** Error fields that may echo row values (pg `detail`, query parameters) — dropped from logs. */
 // `command`/`args`: ioredis attaches the failed command, whose arguments may be a cached value with PII.
-const UNSAFE_ERROR_FIELDS = ['detail', 'parameters', 'query', 'where', 'internalQuery', 'command', 'args'] as const;
+// `params`: Drizzle's `DrizzleQueryError` carries the bound values of the failed query (S10-01 review).
+const UNSAFE_ERROR_FIELDS = [
+  'detail',
+  'parameters',
+  'params',
+  'query',
+  'where',
+  'internalQuery',
+  'command',
+  'args',
+] as const;
+
+/**
+ * S10-01 review: Drizzle's `DrizzleQueryError` message is `Failed query: <sql>\nparams: <values>` — the bound values
+ * (e-mails, phones, names) would reach logs, dead-letter reasons, BullMQ's `failedReason` and error reports. Everything
+ * from `params:` up to the stack frames is replaced; the SQL text (placeholders only) stays for debugging.
+ */
+const PARAMS_MARKER = '\nparams:';
+
+export function redactQueryParams(text: string): string {
+  const start = text.indexOf(PARAMS_MARKER);
+  if (start === -1) return text;
+  const frames = text.indexOf('\n    at ', start);
+  return `${text.slice(0, start)}${PARAMS_MARKER} ${REDACTED}${frames === -1 ? '' : text.slice(frames)}`;
+}
+
+/**
+ * Makes an error safe to log, report or store as a job's failure reason, in place: the query parameters in the message
+ * and stack of the error and of its `cause` chain are redacted, and a `params` field is dropped. Returns the same error.
+ */
+export function sanitizeError<T>(err: T): T {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e instanceof Error; depth += 1) {
+    if (e.message.includes(PARAMS_MARKER)) e.message = redactQueryParams(e.message);
+    if (e.stack?.includes(PARAMS_MARKER)) e.stack = redactQueryParams(e.stack);
+    if ('params' in e) {
+      try {
+        (e as { params?: unknown }).params = REDACTED;
+      } catch {
+        // a read-only field: the serializer drops it anyway
+      }
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return err;
+}
+
+function scrub(out: Record<string, unknown>, depth: number): void {
+  for (const field of UNSAFE_ERROR_FIELDS) delete out[field];
+  if (typeof out.message === 'string') out.message = redactQueryParams(out.message);
+  if (typeof out.stack === 'string') out.stack = redactQueryParams(out.stack);
+  const cause = out.cause;
+  if (depth < 3 && cause && typeof cause === 'object') scrub(cause as Record<string, unknown>, depth + 1);
+}
 
 function errSerializer(err: unknown): unknown {
   const out = pino.stdSerializers.err(err as Error) as unknown as Record<string, unknown>;
-  for (const field of UNSAFE_ERROR_FIELDS) delete out[field];
+  scrub(out, 0);
+  // A wrapped driver error (DrizzleQueryError → pg): keep what identifies the failure — SQLSTATE and constraint.
+  const cause = (err as { cause?: { code?: unknown; constraint?: unknown } } | null)?.cause;
+  if (cause && typeof cause === 'object') {
+    if (typeof cause.code === 'string' && out.causeCode === undefined) out.causeCode = cause.code;
+    if (typeof cause.constraint === 'string' && out.constraint === undefined) out.constraint = cause.constraint;
+  }
   return out;
 }
 

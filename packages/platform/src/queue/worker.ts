@@ -1,5 +1,6 @@
 import { DelayedError, type Job, UnrecoverableError, Worker } from 'bullmq';
 import { isAppError } from '../errors';
+import { sanitizeError } from '../logger';
 import { reportError } from '../telemetry/report';
 import { fairnessFor, queueFor, queueLogger, queuePrefix, queueTelemetry, workerConnection } from './connection';
 import type { JobDef, StoredJob } from './jobs';
@@ -258,6 +259,8 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       if (fair && group !== undefined) await fair.done(pool, group, member);
       return result;
     } catch (err) {
+      // S10-01 review: a failed query's bound values never reach the DLQ, BullMQ's failedReason, logs or reports.
+      sanitizeError(err);
       const permanent = isPermanent(err);
       const final = permanent || job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
       const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -295,7 +298,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
   worker.on('failed', (job, err) => {
     if (!job || !/stalled/i.test(err.message)) return;
     void Promise.all([
-      deadLetter(job, `${err.name}: ${err.message}`),
+      deadLetter(job, `${err.name}: ${sanitizeError(err).message}`),
       releaseFairness(job, byName.get(job.name)),
     ]).catch((cleanupErr) => log.warn({ err: cleanupErr, jobId: job.id }, 'stalled-job cleanup failed'));
   });

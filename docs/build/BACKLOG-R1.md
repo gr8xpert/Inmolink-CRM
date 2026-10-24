@@ -1336,20 +1336,28 @@ Ref §3 #12 §7 M8 · Mod crm · Dep S10-01 S7-05
 
 *Note (S7-05):* inbound leads are `websites.website_leads` (presenting agency = `agency_id`, network owner = `owner_agency_id`, `verification`, `ack_sent_at` for response-time KPIs), each announced by `websites.lead.received`; promote them from that event (idempotent per lead id). The speed-to-lead acknowledgement and the agency e-mail already exist (website-api jobs); assignment rules replace the e-mail's recipient choice.
 
+*Note (S10-01 merge):* register this task's contact-referencing tables in `crm/repo.ts` `CONTACT_REFERENCES` (crm-owned) or subscribe to `crm.contact.merged` (other modules) so a merge re-points them; extend the `[S10-01]` merge acceptance test with them.
+
 ### S10-03 · Pipeline
 Ref §7 M8 · Mod crm, web · Dep S10-02
 **Build:** agency-customizable stages, board and list views, drag to change stage, stage history.
 **Done when:** stage changes are recorded in activity and visible in reports data
+
+*Note (S10-01 merge):* register this task's contact-referencing tables in `crm/repo.ts` `CONTACT_REFERENCES` (crm-owned) or subscribe to `crm.contact.merged` (other modules) so a merge re-points them; extend the `[S10-01]` merge acceptance test with them.
 
 ### S10-04 · Activity timeline
 Ref §6 CRM · Mod crm · Dep S10-01 S1-08
 **Build:** partitioned `activities` (polymorphic: contact, lead, listing), writers from other modules via events, timeline UI with filters.
 **Done when:** timeline for a contact with 5,000 activities loads first page in < 300 ms (keyset)
 
+*Note (S10-01 merge):* register this task's contact-referencing tables in `crm/repo.ts` `CONTACT_REFERENCES` (crm-owned) or subscribe to `crm.contact.merged` (other modules) so a merge re-points them; extend the `[S10-01]` merge acceptance test with them.
+
 ### S10-05 · Tasks and reminders
 Ref §7 M8 · Mod crm · Dep S10-01
 **Build:** tasks linked to contact/lead/listing, due dates, assignees, reminders (notification + email), my-tasks view.
 **Done when:** reminders fire once at the due time (scheduled job, idempotent)
+
+*Note (S10-01 merge):* register this task's contact-referencing tables in `crm/repo.ts` `CONTACT_REFERENCES` (crm-owned) or subscribe to `crm.contact.merged` (other modules) so a merge re-points them; extend the `[S10-01]` merge acceptance test with them.
 
 ### S10-06 · Calendar
 Ref §7 M8 · Mod crm · Dep S10-05
@@ -1360,6 +1368,8 @@ Ref §7 M8 · Mod crm · Dep S10-05
 Ref §7 M8 · Mod crm, web · Dep S10-03 S3-02
 **Build:** seller prospects (board, list, calendar views), confidential notes, one-click convert to a DRAFT listing with seller linked in `property_privates`.
 **Done when:** conversion creates the listing and links the seller contact without exposing it to other tenants
+
+*Note (S10-01 merge):* register this task's contact-referencing tables in `crm/repo.ts` `CONTACT_REFERENCES` (crm-owned) or subscribe to `crm.contact.merged` (other modules) so a merge re-points them; extend the `[S10-01]` merge acceptance test with them.
 
 ### S10-08 · Data export
 Ref §3 #59 · Mod compliance · Dep S10-01 S3-02

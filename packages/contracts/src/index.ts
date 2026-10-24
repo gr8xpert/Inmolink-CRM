@@ -7,6 +7,7 @@ export * from './api-keys';
 export * from './billing';
 export * from './common';
 export * from './compliance';
+export * from './crm';
 export * from './developments';
 export * from './developments-csv';
 export * from './errors';
