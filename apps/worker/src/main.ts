@@ -8,7 +8,7 @@ import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
-import { keyringFromEnv } from '@inmolink/platform/crypto';
+import { hmacRotationFromEnv, keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
@@ -47,6 +47,8 @@ try {
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   // A media-only container has no cache (S3-F7): nothing it runs reads or writes cached bodies.
   if (config.REDIS_CACHE_URL) await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  // S11-F13: the HMAC_KEY rotation window (opt-in stored-hash lookups accept HMAC_KEY_PREVIOUS until it ends).
+  if (config.HMAC_KEY) hmacRotationFromEnv({ ...config, HMAC_KEY: config.HMAC_KEY }, logger);
   if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
   // S7-05: lead acknowledgements (email) and S7-07: per-site XML feeds (exports) serialize listings like the website
   // API (media CDN, white-label).

@@ -7,7 +7,7 @@ import * as media from '@inmolink/core/modules/media';
 import * as search from '@inmolink/core/modules/search';
 import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
-import { keyringFromEnv } from '@inmolink/platform/crypto';
+import { hmacRotationFromEnv, keyringFromEnv } from '@inmolink/platform/crypto';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
@@ -44,6 +44,8 @@ try {
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
   await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
+  // S11-F13: the HMAC_KEY rotation window — feed tokens hashed under HMAC_KEY_PREVIOUS are still found until it ends.
+  hmacRotationFromEnv(config, logger);
   // API keys (S1-05) are issued here: stored as HMACs, `live` keys only in production.
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,

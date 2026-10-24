@@ -1,17 +1,22 @@
 import { createHmac } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   aadFor,
+  configureHmacRotation,
   createKeyring,
   DecryptError,
   generateKey,
+  hmacKeyCandidates,
+  hmacRotationFromEnv,
   hmacSha256,
+  hmacSha256Candidates,
   keyringFromEnv,
   newToken,
   parseKeyList,
   safeEqual,
   verifyHmacSha256,
+  verifyHmacSha256Rotating,
   verifyRawHmacSha256Hex,
 } from './index';
 import {
@@ -118,6 +123,67 @@ describe('HMAC-SHA256', () => {
   it('[S0-03] makes unguessable tokens', () => {
     expect(newToken()).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(newToken()).not.toBe(newToken());
+  });
+});
+
+describe('HMAC_KEY rotation window (S11-F13)', () => {
+  const OLD = 'the-previous-hmac-key-of-32-chars-min';
+  const NEW = 'the-current-hmac-key-of-32-chars-minimum';
+  afterEach(() => {
+    configureHmacRotation({ current: NEW });
+    vi.useRealTimers();
+  });
+
+  it('[S11-F13] signs with the current key only; verifies a MAC of the previous key until the window ends', () => {
+    vi.useFakeTimers({ now: new Date('2026-11-01T00:00:00Z') });
+    const issued = hmacSha256(OLD, 'exports.feed-token', 'token');
+    expect(verifyHmacSha256Rotating(NEW, 'exports.feed-token', 'token', issued)).toBe(false);
+
+    configureHmacRotation({ current: NEW, previous: OLD, previousUntil: new Date('2026-12-01T00:00:00Z') });
+    expect(verifyHmacSha256Rotating(NEW, 'exports.feed-token', 'token', issued)).toBe(true);
+    // Opt-in only: the plain verify never accepts the previous key, window or not.
+    expect(verifyHmacSha256(NEW, 'exports.feed-token', 'token', issued)).toBe(false);
+    // Purposes stay separate under the previous key too; the current key still verifies.
+    expect(verifyHmacSha256Rotating(NEW, 'api-key', 'token', issued)).toBe(false);
+    expect(
+      verifyHmacSha256Rotating(NEW, 'exports.feed-token', 'token', hmacSha256(NEW, 'exports.feed-token', 'token')),
+    ).toBe(true);
+    // Lookups: the current key's hash first (what new rows get), then the previous key's.
+    expect(hmacSha256Candidates(NEW, 'exports.feed-token', 'token')).toEqual([
+      hmacSha256(NEW, 'exports.feed-token', 'token'),
+      issued,
+    ]);
+    // A Buffer of the same key finds the same window.
+    expect(hmacKeyCandidates(Buffer.from(NEW))).toHaveLength(2);
+
+    vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
+    expect(verifyHmacSha256Rotating(NEW, 'exports.feed-token', 'token', issued)).toBe(false);
+    expect(hmacSha256Candidates(NEW, 'exports.feed-token', 'token')).toHaveLength(1);
+  });
+
+  it('[S11-F13] the window closes when the previous key is removed from config; other keys are unaffected', () => {
+    hmacRotationFromEnv({ HMAC_KEY: NEW, HMAC_KEY_PREVIOUS: OLD });
+    const issued = hmacSha256(OLD, 'p', 'd');
+    expect(verifyHmacSha256Rotating(NEW, 'p', 'd', issued)).toBe(true);
+    expect(hmacKeyCandidates('some-other-key-of-at-least-32-chars')).toHaveLength(1);
+    hmacRotationFromEnv({ HMAC_KEY: NEW });
+    expect(verifyHmacSha256Rotating(NEW, 'p', 'd', issued)).toBe(false);
+    expect(() => configureHmacRotation({ current: NEW, previous: NEW })).toThrow(/differ/);
+  });
+
+  it('[S11-F13] boot warns when HMAC_KEY_PREVIOUS_UNTIL has already passed, and the previous key is ignored', () => {
+    const warn = vi.fn();
+    const until = new Date(Date.now() - 1000);
+    hmacRotationFromEnv({ HMAC_KEY: NEW, HMAC_KEY_PREVIOUS: OLD, HMAC_KEY_PREVIOUS_UNTIL: until }, { warn });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(JSON.stringify(warn.mock.calls[0])).not.toContain(OLD);
+    expect(hmacKeyCandidates(NEW)).toHaveLength(1);
+    warn.mockClear();
+    hmacRotationFromEnv(
+      { HMAC_KEY: NEW, HMAC_KEY_PREVIOUS: OLD, HMAC_KEY_PREVIOUS_UNTIL: new Date(Date.now() + 60_000) },
+      { warn },
+    );
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

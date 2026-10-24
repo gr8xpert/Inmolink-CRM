@@ -121,6 +121,61 @@ describe('loadConfig', () => {
     ).toBe('k1');
   });
 
+  it('[S11-F13] HMAC_KEY_PREVIOUS opens a rotation window: differs from HMAC_KEY, ends at a date (required in production)', () => {
+    const base = { ENCRYPTION_KEYS: `k1:${generateKey()}`, ENCRYPTION_ACTIVE_KEY_ID: 'k1', HMAC_KEY: 'n'.repeat(40) };
+    const ok = loadConfig(cryptoEnv, {
+      ...base,
+      HMAC_KEY_PREVIOUS: 'o'.repeat(40),
+      HMAC_KEY_PREVIOUS_UNTIL: '2026-12-01T00:00:00Z',
+    });
+    expect(ok.HMAC_KEY_PREVIOUS_UNTIL?.toISOString()).toBe('2026-12-01T00:00:00.000Z');
+    expect(loadConfig(cryptoEnv, base).HMAC_KEY_PREVIOUS).toBeUndefined();
+
+    const same = problemsOf(() => loadConfig(cryptoEnv, { ...base, HMAC_KEY_PREVIOUS: base.HMAC_KEY }));
+    expect(same.problems.map((p) => p.key)).toEqual(['HMAC_KEY_PREVIOUS']);
+    expect(same.message).not.toContain(base.HMAC_KEY);
+    const orphan = problemsOf(() =>
+      loadConfig(cryptoEnv, { ...base, HMAC_KEY_PREVIOUS_UNTIL: '2026-12-01T00:00:00Z' }),
+    );
+    expect(orphan.problems.map((p) => p.key)).toEqual(['HMAC_KEY_PREVIOUS_UNTIL']);
+    const badDate = problemsOf(() =>
+      loadConfig(cryptoEnv, { ...base, HMAC_KEY_PREVIOUS: 'o'.repeat(40), HMAC_KEY_PREVIOUS_UNTIL: 'next week' }),
+    );
+    expect(badDate.problems.map((p) => p.key)).toEqual(['HMAC_KEY_PREVIOUS_UNTIL']);
+    const prod = problemsOf(() =>
+      loadConfig(
+        { ...shape, ...cryptoEnv },
+        { ...validEnv, NODE_ENV: 'production', ...base, HMAC_KEY: 'p'.repeat(40), HMAC_KEY_PREVIOUS: 'o'.repeat(40) },
+      ),
+    );
+    expect(prod.problems.map((p) => p.key)).toContain('HMAC_KEY_PREVIOUS_UNTIL');
+  });
+
+  it('[S11-F13] in production HMAC_KEY_PREVIOUS is no dev or example key and the window ends within 90 days', () => {
+    const prodBase = {
+      ...validEnv,
+      NODE_ENV: 'production',
+      ENCRYPTION_KEYS: `k1:${generateKey()}`,
+      ENCRYPTION_ACTIVE_KEY_ID: 'k1',
+      HMAC_KEY: 'p'.repeat(40),
+    };
+    const soon = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    const keysOf = (env: Record<string, string>) =>
+      problemsOf(() => loadConfig({ ...shape, ...cryptoEnv }, { ...prodBase, ...env }))
+        .problems.filter((p) => p.key.startsWith('HMAC_KEY'))
+        .map((p) => p.key);
+    expect(keysOf({ HMAC_KEY_PREVIOUS: `dev-${'o'.repeat(40)}`, HMAC_KEY_PREVIOUS_UNTIL: soon })).toEqual([
+      'HMAC_KEY_PREVIOUS',
+    ]);
+    // The .env.example HMAC_KEY without its `dev-` prefix.
+    const example = '01c1d8e276ba8bfe3a373a947be2a96c5706827172d0449d9dac51abbe9b621b';
+    expect(keysOf({ HMAC_KEY_PREVIOUS: example, HMAC_KEY_PREVIOUS_UNTIL: soon })).toEqual(['HMAC_KEY_PREVIOUS']);
+    const far = new Date(Date.now() + 91 * 86_400_000).toISOString();
+    expect(keysOf({ HMAC_KEY_PREVIOUS: 'o'.repeat(40), HMAC_KEY_PREVIOUS_UNTIL: far })).toEqual([
+      'HMAC_KEY_PREVIOUS_UNTIL',
+    ]);
+  });
+
   it('[S0-04] the BYPASSRLS URL is refused for APP_ROLE=http in production, optional elsewhere', () => {
     const prod = { ...validEnv, NODE_ENV: 'production' };
     const err = problemsOf(() => loadConfig(shape, prod));

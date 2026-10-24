@@ -9,7 +9,7 @@
 import type { SiteFeedDto, SiteFeedSecretDto, SiteParams } from '@inmolink/contracts';
 import { type Tx, withPublicRead } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
-import { hmacSha256, newToken, safeEqual } from '@inmolink/platform/crypto';
+import { hmacSha256, hmacSha256Candidates, newToken, safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
@@ -158,12 +158,21 @@ export interface ServedFeed {
 /**
  * feed-api (`app_public`, no tenant yet): the live feed a token names, or null. Found by the token's keyed hash
  * (unique index), then the stored hash is compared in constant time — the row lookup never depends on the token's
- * characters beyond its hash. One statement.
+ * characters beyond its hash. One statement; up to two inside an HMAC_KEY rotation window (S11-F13).
  */
 export async function feedByToken(token: string): Promise<ServedFeed | null> {
-  const hash = tokenHash(token);
-  const row = await withPublicRead((tx) => feedsRepo.feedByTokenHash(tx, hash));
-  if (!row || !safeEqual(row.tokenHash, hash)) return null;
+  if (!tokenKey) throw new Error('websites: configureSiteFeeds() was not called');
+  // S11-F13: inside an HMAC_KEY rotation window a URL issued under the previous key is found by its second hash (a
+  // second statement only when the first misses); outside a window there is one candidate and one statement.
+  const candidates = hmacSha256Candidates(tokenKey, TOKEN_PURPOSE, token);
+  const row = await withPublicRead(async (tx) => {
+    for (const hash of candidates) {
+      const found = await feedsRepo.feedByTokenHash(tx, hash);
+      if (found && safeEqual(found.tokenHash, hash)) return found;
+    }
+    return null;
+  });
+  if (!row) return null;
   return {
     siteId: row.siteId,
     agencyId: row.agencyId,

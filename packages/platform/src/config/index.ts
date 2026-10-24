@@ -1,6 +1,7 @@
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { isIP } from 'node:net';
 import { z } from 'zod';
+import { clock } from '../clock';
 import { createKeyring, parseKeyList } from '../crypto/aead';
 
 /**
@@ -425,12 +426,26 @@ export const telemetryEnv = {
     .default('dev'),
 };
 
+/** S11-F13: the longest dual-key window production accepts (`HMAC_KEY_PREVIOUS_UNTIL` at most this far ahead). */
+export const HMAC_ROTATION_MAX_WINDOW_MS = 90 * 86_400_000;
+
 export const cryptoEnv = {
   /** `keyId:base64Key[,keyId:base64Key…]` — 32-byte AES keys; see platform/crypto. */
   ENCRYPTION_KEYS: nonEmpty,
   ENCRYPTION_ACTIVE_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, 'must be a key id from ENCRYPTION_KEYS'),
   /** Dedicated HMAC key (fingerprints, idempotency keys); at least 32 chars. */
   HMAC_KEY: z.string().min(32, 'must be at least 32 characters'),
+  /**
+   * S11-F13, the dual-key verify window (docs/runbooks/hmac-key-rotation.md): the key `HMAC_KEY` replaced. Stored-hash
+   * lookups that opt in (feed URLs) keep finding what was issued under it until `HMAC_KEY_PREVIOUS_UNTIL` (or until it
+   * is removed); nothing is signed with it, and `verifyHmacSha256` never accepts it.
+   */
+  HMAC_KEY_PREVIOUS: z.string().min(32, 'must be at least 32 characters').optional(),
+  /** When the window ends (ISO 8601 with offset, e.g. `2026-12-01T00:00:00Z`); required with a previous key in production. */
+  HMAC_KEY_PREVIOUS_UNTIL: z.iso
+    .datetime({ offset: true, message: 'must be an ISO 8601 date-time with offset' })
+    .transform((v) => new Date(v))
+    .optional(),
 };
 
 /**
@@ -527,6 +542,40 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
     problems.push({ key: 'HMAC_KEY', message: 'dev keys ("dev-…") are not allowed in production' });
   } else if (production && typeof cfg.HMAC_KEY === 'string' && isExampleSecret(cfg.HMAC_KEY)) {
     problems.push({ key: 'HMAC_KEY', message: 'is a committed example value; generate a new one' });
+  }
+  if (typeof cfg.HMAC_KEY_PREVIOUS === 'string') {
+    if (typeof cfg.HMAC_KEY !== 'string') {
+      problems.push({ key: 'HMAC_KEY_PREVIOUS', message: 'is set without HMAC_KEY' });
+    }
+    if (production && cfg.HMAC_KEY_PREVIOUS.startsWith('dev-')) {
+      problems.push({ key: 'HMAC_KEY_PREVIOUS', message: 'dev keys ("dev-…") are not allowed in production' });
+    } else if (production && isExampleSecret(cfg.HMAC_KEY_PREVIOUS)) {
+      problems.push({
+        key: 'HMAC_KEY_PREVIOUS',
+        message: 'is a committed example value; it cannot be a key to keep trusting',
+      });
+    }
+    if (
+      production &&
+      cfg.HMAC_KEY_PREVIOUS_UNTIL instanceof Date &&
+      cfg.HMAC_KEY_PREVIOUS_UNTIL.getTime() > clock.nowMs() + HMAC_ROTATION_MAX_WINDOW_MS
+    ) {
+      problems.push({
+        key: 'HMAC_KEY_PREVIOUS_UNTIL',
+        message: 'must be at most 90 days ahead in production (the previous key must not stay trusted for long)',
+      });
+    }
+    if (cfg.HMAC_KEY_PREVIOUS === cfg.HMAC_KEY) {
+      problems.push({
+        key: 'HMAC_KEY_PREVIOUS',
+        message: 'must differ from HMAC_KEY (it is the key HMAC_KEY replaced)',
+      });
+    }
+    if (production && !(cfg.HMAC_KEY_PREVIOUS_UNTIL instanceof Date)) {
+      problems.push({ key: 'HMAC_KEY_PREVIOUS_UNTIL', message: 'must be set with HMAC_KEY_PREVIOUS in production' });
+    }
+  } else if (cfg.HMAC_KEY_PREVIOUS_UNTIL instanceof Date) {
+    problems.push({ key: 'HMAC_KEY_PREVIOUS_UNTIL', message: 'is set without HMAC_KEY_PREVIOUS' });
   }
   if (production && typeof cfg.MEDIA_URL_KEY === 'string' && cfg.MEDIA_URL_KEY.startsWith('dev-')) {
     problems.push({ key: 'MEDIA_URL_KEY', message: 'dev keys ("dev-…") are not allowed in production' });

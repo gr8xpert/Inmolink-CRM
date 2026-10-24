@@ -18,7 +18,7 @@ import { withPublicRead } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import { type StoredFeedFile, storedFeedFile } from '../../stored-feed';
 import * as websiteApi from '../website-api';
-import { portalFeedTokenHash } from './config';
+import { portalFeedTokenHashCandidates } from './config';
 import { feedFileOf } from './profiles';
 import * as repo from './repo';
 
@@ -42,10 +42,17 @@ export interface PortalFeedFile extends StoredFeedFile {
   tags: string[] | null;
 }
 
-/** The feed file a token URL names (feed-api). One statement. See the file comment. */
+/** The feed file a token URL names (feed-api). One statement; up to two inside an HMAC_KEY rotation window. See the file comment. */
 export async function portalFeedFile(token: string, file: PortalFeedFileName): Promise<PortalFeedFile> {
-  const hash = portalFeedTokenHash(token);
-  const row = await withPublicRead((tx) => repo.feedByTokenHash(tx, hash));
+  // S11-F13: inside an HMAC_KEY rotation window a URL issued under the previous key is found by its second hash (a
+  // second statement only when the first misses); outside a window there is one candidate and one statement.
+  const row = await withPublicRead(async (tx) => {
+    for (const hash of portalFeedTokenHashCandidates(token)) {
+      const found = await repo.feedByTokenHash(tx, hash);
+      if (found) return found;
+    }
+    return null;
+  });
   // Found by equality on the keyed hash (unique index): the lookup never depends on the token beyond its hash.
   if (!row || feedFileOf(row.channelCode) !== file) {
     throw new AppError('PORTAL_FEED_NOT_FOUND');

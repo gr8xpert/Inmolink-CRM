@@ -10,6 +10,7 @@ import * as websites from '@inmolink/core/modules/websites';
 import { countQueries, createFounder, type Founder, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
+import { configureHmacRotation } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
@@ -175,6 +176,32 @@ describe('GET /v2/feeds/{token}/{file} (S7-07)', () => {
     expect(generic.statusCode).toBe(200);
     expect(generic.body).toContain('<inmolink_feed version="1"');
     expect(generic.body).toContain('ref="');
+  });
+
+  it('[S11-F13] after an HMAC_KEY rotation a feed URL issued under the previous key resolves until the window ends', async () => {
+    const OLD = 'test-hmac-key-0123456789abcdef0123456789';
+    const NEW = 'test-hmac-key-rotated-0123456789abcdef01';
+    const get = async () => (await edge.inject({ method: 'GET', url: `/v2/feeds/${token}/kyero.xml` })).statusCode;
+    try {
+      websites.configureSiteFeeds({ tokenKey: NEW });
+      // No window: the old URL's hash is not the new key's.
+      expect(await get()).toBe(404);
+      // The window (HMAC_KEY_PREVIOUS = the old key): the URL issued under it still resolves.
+      configureHmacRotation({ current: NEW, previous: OLD, previousUntil: new Date(Date.now() + 3_600_000) });
+      expect(await get()).toBe(200);
+      // The window ends at HMAC_KEY_PREVIOUS_UNTIL…
+      configureHmacRotation({ current: NEW, previous: OLD, previousUntil: new Date(Date.now() - 1) });
+      expect(await get()).toBe(404);
+      // …or when the previous key is removed from config.
+      configureHmacRotation({ current: NEW, previous: OLD });
+      expect(await get()).toBe(200);
+      configureHmacRotation({ current: NEW });
+      expect(await get()).toBe(404);
+    } finally {
+      configureHmacRotation({ current: NEW });
+      websites.configureSiteFeeds({ tokenKey: OLD });
+    }
+    expect(await get()).toBe(200);
   });
 
   it('[S7-07] served via the CDN with the edge cache on (URL-keyed, site and feed tags); private while it is off', async () => {

@@ -7,6 +7,7 @@ import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
+import { hmacRotationFromEnv } from '@inmolink/platform/crypto';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, requestSearchConfig, searchEngine } from '@inmolink/platform/search';
@@ -37,6 +38,8 @@ try {
   );
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
+  // S11-F13: the HMAC_KEY rotation window — feed tokens hashed under HMAC_KEY_PREVIOUS are still found until it ends.
+  hmacRotationFromEnv(config, logger);
   // Website API keys (S1-05): HMAC-checked; only keys of this environment (`live` in production) work.
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,

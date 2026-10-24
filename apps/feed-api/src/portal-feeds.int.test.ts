@@ -7,7 +7,7 @@ import * as websiteApi from '@inmolink/core/modules/website-api';
 import { createFounder, type Founder, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
-import { createKeyring, generateKey } from '@inmolink/platform/crypto';
+import { configureHmacRotation, createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
@@ -163,5 +163,23 @@ describe('[S9-03] portal feeds at tokenized URLs', () => {
     }
     const bad = await edge.inject({ method: 'GET', url: `/v2/portal-feeds/${token}/feed.csv` });
     expect(bad.statusCode).toBe(422);
+  });
+
+  it('[S11-F13] after an HMAC_KEY rotation a portal feed URL issued under the previous key resolves until the window ends', async () => {
+    const NEW = 'test-hmac-key-rotated-0123456789abcdef01';
+    const keyring = createKeyring({ keys: { k1: generateKey() }, activeKeyId: 'k1' });
+    const get = async () =>
+      (await edge.inject({ method: 'GET', url: `/v2/portal-feeds/${token}/kyero.xml` })).statusCode;
+    try {
+      exportsModule.configureExports({ keyring, tokenKey: NEW });
+      expect(await get()).toBe(404);
+      configureHmacRotation({ current: NEW, previous: KEY, previousUntil: new Date(Date.now() + 3_600_000) });
+      expect(await get()).toBe(200);
+      configureHmacRotation({ current: NEW, previous: KEY, previousUntil: new Date(Date.now() - 1) });
+      expect(await get()).toBe(404);
+    } finally {
+      configureHmacRotation({ current: NEW });
+      exportsModule.configureExports({ keyring, tokenKey: KEY });
+    }
   });
 });

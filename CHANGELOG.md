@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- HMAC_KEY rotation window: `HMAC_KEY_PREVIOUS` / `_UNTIL` (≤ 90 days in production), opt-in dual-key verify and stored-hash lookups, site / portal feed URLs issued under the previous key resolve until the window ends; runbook `docs/runbooks/hmac-key-rotation.md` (S11-F13). No new dependency.
 - Logger redaction covers CRM payloads: visitor fields, `phones` / `emails` arrays, `body`, `description`, `notes` redacted whole (S11-F4). No new dependency.
 - S10 review: a reused Idempotency-Key after 24 h answers `IDEMPOTENCY_KEY_REUSED` on tasks, calendar events, prospects and data exports (was a 500 / 409); WordPress plugin rate counter keeps the current visitor when trimming (flaky CI test was a bug); S11-F1 … S11-F15 filed.
 - Data export (S10-08): contacts / leads / listings as CSV or XLSX and the account ZIP with a media manifest, as a streamed worker job (exports pool, per-agency fair share), formula-injection safe, admin e-mail alert, Idempotency-Key, 7-day audited signed downloads; migration 0129. Platform `sheet` gains streaming ZIP / CSV / XLSX writers (no new dependency). Test-DB stale-agency prune follows FK dependents.

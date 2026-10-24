@@ -1,4 +1,4 @@
-import { hmacSha256, type Keyring, rowCipher } from '@inmolink/platform/crypto';
+import { hmacSha256, hmacSha256Candidates, type Keyring, rowCipher } from '@inmolink/platform/crypto';
 import { z } from 'zod';
 
 /**
@@ -34,6 +34,13 @@ const tokenKey = (): Buffer => Buffer.from(configured().tokenKey);
  * service hashes a new token with it; the feed server (S9-03) hashes the presented one the same way.
  */
 export const portalFeedTokenHash = (token: string): string => hmacSha256(tokenKey(), 'exports.feed-token', token);
+
+/**
+ * S11-F13: the hashes a presented token may be stored under — the current key's, then (inside an `HMAC_KEY` rotation
+ * window) the previous key's. The feed server tries them in order; outside a window it is the one hash above.
+ */
+export const portalFeedTokenHashCandidates = (token: string): string[] =>
+  hmacSha256Candidates(tokenKey(), 'exports.feed-token', token);
 
 /**
  * S10-F7, the idempotent create: the token of a connection made with an `Idempotency-Key`, derived from the agency,

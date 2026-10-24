@@ -14,12 +14,18 @@ export {
   parseKeyList,
 } from './aead';
 export {
+  configureHmacRotation,
   type HmacPurpose,
+  type HmacRotationInput,
+  hmacKeyCandidates,
+  hmacRotationFromEnv,
   hmacSha256,
+  hmacSha256Candidates,
   hmacSha256Hex,
   newToken,
   safeEqual,
   verifyHmacSha256,
+  verifyHmacSha256Rotating,
   verifyRawHmacSha256Hex,
 } from './hmac';
 export { type RowCipher, rowCipher } from './row-cipher';
