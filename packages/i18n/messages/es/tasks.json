@@ -1,0 +1,66 @@
+{
+  "email": {
+    "subject": "Tarea pendiente: {title}",
+    "greeting": "Hola {name},",
+    "body": "Esta tarea vence ahora:",
+    "due": "Vence: {when}",
+    "action": "Abre Inmolink y ve a Tareas para completarla o cambiar la fecha.",
+    "footer": "Recibes este recordatorio porque la tarea te está asignada."
+  },
+  "title": "Mis tareas",
+  "subtitle": "Llamadas, seguimientos y visitas pendientes.",
+  "tabs": {
+    "overdue": "Vencidas",
+    "today": "Hoy",
+    "upcoming": "Próximas",
+    "noDate": "Sin fecha",
+    "done": "Hechas"
+  },
+  "scope": {
+    "label": "Mostrar",
+    "mine": "Mis tareas",
+    "all": "Tareas de todos"
+  },
+  "empty": {
+    "overdue": "Nada vencido.",
+    "today": "Nada para hoy.",
+    "upcoming": "Nada próximo.",
+    "noDate": "No hay tareas sin fecha.",
+    "done": "Aún no hay tareas completadas."
+  },
+  "new": "Nueva tarea",
+  "form": {
+    "title": "Título",
+    "description": "Detalles",
+    "dueAt": "Vencimiento",
+    "remind": "Avisar por e-mail cuando venza",
+    "assignee": "Asignada a",
+    "create": "Añadir tarea",
+    "save": "Guardar",
+    "cancel": "Cancelar"
+  },
+  "actions": {
+    "complete": "Marcar como hecha",
+    "reopen": "Reabrir",
+    "edit": "Editar",
+    "delete": "Eliminar"
+  },
+  "meta": {
+    "due": "Vence {when}",
+    "noDue": "Sin fecha",
+    "assignedTo": "Para {name}",
+    "contact": "Contacto",
+    "lead": "Lead",
+    "listing": "Inmueble",
+    "reminded": "Recordatorio enviado"
+  },
+  "loadMore": "Cargar más",
+  "errors": {
+    "load": "No se pudieron cargar las tareas. Inténtalo de nuevo.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "VERSION_CONFLICT": "Alguien ha modificado esta tarea. Recarga e inténtalo de nuevo.",
+    "TASK_NOT_FOUND": "Esta tarea ya no existe.",
+    "VALIDATION_FAILED": "Revisa el título y la fecha.",
+    "FORBIDDEN": "No puedes modificar tareas."
+  }
+}

@@ -590,7 +590,7 @@ export const leadIntroductions = pgTable(
 
 /** The activity types (`ACTIVITY_TYPES` in contracts), as a check constraint's list. */
 const activityTypeList = sql.raw(
-  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED', 'STAGE_CHANGED'`,
+  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED', 'STAGE_CHANGED', 'TASK_COMPLETED'`,
 );
 
 /**
@@ -702,5 +702,112 @@ export const leadRoutingSettings = pgTable(
   (t) => [
     check('lead_routing_settings_mode_ck', sql`${t.mode} in ('UNASSIGNED', 'ROUND_ROBIN', 'OWNER_AGENT')`),
     check('lead_routing_settings_agents_ck', sql`cardinality(${t.agentUserIds}) <= 200`),
+  ],
+);
+
+/**
+ * An agent's to-do (S10-05, PLAN §7 M8): a task about a contact, a lead and/or a listing (or none), with a due date, an
+ * assignee (an active member, checked by the service) and a reminder. Visible to every member of the agency (R1: no
+ * per-record owner rule, like contacts). A merge re-points `contact_id` (`CONTACT_REFERENCES`); a purged listing is
+ * cleared from `listing_id`. Deleting is soft (`deleted_at`): a deleted task never reminds.
+ *
+ * Reminder state, two steps (`crm/tasks.ts`): the sweep claims a due task by setting `reminded_at` in the transaction
+ * that writes the outbox event; the send job then claims `reminder_sent_for` (the due time) before it sends. A new due
+ * date, `remind` turned on or a reopened task clear `reminded_at` (the member's request; the one reminder column
+ * `app_user` writes); the sent marker is never cleared by a member, so a due time is reminded at most once.
+ */
+export const tasks = pgTable(
+  'tasks',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    title: text('title').notNull(),
+    description: text('description'),
+    /** `OPEN` or `DONE`. */
+    status: text('status').notNull().default('OPEN'),
+    /** When it is due, to the millisecond (checked); null: no date. */
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    /**
+     * The keyset sort key: `due_at` to the millisecond, a task with no date last (year 9999). A stored plain column, so
+     * `(due_sort_ms, id) > (?, ?)` is an index condition under RLS (`date_trunc` is not leakproof — the S10-02 rule).
+     */
+    dueSortMs: timestamp('due_sort_ms', { withTimezone: true })
+      .notNull()
+      .generatedAlwaysAs(
+        (): SQL => sql`coalesce(date_trunc('milliseconds', due_at, 'UTC'), to_timestamp(253402214400))`,
+      ),
+    /** Remind the assignee by e-mail at `due_at`. */
+    remind: boolean('remind').notNull().default(true),
+    /** The sweep claimed the reminder (an outbox event was written with it). */
+    remindedAt: timestamp('reminded_at', { withTimezone: true }),
+    /**
+     * The due time whose reminder the send job claimed (the claim is `reminder_sent_for is distinct from due_at`): a task
+     * is reminded once per due time, whatever is done with it afterwards. Written by the worker only (`app_user` cannot
+     * update it); released (null) after a send known not to have gone out.
+     */
+    reminderSentFor: timestamp('reminder_sent_for', { withTimezone: true }),
+    /** The member it is for. No FK: a removed member's tasks stay (the list shows them to admins). */
+    assignedUserId: uuid('assigned_user_id').notNull(),
+    createdBy: uuid('created_by'),
+    /** What it is about (all optional). A lead's task also names the lead's contact and listing. */
+    contactId: uuid('contact_id'),
+    leadId: uuid('lead_id'),
+    /** A listing of the agency (no FK: properties' table). */
+    listingId: uuid('listing_id'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    completedByUserId: uuid('completed_by_user_id'),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    /** SHA-256 of the creating member's `Idempotency-Key` (with their user id) and of the request body (24 h replay). */
+    idempotencyHash: text('idempotency_hash'),
+    requestHash: text('request_hash'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // my tasks: where agency_id = ? and assigned_user_id = ? and status = ? and deleted_at is null
+    // and (due_sort_ms, id) > (?, ?) order by due_sort_ms, id (keyset)
+    index('tasks_assignee_idx')
+      .on(t.agencyId, t.assignedUserId, t.status, t.dueSortMs, t.id)
+      .where(sql`${t.deletedAt} is null`),
+    // the agency's tasks (any assignee), same keyset
+    index('tasks_agency_idx').on(t.agencyId, t.status, t.dueSortMs, t.id).where(sql`${t.deletedAt} is null`),
+    // a subject's tasks (same keyset); the contact one also serves the FK and a merge's re-pointing
+    index('tasks_contact_idx')
+      .on(t.agencyId, t.contactId, t.status, t.dueSortMs, t.id)
+      .where(sql`${t.contactId} is not null and ${t.deletedAt} is null`),
+    index('tasks_lead_idx')
+      .on(t.agencyId, t.leadId, t.status, t.dueSortMs, t.id)
+      .where(sql`${t.leadId} is not null and ${t.deletedAt} is null`),
+    // (also a purged listing's live tasks: where agency_id = ? and listing_id = ? and deleted_at is null, any status)
+    index('tasks_listing_idx')
+      .on(t.agencyId, t.listingId, t.status, t.dueSortMs, t.id)
+      .where(sql`${t.listingId} is not null and ${t.deletedAt} is null`),
+    // a merge re-points every task of the closed contact (deleted ones included)
+    index('tasks_contact_all_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
+    // the reminder sweep (all agencies): the next due, armed, open tasks
+    index('tasks_reminder_idx')
+      .on(t.dueAt, t.id)
+      .where(sql`${t.status} = 'OPEN' and ${t.remind} and ${t.remindedAt} is null and ${t.deletedAt} is null`),
+    // POST replay: where agency_id = ? and idempotency_hash = ?
+    uniqueIndex('tasks_idempotency_uq').on(t.agencyId, t.idempotencyHash).where(sql`${t.idempotencyHash} is not null`),
+    check('tasks_status_ck', sql`${t.status} in ('OPEN', 'DONE')`),
+    check('tasks_title_ck', sql`length(${t.title}) between 1 and 200`),
+    check('tasks_description_ck', sql`${t.description} is null or length(${t.description}) between 1 and 4000`),
+    check('tasks_due_ms_ck', sql`${t.dueAt} is null or ${t.dueAt} = date_trunc('milliseconds', ${t.dueAt}, 'UTC')`),
+    check('tasks_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    check('tasks_completed_ck', sql`(${t.status} = 'DONE') = (${t.completedAt} is not null)`),
+    foreignKey({
+      name: 'tasks_contact_fk',
+      columns: [t.agencyId, t.contactId],
+      foreignColumns: [contacts.agencyId, contacts.id],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'tasks_lead_fk',
+      columns: [t.agencyId, t.leadId],
+      foreignColumns: [leads.agencyId, leads.id],
+    }).onDelete('cascade'),
   ],
 );

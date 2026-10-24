@@ -25,7 +25,8 @@
     "staffAccess": "Staff access",
     "staffConsole": "Staff console",
     "staffVerification": "Verification queue (staff)",
-    "pipeline": "Pipeline"
+    "pipeline": "Pipeline",
+    "tasks": "Tasks"
   },
   "account": {
     "label": "Your account",

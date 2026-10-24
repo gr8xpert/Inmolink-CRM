@@ -1,5 +1,6 @@
 import {
   type CreatePipelineStageBody,
+  type CreateTaskBody,
   LeadPage,
   type MoveLeadInput,
   PipelineBoardDto,
@@ -7,7 +8,11 @@ import {
   PipelineLeadPage,
   PipelineStageDto,
   PipelineStageList,
+  TaskDeletedDto,
+  TaskDto,
+  TaskPage,
   type UpdatePipelineStageBody,
+  type UpdateTaskBody,
 } from '@inmolink/contracts';
 import { type ApiResult, apiRequest, type SessionRef } from './api';
 
@@ -108,4 +113,51 @@ export function reorderPipelineStages(session: SessionRef, stageIds: string[]): 
     method: 'PUT',
     body: { stageIds },
   });
+}
+
+// ---- tasks (S10-05) ---------------------------------------------------------------------------------------------------
+
+export interface TaskListOptions {
+  assignee: 'me' | 'any';
+  status: 'OPEN' | 'DONE';
+  dueFrom?: Date | undefined;
+  dueTo?: Date | undefined;
+  noDue?: boolean | undefined;
+  cursor?: string | undefined;
+}
+
+export function fetchTasks(session: SessionRef, o: TaskListOptions): Promise<ApiResult<TaskPage>> {
+  return apiRequest(
+    session,
+    `/v1/crm/tasks?${query({
+      limit: 50,
+      assignee: o.assignee,
+      status: o.status,
+      dueFrom: o.dueFrom?.toISOString(),
+      dueTo: o.dueTo?.toISOString(),
+      noDue: o.noDue ? 'true' : undefined,
+      cursor: o.cursor,
+    })}`,
+    TaskPage,
+  );
+}
+
+export function createTask(
+  session: SessionRef,
+  body: CreateTaskBody,
+  idempotencyKey: string,
+): Promise<ApiResult<TaskDto>> {
+  return apiRequest(session, '/v1/crm/tasks', TaskDto, {
+    method: 'POST',
+    body,
+    headers: { 'idempotency-key': idempotencyKey },
+  });
+}
+
+export function updateTask(session: SessionRef, id: string, body: UpdateTaskBody): Promise<ApiResult<TaskDto>> {
+  return apiRequest(session, `/v1/crm/tasks/${encodeURIComponent(id)}`, TaskDto, { method: 'PATCH', body });
+}
+
+export function deleteTask(session: SessionRef, id: string): Promise<ApiResult<TaskDeletedDto>> {
+  return apiRequest(session, `/v1/crm/tasks/${encodeURIComponent(id)}`, TaskDeletedDto, { method: 'DELETE' });
 }

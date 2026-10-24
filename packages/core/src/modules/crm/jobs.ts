@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { forgetListingActivities, recordActivity } from './activities';
 import { runContactImport, sweepContactImports } from './import';
 import { promoteInboundLead } from './leads';
+import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
 
 const IMPORT_ATTEMPTS = 3;
 
@@ -26,6 +27,11 @@ const IMPORT_ATTEMPTS = 3;
  *   fails at once, non-retryable, logged with the event's id.
  * - `crm.forgetListingActivities` (pool `maintenance`, one per `properties.listing.purged` event, job ID = the event's
  *   id): the purged listing leaves the agency's timelines, in batches of 1,000.
+ * - `crm.sweepTaskReminders` (pool `maintenance`, every minute, S10-05): claims the tasks that came due and writes one
+ *   `crm.task.reminderDue` event each, in the claiming transaction (`FOR UPDATE SKIP LOCKED`: concurrent passes take
+ *   different rows).
+ * - `crm.sendTaskReminder` (pool `email`, one per `crm.task.reminderDue` event, job ID = task + due time + claim time, S10-05): the
+ *   reminder e-mail, once — the send is claimed in the database before it goes out (`tasks.ts`).
  */
 export const crmJobs = {
   importContacts: defineJob({
@@ -89,6 +95,35 @@ export const crmJobs = {
     },
   }),
 
+  sweepTaskReminders: defineJob({
+    name: 'crm.sweepTaskReminders',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 60_000,
+    attempts: 3,
+    timeoutMs: 2 * 60_000,
+    async run(_p, { log, signal }) {
+      const { claimed } = await sweepTaskReminders({ signal });
+      if (claimed.length > 0) log.info({ claimed: claimed.length }, 'task reminders claimed');
+      return { claimed: claimed.length };
+    },
+  }),
+
+  sendTaskReminder: defineJob({
+    name: 'crm.sendTaskReminder',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), taskId: z.uuid(), dueMs: z.number().int(), remindedMs: z.number().int() }),
+    // the claim's time too: a re-armed task (reopened) is a new job, never one the queue still remembers
+    jobId: (p) => `${p.taskId}:${p.dueMs}:${p.remindedMs}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return sendTaskReminder(p);
+    },
+  }),
+
   forgetListingActivities: defineJob({
     name: 'crm.forgetListingActivities',
     pool: 'maintenance',
@@ -99,7 +134,9 @@ export const crmJobs = {
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 5 * 60_000,
     async run(p) {
-      return forgetListingActivities(p);
+      const activities = await forgetListingActivities(p);
+      const tasks = await forgetListingTasks(p);
+      return { ...activities, tasks: tasks.rows };
     },
   }),
 

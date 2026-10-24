@@ -20,6 +20,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['listings', (ctx) => properties.can(ctx, 'listing.read')],
   // The CRM pipeline (S10-03): members who work clients (not partners, not Client Mode).
   ['pipeline', (ctx) => crm.can(ctx, 'crm.leads.read')],
+  // My tasks (S10-05): the same members.
+  ['tasks', (ctx) => crm.can(ctx, 'crm.tasks.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
   ['network', (ctx) => search.can(ctx, 'search.network')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).

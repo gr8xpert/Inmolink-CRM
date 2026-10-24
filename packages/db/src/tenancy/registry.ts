@@ -884,6 +884,14 @@ export const tenantTables: Record<string, TenantTable> = {
     partitioned: true,
     base: { type: 'OTHER', listing_id: '01900000-0000-7000-8000-00000000a001' },
   },
+  // S10-05: the agency's tasks and reminders — own agency only. A merge re-points `contact_id`; the reminder sweep and
+  // send job (app_system) write `reminded_at` / `reminder_sent_for`. app_user cannot update the send marker nor the
+  // idempotency hashes; it does update `reminded_at` (re-arming on a new due date, reopen or remind on).
+  tasks: {
+    kind: 'STRICT',
+    userNoUpdateColumns: ['reminder_sent_for', 'idempotency_hash', 'request_hash'],
+    base: { title: 'isolation', status: 'OPEN', assigned_user_id: '01900000-0000-7000-8000-00000000a002' },
+  },
 };
 
 /**

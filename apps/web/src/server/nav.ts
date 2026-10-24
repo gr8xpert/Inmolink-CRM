@@ -23,6 +23,7 @@ export interface NavItem {
 const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
   ['listings', '/listings'],
   ['pipeline', '/pipeline'],
+  ['tasks', '/tasks'],
   ['network', '/network'],
   ['developments', '/developments'],
   ['imports', '/imports'],

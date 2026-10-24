@@ -24,6 +24,10 @@ export const CRM_ACTIONS = [
   'crm.activities.read',
   /** Log a call, e-mail, meeting or viewing. */
   'crm.activities.write',
+  /** Tasks and reminders (S10-05): see every task of the agency. */
+  'crm.tasks.read',
+  /** Create, change, complete and delete tasks. */
+  'crm.tasks.write',
 ] as const;
 export type CrmAction = (typeof CRM_ACTIONS)[number];
 
@@ -45,6 +49,8 @@ export const CRM_IMPERSONATION: ImpersonationRules<CrmAction> = {
   'crm.pipeline.manage': 'forbidden',
   'crm.activities.read': 'allowed',
   'crm.activities.write': 'forbidden',
+  'crm.tasks.read': 'allowed',
+  'crm.tasks.write': 'forbidden',
 };
 
 const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
@@ -65,6 +71,8 @@ export function can(ctx: Ctx, action: CrmAction, resource?: { agencyId: string }
     case 'crm.leads.write':
     case 'crm.activities.read':
     case 'crm.activities.write':
+    case 'crm.tasks.read':
+    case 'crm.tasks.write':
       return MEMBER_ROLES.has(role);
     case 'crm.contacts.import':
     case 'crm.leads.routing':

@@ -20,6 +20,8 @@ import { z } from 'zod';
  * - `crm.lead.stageChanged` (S10-03) — a lead moved to another pipeline stage (a drag on the board, or a status set);
  *   `status` is the new stage's. The move's history row is already written (`lead_stage_history`); the activity
  *   timeline records `STAGE_CHANGED` from it.
+ * - `crm.task.reminderDue` (S10-05) — the reminder sweep claimed a task that came due (`dueMs`: the due time it claimed, `remindedMs`: when, both
+ *   epoch ms); the subscription queues `crm.sendTaskReminder`. Written in the claiming transaction.
  */
 export const crmEvents = {
   contactCreated: defineEvent(
@@ -59,6 +61,11 @@ export const crmEvents = {
       status: z.string(),
       assignedUserId: z.uuid().nullable(),
     }),
+  ),
+  taskReminderDue: defineEvent(
+    'crm.task.reminderDue',
+    1,
+    z.object({ agencyId: z.uuid(), taskId: z.uuid(), dueMs: z.number().int(), remindedMs: z.number().int() }),
   ),
   leadStageChanged: defineEvent(
     'crm.lead.stageChanged',

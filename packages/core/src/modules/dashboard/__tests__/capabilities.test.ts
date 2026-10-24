@@ -28,6 +28,7 @@ describe('getMyCapabilities', () => {
     const all = [
       'listings',
       'pipeline',
+      'tasks',
       'network',
       'developments',
       'imports',
@@ -49,6 +50,7 @@ describe('getMyCapabilities', () => {
       expect(getMyCapabilities(ctxAs(role)).sections).toEqual([
         'listings',
         'pipeline',
+        'tasks',
         'network',
         'developments',
         'imports',
@@ -87,6 +89,7 @@ describe('getMyCapabilities', () => {
     expect(caps.sections).toEqual([
       'listings',
       'pipeline',
+      'tasks',
       'network',
       'developments',
       'imports',

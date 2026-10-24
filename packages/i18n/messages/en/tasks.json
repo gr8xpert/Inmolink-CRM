@@ -1,0 +1,66 @@
+{
+  "email": {
+    "subject": "Task due: {title}",
+    "greeting": "Hello {name},",
+    "body": "This task is due now:",
+    "due": "Due: {when}",
+    "action": "Open Inmolink and go to Tasks to complete it or change the date.",
+    "footer": "You receive this reminder because the task is assigned to you."
+  },
+  "title": "My tasks",
+  "subtitle": "Calls, follow-ups and viewings that need doing.",
+  "tabs": {
+    "overdue": "Overdue",
+    "today": "Today",
+    "upcoming": "Upcoming",
+    "noDate": "No date",
+    "done": "Done"
+  },
+  "scope": {
+    "label": "Show",
+    "mine": "My tasks",
+    "all": "Everyone's tasks"
+  },
+  "empty": {
+    "overdue": "Nothing overdue.",
+    "today": "Nothing due today.",
+    "upcoming": "Nothing coming up.",
+    "noDate": "No tasks without a date.",
+    "done": "No completed tasks yet."
+  },
+  "new": "New task",
+  "form": {
+    "title": "Title",
+    "description": "Details",
+    "dueAt": "Due",
+    "remind": "Remind by e-mail when it is due",
+    "assignee": "Assigned to",
+    "create": "Add task",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "actions": {
+    "complete": "Mark done",
+    "reopen": "Reopen",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "meta": {
+    "due": "Due {when}",
+    "noDue": "No date",
+    "assignedTo": "For {name}",
+    "contact": "Contact",
+    "lead": "Lead",
+    "listing": "Listing",
+    "reminded": "Reminder sent"
+  },
+  "loadMore": "Load more",
+  "errors": {
+    "load": "Tasks could not be loaded. Try again.",
+    "generic": "Something went wrong. Try again.",
+    "VERSION_CONFLICT": "Someone changed this task. Reload and try again.",
+    "TASK_NOT_FOUND": "This task no longer exists.",
+    "VALIDATION_FAILED": "Check the title and the date.",
+    "FORBIDDEN": "You cannot change tasks."
+  }
+}

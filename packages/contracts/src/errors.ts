@@ -254,6 +254,8 @@ export const ErrorCodes = {
   // crm: activities (S10-04)
   /** A logged activity's `occurredAt` is ahead of now or more than `CRM_ACTIVITY_LIMITS.backdateDays` back. */
   ACTIVITY_DATE_OUT_OF_RANGE: 422,
+  // crm: tasks (S10-05)
+  TASK_NOT_FOUND: 404,
   // crm: pipeline (S10-03)
   PIPELINE_STAGE_NOT_FOUND: 404,
   /** Another active stage of the agency already has this name. */

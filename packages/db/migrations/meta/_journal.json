@@ -876,6 +876,13 @@
       "when": 1792810028744,
       "tag": "0124_s10_03_crm_pipeline",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1792813797118,
+      "tag": "0125_s10_05_crm_tasks",
+      "breakpoints": true
     }
   ]
 }

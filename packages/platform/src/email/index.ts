@@ -19,6 +19,11 @@ export interface EmailMessage {
   fromName?: string;
   /** S7-05: where replies go (e.g. the website's contact e-mail). */
   replyTo?: string;
+  /**
+   * S10-05: the provider's idempotency key (`Idempotency-Key`, Resend keeps it 24 h): a retry of the same logical send
+   * is delivered once. Safe characters only, ≤ 256 chars. SMTP has no such thing — the key is ignored there.
+   */
+  idempotencyKey?: string;
 }
 
 export interface Mailer {
@@ -35,6 +40,15 @@ const EMAIL = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;
 
 export class EmailSendError extends Error {
   override readonly name = 'EmailSendError';
+  /**
+   * S10-05: the provider answered that it refused the message (a 4xx other than 409 / 429): nothing was sent, a caller
+   * may give up its claim on the send. Otherwise (timeout, 5xx, a dropped connection) it is unknown whether it went.
+   */
+  readonly notSent: boolean;
+  constructor(message: string, opts: { notSent?: boolean } = {}) {
+    super(message);
+    this.notSent = opts.notSent ?? false;
+  }
 }
 
 /** Rejects header injection and obviously bad addresses before any driver sees the message. */
@@ -44,6 +58,9 @@ export function assertMessage(message: EmailMessage): void {
   if (message.tag !== undefined && !/^[a-z0-9._-]{1,64}$/.test(message.tag)) throw new TypeError('email: invalid tag');
   if (message.fromName !== undefined && !/^[^\r\n"<>\\]{1,100}$/.test(message.fromName)) {
     throw new TypeError('email: invalid sender name');
+  }
+  if (message.idempotencyKey !== undefined && !/^[A-Za-z0-9:._-]{1,256}$/.test(message.idempotencyKey)) {
+    throw new TypeError('email: invalid idempotency key');
   }
   if (message.replyTo !== undefined && (!EMAIL.test(message.replyTo) || message.replyTo.length > 254)) {
     throw new TypeError('email: invalid reply-to');
@@ -100,7 +117,11 @@ export function createResendMailer(options: {
       assertMessage(message);
       const res = await doFetch(endpoint, {
         method: 'POST',
-        headers: { authorization: `Bearer ${options.resendApiKey}`, 'content-type': 'application/json' },
+        headers: {
+          authorization: `Bearer ${options.resendApiKey}`,
+          'content-type': 'application/json',
+          ...(message.idempotencyKey ? { 'idempotency-key': message.idempotencyKey } : {}),
+        },
         body: JSON.stringify({
           from: senderOf(options.from, message),
           ...(message.replyTo ? { reply_to: message.replyTo } : {}),
@@ -112,7 +133,10 @@ export function createResendMailer(options: {
         }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!res.ok) throw new EmailSendError(`resend send failed (${res.status})`);
+      if (!res.ok) {
+        const refused = res.status >= 400 && res.status < 500 && res.status !== 409 && res.status !== 429;
+        throw new EmailSendError(`resend send failed (${res.status})`, { notSent: refused });
+      }
       const body = (await res.json().catch(() => ({}))) as { id?: string };
       return { id: body.id };
     },

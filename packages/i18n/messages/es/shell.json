@@ -25,7 +25,8 @@
     "staffAccess": "Accesos del personal",
     "staffConsole": "Consola de staff",
     "staffVerification": "Cola de verificación (staff)",
-    "pipeline": "Embudo comercial"
+    "pipeline": "Embudo comercial",
+    "tasks": "Tareas"
   },
   "account": {
     "label": "Tu cuenta",

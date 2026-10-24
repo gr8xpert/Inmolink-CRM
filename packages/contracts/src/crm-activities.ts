@@ -16,6 +16,7 @@ export const RECORDED_ACTIVITY_TYPES = [
   'LEAD_UPDATED',
   'LISTING_STATUS_CHANGED',
   'STAGE_CHANGED',
+  'TASK_COMPLETED',
 ] as const;
 export const ACTIVITY_TYPES = [...MANUAL_ACTIVITY_TYPES, ...RECORDED_ACTIVITY_TYPES] as const;
 export const ActivityType = z.enum(ACTIVITY_TYPES);

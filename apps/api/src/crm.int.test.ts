@@ -63,7 +63,7 @@ describe('crm contact routes', () => {
       headers,
       payload: { firstName: 'Rosa', emails: [email], phones: ['600 111 222'] },
     });
-    expect(created.statusCode).toBe(201);
+    expect(created.statusCode, created.body).toBe(201);
     expect(created.headers['cache-control']).toBe('no-store');
     const contact = created.json();
     expect(contact).toMatchObject({
@@ -165,7 +165,7 @@ describe('crm lead routes', () => {
       headers: { ...headers, ...key },
       payload: { contactId: contact.id, message: 'Wants a sea view' },
     });
-    expect(created.statusCode).toBe(201);
+    expect(created.statusCode, created.body).toBe(201);
     expect(created.headers['cache-control']).toBe('no-store');
     const lead = created.json();
     expect(lead).toMatchObject({ source: 'MANUAL', status: 'NEW', contact: { id: contact.id }, assignedUserId: null });
@@ -232,7 +232,7 @@ describe('crm activity routes', () => {
       headers: { ...headers, ...key },
       payload,
     });
-    expect(created.statusCode).toBe(201);
+    expect(created.statusCode, created.body).toBe(201);
     expect(created.headers['cache-control']).toBe('no-store');
     const activity = created.json();
     expect(activity).toMatchObject({ type: 'CALL', contactId: contact.id, actorUserId: f.userId, data: {} });
@@ -372,5 +372,42 @@ describe('crm pipeline routes', () => {
       headers,
     });
     expect(tooLong.statusCode).toBe(422);
+  });
+});
+
+describe('crm task routes', () => {
+  it('[S10-05] create (idempotent), list my tasks, complete, delete over HTTP', async () => {
+    const f = await createFounder();
+    const headers = { ...(await bearer(f.userId, f.agencyId)), 'idempotency-key': `task-create-${RUN}-key` };
+    const payload = { title: `Call the notary ${RUN}`, dueAt: new Date(Date.now() + 3_600_000).toISOString() };
+    const created = await app.inject({ method: 'POST', url: '/v1/crm/tasks', headers, payload });
+    expect(created.statusCode, created.body).toBe(201);
+    const task = created.json();
+    expect(task).toMatchObject({ title: payload.title, status: 'OPEN', assignedUserId: f.userId, remind: true });
+    const replay = await app.inject({ method: 'POST', url: '/v1/crm/tasks', headers, payload });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().id).toBe(task.id);
+
+    const auth = await bearer(f.userId, f.agencyId);
+    const mine = await app.inject({ method: 'GET', url: '/v1/crm/tasks', headers: auth });
+    expect(mine.json().items.map((t: { id: string }) => t.id)).toEqual([task.id]);
+    const done = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/tasks/${task.id}`,
+      headers: auth,
+      payload: { version: task.version, status: 'DONE' },
+    });
+    expect(done.json()).toMatchObject({ status: 'DONE', version: task.version + 1 });
+    const stale = await app.inject({
+      method: 'PATCH',
+      url: `/v1/crm/tasks/${task.id}`,
+      headers: auth,
+      payload: { version: task.version, title: 'again' },
+    });
+    expect(stale.statusCode).toBe(409);
+    const deleted = await app.inject({ method: 'DELETE', url: `/v1/crm/tasks/${task.id}`, headers: auth });
+    expect(deleted.json()).toEqual({ deleted: true });
+    const gone = await app.inject({ method: 'GET', url: `/v1/crm/tasks/${task.id}`, headers: auth });
+    expect(gone.statusCode).toBe(404);
   });
 });

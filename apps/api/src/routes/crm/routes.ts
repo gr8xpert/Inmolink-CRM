@@ -28,6 +28,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { crmActivityRoutes } from './activities';
 import { crmLeadRoutes } from './leads';
 import { crmPipelineRoutes } from './pipeline';
+import { crmTaskRoutes } from './tasks';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -255,6 +256,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   await app.register(crmActivityRoutes);
   // S10-03: pipeline stages, the board, a drag, stage history and the report.
   await app.register(crmPipelineRoutes);
+  // S10-05: tasks and reminders.
+  await app.register(crmTaskRoutes);
 }
 
 /** One upload at a time per member, four per process: a 25 MB body each. */

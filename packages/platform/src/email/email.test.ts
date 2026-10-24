@@ -65,3 +65,29 @@ describe('email adapter', () => {
     await expect(memory.send({ ...message, replyTo: 'a@b.c, d@e.f' })).rejects.toThrow(/reply-to/);
   });
 });
+
+describe('email idempotency (S10-05)', () => {
+  it('[S10-05] the resend driver sends the idempotency key, and marks a 4xx refusal as not sent', async () => {
+    const seen: unknown[] = [];
+    const mailer = (status: number) =>
+      createResendMailer({
+        from: 'Inmolink <no-reply@inmolink.test>',
+        resendApiKey: 're_test',
+        fetch: async (_url, init) => {
+          seen.push((init as RequestInit).headers);
+          return new Response(JSON.stringify({ id: 'x' }), { status });
+        },
+      });
+    await mailer(200).send({ ...message, idempotencyKey: 'task-reminder:abc:1' });
+    expect(seen[0]).toMatchObject({ 'idempotency-key': 'task-reminder:abc:1' });
+    const refused = await mailer(422)
+      .send(message)
+      .catch((e: unknown) => e);
+    expect(refused).toMatchObject({ name: 'EmailSendError', notSent: true });
+    const unknown = await mailer(503)
+      .send(message)
+      .catch((e: unknown) => e);
+    expect(unknown).toMatchObject({ name: 'EmailSendError', notSent: false });
+    await expect(createMemoryMailer().send({ ...message, idempotencyKey: 'bad key\n' })).rejects.toThrow(/idempotency/);
+  });
+});

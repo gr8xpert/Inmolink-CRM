@@ -3,6 +3,7 @@ import {
   CreateContactBody,
   type CreateContactInput,
   CreateLeadBody,
+  CreateTaskBody,
   ListActivitiesQuery,
   StartContactImportBody,
 } from '@inmolink/contracts';
@@ -259,8 +260,8 @@ describe('consent', () => {
 
 describe('merge', () => {
   it('[S10-01] merge moves leads, activities, tasks and registrations to the surviving contact', async () => {
-    // Leads (S10-02) and activities (S10-04) move with the merge; tasks (S10-05) do not exist yet: they plug into the
-    // same mechanism — every table in CONTACT_REFERENCES (notes, leads, activities) moves in the merge, and
+    // Leads (S10-02), activities (S10-04) and tasks (S10-05) move with the merge: every table in
+    // CONTACT_REFERENCES (notes, leads, activities, tasks) moves in the merge, and
     // crm.contact.merged is emitted for registrations and other modules (the next test fails when a crm table with
     // contact_id is not registered).
     const survivor = await create(a, {
@@ -285,6 +286,9 @@ describe('merge', () => {
     expect(lead.lead.contact.id).toBe(duplicate.id);
     const call = await as(a, (ctx) =>
       crm.logActivity(ctx, CreateActivityBody.parse({ type: 'CALL', contactId: duplicate.id, body: 'Wants a pool' })),
+    );
+    const task = await as(a, (ctx) =>
+      crm.createTask(ctx, CreateTaskBody.parse({ title: 'Send the villa brochure', contactId: duplicate.id })),
     );
 
     const merged = await as(a, (ctx) =>
@@ -322,6 +326,11 @@ describe('merge', () => {
     expect(activities.items.map((i) => i.id)).toContain(call.activity.id);
     expect(activities.items.filter((i) => i.type === 'NOTE_ADDED')).toHaveLength(2);
     expect(activities.items.every((i) => i.contactId === survivor.id)).toBe(true);
+
+    // the duplicate's task is the survivor's now, at a new version (S10-05)
+    const movedTask = await as(a, (ctx) => crm.getTask(ctx, task.task.id));
+    expect(movedTask.contactId).toBe(survivor.id);
+    expect(movedTask.version).toBe(task.task.version + 1);
 
     const events = await rows<{ payload: { survivorId: string; mergedId: string } }>(
       sql`select payload from outbox_events where type = 'crm.contact.merged' and agency_id = ${a.agencyId}

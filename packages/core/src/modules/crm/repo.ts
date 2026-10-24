@@ -8,6 +8,7 @@ import {
   contactPhones,
   contacts,
   leads,
+  tasks,
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
 import { and, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-orm';
@@ -437,6 +438,8 @@ export const CONTACT_REFERENCES = [
   // S10-04: the duplicate's activities join the survivor's timeline (partitioned: `activities_contact_idx` on each
   // month serves the update).
   { name: 'activities', table: activities, versioned: false },
+  // S10-05: the duplicate's tasks (deleted ones too) follow it, with a new version (an open edit form conflicts).
+  { name: 'tasks', table: tasks, versioned: true },
 ] as const;
 
 /** Moves every reference of `fromId` to `toId` (one statement); returns the rows moved per table. */

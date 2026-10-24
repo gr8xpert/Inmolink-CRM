@@ -1,0 +1,76 @@
+'use server';
+
+import { CreateTaskBody, UpdateTaskBody } from '@inmolink/contracts';
+import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
+import { redirect } from 'next/navigation';
+import { getLocale } from 'next-intl/server';
+import { z } from 'zod';
+import { auth } from '@/auth';
+import { getPathname } from '@/i18n/navigation';
+import type { ApiResult, SessionRef } from '@/server/api';
+import { sessionRef } from '@/server/api';
+import { createTask, deleteTask, updateTask } from '@/server/crm-api';
+import { parseLocalDateTime } from './time';
+
+/**
+ * My-tasks actions (S10-05, transport only): forms post here, the contracts validate, the API decides. Each action
+ * returns to the list the member came from (`tab`, `scope`) with `done` or the error code (i18n keys under
+ * `tasks.errors`).
+ */
+
+const TABS = new Set(['overdue', 'today', 'upcoming', 'noDate', 'done']);
+
+const text = (form: FormData, name: string) => {
+  const v = form.get(name);
+  return typeof v === 'string' ? v.trim() : '';
+};
+
+async function back(form: FormData, extra: Record<string, string>): Promise<never> {
+  const tab = text(form, 'tab');
+  const query = new URLSearchParams({
+    ...(TABS.has(tab) ? { tab } : {}),
+    ...(text(form, 'scope') === 'all' ? { scope: 'all' } : {}),
+    ...extra,
+  });
+  redirect(`${getPathname({ href: '/tasks', locale: await getLocale() })}?${query.toString()}`);
+}
+
+async function requireSession(): Promise<SessionRef> {
+  const s = await auth();
+  if (!s?.user?.id) redirect('/session/expired');
+  return sessionRef(s.user);
+}
+
+async function settle(form: FormData, res: ApiResult<unknown>): Promise<never> {
+  if (res === 'revoked') redirect('/session/expired');
+  return back(form, res.ok ? { done: '1' } : { error: res.error?.code ?? 'generic' });
+}
+
+export async function addTaskAction(form: FormData): Promise<void> {
+  const due = text(form, 'dueAt');
+  const dueAt = due ? parseLocalDateTime(due, DEFAULT_TIME_ZONE) : undefined;
+  const key = text(form, 'idempotencyKey');
+  const parsed = CreateTaskBody.safeParse({
+    title: text(form, 'title'),
+    ...(text(form, 'description') ? { description: text(form, 'description') } : {}),
+    ...(dueAt ? { dueAt: dueAt.toISOString() } : {}),
+    remind: form.get('remind') === 'on',
+  });
+  if ((due && !dueAt) || !parsed.success || !/^[A-Za-z0-9-]{16,64}$/.test(key)) {
+    return back(form, { error: 'VALIDATION_FAILED' });
+  }
+  return settle(form, await createTask(await requireSession(), parsed.data, key));
+}
+
+/** Completes, reopens or deletes one task (`intent`), at the `version` the member saw. */
+export async function taskIntentAction(form: FormData): Promise<void> {
+  const id = text(form, 'id');
+  const intent = text(form, 'intent');
+  const version = Number(text(form, 'version'));
+  if (!z.uuid().safeParse(id).success) return back(form, { error: 'VALIDATION_FAILED' });
+  const s = await requireSession();
+  if (intent === 'delete') return settle(form, await deleteTask(s, id));
+  const parsed = UpdateTaskBody.safeParse({ version, status: intent === 'reopen' ? 'OPEN' : 'DONE' });
+  if (!parsed.success || !['complete', 'reopen'].includes(intent)) return back(form, { error: 'VALIDATION_FAILED' });
+  return settle(form, await updateTask(s, id, parsed.data));
+}

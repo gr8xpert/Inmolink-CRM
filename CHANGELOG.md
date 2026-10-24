@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- CRM tasks and reminders (S10-05): tasks linked to contacts / leads / listings, my-tasks dashboard page, `/v1/crm/tasks`, reminder e-mail once at the due time (claimed sweep + outbox, per-agency fair share, Resend idempotency key), `TASK_COMPLETED` activity; migration 0125. Platform email: `idempotencyKey`, `EmailSendError.notSent`. No new dependency.
 - CRM pipeline (S10-03): customizable stages, board and list views in the dashboard with drag-and-drop and a keyboard alternative, versioned moves with fractional ranks, stage history (definer-appended) and report, `STAGE_CHANGED` activity; migration 0124. No new dependency.
 - CRM activity timeline (S10-04): monthly-partitioned `activities` (contact / lead / listing), outbox writers, notes and logged calls / meetings with Idempotency-Key, `GET` / `POST /v1/crm/activities` with keyset under RLS, merge and listing purge handled; migration 0123. No new dependency.
 - Portal secrets out of request paths: `credentials_enc` / `token_hash` unreadable for app_user, worker columns not updatable, `push_error` cleared by trigger, feed runs and sync rows read-only (S10-F4); push teardown keyset over a partial live-advert index (S10-F8); grouped selection per rule, one range-bounded issue write per batch, hash-range nightly lanes, `setOverrides` ≤ 10 statements (S10-F9). Migration 0122; no new dependency.

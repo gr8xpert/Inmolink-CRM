@@ -52,3 +52,14 @@ export {
   updateContact,
 } from './service';
 export { registerCrmSubscriptions, unregisterCrmSubscriptions } from './subscriptions';
+export {
+  createTask,
+  deleteTask,
+  forgetListingTasks,
+  getTask,
+  listTasks,
+  REMINDER_GRACE_MS,
+  sendTaskReminder,
+  sweepTaskReminders,
+  updateTask,
+} from './tasks';

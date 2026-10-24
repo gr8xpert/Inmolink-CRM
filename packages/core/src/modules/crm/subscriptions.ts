@@ -91,6 +91,17 @@ export function registerCrmSubscriptions(): void {
       { name: 'crm.activity.contactMerged' },
     ),
     subscribe(
+      crmEvents.taskReminderDue,
+      (payload, meta) =>
+        crmJobs.sendTaskReminder.enqueue({
+          agencyId: meta.agencyId,
+          taskId: payload.taskId,
+          dueMs: payload.dueMs,
+          remindedMs: payload.remindedMs,
+        }),
+      { name: 'crm.task.sendReminder' },
+    ),
+    subscribe(
       properties.propertiesEvents.statusChanged,
       (payload, meta) =>
         crmJobs.recordActivity.enqueue({

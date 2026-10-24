@@ -129,6 +129,7 @@ describe('api against the test stack', () => {
         sections: [
           'listings',
           'pipeline',
+          'tasks',
           'network',
           'developments',
           'imports',

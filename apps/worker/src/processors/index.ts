@@ -72,6 +72,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.notifyLeadAgencyFallback,
     // S10-02: website leads promoted to CRM leads (speed-to-lead: the inbox within seconds).
     crmJobs.promoteInboundLead,
+    // S10-05: task reminder e-mails (one per claimed reminder).
+    crmJobs.sendTaskReminder,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,
@@ -98,6 +100,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.sweepContactImports,
     // S10-04: a purged listing leaves the activity timelines.
     crmJobs.forgetListingActivities,
+    // S10-05: the minute-by-minute claim of reminders that came due.
+    crmJobs.sweepTaskReminders,
   ],
   ai: [],
   social: [],
