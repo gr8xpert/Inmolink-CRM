@@ -91,6 +91,11 @@ export const CHAT_RATE_RULES = {
   join: { name: 'realtime.chat.join.user', scope: 'user', limit: 120, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
+/** S12-F11: per user across nodes (`deps.limit`): `/notifications` sockets opened (same cap as `/chat`). */
+export const NOTIFICATIONS_RATE_RULES = {
+  connect: { name: 'realtime.notifications.connect.user', scope: 'user', limit: 30, windowSeconds: 60 },
+} as const satisfies Record<string, RateLimitRule>;
+
 export interface RealtimeApp {
   app: FastifyZod;
   io: Server;
@@ -147,6 +152,23 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   };
   io.use(authenticate);
 
+  /**
+   * A user's sockets on a per-user namespace (`/notifications`, `/chat`): at most `socketsPerUser` tabs on this node
+   * (sticky sessions keep a browser on one node), and `rule` counts connects per user across nodes (`deps.limit`;
+   * a limiter error lets the socket in). Runs after `authenticate`, so the user and agency come from the token.
+   */
+  const admit = (nsp: ReturnType<Server['of']>, rule: RateLimitRule, socket: Socket, next: (err?: Error) => void) => {
+    const agencyId = String(socket.data.agencyId);
+    const userId = String(socket.data.userId);
+    const open = nsp.adapter.rooms.get(userRoom(agencyId, userId))?.size ?? 0;
+    if (open >= CHAT_SOCKET_LIMITS.socketsPerUser) return next(new Error('RATE_LIMITED'));
+    if (!deps.limit) return next();
+    deps.limit(rule, `${agencyId}:${userId}`).then(
+      (allowed) => next(allowed ? undefined : new Error('RATE_LIMITED')),
+      () => next(),
+    );
+  };
+
   // S11-04: `/notifications` — each socket joins its own user's room, nothing else; it sends nothing (reads and marks
   // go through the api). A user only ever receives events published for their own id.
   // A member's feed needs the agency (`agency` claim); staff impersonating a member get no live feed (S1-09: they may
@@ -156,7 +178,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   notifications.use((socket, next) => {
     if (typeof socket.data.agencyId !== 'string') return next(new Error('NOT_AUTHENTICATED'));
     if (socket.data.impersonated) return next(new Error('FORBIDDEN'));
-    next();
+    admit(notifications, NOTIFICATIONS_RATE_RULES.connect, socket, next);
   });
   notifications.on('connection', (socket) => {
     void socket.join(userRoom(String(socket.data.agencyId), String(socket.data.userId)));
@@ -171,15 +193,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   chat.use((socket, next) => {
     if (typeof socket.data.agencyId !== 'string') return next(new Error('NOT_AUTHENTICATED'));
     if (socket.data.impersonated) return next(new Error('FORBIDDEN'));
-    const who = `${socket.data.agencyId}:${socket.data.userId}`;
-    // a user's tabs on this node (sticky sessions keep a browser on one node)
-    const open = chat.adapter.rooms.get(userRoom(String(socket.data.agencyId), String(socket.data.userId)))?.size ?? 0;
-    if (open >= CHAT_SOCKET_LIMITS.socketsPerUser) return next(new Error('RATE_LIMITED'));
-    if (!deps.limit) return next();
-    deps.limit(CHAT_RATE_RULES.connect, who).then(
-      (allowed) => next(allowed ? undefined : new Error('RATE_LIMITED')),
-      () => next(),
-    );
+    admit(chat, CHAT_RATE_RULES.connect, socket, next);
   });
   chat.on('connection', (socket) => {
     const agencyId = String(socket.data.agencyId);

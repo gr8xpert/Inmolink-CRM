@@ -10,7 +10,7 @@ import {
 import { createLogger } from '@inmolink/platform/logger';
 import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp, type RealtimeApp } from './app';
+import { buildApp, NOTIFICATIONS_RATE_RULES, type RealtimeApp } from './app';
 
 const USER = '0192a0b4-0000-7000-8000-000000000001';
 const OTHER_USER = '0192a0b4-0000-7000-8000-000000000002';
@@ -28,6 +28,9 @@ const joinChecks: string[] = [];
 /** S11-03: the per-user Redis counters (`deps.limit`), faked: LIMITED is over its join limit. */
 const LIMITED = '0192a0b4-0000-7000-8000-000000000004';
 const limited: string[] = [];
+/** S12-F11: a user whose `/notifications` connects the fake limiter counts (one window, `rule.limit` per window). */
+const CONNECTOR = '0192a0b4-0000-7000-8000-000000000005';
+let connects = 0;
 const pair = generateAccessKeyPair();
 const signer = createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 'k1' });
 
@@ -50,6 +53,11 @@ beforeAll(async () => {
     },
     limit: async (rule, identity) => {
       limited.push(`${rule.name}:${identity}`);
+      if (rule.name === 'realtime.notifications.connect.user' && identity.endsWith(CONNECTOR)) {
+        // S12-F11: a fixed window that never rolls over within the test: the (limit + 1)th connect is refused
+        connects += 1;
+        return connects <= rule.limit;
+      }
       return !(rule.name === 'realtime.chat.join.user' && identity.endsWith(LIMITED));
     },
     userEvents: async (handler) => {
@@ -324,5 +332,38 @@ describe('realtime app', () => {
     } finally {
       for (const t of tabs) t.close();
     }
+  });
+
+  it('[S12-F11] /notifications refuses an 11th socket of a user on a node; another user is not affected', async () => {
+    const tabs: Socket[] = [];
+    try {
+      for (let i = 0; i < 10; i++) {
+        const [tab] = connected(await open('/notifications', OTHER_USER));
+        tabs.push(tab);
+      }
+      expect(await open('/notifications', OTHER_USER)).toBe('RATE_LIMITED');
+      const [other] = connected(await open('/notifications', USER));
+      other.close();
+    } finally {
+      for (const t of tabs) t.close();
+    }
+  });
+
+  it('[S12-F11] /notifications counts connects per user across nodes: the 31st connect in a minute is refused', async () => {
+    expect(NOTIFICATIONS_RATE_RULES.connect).toEqual({
+      name: 'realtime.notifications.connect.user',
+      scope: 'user',
+      limit: 30,
+      windowSeconds: 60,
+    });
+    connects = 0;
+    for (let i = 0; i < 30; i++) {
+      // one tab at a time: the per-node socket cap is not what refuses here
+      const [tab] = connected(await open('/notifications', CONNECTOR));
+      tab.close();
+    }
+    expect(await open('/notifications', CONNECTOR)).toBe('RATE_LIMITED');
+    expect(connects).toBe(31);
+    expect(limited).toContain(`realtime.notifications.connect.user:${AGENCY}:${CONNECTOR}`);
   });
 });
