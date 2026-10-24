@@ -36,6 +36,7 @@ import * as leadsRepo from './leads-repo';
 import * as pipelineRepo from './pipeline-repo';
 import { assertCan } from './policy';
 import { isRank, rankBetween, spreadRank, timeRank } from './rank';
+import { humanResponseOf } from './response';
 
 /**
  * The pipeline (S10-03, PLAN §7 M8): the agency's own lead stages, the board, a drag, a lead's stage history and the
@@ -373,6 +374,7 @@ export async function moveLead(ctx: Ctx, leadId: string, input: MoveLeadBody): P
     rank,
     ...(changed ? { enteredAt: now } : {}),
     ...(leavesNew ? { firstRespondedAt: now } : {}),
+    ...(changed ? { response: humanResponseOf(ctx, now) } : {}),
   });
   if (!moved) throw new AppError('VERSION_CONFLICT');
   if (changed) {

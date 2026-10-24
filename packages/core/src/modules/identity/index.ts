@@ -51,6 +51,7 @@ export {
   issueAccessToken,
   listInvites,
   listMembers,
+  memberNames,
   register,
   requestPasswordReset,
   resetPassword,

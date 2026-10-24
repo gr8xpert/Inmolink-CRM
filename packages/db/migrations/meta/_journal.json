@@ -883,6 +883,13 @@
       "when": 1792813797118,
       "tag": "0125_s10_05_crm_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1792814481609,
+      "tag": "0126_s10_09_response_kpi",
+      "breakpoints": true
     }
   ]
 }

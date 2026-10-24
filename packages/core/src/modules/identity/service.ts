@@ -645,3 +645,8 @@ export async function acceptInvite(ctx: AuthCtx, input: AcceptInviteInput): Prom
     return { userId, email: invite.email };
   });
 }
+
+/** S10-09: display names of the caller's agency members (deactivated included) for a KPI's rows; no authorization of its own. */
+export async function memberNames(ctx: Ctx, userIds: readonly string[]): Promise<Map<string, string>> {
+  return repo.memberNames(ctx.tx, ctx.tenant.agencyId, userIds);
+}

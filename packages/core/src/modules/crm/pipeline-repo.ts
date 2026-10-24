@@ -6,6 +6,7 @@ import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 import type { LeadListRow } from './leads-repo';
 import { DEFAULT_STAGES } from './pipeline-defaults';
+import { humanResponseSet } from './response-repo';
 
 /**
  * Pipeline queries (S10-03): the agency's stages, the board (one query for every column), a drag's neighbours and
@@ -436,7 +437,14 @@ export async function moveLead(
   tx: Tx,
   id: string,
   version: number,
-  move: { stageId: string; status: string; rank: string; enteredAt?: Date; firstRespondedAt?: Date },
+  move: {
+    stageId: string;
+    status: string;
+    rank: string;
+    enteredAt?: Date;
+    firstRespondedAt?: Date;
+    response?: { at: Date; userId: string };
+  },
 ): Promise<{ version: number; status: string; stageEnteredAt: Date } | null> {
   const [row] = await tx
     .update(leads)
@@ -446,6 +454,7 @@ export async function moveLead(
       stageRank: move.rank,
       ...(move.enteredAt ? { stageEnteredAt: move.enteredAt } : {}),
       ...(move.firstRespondedAt ? { firstRespondedAt: move.firstRespondedAt } : {}),
+      ...(move.response ? humanResponseSet(move.response.at, move.response.userId) : {}),
       version: sql`${leads.version} + 1`,
       updatedAt: sql`now()`,
     })

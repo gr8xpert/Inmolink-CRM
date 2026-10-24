@@ -9,6 +9,7 @@ export * from './common';
 export * from './compliance';
 export * from './crm';
 export * from './crm-activities';
+export * from './crm-kpi';
 export * from './crm-leads';
 export * from './crm-pipeline';
 export * from './crm-tasks';

@@ -39,6 +39,7 @@ export {
   updatePipelineStage,
 } from './pipeline';
 export { CLIENT_MODE_ALLOWED, CRM_ACTIONS, CRM_IMPERSONATION, type CrmAction, can } from './policy';
+export { getResponseTimeKpi, recordAutoAck } from './response';
 export { type Route, type RouteInput, routeLead } from './routing';
 export {
   addContactNote,

@@ -37,6 +37,7 @@ import { placement, stageForStatus } from './pipeline';
 import * as pipelineRepo from './pipeline-repo';
 import { assertCan } from './policy';
 import * as repo from './repo';
+import { humanResponseOf } from './response';
 import { routeLead } from './routing';
 
 /**
@@ -164,6 +165,8 @@ export interface IncomingLead {
   idempotency: { hash: string; requestHash: string } | null;
   /** A member chosen by hand (`null`: leave it unassigned); `undefined`: the holder's rule decides. */
   assignedUserId?: string | null;
+  /** When the website lead's automatic acknowledgement went out, when it already had (S10-09). */
+  autoAckSentAt?: Date | null;
 }
 
 /** The lead as written (its own columns; the caller adds the contact summary for an answer). */
@@ -218,6 +221,7 @@ export async function receiveLead(tx: Tx, holderAgencyId: string, lead: Incoming
     assignedUserId,
     assignedAt: assignedUserId ? new Date() : null,
     firstRespondedAt: null,
+    autoAckSentAt: lead.autoAckSentAt ?? null,
     createdBy: lead.createdBy,
     idempotencyHash: lead.idempotency?.hash ?? null,
     requestHash: lead.idempotency?.requestHash ?? null,
@@ -342,6 +346,7 @@ export async function promoteInboundLead(p: {
       locale: form.locale,
       visitor: { name: form.name, email: form.email, phone: form.phone, marketingConsent: form.marketingConsent },
       inboundLeadId: form.id,
+      autoAckSentAt: form.ackSentAt,
       createdBy: null,
       idempotency: null,
     });
@@ -534,7 +539,13 @@ export async function updateLead(ctx: Ctx, id: string, input: UpdateLeadBody): P
     patch.assignedAt = input.assignedUserId ? now : null;
   }
   if (Object.keys(patch).length === 0) return toLeadDto(current);
-  const updated = await leadsRepo.updateLeadWithVersion(ctx.tx, id, input.version, patch);
+  const updated = await leadsRepo.updateLeadWithVersion(
+    ctx.tx,
+    id,
+    input.version,
+    patch,
+    toStageId ? humanResponseOf(ctx, now) : undefined,
+  );
   if (!updated) throw new AppError('VERSION_CONFLICT');
   if (toStageId) {
     await emit(

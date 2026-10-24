@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Response-time KPI (S10-09): first human response per lead recorded by the crm service, agency and per-member medians at `/v1/crm/kpis/response-time`, dashboard home card; migration 0126. No new dependency.
 - CRM tasks and reminders (S10-05): tasks linked to contacts / leads / listings, my-tasks dashboard page, `/v1/crm/tasks`, reminder e-mail once at the due time (claimed sweep + outbox, per-agency fair share, Resend idempotency key), `TASK_COMPLETED` activity; migration 0125. Platform email: `idempotencyKey`, `EmailSendError.notSent`. No new dependency.
 - CRM pipeline (S10-03): customizable stages, board and list views in the dashboard with drag-and-drop and a keyboard alternative, versioned moves with fractional ranks, stage history (definer-appended) and report, `STAGE_CHANGED` activity; migration 0124. No new dependency.
 - CRM activity timeline (S10-04): monthly-partitioned `activities` (contact / lead / listing), outbox writers, notes and logged calls / meetings with Idempotency-Key, `GET` / `POST /v1/crm/activities` with keyset under RLS, merge and listing purge handled; migration 0123. No new dependency.

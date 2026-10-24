@@ -15,6 +15,7 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as properties from '../properties';
 import * as activitiesRepo from './activities-repo';
 import { assertCan } from './policy';
+import { RESPONSE_ACTIVITY_TYPES, recordHumanResponse } from './response';
 
 /**
  * The activity timeline (S10-04, PLAN §6 CRM): one partitioned table (`activities`, monthly) that every timeline reads —
@@ -168,6 +169,8 @@ export async function logActivity(
     },
   ]);
   if (!row) throw new AppError('INTERNAL');
+  // S10-09: an e-mail, call or meeting logged on a lead answers it (the earliest stands; a replay returned above)
+  if (input.leadId && RESPONSE_ACTIVITY_TYPES.has(input.type)) await recordHumanResponse(ctx, input.leadId, occurredAt);
   return { activity: toActivityDto(row), replayed: false };
 }
 

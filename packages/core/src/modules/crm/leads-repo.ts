@@ -5,6 +5,7 @@ import { and, eq, gt, isNull, type SQL, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 import { DEFAULT_STAGES } from './pipeline-defaults';
+import { humanResponseSet } from './response-repo';
 
 /**
  * Lead queries (S10-02, PATTERNS §5): the holder's leads (STRICT), the owner's introductions (NETWORK_READ on
@@ -198,10 +199,16 @@ export async function updateLeadWithVersion(
   id: string,
   version: number,
   patch: Partial<typeof leads.$inferInsert>,
+  response?: { at: Date; userId: string },
 ): Promise<{ id: string; version: number } | null> {
   const [row] = await tx
     .update(leads)
-    .set({ ...patch, version: sql`${leads.version} + 1`, updatedAt: sql`now()` })
+    .set({
+      ...patch,
+      ...(response ? humanResponseSet(response.at, response.userId) : {}),
+      version: sql`${leads.version} + 1`,
+      updatedAt: sql`now()`,
+    })
     .where(and(eq(leads.id, id), eq(leads.version, version)))
     .returning({ id: leads.id, version: leads.version });
   return row ?? null;

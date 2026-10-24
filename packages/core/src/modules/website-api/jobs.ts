@@ -325,10 +325,23 @@ export const websiteApiJobs = {
         await withSystem('websiteApi.sendLeadAcknowledgement release', (tx) =>
           websites.releaseAck(tx, lead.id, reservedAt),
         );
+        // S10-09: nothing went out, so a time the promotion may have copied from the reservation goes too
+        await crm
+          .recordAutoAck({ agencyId: lead.agencyId, inboundLeadId: lead.id, at: null })
+          .catch((e: unknown) =>
+            log.warn({ leadId: lead.id, err: e instanceof Error ? e.name : typeof e }, 'auto-ack time not cleared'),
+          );
         throw err;
       }
       const sentAt = clock.now();
       await withSystem('websiteApi.sendLeadAcknowledgement', (tx) => websites.markLeadSent(tx, lead.id, 'ack', sentAt));
+      // S10-09: the lead in the inbox remembers it (never a human response)
+      try {
+        await crm.recordAutoAck({ agencyId: lead.agencyId, inboundLeadId: lead.id, at: sentAt });
+      } catch (err) {
+        // the e-mail is out; the KPI timestamp is informational — never retry the job (a second send) over it
+        log.warn({ leadId: lead.id, err: err instanceof Error ? err.name : typeof err }, 'auto-ack time not recorded');
+      }
       log.info(
         {
           leadId: lead.id,

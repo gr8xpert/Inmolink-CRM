@@ -792,3 +792,13 @@ export async function teamContacts(
     .from(agencyMembers)
     .where(inArray(agencyMembers.agencyId, [...agencyIds]));
 }
+
+/** S10-09: members' display names by user id (deactivated ones included: their past work stays attributed), one statement. */
+export async function memberNames(tx: Tx, agencyId: string, userIds: readonly string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await tx
+    .select({ userId: agencyMembers.userId, name: agencyMembers.name })
+    .from(agencyMembers)
+    .where(and(eq(agencyMembers.agencyId, agencyId), inArray(agencyMembers.userId, [...userIds])));
+  return new Map(rows.map((r) => [r.userId, r.name]));
+}

@@ -416,6 +416,20 @@ export const leads = pgTable(
     assignedAt: timestamp('assigned_at', { withTimezone: true }),
     /** When the lead first left `NEW` (response time per lead, agent and agency). */
     firstRespondedAt: timestamp('first_responded_at', { withTimezone: true }),
+    /**
+     * Response-time KPI (S10-09, PLAN §3 #60). When the visitor's automatic acknowledgement went out (the website lead's
+     * `ack_sent_at`, by `recordAutoAck` / promotion): informational — an auto-ack is never a human response.
+     */
+    autoAckSentAt: timestamp('auto_ack_sent_at', { withTimezone: true }),
+    /**
+     * The first reply by a member: a logged e-mail, call or meeting, or a status / stage change — the earliest wins
+     * (`crm/response.ts`); null while nobody has answered. Never set by the system.
+     */
+    firstHumanResponseAt: timestamp('first_human_response_at', { withTimezone: true }),
+    /** The member who made that first response (the KPI's per-agent key); null when unknown (backfilled rows). */
+    firstResponderUserId: uuid('first_responder_user_id'),
+    /** Whole seconds from `created_at` to the first human response, never negative (a back-dated entry counts 0). */
+    responseSeconds: integer('response_seconds'),
     /** The member who entered a manual lead; null for inbound leads. */
     createdBy: uuid('created_by'),
     /** SHA-256 of the creating member's `Idempotency-Key` (with their user id): a retried `POST` within 24 h replays. */
@@ -447,6 +461,11 @@ export const leads = pgTable(
     index('leads_agency_stage_rank_idx').on(t.agencyId, t.stageId, t.stageRank, t.id, t.stageEnteredAt),
     // a board column of one member's (or the unassigned) leads: … and assigned_user_id = ? (or is null), same order
     index('leads_agency_stage_assigned_rank_idx').on(t.agencyId, t.stageId, t.assignedUserId, t.stageRank, t.id),
+    // response-time KPI (S10-09): where agency_id = ? and source <> 'MANUAL' and created_ms >= ? and created_ms < ?;
+    // index-only — answered and unanswered leads, the responder and the seconds are all in the key
+    index('leads_agency_response_idx')
+      .on(t.agencyId, t.createdMs, t.firstResponderUserId, t.responseSeconds)
+      .where(sql`${t.source} <> 'MANUAL'`),
     // FK + a merge re-points a contact's leads: where agency_id = ? and contact_id = ?
     index('leads_contact_idx').on(t.agencyId, t.contactId),
     // promotion: one lead per inbound lead (where agency_id = ? and inbound_lead_id = ?)
@@ -472,6 +491,12 @@ export const leads = pgTable(
     ),
     check('leads_assigned_ck', sql`(${t.assignedUserId} is null) = (${t.assignedAt} is null)`),
     check('leads_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    check(
+      'leads_response_ck',
+      sql`(${t.firstHumanResponseAt} is null) = (${t.responseSeconds} is null)
+        and (${t.responseSeconds} is null or ${t.responseSeconds} >= 0)
+        and (${t.firstResponderUserId} is null or ${t.firstHumanResponseAt} is not null)`,
+    ),
     check('leads_stage_rank_ck', sql`${t.stageRank} ~ '^[0-9a-z]*[1-9a-z]$' and length(${t.stageRank}) <= 200`),
     foreignKey({
       name: 'leads_contact_fk',

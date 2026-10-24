@@ -3,17 +3,27 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchHome, sessionRef } from '@/server/api';
+import { fetchResponseTimeKpi } from '@/server/crm-api';
+import { ResponseTimeCard } from './response-time-card';
 
 /** Dashboard home: who is signed in, the agency's verification step, the API session check. */
 export default async function HomePage() {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const home = await fetchHome(sessionRef(session.user));
+  // S10-09: the response-time KPI of the last 30 days is fetched alongside; a member without CRM access (or an API
+  // error) sees no card, and neither does a user without an agency
+  const ref = sessionRef(session.user);
+  const kpiTo = new Date();
+  const [home, kpiResult] = await Promise.all([
+    fetchHome(ref),
+    fetchResponseTimeKpi(ref, new Date(kpiTo.getTime() - 30 * 86_400_000), kpiTo),
+  ]);
   // Password reset or deactivation: the web session can no longer mint tokens — end it.
   if (home === 'revoked') redirect('/session/expired');
   const { me } = home;
   const pending = home.agency?.status === 'PENDING' ? home.agency : null;
+  const kpi = home.agency && kpiResult !== 'revoked' && kpiResult.ok ? kpiResult.data : null;
   const t = await getTranslations('auth');
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
@@ -33,6 +43,7 @@ export default async function HomePage() {
           )}
         </div>
       ) : null}
+      {kpi ? <ResponseTimeCard kpi={kpi} /> : null}
       <p data-testid="api-check" role="status" className="rounded-md bg-muted p-3 text-sm">
         {me ? t('home.apiOk', { userId: me.userId }) : t('home.apiFailed')}
       </p>

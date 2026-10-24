@@ -8,6 +8,7 @@ import {
   PipelineLeadPage,
   PipelineStageDto,
   PipelineStageList,
+  ResponseTimeKpiDto,
   TaskDeletedDto,
   TaskDto,
   TaskPage,
@@ -160,4 +161,17 @@ export function updateTask(session: SessionRef, id: string, body: UpdateTaskBody
 
 export function deleteTask(session: SessionRef, id: string): Promise<ApiResult<TaskDeletedDto>> {
   return apiRequest(session, `/v1/crm/tasks/${encodeURIComponent(id)}`, TaskDeletedDto, { method: 'DELETE' });
+}
+
+/** The agency's response-time KPI for `[from, to)` (S10-09; the dashboard home shows the last 30 days). */
+export function fetchResponseTimeKpi(
+  session: SessionRef,
+  from: Date,
+  to: Date,
+): Promise<ApiResult<ResponseTimeKpiDto>> {
+  return apiRequest(
+    session,
+    `/v1/crm/kpis/response-time?${query({ from: from.toISOString(), to: to.toISOString() })}`,
+    ResponseTimeKpiDto,
+  );
 }

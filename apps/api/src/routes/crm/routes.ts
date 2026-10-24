@@ -26,6 +26,7 @@ import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-l
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { crmActivityRoutes } from './activities';
+import { crmKpiRoutes } from './kpis';
 import { crmLeadRoutes } from './leads';
 import { crmPipelineRoutes } from './pipeline';
 import { crmTaskRoutes } from './tasks';
@@ -254,6 +255,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
   await app.register(crmLeadRoutes);
   // S10-04: the activity timeline.
   await app.register(crmActivityRoutes);
+  // S10-09: CRM KPIs (response time).
+  await app.register(crmKpiRoutes);
   // S10-03: pipeline stages, the board, a drag, stage history and the report.
   await app.register(crmPipelineRoutes);
   // S10-05: tasks and reminders.
