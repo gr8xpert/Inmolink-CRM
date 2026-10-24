@@ -54,7 +54,12 @@ export default defineConfig({
       command: node('worker'),
       cwd: ROOT,
       url: `http://127.0.0.1:${PORTS.workerHealth}/readyz`,
-      env: { ...common, WORKER_POOLS: 'outbox,email,imports', WORKER_HEALTH_PORT: String(PORTS.workerHealth) },
+      env: {
+        ...common,
+        // maintenance: S11-02 viewing-request notifications (`mls.notifyViewing`) run there.
+        WORKER_POOLS: 'outbox,email,imports,indexing,matching,realtime,digest,maintenance',
+        WORKER_HEALTH_PORT: String(PORTS.workerHealth),
+      },
       stdout: 'pipe',
       timeout: 120_000,
       reuseExistingServer: false,

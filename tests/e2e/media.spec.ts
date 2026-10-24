@@ -26,6 +26,16 @@ const order = (page: Page) =>
     // The root tsconfig has no DOM lib: read the attribute through the dataset's shape.
     .evaluateAll((els) => els.map((el) => (el as unknown as { dataset: { mediaId?: string } }).dataset.mediaId ?? ''));
 
+/**
+ * Waits for the upload summary (shown once a drop has finished), then reads it. Presence is awaited with a count:
+ * a failing `toHaveText` on a missing element makes Playwright snapshot the whole page's accessibility tree on every
+ * poll, inside the page — seconds each on a big editor, which stalls the uploads it is waiting for.
+ */
+async function summary(page: Page, text: string, timeout: number): Promise<void> {
+  await expect(page.getByTestId('media-summary')).toHaveCount(1, { timeout });
+  await expect(page.getByTestId('media-summary')).toHaveText(text);
+}
+
 test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; order persists', async ({ page }) => {
   await page.route('**/demotiles.maplibre.org/style.json', (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
@@ -52,9 +62,7 @@ test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; 
   const input = page.getByLabel('Photos to upload');
   await input.setInputFiles(files);
   await expect(page.getByTestId('media-progress')).toHaveText(/Uploaded \d+ of 50/);
-  await expect(page.getByTestId('media-summary')).toHaveText('50 uploaded · 0 skipped · 0 failed', {
-    timeout: 60_000,
-  });
+  await summary(page, '50 uploaded · 0 skipped · 0 failed', 60_000);
   await expect(page.getByTestId('media-progress')).toHaveText('Uploaded 50 of 50');
   await expect(page.getByTestId('media-item')).toHaveCount(50);
   await expect(page.getByTestId('media-error')).toHaveCount(0);
@@ -63,11 +71,10 @@ test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; 
   await expect(page.getByTestId('media-item').first().getByTestId('media-cover')).toBeVisible();
 
   // The same 50 again: skipped without a request to storage, at once.
-  const started = Date.now();
+  // The clock starts once the files are handed over (resolving the label is Playwright's cost, not the page's).
   await input.setInputFiles(files);
-  await expect(page.getByTestId('media-summary')).toHaveText('0 uploaded · 50 skipped · 0 failed', {
-    timeout: 10_000,
-  });
+  const started = Date.now();
+  await summary(page, '0 uploaded · 50 skipped · 0 failed', 10_000);
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(puts).toBe(50);
   await expect(page.getByTestId('media-item')).toHaveCount(50);

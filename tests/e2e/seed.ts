@@ -62,7 +62,7 @@ export async function seedAgent(): Promise<{ email: string; company: string; age
  */
 export const LISTING_TAXONOMY = { location: 'E2E Listland', propertyType: 'E2E Villa', feature: 'E2E Pool' } as const;
 
-const TAXONOMY_IDS = {
+export const TAXONOMY_IDS = {
   location: 'e2e00000-0000-4000-8000-000000000001',
   typeGroup: 'e2e00000-0000-4000-8000-000000000002',
   type: 'e2e00000-0000-4000-8000-000000000003',

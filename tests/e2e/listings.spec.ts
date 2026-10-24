@@ -11,11 +11,21 @@ async function login(page: Page, email: string): Promise<void> {
   await expect(page).toHaveURL(/\/en$/);
 }
 
-/** Runs an edit, then waits for its autosave: pending (the debounce), then saved. */
+/**
+ * Runs an edit, then waits for its autosave: a save request answered, then saved. Not the transient "Unsaved
+ * changes" / "Saving…" text: on a big editor a Playwright action (`check`, `uncheck` re-read the box after the
+ * click) can outlast the 800 ms debounce and the save, so the pending state may be over before it is looked for.
+ */
 async function autosaved(page: Page, edit: () => Promise<void>): Promise<void> {
   const status = page.getByTestId('save-status');
+  const editor = new URL(page.url()).pathname;
+  // The autosave is a server action: a POST to the editor's own URL.
+  const saved = page.waitForResponse(
+    (res) => res.request().method() === 'POST' && new URL(res.url()).pathname === editor,
+    { timeout: 15_000 },
+  );
   await edit();
-  await expect(status).toHaveText(/Unsaved changes|Saving…/);
+  await saved;
   await expect(status).toHaveText('All changes saved', { timeout: 15_000 });
   await expect(page.getByTestId('editor-error')).toHaveCount(0);
 }
