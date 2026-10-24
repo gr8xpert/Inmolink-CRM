@@ -13,6 +13,8 @@ import {
   saveListingAction,
   saveTranslationAction,
 } from '../actions';
+import { FeaturePicker } from '../feature-picker';
+import { LocationPicker } from '../location-picker';
 import type { Option, OptionGroup } from '../taxonomy';
 import {
   EMPTY_TRANSLATION,
@@ -397,18 +399,19 @@ export function ListingEditor(props: ListingEditorProps) {
           ['location', 'coordinates'],
           <>
             {field('locationId', t('editor.fields.locationId'), (aria) => (
-              <select
-                {...aria}
-                className={SELECT}
+              <LocationPicker
+                options={props.locations}
                 value={values.locationId}
-                onChange={(e) => set('locationId', e.target.value)}
-              >
-                {props.locations.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => set('locationId', id)}
+                selectClassName={SELECT}
+                selectProps={aria}
+                disabled={disabled}
+                labels={{
+                  search: t('picker.locationSearch'),
+                  showing: t('picker.locationShowing'),
+                  choose: t('create.choose'),
+                }}
+              />
             ))}
             <p className="text-xs text-muted-foreground">{t('editor.fields.mapHint')}</p>
             <PinMap
@@ -461,24 +464,22 @@ export function ListingEditor(props: ListingEditorProps) {
         {section(
           'features',
           ['features'],
-          props.features.map((g) => (
-            <fieldset key={g.label} className="flex flex-col gap-2">
-              <legend className="mb-1 text-sm font-medium">{g.label}</legend>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {g.options.map((o) => (
-                  <label key={o.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      disabled={disabled}
-                      checked={featureIds.includes(o.id)}
-                      onChange={(e) => toggleFeature(o.id, e.target.checked)}
-                    />
-                    {o.label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )),
+          <FeaturePicker
+            groups={props.features}
+            selected={featureIds}
+            onToggle={toggleFeature}
+            disabled={disabled}
+            labels={{
+              search: t('picker.featureSearch'),
+              groupCount: t('picker.groupCount'),
+              moreGroups: t('picker.moreGroups'),
+              moreFeatures: t('picker.moreFeatures'),
+              searchShowing: t('picker.featureShowing'),
+              noMatch: t('picker.featureNoMatch'),
+              open: t('picker.open'),
+              close: t('picker.close'),
+            }}
+          />,
         )}
 
         {section(

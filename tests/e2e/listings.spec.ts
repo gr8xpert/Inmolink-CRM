@@ -53,7 +53,8 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   // The list page has its own "Location" filter and column toggle: wait until the form replaced it.
   await expect(page).toHaveURL(/\/en\/listings\/new$/);
   await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
-  await page.getByLabel('Location').selectOption({ label: seeded.location });
+  await page.getByLabel('Search locations').fill(seeded.location);
+  await page.getByLabel('Location', { exact: true }).selectOption({ label: seeded.location });
   await page.getByRole('button', { name: 'Create listing' }).click();
   await expect(page).toHaveURL(/\/en\/listings\/[0-9a-f-]{36}$/);
   const editorUrl = page.url();
@@ -72,6 +73,7 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   // Specs, a feature, the price and two field locks.
   await autosaved(page, async () => {
     await page.getByLabel('Bedrooms').fill('4');
+    await page.getByLabel('Search features').fill(seeded.feature);
     await page.getByLabel(seeded.feature).check();
     await page.getByLabel('Price', { exact: true }).fill('850000');
     await page.getByLabel('Lock against feed imports: Price').check();

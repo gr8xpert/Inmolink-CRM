@@ -41,6 +41,7 @@ export default async function NewListingPage() {
           submit: t('create.submit'),
           fieldInvalid: t('fieldInvalid'),
         }}
+        pickerLabels={{ search: t('picker.locationSearch'), showing: t('picker.locationShowing') }}
         errors={{
           VALIDATION_FAILED: t('errors.VALIDATION_FAILED'),
           FORBIDDEN: t('errors.FORBIDDEN'),

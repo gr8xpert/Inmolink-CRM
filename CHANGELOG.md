@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(web,db): listing editor taxonomy at scale — location search picker, lazy grouped features, test-DB taxonomy prune [S12-F23]
 - feat(realtime): /notifications sockets capped per user (10 per node) and connect-rate-limited (realtime.notifications.connect.user, 30/min), shared with /chat [S12-F11]
 - fix(platform): queue rounds fractional ms options to integers (quality.recomputeListings Redis error); tenant jobs whose agency was deleted finish without retries [S12-F24]
 - Approvals round 2026-10-25: `workers` Kamal role capped at 768 MB like `media` (import sizing); S12-F25 filed (minimum-commission edit limit + audit); S5-06 scheduled in S12.

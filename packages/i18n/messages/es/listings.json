@@ -24,6 +24,18 @@
     "choose": "Columnas"
   },
   "priceOnRequest": "A consultar",
+  "picker": {
+    "locationSearch": "Buscar ubicaciones",
+    "locationShowing": "Mostrando {shown} de {total} ubicaciones. Escribe para acotar la lista.",
+    "featureSearch": "Buscar características",
+    "groupCount": "{selected} de {total} seleccionadas",
+    "moreGroups": "Mostrar más grupos (quedan {count})",
+    "moreFeatures": "Mostrar más (quedan {count})",
+    "featureShowing": "Mostrando {shown} de {total} características",
+    "featureNoMatch": "Ninguna característica coincide.",
+    "open": "Mostrar {group}",
+    "close": "Ocultar {group}"
+  },
   "create": {
     "title": "Nuevo inmueble",
     "intro": "Elige qué es y dónde está; el resto lo completas en el editor.",

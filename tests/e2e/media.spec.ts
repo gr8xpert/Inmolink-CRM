@@ -46,7 +46,8 @@ test('[S3-06] 50 photos upload with progress; duplicates are skipped instantly; 
   await login(page, seeded.email);
   await page.goto('/en/listings/new');
   await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
-  await page.getByLabel('Location').selectOption({ label: seeded.location });
+  await page.getByLabel('Search locations').fill(seeded.location);
+  await page.getByLabel('Location', { exact: true }).selectOption({ label: seeded.location });
   await page.getByRole('button', { name: 'Create listing' }).click();
   await expect(page).toHaveURL(/\/en\/listings\/[0-9a-f-]{36}$/);
   const editorUrl = page.url();
@@ -131,7 +132,8 @@ test('[S3-F5] a video link joins the photos and shows as a video; a PDF uploads 
   await login(page, seeded.email);
   await page.goto('/en/listings/new');
   await page.getByLabel('Property type').selectOption({ label: seeded.propertyType });
-  await page.getByLabel('Location').selectOption({ label: seeded.location });
+  await page.getByLabel('Search locations').fill(seeded.location);
+  await page.getByLabel('Location', { exact: true }).selectOption({ label: seeded.location });
   await page.getByRole('button', { name: 'Create listing' }).click();
   await expect(page).toHaveURL(/\/en\/listings\/[0-9a-f-]{36}$/);
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { Button, Label } from '@inmolink/ui';
-import { useActionState, useEffect } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { type CreateState, createListingAction } from '../actions';
+import { LocationPicker, type LocationPickerLabels } from '../location-picker';
 import type { Option, OptionGroup } from '../taxonomy';
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
   transactionTypes: Option[];
   /** Labels translated on the server (no catalogs in the client bundle). */
   labels: Record<'transactionType' | 'propertyTypeId' | 'locationId' | 'choose' | 'submit' | 'fieldInvalid', string>;
+  pickerLabels: Omit<LocationPickerLabels, 'choose'>;
   errors: Record<string, string> & { generic: string };
   loginHref: string;
 }
@@ -23,6 +25,7 @@ export function CreateListingForm(props: Props) {
   useEffect(() => {
     if (state.revoked) window.location.assign(props.loginHref);
   }, [state.revoked, props.loginHref]);
+  const [locationId, setLocationId] = useState('');
   const invalid = (f: string) => state.fields?.includes(f) ?? false;
   const l = props.labels;
 
@@ -73,22 +76,21 @@ export function CreateListingForm(props: Props) {
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="locationId">{l.locationId}</Label>
-        <select
-          id="locationId"
-          name="locationId"
-          defaultValue=""
-          required
-          aria-invalid={invalid('locationId')}
-          aria-describedby={invalid('locationId') ? 'locationId-error' : undefined}
-          className={SELECT}
-        >
-          <option value="">{l.choose}</option>
-          {props.locations.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <LocationPicker
+          options={props.locations}
+          value={locationId}
+          onChange={setLocationId}
+          placeholder
+          selectClassName={SELECT}
+          selectProps={{
+            id: 'locationId',
+            name: 'locationId',
+            required: true,
+            'aria-invalid': invalid('locationId'),
+            'aria-describedby': invalid('locationId') ? 'locationId-error' : undefined,
+          }}
+          labels={{ ...props.pickerLabels, choose: l.choose }}
+        />
         {invalid('locationId') ? (
           <p id="locationId-error" className="text-xs text-destructive">
             {l.fieldInvalid}

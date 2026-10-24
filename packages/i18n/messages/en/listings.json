@@ -24,6 +24,18 @@
     "choose": "Columns"
   },
   "priceOnRequest": "On request",
+  "picker": {
+    "locationSearch": "Search locations",
+    "locationShowing": "Showing {shown} of {total} locations. Type to narrow the list.",
+    "featureSearch": "Search features",
+    "groupCount": "{selected} of {total} selected",
+    "moreGroups": "Show more groups ({count} left)",
+    "moreFeatures": "Show more ({count} left)",
+    "featureShowing": "Showing {shown} of {total} matching features",
+    "featureNoMatch": "No feature matches.",
+    "open": "Show {group}",
+    "close": "Hide {group}"
+  },
   "create": {
     "title": "New listing",
     "intro": "Choose what it is and where; you fill in the rest in the editor.",

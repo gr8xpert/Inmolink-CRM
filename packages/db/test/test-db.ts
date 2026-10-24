@@ -154,6 +154,39 @@ async function pruneStaleQueueRows(admin: pg.Client): Promise<void> {
 }
 
 /**
+ * Shared taxonomy rows older than `STALE_TEST_AGENCY_HOURS` that nothing uses (S12-F23): every taxonomy suite adds
+ * locations, features and groups to the one global table and nobody removes them, so the shared test DB reached
+ * 2.5k locations and 2.3k features and the listing editor rendered ~9,000 nodes. Rows a listing, development or
+ * listing feature still points at stay. Locations go leaf first (`locations_parent_fk` restricts), one pass per level.
+ */
+export async function pruneStaleTaxonomy(admin: pg.Client): Promise<void> {
+  const age = [STALE_TEST_AGENCY_HOURS];
+  for (let pass = 0; pass < 12; pass++) {
+    const res = await admin.query(
+      `delete from locations l
+        where l.created_at < now() - make_interval(hours => $1)
+          and not exists (select 1 from locations c where c.parent_id = l.id)
+          and not exists (select 1 from properties p where p.location_id = l.id)
+          and not exists (select 1 from developments d where d.location_id = l.id)`,
+      age,
+    );
+    if (!res.rowCount) break;
+  }
+  await admin.query(
+    `delete from features f
+      where f.created_at < now() - make_interval(hours => $1)
+        and not exists (select 1 from property_features pf where pf.feature_id = f.id)`,
+    age,
+  );
+  await admin.query(
+    `delete from feature_groups g
+      where g.created_at < now() - make_interval(hours => $1)
+        and not exists (select 1 from features f where f.group_id = g.id)`,
+    age,
+  );
+}
+
+/**
  * Removes agencies earlier test runs left behind (S5-F3): integration tests create founders and never delete
  * them, and the test DB had grown to 80k agencies, slowing every agency-wide query (`[S1-09]` timed out). An agency
  * is stale when both `created_at` and `updated_at` are older than `STALE_TEST_AGENCY_HOURS` — tests that backdate
@@ -182,6 +215,7 @@ export async function pruneStaleTestAgencies(adminUrl: string): Promise<number> 
         if (ids.length === 0) {
           await admin.query('commit');
           await pruneStaleQueueRows(admin);
+          await pruneStaleTaxonomy(admin);
           return pruned;
         }
         // Their queued work (global worker queues name the agency as `owner_agency_id`, S6-F3).
