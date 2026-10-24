@@ -6,12 +6,13 @@
  *   read -s RESALES_P2; export RESALES_P2
  *   RESALES_P1=<client id> RESALES_ALIAS=1 node resales-record.mjs --out ./resales-recorded
  *
- * Writes `search-page1.json`, `search-page2.json`, `search-page1-lang2.json` (Spanish), `details-<ref>.json` for up to
+ * Writes `search-page1.json`, `search-page2.json`, `search-page1-lang2.json` (Spanish), `details-own-<n>.json` for up to
  * three own listings and one own development, and `summary.json` (counts and the field names seen: the own-property
  * field, the Status shape, every key). Nothing identifying stays in the files: the credentials (raw, URL-encoded, any
  * case, any `p1=` / `p2=` pair) and every IP address are replaced in each file and in everything printed; records
  * that are not the agency's own keep their keys but lose their content; the agency's own records keep their prices,
- * types, sizes and places but get synthetic free text, coordinates, references, media links and contact fields.
+ * types, sizes and places but get synthetic free text, coordinates, references (`OWN-<n>` everywhere, file names
+ * and summary included), media links and contact fields.
  * The output goes to `tests/fixtures/resales/recorded/` (git-ignored) — see docs/build/STATUS.md › Blocked › S6-F4.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -90,6 +91,7 @@ function synth(v, key, n, ctr = { pic: 0 }) {
   if (LAT.test(key)) return '36.5000';
   if (LNG.test(key)) return '-4.9000';
   if (/^(AgencyRef|AgentRef)$/.test(key)) return `AGREF-${n}`;
+  if (key === 'Reference') return `OWN-${n}`;
   if (MEDIA.test(key)) return `https://example.com/resales/${n}/${++ctr.pic}.jpg`;
   if (CONTACT.test(key)) return 'redacted';
   return v;
@@ -126,7 +128,16 @@ function anonymise(root) {
 }
 
 mkdirSync(OUT, { recursive: true });
-const save = (name, value) => writeFileSync(join(OUT, `${name}.json`), `${scrub(JSON.stringify(value, null, 2))}\n`);
+// The agency's own references would show whose data this is: every one seen becomes OWN-<n> wherever it appears.
+const unref = (text) => {
+  let t = text;
+  for (const [ref, n] of ownIds)
+    if (String(ref).trim())
+      t = t.replace(new RegExp(`(?<![A-Za-z0-9])${escapeRe(String(ref))}(?![A-Za-z0-9])`, 'g'), `OWN-${n}`);
+  return t;
+};
+const save = (name, value) =>
+  writeFileSync(join(OUT, `${name}.json`), `${unref(scrub(JSON.stringify(value, null, 2)))}\n`);
 const summary = { alias: ALIAS, pages: {}, ownField: {}, statusShapes: new Set(), keys: new Set(), details: [] };
 
 const own = [];
@@ -146,6 +157,7 @@ for (const [page, lang] of [
     for (const k of OWN_KEYS)
       if (p && k in p) summary.ownField[`${k}=${p[k]}`] = (summary.ownField[`${k}=${p[k]}`] ?? 0) + 1;
     summary.statusShapes.add(JSON.stringify(p?.Status ?? null));
+    if (isOwn(p)) ownNo(p.Reference);
     if (!lang && isOwn(p)) own.push(p);
   }
   summary.pages[lang ? `${page}-lang${lang}` : String(page)] = {
@@ -172,9 +184,10 @@ for (const p of picks) {
     P_DecimalBaths: 1,
     P_ShowGPSCoords: 'TRUE',
   });
-  summary.details.push({ ref: p.Reference, httpStatus: status, keys: Object.keys(list(root?.Property)[0] ?? {}) });
+  const n = ownNo(p.Reference);
+  summary.details.push({ ref: `OWN-${n}`, httpStatus: status, keys: Object.keys(list(root?.Property)[0] ?? {}) });
   anonymise(root);
-  save(`details-${String(p.Reference).replace(/[^A-Za-z0-9_-]/g, '_')}`, data);
+  save(`details-own-${n}`, data);
 }
 
 save('summary', { ...summary, statusShapes: [...summary.statusShapes], keys: [...summary.keys].sort() });
