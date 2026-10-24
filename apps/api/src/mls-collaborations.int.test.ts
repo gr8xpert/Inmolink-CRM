@@ -1,8 +1,7 @@
 import { closeDb, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as mls from '@inmolink/core/modules/mls';
-import { createFounder, type Founder } from '@inmolink/core/test';
-import { countQueries } from '@inmolink/db';
+import { countQueries, createFounder, type Founder } from '@inmolink/core/test';
 import { adminQuery, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey, rowCipher } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
