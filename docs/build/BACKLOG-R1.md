@@ -1814,6 +1814,7 @@ Ref §3 #63 §7 M14 PATTERNS §19 · Mod websites (portal), public · Dep S5-03 
 **Done when:**
 - Lighthouse ≥ 90 (performance, SEO, accessibility) on search, detail, location pages
 - Public JS: framework ≤ 149 KB gzip, route ≤ 30 KB gzip, chunks cached `immutable` (ADR 0013)
+*(Parity reference, Shahzaib 2026-10-25: the live legacy portal, e.g. https://inmolink.es/alicante — every agency's PUBLIC listings; province → comarca → town landing pages (`/alicante/costa-blanca-south`) with an intro text giving live counts per property type and a list of child locations; filters price min/max (fixed steps), grouped property types (Apartments: apartment, duplex, penthouse, studio; Houses: bungalow, country home, semi-detached, townhouse, villa, village house; plot), bedrooms and bathrooms min/max, min build size, features (sea view, golf); sort latest / price ↑ / price ↓; numbered pages (`?page=N`, crawlable); cards with photo, title "<Type> in <Town>", price, excerpt, beds, baths, build / plot / terrace m², and the listing agency linking to its profile (S15-03). Old URL shapes `/property-details/<ref>/<slug>` and `/agent/<id>/<name>` get 301s in S15-02.)*
 
 ### S15-02 · Portal enquiries, sitemaps, redirects
 Ref §7 M14 §3 #12 · Mod public · Dep S15-01 S14-05 S10-02
