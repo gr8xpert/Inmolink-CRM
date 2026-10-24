@@ -1446,6 +1446,7 @@ Ref §3 #8 §7 M10 · Mod mls · Dep S10-01 S5-05 · 🔒
 - Second agency registering the same client for the same target gets `REGISTRATION_CONFLICT`
 - Expired registrations no longer block
 - Fingerprints are not reversible without the HMAC key (no raw identifiers stored outside encrypted fields)
+*Note (S10 review):* a contact merge must move registrations too (S10-01 Done-when) — subscribe to `crm.contact.merged` or register `client_registrations` in `CONTACT_REFERENCES`, and extend the `[S10-01]` merge test.
 
 ### S11-02 · Viewing requests and terms snapshot
 Ref §3 #9 §7 M10 · Mod mls · Dep S11-01
@@ -1478,6 +1479,81 @@ Ref §3 #24 §7 M11 · Mod network · Dep S11-03 S5-02
 Ref §7 M10 · Mod mls, web · Dep S11-02
 **Build:** one view of my registrations, viewing requests (in and out) and their states, with filters.
 **Done when:** view loads ≤ 10 queries for an agency with 500 collaborations
+
+### S11-F1 · One Idempotency-Key helper for core services (S10 review)
+Ref §8 · Mod crm, compliance, core · Dep S10-08
+**Build:** the Idempotency-Key plumbing copied seven times (local `sha256`, 24 h window, replay lookup, `safeEqual` body check, 23505 → `IDEMPOTENCY_KEY_REUSED`) in `crm/{activities,leads,pipeline,tasks,calendar,prospects}.ts` and `compliance/data-export.ts` becomes one core helper; the advisory lock borrowed from `activitiesRepo.lockIdempotency` (prefix `crm-activity-idem`) moves to a neutral helper; one error code for "a body references an unknown listing" (`tasks`, `calendar`, `activities` throw the properties code `LISTING_NOT_FOUND` 404, leads `LEAD_TARGET_NOT_FOUND` 422) in `crmErrors`, with one shared check.
+**Done when:** no copied idempotency code left (review); every create route's replay and reuse-after-24 h tests green on the helper
+
+### S11-F2 · CRM audit trail (S10 security review) 🔒
+Ref §5 · Mod crm, compliance · Dep S10-06
+**Build:** `audit(ctx, …)` in the same transaction for ICS feed issue / rotate / revoke (a credential), contact merges and bulk contact imports (actor, impersonator, ids); confirm the S1-09 impersonation session audit covers bulk client-data reads (contacts, leads, activities, calendar, prospects lists) or audit list / get calls made under impersonation (crm currently cannot import compliance — resolve the cycle through an event or a platform-level audit writer).
+**Done when:** each of those actions writes one audit row (int tests); impersonated CRM reads are traceable (test)
+
+### S11-F3 · Data-export job state worker-only; cross-agency export test (S10 review) 🔒
+Ref §5 · Mod compliance, db · Dep S10-08
+**Build:** `data_export_jobs` `userNoUpdateColumns` for `status`, `expires_at`, `file_deleted_at`, `object_key` (job state written as `app_system`), or a guard trigger; an isolation test for the `withSystem` listing / media read: two agencies, export one, no row of the other in the file.
+**Done when:** app_user updating those columns gets 42501 (isolation test); the two-agency export test is green
+
+### S11-F4 · Logger redaction covers CRM payloads (S10 security review) 🔒
+Ref §5 · Mod platform · Dep S10-01
+**Build:** `REDACT_KEYS` adds `visitorName`, `visitorEmail`, `visitorPhone`, `phones`, `emails`, `body`, `description`, `notes`; array-valued keys redacted whole; the `MAX_DEPTH = 3` wildcard reaches `req.body.emails[0].email` (or arrays of PII keys are dropped before depth applies).
+**Done when:** a logged request body with nested contact e-mails / phones / notes prints none of them (logger unit test)
+
+### S11-F5 · CRM database defence in depth (S10 security review) 🔒
+Ref §5 · Mod crm, db · Dep S10-07
+**Build:** composite FKs (or a guard trigger) from member columns to `agency_members(agency_id, user_id)`: `tasks.assigned_user_id`, `leads.assigned_user_id`, `calendar_events.organizer_user_id`, `calendar_event_attendees.user_id`, `calendar_feeds.user_id`, `seller_prospects.assigned_user_id` (decide the behaviour when a member leaves: SET NULL vs. block); `lead_stage_history_append` definer `search_path = pg_catalog, pg_temp`, fully schema-qualified; a contact merge moves or deletes the closed contact's `contact_emails` / `contact_phones` rows.
+**Done when:** inserting a non-member assignee fails at the DB (test); the definer's `proconfig` shows the pinned path (db test); a merged contact leaves no identifier rows behind (merge test)
+
+### S11-F6 · Activities and inbox filters index-driven (S10 perf review) ⚡
+Ref §5 · Mod crm, db · Dep S10-04
+**Build:** activities `type = any(...)` is only a Filter on `activities_agency_idx` / `activities_<subject>_idx` — one type uses `activities_agency_type_idx` with `type = $x`, several types merge one keyset page per type (lateral) or require a date window; leads inbox combined filters (status + assignee, stage + assignee, source + status) get `(agency_id, assigned_user_id, status, created_ms, id)` for "my open leads" or the allowed combinations are limited; `countQueries` guard on activities subject / type pages; EXPLAIN (ANALYZE, BUFFERS) of `listLeads` stage + cursor on the scale seed recorded in STATUS.
+**Done when:** a rare type on a 60k-activity agency and a rare status + assignee on 60k leads stay < 20 ms (EXPLAIN tests); activities page ≤ 2 queries (test)
+
+### S11-F7 · ICS feed answers 304 before rendering (S10 perf review) ⚡
+Ref §9.5 · Mod crm, feed-api · Dep S10-06
+**Build:** a weak ETag from a cheap first query (`max(updated_at)`, event count, feed version) so a matching `If-None-Match` returns 304 without the definer read, render and gzip; the size-cap loop gzips once; a perf test at 2,000 events.
+**Done when:** a 304 costs ≤ 1 statement and < 20 ms (test); a 1,000-event feed renders p95 < 150 ms (perf test)
+
+### S11-F8 · Index builds and notice jobs (S10 perf review)
+Ref §5 · Mod db, compliance · Dep S10-F8
+**Build:** `portal_listing_sync_live_idx` and `agency_portal_connections_lane_idx` (migration 0122, plain `CREATE INDEX`) registered in `concurrent-indexes.ts` with a migration that declares them `IF NOT EXISTS` (the registry test requires it), as `property_privates_seller_idx` is; `notifyDataExport` / `sendDataExportNotice` get `group: agencyId` and the per-admin enqueue becomes one bulk add.
+**Done when:** the concurrent-index tests list both; notice jobs carry the agency group (worker test)
+
+### S11-F9 · Shared keyset `keysetAfter` as an index condition (S10) ⚡
+Ref §5 · Mod platform, all list modules · Dep S10-01
+**Build:** `platform/pagination.ts keysetAfter` emits the OR form, which Postgres applies as a Filter, not an index condition; switch to a row comparison `(a, b) > ($1, $2)` where the sort columns share a direction (the crm module's `crm/keyset.ts` already does), check every caller's EXPLAIN.
+**Done when:** list endpoints' second pages show the cursor in the Index Cond (EXPLAIN tests on two modules)
+
+### S11-F10 · CRM report rollups (S10) ⚡
+Ref §7 · Mod crm, reports · Dep S10-03 S10-09
+**Build:** the pipeline report's current-per-stage count (26.8 ms at 60k leads) and the response-time KPI (22–29 ms for 30 days, 90–150 ms for 92 days at 60k leads) exceed the 20 ms SQL budget — per-day rollups (stage counts; per-responder response seconds with exact medians from a stored histogram or nightly percentile rows), refreshed by outbox consumers.
+**Done when:** both endpoints read rollups < 20 ms at 60k leads (EXPLAIN tests); fixture scenarios still match
+
+### S11-F11 · One CRM reminder helper; agency time zone (S10)
+Ref §7 M8 · Mod crm, identity · Dep S10-06
+**Build:** tasks and calendar reminders share one claim / outbox / send helper (claimed sweep, per-agency cap, sent-for marker as app_system, Resend idempotency key); task today / overdue tabs, reminder e-mails and calendar views use the agency's time zone (agency setting, default `Europe/Madrid`; Canary Islands one hour behind) instead of the platform `DEFAULT_TIME_ZONE`.
+**Done when:** both reminder suites green on the shared helper; a Canary-Islands agency's "today" tab and e-mail times follow its zone (test)
+
+### S11-F12 · Contact erasure reaches seller links and activity bodies (S10) 🔒
+Ref §3 #57 · Mod crm, properties, compliance · Dep S10-07
+**Build:** contact erasure clears `property_privates.seller_contact_id` (no cross-module FK — through `crm.contact.erased` and a properties handler) and the erased contact's free-text activity bodies / notes, and the confidential prospect notes that name them; document what is kept (ids, timestamps).
+**Done when:** after erasure no listing names the contact as seller and no activity body of theirs remains (int test)
+
+### S11-F13 · HMAC_KEY rotation runbook (S10) 🔒
+Ref §5 · Mod docs, platform · Dep S10-06
+**Build:** rotating `HMAC_KEY` breaks every site / portal feed URL and every calendar feed URL; a runbook (or a dual-key verify window: current + previous key) and a re-issue step for members' calendar URLs.
+**Done when:** runbook in `docs/runbooks/`; with a dual-key window, a URL issued under the previous key still resolves until the window ends (test)
+
+### S11-F14 · CRM dashboard pages for contacts, inbox and data export (S10)
+Ref §7 M8 · Mod web · Dep S10-08
+**Build:** contacts list / detail (with merge), the lead inbox and the data-export page in the dashboard (EN + ES), on the existing APIs; a contact search picker replaces the 100-newest seller picker on the acquisition board; 2FA re-authentication before an export is requested.
+**Done when:** each page loads within the dashboard route budget (≤ 250 KB first-load JS); an export without a fresh 2FA is refused (test)
+
+### S11-F15 · Prospect conversion respects the listing policy (S10 review)
+Ref §7 · Mod crm, properties · Dep S10-07
+**Build:** `convertProspect` checks only `crm.prospects.write` then calls `properties.createListing` with the caller's ctx — confirm properties' `listing.create` refuses a role that may manage prospects but not create listings, and test it.
+**Done when:** such a role gets `FORBIDDEN` on convert and no listing is created (int test)
 
 ---
 
