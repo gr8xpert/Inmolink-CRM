@@ -1,4 +1,4 @@
-import { CreateDataExportBody, PageQuery } from '@inmolink/contracts';
+import { PageQuery } from '@inmolink/contracts';
 import { withMemberCtx } from '@inmolink/core';
 import * as compliance from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
@@ -62,7 +62,8 @@ describe('data export at scale', () => {
   it('[S10-08] a 100k-contact export completes as a job without blocking the API', async () => {
     const requestStart = performance.now();
     const { export: queued } = await as((ctx) =>
-      compliance.createDataExport(ctx, CreateDataExportBody.parse({ kind: 'CONTACTS', format: 'xlsx' })),
+      // the 2FA step-up (S11-F14) is the api's and has its own tests; the scale test measures the export
+      compliance.createDataExport(ctx, { kind: 'CONTACTS', format: 'xlsx' }, { verifyStepUp: async () => {} }),
     );
     const requestMs = performance.now() - requestStart;
     expect(queued.status).toBe('QUEUED');
