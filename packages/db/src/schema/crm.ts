@@ -20,6 +20,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
+import { agencyMembers } from './identity';
 
 /**
  * Tables owned by the crm module (PATTERNS §2). Only `packages/core/src/modules/crm` imports
@@ -415,7 +416,10 @@ export const leads = pgTable(
     visitorEmail: text('visitor_email'),
     visitorPhone: text('visitor_phone'),
     visitorMarketingConsent: boolean('visitor_marketing_consent'),
-    /** The member the lead is assigned to (routing rule or by hand); null: unassigned. No FK: a removed member's stay. */
+    /**
+     * The member the lead is assigned to (routing rule or by hand); null: unassigned. A member of the lead's agency
+     * (`leads_assignee_member_fk`, S11-F5): members are deactivated, never deleted, so a leaver's leads stay.
+     */
     assignedUserId: uuid('assigned_user_id'),
     assignedAt: timestamp('assigned_at', { withTimezone: true }),
     /** When the lead first left `NEW` (response time per lead, agent and agency). */
@@ -513,6 +517,13 @@ export const leads = pgTable(
       name: 'leads_stage_fk',
       columns: [t.agencyId, t.stageId],
       foreignColumns: [pipelineStages.agencyId, pipelineStages.id],
+    }),
+    // S11-F5: the assignee is a member of the lead's agency (NO ACTION: a member row is never deleted while it has
+    // work; added NOT VALID in migration 0138, validated later)
+    foreignKey({
+      name: 'leads_assignee_member_fk',
+      columns: [t.agencyId, t.assignedUserId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
     }),
   ],
 );
@@ -779,7 +790,10 @@ export const tasks = pgTable(
      * update it); released (null) after a send known not to have gone out.
      */
     reminderSentFor: timestamp('reminder_sent_for', { withTimezone: true }),
-    /** The member it is for. No FK: a removed member's tasks stay (the list shows them to admins). */
+    /**
+     * The member it is for, of the task's agency (`tasks_assignee_member_fk`, S11-F5). Members are deactivated, never
+     * deleted: a leaver's tasks stay (the list shows them to admins).
+     */
     assignedUserId: uuid('assigned_user_id').notNull(),
     createdBy: uuid('created_by'),
     /** What it is about (all optional). A lead's task also names the lead's contact and listing. */
@@ -840,6 +854,12 @@ export const tasks = pgTable(
       columns: [t.agencyId, t.leadId],
       foreignColumns: [leads.agencyId, leads.id],
     }).onDelete('cascade'),
+    // S11-F5: the assignee is a member of the task's agency (NO ACTION, as leads; tasks_assignee_idx leads with it)
+    foreignKey({
+      name: 'tasks_assignee_member_fk',
+      columns: [t.agencyId, t.assignedUserId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }),
   ],
 );
 
@@ -875,7 +895,10 @@ export const calendarEvents = pgTable(
     endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
     /** `SCHEDULED` or `CANCELLED`. */
     status: text('status').notNull().default('SCHEDULED'),
-    /** The member it belongs to (also an attendee row). No FK: a removed member's events stay. */
+    /**
+     * The member it belongs to (also an attendee row), of the event's agency (`calendar_events_organizer_member_fk`,
+     * S11-F5). Members are deactivated, never deleted: a leaver's events stay.
+     */
     organizerUserId: uuid('organizer_user_id').notNull(),
     createdBy: uuid('created_by'),
     /** A viewing's listing (the agency's; no FK: properties' table). Cleared when the listing is purged. */
@@ -929,6 +952,14 @@ export const calendarEvents = pgTable(
     ),
     check('calendar_events_cancelled_ck', sql`(${t.status} = 'CANCELLED') = (${t.cancelledAt} is not null)`),
     check('calendar_events_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    // the organizer FK below (a member row's delete checks it)
+    index('calendar_events_organizer_idx').on(t.agencyId, t.organizerUserId),
+    // S11-F5: the organizer is a member of the event's agency (NO ACTION, as leads)
+    foreignKey({
+      name: 'calendar_events_organizer_member_fk',
+      columns: [t.agencyId, t.organizerUserId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }),
   ],
 );
 
@@ -980,6 +1011,13 @@ export const calendarEventAttendees = pgTable(
       columns: [t.agencyId, t.contactId],
       foreignColumns: [contacts.agencyId, contacts.id],
     }).onDelete('cascade'),
+    // S11-F5: a member attendee is a member of the event's agency (a contact attendee's null user_id is not checked);
+    // the attendance is the member's own, so it goes with a deleted member row (as listing_views)
+    foreignKey({
+      name: 'calendar_event_attendees_member_fk',
+      columns: [t.agencyId, t.userId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }).onDelete('cascade'),
   ],
 );
 
@@ -1010,6 +1048,14 @@ export const calendarFeeds = pgTable(
     // the member's live feed: where agency_id = ? and user_id = ? and revoked_at is null
     uniqueIndex('calendar_feeds_live_uq').on(t.agencyId, t.userId).where(sql`${t.revokedAt} is null`),
     check('calendar_feeds_hint_ck', sql`length(${t.tokenHint}) between 1 and 8`),
+    // the member FK below, revoked feeds too
+    index('calendar_feeds_member_idx').on(t.agencyId, t.userId),
+    // S11-F5: the feed is a member's of its agency; it goes with a deleted member row (as listing_views)
+    foreignKey({
+      name: 'calendar_feeds_member_fk',
+      columns: [t.agencyId, t.userId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }).onDelete('cascade'),
   ],
 );
 
@@ -1048,7 +1094,7 @@ export const sellerProspects = pgTable(
     stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }).notNull().defaultNow(),
     /** The next follow-up, to the millisecond (checked); null: none. */
     nextFollowUpAt: timestamp('next_follow_up_at', { withTimezone: true }),
-    /** The member working it (an active member, checked by the service). */
+    /** The member working it (an active member, checked by the service; a member of the agency at the DB, S11-F5). */
     assignedUserId: uuid('assigned_user_id'),
     /** Visible to the agency's members only (never impersonating staff, never Client Mode, never a read model). */
     confidentialNotes: text('confidential_notes'),
@@ -1124,6 +1170,14 @@ export const sellerProspects = pgTable(
       // the migration says `ON DELETE SET NULL ("contact_id")` (PostgreSQL 15+; drizzle cannot express the column
       // list): an erased contact leaves the prospect and its notes, without the seller
     }).onDelete('set null'),
+    // the assignee FK below (a member row's delete checks it)
+    index('seller_prospects_assigned_idx').on(t.agencyId, t.assignedUserId).where(sql`${t.assignedUserId} is not null`),
+    // S11-F5: the assignee is a member of the agency (NO ACTION, as leads)
+    foreignKey({
+      name: 'seller_prospects_assignee_member_fk',
+      columns: [t.agencyId, t.assignedUserId],
+      foreignColumns: [agencyMembers.agencyId, agencyMembers.userId],
+    }),
   ],
 );
 

@@ -260,6 +260,27 @@ describe('consent', () => {
 });
 
 describe('merge', () => {
+  it('[S11-F5] a merged contact leaves no identifier rows behind: its e-mails and phones move to the survivor', async () => {
+    const survivor = await create(a, { firstName: 'Iris', emails: [email('iris')], phones: [mobile()] });
+    const duplicate = await create(a, {
+      firstName: 'I.',
+      emails: [email('iris.old'), email('iris.work')],
+      phones: [mobile(), mobile()],
+    });
+    await as(a, (ctx) => crm.mergeContacts(ctx, survivor.id, { duplicateId: duplicate.id, version: survivor.version }));
+    const held = await rows<{ contact_id: string; n: number }>(sql`
+      select contact_id, count(*)::int as n from (
+        select contact_id from ${contactEmails} where agency_id = ${a.agencyId} and contact_id in (${survivor.id}, ${duplicate.id})
+        union all
+        select contact_id from ${contactPhones} where agency_id = ${a.agencyId} and contact_id in (${survivor.id}, ${duplicate.id})
+      ) x group by contact_id`);
+    // the closed contact holds none; the survivor holds its own two and the duplicate's four
+    expect(held).toEqual([{ contact_id: survivor.id, n: 6 }]);
+    // and the closed contact is found by none of them any more: the survivor answers for each
+    const found = await lookup(a, { emails: [email('iris.work')], phones: duplicate.phones });
+    expect(new Set(found.matches.map((m) => m.contactId))).toEqual(new Set([survivor.id]));
+  });
+
   it('[S10-01] merge moves leads, activities, tasks, seller prospects and registrations to the surviving contact', async () => {
     // Leads (S10-02), activities (S10-04) and tasks (S10-05) move with the merge: every table in
     // CONTACT_REFERENCES (notes, leads, activities, tasks) moves in the merge, and
