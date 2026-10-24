@@ -424,4 +424,17 @@ describe('download and expiry', () => {
     expect(again.status).toBe('QUEUED');
     await runDataExport({ agencyId: b.agencyId, exportId: again.id }, job());
   });
+
+  it('[S10-08] reused Idempotency-Key after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const key = `dx-key-old-${RUN}`;
+    const first = await createResult(b, { kind: 'LEADS', format: 'xlsx' }, key);
+    await system((tx) =>
+      tx.execute(
+        sql`update data_export_jobs set created_at = now() - interval '48 hours' where id = ${first.export.id}`,
+      ),
+    );
+    await runDataExport({ agencyId: b.agencyId, exportId: first.export.id }, job());
+    // the 24 h replay window has passed but the key's unique index has not: a refusal, not a 500
+    expect(await refusal(createResult(b, { kind: 'LEADS', format: 'xlsx' }, key))).toBe('IDEMPOTENCY_KEY_REUSED');
+  });
 });

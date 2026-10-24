@@ -515,4 +515,16 @@ describe('ICS feed', () => {
     await setAgencyStatus(c.agencyId, 'SUSPENDED');
     expect(await refusal(crm.calendarFeed(suspendedToken))).toBe('CALENDAR_FEED_NOT_FOUND');
   });
+
+  it('[S10-06] reused Idempotency-Key after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const key = `cal-old-${RUN}`;
+    const first = await create(a, { type: 'CALL', title: title('stale'), ...slot(9) }, { idempotencyKey: key });
+    await system((tx) =>
+      tx.execute(sql`update calendar_events set created_at = now() - interval '48 hours' where id = ${first.event.id}`),
+    );
+    // the 24 h replay window has passed but the key's unique index has not: a refusal, not a 500
+    expect(await refusal(create(a, { type: 'CALL', title: title('stale'), ...slot(9) }, { idempotencyKey: key }))).toBe(
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+  });
 });

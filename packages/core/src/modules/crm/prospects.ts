@@ -52,6 +52,12 @@ import { isRank, rankBetween, spreadRank, timeRank } from './rank';
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
+
+/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
+const isKeyReused = (err: unknown, constraint: string): boolean => {
+  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
+  return cause?.code === '23505' && cause.constraint === constraint;
+};
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function toProspectDto(ctx: Ctx, row: prospectsRepo.ProspectRow): ProspectDto {
@@ -277,25 +283,30 @@ export async function createProspect(
   if (input.contactId) await assertContact(ctx, input.contactId);
   await assertTaxonomy(ctx, input);
   const id = newId();
-  await prospectsRepo.insertProspect(ctx.tx, {
-    id,
-    agencyId,
-    contactId: input.contactId ?? null,
-    title: input.title,
-    address: input.address ?? null,
-    area: input.area ?? null,
-    propertyTypeId: input.propertyTypeId ?? null,
-    locationId: input.locationId ?? null,
-    estimatedPriceCents: input.estimatedPrice?.amountCents ?? null,
-    currency: await currencyOf(ctx, input.estimatedPrice),
-    stageRank: timeRank(new Date(), id),
-    nextFollowUpAt: input.nextFollowUpAt ? new Date(input.nextFollowUpAt) : null,
-    assignedUserId,
-    confidentialNotes: input.confidentialNotes ?? null,
-    createdBy: userIdOf(ctx),
-    idempotencyHash: idempotency?.hash ?? null,
-    requestHash: idempotency?.requestHash ?? null,
-  });
+  await prospectsRepo
+    .insertProspect(ctx.tx, {
+      id,
+      agencyId,
+      contactId: input.contactId ?? null,
+      title: input.title,
+      address: input.address ?? null,
+      area: input.area ?? null,
+      propertyTypeId: input.propertyTypeId ?? null,
+      locationId: input.locationId ?? null,
+      estimatedPriceCents: input.estimatedPrice?.amountCents ?? null,
+      currency: await currencyOf(ctx, input.estimatedPrice),
+      stageRank: timeRank(new Date(), id),
+      nextFollowUpAt: input.nextFollowUpAt ? new Date(input.nextFollowUpAt) : null,
+      assignedUserId,
+      confidentialNotes: input.confidentialNotes ?? null,
+      createdBy: userIdOf(ctx),
+      idempotencyHash: idempotency?.hash ?? null,
+      requestHash: idempotency?.requestHash ?? null,
+    })
+    .catch((err: unknown) => {
+      if (isKeyReused(err, 'seller_prospects_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
+      throw err;
+    });
   return { prospect: await prospectDto(ctx, id), replayed: false };
 }
 

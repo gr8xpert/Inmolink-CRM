@@ -61,6 +61,12 @@ import { assertCan, canManageEvent } from './policy';
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
+
+/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
+const isKeyReused = (err: unknown, constraint: string): boolean => {
+  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
+  return cause?.code === '23505' && cause.constraint === constraint;
+};
 /** How long after its remind time an event can still be reminded (a longer worker outage skips it). */
 export const EVENT_REMINDER_GRACE_MS = 2 * 3_600_000;
 const SWEEP_BATCH = 200;
@@ -251,24 +257,29 @@ export async function createCalendarEvent(
   }
   const startsAt = new Date(input.startsAt);
   const remindAt = remindAtOf(startsAt, input.remindMinutes);
-  const row = await repo.insertEvent(ctx.tx, {
-    id: newId(),
-    agencyId,
-    type: input.type,
-    title: input.title,
-    description: input.description ?? null,
-    location: input.location ?? null,
-    startsAt,
-    endsAt: new Date(input.endsAt),
-    organizerUserId: me,
-    createdBy: me,
-    listingId: input.listingId ?? null,
-    remindMinutes: input.remindMinutes,
-    remindAt,
-    remindedAt: armedAt(remindAt, now),
-    idempotencyHash: idempotency?.hash ?? null,
-    requestHash: idempotency?.requestHash ?? null,
-  });
+  const row = await repo
+    .insertEvent(ctx.tx, {
+      id: newId(),
+      agencyId,
+      type: input.type,
+      title: input.title,
+      description: input.description ?? null,
+      location: input.location ?? null,
+      startsAt,
+      endsAt: new Date(input.endsAt),
+      organizerUserId: me,
+      createdBy: me,
+      listingId: input.listingId ?? null,
+      remindMinutes: input.remindMinutes,
+      remindAt,
+      remindedAt: armedAt(remindAt, now),
+      idempotencyHash: idempotency?.hash ?? null,
+      requestHash: idempotency?.requestHash ?? null,
+    })
+    .catch((err: unknown) => {
+      if (isKeyReused(err, 'calendar_events_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
+      throw err;
+    });
   await repo.insertAttendees(ctx.tx, [
     ...[me, ...userIds].map((userId) => ({
       id: newId(),

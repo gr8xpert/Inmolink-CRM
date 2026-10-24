@@ -50,6 +50,12 @@ import * as tasksRepo from './tasks-repo';
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
+
+/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
+const isKeyReused = (err: unknown, constraint: string): boolean => {
+  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
+  return cause?.code === '23505' && cause.constraint === constraint;
+};
 /** How long after its due time a task can still be reminded (a longer worker outage skips it). */
 export const REMINDER_GRACE_MS = 24 * 3_600_000;
 const SWEEP_BATCH = 200;
@@ -179,22 +185,27 @@ export async function createTask(
   }
 
   const dueAt = input.dueAt ? new Date(input.dueAt) : null;
-  const row = await tasksRepo.insertTask(ctx.tx, {
-    id: newId(),
-    agencyId,
-    title: input.title,
-    description: input.description ?? null,
-    dueAt,
-    remind: input.remind,
-    remindedAt: armedAt(dueAt, now),
-    assignedUserId,
-    createdBy: userIdOf(ctx),
-    contactId,
-    leadId: input.leadId ?? null,
-    listingId,
-    idempotencyHash: idempotency?.hash ?? null,
-    requestHash: idempotency?.requestHash ?? null,
-  });
+  const row = await tasksRepo
+    .insertTask(ctx.tx, {
+      id: newId(),
+      agencyId,
+      title: input.title,
+      description: input.description ?? null,
+      dueAt,
+      remind: input.remind,
+      remindedAt: armedAt(dueAt, now),
+      assignedUserId,
+      createdBy: userIdOf(ctx),
+      contactId,
+      leadId: input.leadId ?? null,
+      listingId,
+      idempotencyHash: idempotency?.hash ?? null,
+      requestHash: idempotency?.requestHash ?? null,
+    })
+    .catch((err: unknown) => {
+      if (isKeyReused(err, 'tasks_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
+      throw err;
+    });
   return { task: toTaskDto(row), replayed: false };
 }
 

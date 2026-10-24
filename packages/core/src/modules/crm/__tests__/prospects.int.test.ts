@@ -493,4 +493,16 @@ describe('board, list and by-date views', () => {
       'CONTACT_NOT_FOUND',
     );
   });
+
+  it('[S10-07] reused Idempotency-Key after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const key = `prospect-old-${RUN}`;
+    const first = await create(a, { title: title('Stale') }, { idempotencyKey: key });
+    await system((tx) =>
+      tx.execute(
+        sql`update seller_prospects set created_at = now() - interval '48 hours' where id = ${first.prospect.id}`,
+      ),
+    );
+    // the 24 h replay window has passed but the key's unique index has not: a refusal, not a 500
+    expect(await refusal(create(a, { title: title('Stale') }, { idempotencyKey: key }))).toBe('IDEMPOTENCY_KEY_REUSED');
+  });
 });

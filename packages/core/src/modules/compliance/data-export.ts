@@ -123,6 +123,10 @@ export async function createDataExport(
     // a concurrent retry with the same key won the insert: answer its export
     const raced = await replay();
     if (raced) return raced;
+    // the key's unique index is permanent: a key older than the replay window conflicts on insert
+    if (idempotency && (await repo.exportByIdempotency(ctx.tx, agencyId, idempotency.hash, new Date(0)))) {
+      throw new AppError('IDEMPOTENCY_KEY_REUSED');
+    }
     throw new AppError('DATA_EXPORT_IN_PROGRESS');
   }
   await audit(
