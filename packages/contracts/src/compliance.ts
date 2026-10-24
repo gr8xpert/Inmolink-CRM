@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pageOf } from './common';
+import { TwoFactorCode } from './identity';
 
 /** compliance DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 
@@ -49,10 +50,12 @@ export type DataExportErrorCode = z.infer<typeof DataExportErrorCode>;
 /** How long a finished export can be downloaded (days); the file is deleted afterwards. */
 export const DATA_EXPORT_TTL_DAYS = 7;
 
-/** `POST /v1/agency/data-exports`. For `ACCOUNT`, `format` is that of the tables inside the ZIP. */
+/** `POST /v1/agency/data-exports`. For `ACCOUNT`, `format` is that of the tables inside the ZIP. `twoFactorCode` is a fresh
+ * code of the admin's authenticator (or a recovery code): an unattended session alone cannot copy the agency's data out (S11-F14). */
 export const CreateDataExportBody = z.strictObject({
   kind: DataExportKind,
   format: DataExportFormat.default('csv'),
+  twoFactorCode: TwoFactorCode,
 });
 export type CreateDataExportBody = z.infer<typeof CreateDataExportBody>;
 

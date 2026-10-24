@@ -1,6 +1,4 @@
 import {
-  ContactPage,
-  type ContactPage as ContactPageType,
   type ConvertProspectInput,
   type CreateProspectBody,
   type MoveProspectBody,
@@ -65,11 +63,6 @@ export function fetchProspectFollowUps(
 
 export function fetchProspect(session: SessionRef, id: string): Promise<ApiResult<ProspectDto>> {
   return apiRequest(session, `/v1/crm/prospects/${encodeURIComponent(id)}`, ProspectDto);
-}
-
-/** The seller picker: the agency's newest seller contacts (a contact search comes with the contacts screens). */
-export function fetchSellerContacts(session: SessionRef): Promise<ApiResult<ContactPageType>> {
-  return apiRequest(session, `/v1/crm/contacts?${query({ limit: 100, type: 'SELLER' })}`, ContactPage);
 }
 
 export function createProspect(

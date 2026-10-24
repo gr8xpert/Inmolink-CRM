@@ -147,11 +147,6 @@ export async function activityByIdempotency(
   return { row: rest, requestHash };
 }
 
-/** Serializes logging with one `Idempotency-Key` (no unique index can span the partitions without the time). */
-export async function lockIdempotency(tx: Tx, hash: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`crm-activity-idem:${hash}`}, 0))`);
-}
-
 /**
  * What a lead's activities name besides the lead: its contact and, when the target is one of the agency's own listings,
  * that listing (a network listing's timeline is its owner's, who never sees the client).

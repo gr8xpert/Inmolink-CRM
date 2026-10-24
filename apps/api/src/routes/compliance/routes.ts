@@ -10,7 +10,7 @@ import {
   StaffAuditPage,
   StaffAuditQuery,
 } from '@inmolink/contracts';
-import { listStaffAuditLog } from '@inmolink/core';
+import { listStaffAuditLog, requestDataExport } from '@inmolink/core';
 import * as compliance from '@inmolink/core/modules/compliance';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -72,8 +72,9 @@ export async function complianceRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       const idempotencyKey = req.headers['idempotency-key'];
+      // S11-F14: the second-factor step-up is part of the service (policy, replay, 409, then the code).
       const result = await app.withCtx(req, (ctx) =>
-        compliance.createDataExport(ctx, req.body, idempotencyKey ? { idempotencyKey } : {}),
+        requestDataExport(ctx, req.body, idempotencyKey ? { idempotencyKey } : {}),
       );
       return reply.code(result.replayed ? 200 : 201).send(result.export);
     },

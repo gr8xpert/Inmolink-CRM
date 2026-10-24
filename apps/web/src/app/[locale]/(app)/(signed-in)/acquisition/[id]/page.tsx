@@ -3,7 +3,7 @@ import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchTaxonomy, sessionRef } from '@/server/api';
-import { fetchProspect, fetchSellerContacts } from '@/server/prospects-api';
+import { fetchProspect } from '@/server/prospects-api';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { convertProspectAction, deleteProspectAction, updateProspectAction } from '../actions';
 import { fieldLabels, formErrorCode } from '../form-labels';
@@ -30,12 +30,8 @@ export default async function ProspectPage({
   const t = await getTranslations('acquisition');
   if (!UUID.test(id)) return localeRedirect({ href: '/acquisition', locale });
   const ref = sessionRef(session.user);
-  const [prospect, tax, sellers] = await Promise.all([
-    fetchProspect(ref, id),
-    fetchTaxonomy(ref),
-    fetchSellerContacts(ref),
-  ]);
-  if (prospect === 'revoked' || tax === 'revoked' || sellers === 'revoked') redirect('/session/expired');
+  const [prospect, tax] = await Promise.all([fetchProspect(ref, id), fetchTaxonomy(ref)]);
+  if (prospect === 'revoked' || tax === 'revoked') redirect('/session/expired');
   const query = await searchParams;
   if (!prospect.ok) {
     return (
@@ -120,7 +116,6 @@ export default async function ProspectPage({
         <ProspectFields
           labels={await fieldLabels()}
           value={p}
-          sellers={sellers.ok ? sellers.data.items : []}
           propertyTypes={propertyTypes}
           locations={locations}
           notes

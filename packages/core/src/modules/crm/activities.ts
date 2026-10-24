@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   type ActivityDto,
   type ActivityPage,
@@ -8,12 +7,12 @@ import {
   type ListActivitiesQuery,
 } from '@inmolink/contracts';
 import { type Tx, withTenant } from '@inmolink/db';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import type { Ctx } from '../../context';
+import { idempotencyOf, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
-import * as properties from '../properties';
 import * as activitiesRepo from './activities-repo';
+import { linkedListing } from './listing-ref';
 import { assertCan } from './policy';
 import { RESPONSE_ACTIVITY_TYPES, recordHumanResponse } from './response';
 
@@ -33,9 +32,7 @@ import { RESPONSE_ACTIVITY_TYPES, recordHumanResponse } from './response';
  * merge (the only way a contact closes) re-points them in its transaction, and writers check the contact is open.
  */
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
 const DAY_MS = 86_400_000;
 /** A logged time may run this far ahead of the server's clock (a client's clock skew), never more. */
 const CLOCK_SKEW_MS = 60_000;
@@ -112,28 +109,22 @@ export async function logActivity(
   ) {
     throw new AppError('ACTIVITY_DATE_OUT_OF_RANGE');
   }
-  const idempotency = opts.idempotencyKey
-    ? {
-        hash: sha256(`crm.activity:${userIdOf(ctx)}:${opts.idempotencyKey}`),
-        requestHash: sha256(JSON.stringify(input)),
-      }
-    : null;
-  if (idempotency) {
-    await activitiesRepo.lockIdempotency(ctx.tx, idempotency.hash);
-    const prior = await activitiesRepo.activityByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(now - IDEMPOTENCY_WINDOW_MS),
-      new Date(now - (CRM_ACTIVITY_LIMITS.backdateDays + 1) * DAY_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      return { activity: toActivityDto(prior.row), replayed: true };
-    }
-  }
+  const idempotency = idempotencyOf('crm.activity', userIdOf(ctx), opts.idempotencyKey, input);
+  const prior = await replayOf(
+    ctx.tx,
+    idempotency,
+    (since, key) =>
+      activitiesRepo.activityByIdempotency(
+        ctx.tx,
+        agencyId,
+        key.hash,
+        since,
+        new Date(now - (CRM_ACTIVITY_LIMITS.backdateDays + 1) * DAY_MS),
+      ),
+    // the lock name predates the shared helper: kept so old and new instances serialize during a rolling deploy
+    { lock: 'crm-activity-idem', now },
+  );
+  if (prior) return { activity: toActivityDto(prior.row), replayed: true };
 
   let contactId = input.contactId ?? null;
   let listingId = input.listingId ?? null;
@@ -149,8 +140,7 @@ export async function logActivity(
     throw new AppError('CONTACT_NOT_FOUND');
   }
   if (input.listingId) {
-    const listing = await properties.leadTargetListing(ctx.tx, agencyId, input.listingId);
-    if (!listing || listing.agencyId !== agencyId) throw new AppError('LISTING_NOT_FOUND');
+    await linkedListing(ctx.tx, agencyId, input.listingId, { ownOnly: true });
   }
 
   const [row] = await activitiesRepo.insertActivities(ctx.tx, [

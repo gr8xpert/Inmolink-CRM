@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
 import {
@@ -15,20 +14,20 @@ import {
 import { withPublicRead, withSystem, withTenant } from '@inmolink/db';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
-import { hmacSha256, newToken, safeEqual } from '@inmolink/platform/crypto';
+import { hmacSha256, hmacSha256Candidates, newToken } from '@inmolink/platform/crypto';
 import { EmailSendError, mailer } from '@inmolink/platform/email';
 import { etagFor } from '@inmolink/platform/http';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { advisoryLock, idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
-import * as properties from '../properties';
-import * as activitiesRepo from './activities-repo';
 import { renderEventReminder } from './calendar-emails';
 import { type IcsEvent, renderIcs } from './calendar-ics';
 import * as repo from './calendar-repo';
 import { crmEvents } from './events';
+import { linkedListing } from './listing-ref';
 import { assertCan, canManageEvent } from './policy';
 
 /**
@@ -58,15 +57,7 @@ import { assertCan, canManageEvent } from './policy';
  * - **Who changes an event.** Its organizer or an agency admin: edits, cancelling and attendee changes.
  */
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
-
-/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
-const isKeyReused = (err: unknown, constraint: string): boolean => {
-  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
-  return cause?.code === '23505' && cause.constraint === constraint;
-};
 /** How long after its remind time an event can still be reminded (a longer worker outage skips it). */
 export const EVENT_REMINDER_GRACE_MS = 2 * 3_600_000;
 const SWEEP_BATCH = 200;
@@ -227,24 +218,16 @@ export async function createCalendarEvent(
   if (!me) throw new AppError('FORBIDDEN');
   const agencyId = ctx.tenant.agencyId;
   const now = new Date();
-  const idempotency = opts.idempotencyKey
-    ? { hash: sha256(`crm.calendar:${me}:${opts.idempotencyKey}`), requestHash: sha256(JSON.stringify(input)) }
-    : null;
-  if (idempotency) {
-    await activitiesRepo.lockIdempotency(ctx.tx, idempotency.hash);
-    const prior = await repo.eventByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(now.getTime() - IDEMPOTENCY_WINDOW_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      const [dto] = await toDtos(ctx, [prior.row]);
-      return { event: dto as CalendarEventDto, replayed: true };
-    }
+  const idempotency = idempotencyOf('crm.calendar', me, opts.idempotencyKey, input);
+  const prior = await replayOf(
+    ctx.tx,
+    idempotency,
+    (since, key) => repo.eventByIdempotency(ctx.tx, agencyId, key.hash, since),
+    { lock: true, now },
+  );
+  if (prior) {
+    const [dto] = await toDtos(ctx, [prior.row]);
+    return { event: dto as CalendarEventDto, replayed: true };
   }
 
   const userIds = unique(input.userIds).filter((u) => u !== me);
@@ -252,8 +235,7 @@ export async function createCalendarEvent(
   await assertMembers(ctx, userIds);
   const contactNames = await openContacts(ctx, contactIds);
   if (input.listingId) {
-    const listing = await properties.leadTargetListing(ctx.tx, agencyId, input.listingId);
-    if (!listing || listing.agencyId !== agencyId) throw new AppError('LISTING_NOT_FOUND');
+    await linkedListing(ctx.tx, agencyId, input.listingId, { ownOnly: true });
   }
   const startsAt = new Date(input.startsAt);
   const remindAt = remindAtOf(startsAt, input.remindMinutes);
@@ -276,10 +258,7 @@ export async function createCalendarEvent(
       idempotencyHash: idempotency?.hash ?? null,
       requestHash: idempotency?.requestHash ?? null,
     })
-    .catch((err: unknown) => {
-      if (isKeyReused(err, 'calendar_events_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      throw err;
-    });
+    .catch(keyReusedOn('calendar_events_idempotency_uq'));
   await repo.insertAttendees(ctx.tx, [
     ...[me, ...userIds].map((userId) => ({
       id: newId(),
@@ -509,7 +488,7 @@ export async function getCalendarFeed(ctx: Ctx): Promise<CalendarFeedDto> {
 export async function rotateCalendarFeed(ctx: Ctx): Promise<CalendarFeedSecretDto> {
   const me = feedMember(ctx);
   const agencyId = ctx.tenant.agencyId;
-  await activitiesRepo.lockIdempotency(ctx.tx, `calendar-feed:${agencyId}:${me}`);
+  await advisoryLock(ctx.tx, `calendar-feed:${agencyId}:${me}`);
   const now = new Date();
   await repo.revokeFeed(ctx.tx, agencyId, me, now);
   const token = newToken(32);
@@ -613,14 +592,22 @@ export async function calendarFeed(
   token: string,
   opts: { locale?: string; now?: Date } = {},
 ): Promise<CalendarFeedFile> {
-  const hash = feedTokenHash(token);
+  if (!tokenKey) throw new Error('crm: configureCalendarFeeds() was not called');
+  const key = tokenKey;
   const now = opts.now ?? new Date();
   const range = {
     from: new Date(now.getTime() - FEED_PAST_DAYS * 86_400_000),
     now,
     to: new Date(now.getTime() + FEED_FUTURE_DAYS * 86_400_000),
   };
-  const rows = await withPublicRead((tx) => repo.feedEvents(tx, hash, range, FEED_MAX_EVENTS));
+  // the current key, then (inside its window) the previous one: a URL issued before a rotation keeps working
+  const rows = await withPublicRead(async (tx) => {
+    for (const hash of hmacSha256Candidates(key, TOKEN_PURPOSE, token)) {
+      const found = await repo.feedEvents(tx, hash, range, FEED_MAX_EVENTS);
+      if (found) return found;
+    }
+    return null;
+  });
   if (!rows) throw new AppError('CALENDAR_FEED_NOT_FOUND');
   return renderCalendarFeed(rows, { locale: opts.locale ?? DEFAULT_UI_LOCALE, now });
 }

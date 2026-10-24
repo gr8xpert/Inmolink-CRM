@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   AppError,
   type ConvertProspectBody,
@@ -19,9 +18,9 @@ import {
   type UpdateProspectBody,
 } from '@inmolink/contracts';
 import { withTenant } from '@inmolink/db';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import type { Ctx } from '../../context';
+import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
@@ -49,15 +48,7 @@ import { isRank, rankBetween, spreadRank, timeRank } from './rank';
  * not to staff impersonating one (`crm.prospects.confidential`), never in Client Mode (nothing of the CRM is).
  */
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
-
-/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
-const isKeyReused = (err: unknown, constraint: string): boolean => {
-  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
-  return cause?.code === '23505' && cause.constraint === constraint;
-};
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function toProspectDto(ctx: Ctx, row: prospectsRepo.ProspectRow): ProspectDto {
@@ -257,27 +248,14 @@ export async function createProspect(
 ): Promise<{ prospect: ProspectDto; replayed: boolean }> {
   assertCan(ctx, 'crm.prospects.write');
   const agencyId = ctx.tenant.agencyId;
-  const idempotency = opts.idempotencyKey
-    ? {
-        hash: sha256(`crm.prospect:${userIdOf(ctx)}:${opts.idempotencyKey}`),
-        requestHash: sha256(JSON.stringify(input)),
-      }
-    : null;
-  if (idempotency) {
-    await activitiesRepo.lockIdempotency(ctx.tx, idempotency.hash);
-    const prior = await prospectsRepo.prospectByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(Date.now() - IDEMPOTENCY_WINDOW_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      return { prospect: await prospectDto(ctx, prior.id), replayed: true };
-    }
-  }
+  const idempotency = idempotencyOf('crm.prospect', userIdOf(ctx), opts.idempotencyKey, input);
+  const prior = await replayOf(
+    ctx.tx,
+    idempotency,
+    (since, key) => prospectsRepo.prospectByIdempotency(ctx.tx, agencyId, key.hash, since),
+    { lock: true },
+  );
+  if (prior) return { prospect: await prospectDto(ctx, prior.id), replayed: true };
   const assignedUserId = input.assignedUserId ?? userIdOf(ctx);
   if (assignedUserId) await assertAssignee(ctx, assignedUserId);
   if (input.contactId) await assertContact(ctx, input.contactId);
@@ -303,10 +281,7 @@ export async function createProspect(
       idempotencyHash: idempotency?.hash ?? null,
       requestHash: idempotency?.requestHash ?? null,
     })
-    .catch((err: unknown) => {
-      if (isKeyReused(err, 'seller_prospects_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      throw err;
-    });
+    .catch(keyReusedOn('seller_prospects_idempotency_uq'));
   return { prospect: await prospectDto(ctx, id), replayed: false };
 }
 

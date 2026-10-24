@@ -60,6 +60,16 @@ export async function insertExport(
   return inserted ?? null;
 }
 
+/** Whether the agency has an export queued or running (the one-at-a-time rule, checked before a code is spent). */
+export async function hasActiveExport(tx: Tx, agencyId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: dataExportJobs.id })
+    .from(dataExportJobs)
+    .where(and(eq(dataExportJobs.agencyId, agencyId), inArray(dataExportJobs.status, ['QUEUED', 'RUNNING'])))
+    .limit(1);
+  return row !== undefined;
+}
+
 /** The export a member's `Idempotency-Key` created within the replay window, with its body's hash. */
 export async function exportByIdempotency(
   tx: Tx,

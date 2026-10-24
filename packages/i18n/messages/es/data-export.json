@@ -1,0 +1,51 @@
+{
+  "title": "Exportación de datos",
+  "intro": "Siempre puedes llevarte tus datos. Elige qué exportar; el archivo se prepara en segundo plano y queda disponible 7 días.",
+  "form": {
+    "kind": "Qué exportar",
+    "format": "Formato",
+    "code": "Código del autenticador",
+    "codeHint": "Introduce el código actual de 6 dígitos de tu app de autenticación, o un código de recuperación. Hace falta cada vez que pides una exportación.",
+    "submit": "Pedir exportación"
+  },
+  "kinds": {
+    "CONTACTS": "Contactos",
+    "LEADS": "Leads",
+    "LISTINGS": "Inmuebles",
+    "ACCOUNT": "Toda la cuenta (ZIP)"
+  },
+  "formats": {
+    "csv": "CSV",
+    "xlsx": "Excel (XLSX)"
+  },
+  "status": {
+    "QUEUED": "En cola",
+    "RUNNING": "Preparando",
+    "SUCCEEDED": "Lista",
+    "FAILED": "Fallida",
+    "EXPIRED": "Caducada"
+  },
+  "failure": {
+    "TOO_LARGE": "La exportación es demasiado grande para un solo archivo.",
+    "TIMEOUT": "La exportación tardó demasiado. Pídela de nuevo.",
+    "INTERNAL": "La exportación falló. Pídela de nuevo."
+  },
+  "list": {
+    "title": "Exportaciones recientes",
+    "empty": "Todavía no hay exportaciones.",
+    "requested": "Pedida el {date}",
+    "rows": "{count, plural, one {# fila} other {# filas}}",
+    "download": "Obtener enlace de descarga"
+  },
+  "done": "Exportación solicitada. Estará lista en breve; recarga esta página para seguirla.",
+  "errors": {
+    "MFA_CODE_INVALID": "Ese código no es válido o ya se usó. Introduce el código actual e inténtalo de nuevo.",
+    "VALIDATION_FAILED": "Revisa los valores introducidos.",
+    "DATA_EXPORT_IN_PROGRESS": "Hay otra exportación en curso. Espera a que termine.",
+    "DATA_EXPORT_NOT_FOUND": "Esta exportación no existe.",
+    "FORBIDDEN": "Solo los administradores de la agencia pueden exportar datos.",
+    "RATE_LIMITED": "Demasiadas solicitudes. Inténtalo más tarde.",
+    "load": "No se pudieron cargar las exportaciones. Inténtalo de nuevo en un momento.",
+    "generic": "Algo ha salido mal. Inténtalo de nuevo."
+  }
+}

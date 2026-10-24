@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   AppError,
   type CreateTaskBody,
@@ -8,16 +7,16 @@ import {
   type UpdateTaskBody,
 } from '@inmolink/contracts';
 import { withSystem, withTenant } from '@inmolink/db';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { EmailSendError, mailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
-import * as properties from '../properties';
 import * as activitiesRepo from './activities-repo';
 import { crmEvents } from './events';
+import { linkedListing } from './listing-ref';
 import { assertCan } from './policy';
 import { renderTaskReminder } from './task-emails';
 import * as tasksRepo from './tasks-repo';
@@ -47,15 +46,7 @@ import * as tasksRepo from './tasks-repo';
  * is due. Times are shown in the platform time zone (`DEFAULT_TIME_ZONE`).
  */
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
-
-/** The key's unique index outlives the 24 h replay window: a stale key hits it on insert. */
-const isKeyReused = (err: unknown, constraint: string): boolean => {
-  const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
-  return cause?.code === '23505' && cause.constraint === constraint;
-};
 /** How long after its due time a task can still be reminded (a longer worker outage skips it). */
 export const REMINDER_GRACE_MS = 24 * 3_600_000;
 const SWEEP_BATCH = 200;
@@ -142,24 +133,14 @@ export async function createTask(
   assertCan(ctx, 'crm.tasks.write');
   const agencyId = ctx.tenant.agencyId;
   const now = new Date();
-  const idempotency = opts.idempotencyKey
-    ? { hash: sha256(`crm.task:${userIdOf(ctx)}:${opts.idempotencyKey}`), requestHash: sha256(JSON.stringify(input)) }
-    : null;
-  if (idempotency) {
-    await activitiesRepo.lockIdempotency(ctx.tx, idempotency.hash);
-    const prior = await tasksRepo.taskByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(now.getTime() - IDEMPOTENCY_WINDOW_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      return { task: toTaskDto(prior.row), replayed: true };
-    }
-  }
+  const idempotency = idempotencyOf('crm.task', userIdOf(ctx), opts.idempotencyKey, input);
+  const prior = await replayOf(
+    ctx.tx,
+    idempotency,
+    (since, key) => tasksRepo.taskByIdempotency(ctx.tx, agencyId, key.hash, since),
+    { lock: true, now },
+  );
+  if (prior) return { task: toTaskDto(prior.row), replayed: true };
 
   const assignedUserId = input.assignedUserId ?? userIdOf(ctx);
   if (!assignedUserId) throw new AppError('FORBIDDEN');
@@ -180,8 +161,7 @@ export async function createTask(
     throw new AppError('CONTACT_NOT_FOUND');
   }
   if (input.listingId) {
-    const listing = await properties.leadTargetListing(ctx.tx, agencyId, input.listingId);
-    if (!listing || listing.agencyId !== agencyId) throw new AppError('LISTING_NOT_FOUND');
+    await linkedListing(ctx.tx, agencyId, input.listingId, { ownOnly: true });
   }
 
   const dueAt = input.dueAt ? new Date(input.dueAt) : null;
@@ -202,10 +182,7 @@ export async function createTask(
       idempotencyHash: idempotency?.hash ?? null,
       requestHash: idempotency?.requestHash ?? null,
     })
-    .catch((err: unknown) => {
-      if (isKeyReused(err, 'tasks_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      throw err;
-    });
+    .catch(keyReusedOn('tasks_idempotency_uq'));
   return { task: toTaskDto(row), replayed: false };
 }
 

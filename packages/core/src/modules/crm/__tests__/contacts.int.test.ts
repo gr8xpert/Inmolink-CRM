@@ -747,4 +747,16 @@ describe('CSV import', () => {
     expect(state).toMatchObject({ status: 'SUCCEEDED' });
     expect(state?.file_deleted_at).not.toBeNull();
   });
+
+  it('[S11-F1] a contact key reused after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const key = `crm-test-key-${RUN}-old`;
+    const first = await createResult(a, { firstName: 'Old', emails: [email('old-key')] }, { idempotencyKey: key });
+    await system((tx) =>
+      tx.execute(sql`update contacts set created_at = now() - interval '48 hours' where id = ${first.contact.id}`),
+    );
+    // the replay window has passed but the key's unique index has not: a refusal, never a second contact
+    expect(
+      await refusal(createResult(a, { firstName: 'New', emails: [email('new-key')] }, { idempotencyKey: key })),
+    ).toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+  });
 });

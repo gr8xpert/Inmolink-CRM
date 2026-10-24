@@ -1,0 +1,51 @@
+{
+  "title": "Data export",
+  "intro": "You can always take your data with you. Choose what to export; the file is prepared in the background and stays available for 7 days.",
+  "form": {
+    "kind": "What to export",
+    "format": "Format",
+    "code": "Authenticator code",
+    "codeHint": "Enter the current 6-digit code from your authenticator app, or a recovery code. It is needed every time you request an export.",
+    "submit": "Request export"
+  },
+  "kinds": {
+    "CONTACTS": "Contacts",
+    "LEADS": "Leads",
+    "LISTINGS": "Listings",
+    "ACCOUNT": "Whole account (ZIP)"
+  },
+  "formats": {
+    "csv": "CSV",
+    "xlsx": "Excel (XLSX)"
+  },
+  "status": {
+    "QUEUED": "Queued",
+    "RUNNING": "Preparing",
+    "SUCCEEDED": "Ready",
+    "FAILED": "Failed",
+    "EXPIRED": "Expired"
+  },
+  "failure": {
+    "TOO_LARGE": "The export is too large for one file.",
+    "TIMEOUT": "The export took too long. Request it again.",
+    "INTERNAL": "The export failed. Request it again."
+  },
+  "list": {
+    "title": "Recent exports",
+    "empty": "No exports yet.",
+    "requested": "Requested {date}",
+    "rows": "{count, plural, one {# row} other {# rows}}",
+    "download": "Get download link"
+  },
+  "done": "Export requested. It will be ready shortly; reload this page to follow it.",
+  "errors": {
+    "MFA_CODE_INVALID": "That code is not valid or was already used. Enter the current code and try again.",
+    "VALIDATION_FAILED": "Check the values you entered.",
+    "DATA_EXPORT_IN_PROGRESS": "Another export is still running. Wait for it to finish.",
+    "DATA_EXPORT_NOT_FOUND": "This export does not exist.",
+    "FORBIDDEN": "Only agency admins can export data.",
+    "RATE_LIMITED": "Too many requests. Try again later.",
+    "load": "The exports could not be loaded. Try again in a moment.",
+    "generic": "Something went wrong. Try again."
+  }
+}

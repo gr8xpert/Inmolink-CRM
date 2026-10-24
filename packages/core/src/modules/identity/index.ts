@@ -83,4 +83,5 @@ export {
   regenerateRecoveryCodes,
   startEnrolment,
   verifySecondFactor,
+  verifyStepUp,
 } from './two-factor';

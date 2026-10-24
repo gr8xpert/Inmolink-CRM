@@ -254,7 +254,7 @@ export const ErrorCodes = {
   CONTACT_IMPORT_FILE_INVALID: 422,
   // crm: leads (S10-02)
   LEAD_NOT_FOUND: 404,
-  /** The lead's target is not a listing, development or unit the agency can see. */
+  /** A CRM body names a listing, development or unit the agency cannot see (a lead's target, a task's, event's or activity's listing). */
   LEAD_TARGET_NOT_FOUND: 422,
   // crm: activities (S10-04)
   /** A logged activity's `occurredAt` is ahead of now or more than `CRM_ACTIVITY_LIMITS.backdateDays` back. */

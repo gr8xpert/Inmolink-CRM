@@ -582,3 +582,23 @@ describe('history and reports', () => {
     expect(other.stages.map((s) => s.stage.id)).not.toContain(entry.id);
   });
 });
+
+describe('Idempotency-Key window', () => {
+  it('[S11-F1] reused Idempotency-Key after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const key = `stage-old-${RUN}`;
+    const first = await as(a, (ctx) =>
+      crm.createPipelineStage(ctx, { name: `Stale ${RUN}`, kind: 'OPEN' }, { idempotencyKey: key }),
+    );
+    await system((tx) =>
+      tx.execute(sql`update pipeline_stages set created_at = now() - interval '48 hours' where id = ${first.stage.id}`),
+    );
+    // another name: the same one would hit the name index first (PIPELINE_STAGE_DUPLICATE)
+    expect(
+      await refusal(
+        as(a, (ctx) =>
+          crm.createPipelineStage(ctx, { name: `Stale again ${RUN}`, kind: 'OPEN' }, { idempotencyKey: key }),
+        ),
+      ),
+    ).toBe('IDEMPOTENCY_KEY_REUSED');
+  });
+});

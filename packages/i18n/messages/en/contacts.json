@@ -94,6 +94,61 @@
     "CONTACT_IMPORT_NOT_FOUND": "This import does not exist.",
     "CONTACT_IMPORT_STARTED": "This import was already started. Upload the file again to import it once more.",
     "CONTACT_IMPORT_FILE_INVALID": "This file is not a CSV or Excel file we can read, or it has no rows.",
-    "CONTACT_MERGE_LIMIT": "The merged contact would have too many e-mails, phones or tags. Remove some first."
+    "CONTACT_MERGE_LIMIT": "The merged contact would have too many e-mails, phones or tags. Remove some first.",
+    "VERSION_CONFLICT": "Someone changed this contact meanwhile. Reload and try again.",
+    "VALIDATION_FAILED": "Check the values you entered.",
+    "FORBIDDEN": "You are not allowed to do that.",
+    "generic": "Something went wrong. Try again."
+  },
+  "list": {
+    "subtitle": "Everyone your agency deals with, newest first.",
+    "noName": "Without a name",
+    "loadMore": "Load more",
+    "filters": {
+      "type": "Type",
+      "anyType": "Any type",
+      "owner": "Responsible",
+      "anyone": "Everyone",
+      "mine": "Mine",
+      "apply": "Filter"
+    },
+    "columns": {
+      "name": "Name",
+      "email": "E-mail",
+      "phone": "Phone",
+      "type": "Type"
+    },
+    "find": {
+      "title": "Find by e-mail or phone",
+      "input": "E-mail or phone number",
+      "submit": "Find",
+      "none": "No contact has that e-mail or phone.",
+      "invalid": "Enter a valid e-mail or phone number."
+    },
+    "doNotContact": "Do not contact",
+    "load": "The contacts could not be loaded. Try again in a moment."
+  },
+  "detail": {
+    "back": "All contacts",
+    "since": "Contact since {date}",
+    "yes": "Yes",
+    "no": "No",
+    "none": "None",
+    "notes": {
+      "title": "Notes",
+      "input": "Add a note",
+      "add": "Add note",
+      "empty": "No notes yet.",
+      "loadMore": "Older notes"
+    },
+    "merge": {
+      "find": "Find the duplicate by e-mail or phone",
+      "submit": "Find duplicate",
+      "none": "No other contact has that e-mail or phone."
+    },
+    "done": {
+      "merged": "The contacts were merged.",
+      "noted": "Note added."
+    }
   }
 }

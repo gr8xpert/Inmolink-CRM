@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   AppError,
   CRM_PIPELINE_LIMITS,
@@ -26,10 +25,10 @@ import {
   STATUS_OF_KIND,
   type UpdatePipelineStageBody,
 } from '@inmolink/contracts';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
@@ -45,9 +44,7 @@ import { humanResponseOf } from './response';
  * to another stage emits `crm.lead.stageChanged` in its transaction; the timeline records `STAGE_CHANGED` from it.
  */
 
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
 
 export function toStageDto(row: pipelineRepo.StageRow): PipelineStageDto {
   return {
@@ -133,10 +130,7 @@ function stageWriteError(err: unknown): never {
   if (cause?.code === '23505' && cause.constraint === 'pipeline_stages_name_uq') {
     throw new AppError('PIPELINE_STAGE_DUPLICATE');
   }
-  if (cause?.code === '23505' && cause.constraint === 'pipeline_stages_idempotency_uq') {
-    throw new AppError('IDEMPOTENCY_KEY_REUSED');
-  }
-  throw err;
+  return keyReusedOn('pipeline_stages_idempotency_uq')(err);
 }
 
 // ---- stages ---------------------------------------------------------------------------------------------------------
@@ -160,26 +154,11 @@ export async function createPipelineStage(
 ): Promise<{ stage: PipelineStageDto; replayed: boolean }> {
   assertCan(ctx, 'crm.pipeline.manage');
   const agencyId = ctx.tenant.agencyId;
-  const idempotency = opts.idempotencyKey
-    ? {
-        hash: sha256(`crm.stage:${userIdOf(ctx)}:${opts.idempotencyKey}`),
-        requestHash: sha256(JSON.stringify(input)),
-      }
-    : null;
-  if (idempotency) {
-    const prior = await pipelineRepo.stageByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(Date.now() - IDEMPOTENCY_WINDOW_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      return { stage: toStageDto(await ownStage(ctx, prior.id)), replayed: true };
-    }
-  }
+  const idempotency = idempotencyOf('crm.stage', userIdOf(ctx), opts.idempotencyKey, input);
+  const prior = await replayOf(ctx.tx, idempotency, (since, key) =>
+    pipelineRepo.stageByIdempotency(ctx.tx, agencyId, key.hash, since),
+  );
+  if (prior) return { stage: toStageDto(await ownStage(ctx, prior.id)), replayed: true };
   await pipelineRepo.seedStages(ctx.tx, agencyId); // a no-op once the agency has its stages
   const active = await stagesOf(ctx);
   if (active.length >= CRM_PIPELINE_LIMITS.stages) throw new AppError('PIPELINE_STAGE_LIMIT');

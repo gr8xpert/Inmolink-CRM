@@ -1,8 +1,9 @@
-import type { ContactListItemDto, ProspectDto } from '@inmolink/contracts';
+import type { ProspectDto } from '@inmolink/contracts';
 import { CRM_PROSPECT_LIMITS } from '@inmolink/contracts';
 import { DEFAULT_TIME_ZONE } from '@inmolink/i18n';
 import type { Option, OptionGroup } from '../listings/taxonomy';
 import { localInputValue } from './dates';
+import { SellerSelect } from './seller-select';
 
 const INPUT = 'h-9 w-full rounded-md border bg-background px-2 text-sm';
 
@@ -11,6 +12,9 @@ export interface ProspectFieldLabels {
   seller: string;
   noSeller: string;
   sellerHint: string;
+  sellerFind: string;
+  sellerFindSubmit: string;
+  sellerFindNone: string;
   address: string;
   area: string;
   propertyType: string;
@@ -22,10 +26,6 @@ export interface ProspectFieldLabels {
   notesHint: string;
 }
 
-function contactLabel(c: ContactListItemDto): string {
-  return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || c.primaryEmail || c.primaryPhone || c.id;
-}
-
 /**
  * The prospect's fields, shared by the new and edit forms (plain HTML inputs posted to a server action). `notes` is
  * false when the caller may not see the confidential notes (staff impersonating): the field is left out, so a save never
@@ -34,19 +34,11 @@ function contactLabel(c: ContactListItemDto): string {
 export function ProspectFields(props: {
   labels: ProspectFieldLabels;
   value?: ProspectDto;
-  sellers: ContactListItemDto[];
   propertyTypes: OptionGroup[];
   locations: Option[];
   notes: boolean;
 }) {
   const { labels: l, value: v } = props;
-  const sellers =
-    v?.contactId && !props.sellers.some((c) => c.id === v.contactId)
-      ? [
-          { id: v.contactId, label: v.contactName ?? v.contactId },
-          ...props.sellers.map((c) => ({ id: c.id, label: contactLabel(c) })),
-        ]
-      : props.sellers.map((c) => ({ id: c.id, label: contactLabel(c) }));
   return (
     <>
       <label className="flex flex-col gap-1 text-sm">
@@ -59,20 +51,18 @@ export function ProspectFields(props: {
           className={INPUT}
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>{l.seller}</span>
-        <select name="contactId" defaultValue={v?.contactId ?? ''} className={INPUT} aria-describedby="seller-hint">
-          <option value="">{l.noSeller}</option>
-          {sellers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <span id="seller-hint" className="text-xs text-muted-foreground">
-          {l.sellerHint}
-        </span>
-      </label>
+      <SellerSelect
+        labels={{
+          seller: l.seller,
+          noSeller: l.noSeller,
+          hint: l.sellerHint,
+          find: l.sellerFind,
+          findSubmit: l.sellerFindSubmit,
+          findNone: l.sellerFindNone,
+        }}
+        current={v?.contactId ? { id: v.contactId, label: v.contactName ?? v.contactId } : null}
+        inputClass={INPUT}
+      />
       <label className="flex flex-col gap-1 text-sm">
         <span>{l.address}</span>
         <input

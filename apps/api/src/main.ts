@@ -49,6 +49,8 @@ try {
   // API keys (S1-05) are issued here: stored as HMACs, `live` keys only in production.
   identity.configureIdentity({
     hmacKey: config.HMAC_KEY,
+    // S11-F14: the data-export step-up checks a TOTP code, whose secret is encrypted with this keyring.
+    keyring: keyringFromEnv(config),
     apiKeyEnv: identity.apiKeyEnvFor(config.DEPLOY_ENV ?? config.NODE_ENV),
   });
   media.configureMedia({ urlKey: config.MEDIA_URL_KEY });

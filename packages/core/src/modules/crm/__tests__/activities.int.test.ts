@@ -465,7 +465,7 @@ describe('writers', () => {
     expect(await refusal(log(b, { type: 'CALL', contactId: c.id }))).toBe('CONTACT_NOT_FOUND');
     expect(await refusal(log(b, { type: 'CALL', leadId: lead.id }))).toBe('LEAD_NOT_FOUND');
     const aListing = await listing(a);
-    expect(await refusal(log(b, { type: 'CALL', listingId: aListing }))).toBe('LISTING_NOT_FOUND');
+    expect(await refusal(log(b, { type: 'CALL', listingId: aListing }))).toBe('LEAD_TARGET_NOT_FOUND');
     // a lead's activity is about the lead's client: another contact is refused
     const other = await contact(a, 'logger-other');
     expect(await refusal(log(a, { type: 'CALL', leadId: lead.id, contactId: other.id }))).toBe('VALIDATION_FAILED');
@@ -482,5 +482,24 @@ describe('writers', () => {
       await refusal(client((ctx) => crm.logActivity(ctx, CreateActivityBody.parse({ type: 'CALL', contactId: c.id })))),
     ).toBe('FORBIDDEN');
     expect(ListActivitiesQuery.safeParse({ subject: 'CONTACT' }).success).toBe(false);
+  });
+});
+
+describe('Idempotency-Key window', () => {
+  it('[S11-F1] a key reused after 24 h is not replayed: no unique index spans the partitions, so it logs a new activity', async () => {
+    const c = await contact(a, 'stale-key');
+    const key = `act-old-${RUN}-0002`;
+    const first = await log(a, { type: 'CALL', contactId: c.id, body: 'Old' }, { idempotencyKey: key });
+    await system((tx) =>
+      tx.execute(sql`update activities set created_at = now() - interval '48 hours' where id = ${first.activity.id}`),
+    );
+    const again = await log(a, { type: 'CALL', contactId: c.id, body: 'Old' }, { idempotencyKey: key });
+    expect(again.replayed).toBe(false);
+    expect(again.activity.id).not.toBe(first.activity.id);
+    // inside the window the key still replays and still refuses another body
+    expect((await log(a, { type: 'CALL', contactId: c.id, body: 'Old' }, { idempotencyKey: key })).replayed).toBe(true);
+    expect(await refusal(log(a, { type: 'CALL', contactId: c.id, body: 'New' }, { idempotencyKey: key }))).toBe(
+      'IDEMPOTENCY_KEY_REUSED',
+    );
   });
 });

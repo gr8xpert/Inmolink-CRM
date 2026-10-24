@@ -55,7 +55,7 @@
     "title": "Título",
     "seller": "Vendedor",
     "noSeller": "Sin vendedor todavía",
-    "sellerHint": "Los contactos más recientes marcados como vendedores.",
+    "sellerHint": "Busca al vendedor por correo o teléfono arriba y elígelo aquí.",
     "address": "Dirección",
     "area": "Zona",
     "propertyType": "Tipo de inmueble",
@@ -66,7 +66,10 @@
     "notes": "Notas confidenciales",
     "notesHint": "Solo los miembros de tu agencia ven estas notas. Nunca se comparten con agencias colaboradoras ni con clientes.",
     "create": "Añadir captación",
-    "save": "Guardar"
+    "save": "Guardar",
+    "sellerFind": "Busca al vendedor por correo o teléfono",
+    "sellerFindSubmit": "Buscar",
+    "sellerFindNone": "Ningún contacto tiene ese correo o teléfono."
   },
   "detail": {
     "back": "Volver a captación",

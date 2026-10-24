@@ -1,0 +1,44 @@
+{
+  "types": {
+    "LEAD_ASSIGNED": "Nuevo lead asignado a ti: {subject}",
+    "TASK_DUE": "Tarea pendiente: {subject}",
+    "VIEWING_REQUESTED": "{actor} ha solicitado una visita: {subject}",
+    "VIEWING_UPDATED": "Solicitud de visita actualizada: {subject}",
+    "CHAT_MESSAGE": "Nuevo mensaje de {actor}: {subject}",
+    "NETWORK_POST": "Nueva publicación en la red: {subject}"
+  },
+  "typeLabels": {
+    "LEAD_ASSIGNED": "Leads asignados a mí",
+    "TASK_DUE": "Recordatorios de tareas",
+    "VIEWING_REQUESTED": "Solicitudes de visita",
+    "VIEWING_UPDATED": "Cambios en solicitudes de visita",
+    "CHAT_MESSAGE": "Mensajes del chat",
+    "NETWORK_POST": "Publicaciones del tablón de la red"
+  },
+  "email": {
+    "subject": "{count, plural, one {Tienes # notificación nueva} other {Tienes # notificaciones nuevas}}",
+    "greeting": "Hola {name}:",
+    "body": "Esto es lo que ha pasado mientras no estabas:",
+    "more": "{count, plural, one {…y # más.} other {…y # más.}}",
+    "action": "Abre Inmolink para verlas todas.",
+    "footer": "Recibes este resumen porque estas notificaciones están activadas en tus ajustes de notificaciones."
+  },
+  "title": "Notificaciones",
+  "empty": "Estás al día.",
+  "unread": "{count, plural, one {# sin leer} other {# sin leer}}",
+  "unreadCapped": "99+ sin leer",
+  "markAllRead": "Marcar todas como leídas",
+  "loadMore": "Cargar más",
+  "preferences": {
+    "title": "Ajustes de notificaciones",
+    "enabled": "Activadas",
+    "inApp": "En la aplicación",
+    "email": "Resumen por e-mail",
+    "save": "Guardar"
+  },
+  "errors": {
+    "load": "No se han podido cargar las notificaciones. Inténtalo de nuevo.",
+    "generic": "Algo ha ido mal. Inténtalo de nuevo.",
+    "FORBIDDEN": "No puedes cambiar estas notificaciones."
+  }
+}

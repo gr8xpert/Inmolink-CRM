@@ -147,6 +147,12 @@ export const DashboardSection = z.enum([
   'calendar',
   /** The seller acquisition board, list and follow-ups (S10-07). */
   'acquisition',
+  /** Contacts: list, detail, merge (S11-F14). */
+  'contacts',
+  /** The lead inbox (S11-F14). */
+  'inbox',
+  /** Data export, admins only (S11-F14). */
+  'dataExport',
 ]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 

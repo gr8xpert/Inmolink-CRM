@@ -422,4 +422,8 @@ describe('reminders', () => {
     // the 24 h replay window has passed but the key's unique index has not: a refusal, not a 500
     expect(await refusal(create(a, { title: title('stale') }, { idempotencyKey: key }))).toBe('IDEMPOTENCY_KEY_REUSED');
   });
+
+  it('[S11-F1] a task naming an unknown listing → LEAD_TARGET_NOT_FOUND', async () => {
+    expect(await refusal(create(a, { title: title('nolisting'), listingId: newId() }))).toBe('LEAD_TARGET_NOT_FOUND');
+  });
 });

@@ -104,6 +104,29 @@
     "errors": {
       "LEAD_NOT_FOUND": "This lead does not exist.",
       "LEAD_TARGET_NOT_FOUND": "This property does not exist or you cannot see it."
+    },
+    "subtitle": "Website, portal, chatbot, WhatsApp and manual leads in one list, newest first.",
+    "anyStatus": "Any status",
+    "anySource": "Any source",
+    "anyone": "Everyone",
+    "filter": "Filter",
+    "noClient": "Client without a name",
+    "back": "All leads",
+    "loadMore": "Load more",
+    "open": "Open",
+    "load": "The leads could not be loaded. Try again in a moment.",
+    "detail": {
+      "visitor": "Details given on the form",
+      "name": "Name",
+      "email": "E-mail",
+      "phone": "Phone",
+      "marketing": "Agrees to marketing",
+      "yes": "Yes",
+      "no": "No",
+      "firstResponse": "First response",
+      "notYet": "Not yet",
+      "contact": "Open the contact",
+      "notFound": "This lead does not exist."
     }
   },
   "pipeline": {

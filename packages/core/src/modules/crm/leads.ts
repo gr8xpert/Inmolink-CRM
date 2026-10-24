@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   AppError,
   CONTACT_LIMITS,
@@ -20,10 +19,10 @@ import {
   type UpdateLeadRoutingBody,
 } from '@inmolink/contracts';
 import { type Tx, withTenant } from '@inmolink/db';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
@@ -32,6 +31,7 @@ import * as properties from '../properties';
 import * as websites from '../websites';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
+import { linkedListing } from './listing-ref';
 import { distinct, normalizeEmail, normalizePhone } from './normalize';
 import { placement, stageForStatus } from './pipeline';
 import * as pipelineRepo from './pipeline-repo';
@@ -49,10 +49,7 @@ import { routeLead } from './routing';
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
-/** How long an `Idempotency-Key` replays the lead it created (`.claude/rules/api.md`). */
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
 /** Members considered by the round robin (the agency's active members who work clients). */
 const ROUND_ROBIN_MEMBERS = 500;
 
@@ -389,8 +386,7 @@ async function assertAssignee(ctx: Ctx, userId: string | null | undefined): Prom
 async function resolveTarget(ctx: Ctx, target: NonNullable<CreateLeadBody['target']>) {
   const self = ctx.tenant.agencyId;
   if (target.kind === 'LISTING') {
-    const listing = await properties.leadTargetListing(ctx.tx, self, target.id);
-    if (!listing) throw new AppError('LEAD_TARGET_NOT_FOUND');
+    const listing = await linkedListing(ctx.tx, self, target.id);
     const own = listing.agencyId === self;
     return {
       ownerAgencyId: own ? null : listing.agencyId,
@@ -417,61 +413,40 @@ export async function createLead(
 ): Promise<{ lead: LeadDto; replayed: boolean }> {
   assertCan(ctx, 'crm.leads.write');
   const agencyId = ctx.tenant.agencyId;
-  const idempotency = opts.idempotencyKey
-    ? { hash: sha256(`crm.lead:${userIdOf(ctx)}:${opts.idempotencyKey}`), requestHash: sha256(JSON.stringify(input)) }
-    : null;
-  if (idempotency) {
-    const prior = await leadsRepo.leadByIdempotency(
-      ctx.tx,
-      agencyId,
-      idempotency.hash,
-      new Date(Date.now() - IDEMPOTENCY_WINDOW_MS),
-    );
-    if (prior) {
-      if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-        throw new AppError('IDEMPOTENCY_KEY_REUSED');
-      }
-      return { lead: await loadLead(ctx, prior.id), replayed: true };
-    }
-  }
+  const idempotency = idempotencyOf('crm.lead', userIdOf(ctx), opts.idempotencyKey, input);
+  const prior = await replayOf(ctx.tx, idempotency, (since, key) =>
+    leadsRepo.leadByIdempotency(ctx.tx, agencyId, key.hash, since),
+  );
+  if (prior) return { lead: await loadLead(ctx, prior.id), replayed: true };
   const contact = await repo.getContact(ctx.tx, input.contactId);
   if (!contact) throw new AppError('CONTACT_NOT_FOUND');
   assertCan(ctx, 'crm.leads.write', contact);
   await assertAssignee(ctx, input.assignedUserId);
   const resolved = input.target ? await resolveTarget(ctx, input.target) : null;
 
-  let lead: ReceivedLead;
-  try {
-    lead = await receiveLead(ctx.tx, agencyId, {
-      source: input.source,
-      kind: input.kind,
-      contactId: contact.id,
-      presentingAgencyId: agencyId,
-      target:
-        input.target && resolved
-          ? {
-              kind: input.target.kind,
-              id: input.target.id,
-              ownerAgencyId: resolved.ownerAgencyId,
-              shownRef: resolved.shownRef,
-            }
-          : null,
-      listingAgentId: resolved?.listingAgentId ?? null,
-      message: input.message ?? null,
-      locale: contact.language,
-      visitor: null,
-      inboundLeadId: null,
-      createdBy: userIdOf(ctx),
-      idempotency,
-      ...(input.assignedUserId !== undefined ? { assignedUserId: input.assignedUserId } : {}),
-    });
-  } catch (err) {
-    const cause = (err as { cause?: { code?: string; constraint?: string } }).cause;
-    if (cause?.code === '23505' && cause.constraint === 'leads_idempotency_uq') {
-      throw new AppError('IDEMPOTENCY_KEY_REUSED');
-    }
-    throw err;
-  }
+  const lead: ReceivedLead = await receiveLead(ctx.tx, agencyId, {
+    source: input.source,
+    kind: input.kind,
+    contactId: contact.id,
+    presentingAgencyId: agencyId,
+    target:
+      input.target && resolved
+        ? {
+            kind: input.target.kind,
+            id: input.target.id,
+            ownerAgencyId: resolved.ownerAgencyId,
+            shownRef: resolved.shownRef,
+          }
+        : null,
+    listingAgentId: resolved?.listingAgentId ?? null,
+    message: input.message ?? null,
+    locale: contact.language,
+    visitor: null,
+    inboundLeadId: null,
+    createdBy: userIdOf(ctx),
+    idempotency,
+    ...(input.assignedUserId !== undefined ? { assignedUserId: input.assignedUserId } : {}),
+  }).catch(keyReusedOn('leads_idempotency_uq'));
   const dto = toLeadDto({
     ...lead,
     contactFirstName: contact.firstName,

@@ -9,6 +9,7 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { configureHmacRotation } from '@inmolink/platform/crypto';
 import {
   closeEmail,
   configureEmail,
@@ -526,5 +527,33 @@ describe('ICS feed', () => {
     expect(await refusal(create(a, { type: 'CALL', title: title('stale'), ...slot(9) }, { idempotencyKey: key }))).toBe(
       'IDEMPOTENCY_KEY_REUSED',
     );
+  });
+
+  it('[S11-F1] an event naming an unknown listing → LEAD_TARGET_NOT_FOUND', async () => {
+    expect(
+      await refusal(create(a, { type: 'VIEWING', title: title('nolisting'), ...slot(8), listingId: newId() })),
+    ).toBe('LEAD_TARGET_NOT_FOUND');
+  });
+
+  it('[S11-F13] a calendar feed URL issued under the previous key resolves until the window ends', async () => {
+    const NEW = 'test-hmac-key-rotated-0123456789abcdef01';
+    const { token } = await as(a, (ctx) => crm.rotateCalendarFeed(ctx));
+    const get = () => refusal(crm.calendarFeed(token));
+    try {
+      crm.configureCalendarFeeds({ tokenKey: NEW });
+      expect(await get()).toBe('CALENDAR_FEED_NOT_FOUND'); // no window: the old URL's hash is not the new key's
+      configureHmacRotation({ current: NEW, previous: KEY, previousUntil: new Date(Date.now() + 3_600_000) });
+      expect((await crm.calendarFeed(token)).body).toContain('BEGIN:VCALENDAR');
+      configureHmacRotation({ current: NEW, previous: KEY, previousUntil: new Date(Date.now() - 1) });
+      expect(await get()).toBe('CALENDAR_FEED_NOT_FOUND');
+      configureHmacRotation({ current: NEW, previous: KEY });
+      expect((await crm.calendarFeed(token)).body).toContain('BEGIN:VCALENDAR');
+      configureHmacRotation({ current: NEW });
+      expect(await get()).toBe('CALENDAR_FEED_NOT_FOUND');
+    } finally {
+      configureHmacRotation({ current: NEW });
+      crm.configureCalendarFeeds({ tokenKey: KEY });
+    }
+    expect((await crm.calendarFeed(token)).body).toContain('BEGIN:VCALENDAR');
   });
 });

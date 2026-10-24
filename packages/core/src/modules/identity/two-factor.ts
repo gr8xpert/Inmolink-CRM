@@ -267,6 +267,45 @@ export async function verifySecondFactor(
   };
 }
 
+/**
+ * Step-up re-authentication (S11-F14): a fresh TOTP (once per time step) or recovery code before a sensitive act, such as
+ * copying the agency's data out. Unlike the login challenge it hands out no proof and no remembered browser; the use is
+ * audited as `identity.twoFactor.verified` with `purpose: stepUp`. `MFA_CODE_INVALID` when the code is wrong or 2FA is
+ * not enabled for the user (the caller rate-limits).
+ */
+export async function verifyStepUp(
+  ctx: AuthCtx,
+  input: {
+    userId: string;
+    code: TwoFactorCode /** What the code unlocks, for the audit trail. */;
+    unlocks: { action: string; kind?: string };
+  },
+): Promise<void> {
+  const purpose = {
+    purpose: 'stepUp',
+    action: input.unlocks.action,
+    ...(input.unlocks.kind ? { kind: input.unlocks.kind } : {}),
+  };
+  const used = await asUser(ctx, input.userId, async (tx) => {
+    const result = await consumeCode(tx, input.userId, input.code, clock.now(), ctx.requestId);
+    if (result) {
+      await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.verified', {
+        method: result.method,
+        ...purpose,
+      });
+    }
+    return result;
+  });
+  if (!used) {
+    await asUser(ctx, input.userId, (tx) =>
+      auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.failed', purpose),
+    ).catch((err: unknown) =>
+      identityLog().error({ err, requestId: ctx.requestId }, 'identity: failed step-up audit not written'),
+    );
+    throw new AppError('MFA_CODE_INVALID');
+  }
+}
+
 /** Turns 2FA off (opted-in users only — staff and admins must keep it). Needs a current code. */
 export async function disableTwoFactor(ctx: AuthCtx, input: { userId: string; code: TwoFactorCode }): Promise<void> {
   const now = clock.now();

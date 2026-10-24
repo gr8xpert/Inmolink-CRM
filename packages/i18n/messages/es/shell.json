@@ -28,7 +28,10 @@
     "pipeline": "Embudo comercial",
     "tasks": "Tareas",
     "calendar": "Calendario",
-    "acquisition": "Captación"
+    "acquisition": "Captación",
+    "contacts": "Contactos",
+    "inbox": "Bandeja de leads",
+    "dataExport": "Exportación de datos"
   },
   "account": {
     "label": "Tu cuenta",

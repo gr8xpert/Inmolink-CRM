@@ -132,6 +132,8 @@ describe('api against the test stack', () => {
           'tasks',
           'calendar',
           'acquisition',
+          'contacts',
+          'inbox',
           'network',
           'developments',
           'imports',
@@ -143,6 +145,7 @@ describe('api against the test stack', () => {
           'settings',
           'verification',
           'preferredAgencies',
+          'dataExport',
           'staffAccess',
         ],
       });

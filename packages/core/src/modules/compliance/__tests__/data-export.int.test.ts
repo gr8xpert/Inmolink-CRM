@@ -71,7 +71,11 @@ const as = <T>(m: { userId: string; agencyId: string }, fn: (ctx: Ctx) => Promis
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
 const createResult = (m: { userId: string; agencyId: string }, body: Record<string, unknown>, key?: string) =>
   as(m, (ctx) =>
-    compliance.createDataExport(ctx, CreateDataExportBody.parse(body), key ? { idempotencyKey: key } : {}),
+    compliance.createDataExport(
+      ctx,
+      CreateDataExportBody.omit({ twoFactorCode: true }).parse(body),
+      { ...(key ? { idempotencyKey: key } : {}), verifyStepUp: async () => {} }, // the step-up is tested in apps/api
+    ),
   );
 const create = async (m: { userId: string; agencyId: string }, body: Record<string, unknown>) =>
   (await createResult(m, body)).export;

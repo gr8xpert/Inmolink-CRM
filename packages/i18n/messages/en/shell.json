@@ -28,7 +28,10 @@
     "pipeline": "Pipeline",
     "tasks": "Tasks",
     "calendar": "Calendar",
-    "acquisition": "Acquisition"
+    "acquisition": "Acquisition",
+    "contacts": "Contacts",
+    "inbox": "Lead inbox",
+    "dataExport": "Data export"
   },
   "account": {
     "label": "Your account",

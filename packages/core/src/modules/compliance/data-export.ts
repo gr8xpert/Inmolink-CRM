@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   type CreateDataExportBody,
   DATA_EXPORT_TTL_DAYS,
@@ -10,12 +9,12 @@ import {
   type PageQuery,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
-import { safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { storage } from '@inmolink/platform/storage';
 import type { Ctx } from '../../context';
+import { idempotencyOf, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as repo from './data-export-repo';
 import { complianceEvents } from './events';
@@ -74,42 +73,45 @@ function toDto(row: repo.ExportRow, download: DataExportDto['download'] = null):
   };
 }
 
-/** How long an `Idempotency-Key` replays the export it created (`.claude/rules/api.md`). */
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
-const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
-
 /**
  * `POST /v1/agency/data-exports` (admins): records and queues an export. With an `Idempotency-Key`, a retry by the same
- * admin within 24 h with the same body answers the first export (`replayed`); another body is `IDEMPOTENCY_KEY_REUSED`.
+ * admin within 24 h with the same body answers the first export (`replayed`, no second-factor check: nothing new is
+ * created); another body is `IDEMPOTENCY_KEY_REUSED`.
+ *
+ * Copying the agency's data out needs a fresh second factor (S11-F14), so `verifyStepUp` is not optional. The order
+ * matters: policy (a non-admin never spends a code) → replay → a running export (409, the code is kept) → `verifyStepUp`
+ * (throws `MFA_CODE_INVALID`; it runs in its own transaction, as identity's `app_auth`) → create. Apps call
+ * `requestDataExport` (`../../data-export-request`), which binds identity's check; compliance cannot import identity
+ * (identity imports compliance for its audit trail).
  */
 export async function createDataExport(
   ctx: Ctx,
-  input: CreateDataExportBody,
-  opts: { idempotencyKey?: string } = {},
+  input: Pick<CreateDataExportBody, 'kind' | 'format'>,
+  opts: { idempotencyKey?: string; verifyStepUp: () => Promise<void> },
 ): Promise<{ export: DataExportDto; replayed: boolean }> {
   assertCan(ctx, 'compliance.dataExport.create');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   const agencyId = ctx.tenant.agencyId;
-  const idempotency = opts.idempotencyKey
-    ? {
-        hash: sha256(`compliance.dataExport:${ctx.actor.userId}:${opts.idempotencyKey}`),
-        requestHash: sha256(JSON.stringify({ kind: input.kind, format: input.format })),
-      }
-    : null;
+  const idempotency = idempotencyOf('compliance.dataExport', ctx.actor.userId, opts.idempotencyKey, {
+    kind: input.kind,
+    format: input.format,
+  });
   const replay = async (): Promise<{ export: DataExportDto; replayed: boolean } | null> => {
-    if (!idempotency) return null;
-    const since = new Date(clock.now().getTime() - IDEMPOTENCY_WINDOW_MS);
-    const prior = await repo.exportByIdempotency(ctx.tx, agencyId, idempotency.hash, since);
+    const prior = await replayOf(
+      ctx.tx,
+      idempotency,
+      (since, key) => repo.exportByIdempotency(ctx.tx, agencyId, key.hash, since),
+      { now: clock.now() },
+    );
     if (!prior) return null;
-    if (!prior.requestHash || !safeEqual(prior.requestHash, idempotency.requestHash)) {
-      throw new AppError('IDEMPOTENCY_KEY_REUSED');
-    }
     const row = await repo.getExport(ctx.tx, prior.id);
     if (!row) throw new AppError('DATA_EXPORT_NOT_FOUND');
     return { export: toDto(row), replayed: true };
   };
   const replayed = await replay();
   if (replayed) return replayed;
+  if (await repo.hasActiveExport(ctx.tx, agencyId)) throw new AppError('DATA_EXPORT_IN_PROGRESS');
+  await opts.verifyStepUp();
   const row = await repo.insertExport(ctx.tx, {
     id: newId(),
     agencyId,

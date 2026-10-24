@@ -10,6 +10,7 @@ export {
 export { complianceErrors } from './errors';
 export { complianceEvents } from './events';
 export { complianceJobs, PARTITION_MAINTENANCE_EVERY_MS } from './jobs';
+export { can } from './policy';
 export {
   AUDIT_TYPES,
   type AuditMetadata,

@@ -94,6 +94,61 @@
     "CONTACT_IMPORT_NOT_FOUND": "Esta importación no existe.",
     "CONTACT_IMPORT_STARTED": "Esta importación ya se inició. Vuelve a subir el archivo para importarlo otra vez.",
     "CONTACT_IMPORT_FILE_INVALID": "Este archivo no es un CSV o Excel que podamos leer, o no tiene filas.",
-    "CONTACT_MERGE_LIMIT": "El contacto fusionado tendría demasiados correos, teléfonos o etiquetas. Elimina algunos primero."
+    "CONTACT_MERGE_LIMIT": "El contacto fusionado tendría demasiados correos, teléfonos o etiquetas. Elimina algunos primero.",
+    "VERSION_CONFLICT": "Alguien ha modificado este contacto entretanto. Recarga e inténtalo de nuevo.",
+    "VALIDATION_FAILED": "Revisa los valores introducidos.",
+    "FORBIDDEN": "No tienes permiso para hacerlo.",
+    "generic": "Algo ha salido mal. Inténtalo de nuevo."
+  },
+  "list": {
+    "subtitle": "Todas las personas con las que trata tu agencia, las más recientes primero.",
+    "noName": "Sin nombre",
+    "loadMore": "Cargar más",
+    "filters": {
+      "type": "Tipo",
+      "anyType": "Cualquier tipo",
+      "owner": "Responsable",
+      "anyone": "Todos",
+      "mine": "Mis contactos",
+      "apply": "Filtrar"
+    },
+    "columns": {
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "phone": "Teléfono",
+      "type": "Tipo"
+    },
+    "find": {
+      "title": "Buscar por correo o teléfono",
+      "input": "Correo o número de teléfono",
+      "submit": "Buscar",
+      "none": "Ningún contacto tiene ese correo o teléfono.",
+      "invalid": "Introduce un correo o un teléfono válido."
+    },
+    "doNotContact": "No contactar",
+    "load": "No se pudieron cargar los contactos. Inténtalo de nuevo en un momento."
+  },
+  "detail": {
+    "back": "Todos los contactos",
+    "since": "Contacto desde el {date}",
+    "yes": "Sí",
+    "no": "No",
+    "none": "Ninguno",
+    "notes": {
+      "title": "Notas",
+      "input": "Añadir una nota",
+      "add": "Añadir nota",
+      "empty": "Todavía no hay notas.",
+      "loadMore": "Notas anteriores"
+    },
+    "merge": {
+      "find": "Busca el duplicado por correo o teléfono",
+      "submit": "Buscar duplicado",
+      "none": "Ningún otro contacto tiene ese correo o teléfono."
+    },
+    "done": {
+      "merged": "Los contactos se han fusionado.",
+      "noted": "Nota añadida."
+    }
   }
 }

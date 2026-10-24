@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
+import * as compliance from '../compliance';
 import * as crm from '../crm';
 import * as developments from '../developments';
 import * as exportsModule from '../exports';
@@ -26,6 +27,9 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['calendar', (ctx) => crm.can(ctx, 'crm.calendar.read')],
   // The acquisition board (S10-07): the same members.
   ['acquisition', (ctx) => crm.can(ctx, 'crm.prospects.read')],
+  // Contacts and the lead inbox (S11-F14): the same members.
+  ['contacts', (ctx) => crm.can(ctx, 'crm.contacts.read')],
+  ['inbox', (ctx) => crm.can(ctx, 'crm.leads.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
   ['network', (ctx) => search.can(ctx, 'search.network')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).
@@ -42,6 +46,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['settings', (ctx) => agencies.can(ctx, 'agencies.settings.read')],
   ['verification', (ctx) => agencies.can(ctx, 'agencies.verification.read')],
   ['preferredAgencies', (ctx) => agencies.can(ctx, 'agencies.preferred.read')],
+  // Data export (S11-F14): the agency's admins, never in Client Mode.
+  ['dataExport', (ctx) => compliance.can(ctx, 'compliance.dataExport.create')],
   ['staffAccess', (ctx) => identity.can(ctx, 'identity.staffAccess.read')],
 ];
 

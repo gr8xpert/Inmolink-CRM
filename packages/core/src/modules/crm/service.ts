@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   AppError,
   CONTACT_LIMITS,
@@ -23,6 +22,7 @@ import {
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import { idempotencyHashOf, idempotencyWindowStart, isUniqueViolation } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
 import { recordNoteAdded } from './activities';
@@ -138,9 +138,7 @@ async function withDuplicateGuard<T>(fn: () => Promise<T>): Promise<T> {
     if (cause?.code === '23505' && IDENTIFIER_CONSTRAINTS.has(cause.constraint ?? '')) {
       throw new AppError('CONTACT_DUPLICATE', { matches: [] });
     }
-    if (cause?.code === '23505' && cause.constraint === 'contacts_idempotency_uq') {
-      throw new AppError('IDEMPOTENCY_KEY_REUSED');
-    }
+    if (isUniqueViolation(err, 'contacts_idempotency_uq')) throw new AppError('IDEMPOTENCY_KEY_REUSED');
     throw err;
   }
 }
@@ -173,9 +171,6 @@ export interface CreateContactResult {
   outcome: 'CREATED' | 'MERGED' | 'REPLAYED';
 }
 
-/** How long an `Idempotency-Key` replays the contact it created (`.claude/rules/api.md`). */
-const IDEMPOTENCY_WINDOW_MS = 24 * 3_600_000;
-
 /**
  * `POST /v1/crm/contacts`. An e-mail or phone that already belongs to a contact refuses the create with
  * `CONTACT_DUPLICATE` and the matching contacts — never a second contact for the same person. With `mergeInto` (one
@@ -189,14 +184,9 @@ export async function createContact(
 ): Promise<CreateContactResult> {
   assertCan(ctx, 'crm.contacts.write');
   const agencyId = ctx.tenant.agencyId;
-  const idempotencyHash = opts.idempotencyKey
-    ? createHash('sha256')
-        .update(`crm.contact:${userIdOf(ctx)}:${opts.idempotencyKey}`)
-        .digest('hex')
-    : null;
+  const idempotencyHash = idempotencyHashOf('crm.contact', userIdOf(ctx), opts.idempotencyKey);
   if (idempotencyHash) {
-    const since = new Date(Date.now() - IDEMPOTENCY_WINDOW_MS);
-    const replayed = await repo.findByIdempotency(ctx.tx, agencyId, idempotencyHash, since);
+    const replayed = await repo.findByIdempotency(ctx.tx, agencyId, idempotencyHash, idempotencyWindowStart());
     if (replayed) return { contact: await loadContact(ctx, replayed), outcome: 'REPLAYED' };
   }
   const emails = emailsOf(input.emails);

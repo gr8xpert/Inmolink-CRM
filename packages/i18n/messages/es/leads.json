@@ -104,6 +104,29 @@
     "errors": {
       "LEAD_NOT_FOUND": "Este lead no existe.",
       "LEAD_TARGET_NOT_FOUND": "Este inmueble no existe o no puede verlo."
+    },
+    "subtitle": "Leads de la web, portales, chatbot, WhatsApp y manuales en una sola lista, los más recientes primero.",
+    "anyStatus": "Cualquier estado",
+    "anySource": "Cualquier origen",
+    "anyone": "Todos",
+    "filter": "Filtrar",
+    "noClient": "Cliente sin nombre",
+    "back": "Todos los leads",
+    "loadMore": "Cargar más",
+    "open": "Abrir",
+    "load": "No se pudieron cargar los leads. Inténtalo de nuevo en un momento.",
+    "detail": {
+      "visitor": "Datos indicados en el formulario",
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "phone": "Teléfono",
+      "marketing": "Acepta recibir comunicaciones comerciales",
+      "yes": "Sí",
+      "no": "No",
+      "firstResponse": "Primera respuesta",
+      "notYet": "Todavía no",
+      "contact": "Abrir el contacto",
+      "notFound": "Este lead no existe."
     }
   },
   "pipeline": {

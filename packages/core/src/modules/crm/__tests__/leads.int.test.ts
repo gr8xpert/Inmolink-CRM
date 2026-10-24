@@ -679,3 +679,19 @@ describe('the inbox', () => {
     expect(await refusal(client((ctx) => crm.getLeadRouting(ctx)))).toBe('FORBIDDEN');
   });
 });
+
+describe('Idempotency-Key window', () => {
+  it('[S11-F1] reused Idempotency-Key after 24 h → IDEMPOTENCY_KEY_REUSED', async () => {
+    const contact = await createContact(a, { firstName: 'Stale', emails: [email('stale-key')] });
+    const key = `lead-old-${RUN}`;
+    const body = CreateLeadBody.parse({ contactId: contact.id, message: 'Old' });
+    const first = await as(a, (ctx) => crm.createLead(ctx, body, { idempotencyKey: key }));
+    await system((tx) =>
+      tx.execute(sql`update leads set created_at = now() - interval '48 hours' where id = ${first.lead.id}`),
+    );
+    // the replay window has passed but the key's unique index has not: a refusal, not a 500
+    expect(await refusal(as(a, (ctx) => crm.createLead(ctx, body, { idempotencyKey: key })))).toBe(
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+  });
+});

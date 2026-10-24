@@ -4,7 +4,6 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchTaxonomy, sessionRef } from '@/server/api';
-import { fetchSellerContacts } from '@/server/prospects-api';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { createProspectAction } from '../actions';
 import { fieldLabels, formErrorCode } from '../form-labels';
@@ -16,8 +15,8 @@ export default async function NewProspectPage({ searchParams }: { searchParams: 
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const ref = sessionRef(session.user);
-  const [tax, sellers] = await Promise.all([fetchTaxonomy(ref), fetchSellerContacts(ref)]);
-  if (tax === 'revoked' || sellers === 'revoked') redirect('/session/expired');
+  const tax = await fetchTaxonomy(ref);
+  if (tax === 'revoked') redirect('/session/expired');
   const t = await getTranslations('acquisition');
   const { propertyTypes, locations } = listingTaxonomy(tax.ok ? tax.data : null);
   const error = formErrorCode((await searchParams).error);
@@ -37,13 +36,7 @@ export default async function NewProspectPage({ searchParams }: { searchParams: 
       ) : null}
       <form action={createProspectAction} className="flex flex-col gap-3">
         <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-        <ProspectFields
-          labels={await fieldLabels()}
-          sellers={sellers.ok ? sellers.data.items : []}
-          propertyTypes={propertyTypes}
-          locations={locations}
-          notes
-        />
+        <ProspectFields labels={await fieldLabels()} propertyTypes={propertyTypes} locations={locations} notes />
         <button type="submit" className="h-9 self-start rounded-md border px-4 text-sm font-medium">
           {t('form.create')}
         </button>

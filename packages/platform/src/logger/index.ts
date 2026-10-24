@@ -35,6 +35,7 @@ export const REDACT_KEYS = [
   'decisionReason',
   'password',
   'passwordHash',
+  'twoFactorCode',
   // CIF / NIF / NIE: a personal national id for self-employed agents (S1-01).
   'taxId',
   'token',

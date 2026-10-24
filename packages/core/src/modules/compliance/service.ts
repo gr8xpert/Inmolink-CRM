@@ -90,6 +90,8 @@ export const AUDIT_TYPES = [
   'staff.imports.resumed',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
+  // S11-01: a client registration refused because another agency registered the client first (probe budget).
+  'mls.registration.conflicted',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
