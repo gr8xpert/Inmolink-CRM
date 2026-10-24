@@ -35,11 +35,18 @@ and inside it a second statement only for URLs that miss under the current key (
 2. **Pick the window end.** Default **30 days**, at most **90** (production refuses more) — long enough for agencies
    to update portals and members to re-add their calendar. Portal feeds are the slow part: allow for a portal's
    support turnaround.
-3. **Website API keys and 2FA recovery codes — decide before cutover.** They are stored lookups under `HMAC_KEY` but
-   **not dual-key yet** (follow-up): at cutover every website API key and every recovery code stops working. Either
-   (a) do not rotate until that follow-up lands, or (b) notify every agency in advance, have them create new API keys
-   right after cutover and update their websites / WordPress plugin, and have users regenerate recovery codes. Plan the
-   cutover in a low-traffic window if (b).
+3. **Website API keys and 2FA recovery codes** are dual-key (S12-F15): inside the window both keep working.
+   - **API keys** are rehashed on use: a request that matches the previous key's hash marks the key in redis-cache
+     (`identity.apikeys.rehash`), and `identity.flushApiKeyUsage` (maintenance pool, every minute) stores the current
+     key's hash and drops the cached lookup. A key used at least once during the window outlives it; a key unused for
+     the whole window stops working when it closes. Before closing it, count the keys still on the previous key (step 10).
+     Marks are signed with the current key (a forged one is dropped) and applied only while the window is open. A
+     rehash reaches other feed-api processes' in-process lookup cache only after `API_KEYS.CACHE_LOCAL_TTL_SECONDS`
+     (15 s), so the last flush that rehashes a key must run at least that long before `HMAC_KEY_PREVIOUS_UNTIL`: in
+     practice, every key should have been used (and flushed, every minute) well before the last hour of the window.
+   - **Recovery codes** are single-use and stored only as hashes, so unused codes cannot be rehashed: they work until
+     the window closes, then stop. Ask users with 2FA to regenerate their recovery codes during the window;
+     after it closes, a user who has lost the authenticator app must recover the account through support.
 4. **Freeze token rotation during the deploy:** announce a short maintenance window and pause the rotation endpoints
    (`POST /v1/sites/:siteId/feed/token`, `POST /v1/portal-connections/:connectionId/token`,
    `POST /v1/crm/calendar/feed`) until step 6 is done.
@@ -63,10 +70,14 @@ and inside it a second statement only for URLs that miss under the current key (
 10. **Close the window** at `HMAC_KEY_PREVIOUS_UNTIL` (it closes itself; boot logs a warning while the variables are
     still set) and then remove `HMAC_KEY_PREVIOUS` and `HMAC_KEY_PREVIOUS_UNTIL` from config at the next deploy. URLs
     still on the old key then answer 404.
+    Before that, list the API keys likely still on the previous key — active, created before the cutover and not used
+    since (a used key was rehashed; the mark is best effort, so re-check one by authenticating it) — and tell their
+    agencies to rotate them: `select agency_id, prefix, last_used_at from api_keys where revoked_at is null and
+    created_at < :cutover and coalesce(rotated_at, created_at) < :cutover and (last_used_at is null or last_used_at < :cutover)`.
 11. **Destroy the old key** in the secret store once it is out of every deploy (and every backup of the config).
 
 **After a key leak** there is no window: skip `HMAC_KEY_PREVIOUS` entirely, deploy the new key, and have every holder
-re-issue (step 9) and every agency create new API keys (step 3 b). The leaked key must not stay trusted at all.
+re-issue (step 9) and every agency rotate its API keys (`POST /v1/api-keys/:keyId/rotate`) and every user regenerate recovery codes. The leaked key must not stay trusted at all.
 
 ## Fingerprint-style HMACs (stored lookups)
 
@@ -85,8 +96,8 @@ lead recipient hash. Their source is stored (encrypted), so they are **re-hashed
 
 | Use | Effect of a rotation |
 |---|---|
-| API keys (`identity`, `api-key`) | Stored lookups like the feed tokens; **not yet dual-key** (follow-up): until it is, rotating breaks every website API key (step 3). |
-| 2FA recovery codes (`recovery-code`) | Stored lookups; not yet dual-key (follow-up); users regenerate them (step 3). |
+| API keys (`identity`, `api-key`) | Dual-key during the window and rehashed on use (S12-F15, step 3); unused keys stop at the window's end. |
+| 2FA recovery codes (`recovery-code`) | Dual-key during the window (S12-F15); cannot be rehashed — users regenerate them (step 3). |
 | Login / reset links, invites, MFA proofs | Short-lived; links sent before the rotation fail — users ask for a new one, invites are re-sent. |
 | `/v2/changes` and search cursors | Signed; clients with an old cursor get a cursor error and resync. |
 | Site scope tag, honeytokens, edge Cache-Tags | Re-derived: clients see a new scope (full resync), honeytokens change, the edge cache is purged (step 7). |

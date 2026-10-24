@@ -7,7 +7,15 @@ import { newId } from '@inmolink/platform/ids';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
-import { API_KEY_USAGE_SET, apiKeyCacheKey } from './api-keys';
+import {
+  API_KEY_REHASH_SET,
+  API_KEY_USAGE_SET,
+  type ApiKeyRehash,
+  apiKeyCacheKey,
+  apiKeyRehashMark,
+  hmacRotationWindowOpen,
+  parseApiKeyRehashMark,
+} from './api-keys';
 import * as keysRepo from './api-keys-repo';
 import { API_KEYS, identityConfig, TOKEN_RETENTION_MS, TOKEN_TTL_MS } from './config';
 import {
@@ -251,7 +259,33 @@ export const identityJobs = {
         updated += await withSystem('identity.flushApiKeyUsage', (tx) => keysRepo.recordApiKeyUse(tx, batch));
       }
       if (uses.length > 0) log.info({ keys: uses.length, updated }, 'api key usage recorded');
-      return { keys: uses.length, updated };
+      // S12-F15: keys that authenticated under the previous HMAC_KEY get the current key's hash, only while the
+      // window is open and only for marks whose MAC verifies (a forged one could lock a key out).
+      const marks = [...(await seen.drain(API_KEY_REHASH_SET)).keys()];
+      const windowOpen = hmacRotationWindowOpen();
+      const rehashes = windowOpen ? marks.map(parseApiKeyRehashMark).filter((r): r is ApiKeyRehash => r !== null) : [];
+      if (marks.length > rehashes.length) {
+        log.warn({ dropped: marks.length - rehashes.length, windowOpen }, 'api key rehash marks dropped');
+      }
+      let rehashed = 0;
+      for (let i = 0; i < rehashes.length; i += USAGE_BATCH) {
+        const batch = rehashes.slice(i, i + USAGE_BATCH);
+        try {
+          const prefixes = await withSystem('identity.rehashApiKeys', (tx) => keysRepo.rehashApiKeys(tx, batch));
+          rehashed += prefixes.length;
+          await Promise.all(prefixes.map((p) => cache.delete(apiKeyCacheKey(p))));
+        } catch (err) {
+          // Drained but not (fully) applied: this batch and the rest go back for the next run (a replay is a no-op,
+          // and a key whose cache entry was not dropped gets it dropped then).
+          const now = clock.now();
+          await Promise.all(
+            rehashes.slice(i).map((r) => seen.mark(API_KEY_REHASH_SET, apiKeyRehashMark(r.id, r.from, r.to), now)),
+          );
+          throw err;
+        }
+      }
+      if (rehashes.length > 0) log.info({ keys: rehashes.length, rehashed }, 'api keys rehashed under HMAC_KEY');
+      return { keys: uses.length, updated, rehashed };
     },
   }),
 

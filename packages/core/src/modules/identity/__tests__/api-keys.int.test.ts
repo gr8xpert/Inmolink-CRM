@@ -3,7 +3,7 @@ import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { cache, cacheConnection, closeCache, configureCache, seen } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
-import { hmacSha256 } from '@inmolink/platform/crypto';
+import { configureHmacRotation, hmacSha256 } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
@@ -13,7 +13,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
-import { apiKeyCacheKey } from '../api-keys';
+import { apiKeyCacheKey, apiKeyRehashMark } from '../api-keys';
+import { rehashApiKeys } from '../api-keys-repo';
 import * as identity from '../index';
 
 /** Website API keys on the real test database and redis-cache (S1-05). */
@@ -394,7 +395,7 @@ describe('API keys', () => {
     // Five requests, one mark, one write (the foreign id is drained but skipped); nothing left after.
     expect(updated).toBe(1);
     expect(await lastUsed()).not.toBeNull();
-    expect(await flush()).toEqual({ keys: 0, updated: 0 });
+    expect(await flush()).toEqual({ keys: 0, updated: 0, rehashed: 0 });
   });
 
   it('[S1-05] an agency has at most MAX_ACTIVE active keys; revoking frees a slot', async () => {
@@ -478,5 +479,92 @@ describe('API keys', () => {
     const active = await as(f, (ctx) => identity.createApiKey(ctx, SECRET_KEY));
     const page = await as(f, (ctx) => identity.listApiKeys(ctx, { limit: 25 }));
     expect(page.items.map((k) => k.id)).toEqual([recent.key.id, active.key.id]);
+  });
+
+  it('[S12-F15] a key issued under the previous HMAC_KEY works during the rotation window and is rehashed on use', async () => {
+    const PREVIOUS = 'test-hmac-key-previous-0123456789abcdef01';
+    const f = await verifiedFounder();
+    identity.configureIdentity({ hmacKey: PREVIOUS, apiKeyEnv: 'test' });
+    const issued = await as(f, (ctx) => identity.createApiKey(ctx, SECRET_KEY)).finally(() =>
+      identity.configureIdentity({ hmacKey: HMAC_KEY, apiKeyEnv: 'test' }),
+    );
+    const storedHash = () =>
+      withSystem('api keys test: stored hash', async (tx) => {
+        const r = await tx.execute<{ key_hash: string }>(
+          sql`select key_hash from api_keys where id = ${issued.key.id}`,
+        );
+        return r.rows[0]?.key_hash;
+      });
+    expect(await storedHash()).toBe(hmacSha256(PREVIOUS, 'api-key', issued.secret));
+    identity.resetApiKeyUsageMarks();
+    await seen.drain(identity.API_KEY_REHASH_SET);
+    try {
+      // No window: a key of the previous HMAC_KEY is refused.
+      expect(await refusal(authenticate(issued.secret))).toBe('API_KEY_INVALID');
+
+      configureHmacRotation({
+        current: HMAC_KEY,
+        previous: PREVIOUS,
+        previousUntil: new Date(Date.now() + 86_400_000),
+      });
+      const flush = () => identity.identityJobs.flushApiKeyUsage.spec.run({}, jobCtx());
+      // A forged mark (well-formed, naming the stored hash, but its MAC is not the current key's) is ignored: it would
+      // otherwise lock the key out with a garbage hash.
+      const stored = (await storedHash()) as string;
+      const forged = apiKeyRehashMark(issued.key.id, stored, 'A'.repeat(43)).replace(/:[^:]+$/, `:${'B'.repeat(22)}`);
+      await seen.mark(identity.API_KEY_REHASH_SET, forged, new Date());
+      await seen.mark(identity.API_KEY_REHASH_SET, `${newId()}:x:y`, new Date());
+      expect(await flush()).toMatchObject({ rehashed: 0 });
+      expect(await storedHash()).toBe(stored);
+      await expect(authenticate(issued.secret)).resolves.toMatchObject({ keyId: issued.key.id });
+      // A key with a wrong secret still fails under either key.
+      expect(
+        await refusal(authenticate(`${issued.secret.slice(0, -1)}${issued.secret.endsWith('a') ? 'b' : 'a'}`)),
+      ).toBe('API_KEY_INVALID');
+
+      // The flush job stores the current key's hash and drops the cached lookup, so the key keeps working once the
+      // window closes.
+      let rehashed = 0;
+      await expect
+        .poll(async () => {
+          rehashed += ((await flush()) as { rehashed: number }).rehashed;
+          return rehashed;
+        })
+        .toBeGreaterThan(0);
+      expect(rehashed).toBe(1);
+      expect(await storedHash()).toBe(hmacSha256(HMAC_KEY, 'api-key', issued.secret));
+
+      configureHmacRotation({ current: HMAC_KEY });
+      cache.clearLocal();
+      await expect(authenticate(issued.secret)).resolves.toMatchObject({ keyId: issued.key.id });
+      // Window closed: even a correctly signed mark is not applied.
+      const current = (await storedHash()) as string;
+      await seen.mark(
+        identity.API_KEY_REHASH_SET,
+        apiKeyRehashMark(issued.key.id, current, hmacSha256(PREVIOUS, 'api-key', issued.secret)),
+        new Date(),
+      );
+      expect(await flush()).toMatchObject({ rehashed: 0 });
+      expect(await storedHash()).toBe(current);
+
+      // A stale mark (the key rotated meanwhile) never overwrites the rotated key's hash.
+      const rotated = await as(f, (ctx) => identity.rotateApiKey(ctx, { keyId: issued.key.id }));
+      const fresh = await storedHash();
+      await withSystem('api keys test: stale rehash', async (tx) => {
+        expect(
+          await rehashApiKeys(tx, [
+            {
+              id: issued.key.id,
+              from: hmacSha256(HMAC_KEY, 'api-key', issued.secret).slice(0, 22),
+              to: hmacSha256(PREVIOUS, 'api-key', issued.secret),
+            },
+          ]),
+        ).toEqual([]);
+      });
+      expect(await storedHash()).toBe(fresh);
+      await expect(authenticate(rotated.secret)).resolves.toMatchObject({ keyId: issued.key.id });
+    } finally {
+      configureHmacRotation({ current: HMAC_KEY });
+    }
   });
 });

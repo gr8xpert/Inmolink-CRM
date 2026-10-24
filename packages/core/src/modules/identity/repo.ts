@@ -811,18 +811,32 @@ export async function retireRecoveryCodes(tx: Tx, userId: string, now: Date): Pr
     .where(and(eq(userRecoveryCodes.userId, userId), isNull(userRecoveryCodes.usedAt)));
 }
 
-/** Uses a recovery code: one `UPDATE … WHERE used_at IS NULL`, so it works exactly once. */
-export async function consumeRecoveryCode(tx: Tx, userId: string, codeHash: string, now: Date): Promise<boolean> {
-  const rows = await tx
-    .update(userRecoveryCodes)
-    .set({ usedAt: now })
+/**
+ * Uses a recovery code: one `UPDATE … WHERE used_at IS NULL`, so it works exactly once. `codeHashes`: the code's hash
+ * under the current `HMAC_KEY`, plus the previous key's during a rotation window (S12-F15) — one statement either way.
+ */
+export async function consumeRecoveryCode(
+  tx: Tx,
+  userId: string,
+  codeHashes: readonly string[],
+  now: Date,
+): Promise<boolean> {
+  // At most one row, even if two hashes ever matched: a code never spends two.
+  const one = tx
+    .select({ id: userRecoveryCodes.id })
+    .from(userRecoveryCodes)
     .where(
       and(
         eq(userRecoveryCodes.userId, userId),
-        eq(userRecoveryCodes.codeHash, codeHash),
+        inArray(userRecoveryCodes.codeHash, [...codeHashes]),
         isNull(userRecoveryCodes.usedAt),
       ),
     )
+    .limit(1);
+  const rows = await tx
+    .update(userRecoveryCodes)
+    .set({ usedAt: now })
+    .where(and(inArray(userRecoveryCodes.id, one), isNull(userRecoveryCodes.usedAt)))
     .returning({ id: userRecoveryCodes.id });
   return rows.length === 1;
 }

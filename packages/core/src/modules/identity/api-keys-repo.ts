@@ -247,6 +247,29 @@ export async function recordApiKeyUse(tx: Tx, uses: { id: string; at: Date }[]):
   return res.rowCount ?? 0;
 }
 
+const HASH_RE = /^[A-Za-z0-9_-]{43}$/;
+const HASH_HEAD_RE = /^[A-Za-z0-9_-]{22}$/;
+
+/**
+ * Job (`app_system`, S12-F15): stores the current `HMAC_KEY` hash of keys that authenticated under the previous key
+ * (orders whose MAC the job verified). A row changes only while its hash still starts with `from` (the hash the request
+ * matched), so a rotate in between is never undone and a replay is a no-op. Answers the prefixes changed (their cached
+ * lookups must be dropped).
+ */
+export async function rehashApiKeys(tx: Tx, rehashes: { id: string; from: string; to: string }[]): Promise<string[]> {
+  // Shapes checked again: only UUIDs and HMAC-shaped values reach the statement.
+  const valid = rehashes.filter((r) => UUID_RE.test(r.id) && HASH_HEAD_RE.test(r.from) && HASH_RE.test(r.to));
+  if (valid.length === 0) return [];
+  const rows = JSON.stringify(valid);
+  const res = await tx.execute<{ prefix: string }>(sql`
+    update ${apiKeys} as k
+       set key_hash = r."to"
+      from jsonb_to_recordset(${rows}::jsonb) as r(id uuid, "from" text, "to" text)
+     where k.id = r.id and left(k.key_hash, 22) = r."from" and k.key_hash <> r."to"
+    returning k.prefix`);
+  return res.rows.map((r) => r.prefix);
+}
+
 /**
  * S8-02 (`app_system`: the legacy key import, `pnpm legacy:key-flag`): marks the active key with this prefix as a
  * migrated legacy key, or clears the mark. Answers the key changed, if any.

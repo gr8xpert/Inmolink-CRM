@@ -1,7 +1,14 @@
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
-import { createKeyring, generateKey, newToken, totpCode, totpStep } from '@inmolink/platform/crypto';
+import {
+  configureHmacRotation,
+  createKeyring,
+  generateKey,
+  newToken,
+  totpCode,
+  totpStep,
+} from '@inmolink/platform/crypto';
 import { hashPassword } from '@inmolink/platform/crypto/password';
 import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
@@ -30,14 +37,18 @@ const log = createLogger({ service: 'identity-test', level: 'silent' });
 let mail: MemoryMailer;
 const T0 = Date.UTC(2026, 9, 11, 12, 0, 0);
 
+const HMAC_KEY = 'test-hmac-key-0123456789abcdef0123456789';
+const TOTP_KEY = generateKey();
+const identityConfigWith = (hmacKey: string) => ({
+  hmacKey,
+  webUrl: 'http://web.test',
+  signer: createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' }),
+  keyring: createKeyring({ keys: { t1: TOTP_KEY }, activeKeyId: 't1' }),
+});
+
 beforeAll(async () => {
   await setupTestDb('worker');
-  identity.configureIdentity({
-    hmacKey: 'test-hmac-key-0123456789abcdef0123456789',
-    webUrl: 'http://web.test',
-    signer: createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 't1' }),
-    keyring: createKeyring({ keys: { t1: generateKey() }, activeKeyId: 't1' }),
-  });
+  identity.configureIdentity(identityConfigWith(HMAC_KEY));
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 beforeEach(async () => {
@@ -305,6 +316,33 @@ describe('two-factor authentication', () => {
       method: 'recovery',
     });
     expect((await identity.getTwoFactorStatus(anon(), { userId: admin.userId })).recoveryCodesLeft).toBe(9);
+  });
+
+  it('[S12-F15] a recovery code issued under the previous HMAC_KEY works during the rotation window', async () => {
+    const PREVIOUS = 'test-hmac-key-previous-0123456789abcdef01';
+    const clock = useFakeClock(T0);
+    const admin = await createFounder();
+    identity.configureIdentity(identityConfigWith(PREVIOUS));
+    const { recoveryCodes } = await enrol(admin.userId, clock).finally(() =>
+      identity.configureIdentity(identityConfigWith(HMAC_KEY)),
+    );
+    const useCode = (code: string) =>
+      identity.verifySecondFactor(anon(), { userId: admin.userId, sessionVersion: 1, code, rememberDevice: false });
+    const code = (i: number) => (recoveryCodes[i] ?? '').replace('-', '');
+    try {
+      // No window: the previous key's codes are refused (and not used up).
+      await expect(useCode(code(0))).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
+      configureHmacRotation({ current: HMAC_KEY, previous: PREVIOUS, previousUntil: new Date(T0 + 86_400_000) });
+      await expect(useCode(code(0))).resolves.toMatchObject({ method: 'recovery' });
+      // Still single-use, and only that one code is spent.
+      await expect(useCode(code(0))).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
+      expect((await identity.getTwoFactorStatus(anon(), { userId: admin.userId })).recoveryCodesLeft).toBe(9);
+      // The window ends at HMAC_KEY_PREVIOUS_UNTIL.
+      clock.advance(86_400_000);
+      await expect(useCode(code(1))).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
+    } finally {
+      configureHmacRotation({ current: HMAC_KEY });
+    }
   });
 
   it('[S1-04] a remembered browser skips the challenge for 30 days, until the password or the enrolment changes', async () => {

@@ -7,6 +7,7 @@ import {
   base32Encode,
   generateTotpSecret,
   hmacSha256,
+  hmacSha256Candidates,
   matchTotp,
   safeEqual,
   totpUri,
@@ -47,6 +48,11 @@ const decryptSecret = (userId: string, envelope: string) => keyring().decrypt(en
 
 function hashRecoveryCode(code: string): string {
   return hmacSha256(identityConfig().hmacKey, 'recovery-code', code);
+}
+
+/** S12-F15: the hashes a stored code may have — the current key's, then the previous key's during a rotation window. */
+function recoveryCodeCandidates(code: string): string[] {
+  return hmacSha256Candidates(identityConfig().hmacKey, 'recovery-code', code);
 }
 
 /** 10 base32 characters (50 bits), shown as `xxxxx-xxxxx`; stored as an HMAC of the 10 characters. */
@@ -223,7 +229,7 @@ async function consumeCode(
     const used = step !== null && (await repo.useTotpStep(tx, userId, step, now));
     return used ? { method: 'totp', confirmedAt: mfa.confirmedAt, deviceEpoch: mfa.deviceEpoch } : null;
   }
-  if (!(await repo.consumeRecoveryCode(tx, userId, hashRecoveryCode(code), now))) return null;
+  if (!(await repo.consumeRecoveryCode(tx, userId, recoveryCodeCandidates(code), now))) return null;
   await emit(tx, identityEvents.recoveryCodeUsed({ userId }), { agencyId: PLATFORM_AGENCY_ID });
   await auditTwoFactor(tx, requestId, userId, 'identity.twoFactor.recoveryCodeUsed');
   return { method: 'recovery', confirmedAt: mfa.confirmedAt, deviceEpoch: mfa.deviceEpoch };

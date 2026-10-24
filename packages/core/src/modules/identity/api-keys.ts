@@ -11,7 +11,13 @@ import type {
 import { withPublicRead } from '@inmolink/db';
 import { type CacheKey, cache, cacheKey, seen } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
-import { base32Encode, hmacSha256, safeEqual } from '@inmolink/platform/crypto';
+import {
+  base32Encode,
+  hmacKeyCandidates,
+  hmacSha256,
+  hmacSha256Candidates,
+  safeEqual,
+} from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
@@ -43,6 +49,51 @@ const PREFIX_RE = new RegExp(`^[ps]k[${ALPHABET}]{10}$`);
 const HMAC_PURPOSE = 'api-key';
 /** Redis "last used" set drained by `identity.flushApiKeyUsage`. */
 export const API_KEY_USAGE_SET = 'identity.apikeys';
+/**
+ * S12-F15: keys found under the previous `HMAC_KEY` (rotation window), as signed marks (`apiKeyRehashMark`);
+ * `identity.flushApiKeyUsage` rewrites their stored hash.
+ */
+export const API_KEY_REHASH_SET = 'identity.apikeys.rehash';
+const REHASH_PURPOSE = 'api-key-rehash';
+/** Leading characters of the stored hash a mark names (the row must still hold it), and of the mark's MAC. */
+const REHASH_FROM_CHARS = 22;
+const REHASH_MAC_CHARS = 22;
+/** A process marks a key again after this long, so a lost mark or a failed flush is retried by a later request. */
+const REHASH_REMARK_MS = 10 * 60_000;
+
+/** A rehash order for the flush job: which key, the hash it holds now, the hash it gets. */
+export interface ApiKeyRehash {
+  id: string;
+  /** The first `REHASH_FROM_CHARS` characters of the hash the row holds (under the previous key). */
+  from: string;
+  to: string;
+}
+
+const rehashMac = (r: ApiKeyRehash) =>
+  hmacSha256(identityConfig().hmacKey, REHASH_PURPOSE, `${r.id}:${r.from}:${r.to}`).slice(0, REHASH_MAC_CHARS);
+
+/**
+ * S12-F15: the Redis mark of a rehash, `<keyId>:<from>:<to>:<mac>` (at most 128 characters, the `seen` id limit).
+ * The MAC (current `HMAC_KEY`) means only a process that checked the key can order a rehash: a forged mark naming a
+ * key's stored hash and a garbage new one would otherwise lock the key out for good.
+ */
+export function apiKeyRehashMark(keyId: string, storedHash: string, currentHash: string): string {
+  const r = { id: keyId, from: storedHash.slice(0, REHASH_FROM_CHARS), to: currentHash };
+  return `${r.id}:${r.from}:${r.to}:${rehashMac(r)}`;
+}
+
+/** The flush job's side: the order in a mark, or null when it is malformed or its MAC does not verify. */
+export function parseApiKeyRehashMark(mark: string): ApiKeyRehash | null {
+  const [id, from, to, mac, ...rest] = mark.split(':');
+  if (!id || !from || !to || !mac || rest.length > 0 || from.length !== REHASH_FROM_CHARS) return null;
+  const r = { id, from, to };
+  return safeEqual(rehashMac(r), mac) ? r : null;
+}
+
+/** Whether a rotation window is open for `HMAC_KEY` (S11-F13): rehash marks are applied only then. */
+export function hmacRotationWindowOpen(): boolean {
+  return hmacKeyCandidates(identityConfig().hmacKey).length > 1;
+}
 
 const randomBase32 = (bytes: number) => base32Encode(crypto.getRandomValues(new Uint8Array(bytes))).toLowerCase();
 
@@ -52,6 +103,19 @@ function apiKeyEnv(): ApiKeyEnv {
 
 function hashApiKey(key: string): string {
   return hmacSha256(identityConfig().hmacKey, HMAC_PURPOSE, key);
+}
+
+/**
+ * S12-F15: which of the key's hashes `stored` is — 0 under the current `HMAC_KEY`, 1 under the previous key while a
+ * rotation window is open (S11-F13), -1 none. Every candidate is compared in constant time.
+ */
+function matchApiKeyHash(key: string, stored: string): { index: number; current: string } {
+  const candidates = hmacSha256Candidates(identityConfig().hmacKey, HMAC_PURPOSE, key);
+  let index = -1;
+  candidates.forEach((c, i) => {
+    if (safeEqual(c, stored) && index === -1) index = i;
+  });
+  return { index, current: candidates[0] as string };
 }
 
 /** A fresh key: the string shown once, its prefix and the hash that is stored. */
@@ -326,13 +390,16 @@ export async function authenticateApiKey(req: ApiKeyRequest): Promise<ApiKeyPrin
       return (await withPublicRead((tx) => keysRepo.findUsableApiKeyByPrefix(tx, prefix))) ?? undefined;
     },
   );
-  if (!row || !safeEqual(hashApiKey(req.key as string), row.keyHash)) throw new AppError('API_KEY_INVALID');
+  const hash = row ? matchApiKeyHash(req.key as string, row.keyHash) : null;
+  if (!row || !hash || hash.index < 0) throw new AppError('API_KEY_INVALID');
   const origin = req.origin?.trim().toLowerCase();
   if (row.kind === 'PUBLISHABLE' ? !origin || !row.allowedOrigins.includes(origin) : origin) {
     throw new AppError('API_KEY_ORIGIN_DENIED');
   }
   if (!row.scopes.includes(req.scope)) throw new AppError('API_KEY_SCOPE_DENIED', { scope: req.scope });
   markApiKeyUsed(row.id);
+  // Issued under the previous HMAC_KEY: the flush job stores the current key's hash, so the key outlives the window.
+  if (hash.index > 0) markApiKeyRehash(row.id, row.keyHash, hash.current);
   return {
     keyId: row.id,
     agencyId: row.agencyId,
@@ -386,7 +453,24 @@ function markApiKeyUsed(keyId: string): void {
   void seen.mark(API_KEY_USAGE_SET, keyId, now);
 }
 
+const rehashMarked = new Map<string, number>();
+
+/**
+ * S12-F15: queues a rehash (fire and forget), at most once per process per key and stored hash every
+ * `REHASH_REMARK_MS`. The job applies it only while the row still holds `storedHash`, so a rotate or a second rehash
+ * in between wins.
+ */
+function markApiKeyRehash(keyId: string, storedHash: string, currentHash: string): void {
+  const now = clock.now();
+  const markedAt = rehashMarked.get(`${keyId}:${storedHash}`);
+  if (markedAt !== undefined && now.getTime() - markedAt < REHASH_REMARK_MS) return;
+  if (rehashMarked.size >= MAX_TRACKED) rehashMarked.clear();
+  rehashMarked.set(`${keyId}:${storedHash}`, now.getTime());
+  void seen.mark(API_KEY_REHASH_SET, apiKeyRehashMark(keyId, storedHash, currentHash), now);
+}
+
 /** Tests: forget which keys this process marked. */
 export function resetApiKeyUsageMarks(): void {
   lastMarked.clear();
+  rehashMarked.clear();
 }

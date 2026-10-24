@@ -2,6 +2,7 @@
 export {
   API_KEY_AGENCY_RULE,
   API_KEY_FAILURE_RULE,
+  API_KEY_REHASH_SET,
   API_KEY_USAGE_SET,
   type ApiKeyPrincipal,
   type ApiKeyRequest,
