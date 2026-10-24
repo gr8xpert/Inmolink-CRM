@@ -20,6 +20,14 @@ export const RegistrationTarget = z.strictObject({ kind: RegistrationTargetKind,
 export type RegistrationTarget = z.infer<typeof RegistrationTarget>;
 
 /**
+ * What a person recognises the target by (S12-F21): the listing's or development's reference and its title (a
+ * listing's text in the caller's locale, a development's brand name). From the listing read models in one batched
+ * query per page, never a join per row. Null when the caller can no longer read the target (left the network, deleted).
+ */
+export const TargetLabel = z.strictObject({ reference: z.string(), title: z.string().nullable() });
+export type TargetLabel = z.infer<typeof TargetLabel>;
+
+/**
  * `POST /v1/mls/registrations`: register the agency's contact for another agency's listing or development. Valid from
  * now for the shorter of both agencies' `registrationValidityDays` (settings, default 180). Registering the same client
  * for the same target again while its registration is valid answers that registration (200, nothing new is written).
@@ -45,6 +53,7 @@ export const RegistrationDto = z.strictObject({
   contactId: z.uuid(),
   client: RegisteredClientDto,
   target: RegistrationTarget,
+  targetLabel: TargetLabel.nullable(),
   /** The target's owner agency. */
   ownerAgencyId: z.uuid(),
   registeredByUserId: z.uuid().nullable(),
@@ -82,6 +91,7 @@ export const ReceivedRegistrationDto = z.strictObject({
   /** The introducer's directory name; null when it is not listed (any more). */
   introducerName: z.string().nullable(),
   target: RegistrationTarget,
+  targetLabel: TargetLabel.nullable(),
   registeredAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
   state: RegistrationState,
@@ -167,6 +177,7 @@ export const ViewingRequestDto = z.strictObject({
   registrationId: z.uuid().nullable(),
   contactId: z.uuid().nullable(),
   target: RegistrationTarget,
+  targetLabel: TargetLabel.nullable(),
   status: ViewingStatus,
   /** `REQUESTED` only: the side that must answer `proposedStartAt`. */
   awaiting: ViewingSide.nullable(),

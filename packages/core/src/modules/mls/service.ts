@@ -26,6 +26,7 @@ import * as developments from '../developments';
 import * as properties from '../properties';
 import { clientFingerprints, type RegisteredClient, registeredClientCipher } from './config';
 import { mlsEvents } from './events';
+import { type TargetLabels, targetLabels } from './labels';
 import { assertCan } from './policy';
 import * as repo from './repo';
 import * as viewingsRepo from './viewings-repo';
@@ -64,12 +65,13 @@ async function targetOwner(ctx: Ctx, kind: RegistrationTargetKind, id: string): 
   return owner;
 }
 
-function toDto(ctx: Ctx, r: repo.OwnRegistrationRow): RegistrationDto {
+function toDto(ctx: Ctx, r: repo.OwnRegistrationRow, labels: TargetLabels): RegistrationDto {
   return {
     id: r.id,
     contactId: r.contactId,
     client: registeredClientCipher.decrypt(ctx.tenant.agencyId, r.id, r.detailsEnc),
     target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
+    targetLabel: labels.get(r.targetId) ?? null,
     ownerAgencyId: r.targetAgencyId,
     registeredByUserId: r.registeredByUserId,
     registeredAt: r.registeredAt.toISOString(),
@@ -81,7 +83,11 @@ function toDto(ctx: Ctx, r: repo.OwnRegistrationRow): RegistrationDto {
 async function loadOwn(ctx: Ctx, id: string): Promise<RegistrationDto> {
   const row = await repo.getOwn(ctx.tx, ctx.tenant.agencyId, id);
   if (!row) throw new Error(`mls: registration ${id} vanished in its own transaction`);
-  return toDto(ctx, row);
+  return toDto(
+    ctx,
+    row,
+    await targetLabels(ctx, [{ kind: row.targetKind as RegistrationTargetKind, id: row.targetId }]),
+  );
 }
 
 /** A 23P01: the exclusion constraint (the only one these tables have). Its pg `detail` names fingerprints and ranges. */
@@ -165,6 +171,7 @@ async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Pro
       expiresMs: at.expiresAt.getTime(),
     }),
   );
+  const labels = await targetLabels(ctx, [input.target]);
   return {
     outcome: 'CREATED',
     registration: {
@@ -172,6 +179,7 @@ async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Pro
       contactId: contact.id,
       client,
       target: input.target,
+      targetLabel: labels.get(input.target.id) ?? null,
       ownerAgencyId: targetAgencyId,
       registeredByUserId,
       registeredAt: at.registeredAt.toISOString(),
@@ -219,12 +227,17 @@ export async function listRegistrations(ctx: Ctx, query: ListRegistrationsQuery)
     filter: await registrationFilter(ctx, query),
     ...(cursor ? { cursor } : {}),
   });
-  return toPage(
+  const labels = await targetLabels(
+    ctx,
+    rows.slice(0, query.limit).map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
+  );
+  const page = toPage(
     rows,
     query.limit,
     (r) => ({ at: r.registeredMs, id: r.id }),
-    (r) => toDto(ctx, r),
+    (r) => toDto(ctx, r, labels),
   );
+  return page;
 }
 
 /**
@@ -248,6 +261,10 @@ export async function listReceivedRegistrations(
     page.length > 0
       ? await agencies.networkAgencyNames(ctx, [...new Set(page.map((r) => r.introducerAgencyId))])
       : new Map<string, string>();
+  const labels = await targetLabels(
+    ctx,
+    page.map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
+  );
   return toPage(
     rows,
     query.limit,
@@ -257,6 +274,7 @@ export async function listReceivedRegistrations(
       introducerAgencyId: r.introducerAgencyId,
       introducerName: names.get(r.introducerAgencyId) ?? null,
       target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
+      targetLabel: labels.get(r.targetId) ?? null,
       registeredAt: r.registeredAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
       state: r.active ? 'ACTIVE' : 'EXPIRED',

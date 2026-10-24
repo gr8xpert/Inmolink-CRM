@@ -709,6 +709,25 @@ export async function ownListingDetails(
   });
 }
 
+/**
+ * Reference and title of these listings for a list page (S12-F21): from the read models, as far as the caller's RLS
+ * shows them (their own, or a network listing), in `locale` else English else any built locale. One statement.
+ */
+export async function listingLabels(
+  tx: Tx,
+  ids: readonly string[],
+  locale: string,
+): Promise<Map<string, { reference: string; title: string | null }>> {
+  const rows = await repo.cardLabels(tx, [...new Set(ids)]);
+  const rank = (l: string) => (l === locale ? 0 : l === 'en' ? 1 : 2);
+  const best = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    const cur = best.get(r.targetId);
+    if (!cur || rank(r.locale) < rank(cur.locale)) best.set(r.targetId, r);
+  }
+  return new Map([...best].map(([id, r]) => [id, { reference: r.reference, title: r.title || null }]));
+}
+
 /** Tests and ops checks: these targets' stored documents. */
 export function readModelDocs(tx: Tx, ids: readonly string[], locale?: string) {
   return repo.readDocs(tx, ids, locale);

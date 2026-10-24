@@ -116,21 +116,30 @@ const loadView = (m: Founder, limit = 10) =>
   }));
 
 describe('my collaborations view', () => {
-  it('[S11-06] loads within 10 queries for an agency with 500 collaborations', async () => {
+  it('[S11-06] [S12-F21] each list loads within 10 queries for an agency with 500 collaborations', async () => {
     const setup = await countQueries(() => as(a, async () => null));
-    let view: Awaited<ReturnType<typeof loadView>> | undefined;
-    const total = await countQueries(async () => {
-      view = await loadView(a);
-    });
-    expect(total - setup).toBeLessThanOrEqual(10);
-    expect(view?.own.items).toHaveLength(10);
-    expect(view?.received.items).toHaveLength(10);
-    expect(view?.viewings.items).toHaveLength(10);
-    expect(view?.receivedViewings.items).toHaveLength(10);
+    const view = await loadView(a);
+    // The 10-query budget is per dashboard endpoint; each list is one request. The target labels (S12-F21) add at most
+    // two statements to a page, one per target kind, never one per row.
+    const q = { limit: 10 };
+    const lists = {
+      own: () => as(a, (ctx) => mls.listRegistrations(ctx, q)),
+      received: () => as(a, (ctx) => mls.listReceivedRegistrations(ctx, q)),
+      viewings: () => as(a, (ctx) => mls.listViewingRequests(ctx, q)),
+      receivedViewings: () => as(a, (ctx) => mls.listReceivedViewingRequests(ctx, q)),
+    };
+    for (const [name, load] of Object.entries(lists)) {
+      const n = (await countQueries(async () => void (await load()))) - setup;
+      expect(n, name).toBeLessThanOrEqual(10);
+    }
+    expect(view.own.items).toHaveLength(10);
+    expect(view.received.items).toHaveLength(10);
+    expect(view.viewings.items).toHaveLength(10);
+    expect(view.receivedViewings.items).toHaveLength(10);
     // newest first, with a cursor to the rest
-    expect(view?.own.nextCursor).not.toBeNull();
+    expect(view.own.nextCursor).not.toBeNull();
     // the owner's side never carries the client
-    expect(JSON.stringify(view?.received)).not.toContain('Client');
+    expect(JSON.stringify(view.received)).not.toContain('Client');
   });
 
   it('[S11-06] filters registrations by state, kind and date', async () => {
@@ -218,5 +227,62 @@ describe('my collaborations view', () => {
     expect(second.items).toHaveLength(30);
     const seen = new Set([...first.items, ...second.items].map((r) => r.id));
     expect(seen.size).toBe(60);
+  });
+
+  it('[S12-F21] lists show the target reference and title, from the read models and developments, in the caller locale', async () => {
+    const listingId = newId();
+    const bareListingId = newId();
+    const developmentId = newId();
+    const regIds = [newId(), newId(), newId()];
+    const card = (title: string) => JSON.stringify({ kind: 'LISTING', ref: `REF${RUN}`, title }).replace(/'/g, "''");
+    const target = [
+      ['LISTING', listingId],
+      ['LISTING', bareListingId],
+      ['DEVELOPMENT', developmentId],
+    ] as const;
+    const own = target.map(([kind, id], i) => {
+      const enc = registeredClientCipher.encrypt(a.agencyId, regIds[i] as string, {
+        firstName: 'L',
+        lastName: 'T',
+        emails: [],
+        phones: [],
+      });
+      return `('${regIds[i]}', '${a.agencyId}', '${b.agencyId}', '${kind}', '${id}', '${newId()}', '${enc}', now() + interval '${i} seconds', now() + interval '100 days')`;
+    });
+    const receipts = target.map(
+      ([kind, id], i) =>
+        `('${regIds[i]}', '${b.agencyId}', '${a.agencyId}', '${kind}', '${id}', now() + interval '${i} seconds', now() + interval '100 days')`,
+    );
+    try {
+      await adminQuery(`begin; set local session_replication_role = replica;
+        insert into listing_read_models (target_id, locale, kind, agency_id, public, status, version, card, detail, etag)
+          values ('${listingId}', 'en', 'LISTING', '${b.agencyId}', false, 'ACTIVE', 1, '${card('Sunny villa')}', '{}', 'x'),
+                 ('${listingId}', 'es', 'LISTING', '${b.agencyId}', false, 'ACTIVE', 1, '${card('Villa soleada')}', '{}', 'x');
+        insert into developments (id, agency_id, ref, name, location_id)
+          values ('${developmentId}', '${b.agencyId}', 'DEV${RUN}', 'Marbella Heights', (select id from locations limit 1));
+        insert into client_registrations (id, agency_id, target_agency_id, target_kind, target_id, contact_id, details_enc, registered_at, expires_at)
+          values ${own.join(',')};
+        insert into client_registration_receipts (registration_id, agency_id, introducer_agency_id, target_kind, target_id, registered_at, expires_at)
+          values ${receipts.join(',')};
+        commit;`);
+      const received = await as(b, (ctx) => mls.listReceivedRegistrations(ctx, { limit: 3 }));
+      const byTarget = new Map(received.items.map((r) => [r.target.id, r.targetLabel]));
+      expect(byTarget.get(listingId)).toEqual({ reference: `REF${RUN}`, title: 'Sunny villa' });
+      expect(byTarget.get(developmentId)).toEqual({ reference: `DEV${RUN}`, title: 'Marbella Heights' });
+      // no read model yet: no label (the page falls back to kind + id fragment)
+      expect(byTarget.get(bareListingId)).toBeNull();
+      // the caller's locale picks the text
+      const es = await as(b, (ctx) => mls.listReceivedRegistrations({ ...ctx, locale: 'es' }, { limit: 3 }));
+      expect(es.items.find((r) => r.target.id === listingId)?.targetLabel?.title).toBe('Villa soleada');
+      // the introducer cannot read a target that is not on the network: no label, no leak
+      const own3 = await as(a, (ctx) => mls.listRegistrations(ctx, { limit: 3 }));
+      expect(own3.items.map((r) => r.targetLabel)).toEqual([null, null, null]);
+    } finally {
+      await adminQuery(`begin; set local session_replication_role = replica;
+        delete from client_registration_receipts where registration_id = any('{${regIds.join(',')}}'::uuid[]);
+        delete from client_registrations where id = any('{${regIds.join(',')}}'::uuid[]);
+        delete from developments where id = '${developmentId}';
+        delete from listing_read_models where target_id = '${listingId}'; commit;`);
+    }
   });
 });

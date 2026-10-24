@@ -68,6 +68,7 @@ export {
   type FullRebuildOptions,
   type FullRebuildProgress,
   indexDocsFor,
+  listingLabels,
   MAX_LOCKS_IN_FLIGHT,
   type OwnListingDetail,
   ownListingDetails,

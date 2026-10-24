@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(mls,search,developments,web): collaborations show the target reference and title [S12-F21]
 - feat(crm,imports,notifications): raise LEAD_ASSIGNED, TASK_DUE and the new IMPORT_PAUSED notifications (outbox jobs in the realtime pool, in-app-only option, safe display text) [S12-F2]
 - feat(network): audit network post publish and close (ids and kind only) [S12-F13]
 - feat(web,db): listing editor taxonomy at scale — location search picker, lazy grouped features, test-DB taxonomy prune [S12-F23]

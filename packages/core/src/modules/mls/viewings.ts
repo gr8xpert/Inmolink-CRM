@@ -45,6 +45,7 @@ import * as notifications from '../notifications';
 import * as properties from '../properties';
 import { viewingRequestExpiryDays } from './config';
 import { mlsEvents } from './events';
+import { type TargetLabels, targetLabels } from './labels';
 import { assertCan } from './policy';
 import * as repo from './viewings-repo';
 
@@ -90,7 +91,12 @@ function termsOf(r: repo.ViewingRow): ViewingTermsDto {
   };
 }
 
-function toDto(r: repo.ViewingRow, names: Map<string, string>): ViewingRequestDto {
+interface Lookups {
+  names: Map<string, string>;
+  labels: TargetLabels;
+}
+
+function toDto(r: repo.ViewingRow, { names, labels }: Lookups): ViewingRequestDto {
   const counterpart = r.side === 'INTRODUCER' ? r.ownerAgencyId : r.introducerAgencyId;
   return {
     id: r.id,
@@ -100,6 +106,7 @@ function toDto(r: repo.ViewingRow, names: Map<string, string>): ViewingRequestDt
     registrationId: r.registrationId,
     contactId: r.contactId,
     target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
+    targetLabel: labels.get(r.targetId) ?? null,
     status: r.status as ViewingRequestDto['status'],
     awaiting: r.awaiting as ViewingRequestDto['awaiting'],
     proposedStartAt: r.proposedStartAt.toISOString(),
@@ -114,10 +121,16 @@ function toDto(r: repo.ViewingRow, names: Map<string, string>): ViewingRequestDt
   };
 }
 
-async function namesFor(ctx: Ctx, rows: readonly repo.ViewingRow[]): Promise<Map<string, string>> {
-  if (rows.length === 0) return new Map();
+/** The counterpart agencies' names and the targets' labels for a page: two statements, whatever the page size. */
+async function lookupsFor(ctx: Ctx, rows: readonly repo.ViewingRow[]): Promise<Lookups> {
+  if (rows.length === 0) return { names: new Map(), labels: new Map() };
   const ids = rows.map((r) => (r.side === 'INTRODUCER' ? r.ownerAgencyId : r.introducerAgencyId));
-  return agencies.networkAgencyNames(ctx, ids);
+  const names = await agencies.networkAgencyNames(ctx, ids);
+  const labels = await targetLabels(
+    ctx,
+    rows.map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
+  );
+  return { names, labels };
 }
 
 /** When an unanswered proposal lapses: the configured days from now, or the proposed time if sooner. */
@@ -230,7 +243,7 @@ export async function requestViewing(
     (since, key) => repo.requestByIdempotency(ctx.tx, agencyId, key.hash, since),
     { lock: true, now },
   );
-  if (prior) return { request: toDto(prior.row, await namesFor(ctx, [prior.row])), replayed: true };
+  if (prior) return { request: toDto(prior.row, await lookupsFor(ctx, [prior.row])), replayed: true };
 
   const registration = await repo.validRegistration(ctx.tx, agencyId, input.registrationId);
   if (!registration) throw new AppError('REGISTRATION_NOT_FOUND');
@@ -268,7 +281,7 @@ export async function requestViewing(
     });
   await auditTerms(ctx, row, 'INTRODUCER');
   await changed(ctx, row, 'REQUESTED', false);
-  return { request: toDto(row, await namesFor(ctx, [row])), replayed: false };
+  return { request: toDto(row, await lookupsFor(ctx, [row])), replayed: false };
 }
 
 /** The caller's side of the request, under the request's advisory lock (both sides' transitions take it). */
@@ -316,7 +329,7 @@ async function update(ctx: Ctx, r: repo.ViewingRow, patch: repo.ViewingPatch): P
 async function answered(ctx: Ctx, r: repo.ViewingRow, action: Action, termsAccepted: boolean) {
   if (termsAccepted) await auditTerms(ctx, r, 'OWNER');
   await changed(ctx, r, action, termsAccepted);
-  return toDto(r, await namesFor(ctx, [r]));
+  return toDto(r, await lookupsFor(ctx, [r]));
 }
 
 /**
@@ -409,7 +422,8 @@ export async function getViewingRequest(ctx: Ctx, id: string): Promise<ViewingRe
   assertCan(ctx, 'mls.viewings.read');
   const r = await repo.sideRow(ctx.tx, ctx.tenant.agencyId, id);
   if (!r) throw new AppError('VIEWING_REQUEST_NOT_FOUND');
-  return toDto(r, await namesFor(ctx, [r]));
+  const dto = toDto(r, await lookupsFor(ctx, [r]));
+  return dto;
 }
 
 /**
@@ -450,13 +464,14 @@ export async function listViewingRequests(ctx: Ctx, query: ListViewingRequestsQu
     filter: await viewingFilter(ctx, query),
     ...(cursor ? { cursor } : {}),
   });
-  const names = await namesFor(ctx, rows.slice(0, query.limit));
-  return toPage(
+  const lookups = await lookupsFor(ctx, rows.slice(0, query.limit));
+  const page = toPage(
     rows,
     query.limit,
     (r) => ({ at: r.createdMs, id: r.id }),
-    (r) => toDto(r, names),
+    (r) => toDto(r, lookups),
   );
+  return page;
 }
 
 /** `GET /v1/mls/received-viewing-requests`: the owner's side — never the client. Newest first, keyset (two queries). */
@@ -471,12 +486,12 @@ export async function listReceivedViewingRequests(
     filter: await viewingFilter(ctx, query),
     ...(cursor ? { cursor } : {}),
   });
-  const names = await namesFor(ctx, rows.slice(0, query.limit));
+  const lookups = await lookupsFor(ctx, rows.slice(0, query.limit));
   return toPage(
     rows,
     query.limit,
     (r) => ({ at: r.createdMs, id: r.id }),
-    (r) => toDto(r, names),
+    (r) => toDto(r, lookups),
   );
 }
 

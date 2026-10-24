@@ -80,3 +80,17 @@ export async function networkDevelopmentTerms(ctx: Ctx, id: string): Promise<Net
 export function leadTargetOwner(tx: Tx, kind: 'DEVELOPMENT' | 'UNIT', id: string): Promise<string | null> {
   return repo.leadTargetOwner(tx, kind, id);
 }
+
+/**
+ * Reference and brand name of these developments for a list page (S12-F21), as far as the caller's RLS shows them (its
+ * own, or one open to it): one statement, two columns.
+ */
+export async function developmentLabels(
+  ctx: Ctx,
+  ids: readonly string[],
+): Promise<Map<string, { reference: string; title: string }>> {
+  // The caller (mls) authorised the read itself; only Client Mode is refused here.
+  if (ctx.clientMode) throw new AppError('FORBIDDEN');
+  const rows = await repo.labels(ctx.tx, [...new Set(ids)]);
+  return new Map(rows.map((r) => [r.id, { reference: r.ref, title: r.name }]));
+}

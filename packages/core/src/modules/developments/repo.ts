@@ -813,6 +813,15 @@ export async function networkDevelopmentTerms(tx: Tx, selfId: string, id: string
   return row ?? null;
 }
 
+/** S12-F21: reference and name of these developments as the caller's RLS shows them (not deleted): one statement. */
+export async function labels(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: developments.id, ref: developments.ref, name: developments.name })
+    .from(developments)
+    .where(and(inArray(developments.id, [...ids]), isNull(developments.deletedAt)));
+}
+
 /** Commission terms of these units (own, else their development's) for the search index (S7-F4): no RLS (`withSystem`). */
 export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
   if (ids.length === 0) return [];

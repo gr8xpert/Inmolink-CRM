@@ -452,7 +452,16 @@ describe('privacy', () => {
     const received = await as(b, (ctx) => mls.listReceivedRegistrations(ctx, { limit: 100 }));
     const seen = received.items.find((r) => r.id === registration.id);
     expect(Object.keys(seen ?? {}).sort()).toEqual(
-      ['expiresAt', 'id', 'introducerAgencyId', 'introducerName', 'registeredAt', 'state', 'target'].sort(),
+      [
+        'expiresAt',
+        'id',
+        'introducerAgencyId',
+        'introducerName',
+        'registeredAt',
+        'state',
+        'target',
+        'targetLabel',
+      ].sort(),
     );
     expect(seen).toMatchObject({
       introducerAgencyId: a.agencyId,

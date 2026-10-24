@@ -318,6 +318,20 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
     );
 }
 
+/** Reference and title of these listings' cards, every locale built (S12-F21): two JSON fields, one statement. */
+export async function cardLabels(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      targetId: listingReadModels.targetId,
+      locale: listingReadModels.locale,
+      reference: sql<string>`${listingReadModels.card}->>'ref'`,
+      title: sql<string | null>`${listingReadModels.card}->>'title'`,
+    })
+    .from(listingReadModels)
+    .where(and(inArray(listingReadModels.targetId, [...ids]), eq(listingReadModels.kind, 'LISTING')));
+}
+
 /**
  * These targets' rows as the index builder reads them: the card, and only the description and features of the
  * detail (not its media). Primary key range scans per target.

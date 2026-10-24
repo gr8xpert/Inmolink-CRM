@@ -18,6 +18,7 @@ export {
 } from './feed';
 export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs, PURGE_UNIT_BUDGET } from './jobs';
 export {
+  developmentLabels,
   leadTargetOwner,
   type NetworkDevelopmentTerms,
   type NetworkUnitTerms,

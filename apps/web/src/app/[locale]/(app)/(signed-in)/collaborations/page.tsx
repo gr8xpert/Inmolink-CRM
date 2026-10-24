@@ -3,6 +3,7 @@ import {
   type ReceivedRegistrationDto,
   type RegistrationDto,
   type RegistrationTargetKind,
+  type TargetLabel,
   VIEWING_STATUSES,
   type ViewingRequestDto,
   type ViewingStatus,
@@ -40,7 +41,11 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
   const base = { limit: single ? 25 : 10, cursor: single ? f.cursor : undefined, kind: f.kind, from: f.from, to: f.to };
   const date = (iso: string) => format.dateTime(new Date(iso), { dateStyle: 'medium' });
   const dateTime = (iso: string) => format.dateTime(new Date(iso), { dateStyle: 'medium', timeStyle: 'short' });
-  const target = (k: RegistrationTargetKind, id: string) => `${t(`kinds.${k}`)} ${id.slice(0, 8)}`;
+  // The reference and title (S12-F21); a target the agency can no longer read falls back to kind + id fragment.
+  const target = (k: RegistrationTargetKind, id: string, label: TargetLabel | null) =>
+    label
+      ? `${t(`kinds.${k}`)} ${label.reference}${label.title ? ` · ${label.title}` : ''}`
+      : `${t(`kinds.${k}`)} ${id.slice(0, 8)}`;
 
   const results = await Promise.all(
     sections.map(async (key) => {
@@ -155,7 +160,9 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                         <span className="font-medium">
                           {[r.client.firstName, r.client.lastName].filter(Boolean).join(' ') || t('row.noClient')}
                         </span>
-                        <span className="text-muted-foreground">{target(r.target.kind, r.target.id)}</span>
+                        <span className="text-muted-foreground">
+                          {target(r.target.kind, r.target.id, r.targetLabel)}
+                        </span>
                       </div>
                       <StateBadge label={t(`registrationStates.${r.state}`)} />
                       <span className="text-muted-foreground">
@@ -171,7 +178,9 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                         <span className="font-medium">
                           {t('row.introducedBy')}: {r.introducerName ?? t('row.unknownAgency')}
                         </span>
-                        <span className="text-muted-foreground">{target(r.target.kind, r.target.id)}</span>
+                        <span className="text-muted-foreground">
+                          {target(r.target.kind, r.target.id, r.targetLabel)}
+                        </span>
                       </div>
                       <StateBadge label={t(`registrationStates.${r.state}`)} />
                       <span className="text-muted-foreground">
@@ -190,7 +199,7 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                         </span>
                         <span className="text-muted-foreground">
                           {[
-                            target(v.target.kind, v.target.id),
+                            target(v.target.kind, v.target.id, v.targetLabel),
                             v.awaiting ? t(`awaiting.${v.awaiting}`) : null,
                             v.outcome ? t(`outcomes.${v.outcome}`) : null,
                           ]
