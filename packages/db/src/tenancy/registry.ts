@@ -129,6 +129,12 @@ interface TenantBase {
    */
   userReadOnly?: true;
   /**
+   * STRICT only (S11-F3): a job row a request creates and a worker (`app_system`) alone advances. `app_user` reads and
+   * inserts its own agency's rows but gets no UPDATE or DELETE grant — a request can neither forge a run's state nor
+   * remove a row (and so hide its stored file from the sweep).
+   */
+  userAppendRead?: true;
+  /**
    * STRICT + userReadOnly only (S10-03): rows a trigger appends through these SECURITY DEFINER functions — created in
    * a migration, owned by `app_owner`, executable by no app role (triggers fire without EXECUTE). The `definer_append`
    * policy lets `app_owner` insert (forced RLS binds the owner); the guard accepts these functions as definers.
@@ -307,9 +313,12 @@ export const tenantTables: Record<string, TenantTable> = {
     },
   },
   // S1-06: CHECK constraints bound every setting, so the suite's invented row needs a valid locale list.
+  // S11-01: `definerRead` — the client registration trigger (`client_registrations_receipt`) reads the target owner's
+  // `registration_validity_days` (nothing else) to cap a registration's validity.
   agency_settings: {
     kind: 'STRICT',
     singleRow: true,
+    definerRead: true,
     auth: { insert: 'agency_id = app_agency()' },
     base: { enabled_locales: '{es}' },
   },
@@ -944,6 +953,43 @@ export const tenantTables: Record<string, TenantTable> = {
     userNoUpdateColumns: ['token_hash', 'token_hint', 'user_id', 'created_at'],
     // token_hash and user_id are invented per row (unique token; one live feed per member)
     base: { token_hint: 'abcd' },
+  },
+  // S11-01: client registrations (PLAN §3 #8) — one table per reader, each under one policy (perf review: two ORed
+  // policies left no list index-ordered). The introducer's registration (the client's details encrypted, its contact,
+  // target, validity): app_user changes only `contact_id` (a merge re-points it) and never deletes one
+  // (`client_registrations_guard`: evidence for both sides); `client_registrations_receipt` (definer) caps the validity
+  // at the owner's setting and appends the owner's receipt.
+  client_registrations: {
+    kind: 'STRICT',
+    userNoUpdateColumns: [
+      'target_agency_id',
+      'target_kind',
+      'target_id',
+      'registered_by_user_id',
+      'details_enc',
+      'registered_at',
+      'expires_at',
+    ],
+    triggers: ['client_registrations_receipt', 'client_registrations_guard'],
+    base: { target_kind: 'LISTING', registered_at: '2026-01-01T00:00:00Z', expires_at: '2026-07-01T00:00:00Z' },
+  },
+  // The target owner's receipt: who registered a client for which target and until when — nothing of the client. Read
+  // by the owner only; appended only by the registration's trigger.
+  client_registration_receipts: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    definerAppend: { functions: ['client_registrations_receipt'] },
+    base: { target_kind: 'LISTING' },
+  },
+  // The introducer's keyed fingerprints (the cross-agency exclusion constraint compares them). Written once per
+  // registration (and by the rehash job during an HMAC rotation, app_system); app_user never changes one.
+  client_registration_fingerprints: {
+    kind: 'STRICT',
+    userNoUpdateColumns: ['target_id', 'fingerprint', 'registered_at', 'expires_at'],
+    // app_user never deletes one (only the retention sweep, app_system); the FK ties it to its registration's target and
+    // capped validity (ON UPDATE CASCADE)
+    triggers: ['client_registration_fingerprints_guard'],
+    base: { registered_at: '2026-01-01T00:00:00Z', expires_at: '2026-07-01T00:00:00Z' },
   },
 };
 

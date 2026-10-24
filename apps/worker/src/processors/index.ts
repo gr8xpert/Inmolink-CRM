@@ -7,6 +7,7 @@ import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
+import { mlsJobs } from '@inmolink/core/modules/mls';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
@@ -116,6 +117,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.sweepEventReminders,
     // S10-07: a contact merge moves the seller of the agency's listings to the survivor.
     crmJobs.repointSellerListings,
+    // S11-01: a contact merge moves the agency's client registrations to the survivor.
+    mlsJobs.repointRegistrations,
+    // S11-01: the client fingerprint rehash during an HMAC rotation window, and the fingerprints' retention.
+    mlsJobs.scheduleFingerprintRehash,
+    mlsJobs.rehashFingerprints,
+    mlsJobs.pruneFingerprints,
   ],
   ai: [],
   social: [],

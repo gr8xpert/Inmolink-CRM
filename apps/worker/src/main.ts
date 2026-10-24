@@ -4,6 +4,7 @@ import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
+import * as mls from '@inmolink/core/modules/mls';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
@@ -109,6 +110,16 @@ try {
   }
   if (config.HMAC_KEY && config.WEB_URL)
     identity.configureIdentity({ hmacKey: config.HMAC_KEY, webUrl: config.WEB_URL });
+  // S11-01: the client fingerprint rehash (HMAC rotation) decrypts registrations' snapshots and re-fingerprints them.
+  if (config.HMAC_KEY && config.ENCRYPTION_KEYS && config.ENCRYPTION_ACTIVE_KEY_ID) {
+    mls.configureMls({
+      keyring: keyringFromEnv({
+        ENCRYPTION_KEYS: config.ENCRYPTION_KEYS,
+        ENCRYPTION_ACTIVE_KEY_ID: config.ENCRYPTION_ACTIVE_KEY_ID,
+      }),
+      fingerprintKey: config.HMAC_KEY,
+    });
+  }
   // Feed credentials (S6-01): decrypted by `imports.runFeed`. Encryption keys only reach non-media pools (S3-F7).
   if (config.ENCRYPTION_KEYS && config.ENCRYPTION_ACTIVE_KEY_ID) {
     imports.configureImports({

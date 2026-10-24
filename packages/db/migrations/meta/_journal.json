@@ -911,6 +911,13 @@
       "when": 1792819259939,
       "tag": "0129_s10_08_data_exports",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1792840407657,
+      "tag": "0130_s11_01_client_registrations",
+      "breakpoints": true
     }
   ]
 }

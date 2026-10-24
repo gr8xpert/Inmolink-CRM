@@ -11,6 +11,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
+import * as mls from '@inmolink/core/modules/mls';
 import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
@@ -43,6 +44,7 @@ export const MODULES = {
   'plugin-updates': pluginUpdates,
   exports,
   crm,
+  mls,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -58,6 +60,8 @@ export function registerSubscriptions(): void {
   imports.registerImportsSubscriptions();
   // S10-01: a started contact import queues its run.
   crm.registerCrmSubscriptions();
+  // S11-01: a contact merge moves the agency's client registrations.
+  mls.registerMlsSubscriptions();
   websites.registerWebsitesSubscriptions();
   websiteApi.registerWebsiteApiSubscriptions();
   // S9-03: the portal feed generator's subscriptions live behind the worker-only entry.

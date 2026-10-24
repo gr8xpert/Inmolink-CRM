@@ -286,6 +286,14 @@ export const ErrorCodes = {
   PIPELINE_STAGE_LOCKED: 409,
   /** A reorder that does not name every active stage exactly once (the pipeline changed meanwhile: reload it). */
   PIPELINE_ORDER_INVALID: 409,
+  // mls: client registration (S11-01)
+  /**
+   * Another agency registered this client for this target first and its registration is still valid (first valid
+   * wins, PLAN §3 #8). Never says which agency, nor anything of its registration.
+   */
+  REGISTRATION_CONFLICT: 409,
+  /** No such listing or development on the network (or the caller's own: a registration is to another agency). */
+  REGISTRATION_TARGET_NOT_FOUND: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

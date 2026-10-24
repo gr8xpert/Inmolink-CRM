@@ -4,6 +4,7 @@ import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
+import * as mls from '@inmolink/core/modules/mls';
 import * as search from '@inmolink/core/modules/search';
 import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
@@ -58,6 +59,8 @@ try {
   websites.configureSiteFeeds({ tokenKey: config.HMAC_KEY });
   // S10-06: members' ICS feed tokens — HMACs with the same key (purpose `crm.calendar-feed-token`).
   crm.configureCalendarFeeds({ tokenKey: config.HMAC_KEY });
+  // S11-01: registered clients' details are encrypted, their e-mails and phones fingerprinted (HMAC_KEY).
+  mls.configureMls({ keyring: keyringFromEnv(config), fingerprintKey: config.HMAC_KEY });
   // Feed credentials (S6-01) are encrypted here when a connection is saved; only the worker decrypts them.
   imports.configureImports({ keyring: keyringFromEnv(config) });
   // Portal connections (S9-01): credentials encrypted and feed tokens hashed when a connection is saved.

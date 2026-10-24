@@ -1291,7 +1291,9 @@
                             "PIPELINE_STAGE_DUPLICATE",
                             "PIPELINE_STAGE_LIMIT",
                             "PIPELINE_STAGE_LOCKED",
-                            "PIPELINE_ORDER_INVALID"
+                            "PIPELINE_ORDER_INVALID",
+                            "REGISTRATION_CONFLICT",
+                            "REGISTRATION_TARGET_NOT_FOUND"
                           ],
                           "type": "string"
                         },
@@ -3502,7 +3504,9 @@
                             "PIPELINE_STAGE_DUPLICATE",
                             "PIPELINE_STAGE_LIMIT",
                             "PIPELINE_STAGE_LOCKED",
-                            "PIPELINE_ORDER_INVALID"
+                            "PIPELINE_ORDER_INVALID",
+                            "REGISTRATION_CONFLICT",
+                            "REGISTRATION_TARGET_NOT_FOUND"
                           ],
                           "type": "string"
                         },
