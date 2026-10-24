@@ -101,6 +101,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     chatJobs.pushRead,
     // S11-04: in-app notifications pushed to the recipients' sockets.
     notificationsJobs.pushRealtime,
+    // S12-F2: notifications raised after the commit — a lead assigned, an import connection paused.
+    crmJobs.notifyLeadAssigned,
+    importsJobs.notifyConnectionPaused,
   ],
   // S11 review: the 5-minute notification e-mail digests (S11-04), thousands at once after a broad network post.
   digest: [notificationsJobs.sendDigest],

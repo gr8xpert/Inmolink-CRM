@@ -5,6 +5,7 @@ import { forgetListingActivities, recordActivity } from './activities';
 import { forgetListingEvents, sendEventReminder, sweepEventReminders } from './calendar';
 import { eraseContactData } from './erasure';
 import { runContactImport, sweepContactImports } from './import';
+import { notifyLeadAssigned } from './lead-notices';
 import { promoteInboundLead } from './leads';
 import { forgetListingProspects, repointSellerListings } from './prospects';
 import { refreshReportDay, refreshStageCounts } from './report-rollups';
@@ -53,7 +54,11 @@ const IMPORT_ATTEMPTS = 3;
  * - `crm.sendEventReminder` (pool `email`, one per `crm.calendarEvent.reminderDue` event, job ID = event + remind time +
  *   member, S10-06): the member's reminder e-mail, once — the send is claimed in the database before it goes out.
  * - `crm.sendTaskReminder` (pool `email`, one per `crm.task.reminderDue` event, job ID = task + due time + claim time, S10-05): the
- *   reminder e-mail, once — the send is claimed in the database before it goes out (`tasks.ts`).
+ *   reminder e-mail, once — the send is claimed in the database before it goes out (`tasks.ts`); S12-F2: the claim's
+ *   transaction also raises the assignee's in-app `TASK_DUE` notification.
+ * - `crm.notifyLeadAssigned` (pool `realtime` — a live in-app notice; one per `crm.lead.created` / `crm.lead.updated`
+ *   event naming an assignee, job ID = the event's id, S12-F2): the assignee's `LEAD_ASSIGNED` notification
+ *   (`lead-notices.ts`). Idempotent (`sourceKey` = the event's id).
  */
 export const crmJobs = {
   importContacts: defineJob({
@@ -114,6 +119,28 @@ export const crmJobs = {
         if (isAppError(err) && !err.retryable) log.error({ eventId: p.eventId, type: p.type }, 'activity not recorded');
         throw err;
       }
+    },
+  }),
+
+  notifyLeadAssigned: defineJob({
+    name: 'crm.notifyLeadAssigned',
+    pool: 'realtime',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      leadId: z.uuid(),
+      userId: z.uuid(),
+      assignedBy: z.uuid().nullable(),
+      inbound: z.boolean(),
+      occurredAt: z.iso.datetime(),
+    }),
+    jobId: (p) => `crm.notifyLeadAssigned:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return notifyLeadAssigned(p);
     },
   }),
 

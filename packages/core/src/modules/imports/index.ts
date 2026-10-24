@@ -91,7 +91,7 @@ export {
 export { sheetKey, sheetMappedConnector } from './sheet/connector';
 export { deleteAgencySheets, deleteReleasedSheet, type SheetSweepResult, sweepSheets } from './sheet/lifecycle';
 export { authorizeSheetUpload, startSheetImport, uploadSheet } from './sheet/service';
-export { registerImportsSubscriptions } from './subscriptions';
+export { registerImportsSubscriptions, unregisterImportsSubscriptions } from './subscriptions';
 export { thinkspainConnector } from './thinkspain/connector';
 export { renderThinkSpainCoverageReport, THINKSPAIN_FIELDS } from './thinkspain/coverage';
 export { xmlMappedConnector } from './xml-mapped/connector';

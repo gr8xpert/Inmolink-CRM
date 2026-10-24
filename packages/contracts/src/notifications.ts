@@ -9,7 +9,9 @@ import { PageQuery, pageOf } from './common';
  * The catalog of notification types. Each has EN + ES text in `packages/i18n/messages/<locale>/notifications.json`
  * (`types.<TYPE>`, with the `{subject}` / `{actor}` params). Adding one is a contract + i18n change, no migration.
  *
- * - `LEAD_ASSIGNED` · `TASK_DUE` — CRM (wired by their modules later).
+ * - `LEAD_ASSIGNED` — S12-F2: a lead assigned to the member (a new lead by the agency's rule or by hand, a reassignment).
+ * - `TASK_DUE` — S12-F2: the member's task came due (with its reminder; in-app only — the reminder e-mail is the task's).
+ * - `IMPORT_PAUSED` — S12-F2: the anomaly guard paused one of the agency's feed connections (to its admins).
  * - `VIEWING_REQUESTED` · `VIEWING_UPDATED` — S11-02 viewing requests.
  * - `CHAT_MESSAGE` — S11-03 chat (a message while the member is not in the thread).
  * - `NETWORK_POST` — S11-05 network board (a post matching the member's subscription).
@@ -24,6 +26,7 @@ export const NOTIFICATION_TYPES = [
   'CHAT_MESSAGE',
   'NETWORK_POST',
   'NETWORK_MATCH',
+  'IMPORT_PAUSED',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;
@@ -64,6 +67,21 @@ export const NotificationParams = z
   )
   .refine((p) => Object.keys(p).length <= NOTIFICATION_LIMITS.paramKeys, { message: 'too many params' });
 export type NotificationParams = z.infer<typeof NotificationParams>;
+
+/**
+ * S12-F2: free text a member typed (a task title, a contact's or a connection's name) as a display param that
+ * `NotificationParams` always accepts: control characters become spaces, anything that looks like an e-mail address
+ * or a phone number becomes `…`, cut to `NOTIFICATION_LIMITS.paramChars`.
+ */
+export function notificationText(value: string): string {
+  const text = value
+    .replace(new RegExp(NO_CONTROL.source, 'gu'), ' ')
+    .replace(new RegExp(EMAIL_LIKE.source, 'g'), '…')
+    .replace(new RegExp(PHONE_LIKE.source, 'g'), '…')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [...text].slice(0, NOTIFICATION_LIMITS.paramChars).join('').trim();
+}
 
 /** A path inside the dashboard (`/crm/leads/<id>`), never an absolute or protocol-relative URL. */
 export const NotificationLink = z

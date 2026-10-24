@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(crm,imports,notifications): raise LEAD_ASSIGNED, TASK_DUE and the new IMPORT_PAUSED notifications (outbox jobs in the realtime pool, in-app-only option, safe display text) [S12-F2]
 - feat(network): audit network post publish and close (ids and kind only) [S12-F13]
 - feat(web,db): listing editor taxonomy at scale — location search picker, lazy grouped features, test-DB taxonomy prune [S12-F23]
 - feat(realtime): /notifications sockets capped per user (10 per node) and connect-rate-limited (realtime.notifications.connect.user, 30/min), shared with /chat [S12-F11]

@@ -70,6 +70,12 @@ export const NotifyInput = z.strictObject({
    */
   sourceKey: z.string().min(1).max(NOTIFICATION_LIMITS.sourceKeyChars).optional(),
   at: z.date().optional(),
+  /**
+   * S12-F2: the emitter mails the member itself (a task's reminder e-mail): the notification shows in-app only and the
+   * digest leaves it out, whatever the type's e-mail preference — the member is never mailed twice about it. A
+   * recipient with in-app off for the type gets no row.
+   */
+  inAppOnly: z.boolean().default(false),
 });
 export type NotifyInput = z.input<typeof NotifyInput>;
 
@@ -108,7 +114,8 @@ async function raise(
   const rows: repo.NewNotification[] = [];
   for (const userId of recipients) {
     const pref = prefs.get(userId) ?? repo.DEFAULT_PREFERENCE;
-    if (!pref.enabled || (!pref.inApp && !pref.email)) continue;
+    const email = pref.email && !input.inAppOnly;
+    if (!pref.enabled || (!pref.inApp && !email)) continue;
     rows.push({
       id: newId(),
       agencyId,
@@ -120,7 +127,7 @@ async function raise(
       link: input.link,
       sourceKey: input.sourceKey ?? null,
       inApp: pref.inApp,
-      emailPending: pref.email,
+      emailPending: email,
     });
   }
   if (rows.length === 0) return { notified: [] };
@@ -205,7 +212,8 @@ export async function raiseNotificationsAcross(
     for (const userId of new Set(input.userIds)) {
       if (!members.has(`${agencyId}:${userId}`)) continue;
       const pref = prefs.get(`${agencyId}:${userId}`) ?? repo.DEFAULT_PREFERENCE;
-      if (!pref.enabled || (!pref.inApp && !pref.email)) continue;
+      const email = pref.email && !input.inAppOnly;
+      if (!pref.enabled || (!pref.inApp && !email)) continue;
       rows.push({
         id: newId(),
         agencyId,
@@ -217,7 +225,7 @@ export async function raiseNotificationsAcross(
         link: input.link,
         sourceKey: input.sourceKey ?? null,
         inApp: pref.inApp,
-        emailPending: pref.email,
+        emailPending: email,
       });
     }
   }

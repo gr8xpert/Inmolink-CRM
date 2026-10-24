@@ -4,8 +4,9 @@ import { createStaffUser, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
@@ -23,6 +24,14 @@ import { memoryConnector } from './test-connectors';
 const RUN = newId().slice(-8).toLowerCase();
 const log = createLogger({ service: 'imports-guard-test', level: 'silent' });
 const job = () => ({ log, signal: new AbortController().signal, lastAttempt: true });
+/** A direct job `run` call's context. */
+const jobCtx = () => ({
+  log,
+  jobId: 'test',
+  attempt: 1,
+  progress: async () => {},
+  signal: new AbortController().signal,
+});
 const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('imports.guard.test', fn);
 const rows = <T>(q: ReturnType<typeof sql>) => system(async (tx) => (await tx.execute(q)).rows as T[]);
 const tr = (name: string, slug: string) => [{ locale: 'en', name, slug: `${slug}-${RUN}` }];
@@ -437,5 +446,57 @@ describe('staff import health', () => {
     await runFeed(c, []);
     await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
     expect(await reasonOf()).toBeNull();
+  });
+
+  it('[S12-F2] a paused connection raises one IMPORT_PAUSED notification to the agency admins', async () => {
+    const c = await connection();
+    await runFeed(c, many('N', 5));
+    expect(await runFeed(c, [])).toMatchObject({ errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+    const [event] = await rows<{ id: string; payload: unknown; created_at: Date }>(sql`
+      select id, payload, created_at from outbox_events where type = 'imports.connection.paused'
+         and agency_id = ${owner.agencyId} and payload->>'connectionId' = ${c.id}`);
+    expect(event).toBeDefined();
+    const meta = {
+      eventId: event?.id ?? '',
+      agencyId: owner.agencyId,
+      type: 'imports.connection.paused',
+      version: 1,
+      createdAt: new Date(event?.created_at ?? 0),
+      attempt: 1,
+    };
+    imports.registerImportsSubscriptions();
+    const enqueue = vi.spyOn(imports.importsJobs.notifyConnectionPaused, 'enqueue').mockResolvedValue({ id: 'x' });
+    let queued: unknown[] = [];
+    try {
+      for (const sub of defaultSubscribers.get('imports.connection.paused', 1)) {
+        await sub.handler(sub.def.schema.parse(event?.payload), meta);
+      }
+      queued = enqueue.mock.calls.map((call) => call[0]);
+    } finally {
+      enqueue.mockRestore();
+      imports.unregisterImportsSubscriptions();
+    }
+    expect(queued).toHaveLength(1);
+    const payload = queued[0];
+    expect(payload).toMatchObject({ eventId: meta.eventId, agencyId: owner.agencyId, connectionId: c.id });
+    const spec = imports.importsJobs.notifyConnectionPaused.spec;
+    // the event redelivered, the job retried: one notification
+    expect(await spec.run(spec.payload.parse(payload), jobCtx())).toEqual({ notified: 1 });
+    expect(await spec.run(spec.payload.parse(payload), jobCtx())).toEqual({ notified: 0 });
+    const raised = await rows<{
+      user_id: string;
+      params: { subject: string };
+      link: string;
+      email_pending: boolean;
+    }>(sql`
+      select user_id, params, link, email_pending from notifications
+       where agency_id = ${owner.agencyId} and type = 'IMPORT_PAUSED' and link = ${`/imports/${c.id}`}`);
+    expect(raised).toEqual([
+      { user_id: owner.userId, params: { subject: 'Guarded feed' }, link: `/imports/${c.id}`, email_pending: true },
+    ]);
+    // resumed before the job ran: nothing to announce
+    await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
+    const late = { ...spec.payload.parse(payload), eventId: newId() };
+    expect(await spec.run(late, jobCtx())).toEqual({ notified: 0 });
   });
 });

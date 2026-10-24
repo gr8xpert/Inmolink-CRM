@@ -1,4 +1,6 @@
 import { chatJobs } from '@inmolink/core/modules/chat';
+import { crmJobs } from '@inmolink/core/modules/crm';
+import { importsJobs } from '@inmolink/core/modules/imports';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { describe, expect, it } from 'vitest';
 import { DIGEST_CONCURRENCY, POOL_JOBS, POOL_OPTIONS } from './index';
@@ -27,7 +29,14 @@ describe('worker pools (S11 review)', () => {
   });
 
   it('[S11-review] live pushes run in the realtime pool, never with digests or mail, and nothing there is capped', () => {
-    const live = [chatJobs.deliverMessage, chatJobs.pushRead, notificationsJobs.pushRealtime];
+    const live = [
+      chatJobs.deliverMessage,
+      chatJobs.pushRead,
+      notificationsJobs.pushRealtime,
+      // S12-F2: notifications raised after the commit
+      crmJobs.notifyLeadAssigned,
+      importsJobs.notifyConnectionPaused,
+    ];
     for (const job of live) {
       expect(job.pool, job.name).toBe('realtime');
       expect(poolOf(job.name), job.name).toEqual(['realtime']);

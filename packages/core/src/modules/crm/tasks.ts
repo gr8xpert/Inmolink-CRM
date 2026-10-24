@@ -2,6 +2,7 @@ import {
   AppError,
   type CreateTaskBody,
   type ListTasksQuery,
+  notificationText,
   type TaskDto,
   type TaskPage,
   type UpdateTaskBody,
@@ -12,6 +13,7 @@ import type { Ctx } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
+import * as notifications from '../notifications';
 import * as activitiesRepo from './activities-repo';
 import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
@@ -42,8 +44,10 @@ import * as tasksRepo from './tasks-repo';
  *     service — the one reminder column members write); a due time already reminded is not reminded again. A due date
  *     already past when it is set sends nothing. Reassigning keeps the reminder state (the new assignee is reminded if
  *     the reminder is still to come; not again after it was sent).
- * There is no in-app notification yet (no notifications module): the reminder is an e-mail, and "my tasks" lists what
- * is due. Times are shown in the agency's time zone (`agency_settings.time_zone`, S11-F11).
+ *  5. S12-F2: the send claim's transaction also raises the assignee's `TASK_DUE` notification (in-app only — the
+ *     reminder e-mail is the mail; `sourceKey` = task + due time, so a claim given back and taken again raises nothing
+ *     more). It is raised even when the e-mail cannot go (no address): the member still sees it in the app.
+ * "My tasks" lists what is due. Times are shown in the agency's time zone (`agency_settings.time_zone`, S11-F11).
  */
 
 const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
@@ -289,7 +293,22 @@ export function sendTaskReminder(p: Omit<ClaimedTaskReminder, 'remindedMs'>): Pr
   return sendReminder({
     job: 'crm.sendTaskReminder',
     agencyId: p.agencyId,
-    claim: (tx) => tasksRepo.claimReminderSend(tx, p.agencyId, p.taskId, p.dueMs),
+    claim: async (tx) => {
+      const task = await tasksRepo.claimReminderSend(tx, p.agencyId, p.taskId, p.dueMs);
+      if (task) {
+        await notifications.raiseNotifications(tx, {
+          agencyId: p.agencyId,
+          type: 'TASK_DUE',
+          userIds: [task.assignedUserId],
+          params: { subject: notificationText(task.title) || '…' },
+          link: '/tasks',
+          sourceKey: `crm.task:${p.taskId}:${p.dueMs}`,
+          at: new Date(p.dueMs),
+          inAppOnly: true,
+        });
+      }
+      return task;
+    },
     recipientUserId: (task) => task.assignedUserId,
     render: (task, to, timeZone) =>
       renderTaskReminder({

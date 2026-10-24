@@ -6,7 +6,8 @@
     "VIEWING_UPDATED": "Viewing request updated: {subject}",
     "CHAT_MESSAGE": "New message from {actor}: {subject}",
     "NETWORK_POST": "New network post: {subject}",
-    "NETWORK_MATCH": "Buyer request “{subject}” matches {count, plural, one {# of your listings} other {# of your listings}}: {refs}"
+    "NETWORK_MATCH": "Buyer request “{subject}” matches {count, plural, one {# of your listings} other {# of your listings}}: {refs}",
+    "IMPORT_PAUSED": "Import paused for review: {subject}"
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads assigned to me",
@@ -15,7 +16,8 @@
     "VIEWING_UPDATED": "Viewing request updates",
     "CHAT_MESSAGE": "Chat messages",
     "NETWORK_POST": "Network board posts",
-    "NETWORK_MATCH": "Buyer requests matching my listings"
+    "NETWORK_MATCH": "Buyer requests matching my listings",
+    "IMPORT_PAUSED": "Imports paused for review"
   },
   "email": {
     "subject": "{count, plural, one {You have # new notification} other {You have # new notifications}}",

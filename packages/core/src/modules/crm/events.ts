@@ -22,9 +22,10 @@ import { z } from 'zod';
  * - `crm.import.requested` — a contact import was started; the subscription queues `crm.importContacts`.
  * - `crm.lead.created` (S10-02) — a lead reached the holder's inbox (`inboundLeadId`: promoted from a website lead;
  *   `assignedUserId`: the member the routing rule or the creator chose). website-api notifies the agency from it — the
- *   assigned agent, else the site contact or the admins.
+ *   assigned agent, else the site contact or the admins. S12-F2: crm raises `LEAD_ASSIGNED` to the assignee from it
+ *   (`assignedBy`: who entered it, left out of the notification).
  * - `crm.lead.updated` (S10-02) — a lead's assignment changed; `version` is the new one (since S10-03 a status change
- *   is a stage change: `crm.lead.stageChanged`).
+ *   is a stage change: `crm.lead.stageChanged`). S12-F2: `LEAD_ASSIGNED` to the new assignee (`assignedBy`: who).
  * - `crm.lead.stageChanged` (S10-03) — a lead moved to another pipeline stage (a drag on the board, or a status set);
  *   `status` is the new stage's. The move's history row is already written (`lead_stage_history`); the activity
  *   timeline records `STAGE_CHANGED` from it.
@@ -65,6 +66,8 @@ export const crmEvents = {
       source: z.string(),
       inboundLeadId: z.uuid().nullable(),
       assignedUserId: z.uuid().nullable(),
+      /** S12-F2: the member who entered the lead by hand (null: a channel delivered it). Absent in older events. */
+      assignedBy: z.uuid().nullable().optional(),
       /** S11-F10: the lead's `created_ms` (epoch ms) — the day of the response-KPI rollup. Absent in older events. */
       receivedMs: z.number().int().optional(),
     }),
@@ -78,6 +81,8 @@ export const crmEvents = {
       version: z.number().int(),
       status: z.string(),
       assignedUserId: z.uuid().nullable(),
+      /** S12-F2: the member who changed the assignment. Absent in older events. */
+      assignedBy: z.uuid().nullable().optional(),
     }),
   ),
   taskReminderDue: defineEvent(

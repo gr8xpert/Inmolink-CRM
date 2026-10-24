@@ -9,6 +9,7 @@ import { maxConcurrentRuns, RUNS, runsPerProcess } from './config';
 import { importsEvents } from './events';
 import { recordOldestQueued } from './guard';
 import { listingSink } from './load';
+import { notifyConnectionPaused } from './pause-notice';
 import * as repo from './repo';
 import { executeRun } from './runner';
 import { deleteReleasedSheet, sweepSheets } from './sheet/lifecycle';
@@ -191,6 +192,27 @@ export const importsJobs = {
       if (result.deleted > 0 || result.seen > 0) log.info(result, 'old feed runs pruned');
       if (result.more) log.warn(result, 'feed run prune budget spent; the next run continues');
       return result;
+    },
+  }),
+
+  // S12-F2: the admins' `IMPORT_PAUSED` notification, one per `imports.connection.paused` event (pool `realtime`: a
+  // live in-app notice), job ID = the event's id. Idempotent (`sourceKey` = the event's id).
+  notifyConnectionPaused: defineJob({
+    name: 'imports.notifyConnectionPaused',
+    pool: 'realtime',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      connectionId: z.uuid(),
+      occurredAt: z.iso.datetime(),
+    }),
+    jobId: (p) => `imports.notifyConnectionPaused:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return notifyConnectionPaused(p);
     },
   }),
 

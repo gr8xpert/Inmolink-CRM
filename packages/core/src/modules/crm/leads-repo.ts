@@ -383,3 +383,32 @@ export async function setLastAssigned(tx: Tx, agencyId: string, userId: string):
     .set({ lastAssignedUserId: userId })
     .where(eq(leadRoutingSettings.agencyId, agencyId));
 }
+
+/**
+ * S12-F2: what a `LEAD_ASSIGNED` notification shows (system role, the agency named): the current assignee, the
+ * contact's name and the reference shown. One statement.
+ */
+export async function leadNotice(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+): Promise<{
+  assignedUserId: string | null;
+  source: string;
+  shownRef: string | null;
+  firstName: string | null;
+  lastName: string | null;
+} | null> {
+  const [row] = await tx
+    .select({
+      assignedUserId: leads.assignedUserId,
+      source: leads.source,
+      shownRef: leads.shownRef,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+    })
+    .from(leads)
+    .innerJoin(contacts, and(eq(contacts.agencyId, leads.agencyId), eq(contacts.id, leads.contactId)))
+    .where(and(eq(leads.agencyId, agencyId), eq(leads.id, id)));
+  return row ?? null;
+}

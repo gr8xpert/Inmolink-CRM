@@ -245,6 +245,7 @@ export async function receiveLead(tx: Tx, holderAgencyId: string, lead: Incoming
       source: lead.source,
       inboundLeadId: lead.inboundLeadId,
       assignedUserId,
+      assignedBy: lead.createdBy,
       receivedMs: written.createdMs.getTime(),
     }),
   );
@@ -552,6 +553,7 @@ export async function updateLead(ctx: Ctx, id: string, input: UpdateLeadBody): P
         version: updated.version,
         status: patch.status ?? current.status,
         assignedUserId: patch.assignedUserId,
+        assignedBy: userIdOf(ctx),
       }),
     );
   }

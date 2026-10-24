@@ -30,5 +30,22 @@ export function registerImportsSubscriptions(): void {
         importsJobs.deleteSheet.enqueue({ eventId: meta.eventId, agencyId: meta.agencyId, fileId: payload.fileId }),
       { name: 'imports.sheet.delete' },
     ),
+    // S12-F2: a paused connection is announced to the agency's admins (`IMPORT_PAUSED` notification).
+    subscribe(
+      importsEvents.connectionPaused,
+      (payload, meta) =>
+        importsJobs.notifyConnectionPaused.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          connectionId: payload.connectionId,
+          occurredAt: meta.createdAt.toISOString(),
+        }),
+      { name: 'imports.connection.pausedNotice' },
+    ),
   ];
+}
+
+export function unregisterImportsSubscriptions(): void {
+  for (const off of unsubscribe ?? []) off();
+  unsubscribe = undefined;
 }

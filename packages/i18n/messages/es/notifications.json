@@ -6,7 +6,8 @@
     "VIEWING_UPDATED": "Solicitud de visita actualizada: {subject}",
     "CHAT_MESSAGE": "Nuevo mensaje de {actor}: {subject}",
     "NETWORK_POST": "Nueva publicación en la red: {subject}",
-    "NETWORK_MATCH": "La solicitud de comprador «{subject}» coincide con {count, plural, one {# de tus inmuebles} other {# de tus inmuebles}}: {refs}"
+    "NETWORK_MATCH": "La solicitud de comprador «{subject}» coincide con {count, plural, one {# de tus inmuebles} other {# de tus inmuebles}}: {refs}",
+    "IMPORT_PAUSED": "Importación pausada para revisión: {subject}"
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads asignados a mí",
@@ -15,7 +16,8 @@
     "VIEWING_UPDATED": "Cambios en solicitudes de visita",
     "CHAT_MESSAGE": "Mensajes del chat",
     "NETWORK_POST": "Publicaciones del tablón de la red",
-    "NETWORK_MATCH": "Solicitudes de compradores que coinciden con mis inmuebles"
+    "NETWORK_MATCH": "Solicitudes de compradores que coinciden con mis inmuebles",
+    "IMPORT_PAUSED": "Importaciones pausadas para revisión"
   },
   "email": {
     "subject": "{count, plural, one {Tienes # notificación nueva} other {Tienes # notificaciones nuevas}}",

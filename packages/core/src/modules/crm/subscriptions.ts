@@ -63,6 +63,35 @@ export function registerCrmSubscriptions(): void {
         }),
       { name: 'crm.activity.leadUpdated' },
     ),
+    // S12-F2: the assignee's `LEAD_ASSIGNED` notification (a new lead with an assignee, a reassignment)
+    subscribe(
+      crmEvents.leadCreated,
+      async (payload, meta) => {
+        if (!payload.assignedUserId) return;
+        await crmJobs.notifyLeadAssigned.enqueue({
+          ...at(meta),
+          leadId: payload.leadId,
+          userId: payload.assignedUserId,
+          assignedBy: payload.assignedBy ?? null,
+          inbound: payload.inboundLeadId !== null,
+        });
+      },
+      { name: 'crm.notify.leadCreated' },
+    ),
+    subscribe(
+      crmEvents.leadUpdated,
+      async (payload, meta) => {
+        if (!payload.assignedUserId) return;
+        await crmJobs.notifyLeadAssigned.enqueue({
+          ...at(meta),
+          leadId: payload.leadId,
+          userId: payload.assignedUserId,
+          assignedBy: payload.assignedBy ?? null,
+          inbound: false,
+        });
+      },
+      { name: 'crm.notify.leadUpdated' },
+    ),
     subscribe(
       crmEvents.leadStageChanged,
       (payload, meta) =>
