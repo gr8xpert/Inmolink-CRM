@@ -25,6 +25,7 @@ export { IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {
   exportableListingIds,
   exportableListingPage,
+  exportableListingPageWith,
   listingIdsByRefs,
   listingRefs,
   ownListingIds,

@@ -28,6 +28,7 @@ import {
   ne,
   notInArray,
   or,
+  type SQL,
   sql,
 } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
@@ -85,7 +86,6 @@ export interface ConnectionRow {
   enabled: boolean;
   selectionMode: SelectionMode;
   selectionTag: string | null;
-  credentialsEnc: string | null;
   credentialKeys: string[];
   tokenHint: string;
   tokenCreatedAt: Date;
@@ -105,6 +105,11 @@ export interface ConnectionRow {
   updatedAt: Date;
 }
 
+/**
+ * What request paths read of a connection (S10-F4): never `credentials_enc` or `token_hash` — app_user has no SELECT on
+ * them (registry `hiddenColumns`), so every read and RETURNING names its columns. The push job reads the envelope as
+ * app_system (`pushStateOf`).
+ */
 const connectionColumns = {
   id: agencyPortalConnections.id,
   agencyId: agencyPortalConnections.agencyId,
@@ -113,7 +118,6 @@ const connectionColumns = {
   enabled: agencyPortalConnections.enabled,
   selectionMode: agencyPortalConnections.selectionMode,
   selectionTag: agencyPortalConnections.selectionTag,
-  credentialsEnc: agencyPortalConnections.credentialsEnc,
   credentialKeys: agencyPortalConnections.credentialKeys,
   tokenHint: agencyPortalConnections.tokenHint,
   tokenCreatedAt: agencyPortalConnections.tokenCreatedAt,
@@ -180,11 +184,10 @@ export async function getConnectionByIdempotency(
   tx: Tx,
   agencyId: string,
   idempotencyHash: string,
-): Promise<(ConnectionRow & { tokenHash: string; requestHash: string | null; idempotencyAt: Date | null }) | null> {
+): Promise<(ConnectionRow & { requestHash: string | null; idempotencyAt: Date | null }) | null> {
   const [row] = await tx
     .select({
       ...connectionColumns,
-      tokenHash: agencyPortalConnections.tokenHash,
       requestHash: agencyPortalConnections.idempotencyRequestHash,
       idempotencyAt: agencyPortalConnections.idempotencyAt,
     })
@@ -265,10 +268,9 @@ export interface ConnectionFields {
   enabled: boolean;
   selectionMode: SelectionMode;
   selectionTag: string | null;
-  credentialsEnc: string | null;
+  /** Absent: the stored credentials stay. A change (or of `enabled`) clears `push_error` (trigger, S10-F4). */
+  credentialsEnc?: string | null;
   credentialKeys: string[];
-  /** Set to null when the credentials or the on/off state change: the push job tries again. */
-  pushError?: null;
 }
 
 /** Writes a locked connection's new setup and bumps its version. */
@@ -313,6 +315,8 @@ export async function setToken(
       tokenHint: t.tokenHint,
       tokenCreatedAt: t.now,
       revokedAt: null,
+      // S10-F4 review: a rotated token is never the one an Idempotency-Key derives: the key's replay ends here.
+      idempotencyAt: null,
       version: sql`${agencyPortalConnections.version} + 1`,
       updatedAt: t.now,
     })
@@ -433,6 +437,67 @@ export async function deleteOverrides(tx: Tx, connectionId: string, propertyIds:
 }
 
 /**
+ * Worker, grouped selection (S10-F9): the choices of `action` the connections hold among these listings — one statement
+ * (primary-key probes) for every connection of a rule.
+ */
+export async function overridesAmong(
+  tx: Tx,
+  agencyId: string,
+  connectionIds: readonly string[],
+  propertyIds: readonly string[],
+  action: OverrideAction,
+): Promise<{ connectionId: string; propertyId: string }[]> {
+  if (connectionIds.length === 0 || propertyIds.length === 0) return [];
+  return tx
+    .select({
+      connectionId: portalConnectionProperties.connectionId,
+      propertyId: portalConnectionProperties.propertyId,
+    })
+    .from(portalConnectionProperties)
+    .where(
+      and(
+        eq(portalConnectionProperties.agencyId, agencyId),
+        inArray(portalConnectionProperties.connectionId, [...connectionIds]),
+        inArray(portalConnectionProperties.propertyId, [...propertyIds]),
+        eq(portalConnectionProperties.action, action),
+      ),
+    );
+}
+
+/**
+ * Worker, grouped selection (S10-F9): for each connection and each of `actions`, its choices after `after`, ascending
+ * by listing id, at most `limit` — one statement, one ordered probe of `portal_connection_properties_action_idx` per
+ * (connection, action), so every stream is complete up to its last id when it is full.
+ */
+export async function overridePages(
+  tx: Tx,
+  agencyId: string,
+  connectionIds: readonly string[],
+  q: { actions: readonly OverrideAction[]; after: string | null; limit: number },
+): Promise<{ connectionId: string; action: OverrideAction; propertyId: string }[]> {
+  if (connectionIds.length === 0 || q.actions.length === 0) return [];
+  const t = portalConnectionProperties;
+  const res = await tx.execute<{ connection_id: string; action: OverrideAction; property_id: string }>(sql`
+    select c.id as connection_id, a.action, o.property_id
+      from unnest(${sql`array[${sql.join(
+        connectionIds.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )}]`}) as c(id)
+      cross join unnest(${sql`array[${sql.join(
+        q.actions.map((x) => sql`${x}::portal_override_action`),
+        sql`, `,
+      )}]`}) as a(action)
+      cross join lateral (
+        select ${t.propertyId} as property_id from ${t}
+         where ${t.connectionId} = c.id and ${t.action} = a.action and ${t.agencyId} = ${agencyId}
+           ${q.after ? sql`and ${t.propertyId} > ${q.after}::uuid` : sql``}
+         order by ${t.propertyId}
+         limit ${q.limit}) o
+     order by o.property_id`);
+  return res.rows.map((r) => ({ connectionId: r.connection_id, action: r.action, propertyId: r.property_id }));
+}
+
+/**
  * The connection's choices of one kind, ascending by listing id after `after` at most `limit`: `portal_connection_properties_action_idx`. `action` null: both kinds (the dashboard list).
  */
 export async function overrideIdPage(
@@ -505,6 +570,54 @@ export async function syncIssues(
       set: { errors: sql`excluded.errors`, checkedAt: sql`excluded.checked_at` },
       setWhere: sql`${portalConnectionIssues.errors} is distinct from excluded.errors`,
     });
+}
+
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+const MAX_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+
+/**
+ * A checked round of several connections (worker, S10-F9): `syncIssues` for all of them in **one statement** — per
+ * connection, the rows in its range `(after, upTo]` that no longer fail are deleted and its failures upserted (an
+ * unchanged reason is not rewritten). The delete and the upsert touch disjoint rows (a failing listing is never deleted),
+ * so one snapshot serves both.
+ */
+export async function syncIssuesMany(
+  tx: Tx,
+  agencyId: string,
+  entries: readonly {
+    connectionId: string;
+    range: { after: string | null; upTo: string | null };
+    failures: readonly { propertyId: string; errors: unknown }[];
+  }[],
+  checkedAt: Date,
+): Promise<void> {
+  if (entries.length === 0) return;
+  // Open ends as the lowest / highest uuid, so each connection's delete is one primary-key range (review).
+  const ranges = entries.map((e) => ({
+    connection_id: e.connectionId,
+    after: e.range.after ?? NIL_UUID,
+    up_to: e.range.upTo ?? MAX_UUID,
+  }));
+  const failures = entries.flatMap((e) =>
+    e.failures.map((f) => ({ connection_id: e.connectionId, property_id: f.propertyId, errors: f.errors })),
+  );
+  const t = portalConnectionIssues;
+  await tx.execute(sql`
+    with v as (select * from jsonb_to_recordset(${JSON.stringify(ranges)}::jsonb)
+                 as v(connection_id uuid, after uuid, up_to uuid)),
+         f as (select * from jsonb_to_recordset(${JSON.stringify(failures)}::jsonb)
+                 as f(connection_id uuid, property_id uuid, errors jsonb)),
+         gone as (
+           delete from ${t} i using v
+            where i.agency_id = ${agencyId} and i.connection_id = v.connection_id
+              and i.property_id > v.after and i.property_id <= v.up_to
+              and not exists (select 1 from f where f.connection_id = i.connection_id and f.property_id = i.property_id))
+    insert into ${t} (connection_id, property_id, agency_id, errors, checked_at)
+    select f.connection_id, f.property_id, ${agencyId}, f.errors, ${checkedAt.toISOString()}::timestamptz
+      from f where exists (select 1 from v where v.connection_id = f.connection_id)
+    on conflict (connection_id, property_id) do update
+       set errors = excluded.errors, checked_at = excluded.checked_at
+     where ${t}.agency_id = ${agencyId} and ${t}.errors is distinct from excluded.errors`);
 }
 
 /** Records the last run's outcome on the connection. Does not touch `version` (worker state, not a setup change). */
@@ -595,12 +708,16 @@ export async function hasLiveConnection(tx: Tx, agencyId: string): Promise<boole
 }
 
 /**
- * The nightly lane of an agency (0 … lanes - 1): a stable hash of its id, so the agencies split evenly whatever their
- * id order. SQL, so the lane's next agency is found in one statement.
+ * Nightly lanes (S9-03 review; S10-F9 index-driven): lane `l` of `lanes` is a contiguous range of the agency id's
+ * `hashtext` — `[lo(l), lo(l + 1))` with `lo(l) = ceil(l * 2^32 / lanes) - 2^31` — so the agencies split evenly whatever
+ * their id order, and a lane is one range of `agency_portal_connections_lane_idx` (`hashtext(agency_id::text),
+ * agency_id, nightly_at`, live rows only). Inside a lane, agencies run in (hash, id) order.
  */
-const laneOf = (lanes: number) =>
-  sql`mod(hashtext(${agencyPortalConnections.agencyId}::text)::bigint + 2147483648, ${lanes})`;
+const laneHash = sql`hashtext(${agencyPortalConnections.agencyId}::text)`;
+export const laneStart = (lane: SQL, lanes: number) =>
+  sql`((${lane})::bigint * 4294967296 + ${lanes - 1}::bigint) / ${lanes}::bigint - 2147483648`;
 
+/** The live rows not covered by a nightly run since `before` (the lane index's predicate plus its `nightly_at`). */
 const nightlyDue = (before: Date) =>
   and(
     eq(agencyPortalConnections.enabled, true),
@@ -608,24 +725,37 @@ const nightlyDue = (before: Date) =>
     or(isNull(agencyPortalConnections.nightlyAt), lt(agencyPortalConnections.nightlyAt, before)),
   );
 
+/** The lane's range of the lane index. */
+const inLane = (lane: SQL, lanes: number) =>
+  sql`${laneHash} >= ${laneStart(lane, lanes)} and ${laneHash} < ${laneStart(sql`(${lane}) + 1`, lanes)}`;
+
 /**
- * Nightly lanes (S9-03 review): the first agency of each lane still due tonight (a live connection with no full pass
- * since `before`), in agency-id order. One statement over the partial live index (≤ connections rows).
+ * Nightly lanes: the first agency of each lane still due tonight (a live connection with no full pass since `before`).
+ * One statement: per lane, one ordered probe of its range of the lane index (`limit 1`) — no Seq Scan, however many
+ * connections (S10-F9).
  */
 export async function firstNightlyAgencies(
   tx: Tx,
   q: { before: Date; lanes: number },
 ): Promise<{ lane: number; agencyId: string }[]> {
   const res = await tx.execute<{ lane: string | number; agency_id: string }>(sql`
-    select distinct on (lane) lane, agency_id
-      from (select ${laneOf(q.lanes)} as lane, ${agencyPortalConnections.agencyId} as agency_id
-              from ${agencyPortalConnections}
-             where ${nightlyDue(q.before)}) s
-     order by lane, agency_id`);
+    select l.lane, x.agency_id
+      from generate_series(0, ${q.lanes - 1}::int) as l(lane)
+      cross join lateral (
+        select ${agencyPortalConnections.agencyId} as agency_id
+          from ${agencyPortalConnections}
+         where ${inLane(sql`l.lane`, q.lanes)} and ${nightlyDue(q.before)}
+         order by ${laneHash}, ${agencyPortalConnections.agencyId}
+         limit 1) x
+     order by l.lane`);
   return res.rows.map((r) => ({ lane: Number(r.lane), agencyId: r.agency_id }));
 }
 
-/** The lane's next agency due tonight after `after` (keyset by agency id), or null: the lane is done. */
+/**
+ * The lane's next agency due tonight after `after` (keyset on (hash, agency id) in the lane index), or null: done. An
+ * `after` outside the lane's range (a chain started under the earlier lane split, S10-F9 review) restarts the lane from
+ * its first agency still due.
+ */
 export async function nextNightlyAgency(
   tx: Tx,
   q: { before: Date; lanes: number; lane: number; after: string },
@@ -634,9 +764,17 @@ export async function nextNightlyAgency(
     .select({ agencyId: agencyPortalConnections.agencyId })
     .from(agencyPortalConnections)
     .where(
-      and(nightlyDue(q.before), gt(agencyPortalConnections.agencyId, q.after), sql`${laneOf(q.lanes)} = ${q.lane}`),
+      and(
+        inLane(sql`${q.lane}::int`, q.lanes),
+        nightlyDue(q.before),
+        sql`(${laneHash}, ${agencyPortalConnections.agencyId}) > (
+              case when hashtext(${q.after}::uuid::text) >= ${laneStart(sql`${q.lane}::int`, q.lanes)}
+                    and hashtext(${q.after}::uuid::text) < ${laneStart(sql`${q.lane}::int + 1`, q.lanes)}
+                   then hashtext(${q.after}::uuid::text)::bigint else -2147483649 end,
+              ${q.after}::uuid)`,
+      ),
     )
-    .orderBy(asc(agencyPortalConnections.agencyId))
+    .orderBy(laneHash, asc(agencyPortalConnections.agencyId))
     .limit(1);
   return row?.agencyId ?? null;
 }
@@ -887,12 +1025,21 @@ export async function markNightly(tx: Tx, agencyId: string, ids: readonly string
 /** The error code a refused withdrawal is stored with: the advert is still up, and is not asked to come down again. */
 export const WITHDRAW_REJECTED = 'WITHDRAW_REJECTED';
 
+/** The adverts still up at the portal (S10-F8): the predicate of `portal_listing_sync_live_idx`. */
+const advertUp = () => and(isNotNull(portalListingSync.remoteId), ne(portalListingSync.state, 'WITHDRAWN'));
+
 /**
  * Adverts of the connection that are still up and may be taken down: a remote id, any state but WITHDRAWN, not a
- * refused withdrawal. A page by listing id (teardown: the connection is off, unflagged or its agency unverified).
- * Processed rows leave the set, so the next page is read from the start.
+ * refused withdrawal. A page by listing id after `after` (teardown: the connection is off, unflagged or its agency
+ * unverified), keyset on `property_id` over the partial index `portal_listing_sync_live_idx` (S10-F8): each row is read
+ * once per teardown, whatever happened to the rows before it.
  */
-export async function liveAdverts(tx: Tx, agencyId: string, connectionId: string, limit: number): Promise<SyncRow[]> {
+export async function liveAdverts(
+  tx: Tx,
+  agencyId: string,
+  connectionId: string,
+  q: { after: string | null; limit: number },
+): Promise<SyncRow[]> {
   return tx
     .select({
       propertyId: portalListingSync.propertyId,
@@ -906,28 +1053,24 @@ export async function liveAdverts(tx: Tx, agencyId: string, connectionId: string
       and(
         eq(portalListingSync.agencyId, agencyId),
         eq(portalListingSync.connectionId, connectionId),
-        isNotNull(portalListingSync.remoteId),
-        ne(portalListingSync.state, 'WITHDRAWN'),
+        advertUp(),
+        q.after ? gt(portalListingSync.propertyId, q.after) : undefined,
         sql`${portalListingSync.errorCode} is distinct from ${WITHDRAW_REJECTED}`,
       ),
     )
     .orderBy(asc(portalListingSync.propertyId))
-    .limit(limit);
+    .limit(q.limit);
 }
 
-/** Whether the connection still has an advert up at its portal (a delete is refused until they are withdrawn). */
+/**
+ * Whether the connection still has an advert up at its portal (a delete is refused until they are withdrawn). One probe
+ * of `portal_listing_sync_live_idx` (S10-F8).
+ */
 export async function hasLiveAdverts(tx: Tx, agencyId: string, connectionId: string): Promise<boolean> {
   const [row] = await tx
     .select({ one: sql<number>`1` })
     .from(portalListingSync)
-    .where(
-      and(
-        eq(portalListingSync.agencyId, agencyId),
-        eq(portalListingSync.connectionId, connectionId),
-        isNotNull(portalListingSync.remoteId),
-        ne(portalListingSync.state, 'WITHDRAWN'),
-      ),
-    )
+    .where(and(eq(portalListingSync.agencyId, agencyId), eq(portalListingSync.connectionId, connectionId), advertUp()))
     .limit(1);
   return row !== undefined;
 }

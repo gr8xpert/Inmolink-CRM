@@ -546,10 +546,18 @@ describe('RLS generator', () => {
       cmd: 'SELECT',
       roles: ['app_user'],
     });
-    // Only on PUBLIC_READ tables; the production read models are registered so.
-    expect(() => generateRlsSql({ tenant: { x: { kind: 'STRICT', userReadOnly: true } }, global: {} })).toThrow(
-      /userReadOnly/,
-    );
+    // Only on PUBLIC_READ and STRICT tables (S10-F4); the production read models are registered so.
+    expect(() =>
+      generateRlsSql({
+        tenant: {
+          x: { kind: 'NETWORK_READ', userReadOnly: true, networkReadSql: 'true', samples: { visible: [], hidden: [] } },
+        },
+        global: {},
+      }),
+    ).toThrow(/userReadOnly/);
+    expect(() =>
+      generateRlsSql({ tenant: { x: { kind: 'STRICT', userReadOnly: true, appendOnly: true } }, global: {} }),
+    ).toThrow(/userReadOnly/);
     expect(registry.tenant.listing_read_models).toMatchObject({ userReadOnly: true });
     expect(registry.global.listing_search_docs).toMatchObject({ publicRead: true, noUserRead: true });
   });
@@ -611,6 +619,38 @@ describe('RLS generator', () => {
 
   it('[S0-05] the production registry generates valid SQL', () => {
     expect(() => generateRlsSql(registry)).not.toThrow();
+  });
+});
+
+describe('portal worker tables (S10-F4)', () => {
+  const part = (table: string) =>
+    tablesSql(registry).split(`-- ${table}:`)[1]?.split(String.fromCharCode(10, 10))[0] ?? '';
+
+  it('[S10-F4] agency_portal_connections: app_user reads neither credentials_enc nor token_hash, and updates no worker column', () => {
+    const t = 'public."agency_portal_connections"';
+    const sqlOut = part('agency_portal_connections');
+    expect(sqlOut).toContain("attname <> all (array['credentials_enc', 'token_hash'])");
+    expect(sqlOut).toContain(`execute format('grant select (%s) on table ${t} to app_user', cols);`);
+    expect(sqlOut).toContain(
+      "attname <> all (array['feed_run_id', 'feed_sha256', 'feed_bytes', 'feed_item_count', 'feed_generated_at', 'push_error', 'nightly_at'])",
+    );
+    expect(sqlOut).toContain(`execute format('grant update (%s) on table ${t} to app_user', cols);`);
+    expect(sqlOut).toContain(`grant insert, delete on table ${t} to app_user;`);
+    expect(sqlOut).not.toContain(`grant select on table ${t} to app_user;`);
+  });
+
+  it('[S10-F4] portal_feed_runs and portal_listing_sync: app_user only reads its own rows', () => {
+    for (const table of ['portal_feed_runs', 'portal_listing_sync'] as const) {
+      const def = registry.tenant[table] as TenantTable;
+      expect(def).toMatchObject({ kind: 'STRICT', userReadOnly: true });
+      expect(expectedPrivileges(def).app_user).toEqual(['SELECT']);
+      const t = `public."${table}"`;
+      const sqlOut = part(table);
+      expect(sqlOut).toContain(`create policy own_rows on ${t} for select to app_user
+  using (agency_id = app_agency());`);
+      expect(sqlOut).toContain(`grant select on table ${t} to app_user;`);
+      expect(sqlOut).not.toMatch(/grant [^;]*(insert|update|delete)[^;]* to app_user;/);
+    }
   });
 });
 

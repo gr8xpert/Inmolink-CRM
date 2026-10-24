@@ -44,14 +44,15 @@ import {
 } from '../../feed-xml';
 import * as agencies from '../agencies';
 import * as search from '../search';
-import { selectConnectionListings, type WorkerConnection, workerConnections } from './connections-worker';
+import { type WorkerConnection, workerConnections } from './connections-worker';
 import { PortalFeedError } from './feed-error';
 import { PORTAL_PREFERRED_LOCALE, type PortalProfile, portalWriterEnabled, profileOf } from './profiles';
 import { isPushChannel } from './push/registry';
 import * as repo from './repo';
+import { groupSelectionPages, type SelectionPage, type SelectionRule } from './selection';
 import { validateItem } from './validate';
 
-/** Listings per batch (one selection page, then one document statement, one issue write). */
+/** Listings per batch (one grouped selection page per rule, then one document statement, one issue write). */
 export const FEED_BATCH = 200;
 /** The writer hands its buffer to the sink once it holds this many characters. */
 const FLUSH_CHARS = 64 * 1024;
@@ -326,10 +327,28 @@ export async function writePlannedFeeds(
     // One transaction per round: every connection's selection page, the documents once, the issue rows. The sinks run
     // after it has ended.
     const round = await withSystem('exports.writeFeeds batch', async (tx) => {
-      const pages: { ids: string[]; nextCursor: string | null }[] = [];
+      // S10-F9: connections with the same rule (and cursor: every open lane covers the same range) share one grouped
+      // selection read — two statements per rule, however many connections.
+      const groups = new Map<string, { rule: SelectionRule; after: string | null; ids: string[] }>();
       for (const lane of open) {
-        pages.push(await selectConnectionListings(tx, lane.planned.connection, { cursor: lane.cursor, limit: size }));
+        const { rule } = lane.planned.connection;
+        const key = JSON.stringify([rule.mode, rule.tag, lane.cursor]);
+        const g = groups.get(key) ?? { rule, after: lane.cursor, ids: [] };
+        g.ids.push(lane.planned.connection.id);
+        groups.set(key, g);
       }
+      const byConnection = new Map<string, SelectionPage>();
+      for (const g of groups.values()) {
+        for (const [id, page] of await groupSelectionPages(tx, agencyId, g.rule, g.ids, g.after, size)) {
+          byConnection.set(id, page);
+        }
+      }
+      const pages = open.map((lane) => {
+        const page = byConnection.get(lane.planned.connection.id);
+        // Every grouped connection gets a page: a missing one is a bug, never an empty (complete) selection.
+        if (!page) throw new Error(`portal feed: no selection page for connection ${lane.planned.connection.id}`);
+        return { ids: page.ids, nextCursor: page.next };
+      });
       // Ids compare as lower-case canonical UUID text, like Postgres' uuid order (`selection.ts`).
       let bound: string | null = null;
       for (const p of pages)
@@ -344,6 +363,7 @@ export async function writePlannedFeeds(
       const items = new Map(built.items.map((x) => [x.id, x.item]));
       const missing = new Set(built.missing);
       const out: { ready: FeedItem[]; upTo: string | null }[] = [];
+      const issues: Parameters<typeof repo.syncIssuesMany>[2][number][] = [];
       for (const [i, lane] of open.entries()) {
         const { connection, profile } = lane.planned;
         const failures: { propertyId: string; errors: PortalIssue[] }[] = [];
@@ -361,10 +381,12 @@ export async function writePlannedFeeds(
         // Everything this connection's selection examined for the round is `(cursor, upTo]`: rows there that no longer
         // fail go.
         const range = { after: lane.cursor, upTo: upTo[i] ?? null };
-        await repo.syncIssues(tx, connection, range, failures, runStart);
+        issues.push({ connectionId: connection.id, range, failures });
         lane.invalid += failures.length;
         out.push({ ready, upTo: range.upTo });
       }
+      // Every connection's issue rows for the round in one statement (S10-F9).
+      await repo.syncIssuesMany(tx, agencyId, issues, runStart);
       return out;
     });
 

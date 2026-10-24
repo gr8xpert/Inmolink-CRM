@@ -52,6 +52,55 @@ export async function exportableIdPage(
   return rows.map((r) => r.id);
 }
 
+/**
+ * `exportableIdPage` and `exportableIds` in one statement (S10-F9, a portal pass's grouped selection): the page after
+ * `after` (optionally of a tag) and, of `ids` (a page's worth of INCLUDEs), the exportable ones. Same indexes.
+ */
+export async function exportableIdPageWith(
+  tx: Tx,
+  agencyId: string,
+  q: { tag: string | null; after: string | null; limit: number },
+  ids: readonly string[],
+): Promise<{ page: string[]; eligible: string[] }> {
+  if (ids.length === 0) return { page: await exportableIdPage(tx, agencyId, q), eligible: [] };
+  const page =
+    q.tag === null
+      ? tx
+          .select({ id: properties.id, page: sql<boolean>`true`.as('page') })
+          .from(properties)
+          .where(
+            and(eq(properties.agencyId, agencyId), ...exportable(), q.after ? gt(properties.id, q.after) : undefined),
+          )
+          .orderBy(asc(properties.id))
+          .limit(q.limit)
+      : tx
+          .select({ id: sql<string>`${propertyTags.propertyId}`.as('id'), page: sql<boolean>`true`.as('page') })
+          .from(propertyTags)
+          .innerJoin(
+            properties,
+            and(eq(properties.id, propertyTags.propertyId), eq(properties.agencyId, propertyTags.agencyId)),
+          )
+          .where(
+            and(
+              eq(propertyTags.agencyId, agencyId),
+              eq(propertyTags.tag, q.tag),
+              ...exportable(),
+              q.after ? gt(propertyTags.propertyId, q.after) : undefined,
+            ),
+          )
+          .orderBy(asc(propertyTags.propertyId))
+          .limit(q.limit);
+  const among = tx
+    .select({ id: properties.id, page: sql<boolean>`false`.as('page') })
+    .from(properties)
+    .where(and(eq(properties.agencyId, agencyId), inArray(properties.id, [...ids]), ...exportable()));
+  const res = await tx.execute<{ id: string; page: boolean }>(sql`(${page}) union all (${among})`);
+  const out = { page: [] as string[], eligible: [] as string[] };
+  for (const r of res.rows) (r.page ? out.page : out.eligible).push(r.id);
+  out.page.sort();
+  return out;
+}
+
 /** Of these ids (at most a page), the agency's exportable listings. Primary-key probes. */
 export async function exportableIds(tx: Tx, agencyId: string, ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];

@@ -105,8 +105,12 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         if (!/^[a-z][a-zA-Z0-9.]*$/.test(v)) throw new Error(`${name}: intakeAppend value "${v}" is not allowed`);
       }
     }
-    if (def.userReadOnly && def.kind !== 'PUBLIC_READ') {
-      throw new Error(`${name}: userReadOnly is only valid for PUBLIC_READ tables`);
+    // S10-F4: also STRICT worker tables (feed runs, push sync state) the dashboard only reads.
+    if (def.userReadOnly && def.kind === 'NETWORK_READ') {
+      throw new Error(`${name}: userReadOnly is only valid for PUBLIC_READ and STRICT tables`);
+    }
+    if (def.userReadOnly && (def.appendOnly || def.immutable || def.userSelect || def.userInsert !== undefined)) {
+      throw new Error(`${name}: userReadOnly is not valid with appendOnly, immutable, userSelect or userInsert`);
     }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);

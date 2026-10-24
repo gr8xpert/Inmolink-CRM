@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { CreateListingBody, CreatePortalConnectionBody, UpdateListingBody } from '@inmolink/contracts';
-import { closeDb, withSystem } from '@inmolink/db';
+import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
@@ -27,6 +27,7 @@ import { payloadHash, pushPortalListings } from '../push/engine';
 import { fotocasaAdapter } from '../push/fotocasa';
 import { idealistaAdapter } from '../push/idealista';
 import { classifyStatus, PortalPushError } from '../push/types';
+import * as repo from '../repo';
 import { unregisterExportsSubscriptions } from '../subscriptions';
 import {
   configurePortalFeedJobs,
@@ -760,7 +761,7 @@ describe('[S9-04] teardown, budgets and resuming (a second agency, one connectio
     expect((await stateB('b3'))?.state).toBe('SYNCED');
   });
 
-  it('[S9-04] a 404 on creating an advert means a wrong base URL: stored on the connection and skipped until the credentials change', async () => {
+  it('[S9-04] [S10-F4] a 404 on creating an advert means a wrong base URL: stored on the connection and skipped until the credentials change (the trigger clears it)', async () => {
     await system((tx) =>
       tx.execute(sql`delete from portal_listing_sync where connection_id = ${cb} and property_id = ${L.b4}`),
     );
@@ -841,6 +842,26 @@ describe('[S9-04] teardown, budgets and resuming (a second agency, one connectio
     }
   });
 
+  it('[S10-F8] live adverts are read by listing-id keyset: every advert once, no page read again', async () => {
+    const pages: string[][] = [];
+    let after: string | null = null;
+    for (;;) {
+      const from = after;
+      const page: repo.SyncRow[] = await system((tx) =>
+        repo.liveAdverts(tx, b.agencyId, cb, { after: from, limit: 3 }),
+      );
+      pages.push(page.map((r) => r.propertyId));
+      if (page.length < 3) break;
+      after = page.at(-1)?.propertyId ?? null;
+    }
+    const seen = pages.flat();
+    expect(seen).toHaveLength(4);
+    expect(new Set(seen).size).toBe(4);
+    expect(seen).toEqual([...seen].sort());
+    expect(pages.map((p) => p.length)).toEqual([3, 1]);
+    expect(await system((tx) => repo.hasLiveAdverts(tx, b.agencyId, cb))).toBe(true);
+  });
+
   it('[S9-04] a connection with adverts up cannot be deleted; switched off, its adverts are withdrawn and then it can', async () => {
     await expect(asB((ctx) => exportsModule.deleteConnection(ctx, { connectionId: cb }))).rejects.toMatchObject({
       code: 'VALIDATION_FAILED',
@@ -854,8 +875,16 @@ describe('[S9-04] teardown, budgets and resuming (a second agency, one connectio
     expect(feed.push).toEqual([cb]);
     expect(feed.skippedConnections).toEqual([]);
     portal.calls = [];
-    const down = await pushB();
-    expect(down.connections).toMatchObject([{ mode: 'TEARDOWN', withdrawn: 4 }]);
+    let down: Awaited<ReturnType<typeof pushB>> | undefined;
+    // S10-F8: the teardown reads the adverts once — a short keyset page is the last, nothing is read again.
+    const reads = await countQueries(
+      async () => {
+        down = await pushB();
+      },
+      { match: /"error_code" is distinct from/ },
+    );
+    expect(down?.connections).toMatchObject([{ mode: 'TEARDOWN', withdrawn: 4 }]);
+    expect(reads).toBe(1);
     expect(portal.adverts.size).toBe(0);
     await asB((ctx) => exportsModule.deleteConnection(ctx, { connectionId: cb }));
     expect(

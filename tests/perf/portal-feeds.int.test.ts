@@ -65,12 +65,13 @@ let founders: Founder[] = [];
 let big: Founder;
 const BIG_ROWS = 20_000;
 /**
- * Statements of one pass of a 2-connection, 400-listing agency (asserted exactly, S9-03 review), from the measured
- * list (`statementList` in the log): the plan 3 (connections; owner locales; presenter) + two full rounds of 7 (per
- * connection its selection page, 2 statements, and its issue sync, 1; the documents once) + the closing round 4 (per
- * connection an empty selection page, 1, and its issue sync, 1) + the run record 3 (connections, history, retention).
+ * Statements of one pass of a 2-connection, 400-listing agency (asserted exactly, S9-03 review; `statementList` in the
+ * log): the plan 3 (connections; owner locales; presenter) + two full rounds of 4 (S10-F9: both connections are
+ * ALL_PUBLIC, one rule — its page and the EXCLUDEs among it once for both; the documents once; every connection's issue
+ * rows in one statement) + the closing round 2 (the empty page, the issue rows) + the run record 3 (connections,
+ * history, retention).
  */
-const EXPECTED_STATEMENTS = 3 + 2 * 7 + 4 + 3;
+const EXPECTED_STATEMENTS = 3 + 2 * 4 + 2 + 3;
 const connections: string[] = [];
 
 async function cleanup(): Promise<void> {
@@ -294,8 +295,8 @@ it(
     expect(mb(large.peak)).toBeLessThan(RSS_BUDGET_MB);
 
     // Statements of one pass (this process): founders[0] has 2 connections and 400 listings (2 rounds of 200). The plan
-    // (connections, owner, presenter), per round one selection page per connection (2 statements each), one document
-    // statement for both, one issue sync per connection, then the run record (3 statements, whatever the count).
+    // (connections, owner, presenter), per round one grouped selection read for the shared rule (2 statements), one
+    // document statement and one issue write for both, then the run record (3 statements, whatever the count).
     const { generatePortalFeeds, configurePortalFeeds } = await import('@inmolink/core/modules/exports/worker');
     configurePortalFeeds({ mediaBaseUrl: 'https://media.example' });
     const statements: string[] = [];

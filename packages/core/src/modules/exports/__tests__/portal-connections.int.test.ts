@@ -20,8 +20,10 @@ import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import { portalCredentialsCipher, portalFeedTokenHash } from '../config';
 import { selectConnectionListings, type WorkerConnection, workerConnections } from '../connections-worker';
+import { planAgencyFeeds, writePlannedFeeds } from '../feed';
 import * as exportsModule from '../index';
-import { selectionPage } from '../selection';
+import * as repo from '../repo';
+import { groupSelectionPages, type SelectionRule, selectionPage } from '../selection';
 import { selectListings } from '../service';
 
 /**
@@ -724,5 +726,248 @@ describe('connections', () => {
     const preview = await as(a, (ctx) => exportsModule.previewSelection(ctx, { connectionId: c.id }, { limit: 50 }));
     expect(preview.items.length).toBeGreaterThan(0);
     expect(preview.items.every((i) => (i.ref ?? '').length > 0)).toBe(true);
+  });
+});
+
+// ── S10-F9: one selection read per rule across an agency's connections; setOverrides within budget ─────────────────
+
+describe('[S10-F9] grouped selection and the overrides budget', () => {
+  let g: Founder;
+  const G: Record<string, string> = {};
+  /** 20 connections (the cap): 8 ALL_PUBLIC, 6 TAGGED `portal`, 6 MANUAL — three rules. */
+  const conns: { id: string; mode: 'ALL_PUBLIC' | 'TAGGED' | 'MANUAL' }[] = [];
+  const RULES = 3;
+
+  beforeAll(async () => {
+    g = await createFounder();
+    await setAgencyStatus(g.agencyId, 'VERIFIED');
+    G.g1 = await listing(g, { visibility: 'PUBLIC' }, 'portal');
+    G.g2 = await listing(g, { visibility: 'PUBLIC' });
+    G.g3 = await listing(g, { visibility: 'PUBLIC' }, 'portal');
+    G.g4 = await listing(g, { visibility: 'PUBLIC' });
+    G.g5 = await listing(g, { visibility: 'PRIVATE' }, 'portal');
+    for (let i = 0; i < 20; i++) {
+      const mode = i < 8 ? 'ALL_PUBLIC' : i < 14 ? 'TAGGED' : 'MANUAL';
+      const c = await connect(g, {
+        name: `Grouped ${i}`,
+        channelCode: i % 2 === 0 ? 'kyero' : 'generic-xml',
+        selection: { mode, tag: mode === 'TAGGED' ? 'portal' : null },
+      });
+      conns.push({ id: c.id, mode });
+    }
+    // Per-connection choices that make the members of a rule differ.
+    const set = (c: string, items: [string, 'INCLUDE' | 'EXCLUDE'][]) =>
+      as(g, (ctx) =>
+        exportsModule.setOverrides(
+          ctx,
+          { connectionId: c },
+          { items: items.map(([k, action]) => ({ propertyId: G[k] as string, action })) },
+        ),
+      );
+    const of = (mode: string) => conns.filter((c) => c.mode === mode).map((c) => c.id);
+    const [all0, all1] = of('ALL_PUBLIC');
+    const [tag0, tag1] = of('TAGGED');
+    const [man0, man1] = of('MANUAL');
+    await set(all0 as string, [['g2', 'EXCLUDE']]);
+    await set(all1 as string, [
+      ['g4', 'EXCLUDE'],
+      ['g1', 'EXCLUDE'],
+    ]);
+    await set(tag0 as string, [
+      ['g2', 'INCLUDE'],
+      ['g1', 'EXCLUDE'],
+    ]);
+    await set(tag1 as string, [['g5', 'INCLUDE']]);
+    await set(man0 as string, [
+      ['g1', 'INCLUDE'],
+      ['g4', 'INCLUDE'],
+    ]);
+    await set(man1 as string, [
+      ['g5', 'INCLUDE'],
+      ['g3', 'INCLUDE'],
+    ]);
+  }, 120_000);
+
+  /** What a connection's own selection (S9-01) returns, walked to the end. */
+  const ownSelection = (c: WorkerConnection) =>
+    system(async (tx) => {
+      const out: string[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page = await selectConnectionListings(tx, c, { cursor, limit: 200 });
+        out.push(...page.ids);
+        cursor = page.nextCursor;
+        if (cursor === null) return out;
+      }
+    });
+
+  it('[S10-F9] grouped selection selects exactly what each connection selects alone, at any page size', async () => {
+    const loaded = await system((tx) => workerConnections(tx, g.agencyId, null));
+    expect(loaded).toHaveLength(20);
+    for (const size of [200, 2, 1]) {
+      for (const mode of ['ALL_PUBLIC', 'TAGGED', 'MANUAL'] as const) {
+        const members = loaded.filter((c) => c.rule.mode === mode);
+        const rule = members[0]?.rule as SelectionRule;
+        // The whole group walks the selection together, cut at the smallest `next` like a pass does.
+        const got = new Map<string, string[]>(members.map((c) => [c.id, []]));
+        let after: string | null = null;
+        for (let round = 0; round < 50; round++) {
+          const pages: Map<string, { ids: string[]; next: string | null }> = await system((tx) =>
+            groupSelectionPages(
+              tx,
+              g.agencyId,
+              rule,
+              members.map((c) => c.id),
+              after,
+              size,
+            ),
+          );
+          const nexts = [...pages.values()].map((p) => p.next).filter((n): n is string => n !== null);
+          const bound: string | null = nexts.sort()[0] ?? null;
+          for (const [id, p] of pages) {
+            got.get(id)?.push(...p.ids.filter((x) => bound === null || x <= bound));
+          }
+          after = bound ?? null;
+          if (after === null) break;
+        }
+        for (const c of members) expect(got.get(c.id)).toEqual(await ownSelection(c));
+      }
+    }
+  });
+
+  it('[S10-F9] a 20-connection agency’s batch runs ≤ 2 × (rules + 2) statements; issue rows in one statement', async () => {
+    const plan = await planAgencyFeeds(g.agencyId, 'live');
+    expect(plan.ready).toHaveLength(20);
+    const sinks = new Map(plan.ready.map((p) => [p.connection.id, async (_chunk: string) => {}]));
+    const statements: string[] = [];
+    let outcomes: Awaited<ReturnType<typeof writePlannedFeeds>> = [];
+    const n = await countQueries(
+      async () => {
+        outcomes = await writePlannedFeeds(plan, sinks, {
+          mediaBaseUrl: 'https://media.example',
+          recordSummary: false,
+        });
+      },
+      { onQuery: (q) => statements.push(q) },
+    );
+    // One batch (five listings < 200): per rule two statements, the documents once, the issue rows once.
+    expect(n).toBeLessThanOrEqual(2 * (RULES + 2));
+    expect(statements.filter((q) => /portal_connection_issues/.test(q))).toHaveLength(1);
+    expect(outcomes).toHaveLength(20);
+    // The issue rows are each connection's own: no read model here, so every selected listing is NO_DOCUMENT.
+    for (const p of plan.ready) {
+      const rows = await system(
+        async (tx) =>
+          (
+            await tx.execute<{ property_id: string }>(
+              sql`select property_id from portal_connection_issues where connection_id = ${p.connection.id}
+                   order by property_id`,
+            )
+          ).rows,
+      );
+      expect(rows.map((r) => r.property_id)).toEqual(await ownSelection(p.connection));
+    }
+  });
+
+  it('[S10-F9] nightly lanes are hash ranges: the first / next probes visit every due agency once, in its lane', async () => {
+    const mine = [a.agencyId, b.agencyId, g.agencyId];
+    const LANES = 3;
+    const before = new Date(Date.now() + 60_000);
+    // In one rolled-back transaction: only these agencies are due (the shared database holds other files' rows).
+    const seen = await system(async (tx) => {
+      await tx.execute(sql`update agency_portal_connections
+                              set nightly_at = case when agency_id in ${mine} then null else ${before.toISOString()}::timestamptz end`);
+      const expected = (
+        await tx.execute<{ agency_id: string; lane: number }>(sql`
+          select distinct agency_id,
+                 ((hashtext(agency_id::text)::bigint + 2147483648) * ${LANES} / 4294967296)::int as lane
+            from agency_portal_connections where enabled and revoked_at is null and agency_id in ${mine}`)
+      ).rows;
+      const visited: { agency_id: string; lane: number }[] = [];
+      const firsts = await repo.firstNightlyAgencies(tx, { before, lanes: LANES });
+      for (const first of firsts) {
+        let at: string | null = first.agencyId;
+        while (at !== null) {
+          visited.push({ agency_id: at, lane: first.lane });
+          at = await repo.nextNightlyAgency(tx, { before, lanes: LANES, lane: first.lane, after: at });
+        }
+      }
+      // A chain whose `after` is not in its lane (started under another lane split) restarts at the lane's first.
+      for (const first of firsts) {
+        let stranger = newId();
+        for (;;) {
+          const r = await tx.execute<{ lane: number }>(
+            sql`select ((hashtext(${stranger}::uuid::text)::bigint + 2147483648) * ${LANES} / 4294967296)::int as lane`,
+          );
+          if (r.rows[0]?.lane !== first.lane) break;
+          stranger = newId();
+        }
+        expect(await repo.nextNightlyAgency(tx, { before, lanes: LANES, lane: first.lane, after: stranger })).toBe(
+          first.agencyId,
+        );
+      }
+      // Rolled back: the result leaves the transaction inside the error.
+      throw Object.assign(new Error('rollback'), { result: { expected, visited } });
+    }).catch((err: { result?: unknown }) => {
+      if (!err.result) throw err;
+      return err.result;
+    });
+    const { expected, visited } = seen as {
+      expected: { agency_id: string; lane: number }[];
+      visited: { agency_id: string; lane: number }[];
+    };
+    const byId = (xs: { agency_id: string }[]) => [...xs].sort((x, y) => x.agency_id.localeCompare(y.agency_id));
+    expect(expected.length).toBeGreaterThan(0);
+    expect(byId(visited)).toEqual(byId(expected));
+  });
+
+  it('[S10-F9] lane edges: each hash at the ends and on both sides of every lane boundary is in exactly one lane', async () => {
+    for (const lanes of [1, 3, 7, 64]) {
+      const rows = await system(
+        async (tx) =>
+          (
+            await tx.execute<{ h: string; n: number }>(sql`
+              with b as (select ${repo.laneStart(sql`g`, lanes)} as lo from generate_series(1, ${lanes - 1}::int) g),
+                   hs as (select -2147483648::bigint as h union select 2147483647::bigint
+                          union select lo - 1 from b union select lo from b)
+              select hs.h::text as h,
+                     (select count(*)::int from generate_series(0, ${lanes - 1}::int) l(lane)
+                       where hs.h >= ${repo.laneStart(sql`l.lane`, lanes)}
+                         and hs.h < ${repo.laneStart(sql`l.lane + 1`, lanes)}) as n
+                from hs`)
+          ).rows,
+      );
+      expect(rows.length, `lanes ${lanes}`).toBe(lanes === 1 ? 2 : 2 + 2 * (lanes - 1));
+      for (const r of rows) {
+        expect(BigInt(r.h) >= -2147483648n && BigInt(r.h) <= 2147483647n, `lanes ${lanes} h ${r.h}`).toBe(true);
+        expect(r.n, `lanes ${lanes} h ${r.h}`).toBe(1);
+      }
+    }
+  });
+
+  it('[S10-F9] setOverrides runs ≤ 10 statements (references, ids, sets and clears in one request)', async () => {
+    const c = conns.find((x) => x.mode === 'ALL_PUBLIC')?.id as string;
+    const refs = await system((tx) => properties.listingRefs(tx, g.agencyId, [G.g3 as string]));
+    let n = Number.POSITIVE_INFINITY;
+    const dto = await as(g, async (ctx) => {
+      let out: PortalConnectionDto | undefined;
+      n = await countQueries(async () => {
+        out = await exportsModule.setOverrides(
+          ctx,
+          { connectionId: c },
+          {
+            items: [
+              { ref: refs[0]?.ref as string, action: 'EXCLUDE' },
+              { propertyId: G.g4 as string, action: 'INCLUDE' },
+              { propertyId: G.g2 as string, action: null },
+            ],
+          },
+        );
+      });
+      return out as PortalConnectionDto;
+    });
+    expect(n).toBeLessThanOrEqual(10);
+    // The counts come from the rows as written: g3 EXCLUDE, g4 INCLUDE (g2's EXCLUDE cleared).
+    expect(dto).toMatchObject({ includeCount: 1, excludeCount: 1 });
   });
 });

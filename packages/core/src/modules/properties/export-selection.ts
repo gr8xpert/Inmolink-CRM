@@ -14,6 +14,17 @@ export const exportableListingPage = (
   q: { tag: string | null; after: string | null; limit: number },
 ) => repo.exportableIdPage(tx, agencyId, q);
 
+/**
+ * `exportableListingPage` and `exportableListingIds` in one statement (S10-F9): the page, and of `ids` the exportable
+ * ones.
+ */
+export const exportableListingPageWith = (
+  tx: Tx,
+  agencyId: string,
+  q: { tag: string | null; after: string | null; limit: number },
+  ids: readonly string[],
+) => repo.exportableIdPageWith(tx, agencyId, q, ids);
+
 /** Of these listing ids (a page's worth), the agency's exportable ones. */
 export const exportableListingIds = (tx: Tx, agencyId: string, ids: readonly string[]) =>
   repo.exportableIds(tx, agencyId, ids);

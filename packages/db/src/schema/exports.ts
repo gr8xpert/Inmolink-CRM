@@ -141,9 +141,15 @@ export const agencyPortalConnections = pgTable(
     uniqueIndex('agency_portal_connections_idempotency_uq')
       .on(t.agencyId, t.idempotencyHash)
       .where(sql`${t.idempotencyHash} is not null`),
-    // nightly sweep (S9-03): agencies with a live connection, keyset by agency_id
+    // live connections of an agency (S9-03): where agency_id = ? and enabled and revoked_at is null
     index('agency_portal_connections_live_idx')
       .on(t.agencyId, t.nightlyAt)
+      .where(sql`${t.enabled} and ${t.revokedAt} is null`),
+    // nightly lanes (S10-F9): a lane is a range of the agency id's hash; its first / next agency still due is
+    // `where hashtext(agency_id::text) between ? and ? and (hashtext(agency_id::text), agency_id) > (?, ?)
+    //  order by hashtext(agency_id::text), agency_id limit 1` (nightly_at filtered in the index)
+    index('agency_portal_connections_lane_idx')
+      .on(sql`hashtext(${t.agencyId}::text)`, t.agencyId, t.nightlyAt)
       .where(sql`${t.enabled} and ${t.revokedAt} is null`),
     // one connection per name and portal
     uniqueIndex('agency_portal_connections_name_uq').on(t.agencyId, t.channelCode, sql`lower(${t.name})`),
@@ -300,6 +306,10 @@ export const portalListingSync = pgTable(
       foreignColumns: [properties.id, properties.agencyId],
     }).onDelete('cascade'),
     index('portal_listing_sync_property_idx').on(t.propertyId),
+    // adverts still up (S10-F8): push teardown `liveAdverts` (keyset on property_id) and the delete check `hasLiveAdverts`
+    index('portal_listing_sync_live_idx')
+      .on(t.agencyId, t.connectionId, t.propertyId)
+      .where(sql`${t.remoteId} is not null and ${t.state} <> 'WITHDRAWN'`),
     check('portal_listing_sync_error_ck', sql`${t.errorCode} is null or char_length(${t.errorCode}) <= 40`),
   ],
 );

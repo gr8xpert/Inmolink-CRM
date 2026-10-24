@@ -237,8 +237,9 @@ export async function createConnection(
         !safeEqual(prior.requestHash, idempotency.requestHash) ||
         !prior.idempotencyAt ||
         clock.now().getTime() - prior.idempotencyAt.getTime() >= CONNECTION_IDEMPOTENCY_MS ||
-        prior.revokedAt !== null ||
-        !safeEqual(prior.tokenHash, portalFeedTokenHash(token))
+        // S10-F4: the token is still the derived one — a rotation clears `idempotency_at` (checked above); the token
+        // hash is not readable on a request path.
+        prior.revokedAt !== null
       ) {
         throw new AppError('IDEMPOTENCY_KEY_REUSED');
       }
@@ -302,11 +303,13 @@ export async function updateConnection(
   if (name !== current.name && (await repo.nameTaken(ctx.tx, agencyId, current.channelCode, name, current.id))) {
     throw new AppError('PORTAL_CONNECTION_NAME_TAKEN');
   }
-  let credentialsEnc = current.credentialsEnc;
+  // S10-F4: the stored envelope is not readable on a request path. New credentials are always a change (a fresh
+  // envelope); removing them is one when the connection had some (`credential_keys`, written with the envelope).
+  let credentialsEnc: string | null | undefined;
   let credentialKeys = current.credentialKeys;
   if (input.credentials !== undefined) {
     if (input.credentials === null) {
-      credentialsEnc = null;
+      if (current.credentialKeys.length > 0) credentialsEnc = null;
       credentialKeys = [];
     } else {
       // A portal that left the catalog (or is not available) accepts no credentials: never skip the allowlist.
@@ -322,25 +325,19 @@ export async function updateConnection(
     enabled: input.enabled ?? current.enabled,
     selectionMode: input.selection?.mode ?? current.selectionMode,
     selectionTag: input.selection ? input.selection.tag : current.selectionTag,
-    credentialsEnc,
+    ...(credentialsEnc !== undefined ? { credentialsEnc } : {}),
     credentialKeys,
   };
   const changed = [
     next.name !== current.name && 'name',
     next.enabled !== current.enabled && 'enabled',
     (next.selectionMode !== current.selectionMode || next.selectionTag !== current.selectionTag) && 'selection',
-    next.credentialsEnc !== current.credentialsEnc && 'credentials',
+    credentialsEnc !== undefined && 'credentials',
   ].filter((f): f is string => typeof f === 'string');
   if (changed.length === 0) return dtoOf(ctx.tx, current);
-  // A new set of credentials, or switching the connection off and on, lets the push job try again (S9-04).
-  const retryPush = changed.includes('credentials') || changed.includes('enabled');
-  const row = await repo.updateConnection(
-    ctx.tx,
-    agencyId,
-    current.id,
-    retryPush ? { ...next, pushError: null } : next,
-    clock.now(),
-  );
+  // A new set of credentials, or switching the connection off and on, lets the push job try again (S9-04): the
+  // table's trigger clears `push_error`, which app_user cannot write (S10-F4).
+  const row = await repo.updateConnection(ctx.tx, agencyId, current.id, next, clock.now());
   await emit(
     ctx.tx,
     exportsEvents.connectionChanged({ connectionId: row.id, agencyId, action: 'UPDATED', version: row.version }),
@@ -456,13 +453,6 @@ export async function setOverrides(
   const clearIds = items.filter((i) => i.action === null && existing.has(i.propertyId)).map((i) => i.propertyId);
   if (setItems.length === 0 && clearIds.length === 0) return dtoOf(ctx.tx, connection);
   const added = setItems.filter((i) => !existing.has(i.propertyId)).length;
-  if (added > 0) {
-    const counts = (await repo.overrideCounts(ctx.tx, agencyId, [connection.id])).get(connection.id);
-    const total = (counts?.include ?? 0) + (counts?.exclude ?? 0) + added - clearIds.length;
-    if (total > MAX_CONNECTION_OVERRIDES) {
-      throw new AppError('PORTAL_OVERRIDE_LIMIT_REACHED', { limit: MAX_CONNECTION_OVERRIDES });
-    }
-  }
   const now = clock.now();
   await repo.upsertOverrides(
     ctx.tx,
@@ -476,6 +466,12 @@ export async function setOverrides(
     })),
   );
   await repo.deleteOverrides(ctx.tx, connection.id, clearIds);
+  // S10-F9: the counts are read once, after the writes — the limit is checked on them (over it, the error rolls the
+  // writes back) and the answer shows them; ≤ 10 statements in all.
+  const counts = (await repo.overrideCounts(ctx.tx, agencyId, [connection.id])).get(connection.id);
+  if (added > 0 && (counts?.include ?? 0) + (counts?.exclude ?? 0) > MAX_CONNECTION_OVERRIDES) {
+    throw new AppError('PORTAL_OVERRIDE_LIMIT_REACHED', { limit: MAX_CONNECTION_OVERRIDES });
+  }
   const row = await repo.touchConnection(ctx.tx, agencyId, connection.id, now);
   await emit(
     ctx.tx,
@@ -492,7 +488,7 @@ export async function setOverrides(
     { type: 'portalConnection', id: row.id },
     { set: setItems.length, cleared: clearIds.length },
   );
-  return dtoOf(ctx.tx, row);
+  return toDto(row, counts);
 }
 
 /** The connection's per-property choices, by listing id (keyset), with the listings' references. */

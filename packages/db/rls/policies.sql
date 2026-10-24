@@ -184,7 +184,21 @@ alter table public."agency_portal_connections" force row level security;
 create policy own_rows on public."agency_portal_connections" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."agency_portal_connections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."agency_portal_connections" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."agency_portal_connections"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['credentials_enc', 'token_hash']);
+  execute format('grant select (%s) on table public."agency_portal_connections" to app_user', cols);
+end $$;
+grant insert, delete on table public."agency_portal_connections" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."agency_portal_connections"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['feed_run_id', 'feed_sha256', 'feed_bytes', 'feed_item_count', 'feed_generated_at', 'push_error', 'nightly_at']);
+  execute format('grant update (%s) on table public."agency_portal_connections" to app_user', cols);
+end $$;
 grant select, insert, update, delete on table public."agency_portal_connections" to app_system;
 create policy definer_read on public."agency_portal_connections" for select to app_owner using (true);
 
@@ -899,19 +913,19 @@ grant select, insert, update, delete on table public."portal_connection_properti
 -- portal_feed_runs: STRICT
 alter table public."portal_feed_runs" enable row level security;
 alter table public."portal_feed_runs" force row level security;
-create policy own_rows on public."portal_feed_runs" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_rows on public."portal_feed_runs" for select to app_user
+  using (agency_id = app_agency());
 revoke all on table public."portal_feed_runs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."portal_feed_runs" to app_user;
+grant select on table public."portal_feed_runs" to app_user;
 grant select, insert, update, delete on table public."portal_feed_runs" to app_system;
 
 -- portal_listing_sync: STRICT
 alter table public."portal_listing_sync" enable row level security;
 alter table public."portal_listing_sync" force row level security;
-create policy own_rows on public."portal_listing_sync" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_rows on public."portal_listing_sync" for select to app_user
+  using (agency_id = app_agency());
 revoke all on table public."portal_listing_sync" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."portal_listing_sync" to app_user;
+grant select on table public."portal_listing_sync" to app_user;
 grant select, insert, update, delete on table public."portal_listing_sync" to app_system;
 
 -- preferred_agencies: NETWORK_READ

@@ -123,7 +123,7 @@ interface TenantBase {
    */
   mediaRead?: { columns: readonly string[] };
   /**
-   * PUBLIC_READ only (S6-F1): a read model written by workers alone (`app_system`). `app_user` reads its own rows (and
+   * PUBLIC_READ or STRICT (S6-F1; STRICT since S10-F4): a table written by workers alone (`app_system`). `app_user` reads its own rows (and
    * the network rows `networkReadSql` opens) but gets no INSERT, UPDATE or DELETE grant — `own_rows` is a SELECT
    * policy — so no request path can plant or change what public paths serve.
    */
@@ -413,17 +413,32 @@ export const tenantTables: Record<string, TenantTable> = {
   // feed token only a keyed hash. S9-03: feed-api (app_public) never reads the table; the SECURITY DEFINER lookup
   // `portal_feed_by_token(hash)` (owner app_owner, `definerRead`) answers the served file of one live token and no
   // other column — never the credentials.
+  // S10-F4: the credentials envelope and the token hash are never read on a request path (the push job reads the
+  // envelope as app_system; the token hash only through the definer lookup); the served file, the nightly mark and the
+  // push stop are worker state app_user cannot change (a change of credentials or on/off clears the stop: its trigger).
   agency_portal_connections: {
     kind: 'STRICT',
     base: { channel_code: 'isolation-portal', name: 'Isolation', token_hint: 'abcd' },
     definerRead: true,
+    hiddenColumns: ['credentials_enc', 'token_hash'],
+    userNoUpdateColumns: [
+      'feed_run_id',
+      'feed_sha256',
+      'feed_bytes',
+      'feed_item_count',
+      'feed_generated_at',
+      'push_error',
+      'nightly_at',
+    ],
+    triggers: ['agency_portal_connections_push_retry'],
   },
   portal_connection_properties: { kind: 'STRICT', base: { action: 'INCLUDE' } },
   // Listings a connection's last run left out and why (S9-02).
   portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
-  // A connection's feed runs (S9-03): written by the generator, read by the dashboard.
+  // A connection's feed runs (S9-03): written by the generator, read by the dashboard (S10-F4: SELECT only for app_user).
   portal_feed_runs: {
     kind: 'STRICT',
+    userReadOnly: true,
     base: {
       trigger: 'EVENT',
       status: 'WRITTEN',
@@ -431,9 +446,11 @@ export const tenantTables: Record<string, TenantTable> = {
       finished_at: '2026-01-01T00:00:00Z',
     },
   },
-  // Push portals' per-listing state (S9-04): the portal's id and the hash of the payload last sent.
+  // Push portals' per-listing state (S9-04): the portal's id and the hash of the payload last sent. Written by the push
+  // job (app_system) only; the dashboard reads it (S10-F4: SELECT only for app_user).
   portal_listing_sync: {
     kind: 'STRICT',
+    userReadOnly: true,
     base: { state: 'SYNCED', payload_hash: 'isolation', synced_at: '2026-01-01T00:00:00Z' },
   },
   // Inbound website leads (S7-05): STRICT to the presenting agency (the site's, PLAN §3 #12) — a network listing's

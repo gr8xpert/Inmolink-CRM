@@ -408,18 +408,23 @@ async function runConnection(
     };
 
     if (p.mode === 'TEARDOWN') {
+      // Keyset on the listing id (S10-F8): each advert is read once per run; a short page is the last. A row whose
+      // withdrawal failed for now stays up and is read again by the next run (a continuation starts from the start).
+      let after: string | null = null;
       for (;;) {
         if (outOfTime(limits)) {
           outcome.more = true;
           break;
         }
-        const up = await withSystem('exports.pushPortals teardown', (tx) =>
-          repo.liveAdverts(tx, agencyId, connection.id, TEARDOWN_PAGE),
+        const from = after;
+        const up: repo.SyncRow[] = await withSystem('exports.pushPortals teardown', (tx) =>
+          repo.liveAdverts(tx, agencyId, connection.id, { after: from, limit: TEARDOWN_PAGE }),
         );
         if (up.length === 0) break;
+        after = up.at(-1)?.propertyId ?? null;
         const before = outcome.withdrawn + outcome.withdrawFailed;
         await execute(up.map((row) => withdrawal({ ...row, remoteId: row.remoteId as string })));
-        if (outcome.more || outcome.withdrawn + outcome.withdrawFailed === before) break;
+        if (outcome.more || outcome.withdrawn + outcome.withdrawFailed === before || up.length < TEARDOWN_PAGE) break;
       }
     } else {
       const startedAt = cursor;

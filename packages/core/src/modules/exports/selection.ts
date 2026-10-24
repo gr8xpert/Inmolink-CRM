@@ -134,6 +134,95 @@ export async function selectionBatch(
   return { ids, next: cursor };
 }
 
+/**
+ * Grouped selection (S10-F9, a portal pass): one page after `after` for **every** connection in `connectionIds` that
+ * shares this rule (mode and tag) — the base page and the per-property choices are read once for all of them, two
+ * statements per rule whatever the connection count:
+ *
+ * - ALL_PUBLIC: the page; the EXCLUDEs of all the connections among it.
+ * - MANUAL: each connection's next `limit` INCLUDEs (one statement, a probe per connection); which of them are exportable.
+ * - TAGGED: each connection's next `limit` INCLUDEs and EXCLUDEs (one statement); the tag's page together with which of
+ *   the INCLUDEs are exportable (one statement). A connection's page is complete up to the smallest last id of its full
+ *   streams (like `selectionPage`).
+ *
+ * Same sets as `selectionPage` per connection; a page may be short (or empty) while `next` continues. Ids compare as
+ * lower-case canonical UUID text (see `selectionPage`).
+ */
+export async function groupSelectionPages(
+  tx: Tx,
+  agencyId: string,
+  rule: Pick<SelectionRule, 'mode' | 'tag'>,
+  connectionIds: readonly string[],
+  after: string | null,
+  limit: number = SELECTION_BATCH,
+): Promise<Map<string, SelectionPage>> {
+  const size = clamp(limit);
+  const out = new Map<string, SelectionPage>();
+  if (connectionIds.length === 0) return out;
+  const ascending = (xs: string[]) => xs.sort();
+
+  if (rule.mode === 'ALL_PUBLIC') {
+    const base = await properties.exportableListingPage(tx, agencyId, { tag: null, after, limit: size });
+    const next = base.length === size ? (base.at(-1) ?? null) : null;
+    const excluded = new Set(
+      (await repo.overridesAmong(tx, agencyId, connectionIds, base, 'EXCLUDE')).map(
+        (o) => `${o.connectionId}/${o.propertyId}`,
+      ),
+    );
+    for (const c of connectionIds) out.set(c, { ids: base.filter((id) => !excluded.has(`${c}/${id}`)), next });
+    return out;
+  }
+
+  const streams = await repo.overridePages(tx, agencyId, connectionIds, {
+    actions: rule.mode === 'TAGGED' ? ['INCLUDE', 'EXCLUDE'] : ['INCLUDE'],
+    after,
+    limit: size,
+  });
+  const includes = new Map<string, string[]>(connectionIds.map((c) => [c, []]));
+  const excludes = new Map<string, string[]>(connectionIds.map((c) => [c, []]));
+  for (const o of streams) (o.action === 'INCLUDE' ? includes : excludes).get(o.connectionId)?.push(o.propertyId);
+  const includeIds = [...new Set(streams.filter((o) => o.action === 'INCLUDE').map((o) => o.propertyId))];
+
+  if (rule.mode === 'MANUAL') {
+    const eligible = new Set(await properties.exportableListingIds(tx, agencyId, includeIds));
+    for (const c of connectionIds) {
+      const mine = ascending(includes.get(c) ?? []);
+      out.set(c, {
+        ids: mine.filter((id) => eligible.has(id)),
+        next: mine.length === size ? (mine.at(-1) ?? null) : null,
+      });
+    }
+    return out;
+  }
+
+  // TAGGED
+  const { page: base, eligible: eligibleIds } = await properties.exportableListingPageWith(
+    tx,
+    agencyId,
+    { tag: rule.tag, after, limit: size },
+    includeIds,
+  );
+  const eligible = new Set(eligibleIds);
+  const baseLast = base.length === size ? base.at(-1) : undefined;
+  for (const c of connectionIds) {
+    const inc = ascending(includes.get(c) ?? []);
+    const exc = ascending(excludes.get(c) ?? []);
+    const bounds = [
+      baseLast,
+      inc.length === size ? inc.at(-1) : undefined,
+      exc.length === size ? exc.at(-1) : undefined,
+    ].filter((x): x is string => x !== undefined);
+    const cutoff = bounds.length > 0 ? bounds.reduce((x, y) => (x < y ? x : y)) : null;
+    const excluded = new Set(exc);
+    const union = [...new Set([...base.filter((id) => !excluded.has(id)), ...inc.filter((id) => eligible.has(id))])]
+      .filter((id) => cutoff === null || id <= cutoff)
+      .sort();
+    const ids = union.slice(0, size);
+    out.set(c, { ids, next: union.length > size ? (ids.at(-1) ?? null) : cutoff });
+  }
+  return out;
+}
+
 /** The rule a connection row stands for. */
 export const ruleOf = (c: repo.ConnectionRow): SelectionRule => ({
   agencyId: c.agencyId,

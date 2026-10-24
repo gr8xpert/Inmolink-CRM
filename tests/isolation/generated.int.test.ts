@@ -1144,3 +1144,152 @@ describe('legacy key flag and id lookups (S8-F26)', () => {
     expect(rows).toEqual([{ owner: 'app_owner', definer: true }]);
   });
 });
+
+// S10-F4: portal secrets never reach a request path; the generator's and push job's state is theirs alone.
+describe('portal secrets and worker tables (S10-F4)', () => {
+  const agencyId = newId();
+  const connectionId = newId();
+  const propertyId = newId();
+  const runId = newId();
+  const reg = isolationRegistry.tenant;
+
+  beforeAll(async () => {
+    await withReplicaRole(admin, async () => {
+      await seed(
+        admin,
+        'agency_portal_connections',
+        buildRow('agency_portal_connections', await columnsOf(admin, 'agency_portal_connections'), {
+          ...reg.agency_portal_connections?.base,
+          id: connectionId,
+          agency_id: agencyId,
+          credentials_enc: 'v1.isolation-envelope',
+          push_error: 'AUTH_REJECTED',
+        }),
+      );
+      await seed(
+        admin,
+        'portal_listing_sync',
+        buildRow('portal_listing_sync', await columnsOf(admin, 'portal_listing_sync'), {
+          ...reg.portal_listing_sync?.base,
+          connection_id: connectionId,
+          property_id: propertyId,
+          agency_id: agencyId,
+          remote_id: 'remote-1',
+        }),
+      );
+      await seed(
+        admin,
+        'portal_feed_runs',
+        buildRow('portal_feed_runs', await columnsOf(admin, 'portal_feed_runs'), {
+          ...reg.portal_feed_runs?.base,
+          id: runId,
+          connection_id: connectionId,
+          agency_id: agencyId,
+        }),
+      );
+    });
+  });
+
+  afterAll(async () => {
+    await withReplicaRole(admin, async () => {
+      await admin.query('delete from portal_listing_sync where connection_id = $1', [connectionId]);
+      await admin.query('delete from portal_feed_runs where connection_id = $1', [connectionId]);
+      await admin.query('delete from agency_portal_connections where id = $1', [connectionId]);
+    });
+  });
+
+  it('[S10-F4] app_user selecting credentials_enc or token_hash gets 42501, even on its own row; the rest reads', async () => {
+    for (const read of [
+      sql`select credentials_enc from agency_portal_connections where id = ${connectionId}`,
+      sql`select token_hash from agency_portal_connections where id = ${connectionId}`,
+      sql`select * from agency_portal_connections where id = ${connectionId}`,
+      sql`select id from agency_portal_connections where credentials_enc is not null`,
+      sql`update agency_portal_connections set name = name where id = ${connectionId} returning token_hash`,
+    ]) {
+      await expectSqlState(() => withTenant({ agencyId }, (tx) => tx.execute(read)), DENIED);
+    }
+    const r = await withTenant({ agencyId }, (tx) =>
+      tx.execute<{ push_error: string; credential_keys: string[] }>(
+        sql`select push_error, credential_keys from agency_portal_connections where id = ${connectionId}`,
+      ),
+    );
+    expect(r.rows).toEqual([{ push_error: 'AUTH_REJECTED', credential_keys: [] }]);
+  });
+
+  it('[S10-F4] app_user writing portal_listing_sync.remote_id gets 42501; sync rows and feed runs are SELECT-only', async () => {
+    for (const write of [
+      sql`update portal_listing_sync set remote_id = 'planted' where connection_id = ${connectionId}`,
+      sql`insert into portal_listing_sync (connection_id, property_id, agency_id, state, remote_id, payload_hash, synced_at)
+          values (${connectionId}, ${newId()}, ${agencyId}, 'SYNCED', 'planted', 'h', now())`,
+      sql`delete from portal_listing_sync where connection_id = ${connectionId}`,
+      sql`update portal_feed_runs set status = 'FAILED' where id = ${runId}`,
+      sql`insert into portal_feed_runs (id, agency_id, connection_id, trigger, status, started_at, finished_at)
+          values (${newId()}, ${agencyId}, ${connectionId}, 'EVENT', 'WRITTEN', now(), now())`,
+      sql`delete from portal_feed_runs where id = ${runId}`,
+    ]) {
+      await expectSqlState(() => withTenant({ agencyId }, (tx) => tx.execute(write)), DENIED);
+    }
+    // Reads still work (the dashboard's run list and the delete check).
+    const n = await withTenant({ agencyId }, async (tx) => {
+      const sync = await tx.execute<{ n: number }>(
+        sql`select count(*)::int as n from portal_listing_sync where connection_id = ${connectionId}`,
+      );
+      const runs = await tx.execute<{ n: number }>(
+        sql`select count(*)::int as n from portal_feed_runs where connection_id = ${connectionId}`,
+      );
+      return [sync.rows[0]?.n, runs.rows[0]?.n];
+    });
+    expect(n).toEqual([1, 1]);
+    const { rows } = await admin.query('select remote_id from portal_listing_sync where connection_id = $1', [
+      connectionId,
+    ]);
+    expect(rows).toEqual([{ remote_id: 'remote-1' }]);
+  });
+
+  it('[S10-F4] app_user cannot update feed_run_id, feed_sha256, push_error or nightly_at; the setup columns update', async () => {
+    for (const write of [
+      sql`update agency_portal_connections set feed_run_id = ${newId()} where id = ${connectionId}`,
+      sql`update agency_portal_connections set feed_sha256 = 'planted' where id = ${connectionId}`,
+      sql`update agency_portal_connections set push_error = null where id = ${connectionId}`,
+      sql`update agency_portal_connections set nightly_at = now() where id = ${connectionId}`,
+    ]) {
+      await expectSqlState(() => withTenant({ agencyId }, (tx) => tx.execute(write)), DENIED);
+    }
+    await rolledBack(agencyId, async (tx) => {
+      const r = await tx.execute(
+        sql`update agency_portal_connections set name = 'Renamed', credentials_enc = 'v1.new', version = version + 1
+             where id = ${connectionId}`,
+      );
+      expect(r.rowCount).toBe(1);
+    });
+  });
+
+  it('[S10-F4] a change of credentials or on/off clears push_error (trigger); other changes keep it', async () => {
+    const pushError = async (tx: Tx) =>
+      (
+        await tx.execute<{ push_error: string | null }>(
+          sql`select push_error from agency_portal_connections where id = ${connectionId}`,
+        )
+      ).rows[0]?.push_error;
+    // One update per transaction: the seeded row's agency does not exist, and a row this transaction already wrote is
+    // FK-checked again on its next update.
+    const pushErrorAfter = async (change: ReturnType<typeof sql>, expected: string | null) =>
+      rolledBack(agencyId, async (tx) => {
+        await tx.execute(change);
+        expect(await pushError(tx)).toBe(expected);
+      });
+    await pushErrorAfter(
+      sql`update agency_portal_connections set name = 'Other' where id = ${connectionId}`,
+      'AUTH_REJECTED',
+    );
+    await pushErrorAfter(
+      sql`update agency_portal_connections set enabled = enabled where id = ${connectionId}`,
+      'AUTH_REJECTED',
+    );
+    await pushErrorAfter(
+      sql`update agency_portal_connections set credentials_enc = 'v1.new' where id = ${connectionId}`,
+      null,
+    );
+    await pushErrorAfter(sql`update agency_portal_connections set enabled = false where id = ${connectionId}`, null);
+  });
+});
