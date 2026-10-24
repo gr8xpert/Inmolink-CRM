@@ -725,4 +725,17 @@ describe('userNoUpdateColumns', () => {
     expect(bad({ kind: 'STRICT', definerAppend: { functions: ['f'] } })).toThrow(/definerAppend/);
     expect(bad({ kind: 'STRICT', userReadOnly: true, definerAppend: { functions: [] } })).toThrow(/definerAppend/);
   });
+
+  it('[S11-02] definerSync: app_owner reads, appends and updates both copies of a viewing request; never deletes', () => {
+    const def: TenantTable = { kind: 'STRICT', definerSync: { functions: ['viewing_requests_sync'] } };
+    const owner = expectedPolicies(def).filter((p) => p.roles.includes('app_owner'));
+    expect(owner.map((p) => p.cmd).sort()).toEqual(['INSERT', 'SELECT', 'UPDATE']);
+    const part = tablesSql({ tenant: { viewing_requests: def }, global: {} });
+    expect(part).toContain('create policy definer_update on public."viewing_requests" for update to app_owner');
+    expect(part).not.toMatch(/for delete to app_owner/);
+    const bad = (d: TenantTable) => () => tablesSql({ tenant: { t: d }, global: {} });
+    expect(bad({ kind: 'STRICT', userReadOnly: true, definerSync: { functions: ['f'] } })).toThrow(/definerSync/);
+    expect(bad({ kind: 'STRICT', definerRead: true, definerSync: { functions: ['f'] } })).toThrow(/definerSync/);
+    expect(bad({ kind: 'STRICT', definerSync: { functions: [] } })).toThrow(/definerSync/);
+  });
 });

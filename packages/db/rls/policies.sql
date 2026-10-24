@@ -126,7 +126,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'seller_prospects', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'notification_preferences', 'notifications', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'seller_prospects', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -1028,6 +1028,37 @@ grant select on table public."media_objects" to app_user;
 grant select, insert, update, delete on table public."media_objects" to app_system;
 create policy media_rows on public."media_objects" to app_media using (true) with check (true);
 grant select, insert, update, delete on table public."media_objects" to app_media;
+
+-- notification_preferences: STRICT
+alter table public."notification_preferences" enable row level security;
+alter table public."notification_preferences" force row level security;
+create policy own_rows on public."notification_preferences" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."notification_preferences" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."notification_preferences" to app_user;
+grant select, insert, update, delete on table public."notification_preferences" to app_system;
+
+-- notifications: STRICT
+alter table public."notifications" enable row level security;
+alter table public."notifications" force row level security;
+create policy own_insert on public."notifications" for insert to app_user
+  with check (agency_id = app_agency());
+create policy own_update on public."notifications" for update to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id())) with check (agency_id = app_agency() and (user_id = app_user_id()));
+create policy own_delete on public."notifications" for delete to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
+create policy user_select on public."notifications" for select to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
+revoke all on table public."notifications" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, delete on table public."notifications" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."notifications"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['id', 'created_at', 'user_id', 'type', 'actor_user_id', 'params', 'link', 'source_key', 'in_app', 'email_pending', 'digested_at']);
+  execute format('grant update (%s) on table public."notifications" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."notifications" to app_system;
 
 -- outbox_events: STRICT
 alter table public."outbox_events" enable row level security;

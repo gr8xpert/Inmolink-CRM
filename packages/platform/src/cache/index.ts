@@ -4,12 +4,21 @@ import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
 import type { CacheKey } from './key';
 import { SeenTimes } from './seen';
+import { encodeUserEvent, USER_EVENTS_CHANNEL, type UserEvent } from './user-events';
 
 export { Cache, type CacheGetOptions, type CacheOptions } from './cache';
 export { assertCacheKey, type CacheKey, type CacheKeyParts, cacheKey } from './key';
 export { LocalLru } from './lru';
 export { whenReady } from './ready';
 export { SeenTimes } from './seen';
+export {
+  decodeUserEvent,
+  encodeUserEvent,
+  MAX_USER_EVENT_BYTES,
+  subscribeUserEvents,
+  USER_EVENTS_CHANNEL,
+  type UserEvent,
+} from './user-events';
 
 export interface CacheConfig {
   /** redis-cache (allkeys-lru). Defaults to `REDIS_CACHE_URL` — never redis-queue. */
@@ -94,6 +103,21 @@ export function pubSubConnections(): { pub: Redis; sub: Redis } {
   const sub = pub.duplicate();
   for (const conn of [pub, sub]) conn.on('error', (err) => s.logger.warn({ err }, 'redis-cache pub/sub error'));
   return { pub, sub };
+}
+
+/**
+ * Publishes per-user realtime events (S11-04) on the shared redis-cache connection (`user-events.ts`), in one pipeline
+ * (one round trip for a fan-out of 100). Every event is encoded (and checked) before anything is sent. Fails fast like
+ * every cache command (no offline queue): the caller — a worker job — retries.
+ */
+export async function publishUserEvents(events: readonly UserEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  const encoded = events.map(encodeUserEvent);
+  const pipeline = cacheConnection().pipeline();
+  for (const text of encoded) pipeline.publish(USER_EVENTS_CHANNEL, text);
+  const results = await pipeline.exec();
+  const failed = results?.find(([err]) => err);
+  if (failed?.[0]) throw failed[0];
 }
 
 function instance(): Cache {

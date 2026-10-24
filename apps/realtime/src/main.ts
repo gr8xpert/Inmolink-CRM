@@ -1,5 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
-import { configureCache, pubSubConnections } from '@inmolink/platform/cache';
+import { configureCache, pubSubConnections, subscribeUserEvents } from '@inmolink/platform/cache';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
@@ -20,6 +20,8 @@ try {
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER }, { logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
   const { pub, sub } = pubSubConnections();
+  // S11-04: workers' per-user events (new notifications) on their own subscriber connection
+  const userEvents = pub.duplicate();
 
   const realtime = await buildApp({
     logger,
@@ -28,6 +30,7 @@ try {
     adapter: { pub, sub },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(config.AUTH_JWT_PUBLIC_KEYS) }),
     allowedOrigins: [new URL(config.WEB_URL).origin],
+    userEvents: (handler) => subscribeUserEvents(userEvents, handler, logger),
     checks: { db: () => pingDb('app_user'), redis: redisCheck(() => pub) },
   });
 
@@ -35,7 +38,7 @@ try {
     logger,
     steps: [
       { name: 'sockets+http', run: () => realtime.drain(config.SHUTDOWN_DRAIN_DELAY_MS) },
-      { name: 'redis', run: async () => void (await Promise.all([pub.quit(), sub.quit()])) },
+      { name: 'redis', run: async () => void (await Promise.all([pub.quit(), sub.quit(), userEvents.quit()])) },
       { name: 'db', run: closeDb },
       { name: 'telemetry', run: telemetry.shutdown },
     ],

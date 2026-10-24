@@ -8,6 +8,7 @@ import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { mlsJobs } from '@inmolink/core/modules/mls';
+import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
@@ -83,6 +84,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.sendTaskReminder,
     // S10-06: calendar reminder e-mails (one per claimed member attendee).
     crmJobs.sendEventReminder,
+    // S11-04: notifications pushed to the recipients' sockets, and the 5-minute e-mail digest.
+    notificationsJobs.pushRealtime,
+    notificationsJobs.sendDigest,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,

@@ -136,6 +136,17 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         throw new Error(`${name}: definerAppend needs function names`);
       }
     }
+    if (def.definerSync) {
+      if (def.kind !== 'STRICT' || def.userReadOnly || def.appendOnly || def.immutable) {
+        throw new Error(`${name}: definerSync is only valid for STRICT tables app_user writes`);
+      }
+      if (def.definerAppend || def.definerRead) {
+        throw new Error(`${name}: definerSync already includes definerRead and definerAppend`);
+      }
+      if (def.definerSync.functions.length === 0 || def.definerSync.functions.some((f) => !IDENT.test(f))) {
+        throw new Error(`${name}: definerSync needs function names`);
+      }
+    }
     if (def.userInsert !== undefined && !def.immutable)
       throw new Error(`${name}: userInsert is only valid for immutable tables`);
     for (const c of [...(def.staff?.selectColumns ?? []), ...(def.staff?.updateColumns ?? [])]) {
@@ -313,12 +324,25 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (def.kind === 'PUBLIC_READ') out.push({ name: 'public_read', cmd: 'SELECT', roles: ['app_public'] });
   if (def.definerRead) out.push({ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] });
   if (def.definerAppend) out.push({ name: 'definer_append', cmd: 'INSERT', roles: ['app_owner'] });
+  if (def.definerSync) {
+    out.push(
+      { name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] },
+      { name: 'definer_append', cmd: 'INSERT', roles: ['app_owner'] },
+      { name: 'definer_update', cmd: 'UPDATE', roles: ['app_owner'] },
+    );
+  }
   return out;
 }
 
 /** Roles that read every row of a plain global table (`global_read`). */
 function globalReaders(def: GlobalTable): ('app_public' | 'app_user')[] {
   return [...(def.noUserRead ? [] : (['app_user'] as const)), ...(def.publicRead ? (['app_public'] as const) : [])];
+}
+
+/** ` and (<predicate>)` for a `userSelect.write` command, or nothing. */
+function userWrite(table: string, def: TenantTable, cmd: 'insert' | 'update' | 'delete'): string {
+  const sql = def.userSelect?.write?.[cmd];
+  return sql === undefined ? '' : ` and (${predicate(table, sql)})`;
 }
 
 function predicate(table: string, sql: string): string {
@@ -616,12 +640,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
     ...(def.userSelect
       ? [
           // S1-F10: writes stay on the agency's rows; reads are narrowed to what the reading user may see.
+          // S11-04: `userSelect.write` narrows each write to rows of the writing user too.
           `create policy own_insert on ${t} for insert to app_user
-  with check (agency_id = app_agency());`,
+  with check (agency_id = app_agency()${userWrite(name, def, 'insert')});`,
           `create policy own_update on ${t} for update to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());`,
+  using (agency_id = app_agency()${userWrite(name, def, 'update')}) with check (agency_id = app_agency()${userWrite(name, def, 'update')});`,
           `create policy own_delete on ${t} for delete to app_user
-  using (agency_id = app_agency());`,
+  using (agency_id = app_agency()${userWrite(name, def, 'delete')});`,
           `create policy user_select on ${t} for select to app_user
   using (agency_id = app_agency() and (${predicate(name, def.userSelect.sql)}));`,
         ]
@@ -740,6 +765,14 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   if (def.definerAppend) {
     // S10-03: appended by a SECURITY DEFINER trigger function only (owned by app_owner); app_user reads, never writes.
     out.push(`create policy definer_append on ${t} for insert to app_owner with check (true);`);
+  }
+  if (def.definerSync) {
+    // S11-02: two agencies' copies kept in step by SECURITY DEFINER trigger functions only (owned by app_owner).
+    out.push(
+      `create policy definer_read on ${t} for select to app_owner using (true);`,
+      `create policy definer_append on ${t} for insert to app_owner with check (true);`,
+      `create policy definer_update on ${t} for update to app_owner using (true) with check (true);`,
+    );
   }
   return out;
 }

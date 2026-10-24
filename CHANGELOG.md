@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Notifications (S11-04): partitioned in-app notifications with per-type / channel preferences, realtime push over `/notifications` (agency-scoped rooms), 5-minute e-mail digest, unread counts, bounded mark-all; migration 0131. No new dependency.
 - Keyset pagination with a microsecond cursor puts the cursor in the Index Cond under RLS for the identity, websites, exports and agencies lists; `keysetAfter` emits a row comparison (S11-F9).
 - Data-export job state is worker-only (new registry option `userAppendRead`: app_user select + insert only), the worker writes job state as app_system with the agency in SQL, two-agency export test (S11-F3); data-export notice jobs grouped per agency and bulk-enqueued (S11-F8, part).
 - Client registration (S11-01): new `mls` module — HMAC-fingerprinted (rotation-safe), encrypted, first valid wins across agencies (btree_gist exclusion constraint), owner receipts through a definer trigger, conflict probe budget + audit, merge-safe, fingerprint retention; migration 0130. New Postgres extension `btree_gist`; no new npm dependency.

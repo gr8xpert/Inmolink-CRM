@@ -12,6 +12,7 @@ import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as mls from '@inmolink/core/modules/mls';
+import * as notifications from '@inmolink/core/modules/notifications';
 import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
@@ -45,6 +46,7 @@ export const MODULES = {
   exports,
   crm,
   mls,
+  notifications,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -68,4 +70,6 @@ export function registerSubscriptions(): void {
   exportsWorker.registerExportsSubscriptions();
   // S10-08: a requested data export queues its run (worker-only entry).
   complianceWorker.registerComplianceWorkerSubscriptions();
+  // S11-04: raised notifications are pushed live and queued for the e-mail digest.
+  notifications.registerNotificationsSubscriptions();
 }

@@ -72,7 +72,18 @@ interface TenantBase {
    * unreadable until `pnpm db:rls` runs. `samples` hold rows the suite's reading user (`SAMPLE_USER`) can
    * and cannot read; branches that need other rows (an admin of the agency) are tested in the owning module.
    */
-  userSelect?: { sql: string; hiddenColumns?: readonly string[]; samples: PredicateSamples };
+  userSelect?: {
+    sql: string;
+    hiddenColumns?: readonly string[];
+    samples: PredicateSamples;
+    /**
+     * S11-04: what a row must also satisfy for `app_user` to INSERT, UPDATE or DELETE it (ANDed with
+     * `agency_id = app_agency()` in `own_insert` / `own_update` / `own_delete`) — e.g. `user_id = app_user_id()`, so a
+     * member changes only their own rows even with a statement that reads no column. One SQL predicate per command,
+     * reviewed like `networkReadSql`; the `samples.visible[0]` row must satisfy it (the suite's positive controls).
+     */
+    write?: { insert?: string; update?: string; delete?: string };
+  };
   /**
    * Range-partitioned parent (pg_partman, PLAN §4.1). The guard checks the table is partitioned and that
    * no partition is reachable directly (partitions skip their parent's policies).
@@ -140,6 +151,13 @@ interface TenantBase {
    * policy lets `app_owner` insert (forced RLS binds the owner); the guard accepts these functions as definers.
    */
   definerAppend?: { functions: readonly string[] };
+  /**
+   * STRICT, not userReadOnly (S11-02): a table two agencies keep in step — each changes its own row, and these SECURITY
+   * DEFINER trigger functions (created in a migration, owned by `app_owner`, executable by no app role) write the other
+   * agency's copy in the same statement. `app_owner` gets `definer_read`, `definer_append` and `definer_update`
+   * policies (forced RLS binds the owner); never DELETE. The guard accepts these functions as definers.
+   */
+  definerSync?: { functions: readonly string[] };
   /**
    * `app_owner` (the owner of SECURITY DEFINER functions) may read every row (S7-03): a definer function reads the table
    * for a public path and answers less than a row (`website_network_open`: one boolean per agency). No application
@@ -960,6 +978,38 @@ export const tenantTables: Record<string, TenantTable> = {
     // token_hash and user_id are invented per row (unique token; one live feed per member)
     base: { token_hint: 'abcd' },
   },
+  // S11-04: members' notifications — read, marked and deleted by their recipient only (`userSelect`, `write`), never by
+  // colleagues; any member's request may raise one for a colleague (insert). Members change `read_at` only; the digest
+  // job (app_system) writes `email_pending` / `digested_at`. Monthly partitions (pg_partman, reached only through the
+  // parent), 12 months kept.
+  notifications: {
+    kind: 'STRICT',
+    partitioned: true,
+    base: { type: 'ISOLATION' },
+    userNoUpdateColumns: [
+      'id',
+      'created_at',
+      'user_id',
+      'type',
+      'actor_user_id',
+      'params',
+      'link',
+      'source_key',
+      'in_app',
+      'email_pending',
+      'digested_at',
+    ],
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: { update: 'user_id = app_user_id()', delete: 'user_id = app_user_id()' },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+  },
+  // S11-04: members' choices per notification type and channel — own agency only. Readable by colleagues' requests on
+  // purpose (raising a notification for a colleague reads their choice in the same transaction). The service writes
+  // only the caller's own rows; RLS does not narrow writes to the member: the registry has no "agency reads, member
+  // writes" shape the isolation suite can check (`userSelect` must hide rows from other members) — follow-up.
+  notification_preferences: { kind: 'STRICT', base: { type: 'ISOLATION' } },
   // S11-01: client registrations (PLAN §3 #8) — one table per reader, each under one policy (perf review: two ORed
   // policies left no list index-ordered). The introducer's registration (the client's details encrypted, its contact,
   // target, validity): app_user changes only `contact_id` (a merge re-points it) and never deletes one

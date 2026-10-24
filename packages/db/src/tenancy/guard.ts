@@ -240,7 +240,11 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
   // S10-03: trigger functions a registry entry names as its definer appenders — SECURITY DEFINER, but callable by no app
   // role (the check above still applies to them).
   const appenders = new Set<string>(
-    Object.values(registry.tenant).flatMap((def) => def.definerAppend?.functions ?? []),
+    Object.values(registry.tenant).flatMap((def) => [
+      ...(def.definerAppend?.functions ?? []),
+      // S11-02: the functions that keep two agencies' copies in step
+      ...(def.definerSync?.functions ?? []),
+    ]),
   );
   for (const f of functions.rows) {
     const label = f.schema === 'public' ? f.name : `${f.schema}.${f.name}`;
