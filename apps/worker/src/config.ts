@@ -32,6 +32,10 @@ export const POOLS = [
   'matching',
   'exports',
   'email',
+  // S11 review: live socket pushes (chat messages, read receipts, in-app notifications) — no mail, no digests.
+  'realtime',
+  // S11 review: notification e-mail digests, bursty (a broad network post), in their own queue and slots.
+  'digest',
   'ai',
   'social',
   'pdf',
@@ -123,7 +127,7 @@ const mediaPoolEnv = {
 };
 
 /**
- * The env a process running `pools` validates (S3-F4: least privilege per container). SMTP only with `email`;
+ * The env a process running `pools` validates (S3-F4: least privilege per container). SMTP only with `email` or `digest`;
  * `app_system`, encryption keys and the HMAC key only with a pool other than `media`.
  */
 export function workerEnvFor(pools: readonly Pool[]) {
@@ -133,6 +137,8 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(others ? systemEnv : {}),
     ...(pools.includes('media') ? mediaPoolEnv : {}),
     ...(pools.includes('email') ? { ...emailEnv, ...leadEmailEnv } : {}),
+    // Digests send mail (SMTP / Resend) but read no public inventory.
+    ...(pools.includes('digest') ? emailEnv : {}),
     ...(pools.includes('exports') ? siteFeedEnv : {}),
     ...(pools.includes('indexing') ? indexingEnv : {}),
   };

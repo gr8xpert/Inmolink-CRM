@@ -8,7 +8,8 @@ paths:
 
 # Worker & job rules (BullMQ)
 
-- Pools (separate processes, deployable to separate nodes): `imports`, `media`, `indexing`, `matching`, `exports`, `email`, `ai`, `social`, `pdf`, `maintenance`, `outbox`.
+- Pools (separate processes, deployable to separate nodes): `imports`, `media`, `indexing`, `matching`, `exports`, `email`, `realtime`, `digest`, `ai`, `social`, `pdf`, `maintenance`, `outbox`.
+  - `realtime` is the live-push lane (chat messages, read receipts, in-app notifications) and `digest` the notification e-mail digests: a bursty, deferrable job kind gets its own pool rather than a per-process cap inside a latency pool (S11 review: capped jobs bounce through delayed and share the pool's fair-share backlog).
 - Job handlers live in the owning module's `jobs.ts`; `apps/worker/src/processors/<pool>.ts` only wires queue → handler.
 - Payloads carry IDs and small parameters only (< 10 KB). Load data inside the job.
 - **Idempotent always**: a job may run twice. Use natural idempotency keys (`jobId = <type>:<entityId>:<version>`) and upserts.

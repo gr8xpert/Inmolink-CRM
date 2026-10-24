@@ -1,0 +1,69 @@
+# promtool test rules queues.test.yml — run by tests/ops/alerts.int.test.ts (S11 review).
+rule_files:
+  - queues.yml
+evaluation_interval: 15s
+
+tests:
+  # Live pushes: 60 jobs a minute, all under 1 s for 10 minutes, then all 30–60 s: p95 58.5 s from 10m, firing at ~16m.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="realtime", le="1", instance="worker-1"}'
+        values: "0+60x10 600+0x20"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="realtime", le="30", instance="worker-1"}'
+        values: "0+60x10 600+0x20"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="realtime", le="60", instance="worker-1"}'
+        values: "0+60x30"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="realtime", le="+Inf", instance="worker-1"}'
+        values: "0+60x30"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: DeliveryQueueAgeHigh
+        exp_alerts: []
+      - eval_time: 13m
+        alertname: DeliveryQueueAgeHigh
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: DeliveryQueueAgeHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, pool: realtime }
+            exp_annotations:
+              summary: "Jobs of pool realtime wait 58.5s (p95) in the queue"
+              runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+
+  # Digests waiting 30–60 s are no delivery-pool breach (their own pool), and no slow-pool alert either.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="30", instance="worker-1"}'
+        values: "0+0x40"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="60", instance="worker-1"}'
+        values: "0+600x40"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="+Inf", instance="worker-1"}'
+        values: "0+600x40"
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: DeliveryQueueAgeHigh
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: QueueAgeHigh
+        exp_alerts: []
+
+  # Digests waiting 15–30 minutes: p95 29m 15s, held 15 minutes → QueueAgeHigh firing.
+  - interval: 1m
+    input_series:
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="900", instance="worker-1"}'
+        values: "0+0x40"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="1800", instance="worker-1"}'
+        values: "0+60x40"
+      - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="+Inf", instance="worker-1"}'
+        values: "0+60x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: QueueAgeHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: QueueAgeHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, pool: digest }
+            exp_annotations:
+              summary: "Jobs of pool digest wait 29m 15s (p95) in the queue"
+              runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert

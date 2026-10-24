@@ -1,6 +1,8 @@
+import { metrics } from '@opentelemetry/api';
 import { DelayedError, type Job, UnrecoverableError, Worker } from 'bullmq';
 import { isAppError } from '../errors';
 import { sanitizeError } from '../logger';
+import { QUEUE_WAIT_METRIC } from '../telemetry/names';
 import { reportError } from '../telemetry/report';
 import { fairnessFor, queueFor, queueLogger, queuePrefix, queueTelemetry, workerConnection } from './connection';
 import type { JobDef, StoredJob } from './jobs';
@@ -67,6 +69,28 @@ function capOf(cap: number | (() => number) | undefined): number | undefined {
 const capKeyOf = (spec: { name: string; capGroup?: string }): string =>
   spec.capGroup === undefined ? spec.name : `@${spec.capGroup}`;
 
+/**
+ * S11 review: how long a job waited past its due time (enqueue + its requested delay) before its first attempt started,
+ * in ms; undefined for a retry (its backoff is intended). `opts.delay` is the requested delay — an over-cap bounce
+ * (`moveToDelayed`) changes only the job's `delay` field, so bounces count as waiting.
+ */
+export function queueWaitMs(
+  job: Pick<Job, 'timestamp' | 'attemptsMade'> & { opts: { delay?: number } },
+  now = Date.now(),
+): number | undefined {
+  if (job.attemptsMade > 0) return undefined;
+  return Math.max(0, now - job.timestamp - (job.opts.delay ?? 0));
+}
+
+/**
+ * `inmolink_queue_wait_seconds{pool}` (alerts: infra/monitoring/rules/queues.yml). Created per pool at registration,
+ * after the app has set its meter provider (the metrics API has no proxy: a meter taken at import would be a no-op).
+ */
+const queueWaitHistogram = () =>
+  metrics.getMeter('@inmolink/platform').createHistogram(QUEUE_WAIT_METRIC, {
+    description: 'Seconds a job waited in its pool queue past its due time before its first attempt ran, by pool',
+  });
+
 /** Dead letters are kept this long, for inspection and manual re-enqueue. */
 export const DEAD_LETTER_RETENTION_MS = 30 * 24 * 3_600_000;
 
@@ -98,6 +122,7 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
     byName.set(def.name, def);
   }
   const log = queueLogger().child({ pool });
+  const queueWait = queueWaitHistogram();
   const groupRetryMs = options.groupRetryMs ?? 250;
   const groupRetryMaxMs = Math.max(options.groupRetryMaxMs ?? 5_000, groupRetryMs);
   const controllers = new Set<AbortController>();
@@ -208,6 +233,8 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       throw err;
     }
     capWaits.delete(job.id as string);
+    const waitedMs = queueWaitMs(job);
+    if (waitedMs !== undefined) queueWait.record(waitedMs / 1_000, { pool });
     const holdsGroup = Boolean(fair && group !== undefined && spec.concurrencyPerGroup);
     const releaseGlobal = async () => {
       if (!globalHeld) return;

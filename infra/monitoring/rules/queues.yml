@@ -1,0 +1,30 @@
+# Queue age alerts per worker pool (S11 review, PLAN §9 and §5.6). Loaded by Prometheus on the monitoring host (Ansible
+# role `monitoring`). Unit tests: queues.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metric: every worker process (OpenTelemetry → Prometheus exporter), from packages/platform/src/queue/worker.ts:
+#   inmolink_queue_wait_seconds   histogram, by `pool`: seconds a job waited past its due time (enqueue + requested
+#                                 delay) before its first attempt ran — over-cap bounces count, retry backoff does not
+groups:
+  - name: queues
+    rules:
+      # The delivery pools' target (PLAN §9): queue age p95 < 30 s — mail (`email`) and live socket pushes (`realtime`).
+      - alert: DeliveryQueueAgeHigh
+        expr: >-
+          histogram_quantile(0.95, sum by (le, pool) (rate(inmolink_queue_wait_seconds_bucket{pool=~"email|realtime"}[5m])))
+          > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jobs of pool {{ $labels.pool }} wait {{ $value | humanizeDuration }} (p95) in the queue"
+          runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+      # Every other pool: a p95 past 15 minutes means the pool is saturated or its workers are down.
+      - alert: QueueAgeHigh
+        expr: >-
+          histogram_quantile(0.95, sum by (le, pool) (rate(inmolink_queue_wait_seconds_bucket{pool!~"email|realtime"}[15m])))
+          > 900
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jobs of pool {{ $labels.pool }} wait {{ $value | humanizeDuration }} (p95) in the queue"
+          runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert

@@ -7,15 +7,18 @@ PLAN §5.3 #5–#7, §17. Background work flows **outbox (Postgres) → dispatch
 | What | Where |
 |---|---|
 | Pending and processed events | `outbox_events` (Postgres; dead-lettered events have `dead_at` set) |
-| Queues | redis-queue, key prefix `inl`, one BullMQ queue per pool (`imports`, `media`, `email`, …) |
+| Queues | redis-queue, key prefix `inl`, one BullMQ queue per pool (`imports`, `media`, `email`, `realtime`, `digest`, …; `.claude/rules/workers.md` lists them) |
 | Dead letters | queue `<pool>.dead`, one entry per final failure: `{ jobId, payload, error, attemptsMade, failedAt }`. Kept 30 days, nothing consumes it |
-| Metrics | queue depth and age per pool (worker `/metrics`, BullMQ OTel metrics); alerts on queue age (PLAN §5.6) |
+| Metrics | queue depth per pool (worker `/metrics`, BullMQ OTel metrics); queue age per pool `inmolink_queue_wait_seconds{pool}` (seconds past the due time before the first attempt ran); alerts `DeliveryQueueAgeHigh` (`email`, `realtime`: p95 > 30 s for 5 min, PLAN §9) and `QueueAgeHigh` (other pools: p95 > 15 min for 15 min), infra/monitoring/rules/queues.yml |
 
 ## Jobs pile up (queue age alert)
 
 1. Find which pool and which tenant. Check the worker logs for `job dead-lettered` and slow job spans in the trace backend (Jaeger locally). Fair share caps each tenant, so one big import cannot block the pool (PLAN §3 #39).
 2. Check that the worker for that pool is running: `/healthz` and `/readyz` on the worker health port, and that `WORKER_POOLS` includes the pool.
 3. If the pool is healthy but saturated, add a worker process or node for that pool (scale trigger in PLAN §5.6). Do not raise per-tenant caps.
+4. `digest` backed up after a broad network post (thousands of notification digests at once) is expected to drain at the
+   SMTP relay's pace; it has its own queue and slots, so `realtime` and `email` stay unaffected. If `DeliveryQueueAgeHigh`
+   fires at the same time, check that the jobs of `realtime` / `email` are not mis-pooled (`apps/worker/src/processors`).
 
 ## A job dead-lettered
 

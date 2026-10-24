@@ -140,6 +140,28 @@ describe('Kamal deploy config', () => {
     expect(workers.MALLOC_MMAP_THRESHOLD_).toBe(media.MALLOC_MMAP_THRESHOLD_);
   });
 
+  it('[S11-review] every worker pool runs in exactly one role; the workers role runs realtime and digest as pools of their own', async () => {
+    const { POOLS } = await import('../../apps/worker/src/config');
+    const k = kamal('worker');
+    const byRole = Object.entries(k.servers).map(
+      ([name, role]) => [name, (role.env?.clear?.WORKER_POOLS ?? '').split(',').map((p) => p.trim())] as const,
+    );
+    for (const pool of POOLS) {
+      expect(
+        byRole.filter(([, pools]) => pools.includes(pool)).map(([name]) => name),
+        pool,
+      ).toHaveLength(1);
+    }
+    const workers = byRole.find(([name]) => name === 'workers')?.[1] ?? [];
+    expect(workers).toEqual(expect.arrayContaining(['email', 'realtime', 'digest']));
+    // Every alert rule file is deployed (the queue-age alerts among them).
+    const rules = readdirSync(join(ROOT, 'infra', 'monitoring', 'rules')).filter(
+      (f) => f.endsWith('.yml') && !f.endsWith('.test.yml'),
+    );
+    const deployed = read('infra', 'ansible', 'roles', 'monitoring', 'tasks', 'main.yml');
+    for (const file of rules) expect(deployed, file).toContain(file);
+  });
+
   it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
     const k = kamal('worker');
     const media = k.servers.media as KamalRole;

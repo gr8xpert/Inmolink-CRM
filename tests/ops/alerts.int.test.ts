@@ -56,6 +56,16 @@ describe('Website API alerts', () => {
   }, 200_000);
 });
 
+describe('Queue age alerts', () => {
+  it('[S11-review] queue age alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/queues.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S11-review] a delivery pool (realtime, email) past a 30 s p95 alerts after 5 min; digests only past 15 min', async () => {
+    expect(await promtool('test', 'rules', '/rules/queues.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});
+
 describe('Redis memory alerts', () => {
   it('[S7-04] redis memory alert rules are valid Prometheus rules', async () => {
     expect(await promtool('check', 'rules', '/rules/redis.yml')).toMatch(/SUCCESS: \d+ rules found/);

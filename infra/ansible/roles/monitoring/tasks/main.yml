@@ -32,7 +32,7 @@
     src: "{{ playbook_dir }}/../monitoring/rules/{{ item }}"
     dest: "/etc/inmolink/monitoring/rules/{{ item }}"
     mode: "0644"
-  loop: [postgres.yml, search.yml, imports.yml, website.yml, redis.yml]
+  loop: [postgres.yml, search.yml, imports.yml, website.yml, redis.yml, queues.yml]
   register: monitoring_rules
 
 - name: Grafana dashboards (infra/grafana/dashboards)

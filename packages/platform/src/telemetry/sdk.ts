@@ -17,7 +17,7 @@ import {
   TraceIdRatioBasedSampler,
 } from '@opentelemetry/sdk-trace-node';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
-import { HTTP_DURATION_METRIC } from './names';
+import { HTTP_DURATION_METRIC, QUEUE_WAIT_BUCKETS_S, QUEUE_WAIT_METRIC } from './names';
 import { RedactingSpanExporter } from './redact';
 
 /** Histogram buckets (seconds) for request and job durations: 5 ms … 10 s. */
@@ -157,6 +157,10 @@ export function startTelemetry(options: TelemetryOptions): Telemetry {
       {
         instrumentName: HTTP_DURATION_METRIC,
         aggregation: { type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM, options: { boundaries: DURATION_BUCKETS_S } },
+      },
+      {
+        instrumentName: QUEUE_WAIT_METRIC,
+        aggregation: { type: AggregationType.EXPLICIT_BUCKET_HISTOGRAM, options: { boundaries: QUEUE_WAIT_BUCKETS_S } },
       },
       {
         // BullMQ records job durations in milliseconds.

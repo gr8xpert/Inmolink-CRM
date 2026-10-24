@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineJob, stableJobId } from './index';
-import { groupRetryDelay } from './worker';
+import { groupRetryDelay, queueWaitMs } from './worker';
 
 const payload = z.object({ id: z.string() });
 
@@ -67,5 +67,16 @@ describe('fair share over-cap backoff', () => {
     const jittered = groupRetryDelay(3, 250, 5_000, 0.999);
     expect(jittered).toBeGreaterThanOrEqual(1_000);
     expect(jittered).toBeLessThan(2_000);
+  });
+
+  it('[S11-review] queue age counts from the due time (enqueue + requested delay), bounces included, retries excluded', () => {
+    // enqueued at 1 000 with a 5 s throttle, first run at 6 500: waited 0.5 s past due
+    expect(queueWaitMs({ timestamp: 1_000, attemptsMade: 0, opts: { delay: 5_000 } }, 6_500)).toBe(500);
+    // no delay: the whole time since enqueue (over-cap bounces leave `opts.delay` as requested)
+    expect(queueWaitMs({ timestamp: 1_000, attemptsMade: 0, opts: {} }, 4_000)).toBe(3_000);
+    // a clock skew or an early pickup never records a negative age
+    expect(queueWaitMs({ timestamp: 1_000, attemptsMade: 0, opts: { delay: 5_000 } }, 5_000)).toBe(0);
+    // a retry's backoff is intended, not queue age
+    expect(queueWaitMs({ timestamp: 1_000, attemptsMade: 1, opts: {} }, 60_000)).toBeUndefined();
   });
 });

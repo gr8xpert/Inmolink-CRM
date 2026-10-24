@@ -50,7 +50,10 @@ try {
   if (config.REDIS_CACHE_URL) await configureCache({ url: config.REDIS_CACHE_URL, logger });
   // S11-F13: the HMAC_KEY rotation window (opt-in stored-hash lookups accept HMAC_KEY_PREVIOUS until it ends).
   if (config.HMAC_KEY) hmacRotationFromEnv({ ...config, HMAC_KEY: config.HMAC_KEY }, logger);
-  if (config.WORKER_POOLS.includes('email')) await configureEmail(emailConfig(config));
+  // The digest pool (S11 review) mails too.
+  if (config.WORKER_POOLS.includes('email') || config.WORKER_POOLS.includes('digest')) {
+    await configureEmail(emailConfig(config));
+  }
   // S7-05: lead acknowledgements (email) and S7-07: per-site XML feeds (exports) serialize listings like the website
   // API (media CDN, white-label).
   if (

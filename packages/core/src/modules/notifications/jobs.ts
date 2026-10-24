@@ -4,26 +4,25 @@ import { DIGEST_DELAY_MS, pushNotifications, sendDigest } from './service';
 
 export { DIGEST_DELAY_MS };
 
-/** Digests running at once in one e-mail worker process: a burst of digests never holds the slots live pushes need. */
-const DIGEST_PER_PROCESS = 2;
-
 /**
- * notifications worker jobs (PATTERNS §12). Idempotent, per-tenant fair share, pool `email` (the delivery pool:
- * queue age p95 < 30 s, PLAN §9).
+ * notifications worker jobs (PATTERNS §12). Idempotent, per-tenant fair share.
  *
- * - `notifications.pushRealtime` (one per `notifications.notification.created` event, job ID = the event's id): the
+ * - `notifications.pushRealtime` (pool `realtime`, the live-push lane with `chat.deliverMessage` and `chat.pushRead`:
+ *   queue age p95 < 30 s, PLAN §9; one per `notifications.notification.created` event, job ID = the event's id): the
  *   event's unread in-app notifications go to their recipients' sockets (redis-cache pub/sub → apps/realtime). At
  *   least once: a retry pushes again, clients drop ids they already have.
- * - `notifications.sendDigest` (per member, throttled: the first notification of a quiet member starts a 5-minute
- *   window, later ones join it — enqueue with `{ throttleMs: DIGEST_DELAY_MS }`): one e-mail with what is still
- *   unread and whose type still has e-mail on, at least 5 minutes old. Idempotent by its claim in the database
- *   (`email_pending`); younger ones waiting queue the next run for when they are due. At most 2 per process, so
- *   digests never take the slots live pushes need.
+ * - `notifications.sendDigest` (pool `digest`, its own queue, slots and fair-share backlogs — S11 review: a broad
+ *   network post queues thousands of digests, which must never delay a live push or the `email` pool's mail; per
+ *   member, throttled: the first notification of a quiet member starts a 5-minute window, later ones join it —
+ *   enqueue with `{ throttleMs: DIGEST_DELAY_MS }`): one e-mail with what is still unread and whose type still has
+ *   e-mail on, at least 5 minutes old. Idempotent by its claim in the database (`email_pending`); younger ones waiting
+ *   queue the next run for when they are due. No per-process cap: the pool's concurrency is the bound, so a burst
+ *   waits in its queue instead of bouncing through delayed.
  */
 export const notificationsJobs = {
   pushRealtime: defineJob({
     name: 'notifications.pushRealtime',
-    pool: 'email',
+    pool: 'realtime',
     payload: z.object({
       eventId: z.uuid(),
       agencyId: z.uuid(),
@@ -44,10 +43,9 @@ export const notificationsJobs = {
 
   sendDigest: defineJob({
     name: 'notifications.sendDigest',
-    pool: 'email',
+    pool: 'digest',
     payload: z.object({ agencyId: z.uuid(), userId: z.uuid() }),
     group: (p) => p.agencyId,
-    perProcessConcurrency: DIGEST_PER_PROCESS,
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 60_000,

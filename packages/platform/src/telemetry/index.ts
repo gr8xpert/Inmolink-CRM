@@ -16,7 +16,7 @@ import { startTelemetry, type Telemetry } from './sdk';
 export { activeTraceIds, currentTraceparent, tracer, withConsumerSpan } from './context';
 export { type ErrorReportingOptions, flushErrors, initErrorReporting } from './errors';
 export { defaultInstrumentations, registerDefaultInstrumentations } from './instrumentations';
-export { HTTP_DURATION_METRIC } from './names';
+export { HTTP_DURATION_METRIC, QUEUE_WAIT_BUCKETS_S, QUEUE_WAIT_METRIC } from './names';
 export { RedactingSpanExporter, redactSpan } from './redact';
 export { type ErrorTags, reportError } from './report';
 export {

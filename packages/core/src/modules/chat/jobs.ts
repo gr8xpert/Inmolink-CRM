@@ -12,13 +12,14 @@ import { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from 
  * - `chat.seatViewingThread` — a new viewing thread's default members on both sides, and its subject.
  * - `chat.closeViewingThread` — a declined, cancelled or expired viewing request's thread becomes read-only.
  *
- * Pool `email`, with `notifications.pushRealtime`: the delivery pool, where digests are capped at 2 per process so live
- * pushes keep their slots (S11-04's choice; no separate latency pool).
+ * Pools (S11 review): the live pushes (`deliverMessage`, `pushRead`) run in `realtime` with `notifications.pushRealtime` —
+ * the live-push lane, which no mail or digest burst shares (digests have their own `digest` pool); seating and closing
+ * viewing threads run in `email` (the delivery pool).
  */
 export const chatJobs = {
   deliverMessage: defineJob({
     name: 'chat.deliverMessage',
-    pool: 'email',
+    pool: 'realtime',
     payload: z.object({
       eventId: z.uuid(),
       agencyId: z.uuid(),
@@ -38,7 +39,7 @@ export const chatJobs = {
 
   pushRead: defineJob({
     name: 'chat.pushRead',
-    pool: 'email',
+    pool: 'realtime',
     payload: z.object({
       eventId: z.uuid(),
       agencyId: z.uuid(),

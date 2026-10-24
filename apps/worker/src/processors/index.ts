@@ -90,15 +90,20 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.sendTaskReminder,
     // S10-06: calendar reminder e-mails (one per claimed member attendee).
     crmJobs.sendEventReminder,
-    // S11-04: notifications pushed to the recipients' sockets, and the 5-minute e-mail digest.
-    notificationsJobs.pushRealtime,
-    notificationsJobs.sendDigest,
-    // S11-03: chat messages and read receipts pushed live, chat notifications, viewing threads seated.
-    chatJobs.deliverMessage,
-    chatJobs.pushRead,
+    // S11-03: viewing threads seated and closed (the live pushes run in `realtime`).
     chatJobs.seatViewingThread,
     chatJobs.closeViewingThread,
   ],
+  // S11 review: live socket pushes, never behind mail or digests (delivery target: queue age p95 < 30 s, PLAN §9).
+  realtime: [
+    // S11-03: chat messages (and their notifications) and read receipts pushed live.
+    chatJobs.deliverMessage,
+    chatJobs.pushRead,
+    // S11-04: in-app notifications pushed to the recipients' sockets.
+    notificationsJobs.pushRealtime,
+  ],
+  // S11 review: the 5-minute notification e-mail digests (S11-04), thousands at once after a broad network post.
+  digest: [notificationsJobs.sendDigest],
   maintenance: [
     identityJobs.pruneAuthTokens,
     // S11-05: network board posts past their expiry are closed every 15 minutes.
@@ -151,11 +156,16 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   pdf: [],
 };
 
+/** Digests in flight per process (each one a database claim and one e-mail): the SMTP relay sets the pace, not slots. */
+export const DIGEST_CONCURRENCY = 4;
+
 /**
  * Pool options over the defaults. `email` (S10-02): the speed-to-lead pool's one group-capped job is
  * `crm.promoteInboundLead` (one per agency at a time); a lead waiting for its agency's previous one re-polls within
  * 1 s instead of backing off to 5 s (+ jitter), so a burst of one agency's leads stays inside the 10 s target.
+ * `digest` (S11 review): its own slots per process, no per-process cap to bounce off — a burst waits in its queue.
  */
 export const POOL_OPTIONS: Partial<Record<Exclude<Pool, 'outbox'>, PoolOptions>> = {
   email: { groupRetryMs: 100, groupRetryMaxMs: 1_000 },
+  digest: { concurrency: DIGEST_CONCURRENCY },
 };

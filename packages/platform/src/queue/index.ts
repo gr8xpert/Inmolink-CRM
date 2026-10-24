@@ -23,6 +23,7 @@ export {
   isPermanent,
   type PoolHandle,
   type PoolOptions,
+  queueWaitMs,
   RetryableError,
   registerPool,
   UnrecoverableError,
