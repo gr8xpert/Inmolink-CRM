@@ -5,6 +5,7 @@ export * from './agencies';
 export * from './agency-profile';
 export * from './api-keys';
 export * from './billing';
+export * from './chat';
 export * from './common';
 export * from './compliance';
 export * from './crm';

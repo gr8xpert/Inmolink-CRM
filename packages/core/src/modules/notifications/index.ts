@@ -42,6 +42,7 @@ export {
   getUnreadCount,
   listNotifications,
   markAllNotificationsRead,
+  markLinkRead,
   markNotificationsRead,
   NotifyInput,
   type NotifyResult,

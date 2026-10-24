@@ -309,6 +309,9 @@ importers:
       '@inmolink/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@inmolink/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2

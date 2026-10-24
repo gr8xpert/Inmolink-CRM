@@ -20,6 +20,14 @@ const NOTIFICATION = '0192a0b4-0000-7000-8000-0000000000f1';
 const STAFF = '0192a0b4-0000-7000-8000-0000000000b1';
 const SESSION = '0192a0b4-0000-7000-8000-0000000000c1';
 const ORIGIN = 'http://localhost:3100';
+const THREAD = '0192a0b4-0000-7000-8000-0000000000d1';
+const STRANGER = '0192a0b4-0000-7000-8000-000000000003';
+/** S11-03: who the database says takes part in which thread (USER and OTHER_USER of AGENCY in THREAD). */
+const PARTICIPANTS = new Set([`${AGENCY}:${USER}:${THREAD}`, `${AGENCY}:${OTHER_USER}:${THREAD}`]);
+const joinChecks: string[] = [];
+/** S11-03: the per-user Redis counters (`deps.limit`), faked: LIMITED is over its join limit. */
+const LIMITED = '0192a0b4-0000-7000-8000-000000000004';
+const limited: string[] = [];
 const pair = generateAccessKeyPair();
 const signer = createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 'k1' });
 
@@ -36,6 +44,14 @@ beforeAll(async () => {
     checks: { redis: async () => {} },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`k1:${pair.publicKey}`) }),
     allowedOrigins: [ORIGIN],
+    canJoinThread: async ({ userId, agencyId }, threadId) => {
+      joinChecks.push(`${agencyId}:${userId}:${threadId}`);
+      return PARTICIPANTS.has(`${agencyId}:${userId}:${threadId}`);
+    },
+    limit: async (rule, identity) => {
+      limited.push(`${rule.name}:${identity}`);
+      return !(rule.name === 'realtime.chat.join.user' && identity.endsWith(LIMITED));
+    },
     userEvents: async (handler) => {
       publish = handler;
       return async () => {
@@ -194,6 +210,119 @@ describe('realtime app', () => {
       expect(await got).toEqual([]);
     } finally {
       theirs.close();
+    }
+  });
+
+  /** `socket`'s ack for `event` with `data`. */
+  const ask = (socket: Socket, event: string, data: unknown) =>
+    new Promise<unknown>((resolve) => socket.emit(event, data, (a: unknown) => resolve(a)));
+
+  it('[S11-03] /chat refuses a socket without a valid token, without an agency, or impersonating', async () => {
+    expect(await open('/chat')).toBe('NOT_AUTHENTICATED');
+    expect(await open('/chat', USER, {})).toBe('NOT_AUTHENTICATED');
+    expect(await open('/chat', USER, { agency: AGENCY, act: STAFF, imp: SESSION })).toBe('FORBIDDEN');
+  });
+
+  it('[S11-03] users cannot join a thread they are not part of: the join is refused and typing neither reaches nor leaves them', async () => {
+    const [mine, colleague, stranger, otherAgency] = connected(
+      await open('/chat', USER),
+      await open('/chat', OTHER_USER),
+      await open('/chat', STRANGER),
+      await open('/chat', USER, { agency: OTHER_AGENCY }),
+    );
+    try {
+      joinChecks.length = 0;
+      expect(await ask(mine, 'join', { threadId: THREAD })).toEqual({ ok: true });
+      expect(await ask(colleague, 'join', { threadId: THREAD })).toEqual({ ok: true });
+      // not a participant (the database says no), nor the same user in another agency: refused
+      expect(await ask(stranger, 'join', { threadId: THREAD })).toEqual({ ok: false, error: 'FORBIDDEN' });
+      expect(await ask(otherAgency, 'join', { threadId: THREAD })).toEqual({ ok: false, error: 'FORBIDDEN' });
+      // the check asks for the socket's own user and agency (from the token), whatever the client sends
+      expect(await ask(stranger, 'join', { threadId: THREAD, userId: USER })).toEqual({
+        ok: false,
+        error: 'VALIDATION_FAILED',
+      });
+      expect(await ask(stranger, 'join', `thread:${THREAD}`)).toEqual({ ok: false, error: 'VALIDATION_FAILED' });
+      expect(joinChecks.sort()).toEqual(
+        [
+          `${AGENCY}:${USER}:${THREAD}`,
+          `${AGENCY}:${OTHER_USER}:${THREAD}`,
+          `${AGENCY}:${STRANGER}:${THREAD}`,
+          `${OTHER_AGENCY}:${USER}:${THREAD}`,
+        ].sort(),
+      );
+
+      const got = [mine, colleague, stranger, otherAgency].map((s) => received(s, 'typing'));
+      // a socket outside the thread cannot type into it
+      expect(await ask(stranger, 'typing', { threadId: THREAD })).toEqual({ ok: false, error: 'FORBIDDEN' });
+      expect(await ask(mine, 'typing', { threadId: THREAD })).toEqual({ ok: true });
+      const [gotMine, gotColleague, gotStranger, gotOther] = await Promise.all(got);
+      expect(gotColleague).toEqual([{ threadId: THREAD, agencyId: AGENCY, userId: USER }]);
+      expect(gotMine).toEqual([]);
+      expect(gotStranger).toEqual([]);
+      expect(gotOther).toEqual([]);
+
+      // after leaving, typing is refused
+      expect(await ask(colleague, 'leave', { threadId: THREAD })).toEqual({ ok: true });
+      expect(await ask(colleague, 'typing', { threadId: THREAD })).toEqual({ ok: false, error: 'FORBIDDEN' });
+    } finally {
+      for (const s of [mine, colleague, stranger, otherAgency]) s.close();
+    }
+  });
+
+  it('[S11-03] chat messages reach only their recipient’s sockets on /chat; malformed or unknown events are dropped', async () => {
+    const [mine, theirs, otherAgency, notif] = connected(
+      await open('/chat', USER),
+      await open('/chat', OTHER_USER),
+      await open('/chat', USER, { agency: OTHER_AGENCY }),
+      await open('/notifications', USER),
+    );
+    try {
+      const got = [mine, theirs, otherAgency, notif].map((s) => received(s, 'message'));
+      const data = {
+        agencyId: AGENCY,
+        message: {
+          id: NOTIFICATION,
+          threadId: THREAD,
+          sender: { agencyId: AGENCY, userId: OTHER_USER, name: 'Ana', ownAgency: true },
+          body: 'Hola',
+          createdAt: '2026-10-24T10:00:00.000Z',
+        },
+      };
+      publish?.({ userId: USER, agencyId: AGENCY, namespace: '/chat', event: 'message', data });
+      publish?.({ userId: USER, agencyId: AGENCY, namespace: '/chat', event: 'message', data: { ...data, extra: 1 } });
+      publish?.({ userId: USER, agencyId: AGENCY, namespace: '/chat', event: 'typing', data });
+      const [gotMine, gotTheirs, gotOther, gotNotif] = await Promise.all(got);
+      expect(gotMine).toEqual([data]);
+      expect(gotTheirs).toEqual([]);
+      expect(gotOther).toEqual([]);
+      expect(gotNotif).toEqual([]);
+    } finally {
+      for (const s of [mine, theirs, otherAgency, notif]) s.close();
+    }
+  });
+
+  it('[S11-03] /chat counts each user across nodes: joins over the per-user limit and an 11th socket on a node are refused', async () => {
+    const [over] = connected(await open('/chat', LIMITED));
+    try {
+      expect(await ask(over, 'join', { threadId: THREAD })).toEqual({ ok: false, error: 'RATE_LIMITED' });
+      expect(limited).toContain(`realtime.chat.connect.user:${AGENCY}:${LIMITED}`);
+      expect(limited).toContain(`realtime.chat.join.user:${AGENCY}:${LIMITED}`);
+    } finally {
+      over.close();
+    }
+    const tabs: Socket[] = [];
+    try {
+      for (let i = 0; i < 10; i++) {
+        const [tab] = connected(await open('/chat', OTHER_USER));
+        tabs.push(tab);
+      }
+      expect(await open('/chat', OTHER_USER)).toBe('RATE_LIMITED');
+      // another user of the agency is not affected
+      const [other] = connected(await open('/chat', USER));
+      other.close();
+    } finally {
+      for (const t of tabs) t.close();
     }
   });
 });

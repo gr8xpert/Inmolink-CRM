@@ -7,6 +7,7 @@ import {
   httpEnv,
   loadConfigOrExit,
   portVar,
+  rateLimitEnv,
   redisEnv,
   telemetryEnv,
   webUrlEnv,
@@ -22,6 +23,8 @@ export const realtimeEnv = {
   ...telemetryEnv,
   DATABASE_URL_APP_USER: databaseEnv.DATABASE_URL_APP_USER,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  /** S11-03: per-user /chat limits (connects, thread joins) across nodes. */
+  ...rateLimitEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   ...webUrlEnv,

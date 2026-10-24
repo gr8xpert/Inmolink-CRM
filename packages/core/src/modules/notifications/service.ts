@@ -243,6 +243,29 @@ export async function markAllNotificationsRead(ctx: Ctx): Promise<MarkAllNotific
   return { updated, more: unread.count > 0, unread };
 }
 
+/**
+ * For other modules' read actions (S11-03: a chat thread read): the caller's unread notifications of `type` linking to
+ * `link` raised after `since` become read (≤ 100, one statement), so the e-mail digest leaves them out. The badge is the
+ * client's to refresh (the read answer tells it); no push. No authorization of its own: the
+ * calling use case authorized the read; only the caller's own rows change (RLS `user_id = app_user_id()`).
+ */
+export async function markLinkRead(
+  ctx: Ctx,
+  input: { type: NotificationType; link: string; since: Date },
+): Promise<number> {
+  const type = NotificationType.parse(input.type);
+  const link = NotificationLink.parse(input.link);
+  return repo.markLinkRead(
+    ctx.tx,
+    ctx.tenant.agencyId,
+    userIdOf(ctx),
+    type,
+    link,
+    input.since,
+    NOTIFICATION_LIMITS.recipients,
+  );
+}
+
 /** `GET /v1/notifications/preferences`: every type of the catalog with the caller's choice (default: all on). */
 export async function getNotificationPreferences(ctx: Ctx): Promise<NotificationPreferencesDto> {
   assertCan(ctx, 'notifications.read');

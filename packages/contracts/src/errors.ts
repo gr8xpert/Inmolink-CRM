@@ -309,6 +309,13 @@ export const ErrorCodes = {
   VIEWING_REQUEST_STATE: 409,
   /** The target publishes no complete commission terms (a commission or fixed amount, and a split): no snapshot to agree. */
   VIEWING_TERMS_INCOMPLETE: 422,
+  // chat (S11-03)
+  /** No thread with this id that the caller takes part in (none, another agency's, or one they are not in). */
+  CHAT_THREAD_NOT_FOUND: 404,
+  /** A thread's members must be active members of the caller's agency (and at most `CHAT_LIMITS.participants`). */
+  CHAT_PARTICIPANTS_INVALID: 422,
+  /** The thread's viewing request was declined, cancelled or expired: the thread is read-only. */
+  CHAT_THREAD_CLOSED: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

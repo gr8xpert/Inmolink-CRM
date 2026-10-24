@@ -3,6 +3,7 @@ import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
 import type calendar from '../messages/en/calendar.json';
+import type chat from '../messages/en/chat.json';
 import type contacts from '../messages/en/contacts.json';
 import type dataExport from '../messages/en/data-export.json';
 import type developments from '../messages/en/developments.json';
@@ -35,6 +36,7 @@ export interface Messages {
   'api-keys': typeof apiKeys;
   auth: typeof auth;
   calendar: typeof calendar;
+  chat: typeof chat;
   contacts: typeof contacts;
   'data-export': typeof dataExport;
   developments: typeof developments;

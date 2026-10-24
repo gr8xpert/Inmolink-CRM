@@ -1,4 +1,10 @@
 /** mls — public API (PATTERNS §1). The only import path for other modules and apps. */
+export {
+  CLOSED_VIEWING_STATUSES,
+  type ViewingChatContext,
+  viewingChatContext,
+  viewingCounterpart,
+} from './chat-context';
 export { configureMls, type MlsConfig, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
 export { mlsErrors } from './errors';
 export { mlsEvents } from './events';

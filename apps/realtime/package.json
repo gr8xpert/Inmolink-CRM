@@ -25,6 +25,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
+    "@inmolink/db": "workspace:*",
     "@types/node": "24.19.2",
     "socket.io-client": "4.8.4",
     "tsdown": "0.23.0",

@@ -1298,7 +1298,10 @@
                             "VIEWING_REQUEST_NOT_FOUND",
                             "VIEWING_REQUEST_OPEN",
                             "VIEWING_REQUEST_STATE",
-                            "VIEWING_TERMS_INCOMPLETE"
+                            "VIEWING_TERMS_INCOMPLETE",
+                            "CHAT_THREAD_NOT_FOUND",
+                            "CHAT_PARTICIPANTS_INVALID",
+                            "CHAT_THREAD_CLOSED"
                           ],
                           "type": "string"
                         },
@@ -3516,7 +3519,10 @@
                             "VIEWING_REQUEST_NOT_FOUND",
                             "VIEWING_REQUEST_OPEN",
                             "VIEWING_REQUEST_STATE",
-                            "VIEWING_TERMS_INCOMPLETE"
+                            "VIEWING_TERMS_INCOMPLETE",
+                            "CHAT_THREAD_NOT_FOUND",
+                            "CHAT_PARTICIPANTS_INVALID",
+                            "CHAT_THREAD_CLOSED"
                           ],
                           "type": "string"
                         },

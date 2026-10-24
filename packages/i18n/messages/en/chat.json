@@ -1,0 +1,18 @@
+{
+  "title": "Chat",
+  "empty": "No conversations yet.",
+  "newThread": "New conversation",
+  "openViewingThread": "Message the other agency",
+  "placeholder": "Write a message…",
+  "send": "Send",
+  "typing": "{name} is typing…",
+  "unread": "Unread",
+  "seen": "Seen",
+  "handoff": {
+    "whatsapp": "Continue on WhatsApp",
+    "email": "Continue by e-mail",
+    "subjectViewing": "Viewing {subject}",
+    "subjectDirect": "Our conversation",
+    "text": "Following up on our Inmolink conversation: {subject}"
+  }
+}

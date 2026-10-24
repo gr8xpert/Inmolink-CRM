@@ -1,0 +1,18 @@
+{
+  "title": "Chat",
+  "empty": "Aún no hay conversaciones.",
+  "newThread": "Nueva conversación",
+  "openViewingThread": "Escribir a la otra agencia",
+  "placeholder": "Escribe un mensaje…",
+  "send": "Enviar",
+  "typing": "{name} está escribiendo…",
+  "unread": "Sin leer",
+  "seen": "Visto",
+  "handoff": {
+    "whatsapp": "Continuar en WhatsApp",
+    "email": "Continuar por correo",
+    "subjectViewing": "Visita {subject}",
+    "subjectDirect": "Nuestra conversación",
+    "text": "Seguimos con nuestra conversación de Inmolink: {subject}"
+  }
+}

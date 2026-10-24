@@ -61,6 +61,8 @@ env:
     - SENTRY_DSN
     # redis://:<REDIS_CACHE_PASSWORD>@inmolink-api-redis-cache:6379 — the api accessory, password-protected (S1-F5).
     - REDIS_CACHE_URL
+    # S11-03: per-user /chat limits (the api's redis-limits).
+    - REDIS_LIMITS_URL
     - DATABASE_URL_APP_USER
     - AUTH_JWT_PUBLIC_KEYS
     - ENCRYPTION_KEYS

@@ -1137,6 +1137,62 @@ export const tenantTables: Record<string, TenantTable> = {
       terms_valid_until: '2026-07-01T00:00:00Z',
     },
   },
+  // S11-03, chat (PLAN §7 M12). Each agency reads its own copy of a thread (one policy per table). The thread row
+  // (kind, the other agency, title, subject, last activity — no content) is agency-visible; app_user inserts its own
+  // (`chat_threads_insert_guard` stamps the starter and times); only a DIRECT thread's starter renames it and nobody
+  // deletes one (`chat_threads_guard`). `chat_threads_mirror`
+  // (definer) appends the other agency's copy of a VIEWING thread, only for a viewing request between exactly those two
+  // agencies; `chat_messages_fanout` (definer) moves both copies' `last_message_at`.
+  chat_threads: {
+    kind: 'STRICT',
+    definerSync: { functions: ['chat_threads_mirror', 'chat_messages_fanout'] },
+    userNoUpdateColumns: [
+      'id',
+      'kind',
+      'peer_agency_id',
+      'subject',
+      'created_by_user_id',
+      'created_at',
+      'last_message_at',
+      'closed_at',
+    ],
+    triggers: ['chat_threads_insert_guard', 'chat_threads_mirror', 'chat_threads_guard'],
+    base: { kind: 'DIRECT' },
+  },
+  // The agency's members in a thread and their read state. A member joins a VIEWING thread themselves, or is added by
+  // the starter of a DIRECT thread in the transaction that started it (`chat_participants_guard`); workers seat a viewing
+  // thread's default members. Members change only their own `last_read_at` and remove nobody
+  // (`chat_participants_change_guard`); `chat_messages_fanout` (definer) keeps
+  // `last_message_at` (and the sender's read state) and the notify job (app_system) `notified_at`.
+  chat_participants: {
+    kind: 'STRICT',
+    definerSync: { functions: ['chat_messages_fanout'] },
+    userNoUpdateColumns: ['thread_id', 'user_id', 'joined_at', 'last_message_at', 'notified_at'],
+    triggers: ['chat_participants_guard', 'chat_participants_change_guard'],
+  },
+  // The agency's copy of each message: read by the thread's participants only (and its sender), appended by a
+  // participant as themselves (`chat_messages_fanout` refuses anyone else and appends the other agency's copy). Never
+  // changed (no updatable column) nor deleted by a request (`chat_messages_guard`).
+  chat_messages: {
+    kind: 'STRICT',
+    definerSync: { functions: ['chat_messages_fanout'] },
+    userNoUpdateColumns: [
+      'id',
+      'thread_id',
+      'sender_agency_id',
+      'sender_user_id',
+      'sender_name',
+      'body',
+      'client_key',
+      'created_at',
+    ],
+    triggers: ['chat_messages_guard', 'chat_messages_fanout'],
+    userSelect: {
+      sql: 'sender_user_id = app_user_id() or exists (select 1 from public.chat_participants p where p.agency_id = chat_messages.agency_id and p.thread_id = chat_messages.thread_id and p.user_id = app_user_id())',
+      write: { insert: 'sender_user_id = app_user_id()' },
+      samples: { visible: [{ sender_user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+  },
 };
 
 /**

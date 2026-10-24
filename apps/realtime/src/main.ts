@@ -1,7 +1,10 @@
-import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import { closeDb, configureDb, loadStackEnv, pingDb, withMemberCtx } from '@inmolink/core';
+import * as chat from '@inmolink/core/modules/chat';
 import { configureCache, pubSubConnections, subscribeUserEvents } from '@inmolink/platform/cache';
+import { newId } from '@inmolink/platform/ids';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeRateLimit, configureRateLimit, rateLimiter } from '@inmolink/platform/rate-limit';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { buildApp } from './app';
@@ -19,6 +22,8 @@ const telemetry = startObservability(config, {
 try {
   await configureDb({ APP_ROLE: 'http', DATABASE_URL_APP_USER: config.DATABASE_URL_APP_USER }, { logger });
   await configureCache({ url: config.REDIS_CACHE_URL, logger });
+  // S11-03: per-user /chat counters (connects, thread joins) across nodes
+  await configureRateLimit({ url: config.REDIS_LIMITS_URL, logger });
   const { pub, sub } = pubSubConnections();
   // S11-04: workers' per-user events (new notifications) on their own subscriber connection
   const userEvents = pub.duplicate();
@@ -31,6 +36,13 @@ try {
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(config.AUTH_JWT_PUBLIC_KEYS) }),
     allowedOrigins: [new URL(config.WEB_URL).origin],
     userEvents: (handler) => subscribeUserEvents(userEvents, handler, logger),
+    // S11-03: a `/chat` join is the member's own request (app_user, RLS): an inactive member or a thread they are not
+    // in answers no
+    canJoinThread: (auth, threadId) =>
+      withMemberCtx({ userId: auth.userId, agencyId: auth.agencyId, requestId: newId() }, (ctx) =>
+        chat.canJoinThread(ctx, threadId),
+      ).catch(() => false),
+    limit: async (rule, identity) => (await rateLimiter().consume(rule, identity)).allowed,
     checks: { db: () => pingDb('app_user'), redis: redisCheck(() => pub) },
   });
 
@@ -39,6 +51,7 @@ try {
     steps: [
       { name: 'sockets+http', run: () => realtime.drain(config.SHUTDOWN_DRAIN_DELAY_MS) },
       { name: 'redis', run: async () => void (await Promise.all([pub.quit(), sub.quit(), userEvents.quit()])) },
+      { name: 'rate-limit', run: closeRateLimit },
       { name: 'db', run: closeDb },
       { name: 'telemetry', run: telemetry.shutdown },
     ],

@@ -1,4 +1,5 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
+import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
 import { crmJobs } from '@inmolink/core/modules/crm';
@@ -87,6 +88,11 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S11-04: notifications pushed to the recipients' sockets, and the 5-minute e-mail digest.
     notificationsJobs.pushRealtime,
     notificationsJobs.sendDigest,
+    // S11-03: chat messages and read receipts pushed live, chat notifications, viewing threads seated.
+    chatJobs.deliverMessage,
+    chatJobs.pushRead,
+    chatJobs.seatViewingThread,
+    chatJobs.closeViewingThread,
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,

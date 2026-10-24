@@ -213,6 +213,43 @@ export async function markAllRead(tx: Tx, agencyId: string, userId: string, max:
 }
 
 /**
+ * S11-03: the member's unread notifications of one type and link raised after `since` read (a chat thread read in the
+ * dashboard: its `CHAT_MESSAGE` notifications are seen, so the digest does not mail them). Unread in the feed or waiting
+ * for the digest (`notifications_unread_idx` / `notifications_digest_idx`, the months since `since` only), ≤ `max`.
+ */
+export function markLinkReadStatement(
+  agencyId: string,
+  userId: string,
+  type: string,
+  link: string,
+  since: Date,
+  max: number,
+) {
+  return sql`
+    update ${notifications} n set read_at = now()
+      from (
+        select id, created_at from ${notifications}
+         where agency_id = ${agencyId} and user_id = ${userId} and read_at is null and (in_app or email_pending)
+           and type = ${type} and link = ${link} and created_at > ${since.toISOString()}::timestamptz
+         limit ${max}
+      ) c
+     where n.agency_id = ${agencyId} and n.user_id = ${userId} and n.id = c.id and n.created_at = c.created_at`;
+}
+
+export async function markLinkRead(
+  tx: Tx,
+  agencyId: string,
+  userId: string,
+  type: string,
+  link: string,
+  since: Date,
+  max: number,
+): Promise<number> {
+  const result = await tx.execute(markLinkReadStatement(agencyId, userId, type, link, since, max));
+  return result.rowCount ?? 0;
+}
+
+/**
  * Worker (`app_system`): the unread in-app notifications among `keys` (id + time: one partition each), to push live.
  * Read or unknown ones (an emitter's duplicate skipped on insert) are left out.
  */

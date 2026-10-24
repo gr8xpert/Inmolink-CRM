@@ -1,5 +1,6 @@
 import * as agencies from '@inmolink/core/modules/agencies';
 import * as billing from '@inmolink/core/modules/billing';
+import * as chat from '@inmolink/core/modules/chat';
 import * as compliance from '@inmolink/core/modules/compliance';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as crm from '@inmolink/core/modules/crm';
@@ -47,6 +48,7 @@ export const MODULES = {
   crm,
   mls,
   notifications,
+  chat,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -72,4 +74,6 @@ export function registerSubscriptions(): void {
   complianceWorker.registerComplianceWorkerSubscriptions();
   // S11-04: raised notifications are pushed live and queued for the e-mail digest.
   notifications.registerNotificationsSubscriptions();
+  // S11-03: sent messages are delivered live and notified; viewing threads are seated.
+  chat.registerChatSubscriptions();
 }
