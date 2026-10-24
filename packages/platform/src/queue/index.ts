@@ -20,6 +20,7 @@ export {
 export {
   deadLetterQueue,
   groupRetryDelay,
+  isPermanent,
   type PoolHandle,
   type PoolOptions,
   RetryableError,

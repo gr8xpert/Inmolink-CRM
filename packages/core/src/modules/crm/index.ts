@@ -23,6 +23,13 @@ export {
   sweepEventReminders,
   updateCalendarEvent,
 } from './calendar';
+export {
+  contactsForExport,
+  type ExportContactRow,
+  type ExportLeadRow,
+  type ExportPageQuery,
+  leadsForExport,
+} from './data-export';
 export { crmErrors } from './errors';
 export { crmEvents } from './events';
 export {

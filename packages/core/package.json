@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./modules/compliance/worker": {
+      "@inmolink/source": "./src/modules/compliance/worker.ts",
+      "types": "./dist/modules/compliance/worker.d.ts",
+      "default": "./dist/modules/compliance/worker.js"
+    },
     "./modules/exports/worker": {
       "@inmolink/source": "./src/modules/exports/worker.ts",
       "types": "./dist/modules/exports/worker.d.ts",

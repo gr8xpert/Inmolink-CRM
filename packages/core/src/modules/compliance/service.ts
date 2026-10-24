@@ -88,6 +88,8 @@ export const AUDIT_TYPES = [
   'staff.members.read',
   'staff.taxonomy.changed',
   'staff.imports.resumed',
+  'compliance.dataExport.requested',
+  'compliance.dataExport.downloaded',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
@@ -107,7 +109,8 @@ export interface AuditTarget {
     | 'feedConnection'
     | 'feedMappingProfile'
     | 'site'
-    | 'portalConnection';
+    | 'portalConnection'
+    | 'dataExport';
   id: string;
 }
 

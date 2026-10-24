@@ -112,5 +112,46 @@
     "PAYLOAD_TOO_LARGE": "The logo is larger than 512 KB.",
     "RATE_LIMITED": "Too many uploads. Please wait a few minutes and try again.",
     "generic": "Something went wrong. Please try again."
+  },
+  "dataExport": {
+    "title": "Export your data",
+    "intro": "Download your contacts, leads and listings as CSV or Excel, or your whole account as a ZIP (all of them plus a list of your listings' photos and videos). You can always take your data with you.",
+    "adminOnly": "Only an administrator of your agency can export its data.",
+    "kind": {
+      "CONTACTS": "Contacts",
+      "LEADS": "Leads",
+      "LISTINGS": "Listings",
+      "ACCOUNT": "Whole account (ZIP)"
+    },
+    "format": {
+      "csv": "CSV",
+      "xlsx": "Excel (XLSX)"
+    },
+    "status": {
+      "QUEUED": "Waiting",
+      "RUNNING": "Preparing",
+      "SUCCEEDED": "Ready",
+      "FAILED": "Failed",
+      "EXPIRED": "Expired"
+    },
+    "create": "Start export",
+    "download": "Download",
+    "expires": "Available until {date}",
+    "rows": "{count, plural, one {# row} other {# rows}}",
+    "notice": "Exports contain your clients' personal data. Store the file safely; the download link stops working after {days, plural, one {# day} other {# days}}.",
+    "errors": {
+      "DATA_EXPORT_NOT_FOUND": "This export does not exist.",
+      "DATA_EXPORT_IN_PROGRESS": "An export is already being prepared. Wait for it to finish and try again.",
+      "FORBIDDEN": "Only an administrator of your agency can export its data.",
+      "generic": "Something went wrong. Please try again."
+    },
+    "email": {
+      "subject": "Data export requested: {kind}",
+      "someone": "An administrator",
+      "greeting": "Hello {name},",
+      "body": "{requester} asked for an export of {kind} ({format}) from your agency's account on {date} (UTC). The file contains your clients' personal data and can be downloaded by your agency's administrators for {days, plural, one {# day} other {# days}}.",
+      "action": "Review your agency's settings",
+      "unexpected": "If you did not expect this export, check your team's access and change your password."
+    }
   }
 }

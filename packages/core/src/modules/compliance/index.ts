@@ -1,4 +1,12 @@
 /** compliance — public API (PATTERNS §1). The only import path for other modules and apps. */
+export {
+  createDataExport,
+  DATA_EXPORT_LINK_SECONDS,
+  DATA_EXPORT_TTL_MS,
+  dataExportKey,
+  getDataExport,
+  listDataExports,
+} from './data-export';
 export { complianceErrors } from './errors';
 export { complianceEvents } from './events';
 export { complianceJobs, PARTITION_MAINTENANCE_EVERY_MS } from './jobs';

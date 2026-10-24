@@ -99,6 +99,39 @@ const PRUNE_FIRST = [
   'feed_sheet_releases',
 ] as const;
 
+/**
+ * Deletes the agencies' rows of `table`, and first — when a foreign key refuses (23503) — the rows of the referencing
+ * table named by the error, recursively (S10-08: every new tenant table with a plain foreign key to `agencies` or to
+ * a tenant parent, e.g. `pipeline_stages`, `contacts` → `leads`, would otherwise stop the prune and every int suite).
+ * Each attempt runs under a savepoint, so a refused delete leaves the batch's transaction usable.
+ */
+async function deleteWithDependents(
+  admin: pg.Client,
+  table: string,
+  column: string,
+  ids: readonly string[],
+  depth = 0,
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await admin.query('savepoint prune_delete');
+    try {
+      await admin.query(
+        `delete from ${pg.escapeIdentifier(table)} where ${pg.escapeIdentifier(column)} = any($1::uuid[])`,
+        [ids],
+      );
+      await admin.query('release savepoint prune_delete');
+      return;
+    } catch (err) {
+      await admin.query('rollback to savepoint prune_delete');
+      const e = err as { code?: string; table?: string };
+      // a tenant table referencing this one: its rows of these agencies go first
+      if (e.code !== '23503' || !e.table || e.table === table || depth > 10) throw err;
+      await deleteWithDependents(admin, e.table, 'agency_id', ids, depth + 1);
+    }
+  }
+  throw new Error(`pruneStaleTestAgencies: ${table} still referenced`);
+}
+
 /** Global worker queues keyed by the owner agency (S6-F3). */
 const AGENCY_QUEUES = ['read_model_queue', 'quality_queue'] as const;
 
@@ -158,7 +191,7 @@ export async function pruneStaleTestAgencies(adminUrl: string): Promise<number> 
         for (const table of PRUNE_FIRST) {
           await admin.query(`delete from ${pg.escapeIdentifier(table)} where agency_id = any($1::uuid[])`, [ids]);
         }
-        await admin.query('delete from agencies where agency_id = any($1::uuid[])', [ids]);
+        await deleteWithDependents(admin, 'agencies', 'agency_id', ids);
         await admin.query('commit');
         pruned += ids.length;
       } catch (err) {

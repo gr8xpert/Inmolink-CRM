@@ -116,6 +116,11 @@ export const ErrorCodes = {
   PREFERRED_AGENCY_EXISTS: 409,
   /** The list is full: remove an agency first. */
   PREFERRED_AGENCY_LIMIT_REACHED: 409,
+  // compliance: data export (S10-08)
+  /** No such export in the agency. */
+  DATA_EXPORT_NOT_FOUND: 404,
+  /** The agency already has an export queued or running: wait for it to finish. */
+  DATA_EXPORT_IN_PROGRESS: 409,
   // staff console: impersonation (S1-09)
   /** The impersonation session ended, expired or was revoked: the staff member is no longer acting as the user. */
   IMPERSONATION_ENDED: 403,

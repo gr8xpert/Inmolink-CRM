@@ -112,5 +112,46 @@
     "PAYLOAD_TOO_LARGE": "El logotipo supera los 512 KB.",
     "RATE_LIMITED": "Demasiadas subidas. Espera unos minutos e inténtalo de nuevo.",
     "generic": "Algo ha ido mal. Inténtalo de nuevo."
+  },
+  "dataExport": {
+    "title": "Exportar tus datos",
+    "intro": "Descarga tus contactos, leads e inmuebles en CSV o Excel, o toda tu cuenta en un ZIP (todo ello más una lista de las fotos y vídeos de tus inmuebles). Tus datos siempre son tuyos.",
+    "adminOnly": "Solo un administrador de tu agencia puede exportar sus datos.",
+    "kind": {
+      "CONTACTS": "Contactos",
+      "LEADS": "Leads",
+      "LISTINGS": "Inmuebles",
+      "ACCOUNT": "Toda la cuenta (ZIP)"
+    },
+    "format": {
+      "csv": "CSV",
+      "xlsx": "Excel (XLSX)"
+    },
+    "status": {
+      "QUEUED": "En espera",
+      "RUNNING": "Preparando",
+      "SUCCEEDED": "Lista",
+      "FAILED": "Fallida",
+      "EXPIRED": "Caducada"
+    },
+    "create": "Iniciar exportación",
+    "download": "Descargar",
+    "expires": "Disponible hasta el {date}",
+    "rows": "{count, plural, one {# fila} other {# filas}}",
+    "notice": "Las exportaciones contienen datos personales de tus clientes. Guarda el archivo en un lugar seguro; el enlace de descarga deja de funcionar a los {days, plural, one {# día} other {# días}}.",
+    "errors": {
+      "DATA_EXPORT_NOT_FOUND": "Esta exportación no existe.",
+      "DATA_EXPORT_IN_PROGRESS": "Ya se está preparando una exportación. Espera a que termine e inténtalo de nuevo.",
+      "FORBIDDEN": "Solo un administrador de tu agencia puede exportar sus datos.",
+      "generic": "Algo ha ido mal. Inténtalo de nuevo."
+    },
+    "email": {
+      "subject": "Exportación de datos solicitada: {kind}",
+      "someone": "Un administrador",
+      "greeting": "Hola {name}:",
+      "body": "{requester} ha solicitado una exportación de {kind} ({format}) de la cuenta de tu agencia el {date} (UTC). El archivo contiene datos personales de tus clientes y los administradores de tu agencia pueden descargarlo durante {days, plural, one {# día} other {# días}}.",
+      "action": "Revisar la configuración de tu agencia",
+      "unexpected": "Si no esperabas esta exportación, revisa los accesos de tu equipo y cambia tu contraseña."
+    }
   }
 }

@@ -62,4 +62,27 @@ describe('compliance policy', () => {
       staffUserId: OTHER_AGENCY,
     });
   });
+
+  it('[S10-08] data exports are for the agency’s own admins only — never other roles, Client Mode or other agencies', () => {
+    const actions = [
+      'compliance.dataExport.create',
+      'compliance.dataExport.read',
+      'compliance.dataExport.download',
+    ] as const;
+    for (const action of actions) {
+      expect(can(admin, action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: USER, role: 'DEVELOPER_ADMIN' }), action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: USER, role: 'AGENT' }), action)).toBe(false);
+      expect(can(ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN' }, true), action)).toBe(false);
+      expect(can(admin, action, { agencyId: OTHER_AGENCY })).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+    }
+  });
+
+  it('[S10-08] staff impersonating an admin may see exports but never export or download the agency’s data', () => {
+    const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: OTHER_AGENCY });
+    expect(can(impersonated, 'compliance.dataExport.read')).toBe(true);
+    expect(can(impersonated, 'compliance.dataExport.create')).toBe(false);
+    expect(can(impersonated, 'compliance.dataExport.download')).toBe(false);
+  });
 });

@@ -1,4 +1,5 @@
 import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
+import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
@@ -55,6 +56,14 @@ try {
     config.MEDIA_CDN_URL
   ) {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  }
+  // S10-08: data exports (exports pool) — the media manifest's image URLs under the media CDN; the admins' alert
+  // (email pool) links to the dashboard.
+  if (config.WORKER_POOLS.includes('exports')) {
+    complianceWorker.configureDataExport(config.MEDIA_CDN_URL ? { mediaBaseUrl: config.MEDIA_CDN_URL } : {});
+  }
+  if (config.WORKER_POOLS.includes('email') && config.WEB_URL) {
+    complianceWorker.configureDataExportNotice({ webUrl: config.WEB_URL });
   }
   // S9-03: portal feeds (exports pool) — image URLs under the media CDN, the nightly hour and the pool caps.
   if (config.WORKER_POOLS.includes('exports') && config.MEDIA_CDN_URL) {

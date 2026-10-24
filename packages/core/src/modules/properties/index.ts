@@ -20,6 +20,7 @@ export {
   setListingFeatures,
   slugOf,
 } from './content';
+export { type ExportListingRow, listingsForExport } from './data-export';
 export { propertiesErrors } from './errors';
 export { IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {

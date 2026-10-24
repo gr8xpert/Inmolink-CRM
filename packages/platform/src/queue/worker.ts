@@ -81,7 +81,8 @@ export class RetryableError extends Error {
   override readonly name = 'RetryableError';
 }
 
-function isPermanent(err: unknown): boolean {
+/** Whether the worker fails this error for good (no retry): an `UnrecoverableError` or a non-retryable `AppError`. */
+export function isPermanent(err: unknown): boolean {
   return err instanceof UnrecoverableError || (isAppError(err) && !err.retryable);
 }
 

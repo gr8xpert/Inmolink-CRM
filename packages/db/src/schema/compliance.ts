@@ -1,5 +1,18 @@
 import { sql } from 'drizzle-orm';
-import { check, index, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { agencies } from './agencies';
 
 /**
  * Tables owned by the compliance module (PATTERNS §2). Only `packages/core/src/modules/compliance` imports
@@ -55,5 +68,75 @@ export const auditLogs = pgTable(
       'audit_logs_metadata_ck',
       sql`jsonb_typeof(${t.metadata}) = 'object' and octet_length(${t.metadata}::text) <= 4096`,
     ),
+  ],
+);
+
+/**
+ * Data export (S10-08, PLAN §3 #59 "you can always leave"): an agency's contacts, leads or listings as CSV / XLSX, or
+ * the whole account as a ZIP (those tables plus a media manifest). Requested by an admin (`QUEUED`), written by the
+ * `compliance.runDataExport` worker job straight into the private bucket (`data-exports/<agency>/<id>`), downloaded
+ * through short signed links until `expires_at` (7 days after it finished); the daily sweep then deletes the file
+ * and marks the row `EXPIRED`. The row holds counts and codes only — never the exported data.
+ */
+export const dataExportJobs = pgTable(
+  'data_export_jobs',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The admin who asked (no FK: a removed member's exports stay until they expire). */
+    createdBy: uuid('created_by').notNull(),
+    /** `CONTACTS`, `LEADS`, `LISTINGS` or `ACCOUNT` (the ZIP of all of them plus the media manifest). */
+    kind: text('kind').notNull(),
+    /** `csv` or `xlsx` (for `ACCOUNT`: the format of the tables inside the ZIP). */
+    format: text('format').notNull(),
+    /** `QUEUED` → `RUNNING` → `SUCCEEDED` | `FAILED`; `EXPIRED` once the file is deleted after `expires_at`. */
+    status: text('status').notNull().default('QUEUED'),
+    /** Rows written per table (`{ contacts, leads, listings, media }`). */
+    counts: jsonb('counts').$type<Record<string, number>>().notNull().default({}),
+    fileBytes: bigint('file_bytes', { mode: 'number' }),
+    /** Why the run failed (an error code, never a message with data). */
+    errorCode: text('error_code'),
+    /** Claims so far: a run's outcome is written only by the attempt that holds the latest claim. */
+    attempts: integer('attempts').notNull().default(0),
+    /** SHA-256 of the requesting admin's `Idempotency-Key` (with their user id): a retried `POST` within 24 h replays. */
+    idempotencyHash: text('idempotency_hash'),
+    /** SHA-256 of that request's body: the same key with another body is refused, not replayed. */
+    requestHash: text('request_hash'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    /** When the download stops working and the sweep deletes the file (finished + 7 days). */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** When the file was deleted from storage (sweep); null while it may still be there. */
+    fileDeletedAt: timestamp('file_deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the agency's exports, newest first: where agency_id = ? order by date_trunc(created_at) desc, id desc (keyset)
+    index('data_export_jobs_agency_created_idx').on(
+      t.agencyId,
+      sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
+      t.id,
+    ),
+    // one export at a time per agency: where agency_id = ? and status in ('QUEUED', 'RUNNING')
+    uniqueIndex('data_export_jobs_active_uq').on(t.agencyId).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
+    // POST replay: where agency_id = ? and idempotency_hash = ?
+    uniqueIndex('data_export_jobs_idempotency_uq')
+      .on(t.agencyId, t.idempotencyHash)
+      .where(sql`${t.idempotencyHash} is not null`),
+    // daily sweep: files past their expiry (where file_deleted_at is null and expires_at < ?), and runs stuck
+    // queued or running (where status in ('QUEUED', 'RUNNING') and created_at < ?)
+    index('data_export_jobs_expiry_idx')
+      .on(t.expiresAt)
+      .where(sql`${t.fileDeletedAt} is null and ${t.expiresAt} is not null`),
+    index('data_export_jobs_stuck_idx').on(t.createdAt).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
+    check('data_export_jobs_kind_ck', sql`${t.kind} in ('CONTACTS', 'LEADS', 'LISTINGS', 'ACCOUNT')`),
+    check('data_export_jobs_format_ck', sql`${t.format} in ('csv', 'xlsx')`),
+    check('data_export_jobs_status_ck', sql`${t.status} in ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'EXPIRED')`),
+    check('data_export_jobs_error_ck', sql`${t.errorCode} is null or length(${t.errorCode}) <= 64`),
+    check('data_export_jobs_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
+    check('data_export_jobs_counts_ck', sql`jsonb_typeof(${t.counts}) = 'object'`),
   ],
 );

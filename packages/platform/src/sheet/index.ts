@@ -536,3 +536,5 @@ export async function* readSheetRows(bytes: Uint8Array, options: SheetReadOption
   if (kind === 'csv') yield* csvRows(bytes, options);
   else yield* xlsxRows(bytes, options);
 }
+
+export * from './write';

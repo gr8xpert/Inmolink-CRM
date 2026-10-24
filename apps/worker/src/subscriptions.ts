@@ -1,6 +1,7 @@
 import * as agencies from '@inmolink/core/modules/agencies';
 import * as billing from '@inmolink/core/modules/billing';
 import * as compliance from '@inmolink/core/modules/compliance';
+import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as crm from '@inmolink/core/modules/crm';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as developments from '@inmolink/core/modules/developments';
@@ -61,4 +62,6 @@ export function registerSubscriptions(): void {
   websiteApi.registerWebsiteApiSubscriptions();
   // S9-03: the portal feed generator's subscriptions live behind the worker-only entry.
   exportsWorker.registerExportsSubscriptions();
+  // S10-08: a requested data export queues its run (worker-only entry).
+  complianceWorker.registerComplianceWorkerSubscriptions();
 }

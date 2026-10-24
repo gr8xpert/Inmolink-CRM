@@ -1,5 +1,6 @@
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
+import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
 import { crmJobs } from '@inmolink/core/modules/crm';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
@@ -60,6 +61,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     exportsJobs.sweepNightlyPortalFeeds,
     // S9-04: push portals (idealista, Fotocasa).
     exportsJobs.pushPortalListings,
+    // S10-08: data exports (contacts, leads, listings, the account ZIP).
+    dataExportJobs.runDataExport,
   ],
   email: [
     identityJobs.sendAuthEmail,
@@ -72,6 +75,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.notifyLeadAgencyFallback,
     // S10-02: website leads promoted to CRM leads (speed-to-lead: the inbox within seconds).
     crmJobs.promoteInboundLead,
+    // S10-08: the admins' alert when a data export is requested.
+    dataExportJobs.notifyDataExport,
+    dataExportJobs.sendDataExportNotice,
     // S10-05: task reminder e-mails (one per claimed reminder).
     crmJobs.sendTaskReminder,
     // S10-06: calendar reminder e-mails (one per claimed member attendee).
@@ -84,6 +90,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     identityJobs.syncApiKeyAgencyStatus,
     agenciesJobs.pruneOrphanVerificationDocuments,
     complianceJobs.maintainPartitions,
+    // S10-08: expired data export files are deleted daily.
+    dataExportJobs.sweepDataExports,
     propertiesJobs.failStaleBulkActions,
     propertiesJobs.sweepFreshness,
     propertiesJobs.removeOverrides,
