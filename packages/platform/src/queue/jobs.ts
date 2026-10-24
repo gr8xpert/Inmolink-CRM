@@ -162,7 +162,7 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
   }
 
   /** A job as BullMQ adds it: payload checked, IDs, deduplication and the fair-share entry (priority set later). */
-  function prepare(input: z.input<S>, options: EnqueueOptions) {
+  function prepare(input: z.input<S>, rawOptions: EnqueueOptions) {
     const payload = spec.payload.parse(input) as z.output<S>;
     const bytes = Buffer.byteLength(JSON.stringify(payload));
     if (bytes > MAX_PAYLOAD_BYTES) {
@@ -172,6 +172,13 @@ export function defineJob<S extends z.ZodType>(spec: JobSpec<S>): JobDef<S> {
     }
     const group = spec.group?.(payload);
     const stable = spec.jobId ? stableJobId(spec.name, spec.jobId(payload)) : undefined;
+    // S12-F24: Redis wants integer milliseconds ("value is not an integer"); callers may compute fractional ones.
+    const options: EnqueueOptions = {
+      ...rawOptions,
+      ...(rawOptions.throttleMs !== undefined && { throttleMs: Math.ceil(rawOptions.throttleMs) }),
+      ...(rawOptions.debounceMs !== undefined && { debounceMs: Math.ceil(rawOptions.debounceMs) }),
+      ...(rawOptions.delayMs !== undefined && { delayMs: Math.ceil(rawOptions.delayMs) }),
+    };
     const throttled = options.throttleMs !== undefined && options.throttleMs > 0;
     if (throttled && options.debounceMs)
       throw new TypeError(`${spec.name}: debounceMs and throttleMs exclude each other`);

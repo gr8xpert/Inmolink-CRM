@@ -46,6 +46,29 @@ const flaky = defineJob({
   },
 });
 
+/** What node-postgres raises for a FK violation, wrapped like Drizzle wraps it. */
+function missingAgencyError() {
+  const pg = Object.assign(new Error('insert or update violates foreign key constraint'), {
+    code: '23503',
+    constraint: 'activities_agency_id_agencies_id_fk',
+    detail: 'Key (agency_id)=(00000000-0000-4000-8000-000000000001) is not present in table "agencies".',
+  });
+  return new Error('Failed query', { cause: pg });
+}
+
+const tenantJob = defineJob({
+  name: 'test.tenant',
+  pool: POOL,
+  payload: z.object({ key: z.string(), agencyId: z.string(), gone: z.boolean() }),
+  group: (p) => p.agencyId,
+  attempts: 5,
+  backoff: { type: 'fixed', delay: 10 },
+  async run(p) {
+    bump(p.key);
+    if (p.gone) throw missingAgencyError();
+  },
+});
+
 async function deadLetterOf(jobId: string) {
   const jobs = await queueFor(`${POOL}.dead`).getJobs(['wait']);
   return jobs.find((j) => j.data.jobId === jobId);
@@ -54,7 +77,7 @@ async function deadLetterOf(jobId: string) {
 describe('queue', () => {
   beforeAll(async () => {
     await setupQueueTest(`test-${run}`);
-    handles.push(registerPool(POOL, [once, debounced, flaky], { concurrency: 5 }));
+    handles.push(registerPool(POOL, [once, debounced, flaky, tenantJob], { concurrency: 5 }));
   });
   afterAll(async () => {
     await Promise.all(handles.map((h) => h.close()));
@@ -92,6 +115,27 @@ describe('queue', () => {
     // Several runs while enqueues kept coming, far fewer than enqueues.
     expect(runs.get('deb:T1') ?? 0).toBeGreaterThanOrEqual(2);
     expect(runs.get('deb:T1') ?? 0).toBeLessThanOrEqual(6);
+  });
+
+  it('[S12-F24] fractional millisecond options reach Redis as integers (the "value is not an integer" failure)', async () => {
+    // quality.recomputeListings passed a float8 "ms until due" as throttleMs; BullMQ's add script rejects non-integers.
+    await expect(
+      debounced.enqueue({ entity: 'F1', version: 1 }, { throttleMs: 1234.567, debounceKey: 'F1' }),
+    ).resolves.toBeDefined();
+    await expect(
+      debounced.enqueue({ entity: 'F2', version: 1 }, { debounceMs: 200.25, debounceKey: 'F2' }),
+    ).resolves.toBeDefined();
+    await expect(once.enqueue({ key: 'frac-delay' }, { delayMs: 50.5 })).resolves.toBeDefined();
+    await waitFor(() => runs.get('frac-delay') === 1);
+  });
+
+  it('[S12-F24] a tenant job whose agency no longer exists completes without retries', async () => {
+    await tenantJob.enqueue({ key: 'gone', agencyId: 'A-gone', gone: true });
+    await waitFor(() => runs.get('gone') === 1);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(runs.get('gone')).toBe(1); // attempts: 5, but no retry
+    const failed = await queueFor(POOL).getJobs(['failed', 'delayed']);
+    expect(failed.filter((j) => j.name === 'test.tenant')).toHaveLength(0);
   });
 
   it('[S8-F1] enqueueMany adds in bulk with the same stable-ID, throttle and debounce semantics as enqueue', async () => {

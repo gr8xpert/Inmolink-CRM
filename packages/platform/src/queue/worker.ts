@@ -111,6 +111,28 @@ export function isPermanent(err: unknown): boolean {
 }
 
 /**
+ * Whether this error is a foreign-key violation against a deleted agency (S12-F24): a tenant job whose agency was
+ * pruned or deleted while the job waited. Retrying cannot help; the job's work no longer exists.
+ */
+export function isMissingAgencyError(err: unknown): boolean {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === 'object'; depth += 1) {
+    const { code, detail, constraint } = e as { code?: unknown; detail?: unknown; constraint?: unknown };
+    if (code === '23503') {
+      if (
+        typeof detail === 'string' &&
+        /Key \([a-z_]*agency_id\)=\(.*\) is not present in table "agencies"/.test(detail)
+      ) {
+        return true;
+      }
+      if (typeof constraint === 'string' && /agency_id_agencies_id_fk$/.test(constraint)) return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
  * Runs the jobs of one pool in this process (PATTERNS §12): `apps/worker` calls
  * `registerPool('indexing', [searchJobs.reindexListing, …])` for each pool in `WORKER_POOLS`.
  */
@@ -287,6 +309,12 @@ export function registerPool(pool: string, jobs: readonly JobDef[], options: Poo
       if (fair && group !== undefined) await fair.done(pool, group, member);
       return result;
     } catch (err) {
+      // S12-F24: a tenant job whose agency no longer exists finishes (no retry, no dead letter): nothing is left to do.
+      if (group !== undefined && isMissingAgencyError(err)) {
+        jobLog.warn({ agencyGroup: group }, 'agency no longer exists: job skipped');
+        if (fair) await fair.done(pool, group, member);
+        return { skipped: 'agency-gone' };
+      }
       // S10-01 review: a failed query's bound values never reach the DLQ, BullMQ's failedReason, logs or reports.
       sanitizeError(err);
       const permanent = isPermanent(err);
