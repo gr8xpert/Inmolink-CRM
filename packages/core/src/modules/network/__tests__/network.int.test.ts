@@ -522,3 +522,71 @@ describe('replies', () => {
     expect(await sqlState(forge(s.agencyId, p.agencyId, post.id, s))).toBe(undefined);
   });
 });
+
+describe('audit (S12-F13)', () => {
+  const auditOf = (postId: string) =>
+    rows<{
+      agency_id: string;
+      type: string;
+      actor_user_id: string | null;
+      target_type: string;
+      metadata: Record<string, unknown>;
+    }>(sql`
+      select agency_id, type, actor_user_id, target_type, metadata from audit_logs
+      where target_id = ${postId} and type like 'network.post.%' order by occurred_at, id`);
+
+  it('[S12-F13] publishing a post is audited with its id and kind, never its title or body', async () => {
+    const key = `nb-audit-${RUN}-0123456789`;
+    const { post } = await as(p, (ctx) =>
+      network.createPost(ctx, buyerRequest({ title: `Audited ${RUN}` }), { idempotencyKey: key }),
+    );
+    // a replay is the same post: not published twice
+    await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Audited ${RUN}` }), { idempotencyKey: key }));
+    const log = await auditOf(post.id);
+    expect(log).toEqual([
+      {
+        agency_id: p.agencyId,
+        type: 'network.post.published',
+        actor_user_id: p.userId,
+        target_type: 'networkPost',
+        metadata: { kind: 'BUYER_REQUEST' },
+      },
+    ]);
+    expect(JSON.stringify(log)).not.toContain(`Audited ${RUN}`);
+    expect(JSON.stringify(log)).not.toContain('Family relocating');
+  });
+
+  it('[S12-F13] closing a post is audited once; closing it again writes nothing', async () => {
+    const { post } = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Close audit ${RUN}` })));
+    await as(p, (ctx) => network.closePost(ctx, post.id));
+    await as(p, (ctx) => network.closePost(ctx, post.id));
+    const log = await auditOf(post.id);
+    expect(log.map((r) => r.type)).toEqual(['network.post.published', 'network.post.closed']);
+    expect(log[1]).toMatchObject({
+      agency_id: p.agencyId,
+      actor_user_id: p.userId,
+      metadata: { kind: 'BUYER_REQUEST' },
+    });
+    expect(JSON.stringify(log)).not.toContain(`Close audit ${RUN}`);
+  });
+
+  it('[S12-F13] staff impersonating a member neither publish nor close, and nothing is audited', async () => {
+    const before = await rows<{ n: number }>(sql`
+      select count(*)::int as n from audit_logs where agency_id = ${p.agencyId} and type like 'network.post.%'`);
+    expect(
+      await refusal(
+        as(p, async (ctx) => network.createPost(await impersonatedCtx(ctx, newId()), buyerRequest({ title: 'Imp' }))),
+      ),
+    ).toBe('FORBIDDEN');
+    const { post } = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Imp close ${RUN}` })));
+    expect(await refusal(as(p, async (ctx) => network.closePost(await impersonatedCtx(ctx, newId()), post.id)))).toBe(
+      'FORBIDDEN',
+    );
+    expect((await as(p, (ctx) => network.getPost(ctx, post.id))).status).toBe('OPEN');
+    const after = await rows<{ n: number }>(sql`
+      select count(*)::int as n from audit_logs where agency_id = ${p.agencyId} and type like 'network.post.%'`);
+    // only the member's own publish of the control post
+    expect((after[0]?.n ?? 0) - (before[0]?.n ?? 0)).toBe(1);
+    expect((await auditOf(post.id)).map((r) => r.type)).toEqual(['network.post.published']);
+  });
+});

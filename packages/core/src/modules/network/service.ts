@@ -23,6 +23,7 @@ import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as chat from '../chat';
+import * as compliance from '../compliance';
 import * as taxonomy from '../taxonomy';
 import { networkEvents } from './events';
 import { assertCan } from './policy';
@@ -146,6 +147,8 @@ export async function createPost(
     })
     .catch(keyReusedOn('network_post_authors_idempotency_uq'));
   await emit(ctx.tx, networkEvents.postPublished({ postId: id, kind: input.kind }));
+  // S12-F13: ids and kind only — the title and body are the agency's free text
+  await compliance.audit(ctx, 'network.post.published', { type: 'networkPost', id }, { kind: input.kind });
   return { post: toPostDto(row, await namesOf(ctx, [row]), agencyId), replayed: false };
 }
 
@@ -181,7 +184,8 @@ export async function getPost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
 
 /**
  * `POST /v1/network/posts/:id/close`: the agency's post off the board (its author or an admin). Closing a closed post
- * answers it as it is. Reply threads stay open: the conversation is the agencies'.
+ * answers it as it is. Reply threads stay open: the conversation is the agencies'. The close is audited
+ * (`network.post.closed`, S12-F13); publishing too (`network.post.published`) — ids and kind, never title or body.
  */
 export async function closePost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
   assertCan(ctx, 'network.posts.read');
@@ -189,9 +193,10 @@ export async function closePost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
   const row = await readablePost(ctx, id);
   if (row.agencyId !== agencyId) throw new AppError('NETWORK_POST_NOT_FOUND');
   assertCan(ctx, 'network.posts.close', { agencyId, authorUserId: await repo.authorOf(ctx.tx, agencyId, id) });
-  // a concurrent close won: answer the post as it now is
-  const result =
-    (row.status === 'OPEN' ? await repo.closePost(ctx.tx, agencyId, id) : null) ?? (await readablePost(ctx, id));
+  // a concurrent close won: answer the post as it now is (and audit only the close this call made)
+  const closed = row.status === 'OPEN' ? await repo.closePost(ctx.tx, agencyId, id) : null;
+  if (closed) await compliance.audit(ctx, 'network.post.closed', { type: 'networkPost', id }, { kind: closed.kind });
+  const result = closed ?? (await readablePost(ctx, id));
   return toPostDto(result, await namesOf(ctx, [result]), agencyId);
 }
 
