@@ -73,12 +73,16 @@ final class Counter {
 		} else {
 			$all[ $key ] = array( 1, $now + $window );
 		}
+		$entry = $all[ $key ];
 		if ( count( $all ) > self::MAX_BUCKETS ) {
+			// The current visitor's entry always stays: on equal expiries a stable sort would otherwise drop it last.
+			unset( $all[ $key ] );
 			uasort( $all, static fn ( array $a, array $b ): int => $b[1] <=> $a[1] );
-			$all = array_slice( $all, 0, self::MAX_BUCKETS, true );
+			$all         = array_slice( $all, 0, self::MAX_BUCKETS - 1, true );
+			$all[ $key ] = $entry;
 		}
 		update_option( self::OPTION, $all, false );
-		return (int) $all[ $key ][0];
+		return (int) $entry[0];
 	}
 
 	/**
