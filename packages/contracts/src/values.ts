@@ -168,3 +168,38 @@ export const LEAD_LIMITS = {
 export const WEBSITE_LEAD_TURNSTILE_ACTION = 'website-lead';
 /** A viewing request slot's part of the day (S7-05). */
 export const VIEWING_TIMES_OF_DAY = ['MORNING', 'AFTERNOON', 'EVENING', 'ANY'] as const;
+
+// ---- Media (moved from media.ts so client components avoid zod) ----
+/** Largest original accepted (a 48 MP PNG fits; a 12 MP JPEG is ~5 MB). */
+export const MEDIA_MAX_BYTES = 40 * 1024 * 1024;
+/** Files per check or register call. */
+export const MEDIA_BATCH_MAX = 100;
+/** Media rows one listing may have. */
+export const MEDIA_PER_LISTING_MAX = 100;
+/** Image types accepted as originals, detected by magic bytes (HEIC is converted by the media worker, S3-04). */
+export const MEDIA_UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] as const;
+
+/** Rooms an image can show (S3-06): set by the agent; AI tagging fills the same field later. */
+export const LISTING_ROOM_TYPES = [
+  'EXTERIOR',
+  'FACADE',
+  'LIVING_ROOM',
+  'DINING_ROOM',
+  'KITCHEN',
+  'BEDROOM',
+  'BATHROOM',
+  'OFFICE',
+  'HALL',
+  'TERRACE',
+  'BALCONY',
+  'GARDEN',
+  'POOL',
+  'GARAGE',
+  'STORAGE',
+  'VIEW',
+  'COMMUNITY',
+  'OTHER',
+] as const;
+
+/** A listing document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
+export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;

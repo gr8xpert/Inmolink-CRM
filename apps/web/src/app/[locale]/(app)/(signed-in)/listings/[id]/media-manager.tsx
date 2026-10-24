@@ -1,13 +1,7 @@
 'use client';
 
-import {
-  LISTING_ROOM_TYPES,
-  type ListingMediaDto,
-  type ListingMediaList,
-  MEDIA_MAX_BYTES,
-  MEDIA_PER_LISTING_MAX,
-  type MediaCheckResult,
-} from '@inmolink/contracts';
+import type { ListingMediaDto, ListingMediaList, MediaCheckResult } from '@inmolink/contracts';
+import { LISTING_ROOM_TYPES, MEDIA_MAX_BYTES, MEDIA_PER_LISTING_MAX } from '@inmolink/contracts/values';
 import { Button } from '@inmolink/ui';
 import { type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {

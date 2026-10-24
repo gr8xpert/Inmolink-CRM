@@ -1,6 +1,7 @@
 'use client';
 
-import { LISTING_DOCUMENT_MAX_BYTES, type ListingDocumentDto } from '@inmolink/contracts';
+import type { ListingDocumentDto } from '@inmolink/contracts';
+import { LISTING_DOCUMENT_MAX_BYTES } from '@inmolink/contracts/values';
 import { Button } from '@inmolink/ui';
 import { useEffect, useRef, useState } from 'react';
 import { deleteDocumentAction, listDocumentsAction, openDocumentAction } from '../actions';

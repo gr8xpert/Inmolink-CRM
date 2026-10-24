@@ -1,4 +1,4 @@
-import { MEDIA_BATCH_MAX, MEDIA_MAX_BYTES, MEDIA_UPLOAD_TYPES } from '@inmolink/contracts';
+import { MEDIA_BATCH_MAX, MEDIA_MAX_BYTES, MEDIA_UPLOAD_TYPES } from '@inmolink/contracts/values';
 
 /**
  * Media manager upload planning (S3-06), free of React and the DOM so it is unit tested: which content type a

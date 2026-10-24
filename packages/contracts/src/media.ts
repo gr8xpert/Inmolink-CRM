@@ -1,5 +1,13 @@
 /** media DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
+import {
+  LISTING_DOCUMENT_MAX_BYTES,
+  LISTING_ROOM_TYPES,
+  MEDIA_BATCH_MAX,
+  MEDIA_MAX_BYTES,
+  MEDIA_PER_LISTING_MAX,
+  MEDIA_UPLOAD_TYPES,
+} from './values';
 
 /**
  * Listing media upload (S3-03, PLAN §3 #33). The browser hashes each file (SHA-256) and asks which hashes the
@@ -7,14 +15,6 @@ import { z } from 'zod';
  * to the file's exact size and hash; then it registers the files on a listing.
  */
 
-/** Largest original accepted (a 48 MP PNG fits; a 12 MP JPEG is ~5 MB). */
-export const MEDIA_MAX_BYTES = 40 * 1024 * 1024;
-/** Files per check or register call. */
-export const MEDIA_BATCH_MAX = 100;
-/** Media rows one listing may have. */
-export const MEDIA_PER_LISTING_MAX = 100;
-/** Image types accepted as originals, detected by magic bytes (HEIC is converted by the media worker, S3-04). */
-export const MEDIA_UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] as const;
 /** How long a signed upload URL works. */
 export const MEDIA_UPLOAD_URL_TTL_SECONDS = 900;
 /**
@@ -28,27 +28,6 @@ export const MediaUploadType = z.enum(MEDIA_UPLOAD_TYPES);
 /** Kinds a listing's media rows take from uploads (videos and documents arrive with their own tasks). */
 export const ListingMediaKind = z.enum(['IMAGE', 'FLOOR_PLAN']);
 export type ListingMediaKind = z.infer<typeof ListingMediaKind>;
-/** Rooms an image can show (S3-06): set by the agent; AI tagging fills the same field later. */
-export const LISTING_ROOM_TYPES = [
-  'EXTERIOR',
-  'FACADE',
-  'LIVING_ROOM',
-  'DINING_ROOM',
-  'KITCHEN',
-  'BEDROOM',
-  'BATHROOM',
-  'OFFICE',
-  'HALL',
-  'TERRACE',
-  'BALCONY',
-  'GARDEN',
-  'POOL',
-  'GARAGE',
-  'STORAGE',
-  'VIEW',
-  'COMMUNITY',
-  'OTHER',
-] as const;
 export const ListingRoomType = z.enum(LISTING_ROOM_TYPES);
 export type ListingRoomType = z.infer<typeof ListingRoomType>;
 
@@ -237,8 +216,6 @@ export type ReorderListingMediaBody = z.infer<typeof ReorderListingMediaBody>;
 
 // ---- Listing documents (S3-F5): private to the owner agency, never on websites ----------------------------------
 
-/** A listing document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
-export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 /** Documents per listing. */
 export const LISTING_DOCUMENTS_MAX = 50;
 /** How long an opened document's signed URL works. */
@@ -264,3 +241,13 @@ export type ListingDocumentParams = z.infer<typeof ListingDocumentParams>;
 /** A short signed GET of the private object (`Content-Disposition` names the file). */
 export const ListingDocumentUrlDto = z.object({ url: z.string(), expiresAt: z.iso.datetime() });
 export type ListingDocumentUrlDto = z.infer<typeof ListingDocumentUrlDto>;
+
+// Plain value lists live in ./values (no zod, so client components can import them); re-exported here.
+export {
+  LISTING_DOCUMENT_MAX_BYTES,
+  LISTING_ROOM_TYPES,
+  MEDIA_BATCH_MAX,
+  MEDIA_MAX_BYTES,
+  MEDIA_PER_LISTING_MAX,
+  MEDIA_UPLOAD_TYPES,
+};
