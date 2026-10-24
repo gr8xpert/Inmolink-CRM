@@ -17,7 +17,7 @@ export const CHAT_LIMITS = {
   titleChars: 120,
 } as const;
 
-export const ChatThreadKind = z.enum(['DIRECT', 'VIEWING']);
+export const ChatThreadKind = z.enum(['DIRECT', 'VIEWING', 'NETWORK']);
 export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 
 /**
@@ -74,11 +74,13 @@ export const ChatThreadDto = z.strictObject({
   kind: ChatThreadKind,
   /** `VIEWING` only: the viewing request (its id is the thread's). */
   viewingRequestId: z.uuid().nullable(),
-  /** `VIEWING` only: the other agency and its directory name (null when not listed). */
+  /** `NETWORK` only (S11-05): the network board post this thread replies to. */
+  networkPostId: z.uuid().nullable(),
+  /** `VIEWING` / `NETWORK`: the other agency and its directory name (null when not listed). */
   peerAgency: z.strictObject({ id: z.uuid(), name: z.string().nullable() }).nullable(),
   /** `DIRECT`: the name its starter gave it (null for none). */
   title: z.string().nullable(),
-  /** `VIEWING`: the listing's reference (never the client). */
+  /** `VIEWING`: the listing's reference (never the client); `NETWORK`: the post's title. */
   subject: z.string().nullable(),
   lastMessageAt: z.iso.datetime(),
   /** The caller's read state. */

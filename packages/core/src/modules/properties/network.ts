@@ -50,3 +50,11 @@ export async function countNetworkSharedListings(ctx: Ctx, cap: number): Promise
 export function leadTargetListing(tx: Tx, agencyId: string, id: string) {
   return repo.leadTargetListing(tx, agencyId, id);
 }
+
+/**
+ * Worker form (PATTERNS §12, S11-05 network board matching): these listings' agency, reference and responsible agent,
+ * in the job's `withSystem` transaction (one statement, ≤ the ids given). Never called from request code.
+ */
+export function listingAgentsOf(tx: Tx, ids: readonly string[]) {
+  return repo.listingAgents(tx, ids);
+}

@@ -51,6 +51,16 @@ export async function directoryNamesOf(tx: Tx, ids: readonly string[]): Promise<
 }
 
 /**
+ * Worker form (PATTERNS §12, S11-05 network board): the directory names of those of these agencies that take part in
+ * the network now (listed: VERIFIED) — the agencies a network post may notify. One query; others are absent.
+ */
+export async function listedAgencyNamesOf(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await repo.listedDirectoryNames(tx, [...new Set(ids)]);
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+/**
  * `PUT /v1/staff/agencies/:agencyId/give-to-get`: support exempts a buyer-only agency, or ends it, with a reason (S6-F1:
  * kept on the agency, shown on its staff page). Audited with the exemption before and after — the reason is free text,
  * so it stays out of the audit metadata (`AuditMetadata`).

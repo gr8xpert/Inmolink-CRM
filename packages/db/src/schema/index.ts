@@ -17,6 +17,7 @@ export * from './jobs';
 export * from './media';
 export * from './migration';
 export * from './mls';
+export * from './network';
 export * from './notifications';
 export * from './outbox';
 export * from './properties';

@@ -83,6 +83,25 @@ export async function activeClientMembersAmong(
   return repo.activeClientMembersAmong(tx, agencyId, userIds);
 }
 
+/**
+ * S11-05 (network board matching, `withSystem`): which (agency, user) pairs are active members who work clients, for
+ * many agencies in one statement (`agencyId:userId` keys).
+ */
+export async function activeClientMembersAcross(tx: Tx, pairs: readonly { agencyId: string; userId: string }[]) {
+  return repo.activeClientMembersAcross(tx, pairs);
+}
+
+/** S11-05 (`withSystem`): the active admins of many agencies (one statement), agency id → user ids, ≤ 20 each. */
+export async function agencyAdminsOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  for (const r of await repo.activeAdminsOf(tx, agencyIds)) {
+    const list = out.get(r.agencyId) ?? [];
+    if (list.length < 20) list.push(r.userId);
+    out.set(r.agencyId, list);
+  }
+  return out;
+}
+
 /** S10-02: an active member as a notification recipient (e-mail, name, UI locale), or null (`withSystem`). */
 export async function memberRecipient(tx: Tx, agencyId: string, userId: string) {
   return repo.memberRecipient(tx, agencyId, userId);

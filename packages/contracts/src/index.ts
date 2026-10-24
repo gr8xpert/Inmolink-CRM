@@ -27,6 +27,7 @@ export * from './legacy-v1';
 export * from './media';
 export * from './migration';
 export * from './mls';
+export * from './network';
 export * from './notifications';
 export * from './plugin-updates';
 export * from './preferred-agencies';

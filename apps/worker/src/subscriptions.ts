@@ -13,6 +13,7 @@ import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as mls from '@inmolink/core/modules/mls';
+import * as network from '@inmolink/core/modules/network';
 import * as notifications from '@inmolink/core/modules/notifications';
 import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
 import * as properties from '@inmolink/core/modules/properties';
@@ -49,6 +50,7 @@ export const MODULES = {
   mls,
   notifications,
   chat,
+  network,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -76,4 +78,6 @@ export function registerSubscriptions(): void {
   notifications.registerNotificationsSubscriptions();
   // S11-03: sent messages are delivered live and notified; viewing threads are seated.
   chat.registerChatSubscriptions();
+  // S11-05: a network post notifies matching subscriptions; a buyer request is matched against listings.
+  network.registerNetworkSubscriptions();
 }

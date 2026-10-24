@@ -61,6 +61,7 @@ export { propertiesJobs } from './jobs';
 export {
   countNetworkSharedListings,
   leadTargetListing,
+  listingAgentsOf,
   type NetworkListingTerms,
   networkListingTerms,
 } from './network';

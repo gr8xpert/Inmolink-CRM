@@ -9,6 +9,7 @@ import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { mlsJobs } from '@inmolink/core/modules/mls';
+import { networkJobs } from '@inmolink/core/modules/network';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
@@ -51,7 +52,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S10-04: the activity timeline's writers from outbox events (lead, merge, listing status).
     crmJobs.recordActivity,
   ],
-  matching: [],
+  // S11-05: network board posts to matching subscribers, buyer requests against the other agencies' listings.
+  matching: [networkJobs.notifySubscribers, networkJobs.matchBuyerRequest],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
     websiteApiJobs.generateSiteFeed,
@@ -96,6 +98,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   ],
   maintenance: [
     identityJobs.pruneAuthTokens,
+    // S11-05: network board posts past their expiry are closed every 15 minutes.
+    networkJobs.closeExpiredPosts,
     websitesJobs.pruneLeadIdempotency,
     identityJobs.flushApiKeyUsage,
     identityJobs.syncApiKeyAgencyStatus,

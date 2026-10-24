@@ -173,6 +173,97 @@ export async function raiseNotifications(
   return raise(tx, agencyId, actorUserId ?? null, rest, 'system');
 }
 
+/**
+ * `raiseNotifications` for many agencies at once (S11-05: a network post told to the subscribers of a hundred agencies
+ * in one transaction): one statement each for the recipients' memberships, their preferences, the insert and the
+ * agencies' events, whatever the number of agencies. Same rules per item as `raiseNotifications` (workers only,
+ * `sourceKey` + `at` for idempotency; inactive members and types turned off get nothing).
+ */
+export async function raiseNotificationsAcross(
+  tx: Tx,
+  type: NotificationType,
+  items: readonly (Omit<NotifyInput, 'type'> & { agencyId: string })[],
+): Promise<NotifyResult & { agencies: number }> {
+  const parsed = items.map(({ agencyId, ...rest }) => {
+    const r = NotifyInput.safeParse({ ...rest, type });
+    if (!r.success) throw new AppError('VALIDATION_FAILED', { reason: 'notification', issues: r.error.issues });
+    if (r.data.sourceKey && !r.data.at) {
+      throw new AppError('VALIDATION_FAILED', { field: 'at', reason: 'sourceKey needs at' });
+    }
+    return { agencyId, input: r.data };
+  });
+  const pairs = parsed.flatMap((p) =>
+    [...new Set(p.input.userIds)].map((userId) => ({ agencyId: p.agencyId, userId })),
+  );
+  if (pairs.length === 0) return { notified: [], agencies: 0 };
+  const members = await identity.activeClientMembersAcross(tx, pairs);
+  const recipients = pairs.filter((p) => members.has(`${p.agencyId}:${p.userId}`));
+  const prefs = await repo.preferencesAcross(tx, recipients, type);
+  const rows: repo.NewNotification[] = [];
+  for (const { agencyId, input } of parsed) {
+    const createdAt = input.at ?? clock.now();
+    for (const userId of new Set(input.userIds)) {
+      if (!members.has(`${agencyId}:${userId}`)) continue;
+      const pref = prefs.get(`${agencyId}:${userId}`) ?? repo.DEFAULT_PREFERENCE;
+      if (!pref.enabled || (!pref.inApp && !pref.email)) continue;
+      rows.push({
+        id: newId(),
+        agencyId,
+        userId,
+        createdAt,
+        type,
+        actorUserId: null,
+        params: input.params,
+        link: input.link,
+        sourceKey: input.sourceKey ?? null,
+        inApp: pref.inApp,
+        emailPending: pref.email,
+      });
+    }
+  }
+  if (rows.length === 0) return { notified: [], agencies: 0 };
+  // a redelivered event's rows (`sourceKey`) are neither returned nor announced
+  const inserted = new Set((await repo.insertNotificationsReturning(tx, rows)).map((r) => r.id));
+  const written = rows.filter((r) => inserted.has(r.id));
+  const byAgency = new Map<string, repo.NewNotification[]>();
+  for (const r of written) byAgency.set(r.agencyId, [...(byAgency.get(r.agencyId) ?? []), r]);
+  await emit(
+    tx,
+    [...byAgency].flatMap(([agencyId, list]) => {
+      const events = [];
+      // an event announces at most `recipients` rows
+      for (let i = 0; i < list.length; i += NOTIFICATION_LIMITS.recipients) {
+        events.push(
+          notificationsEvents.created({
+            agencyId,
+            items: list.slice(i, i + NOTIFICATION_LIMITS.recipients).map((r) => ({
+              id: r.id,
+              userId: r.userId,
+              at: r.createdAt.getTime(),
+              inApp: r.inApp,
+              email: r.emailPending,
+            })),
+          }),
+        );
+      }
+      return events;
+    }),
+  );
+  return { notified: written.map((r) => ({ userId: r.userId, notificationId: r.id })), agencies: byAgency.size };
+}
+
+/**
+ * Worker form (PATTERNS §12, S11-05): who among these agencies' members was raised `sourceKey` at `at` (one query) —
+ * a later notification about the same thing can leave them out. `agencyId:userId` keys.
+ */
+export async function recipientsOfSource(
+  tx: Tx,
+  q: { agencyIds: readonly string[]; type: NotificationType; sourceKey: string; at: Date },
+): Promise<Set<string>> {
+  const rows = await repo.recipientsOfSource(tx, q);
+  return new Set(rows.map((r) => `${r.agencyId}:${r.userId}`));
+}
+
 export function toNotificationDto(row: repo.NotificationRow): NotificationDto {
   return {
     id: row.id,

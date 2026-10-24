@@ -16,6 +16,7 @@ import { importsRoutes } from './routes/imports/routes';
 import { staffImportsRoutes } from './routes/imports/staff';
 import { mediaRoutes } from './routes/media/routes';
 import { mlsRoutes } from './routes/mls/routes';
+import { networkRoutes } from './routes/network/routes';
 import { notificationsRoutes } from './routes/notifications/routes';
 import { propertiesRoutes } from './routes/properties/routes';
 import { qualityRoutes } from './routes/quality/routes';
@@ -86,5 +87,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(mlsRoutes);
   await app.register(notificationsRoutes);
   await app.register(chatRoutes);
+  await app.register(networkRoutes);
   return app;
 }

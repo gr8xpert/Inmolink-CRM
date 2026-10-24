@@ -125,6 +125,8 @@ export type VerifiedAction =
   | 'development.share'
   /** Network search (S5-05): only verified agencies take part in the network. */
   | 'network.search'
+  /** The network board (S11-05): posting, replying and subscribing. */
+  | 'network.board'
   /** A website showing other agencies' listings (S7-F4 review): its minimum commission would otherwise be a probe. */
   | 'website.network';
 

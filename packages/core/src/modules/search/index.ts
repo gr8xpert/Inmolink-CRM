@@ -40,6 +40,14 @@ export {
   searchJobs,
 } from './jobs';
 export {
+  MATCH_ENGINE_TIMEOUT_MS,
+  MATCH_MAX_ROUNDS,
+  MATCH_SAMPLE,
+  matchListingOwners,
+  type OwnerMatch,
+  type OwnerMatches,
+} from './matching';
+export {
   type CommissionTerms,
   configureNetworkSearch,
   GIVE_TO_GET_DEFAULTS,

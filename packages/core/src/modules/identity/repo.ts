@@ -620,6 +620,51 @@ export async function activeClientMembersAmong(
   return new Set(rows.map((r) => r.userId));
 }
 
+/**
+ * S11-05 (network board matching, app_system): which of these (agency, user) pairs are active members who work clients,
+ * for many agencies at once — one statement; the answer holds `agencyId:userId` keys.
+ */
+export async function activeClientMembersAcross(
+  tx: Tx,
+  pairs: readonly { agencyId: string; userId: string }[],
+): Promise<Set<string>> {
+  if (pairs.length === 0) return new Set();
+  const rows = await tx
+    .select({ agencyId: agencyMembers.agencyId, userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .where(
+      and(
+        inArray(agencyMembers.agencyId, [...new Set(pairs.map((p) => p.agencyId))]),
+        inArray(agencyMembers.userId, [...new Set(pairs.map((p) => p.userId))]),
+        inArray(agencyMembers.role, ['AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT']),
+        isNull(agencyMembers.deactivatedAt),
+      ),
+    );
+  const wanted = new Set(pairs.map((p) => `${p.agencyId}:${p.userId}`));
+  return new Set(rows.map((r) => `${r.agencyId}:${r.userId}`).filter((k) => wanted.has(k)));
+}
+
+/** S11-05 (app_system): the active admins of many agencies, oldest membership first — one statement. */
+export async function activeAdminsOf(
+  tx: Tx,
+  agencyIds: readonly string[],
+): Promise<{ agencyId: string; userId: string }[]> {
+  if (agencyIds.length === 0) return [];
+  return tx
+    .select({ agencyId: agencyMembers.agencyId, userId: agencyMembers.userId })
+    .from(agencyMembers)
+    .innerJoin(users, eq(users.id, agencyMembers.userId))
+    .where(
+      and(
+        inArray(agencyMembers.agencyId, [...new Set(agencyIds)]),
+        inArray(agencyMembers.role, ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']),
+        isNull(agencyMembers.deactivatedAt),
+        eq(users.status, 'ACTIVE'),
+      ),
+    )
+    .orderBy(asc(agencyMembers.agencyId), asc(agencyMembers.createdAt));
+}
+
 /** S10-02: an active member's login e-mail, name and UI locale, for a lead notification (`app_system`). */
 export async function memberRecipient(
   tx: Tx,

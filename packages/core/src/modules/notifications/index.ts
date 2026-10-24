@@ -49,6 +49,8 @@ export {
   notify,
   pushNotifications,
   raiseNotifications,
+  raiseNotificationsAcross,
+  recipientsOfSource,
   sendDigest,
   updateNotificationPreference,
 } from './service';

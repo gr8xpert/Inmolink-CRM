@@ -5,6 +5,8 @@
  * viewing request (each agency reads its own copy; RLS shows messages to the thread's participants only), read state,
  * live delivery over apps/realtime `/chat` (`canJoinThread` gates a socket's thread room: typing indicator), and a
  * `CHAT_MESSAGE` notification per run of unread messages (the notifications module's 5-minute e-mail digest).
+ * S11-05: `NETWORK` threads — a reply to a network board post, between the post's agency and the replying agency
+ * (`replyInNetworkThread`, called by the network module).
  */
 export { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from './delivery';
 export { chatErrors } from './errors';
@@ -16,10 +18,12 @@ export {
   canJoinThread,
   createDirectThread,
   getThread,
+  joinNetworkThread,
   listMessages,
   listThreads,
   markThreadRead,
   openViewingThread,
+  replyInNetworkThread,
   sendMessage,
   threadLink,
 } from './service';

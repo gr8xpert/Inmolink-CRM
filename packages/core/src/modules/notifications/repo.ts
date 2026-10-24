@@ -20,6 +20,33 @@ export interface PreferenceRow {
 /** Every channel on: a member who never chose anything gets every type in-app and in the digest. */
 export const DEFAULT_PREFERENCE = { enabled: true, inApp: true, email: true } as const;
 
+/** S11-05: preferences for one type of members of many agencies (one statement), keyed `agencyId:userId`. */
+export async function preferencesAcross(
+  tx: Tx,
+  pairs: readonly { agencyId: string; userId: string }[],
+  type: string,
+): Promise<Map<string, PreferenceRow>> {
+  if (pairs.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      agencyId: notificationPreferences.agencyId,
+      userId: notificationPreferences.userId,
+      type: notificationPreferences.type,
+      enabled: notificationPreferences.enabled,
+      inApp: notificationPreferences.inApp,
+      email: notificationPreferences.email,
+    })
+    .from(notificationPreferences)
+    .where(
+      and(
+        inArray(notificationPreferences.agencyId, [...new Set(pairs.map((p) => p.agencyId))]),
+        inArray(notificationPreferences.userId, [...new Set(pairs.map((p) => p.userId))]),
+        eq(notificationPreferences.type, type),
+      ),
+    );
+  return new Map(rows.map(({ agencyId, userId, ...pref }) => [`${agencyId}:${userId}`, pref]));
+}
+
 export interface NewNotification {
   id: string;
   agencyId: string;
@@ -345,4 +372,26 @@ export async function releaseDigest(
     update ${notifications} set email_pending = true, digested_at = null
      where agency_id = ${agencyId} and user_id = ${userId}
        and (id, created_at) in (select * from unnest(${uuids(keys.map((k) => k.id))}, ${times(keys.map((k) => k.at))}))`);
+}
+
+/**
+ * S11-05 (app_system): the members of these agencies a worker raised `sourceKey` for at `at` — one statement on
+ * `notifications_source_uq` (agency, user, source key, time: one partition).
+ */
+export async function recipientsOfSource(
+  tx: Tx,
+  q: { agencyIds: readonly string[]; type: string; sourceKey: string; at: Date },
+): Promise<{ agencyId: string; userId: string }[]> {
+  if (q.agencyIds.length === 0) return [];
+  return tx
+    .select({ agencyId: notifications.agencyId, userId: notifications.userId })
+    .from(notifications)
+    .where(
+      and(
+        inArray(notifications.agencyId, [...q.agencyIds]),
+        eq(notifications.sourceKey, q.sourceKey),
+        eq(notifications.createdAt, q.at),
+        eq(notifications.type, q.type),
+      ),
+    );
 }

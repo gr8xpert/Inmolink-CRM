@@ -13,6 +13,8 @@ import { PageQuery, pageOf } from './common';
  * - `VIEWING_REQUESTED` · `VIEWING_UPDATED` — S11-02 viewing requests.
  * - `CHAT_MESSAGE` — S11-03 chat (a message while the member is not in the thread).
  * - `NETWORK_POST` — S11-05 network board (a post matching the member's subscription).
+ * - `NETWORK_MATCH` — S11-05 network board (another agency's buyer request matches the member's listings: `count`,
+ *   `refs`).
  */
 export const NOTIFICATION_TYPES = [
   'LEAD_ASSIGNED',
@@ -21,6 +23,7 @@ export const NOTIFICATION_TYPES = [
   'VIEWING_UPDATED',
   'CHAT_MESSAGE',
   'NETWORK_POST',
+  'NETWORK_MATCH',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;

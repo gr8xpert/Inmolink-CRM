@@ -61,7 +61,9 @@ export {
 } from './service';
 export {
   activeClientMemberIds,
+  activeClientMembersAcross,
   activeClientMembersAmong,
+  agencyAdminsOf,
   getStaffRole,
   grantStaff,
   isUserActive,

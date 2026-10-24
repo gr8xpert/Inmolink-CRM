@@ -13,6 +13,7 @@ export interface ThreadRow {
   id: string;
   kind: string;
   peerAgencyId: string | null;
+  networkPostId: string | null;
   title: string | null;
   subject: string | null;
   createdAt: Date;
@@ -25,6 +26,7 @@ const threadColumns = {
   id: chatThreads.id,
   kind: chatThreads.kind,
   peerAgencyId: chatThreads.peerAgencyId,
+  networkPostId: chatThreads.networkPostId,
   title: chatThreads.title,
   subject: chatThreads.subject,
   createdAt: chatThreads.createdAt,
@@ -137,6 +139,41 @@ export async function insertViewingThread(
     .onConflictDoNothing()
     .returning({ id: chatThreads.id });
   return rows.length > 0;
+}
+
+/**
+ * S11-05: the agency's copy of its reply thread to a network post (`chat_threads_mirror` checks the post is an open one
+ * of `peerAgencyId`, copies it to that agency with the post's title and seats the post's author), unless the agency
+ * has one already (`chat_threads_network_uq`). The thread's id either way.
+ */
+export async function insertNetworkThread(
+  tx: Tx,
+  t: { agencyId: string; id: string; peerAgencyId: string; networkPostId: string },
+): Promise<{ id: string; created: boolean }> {
+  const rows = await tx
+    .insert(chatThreads)
+    .values({
+      agencyId: t.agencyId,
+      id: t.id,
+      kind: 'NETWORK',
+      peerAgencyId: t.peerAgencyId,
+      networkPostId: t.networkPostId,
+    })
+    .onConflictDoNothing()
+    .returning({ id: chatThreads.id });
+  if (rows[0]) return { id: rows[0].id, created: true };
+  const [existing] = await tx
+    .select({ id: chatThreads.id })
+    .from(chatThreads)
+    .where(
+      and(
+        eq(chatThreads.agencyId, t.agencyId),
+        eq(chatThreads.networkPostId, t.networkPostId),
+        eq(chatThreads.peerAgencyId, t.peerAgencyId),
+      ),
+    );
+  if (!existing) throw new Error('chat_threads: network thread neither inserted nor found');
+  return { id: existing.id, created: false };
 }
 
 /** The thread's latest message time on the agency's copy (readable by any member: the thread row is STRICT). */

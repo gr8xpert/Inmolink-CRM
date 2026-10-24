@@ -316,6 +316,14 @@ export const ErrorCodes = {
   CHAT_PARTICIPANTS_INVALID: 422,
   /** The thread's viewing request was declined, cancelled or expired: the thread is read-only. */
   CHAT_THREAD_CLOSED: 409,
+  // network board (S11-05)
+  /** No post with this id the caller may read (none, closed or expired for another agency, or not shared). */
+  NETWORK_POST_NOT_FOUND: 404,
+  /** The post was closed or has expired: no new reply thread. */
+  NETWORK_POST_CLOSED: 409,
+  NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
+  /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
+  NETWORK_SUBSCRIPTION_LIMIT: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

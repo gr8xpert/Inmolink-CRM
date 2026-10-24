@@ -220,6 +220,15 @@ export async function directoryNames(tx: Tx, ids: readonly string[]): Promise<{ 
     .where(inArray(agencyDirectory.agencyId, [...ids]));
 }
 
+/** S11-05: the directory names of those of these agencies that are listed (VERIFIED) now. */
+export async function listedDirectoryNames(tx: Tx, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: agencyDirectory.agencyId, name: agencyDirectory.name })
+    .from(agencyDirectory)
+    .where(and(inArray(agencyDirectory.agencyId, [...ids]), eq(agencyDirectory.listed, true)));
+}
+
 export interface PublicAgencyRow {
   agencyId: string;
   name: string;

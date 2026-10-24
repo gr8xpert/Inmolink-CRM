@@ -522,6 +522,8 @@ export const tenantTables: Record<string, TenantTable> = {
     // listed now; a directory row holds only name, kind and listed.
     publicReadSql: 'true',
     networkReadSql: 'listed',
+    // S11-05: `chat_threads_mirror` (SECURITY DEFINER) checks both agencies of a network reply thread are listed.
+    definerRead: true,
     staff: { select: 'true', insert: 'true', update: 'true' },
     samples: { visible: [{ listed: true }], hidden: [] },
     triggers: ['agency_directory_guard'],
@@ -1150,6 +1152,7 @@ export const tenantTables: Record<string, TenantTable> = {
       'id',
       'kind',
       'peer_agency_id',
+      'network_post_id',
       'subject',
       'created_by_user_id',
       'created_at',
@@ -1166,7 +1169,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // `last_message_at` (and the sender's read state) and the notify job (app_system) `notified_at`.
   chat_participants: {
     kind: 'STRICT',
-    definerSync: { functions: ['chat_messages_fanout'] },
+    // S11-05: `chat_threads_mirror` (definer) seats a network post's author on a reply thread's copy
+    definerSync: { functions: ['chat_messages_fanout', 'chat_threads_mirror'] },
     userNoUpdateColumns: ['thread_id', 'user_id', 'joined_at', 'last_message_at', 'notified_at'],
     triggers: ['chat_participants_guard', 'chat_participants_change_guard'],
   },
@@ -1192,6 +1196,64 @@ export const tenantTables: Record<string, TenantTable> = {
       write: { insert: 'sender_user_id = app_user_id()' },
       samples: { visible: [{ sender_user_id: SAMPLE_USER }], hidden: [{}] },
     },
+  },
+  // S11-05, network board (PLAN §7 M11). A post is what its agency chose to publish to the network (kind, title, text,
+  // criteria, expiry — no author, client or commission): verified agencies read the OPEN, unexpired posts of listed
+  // agencies; only its agency writes it. `definerRead`: `chat_threads_mirror` checks a NETWORK thread replies to an
+  // open post of the other agency and copies its title.
+  network_posts: {
+    kind: 'NETWORK_READ',
+    definerRead: true,
+    // what was published never changes; a request only closes the post (`network_posts_guard`: OPEN -> CLOSED)
+    userNoUpdateColumns: [
+      'id',
+      'kind',
+      'title',
+      'body',
+      'transaction_type',
+      'property_type_ids',
+      'location_ids',
+      'location_scope_ids',
+      'feature_ids',
+      'price_min_cents',
+      'price_max_cents',
+      'currency',
+      'beds_min',
+      'baths_min',
+      'area_min_m2',
+      'area_max_m2',
+      'expires_at',
+      'created_at',
+    ],
+    triggers: ['network_posts_guard'],
+    networkReadSql: `status = 'OPEN' and expires_at > now()
+      and exists (select 1 from public.agency_directory d where d.agency_id = network_posts.agency_id and d.listed)`,
+    base: { kind: 'BUYER_REQUEST', title: 'Villa wanted', body: 'Sea views', expires_at: '2099-01-01T00:00:00Z' },
+    samples: {
+      visible: [{ status: 'OPEN' }],
+      hidden: [
+        { status: 'CLOSED', closed_at: '2026-01-02T00:00:00Z' },
+        { status: 'OPEN', created_at: '2020-01-01T00:00:00Z', expires_at: '2020-02-01T00:00:00Z' },
+      ],
+    },
+  },
+  // A post's private side: who posted it and its Idempotency-Key — its agency only, written once with the post and never
+  // changed nor removed by a request (`userAppendRead`). `definerRead`: `chat_threads_mirror` seats the author on the
+  // post's agency's copy of a reply thread.
+  network_post_authors: { kind: 'STRICT', userAppendRead: true, definerRead: true },
+  // A member's board subscriptions (filters): the member's own only — colleagues neither read nor change them.
+  network_subscriptions: {
+    kind: 'STRICT',
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: {
+        insert: 'user_id = app_user_id()',
+        update: 'user_id = app_user_id()',
+        delete: 'user_id = app_user_id()',
+      },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+    base: { name: 'Marbella villas' },
   },
 };
 

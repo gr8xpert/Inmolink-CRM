@@ -5,7 +5,8 @@
     "VIEWING_REQUESTED": "{actor} requested a viewing: {subject}",
     "VIEWING_UPDATED": "Viewing request updated: {subject}",
     "CHAT_MESSAGE": "New message from {actor}: {subject}",
-    "NETWORK_POST": "New network post: {subject}"
+    "NETWORK_POST": "New network post: {subject}",
+    "NETWORK_MATCH": "Buyer request “{subject}” matches {count, plural, one {# of your listings} other {# of your listings}}: {refs}"
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads assigned to me",
@@ -13,7 +14,8 @@
     "VIEWING_REQUESTED": "Viewing requests",
     "VIEWING_UPDATED": "Viewing request updates",
     "CHAT_MESSAGE": "Chat messages",
-    "NETWORK_POST": "Network board posts"
+    "NETWORK_POST": "Network board posts",
+    "NETWORK_MATCH": "Buyer requests matching my listings"
   },
   "email": {
     "subject": "{count, plural, one {You have # new notification} other {You have # new notifications}}",

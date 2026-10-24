@@ -9,6 +9,7 @@ export { agenciesJobs } from './jobs';
 export {
   directoryNamesOf,
   getNetworkStanding,
+  listedAgencyNamesOf,
   type NetworkStanding,
   networkAgencyNames,
   setGiveToGetExemption,

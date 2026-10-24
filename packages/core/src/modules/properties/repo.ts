@@ -1441,6 +1441,26 @@ export async function leadTargetListing(
 }
 
 /**
+ * S11-05 (network board matching, app_system): these listings' agency, reference and responsible agent, by primary key
+ * (one statement). Deleted listings are absent.
+ */
+export async function listingAgents(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ id: string; agencyId: string; ref: string; ownerUserId: string | null }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: properties.id,
+      agencyId: properties.agencyId,
+      ref: properties.ref,
+      ownerUserId: properties.ownerUserId,
+    })
+    .from(properties)
+    .where(and(inArray(properties.id, [...ids]), isNull(properties.deletedAt)));
+}
+
+/**
  * Give-to-get (S5-05): the agency's listings on the network now and shared with every agency (PREFERRED ones need not
  * reach anyone: security review), up to `cap` (`properties_agency_network_idx`, scope checked on its rows).
  */

@@ -13,6 +13,7 @@ import {
   OpenViewingThreadBody,
   SendChatMessageBody,
   type SendChatMessageDto,
+  type SendChatMessageBody as SendChatMessageInput,
 } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -58,6 +59,7 @@ function toThreadDto(r: repo.ThreadRow, names: Map<string, string>): ChatThreadD
     id: r.id,
     kind: r.kind as ChatThreadKind,
     viewingRequestId: r.kind === 'VIEWING' ? r.id : null,
+    networkPostId: r.networkPostId,
     peerAgency: r.peerAgencyId ? { id: r.peerAgencyId, name: names.get(r.peerAgencyId) ?? null } : null,
     title: r.title,
     subject: r.subject,
@@ -206,6 +208,53 @@ export async function openViewingThread(ctx: Ctx, raw: OpenViewingThreadBody): P
       throw closed
         ? new AppError('VIEWING_REQUEST_STATE', { reason: 'closed' })
         : new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'full' });
+    }
+    throw err;
+  }
+}
+
+/**
+ * S11-05, for the network module's reply to a board post (`network.replyToPost`, which checked the post is an open one
+ * of `posterAgencyId` the caller may read, not its own): the caller's agency's `NETWORK` thread with the post's agency —
+ * created with the other agency's copy and the post's author seated (`chat_threads_mirror`), or the existing one,
+ * which the caller joins — then the caller's message in it. ≤ 10 statements.
+ */
+export async function replyInNetworkThread(
+  ctx: Ctx,
+  input: { postId: string; posterAgencyId: string; message: SendChatMessageInput },
+): Promise<{ thread: ChatThreadDetailDto } & SendChatMessageDto> {
+  assertCan(ctx, 'chat.write');
+  if (input.posterAgencyId === ctx.tenant.agencyId) throw new AppError('VALIDATION_FAILED', { reason: 'own_post' });
+  const me = userIdOf(ctx);
+  const agencyId = ctx.tenant.agencyId;
+  const { id } = await repo.insertNetworkThread(ctx.tx, {
+    agencyId,
+    id: newId(),
+    peerAgencyId: input.posterAgencyId,
+    networkPostId: input.postId,
+  });
+  await repo.joinThread(ctx.tx, agencyId, id, me, CHAT_LIMITS.participants);
+  const sent = await sendMessage(ctx, id, input.message);
+  return { thread: await getThread(ctx, id), ...sent };
+}
+
+/**
+ * S11-05, for the network module (`network.joinReplyThread`, which checked the caller may): the caller joins their
+ * agency's copy of a `NETWORK` thread — e.g. an admin of the post's agency joins a reply thread its author was seated
+ * on. Another kind, or none: `CHAT_THREAD_NOT_FOUND`. ≤ 7 statements.
+ */
+export async function joinNetworkThread(ctx: Ctx, threadId: string): Promise<ChatThreadDetailDto> {
+  assertCan(ctx, 'chat.write');
+  const agencyId = ctx.tenant.agencyId;
+  const [copy] = await repo.threadCopies(ctx.tx, threadId, [agencyId]);
+  if (!copy || copy.kind !== 'NETWORK') throw new AppError('CHAT_THREAD_NOT_FOUND');
+  await repo.joinThread(ctx.tx, agencyId, threadId, userIdOf(ctx), CHAT_LIMITS.participants);
+  try {
+    return await getThread(ctx, threadId);
+  } catch (err) {
+    // not joined: the agency's side is full
+    if (err instanceof AppError && err.code === 'CHAT_THREAD_NOT_FOUND') {
+      throw new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'full' });
     }
     throw err;
   }
