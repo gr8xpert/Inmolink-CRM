@@ -128,6 +128,8 @@ export type MeDto = z.infer<typeof MeDto>;
 export const DashboardSection = z.enum([
   'listings',
   'network',
+  /** My collaborations: client registrations and viewing requests, in and out (S11-06). */
+  'collaborations',
   'developments',
   'imports',
   'team',

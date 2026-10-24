@@ -2,6 +2,8 @@
  * mls queries (PATTERNS §5). Takes `tx`, selects only the columns it needs, paginates by cursor.
  * Queries only `@inmolink/db/schema/mls` — other modules' tables fail `pnpm check:boundaries`.
  */
+
+import type { RegistrationState, RegistrationTargetKind } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import {
   clientRegistrationFingerprints,
@@ -18,6 +20,32 @@ import type { KeysetCursor } from '../../pagination';
 function rowAfter(ms: AnyColumn, id: AnyColumn, cursor: KeysetCursor | undefined): SQL | undefined {
   if (!cursor) return undefined;
   return sql`(${ms}, ${id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
+}
+
+/**
+ * S11-06 filters of the collaborations view (all optional): state by the database's clock, target kind, and a day range
+ * whose edges are midnights in the agency's time zone (`timeZone`, set whenever `from` or `to` is).
+ */
+export interface RegistrationFilter {
+  state?: RegistrationState | undefined;
+  kind?: RegistrationTargetKind | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  timeZone?: string | undefined;
+}
+
+function filterWhere(
+  f: RegistrationFilter | undefined,
+  c: { kind: AnyColumn; expiresAt: AnyColumn; ms: AnyColumn },
+): (SQL | undefined)[] {
+  if (!f) return [];
+  return [
+    f.kind ? sql`${c.kind} = ${f.kind}` : undefined,
+    f.state === 'ACTIVE' ? sql`${c.expiresAt} > now()` : undefined,
+    f.state === 'EXPIRED' ? sql`${c.expiresAt} <= now()` : undefined,
+    f.from ? sql`${c.ms} >= (${f.from}::date)::timestamp at time zone ${f.timeZone}` : undefined,
+    f.to ? sql`${c.ms} < ((${f.to}::date + 1))::timestamp at time zone ${f.timeZone}` : undefined,
+  ];
 }
 
 export interface NewRegistration {
@@ -97,8 +125,11 @@ const ownColumns = {
   registeredAt: clientRegistrations.registeredAt,
   expiresAt: clientRegistrations.expiresAt,
   registeredMs: clientRegistrations.registeredMs,
+  active: sql<boolean>`(${clientRegistrations.expiresAt} > now())`,
 };
 export interface OwnRegistrationRow {
+  /** Still valid by the database's clock. */
+  active: boolean;
   id: string;
   targetAgencyId: string;
   targetKind: string;
@@ -123,7 +154,11 @@ export async function getOwn(tx: Tx, agencyId: string, id: string): Promise<OwnR
  * The introducer's registrations, newest first: one table under one policy, an index-ordered keyset page
  * (`client_registrations_agency_registered_idx`); limit + 1 rows, one statement.
  */
-export function ownPage(tx: Tx, agencyId: string, page: { limit: number; cursor?: KeysetCursor }) {
+export function ownPage(
+  tx: Tx,
+  agencyId: string,
+  page: { limit: number; cursor?: KeysetCursor; filter?: RegistrationFilter },
+) {
   return tx
     .select(ownColumns)
     .from(clientRegistrations)
@@ -131,6 +166,11 @@ export function ownPage(tx: Tx, agencyId: string, page: { limit: number; cursor?
       and(
         eq(clientRegistrations.agencyId, agencyId),
         rowAfter(clientRegistrations.registeredMs, clientRegistrations.id, page.cursor),
+        ...filterWhere(page.filter, {
+          kind: clientRegistrations.targetKind,
+          expiresAt: clientRegistrations.expiresAt,
+          ms: clientRegistrations.registeredMs,
+        }),
       ),
     )
     .orderBy(desc(clientRegistrations.registeredMs), desc(clientRegistrations.id))
@@ -140,12 +180,13 @@ export function ownPage(tx: Tx, agencyId: string, page: { limit: number; cursor?
 export async function listOwn(
   tx: Tx,
   agencyId: string,
-  page: { limit: number; cursor?: KeysetCursor },
+  page: { limit: number; cursor?: KeysetCursor; filter?: RegistrationFilter },
 ): Promise<OwnRegistrationRow[]> {
   return ownPage(tx, agencyId, page);
 }
 
 export interface ReceiptRow {
+  active: boolean;
   registrationId: string;
   introducerAgencyId: string;
   targetKind: string;
@@ -159,7 +200,11 @@ export interface ReceiptRow {
  * The owner's receipts — registrations other agencies made for its targets — newest first
  * (`client_registration_receipts_agency_registered_idx`). Nothing of the client exists in them.
  */
-export function receiptsPage(tx: Tx, agencyId: string, page: { limit: number; cursor?: KeysetCursor }) {
+export function receiptsPage(
+  tx: Tx,
+  agencyId: string,
+  page: { limit: number; cursor?: KeysetCursor; filter?: RegistrationFilter },
+) {
   return tx
     .select({
       registrationId: clientRegistrationReceipts.registrationId,
@@ -169,12 +214,18 @@ export function receiptsPage(tx: Tx, agencyId: string, page: { limit: number; cu
       registeredAt: clientRegistrationReceipts.registeredAt,
       expiresAt: clientRegistrationReceipts.expiresAt,
       registeredMs: clientRegistrationReceipts.registeredMs,
+      active: sql<boolean>`(${clientRegistrationReceipts.expiresAt} > now())`,
     })
     .from(clientRegistrationReceipts)
     .where(
       and(
         eq(clientRegistrationReceipts.agencyId, agencyId),
         rowAfter(clientRegistrationReceipts.registeredMs, clientRegistrationReceipts.registrationId, page.cursor),
+        ...filterWhere(page.filter, {
+          kind: clientRegistrationReceipts.targetKind,
+          expiresAt: clientRegistrationReceipts.expiresAt,
+          ms: clientRegistrationReceipts.registeredMs,
+        }),
       ),
     )
     .orderBy(desc(clientRegistrationReceipts.registeredMs), desc(clientRegistrationReceipts.registrationId))
@@ -184,7 +235,7 @@ export function receiptsPage(tx: Tx, agencyId: string, page: { limit: number; cu
 export async function listReceipts(
   tx: Tx,
   agencyId: string,
-  page: { limit: number; cursor?: KeysetCursor },
+  page: { limit: number; cursor?: KeysetCursor; filter?: RegistrationFilter },
 ): Promise<ReceiptRow[]> {
   return receiptsPage(tx, agencyId, page);
 }

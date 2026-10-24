@@ -135,6 +135,7 @@ describe('api against the test stack', () => {
           'contacts',
           'inbox',
           'network',
+          'collaborations',
           'developments',
           'imports',
           'team',

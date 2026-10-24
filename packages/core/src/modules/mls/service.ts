@@ -5,7 +5,6 @@
 import type {
   CreateRegistrationBody,
   ListRegistrationsQuery,
-  PageQuery,
   ReceivedRegistrationDto,
   ReceivedRegistrationPage,
   RegistrationDto,
@@ -75,6 +74,7 @@ function toDto(ctx: Ctx, r: repo.OwnRegistrationRow): RegistrationDto {
     registeredByUserId: r.registeredByUserId,
     registeredAt: r.registeredAt.toISOString(),
     expiresAt: r.expiresAt.toISOString(),
+    state: r.active ? 'ACTIVE' : 'EXPIRED',
   };
 }
 
@@ -176,6 +176,7 @@ async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Pro
       registeredByUserId,
       registeredAt: at.registeredAt.toISOString(),
       expiresAt: at.expiresAt.toISOString(),
+      state: 'ACTIVE',
     },
   };
 }
@@ -203,15 +204,21 @@ export async function registerClient(run: CtxRunner, input: CreateRegistrationBo
   throw new AppError('REGISTRATION_CONFLICT');
 }
 
+/** The filters, with the agency's time zone when a day range needs it (one more query, only then). */
+async function registrationFilter(ctx: Ctx, q: ListRegistrationsQuery): Promise<repo.RegistrationFilter> {
+  const timeZone = q.from || q.to ? await agencies.agencyTimeZone(ctx.tx, ctx.tenant.agencyId) : undefined;
+  return { state: q.state, kind: q.kind, from: q.from, to: q.to, timeZone };
+}
+
 /** `GET /v1/mls/registrations`: the agency's registrations with their clients, newest first, keyset (one query). */
 export async function listRegistrations(ctx: Ctx, query: ListRegistrationsQuery): Promise<RegistrationPage> {
   assertCan(ctx, 'mls.registrations.read');
   const cursor = decodeCursor(query.cursor);
-  const rows = await repo.listOwn(
-    ctx.tx,
-    ctx.tenant.agencyId,
-    cursor ? { limit: query.limit, cursor } : { limit: query.limit },
-  );
+  const rows = await repo.listOwn(ctx.tx, ctx.tenant.agencyId, {
+    limit: query.limit,
+    filter: await registrationFilter(ctx, query),
+    ...(cursor ? { cursor } : {}),
+  });
   return toPage(
     rows,
     query.limit,
@@ -225,14 +232,17 @@ export async function listRegistrations(ctx: Ctx, query: ListRegistrationsQuery)
  * and until when ("registered by Agency X"), never the client. Newest first, keyset over the owner's receipts; two
  * queries (the page, the introducers' directory names).
  */
-export async function listReceivedRegistrations(ctx: Ctx, query: PageQuery): Promise<ReceivedRegistrationPage> {
+export async function listReceivedRegistrations(
+  ctx: Ctx,
+  query: ListRegistrationsQuery,
+): Promise<ReceivedRegistrationPage> {
   assertCan(ctx, 'mls.registrations.read');
   const cursor = decodeCursor(query.cursor);
-  const rows = await repo.listReceipts(
-    ctx.tx,
-    ctx.tenant.agencyId,
-    cursor ? { limit: query.limit, cursor } : { limit: query.limit },
-  );
+  const rows = await repo.listReceipts(ctx.tx, ctx.tenant.agencyId, {
+    limit: query.limit,
+    filter: await registrationFilter(ctx, query),
+    ...(cursor ? { cursor } : {}),
+  });
   const page = rows.slice(0, query.limit);
   const names =
     page.length > 0
@@ -249,6 +259,7 @@ export async function listReceivedRegistrations(ctx: Ctx, query: PageQuery): Pro
       target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
       registeredAt: r.registeredAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
+      state: r.active ? 'ACTIVE' : 'EXPIRED',
     }),
   );
 }

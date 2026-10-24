@@ -66,5 +66,72 @@
     "SERVICE_UNAVAILABLE": "Network search is unavailable right now. Try again in a moment.",
     "VALIDATION_FAILED": "Some filters are not valid.",
     "generic": "Network search failed. Try again."
+  },
+  "collaborations": {
+    "title": "My collaborations",
+    "intro": "Client registrations and viewing requests with other agencies, in both directions, and where they stand.",
+    "filters": {
+      "label": "Collaboration filters",
+      "apply": "Filter",
+      "reset": "Reset",
+      "direction": "Direction",
+      "type": "Type",
+      "state": "State",
+      "kind": "Target",
+      "from": "From",
+      "to": "To"
+    },
+    "any": "Any",
+    "directions": {
+      "OUT": "Out: I introduced",
+      "IN": "In: for my listings"
+    },
+    "types": {
+      "REGISTRATION": "Client registrations",
+      "VIEWING": "Viewing requests"
+    },
+    "kinds": {
+      "LISTING": "Listing",
+      "DEVELOPMENT": "Development"
+    },
+    "registrationStates": {
+      "ACTIVE": "Active",
+      "EXPIRED": "Expired"
+    },
+    "viewingStates": {
+      "REQUESTED": "Requested",
+      "SCHEDULED": "Scheduled",
+      "COMPLETED": "Completed",
+      "DECLINED": "Declined",
+      "CANCELLED": "Cancelled",
+      "EXPIRED": "Expired"
+    },
+    "outcomes": {
+      "ATTENDED": "Attended",
+      "NO_SHOW": "No show"
+    },
+    "awaiting": {
+      "INTRODUCER": "Waiting for the introducer",
+      "OWNER": "Waiting for the owner"
+    },
+    "sections": {
+      "outRegistrations": "Clients I registered",
+      "inRegistrations": "Clients registered for my listings",
+      "outViewings": "Viewings I requested",
+      "inViewings": "Viewings requested for my listings"
+    },
+    "row": {
+      "introducedBy": "Registered by",
+      "owner": "Owner",
+      "registered": "Registered",
+      "validUntil": "Valid until",
+      "proposed": "Proposed",
+      "scheduled": "Scheduled",
+      "unknownAgency": "Agency not listed",
+      "noClient": "No name"
+    },
+    "empty": "Nothing matches these filters.",
+    "loadMore": "Show more",
+    "load": "The collaborations could not be loaded. Try again."
   }
 }

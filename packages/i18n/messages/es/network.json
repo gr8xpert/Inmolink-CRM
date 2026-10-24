@@ -66,5 +66,72 @@
     "SERVICE_UNAVAILABLE": "La búsqueda en la red no está disponible ahora mismo. Inténtalo de nuevo en un momento.",
     "VALIDATION_FAILED": "Algunos filtros no son válidos.",
     "generic": "La búsqueda en la red ha fallado. Inténtalo de nuevo."
+  },
+  "collaborations": {
+    "title": "Mis colaboraciones",
+    "intro": "Registros de clientes y solicitudes de visita con otras agencias, en ambos sentidos, y en qué estado están.",
+    "filters": {
+      "label": "Filtros de colaboraciones",
+      "apply": "Filtrar",
+      "reset": "Restablecer",
+      "direction": "Sentido",
+      "type": "Tipo",
+      "state": "Estado",
+      "kind": "Destino",
+      "from": "Desde",
+      "to": "Hasta"
+    },
+    "any": "Cualquiera",
+    "directions": {
+      "OUT": "Salientes: los que presenté yo",
+      "IN": "Entrantes: para mis inmuebles"
+    },
+    "types": {
+      "REGISTRATION": "Registros de clientes",
+      "VIEWING": "Solicitudes de visita"
+    },
+    "kinds": {
+      "LISTING": "Inmueble",
+      "DEVELOPMENT": "Promoción"
+    },
+    "registrationStates": {
+      "ACTIVE": "Vigente",
+      "EXPIRED": "Fuera de plazo"
+    },
+    "viewingStates": {
+      "REQUESTED": "Solicitada",
+      "SCHEDULED": "Programada",
+      "COMPLETED": "Realizada",
+      "DECLINED": "Rechazada",
+      "CANCELLED": "Cancelada",
+      "EXPIRED": "Fuera de plazo"
+    },
+    "outcomes": {
+      "ATTENDED": "Asistió",
+      "NO_SHOW": "No se presentó"
+    },
+    "awaiting": {
+      "INTRODUCER": "Esperando a quien presenta",
+      "OWNER": "Esperando al propietario"
+    },
+    "sections": {
+      "outRegistrations": "Clientes que registré",
+      "inRegistrations": "Clientes registrados para mis inmuebles",
+      "outViewings": "Visitas que solicité",
+      "inViewings": "Visitas solicitadas para mis inmuebles"
+    },
+    "row": {
+      "introducedBy": "Registrado por",
+      "owner": "Propietario",
+      "registered": "Registrado",
+      "validUntil": "Válido hasta",
+      "proposed": "Propuesta",
+      "scheduled": "Programada",
+      "unknownAgency": "Agencia no listada",
+      "noClient": "Sin nombre"
+    },
+    "empty": "Nada coincide con estos filtros.",
+    "loadMore": "Ver más",
+    "load": "No se han podido cargar las colaboraciones. Inténtalo de nuevo."
   }
 }

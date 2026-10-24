@@ -12,6 +12,10 @@ export const REGISTRATION_TARGET_KINDS = ['LISTING', 'DEVELOPMENT'] as const;
 export const RegistrationTargetKind = z.enum(REGISTRATION_TARGET_KINDS);
 export type RegistrationTargetKind = z.infer<typeof RegistrationTargetKind>;
 
+export const REGISTRATION_STATES = ['ACTIVE', 'EXPIRED'] as const;
+export const RegistrationState = z.enum(REGISTRATION_STATES);
+export type RegistrationState = z.infer<typeof RegistrationState>;
+
 export const RegistrationTarget = z.strictObject({ kind: RegistrationTargetKind, id: z.uuid() });
 export type RegistrationTarget = z.infer<typeof RegistrationTarget>;
 
@@ -46,13 +50,26 @@ export const RegistrationDto = z.strictObject({
   registeredByUserId: z.uuid().nullable(),
   registeredAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  /** By the database's clock when listed: `ACTIVE` until `expiresAt`. */
+  state: RegistrationState,
 });
 export type RegistrationDto = z.infer<typeof RegistrationDto>;
 export const RegistrationPage = pageOf(RegistrationDto);
 export type RegistrationPage = z.infer<typeof RegistrationPage>;
 
 /** `GET /v1/mls/registrations`: the agency's registrations (expired ones too: `expiresAt`), newest first, keyset. */
-export const ListRegistrationsQuery = PageQuery;
+/** `from` must not be after `to` (ISO dates compare as strings). */
+const fromBeforeTo = (q: { from?: string | undefined; to?: string | undefined }) => !q.from || !q.to || q.from <= q.to;
+const FROM_TO_MESSAGE = { message: 'from must not be after to', path: ['from'] };
+
+export const ListRegistrationsQuery = PageQuery.extend({
+  /** S11-06: `ACTIVE` (still valid) or `EXPIRED`, by the database's clock. */
+  state: RegistrationState.optional(),
+  kind: RegistrationTargetKind.optional(),
+  /** Registered on or after / on or before this date (UTC days). */
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+}).refine(fromBeforeTo, FROM_TO_MESSAGE);
 export type ListRegistrationsQuery = z.infer<typeof ListRegistrationsQuery>;
 
 /**
@@ -67,6 +84,7 @@ export const ReceivedRegistrationDto = z.strictObject({
   target: RegistrationTarget,
   registeredAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  state: RegistrationState,
 });
 export type ReceivedRegistrationDto = z.infer<typeof ReceivedRegistrationDto>;
 export const ReceivedRegistrationPage = pageOf(ReceivedRegistrationDto);
@@ -166,6 +184,15 @@ export const ViewingRequestDto = z.strictObject({
 export type ViewingRequestDto = z.infer<typeof ViewingRequestDto>;
 export const ViewingRequestPage = pageOf(ViewingRequestDto);
 export type ViewingRequestPage = z.infer<typeof ViewingRequestPage>;
+
+/** S11-06, `GET /v1/mls/viewing-requests` and `/received-viewing-requests`: filter by state, target kind and created date. */
+export const ListViewingRequestsQuery = PageQuery.extend({
+  status: ViewingStatus.optional(),
+  kind: RegistrationTargetKind.optional(),
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+}).refine(fromBeforeTo, FROM_TO_MESSAGE);
+export type ListViewingRequestsQuery = z.infer<typeof ListViewingRequestsQuery>;
 
 /**
  * `GET /v1/mls/viewing-requests/:id/terms`: the accepted terms with their audit trail. `pdfUrl` stays null until the PDF

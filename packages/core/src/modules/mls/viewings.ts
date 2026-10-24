@@ -20,7 +20,7 @@
  */
 import type {
   CreateViewingRequestBody,
-  PageQuery,
+  ListViewingRequestsQuery,
   RegistrationTargetKind,
   RescheduleViewingBody,
   ViewingOutcomeBody,
@@ -435,15 +435,21 @@ function acceptedTermsPdfUrl(_r: repo.ViewingRow): string | null {
   return null;
 }
 
+/** The filters, with the agency's time zone when a day range needs it (one more query, only then). */
+async function viewingFilter(ctx: Ctx, q: ListViewingRequestsQuery): Promise<repo.ViewingFilter> {
+  const timeZone = q.from || q.to ? await agencies.agencyTimeZone(ctx.tx, ctx.tenant.agencyId) : undefined;
+  return { status: q.status, kind: q.kind, from: q.from, to: q.to, timeZone };
+}
+
 /** `GET /v1/mls/viewing-requests`: the agency's requests as introducer, newest first, keyset (two queries). */
-export async function listViewingRequests(ctx: Ctx, query: PageQuery): Promise<ViewingRequestPage> {
+export async function listViewingRequests(ctx: Ctx, query: ListViewingRequestsQuery): Promise<ViewingRequestPage> {
   assertCan(ctx, 'mls.viewings.read');
   const cursor = decodeCursor(query.cursor);
-  const rows = await repo.introducerPage(
-    ctx.tx,
-    ctx.tenant.agencyId,
-    cursor ? { limit: query.limit, cursor } : { limit: query.limit },
-  );
+  const rows = await repo.introducerPage(ctx.tx, ctx.tenant.agencyId, {
+    limit: query.limit,
+    filter: await viewingFilter(ctx, query),
+    ...(cursor ? { cursor } : {}),
+  });
   const names = await namesFor(ctx, rows.slice(0, query.limit));
   return toPage(
     rows,
@@ -454,14 +460,17 @@ export async function listViewingRequests(ctx: Ctx, query: PageQuery): Promise<V
 }
 
 /** `GET /v1/mls/received-viewing-requests`: the owner's side — never the client. Newest first, keyset (two queries). */
-export async function listReceivedViewingRequests(ctx: Ctx, query: PageQuery): Promise<ViewingRequestPage> {
+export async function listReceivedViewingRequests(
+  ctx: Ctx,
+  query: ListViewingRequestsQuery,
+): Promise<ViewingRequestPage> {
   assertCan(ctx, 'mls.viewings.read');
   const cursor = decodeCursor(query.cursor);
-  const rows = await repo.ownerPage(
-    ctx.tx,
-    ctx.tenant.agencyId,
-    cursor ? { limit: query.limit, cursor } : { limit: query.limit },
-  );
+  const rows = await repo.ownerPage(ctx.tx, ctx.tenant.agencyId, {
+    limit: query.limit,
+    filter: await viewingFilter(ctx, query),
+    ...(cursor ? { cursor } : {}),
+  });
   const names = await namesFor(ctx, rows.slice(0, query.limit));
   return toPage(
     rows,

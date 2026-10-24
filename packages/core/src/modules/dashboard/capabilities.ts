@@ -9,6 +9,7 @@ import * as developments from '../developments';
 import * as exportsModule from '../exports';
 import * as identity from '../identity';
 import * as imports from '../imports';
+import * as mls from '../mls';
 import * as properties from '../properties';
 import * as search from '../search';
 import * as websites from '../websites';
@@ -32,6 +33,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['inbox', (ctx) => crm.can(ctx, 'crm.leads.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
   ['network', (ctx) => search.can(ctx, 'search.network')],
+  // My collaborations (S11-06): registrations and viewing requests, in and out — members who work clients.
+  ['collaborations', (ctx) => mls.can(ctx, 'mls.registrations.read')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).
   ['developments', (ctx) => developments.can(ctx, 'development.create')],
   // Feed imports (S6-01): the agency's members who follow them (not partners, not Client Mode).

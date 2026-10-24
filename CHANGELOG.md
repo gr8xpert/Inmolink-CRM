@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- My collaborations view (S11-06): registrations and viewing requests in both directions with state / direction / kind / date filters on the mls lists; new dashboard section.
 - Network board (S11-05): posts with structured criteria and expiry, filter subscriptions, replies as `NETWORK` chat threads, buyer requests matched to other agencies' listings over the search engine with one notification per agency; migration 0136. No new dependency.
 - ICS calendar feed answers a matching `If-None-Match` with a 304 from one fingerprint statement (`calendar_feed_tag`, weak ETag); ≤ 1,000 rows read, faster render (S11-F7).
 - Chat (S11-03): DIRECT and VIEWING threads with per-agency copies, participant-only message RLS, `/chat` realtime with typing and per-user limits, read receipts, `CHAT_MESSAGE` notifications into the 5-minute digest, WhatsApp / e-mail handoff links; end-to-end fan-out p95 392 ms at 1,000 sockets; migration 0135. No new external dependency (`@inmolink/db` workspace devDependency of apps/realtime).

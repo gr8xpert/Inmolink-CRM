@@ -3,6 +3,7 @@
  * Each side reads and writes its own table only (`viewing_requests` the introducer, `viewing_request_receipts` the
  * owner); the definer triggers copy the shared state to the other side's row.
  */
+import type { RegistrationTargetKind, ViewingStatus } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clientRegistrations, viewingRequestReceipts, viewingRequests } from '@inmolink/db/schema/mls';
 import { type AnyColumn, and, desc, eq, gt, type SQL, sql } from 'drizzle-orm';
@@ -96,6 +97,26 @@ const ownerColumns = {
   ...shared(viewingRequestReceipts),
 };
 
+/** S11-06 filters of the collaborations view (all optional): status, target kind, creation day range in `timeZone`. */
+export interface ViewingFilter {
+  status?: ViewingStatus | undefined;
+  kind?: RegistrationTargetKind | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+  timeZone?: string | undefined;
+}
+
+type SharedTable = typeof viewingRequests | typeof viewingRequestReceipts;
+const filterWhere = (f: ViewingFilter | undefined, t: SharedTable): (SQL | undefined)[] =>
+  f
+    ? [
+        f.status ? sql`${t.status} = ${f.status}` : undefined,
+        f.kind ? sql`${t.targetKind} = ${f.kind}` : undefined,
+        f.from ? sql`${t.createdMs} >= (${f.from}::date)::timestamp at time zone ${f.timeZone}` : undefined,
+        f.to ? sql`${t.createdMs} < ((${f.to}::date + 1))::timestamp at time zone ${f.timeZone}` : undefined,
+      ]
+    : [];
+
 const asIntroducer = (r: Omit<ViewingRow, 'side'>): ViewingRow => ({ ...r, side: 'INTRODUCER' });
 const asOwner = (r: Omit<ViewingRow, 'side' | 'registrationId' | 'contactId' | 'requestedByUserId'>): ViewingRow => ({
   ...r,
@@ -150,12 +171,20 @@ export async function sideRow(tx: Tx, agencyId: string, id: string): Promise<Vie
 }
 
 /** The introducer's requests, newest first (`viewing_requests_agency_created_idx`), limit + 1 rows: the statement. */
-export function introducerPageQuery(tx: Tx, agencyId: string, page: { limit: number; cursor?: KeysetCursor }) {
+export function introducerPageQuery(
+  tx: Tx,
+  agencyId: string,
+  page: { limit: number; cursor?: KeysetCursor; filter?: ViewingFilter },
+) {
   return tx
     .select(introducerColumns)
     .from(viewingRequests)
     .where(
-      and(eq(viewingRequests.agencyId, agencyId), rowAfter(viewingRequests.createdMs, viewingRequests.id, page.cursor)),
+      and(
+        eq(viewingRequests.agencyId, agencyId),
+        rowAfter(viewingRequests.createdMs, viewingRequests.id, page.cursor),
+        ...filterWhere(page.filter, viewingRequests),
+      ),
     )
     .orderBy(desc(viewingRequests.createdMs), desc(viewingRequests.id))
     .limit(page.limit + 1);
@@ -164,13 +193,17 @@ export function introducerPageQuery(tx: Tx, agencyId: string, page: { limit: num
 export async function introducerPage(
   tx: Tx,
   agencyId: string,
-  page: { limit: number; cursor?: KeysetCursor },
+  page: { limit: number; cursor?: KeysetCursor; filter?: ViewingFilter },
 ): Promise<ViewingRow[]> {
   return (await introducerPageQuery(tx, agencyId, page)).map(asIntroducer);
 }
 
 /** The owner's copies, newest first (`viewing_request_receipts_agency_created_idx`), limit + 1 rows: the statement. */
-export function ownerPageQuery(tx: Tx, agencyId: string, page: { limit: number; cursor?: KeysetCursor }) {
+export function ownerPageQuery(
+  tx: Tx,
+  agencyId: string,
+  page: { limit: number; cursor?: KeysetCursor; filter?: ViewingFilter },
+) {
   return tx
     .select(ownerColumns)
     .from(viewingRequestReceipts)
@@ -178,6 +211,7 @@ export function ownerPageQuery(tx: Tx, agencyId: string, page: { limit: number; 
       and(
         eq(viewingRequestReceipts.agencyId, agencyId),
         rowAfter(viewingRequestReceipts.createdMs, viewingRequestReceipts.requestId, page.cursor),
+        ...filterWhere(page.filter, viewingRequestReceipts),
       ),
     )
     .orderBy(desc(viewingRequestReceipts.createdMs), desc(viewingRequestReceipts.requestId))
@@ -187,7 +221,7 @@ export function ownerPageQuery(tx: Tx, agencyId: string, page: { limit: number; 
 export async function ownerPage(
   tx: Tx,
   agencyId: string,
-  page: { limit: number; cursor?: KeysetCursor },
+  page: { limit: number; cursor?: KeysetCursor; filter?: ViewingFilter },
 ): Promise<ViewingRow[]> {
   return (await ownerPageQuery(tx, agencyId, page)).map(asOwner);
 }
