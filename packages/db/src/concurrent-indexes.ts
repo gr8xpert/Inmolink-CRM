@@ -97,6 +97,21 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'properties',
     definition: `ON "properties" USING btree ("agency_id","id") WHERE "properties"."status" = 'ACTIVE' and "properties"."visibility" = 'PUBLIC' and "properties"."deleted_at" is null`,
   },
+  {
+    // the push lane's live listings of a connection (S10-F4): portal_listing_sync grows with every pushed listing.
+    // 0122 built it on a small table; from then on a rebuild runs concurrently (S11-F8)
+    name: 'portal_listing_sync_live_idx',
+    table: 'portal_listing_sync',
+    definition: `ON "portal_listing_sync" USING btree ("agency_id","connection_id","property_id") WHERE "portal_listing_sync"."remote_id" is not null and "portal_listing_sync"."state" <> 'WITHDRAWN'`,
+    declaredBy: '0122_s10_f4_portal_secrets',
+  },
+  {
+    // the nightly portal lanes (S10-F4): enabled connections hashed per agency, by their nightly mark (S11-F8)
+    name: 'agency_portal_connections_lane_idx',
+    table: 'agency_portal_connections',
+    definition: `ON "agency_portal_connections" USING btree (hashtext("agency_id"::text),"agency_id","nightly_at") WHERE "agency_portal_connections"."enabled" and "agency_portal_connections"."revoked_at" is null`,
+    declaredBy: '0122_s10_f4_portal_secrets',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

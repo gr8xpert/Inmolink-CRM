@@ -184,6 +184,15 @@ describe('buildConcurrentIndexes', () => {
     }
   });
 
+  it('[S11-F8] the 0122 portal indexes are built concurrently from now on, left to 0122 until it is applied', () => {
+    for (const name of ['portal_listing_sync_live_idx', 'agency_portal_connections_lane_idx']) {
+      expect(CONCURRENT_INDEXES.find((i) => i.name === name)).toMatchObject({
+        name,
+        declaredBy: '0122_s10_f4_portal_secrets',
+      });
+    }
+  });
+
   it('[S7-F13] no index is on both the build list and the drop list', () => {
     const built = new Set(CONCURRENT_INDEXES.map((i) => i.name));
     for (const ix of DROPPED_INDEXES) expect(built.has(ix.name)).toBe(false);
