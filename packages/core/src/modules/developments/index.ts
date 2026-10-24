@@ -17,7 +17,13 @@ export {
   importFeedDevelopments,
 } from './feed';
 export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs, PURGE_UNIT_BUDGET } from './jobs';
-export { leadTargetOwner, type NetworkUnitTerms, networkUnitTerms } from './network';
+export {
+  leadTargetOwner,
+  type NetworkDevelopmentTerms,
+  type NetworkUnitTerms,
+  networkDevelopmentTerms,
+  networkUnitTerms,
+} from './network';
 export { CLIENT_MODE_ALLOWED, can, DEVELOPMENTS_ACTIONS, DEVELOPMENTS_IMPERSONATION } from './policy';
 export { approvePriceList, createPriceList, diffPriceList, getPriceList, listPriceLists } from './price-lists';
 export {

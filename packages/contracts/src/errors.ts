@@ -294,6 +294,21 @@ export const ErrorCodes = {
   REGISTRATION_CONFLICT: 409,
   /** No such listing or development on the network (or the caller's own: a registration is to another agency). */
   REGISTRATION_TARGET_NOT_FOUND: 422,
+  // mls: viewing requests (S11-02)
+  /** No valid registration of the agency with this id (none, another agency's, or expired): register the client first. */
+  REGISTRATION_NOT_FOUND: 404,
+  /** No viewing request with this id on the caller's side (the introducer's or the owner's). */
+  VIEWING_REQUEST_NOT_FOUND: 404,
+  /** The registration already has an open viewing request (requested or scheduled): answer or cancel that one. */
+  VIEWING_REQUEST_OPEN: 409,
+  /**
+   * The request's state does not allow this now (`details.reason`): `not_awaiting` (the other side must answer),
+   * `closed` (declined, cancelled, expired or completed), `not_scheduled`, `too_early` (the outcome of a viewing not yet
+   * due) or `expired`.
+   */
+  VIEWING_REQUEST_STATE: 409,
+  /** The target publishes no complete commission terms (a commission or fixed amount, and a split): no snapshot to agree. */
+  VIEWING_TERMS_INCOMPLETE: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

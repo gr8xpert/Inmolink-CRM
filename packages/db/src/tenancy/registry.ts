@@ -1047,6 +1047,96 @@ export const tenantTables: Record<string, TenantTable> = {
     triggers: ['client_registration_fingerprints_guard'],
     base: { registered_at: '2026-01-01T00:00:00Z', expires_at: '2026-07-01T00:00:00Z' },
   },
+  // S11-02, viewing requests (PLAN §3 #9). The introducer's request: its registration and contact, the state and the
+  // terms snapshot. app_user never changes the terms, the target, the parties or the owner's acceptance (only the
+  // owner's row sets it) and never deletes one (`viewing_requests_guard`). `viewing_requests_receipt` (definer) appends
+  // the owner's copy; `viewing_requests_sync` (definer) copies the shared state to it; `viewing_terms_guard` refuses a
+  // change of the terms, parties or target (every role but app_owner) and of the owner's acceptance once given (every
+  // role); `viewing_requests_insert_guard` lets app_user insert only a proposal awaiting the owner.
+  viewing_requests: {
+    kind: 'STRICT',
+    definerSync: { functions: ['viewing_request_receipts_sync'] },
+    userNoUpdateColumns: [
+      'id',
+      'owner_agency_id',
+      'registration_id',
+      'requested_by_user_id',
+      'target_kind',
+      'target_id',
+      'commission_bp',
+      'commission_fixed_cents',
+      'commission_currency',
+      'split_bp',
+      'commission_includes_vat',
+      'terms_valid_until',
+      'terms_at',
+      'introducer_accepted_at',
+      'introducer_accepted_by',
+      'owner_accepted_at',
+      'owner_accepted_by',
+      'created_at',
+      'created_ms',
+      'idempotency_hash',
+      'request_hash',
+    ],
+    triggers: [
+      'viewing_requests_insert_guard',
+      'viewing_requests_receipt',
+      'viewing_requests_sync',
+      'viewing_terms_guard',
+      'viewing_requests_guard',
+    ],
+    base: {
+      target_kind: 'LISTING',
+      // a proposal awaiting the owner: the only row app_user may insert (`viewing_requests_insert_guard`)
+      status: 'REQUESTED',
+      awaiting: 'OWNER',
+      proposed_start_at: '2026-02-01T10:00:00Z',
+      expires_at: '2026-01-20T00:00:00Z',
+      commission_bp: 500,
+      split_bp: 5000,
+      commission_includes_vat: false,
+      terms_valid_until: '2026-07-01T00:00:00Z',
+    },
+  },
+  // The owner's copy: who requested a viewing of which target, when, on which terms — nothing of the client. Appended
+  // only by the request's trigger (`guardedInsert`: app_user inserts are refused); the owner answers on it (status,
+  // times, its acceptance) and `viewing_request_receipts_sync` (definer) copies that to the introducer's row.
+  viewing_request_receipts: {
+    kind: 'STRICT',
+    guardedInsert: true,
+    definerSync: { functions: ['viewing_requests_receipt', 'viewing_requests_sync'] },
+    userNoUpdateColumns: [
+      'request_id',
+      'introducer_agency_id',
+      'target_kind',
+      'target_id',
+      'commission_bp',
+      'commission_fixed_cents',
+      'commission_currency',
+      'split_bp',
+      'commission_includes_vat',
+      'terms_valid_until',
+      'terms_at',
+      'introducer_accepted_at',
+      'introducer_accepted_by',
+      'created_at',
+      'created_ms',
+    ],
+    triggers: ['viewing_request_receipts_sync', 'viewing_terms_guard', 'viewing_request_receipts_guard'],
+    base: {
+      target_kind: 'LISTING',
+      // a proposal awaiting the owner: the only row app_user may insert (`viewing_requests_insert_guard`)
+      status: 'REQUESTED',
+      awaiting: 'OWNER',
+      proposed_start_at: '2026-02-01T10:00:00Z',
+      expires_at: '2026-01-20T00:00:00Z',
+      commission_bp: 500,
+      split_bp: 5000,
+      commission_includes_vat: false,
+      terms_valid_until: '2026-07-01T00:00:00Z',
+    },
+  },
 };
 
 /**

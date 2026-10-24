@@ -45,6 +45,34 @@ export async function networkUnitTerms(ctx: Ctx, ids: readonly string[]): Promis
   });
 }
 
+export interface NetworkDevelopmentTerms {
+  id: string;
+  agencyId: string;
+  commissionBp: number | null;
+  commissionFixedCents: number | null;
+  /** The currency of `commissionFixedCents` (the development's). */
+  commissionCurrency: string;
+  commissionIncludesVat: boolean;
+}
+
+/**
+ * S11-02 (an MLS viewing request's terms snapshot): another agency's development's own commission terms, as far as the
+ * caller may read it; null otherwise. Agent side only.
+ */
+export async function networkDevelopmentTerms(ctx: Ctx, id: string): Promise<NetworkDevelopmentTerms | null> {
+  assertAgentSide(ctx);
+  const row = await repo.networkDevelopmentTerms(ctx.tx, ctx.tenant.agencyId, id);
+  if (!row) return null;
+  return {
+    id: row.id,
+    agencyId: row.agencyId,
+    commissionBp: row.commissionBp,
+    commissionFixedCents: row.commissionFixedCents,
+    commissionCurrency: row.currency,
+    commissionIncludesVat: row.commissionIncludesVat,
+  };
+}
+
 /**
  * S10-02 (CRM leads, raw `tx` of the caller's agency): the developer agency of a development or unit a lead is about,
  * or null when the caller cannot read it (RLS) or it is deleted.

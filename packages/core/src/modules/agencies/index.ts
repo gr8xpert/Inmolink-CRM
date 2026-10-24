@@ -7,6 +7,7 @@ export { agenciesErrors } from './errors';
 export { agenciesEvents } from './events';
 export { agenciesJobs } from './jobs';
 export {
+  directoryNamesOf,
   getNetworkStanding,
   type NetworkStanding,
   networkAgencyNames,

@@ -71,3 +71,112 @@ export const ReceivedRegistrationDto = z.strictObject({
 export type ReceivedRegistrationDto = z.infer<typeof ReceivedRegistrationDto>;
 export const ReceivedRegistrationPage = pageOf(ReceivedRegistrationDto);
 export type ReceivedRegistrationPage = z.infer<typeof ReceivedRegistrationPage>;
+
+// ---- S11-02, viewing requests and the terms snapshot (PLAN §3 #9) ----------------------------------------------------
+
+export const VIEWING_STATUSES = ['REQUESTED', 'SCHEDULED', 'COMPLETED', 'DECLINED', 'CANCELLED', 'EXPIRED'] as const;
+export const ViewingStatus = z.enum(VIEWING_STATUSES);
+export type ViewingStatus = z.infer<typeof ViewingStatus>;
+
+/** The two parties: the introducer (who registered the client) and the owner of the listing or development. */
+export const VIEWING_SIDES = ['INTRODUCER', 'OWNER'] as const;
+export const ViewingSide = z.enum(VIEWING_SIDES);
+export type ViewingSide = z.infer<typeof ViewingSide>;
+
+export const VIEWING_OUTCOMES = ['ATTENDED', 'NO_SHOW'] as const;
+export const ViewingOutcome = z.enum(VIEWING_OUTCOMES);
+export type ViewingOutcome = z.infer<typeof ViewingOutcome>;
+
+/** A proposed start: an ISO date-time with offset, in the future (checked by the service against the clock). */
+const ProposedStartAt = z.iso.datetime({ offset: true });
+
+/**
+ * `POST /v1/mls/viewing-requests` (`Idempotency-Key` optional): ask the owner for a viewing of the client of one of the
+ * agency's valid registrations, at `proposedStartAt` (before the registration ends). The terms are the target's own
+ * when requested (commission or fixed amount, split, VAT) — the introducer accepts them by requesting. One open request
+ * per registration. Refused: `REGISTRATION_NOT_FOUND` (no valid registration of the agency), `VIEWING_TERMS_INCOMPLETE`
+ * (the target publishes no commission or split), `VIEWING_REQUEST_OPEN` (already one open), `VALIDATION_FAILED`.
+ */
+export const ViewingRequestParams = z.strictObject({ id: z.uuid() });
+export type ViewingRequestParams = z.infer<typeof ViewingRequestParams>;
+
+export const CreateViewingRequestBody = z.strictObject({
+  registrationId: z.uuid(),
+  proposedStartAt: ProposedStartAt,
+});
+export type CreateViewingRequestBody = z.infer<typeof CreateViewingRequestBody>;
+
+/** `POST /v1/mls/viewing-requests/:id/reschedule`: propose another time; the other side must answer it. */
+export const RescheduleViewingBody = z.strictObject({ proposedStartAt: ProposedStartAt });
+export type RescheduleViewingBody = z.infer<typeof RescheduleViewingBody>;
+
+/** `POST /v1/mls/viewing-requests/:id/outcome`: after the scheduled time, either side records how it went. */
+export const ViewingOutcomeBody = z.strictObject({ outcome: ViewingOutcome });
+export type ViewingOutcomeBody = z.infer<typeof ViewingOutcomeBody>;
+
+/**
+ * The terms snapshot (PLAN §3 #9): the target's commission as a percentage (`commissionBp`) or a fixed amount, the
+ * introducer's share (`splitBp`), whether VAT is included, and until when it binds (the registration's end). Accepted by
+ * the introducer when requesting and by the owner when accepting; immutable from then on.
+ */
+export const ViewingTermsDto = z.strictObject({
+  commissionBp: z.number().int().nullable(),
+  commissionFixed: z.strictObject({ amountCents: z.number().int(), currency: z.string().length(3) }).nullable(),
+  splitBp: z.number().int(),
+  includesVat: z.boolean(),
+  validUntil: z.iso.datetime(),
+  snapshotAt: z.iso.datetime(),
+  introducerAcceptedAt: z.iso.datetime(),
+  introducerAcceptedByUserId: z.uuid().nullable(),
+  ownerAcceptedAt: z.iso.datetime().nullable(),
+  ownerAcceptedByUserId: z.uuid().nullable(),
+  /** Both sides accepted: nothing of the terms changes any more. */
+  accepted: z.boolean(),
+});
+export type ViewingTermsDto = z.infer<typeof ViewingTermsDto>;
+
+/**
+ * A viewing request as one side sees it. `side` is the caller's. The introducer also sees its registration and contact;
+ * the owner sees the introducer agency and never the client (no registration, contact, name, e-mail or phone).
+ */
+export const ViewingRequestDto = z.strictObject({
+  id: z.uuid(),
+  side: ViewingSide,
+  /** The other party's agency, and its directory name (null when not listed). */
+  counterpartAgencyId: z.uuid(),
+  counterpartName: z.string().nullable(),
+  /** Introducer only (null for the owner). */
+  registrationId: z.uuid().nullable(),
+  contactId: z.uuid().nullable(),
+  target: RegistrationTarget,
+  status: ViewingStatus,
+  /** `REQUESTED` only: the side that must answer `proposedStartAt`. */
+  awaiting: ViewingSide.nullable(),
+  proposedStartAt: z.iso.datetime(),
+  scheduledAt: z.iso.datetime().nullable(),
+  /** An unanswered proposal expires here. */
+  expiresAt: z.iso.datetime().nullable(),
+  outcome: ViewingOutcome.nullable(),
+  outcomeAt: z.iso.datetime().nullable(),
+  closedBy: z.enum(['INTRODUCER', 'OWNER', 'SYSTEM']).nullable(),
+  terms: ViewingTermsDto,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ViewingRequestDto = z.infer<typeof ViewingRequestDto>;
+export const ViewingRequestPage = pageOf(ViewingRequestDto);
+export type ViewingRequestPage = z.infer<typeof ViewingRequestPage>;
+
+/**
+ * `GET /v1/mls/viewing-requests/:id/terms`: the accepted terms with their audit trail. `pdfUrl` stays null until the PDF
+ * service exists (S12-05 renders the accepted-terms PDF; stub).
+ */
+export const ViewingTermsDocumentDto = z.strictObject({
+  requestId: z.uuid(),
+  introducerAgencyId: z.uuid(),
+  ownerAgencyId: z.uuid(),
+  target: RegistrationTarget,
+  terms: ViewingTermsDto,
+  pdfUrl: z.string().nullable(),
+});
+export type ViewingTermsDocumentDto = z.infer<typeof ViewingTermsDocumentDto>;

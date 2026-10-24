@@ -127,6 +127,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.scheduleFingerprintRehash,
     mlsJobs.rehashFingerprints,
     mlsJobs.pruneFingerprints,
+    // S11-02: unanswered viewing proposals expire; each viewing request change notifies the other side.
+    mlsJobs.expireViewingRequests,
+    mlsJobs.notifyViewing,
   ],
   ai: [],
   social: [],

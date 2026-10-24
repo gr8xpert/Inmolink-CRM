@@ -1,4 +1,5 @@
 import type { SetGiveToGetExemptionBody, TenantDetailDto } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx, StaffCtx } from '../../context';
@@ -36,6 +37,16 @@ export async function getNetworkStanding(ctx: Ctx): Promise<NetworkStanding> {
 export async function networkAgencyNames(ctx: Ctx, ids: readonly string[]): Promise<Map<string, string>> {
   assertCan(ctx, 'agencies.network.read');
   const rows = await repo.directoryNames(ctx.tx, [...new Set(ids)]);
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+/**
+ * Worker form of `networkAgencyNames` (PATTERNS §12): directory names in a job's own transaction (S11-02: the
+ * counterpart agency named in a viewing request's notification). One query; unknown ids are absent.
+ */
+export async function directoryNamesOf(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await repo.directoryNames(tx, [...new Set(ids)]);
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 

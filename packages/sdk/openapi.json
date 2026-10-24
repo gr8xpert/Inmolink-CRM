@@ -1293,7 +1293,12 @@
                             "PIPELINE_STAGE_LOCKED",
                             "PIPELINE_ORDER_INVALID",
                             "REGISTRATION_CONFLICT",
-                            "REGISTRATION_TARGET_NOT_FOUND"
+                            "REGISTRATION_TARGET_NOT_FOUND",
+                            "REGISTRATION_NOT_FOUND",
+                            "VIEWING_REQUEST_NOT_FOUND",
+                            "VIEWING_REQUEST_OPEN",
+                            "VIEWING_REQUEST_STATE",
+                            "VIEWING_TERMS_INCOMPLETE"
                           ],
                           "type": "string"
                         },
@@ -3506,7 +3511,12 @@
                             "PIPELINE_STAGE_LOCKED",
                             "PIPELINE_ORDER_INVALID",
                             "REGISTRATION_CONFLICT",
-                            "REGISTRATION_TARGET_NOT_FOUND"
+                            "REGISTRATION_TARGET_NOT_FOUND",
+                            "REGISTRATION_NOT_FOUND",
+                            "VIEWING_REQUEST_NOT_FOUND",
+                            "VIEWING_REQUEST_OPEN",
+                            "VIEWING_REQUEST_STATE",
+                            "VIEWING_TERMS_INCOMPLETE"
                           ],
                           "type": "string"
                         },

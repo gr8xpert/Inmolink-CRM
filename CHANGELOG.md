@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Viewing requests with an immutable terms snapshot (commission / split / VAT / validity, accepted by both sides), two-sided copies synced by definer triggers (registry `definerSync`), owner-binding authority, expiry + lapse job with notifications, accepted-terms PDF stub; migration 0133 (S11-02). No new dependency.
 - The 0122 portal indexes are built concurrently through the registry; no-op migration 0132 declares them `IF NOT EXISTS` (S11-F8).
 - Notifications (S11-04): partitioned in-app notifications with per-type / channel preferences, realtime push over `/notifications` (agency-scoped rooms), 5-minute e-mail digest, unread counts, bounded mark-all; migration 0131. No new dependency.
 - Keyset pagination with a microsecond cursor puts the cursor in the Index Cond under RLS for the identity, websites, exports and agencies lists; `keysetAfter` emits a row comparison (S11-F9).

@@ -92,6 +92,8 @@ export const AUDIT_TYPES = [
   'compliance.dataExport.downloaded',
   // S11-01: a client registration refused because another agency registered the client first (probe budget).
   'mls.registration.conflicted',
+  // S11-02: one side accepted a viewing request's terms snapshot (the introducer by requesting, the owner by accepting).
+  'mls.viewing.termsAccepted',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
@@ -112,7 +114,8 @@ export interface AuditTarget {
     | 'feedMappingProfile'
     | 'site'
     | 'portalConnection'
-    | 'dataExport';
+    | 'dataExport'
+    | 'viewingRequest';
   id: string;
 }
 

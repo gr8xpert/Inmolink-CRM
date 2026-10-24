@@ -1,8 +1,10 @@
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import { mlsEvents } from './events';
 import { agenciesToRehash, pruneExpiredFingerprints, rehashAgencyFingerprints } from './maintenance';
 import { repointRegistrations } from './service';
+import { expireViewingRequests, notifyViewingChange } from './viewings';
 
 const HOUR_MS = 3_600_000;
 
@@ -18,6 +20,10 @@ const HOUR_MS = 3_600_000;
  *   fingerprints to the agency's valid registrations from their encrypted snapshot, batches of 500. Idempotent.
  * - `mls.pruneFingerprints` (pool `maintenance`, daily): deletes fingerprints expired more than 30 days ago, batches of
  *   1,000 (registrations and receipts are kept as evidence).
+ * - `mls.expireViewingRequests` (pool `maintenance`, every 15 minutes, S11-02): unanswered viewing proposals past their
+ *   expiry become `EXPIRED`, batches of 500, one `mls.viewing.changed` each. Idempotent.
+ * - `mls.notifyViewing` (pool `maintenance`, one per `mls.viewing.changed`, job ID = the event's id, group = the event's
+ *   agency): the other side's members are notified (both sides on expiry). Idempotent (`sourceKey`).
  */
 export const mlsJobs = {
   repointRegistrations: defineJob({
@@ -62,6 +68,41 @@ export const mlsJobs = {
       await mlsJobs.rehashFingerprints.enqueueMany(agencyIds.map((agencyId) => ({ payload: { agencyId, hour } })));
       if (agencyIds.length > 0) log.info({ agencies: agencyIds.length }, 'client fingerprint rehash queued');
       return { agencies: agencyIds.length };
+    },
+  }),
+
+  expireViewingRequests: defineJob({
+    name: 'mls.expireViewingRequests',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 15 * 60_000,
+    attempts: 3,
+    timeoutMs: 5 * 60_000,
+    async run() {
+      return expireViewingRequests();
+    },
+  }),
+
+  notifyViewing: defineJob({
+    name: 'mls.notifyViewing',
+    pool: 'maintenance',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      createdMs: z.number().int(),
+      change: mlsEvents.viewingChanged.schema,
+    }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return notifyViewingChange(p.change, {
+        eventId: p.eventId,
+        agencyId: p.agencyId,
+        createdAt: new Date(p.createdMs),
+      });
     },
   }),
 

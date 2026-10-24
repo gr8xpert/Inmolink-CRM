@@ -52,4 +52,15 @@ describe('mls policy', () => {
     });
     expect(MLS_IMPERSONATION['mls.registrations.write']).toBe('forbidden');
   });
+
+  it('[S11-02] viewing requests: members read and answer; unverified agencies only read; impersonators never bind terms', () => {
+    const unverified = ctxAs('AGENT', { tenant: { agencyId: AGENCY, verified: false, plan: 'test', locales: ['en'] } });
+    expect(can(agent, 'mls.viewings.read')).toBe(true);
+    expect(can(agent, 'mls.viewings.write')).toBe(true);
+    expect(can(unverified, 'mls.viewings.read')).toBe(true);
+    expect(can(unverified, 'mls.viewings.write')).toBe(false);
+    expect(can(ctxAs('PARTNER'), 'mls.viewings.read')).toBe(false);
+    expect(can({ ...agent, clientMode: true }, 'mls.viewings.read')).toBe(false);
+    expect(MLS_IMPERSONATION['mls.viewings.write']).toBe('forbidden');
+  });
 });

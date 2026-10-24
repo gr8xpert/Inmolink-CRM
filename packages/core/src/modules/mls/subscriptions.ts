@@ -1,5 +1,6 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as crm from '../crm';
+import { mlsEvents } from './events';
 import { mlsJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
@@ -23,6 +24,18 @@ export function registerMlsSubscriptions(): void {
           mergedId: payload.mergedId,
         }),
       { name: 'mls.registrations.contactMerged' },
+    ),
+    // S11-02: each viewing request change notifies the other side (both on expiry)
+    subscribe(
+      mlsEvents.viewingChanged,
+      (payload, meta) =>
+        mlsJobs.notifyViewing.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          createdMs: meta.createdAt.getTime(),
+          change: payload,
+        }),
+      { name: 'mls.viewings.notify' },
     ),
   ];
 }

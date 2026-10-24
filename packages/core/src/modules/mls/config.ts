@@ -11,15 +11,30 @@ export interface MlsConfig {
   keyring: Keyring;
   /** `HMAC_KEY`: client fingerprints (purpose `mls.client-fingerprint`). */
   fingerprintKey: string;
+  /**
+   * S11-02: days an unanswered viewing proposal stays open before the expiry job closes it (and notifies both sides).
+   * Default `VIEWING_REQUEST_EXPIRY_DAYS`.
+   */
+  viewingRequestExpiryDays?: number;
 }
 
+/** S11-02: the default days an unanswered viewing proposal stays open (a proposed time sooner than that ends it first). */
+export const VIEWING_REQUEST_EXPIRY_DAYS = 7;
+
 let current: { keyring: Keyring; key: Buffer } | undefined;
+let viewingDays = VIEWING_REQUEST_EXPIRY_DAYS;
 
 export function configureMls(config: MlsConfig): void {
   if (!config.fingerprintKey) throw new Error('mls: fingerprintKey is required');
+  const days = config.viewingRequestExpiryDays ?? VIEWING_REQUEST_EXPIRY_DAYS;
+  if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error('mls: viewingRequestExpiryDays must be 1–90');
   // One Buffer for the process: platform/crypto caches the HKDF subkey per key object.
   current = { keyring: config.keyring, key: Buffer.from(config.fingerprintKey) };
+  viewingDays = days;
 }
+
+/** The configured days an unanswered viewing proposal stays open. */
+export const viewingRequestExpiryDays = (): number => viewingDays;
 
 export const mlsConfigured = (): boolean => current !== undefined;
 

@@ -29,6 +29,7 @@ import { clientFingerprints, type RegisteredClient, registeredClientCipher } fro
 import { mlsEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
+import * as viewingsRepo from './viewings-repo';
 
 /**
  * The conflict-probe budget (S11-01 security review): each `REGISTRATION_CONFLICT` tells the caller that some agency
@@ -261,8 +262,11 @@ export async function repointRegistrations(p: {
   survivorId: string;
   mergedId: string;
 }): Promise<{ rows: number }> {
-  const rows = await withTenant({ agencyId: p.agencyId }, (tx) =>
-    repo.repointContact(tx, p.agencyId, p.mergedId, p.survivorId),
-  );
+  const rows = await withTenant({ agencyId: p.agencyId }, async (tx) => {
+    const registrations = await repo.repointContact(tx, p.agencyId, p.mergedId, p.survivorId);
+    // S11-02: its viewing requests follow (they name the same contact)
+    const viewings = await viewingsRepo.repointContact(tx, p.agencyId, p.mergedId, p.survivorId);
+    return registrations + viewings;
+  });
   return { rows };
 }

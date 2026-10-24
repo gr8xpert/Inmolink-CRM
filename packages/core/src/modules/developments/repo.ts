@@ -794,6 +794,25 @@ export async function networkUnitTerms(tx: Tx, selfId: string, ids: readonly str
     .where(and(inArray(units.id, [...ids]), sql`${units.agencyId} <> ${selfId}`));
 }
 
+/**
+ * S11-02: another agency's development's own commission terms, as the caller's RLS shows it (on the network for the
+ * caller, not deleted) — a viewing request's terms snapshot. One primary-key probe.
+ */
+export async function networkDevelopmentTerms(tx: Tx, selfId: string, id: string) {
+  const [row] = await tx
+    .select({
+      id: developments.id,
+      agencyId: developments.agencyId,
+      currency: developments.currency,
+      commissionBp: developments.commissionBp,
+      commissionFixedCents: developments.commissionFixedCents,
+      commissionIncludesVat: developments.commissionIncludesVat,
+    })
+    .from(developments)
+    .where(and(eq(developments.id, id), isNull(developments.deletedAt), sql`${developments.agencyId} <> ${selfId}`));
+  return row ?? null;
+}
+
 /** Commission terms of these units (own, else their development's) for the search index (S7-F4): no RLS (`withSystem`). */
 export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
   if (ids.length === 0) return [];
