@@ -7,4 +7,5 @@ export const websitesErrors = [
   'SITE_FEED_NOT_FOUND',
   'VERSION_CONFLICT',
   'VALIDATION_FAILED',
+  'RATE_LIMITED',
 ] as const satisfies readonly ErrorCode[];

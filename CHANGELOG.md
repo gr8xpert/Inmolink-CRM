@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(websites): minimum-commission edits limited per agency per day (WEBSITE_MIN_COMMISSION_EDITS_PER_DAY, default 5; RATE_LIMITED + Retry-After) and audited old → new bp [S12-F25]
 - feat(identity): website API keys and 2FA recovery codes survive an HMAC_KEY rotation — dual-key lookup during the window, API keys rehashed on use via the usage flush job (signed marks); runbook updated [S12-F15]
 - feat(mls,search,developments,web): collaborations show the target reference and title [S12-F21]
 - feat(crm,imports,notifications): raise LEAD_ASSIGNED, TASK_DUE and the new IMPORT_PAUSED notifications (outbox jobs in the realtime pool, in-app-only option, safe display text) [S12-F2]

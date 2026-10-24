@@ -53,5 +53,17 @@ describe('fail-open signal (S8-F9)', () => {
     expect(open).toMatchObject({ allowed: true, failedOpen: true });
     expect(closed).toMatchObject({ allowed: false });
     expect(closed?.failedOpen).toBeUndefined();
+    expect(open?.failedClosed).toBeUndefined();
+  });
+
+  it('[S12-F25] a fail-closed denial after a failed script call is marked failedClosed', async () => {
+    const redis = { status: 'end', defineCommand: () => {} } as unknown as Redis;
+    const logger = { warn: () => {} } as unknown as Logger;
+    const limiter = new RateLimiter({ redis, logger, hmacKey: 'k'.repeat(32) });
+    const closed = await limiter.consume(
+      { name: 'websites.min-commission-edits', scope: 'tenant', limit: 5, windowSeconds: 86_400, failClosed: true },
+      'a',
+    );
+    expect(closed).toMatchObject({ allowed: false, failedClosed: true });
   });
 });

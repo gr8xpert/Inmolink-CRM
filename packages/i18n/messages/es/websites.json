@@ -69,6 +69,7 @@
     "VERIFICATION_REQUIRED": "Mostrar inmuebles de otras agencias requiere una agencia verificada.",
     "VALIDATION_FAILED": "Algunos campos no son válidos. Revísalos e inténtalo de nuevo.",
     "VERSION_CONFLICT": "Otra persona ha cambiado este sitio web mientras tanto. Recarga e inténtalo de nuevo.",
+    "RATE_LIMITED": "Demasiados cambios. Inténtalo de nuevo más tarde.",
     "generic": "Algo ha fallado. Inténtalo de nuevo."
   },
   "feed": {

@@ -69,6 +69,7 @@
     "VERIFICATION_REQUIRED": "Showing other agencies' listings needs a verified agency.",
     "VALIDATION_FAILED": "Some fields are not valid. Check them and try again.",
     "VERSION_CONFLICT": "Someone else changed this website meanwhile. Reload and try again.",
+    "RATE_LIMITED": "Too many changes. Try again later.",
     "generic": "Something went wrong. Try again."
   },
   "feed": {

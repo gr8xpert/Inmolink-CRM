@@ -12,6 +12,7 @@ import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -139,6 +140,8 @@ beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
   await configureCache({ prefix: CACHE_PREFIX });
+  // S12-F25: minimum-commission edits are counted (fail closed) — a CPU-starved run needs more than 200 ms.
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   identity.configureIdentity({ hmacKey: 'test-hmac-key-0123456789abcdef0123456789', apiKeyEnv: 'test' });
   websites.registerWebsitesSubscriptions();
   search.configureWebsiteSearch({ engineTimeoutMs: 5_000, slowMs: 4_000 });
@@ -223,6 +226,7 @@ afterAll(async () => {
     });
   }
   await closeCache();
+  await closeRateLimit();
   await closeDb();
 });
 

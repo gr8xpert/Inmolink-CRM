@@ -11,7 +11,15 @@ export function errorBody(code: ErrorCode, details?: Record<string, unknown>): E
   return { error: details === undefined ? { code, message } : { code, message, details } };
 }
 
+/**
+ * Sends the standard error body. Details with a finite, non-negative `retryAfterSeconds` (a service's `RATE_LIMITED`,
+ * S12-F25) also set `Retry-After`, in whole seconds.
+ */
 export function sendError(reply: FastifyReply, code: ErrorCode, details?: Record<string, unknown>): FastifyReply {
+  const retryAfter = details?.retryAfterSeconds;
+  if (typeof retryAfter === 'number' && Number.isFinite(retryAfter) && retryAfter >= 0) {
+    reply.header('retry-after', String(Math.ceil(retryAfter)));
+  }
   return reply.code(ErrorCodes[code]).send(errorBody(code, details));
 }
 

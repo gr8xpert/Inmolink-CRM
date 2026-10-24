@@ -73,6 +73,8 @@ try {
     giveToGetMinShared: config.NETWORK_GIVE_TO_GET_MIN_SHARED,
     giveToGetGraceDays: config.NETWORK_GIVE_TO_GET_GRACE_DAYS,
   });
+  // S12-F25: minimum-commission edits per agency per day.
+  websites.configureWebsites({ minCommissionEditsPerDay: config.WEBSITE_MIN_COMMISSION_EDITS_PER_DAY });
 
   const app = await buildApp({
     logger,

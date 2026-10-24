@@ -48,6 +48,8 @@ export interface RateLimitResult {
    * fallback windows (`LocalFixedWindows`) only then.
    */
   failedOpen?: true;
+  /** The script call failed and the `failClosed` rule denied without a count (S12-F25: callers log it apart). */
+  failedClosed?: true;
 }
 
 export interface RateLimiterOptions {
@@ -542,7 +544,14 @@ export class RateLimiter {
       this.logFailure(err, plans);
       return plans.map(({ rule, resetAtMs }) =>
         rule.failClosed
-          ? { allowed: false, limit: rule.limit, remaining: 0, retryAfterSeconds: rule.windowSeconds, resetAtMs }
+          ? {
+              allowed: false,
+              limit: rule.limit,
+              remaining: 0,
+              retryAfterSeconds: rule.windowSeconds,
+              resetAtMs,
+              failedClosed: true,
+            }
           : {
               allowed: true,
               limit: rule.limit,

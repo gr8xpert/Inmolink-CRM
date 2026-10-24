@@ -72,6 +72,8 @@ export const AUDIT_TYPES = [
   'imports.connection.resumed',
   'websites.site.created',
   'websites.site.changed',
+  // S12-F25: a site's minimum commission (CUSTOM, network listings) changed — metadata: old and new basis points.
+  'websites.site.minCommissionChanged',
   'websites.feed.rotated',
   'websites.feed.revoked',
   'exports.connection.created',

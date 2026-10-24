@@ -288,6 +288,14 @@ export const importsEnv = {
 };
 
 /**
+ * Dashboard sites (S12-F25, S7-F10 security review): how many times per sliding day an agency may set or change a
+ * CUSTOM site's minimum commission (each edit tells it whether other agencies' listings pay at least that much).
+ */
+export const websitesEnv = {
+  WEBSITE_MIN_COMMISSION_EDITS_PER_DAY: z.coerce.number().int().min(1).max(100).default(5),
+};
+
+/**
  * Network search give-to-get (PLAN §3 #5, S5-05): ACTIVE listings an agency must share with the network to search
  * it, and the grace period of a new agency (days from sign-up).
  */

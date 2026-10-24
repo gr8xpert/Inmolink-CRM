@@ -14,6 +14,7 @@ import {
   searchEnv,
   storageEnv,
   telemetryEnv,
+  websitesEnv,
 } from '@inmolink/platform/config';
 
 /**
@@ -47,6 +48,7 @@ export const apiEnv = {
   MEILI_MASTER_KEY: searchEnv.MEILI_MASTER_KEY.optional(),
   /** Network search give-to-get (S5-05). */
   ...networkEnv,
+  ...websitesEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */

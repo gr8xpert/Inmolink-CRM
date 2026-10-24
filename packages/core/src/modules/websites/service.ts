@@ -30,11 +30,14 @@ import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
+import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
+import { rateLimiter } from '@inmolink/platform/rate-limit';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
+import { minCommissionEditBudget } from './config';
 import { websitesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
@@ -122,6 +125,57 @@ function assertNetworkAllowed(
   if (network) agencies.assertVerified(ctx, 'website.network');
 }
 
+/** A site's minimum commission in basis points: CUSTOM sites with network listings only (the only ones it applies to). */
+function minCommissionOf(policy: repo.InventoryPolicy, filters: unknown): number | null {
+  if (policy !== 'CUSTOM') return null;
+  const f = filters as SiteInventoryFilters | null;
+  return f?.includeNetwork ? (f.minCommissionBp ?? null) : null;
+}
+
+let log: Logger | undefined;
+function websitesLog(): Logger {
+  log ??= createLogger({ service: 'websites' });
+  return log;
+}
+
+/**
+ * Counts a minimum-commission edit against the agency's budget (`minCommissionEditBudget`) when it changes:
+ * `RATE_LIMITED` past it. Counted before the write, so a refused edit changes nothing; an accepted edit stays counted
+ * even if the write then fails (never refunded). A refusal logs a warning with the agency and site ids only, marked
+ * `failedClosed` when the limits Redis could not be reached.
+ */
+async function consumeMinCommissionEdit(
+  ctx: Ctx,
+  siteId: string | null,
+  before: number | null,
+  after: number | null,
+): Promise<void> {
+  if (before === after) return;
+  const res = await rateLimiter().consume(minCommissionEditBudget(), ctx.tenant.agencyId);
+  if (res.allowed) return;
+  const agencyId = ctx.tenant.agencyId;
+  if (res.failedClosed) {
+    websitesLog().warn(
+      { agencyId, siteId, failedClosed: true },
+      'websites.site.minCommissionRefused: limits unavailable',
+    );
+  } else {
+    websitesLog().warn({ agencyId, siteId }, 'websites.site.minCommissionRefused');
+  }
+  throw new AppError('RATE_LIMITED', { retryAfterSeconds: res.retryAfterSeconds });
+}
+
+/** The audit row of a minimum-commission edit (actor, site, old → new basis points; null = none). */
+async function auditMinCommission(ctx: Ctx, siteId: string, before: number | null, after: number | null) {
+  if (before === after) return;
+  await compliance.audit(
+    ctx,
+    'websites.site.minCommissionChanged',
+    { type: 'site', id: siteId },
+    { oldBp: before, newBp: after },
+  );
+}
+
 /** The ids of an agency's sites (at most `MAX_SITES`): edge cache purges (S7-06). One statement. */
 export async function agencySiteIds(tx: Tx, agencyId: string): Promise<string[]> {
   return (await repo.listSites(tx, agencyId, { limit: MAX_SITES })).map((s) => s.id);
@@ -139,6 +193,8 @@ export async function createSite(ctx: Ctx, input: CreateSiteInput): Promise<Site
   if ((await repo.countSites(ctx.tx, agencyId)) >= MAX_SITES) {
     throw new AppError('SITE_LIMIT_REACHED', { limit: MAX_SITES });
   }
+  const minCommission = minCommissionOf(input.inventoryPolicy, input.inventoryFilters);
+  await consumeMinCommissionEdit(ctx, null, null, minCommission);
   const row = await repo.insertSite(ctx.tx, {
     id: newId(),
     agencyId,
@@ -161,6 +217,7 @@ export async function createSite(ctx: Ctx, input: CreateSiteInput): Promise<Site
     { type: 'site', id: row.id },
     { mode: row.mode, inventoryPolicy: row.inventoryPolicy },
   );
+  await auditMinCommission(ctx, row.id, null, minCommission);
   return toSiteDto(row);
 }
 
@@ -199,9 +256,13 @@ export async function updateSite(ctx: Ctx, params: SiteParams, input: UpdateSite
     (k) => canonical(next[k]) !== canonical(current[k]),
   );
   if (changed.length === 0) return toSiteDto(current);
+  const minBefore = minCommissionOf(current.inventoryPolicy, current.inventoryFilters);
+  const minAfter = minCommissionOf(next.inventoryPolicy, next.inventoryFilters);
+  await consumeMinCommissionEdit(ctx, current.id, minBefore, minAfter);
   const row = await repo.updateSite(ctx.tx, agencyId, current.id, next, clock.now());
   await emit(ctx.tx, websitesEvents.siteChanged({ siteId: row.id, agencyId, version: row.version }));
   await compliance.audit(ctx, 'websites.site.changed', { type: 'site', id: row.id }, { fields: changed });
+  await auditMinCommission(ctx, row.id, minBefore, minAfter);
   return toSiteDto(row);
 }
 
