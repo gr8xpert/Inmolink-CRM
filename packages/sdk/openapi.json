@@ -1267,7 +1267,17 @@
                             "FEED_SAMPLE_INVALID",
                             "FEED_MAPPING_INVALID",
                             "FEED_MAPPING_REQUIRED",
-                            "FEED_SETTINGS_INVALID"
+                            "FEED_SETTINGS_INVALID",
+                            "CONTACT_NOT_FOUND",
+                            "CONTACT_DUPLICATE",
+                            "CONTACT_PHONE_INVALID",
+                            "CONTACT_MERGE_INVALID",
+                            "CONTACT_MERGE_LIMIT",
+                            "CONTACT_IMPORT_NOT_FOUND",
+                            "CONTACT_IMPORT_STARTED",
+                            "CONTACT_IMPORT_FILE_INVALID",
+                            "LEAD_NOT_FOUND",
+                            "LEAD_TARGET_NOT_FOUND"
                           ],
                           "type": "string"
                         },
@@ -3454,7 +3464,17 @@
                             "FEED_SAMPLE_INVALID",
                             "FEED_MAPPING_INVALID",
                             "FEED_MAPPING_REQUIRED",
-                            "FEED_SETTINGS_INVALID"
+                            "FEED_SETTINGS_INVALID",
+                            "CONTACT_NOT_FOUND",
+                            "CONTACT_DUPLICATE",
+                            "CONTACT_PHONE_INVALID",
+                            "CONTACT_MERGE_INVALID",
+                            "CONTACT_MERGE_LIMIT",
+                            "CONTACT_IMPORT_NOT_FOUND",
+                            "CONTACT_IMPORT_STARTED",
+                            "CONTACT_IMPORT_FILE_INVALID",
+                            "LEAD_NOT_FOUND",
+                            "LEAD_TARGET_NOT_FOUND"
                           ],
                           "type": "string"
                         },
