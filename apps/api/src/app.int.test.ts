@@ -128,6 +128,7 @@ describe('api against the test stack', () => {
         impersonating: false,
         sections: [
           'listings',
+          'pipeline',
           'network',
           'developments',
           'imports',
