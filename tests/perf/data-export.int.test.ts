@@ -44,8 +44,17 @@ beforeAll(async () => {
 afterAll(async () => {
   await system(async (tx) => {
     await tx.execute(sql`delete from data_export_jobs where agency_id = ${founder.agencyId}`);
-    await tx.execute(sql`delete from contacts where agency_id = ${founder.agencyId}`);
   });
+  // in batches: each contact's FK cascade probes every monthly `activities` partition, so one 100k-row delete
+  // outlives the statement timeout (CI 04e7af0)
+  for (;;) {
+    const deleted = await system(async (tx) => {
+      const res = await tx.execute(sql`delete from contacts where id in (
+          select id from contacts where agency_id = ${founder.agencyId} limit 5000)`);
+      return res.rowCount ?? 0;
+    });
+    if (deleted === 0) break;
+  }
   await closeDb();
 }, 300_000);
 
