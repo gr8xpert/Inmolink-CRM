@@ -15,13 +15,17 @@ export interface ReadModelMediaSet {
   pending: number;
 }
 
-/** These listings' shown media, by listing id (a listing without media is missing). One statement. */
+/**
+ * These listings' shown media, by listing id (a listing without media is missing). One statement. `agencyId`
+ * (S11-F3): only that agency's media rows — an explicit predicate for a caller reading one agency as `app_system`.
+ */
 export async function mediaForReadModels(
   tx: Tx,
   listingIds: readonly string[],
+  opts: { agencyId?: string } = {},
 ): Promise<Map<string, ReadModelMediaSet>> {
   const out = new Map<string, ReadModelMediaSet>();
-  for (const row of await repo.readModelMedia(tx, listingIds)) {
+  for (const row of await repo.readModelMedia(tx, listingIds, opts.agencyId)) {
     let set = out.get(row.propertyId);
     if (!set) {
       set = { items: [], pending: 0 };

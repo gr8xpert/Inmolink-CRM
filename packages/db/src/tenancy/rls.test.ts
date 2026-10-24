@@ -695,6 +695,20 @@ describe('userNoUpdateColumns', () => {
     expect(registry.tenant.api_keys?.userNoUpdateColumns).toEqual(['legacy_query_key']);
   });
 
+  it('[S11-F3] userAppendRead: app_user selects and inserts only (no UPDATE, no DELETE); app_system keeps DML', () => {
+    const def = registry.tenant.data_export_jobs as TenantTable;
+    expect(def.userAppendRead).toBe(true);
+    expect(expectedPrivileges(def).app_user).toEqual(['SELECT', 'INSERT']);
+    expect(expectedPrivileges(def).app_system).toEqual(expect.arrayContaining(['UPDATE', 'DELETE']));
+    const part = tablesSql(registry).split('-- data_export_jobs:')[1]?.split('\n\n')[0] ?? '';
+    expect(part).toContain('data_export_jobs');
+    expect(part).not.toMatch(/grant [^;]*\b(update|delete)\b[^;]* to app_user/);
+    const bad = (d: TenantTable) => () => tablesSql({ tenant: { t: d }, global: {} });
+    expect(bad({ kind: 'NETWORK_READ', userAppendRead: true } as TenantTable)).toThrow(/userAppendRead/);
+    expect(bad({ kind: 'STRICT', userAppendRead: true, userReadOnly: true })).toThrow(/userAppendRead/);
+    expect(bad({ kind: 'STRICT', userAppendRead: true, userNoUpdateColumns: ['x'] })).toThrow(/userAppendRead/);
+  });
+
   it('[S10-03] definerAppend: app_user only reads; app_owner appends through a definer_append policy; STRICT userReadOnly only', () => {
     const history = registry.tenant.lead_stage_history;
     expect(history).toMatchObject({ kind: 'STRICT', userReadOnly: true });

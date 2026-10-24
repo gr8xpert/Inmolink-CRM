@@ -91,8 +91,18 @@ export async function exportByIdempotency(
   return row ?? null;
 }
 
-export async function getExport(tx: Tx, id: string, opts: { forUpdate?: boolean } = {}): Promise<ExportRow | null> {
-  const q = tx.select(exportColumns).from(dataExportJobs).where(eq(dataExportJobs.id, id)).limit(1);
+/** One export of the agency (`agencyId` an explicit predicate: RLS under `withTenant`, the only filter under `withSystem`). */
+export async function getExport(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  opts: { forUpdate?: boolean } = {},
+): Promise<ExportRow | null> {
+  const q = tx
+    .select(exportColumns)
+    .from(dataExportJobs)
+    .where(and(eq(dataExportJobs.id, id), eq(dataExportJobs.agencyId, agencyId)))
+    .limit(1);
   const [row] = await (opts.forUpdate ? q.for('update') : q);
   return row ?? null;
 }
@@ -118,10 +128,13 @@ export async function listExports(
 
 /**
  * Records a run's outcome — only while the run still holds the export: `RUNNING` with the claim's attempt number. A
- * stale attempt (a later claim took over, or the sweep failed the export) changes nothing and gets `false`.
+ * stale attempt (a later claim took over, or the sweep failed the export) changes nothing and gets `false`. Job state
+ * is worker-only (S11-F3: app_user cannot update it): the worker writes as `app_system`, the agency an explicit
+ * predicate.
  */
 export async function finishExport(
   tx: Tx,
+  agencyId: string,
   id: string,
   attempt: number,
   patch: Pick<
@@ -132,13 +145,20 @@ export async function finishExport(
   const rows = await tx
     .update(dataExportJobs)
     .set({ ...patch, updatedAt: sql`now()` })
-    .where(and(eq(dataExportJobs.id, id), eq(dataExportJobs.status, 'RUNNING'), eq(dataExportJobs.attempts, attempt)))
+    .where(
+      and(
+        eq(dataExportJobs.id, id),
+        eq(dataExportJobs.agencyId, agencyId),
+        eq(dataExportJobs.status, 'RUNNING'),
+        eq(dataExportJobs.attempts, attempt),
+      ),
+    )
     .returning({ id: dataExportJobs.id });
   return rows.length > 0;
 }
 
-/** Claims a queued (or crashed running) export for a run: `RUNNING`, one more attempt. */
-export async function claimExport(tx: Tx, id: string): Promise<ExportRow | null> {
+/** Claims a queued (or crashed running) export for a run: `RUNNING`, one more attempt (`app_system`, as above). */
+export async function claimExport(tx: Tx, agencyId: string, id: string): Promise<ExportRow | null> {
   const [row] = await tx
     .update(dataExportJobs)
     .set({
@@ -147,7 +167,13 @@ export async function claimExport(tx: Tx, id: string): Promise<ExportRow | null>
       startedAt: sql`coalesce(${dataExportJobs.startedAt}, now())`,
       updatedAt: sql`now()`,
     })
-    .where(and(eq(dataExportJobs.id, id), inArray(dataExportJobs.status, ['QUEUED', 'RUNNING'])))
+    .where(
+      and(
+        eq(dataExportJobs.id, id),
+        eq(dataExportJobs.agencyId, agencyId),
+        inArray(dataExportJobs.status, ['QUEUED', 'RUNNING']),
+      ),
+    )
     .returning(exportColumns);
   return row ?? null;
 }

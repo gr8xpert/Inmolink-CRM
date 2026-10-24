@@ -337,9 +337,10 @@ describe.each(tenantNames)('tenant table %s', (table) => {
         expect(await adminCount(a)).toBe(visible.length + hidden.length);
       });
     } else {
-      // A userReadOnly table (S6-F1) refuses the statement outright (no grant): stronger than matching no row.
+      // A userReadOnly (S6-F1) or userAppendRead (S11-F3) table refuses the statement outright (no grant): stronger
+      // than matching no row.
       const changes = async (run: () => Promise<{ rowCount: number | null }>) => {
-        if (def.userReadOnly) await expectSqlState(run, DENIED);
+        if (def.userReadOnly || def.userAppendRead) await expectSqlState(run, DENIED);
         else expect((await run()).rowCount).toBe(0);
       };
 
@@ -448,7 +449,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       );
       expect(await adminCount(b)).toBe(1);
     });
-  } else if (!def.appendOnly && def.immutable) {
+  } else if (!def.appendOnly && (def.immutable || def.userAppendRead)) {
     it(`[S1-08] ${table}: positive control — tenant B can insert and read its own rows`, async () => {
       await rb(b, async (tx) => {
         // In a savepoint, like the positive control below: a history row whose parent the suite does not
@@ -1291,5 +1292,63 @@ describe('portal secrets and worker tables (S10-F4)', () => {
       null,
     );
     await pushErrorAfter(sql`update agency_portal_connections set enabled = false where id = ${connectionId}`, null);
+  });
+});
+
+describe('data export job state (S11-F3)', () => {
+  const agencyId = newId();
+  const exportId = newId();
+
+  beforeAll(async () => {
+    await withReplicaRole(admin, async () => {
+      await seed(
+        admin,
+        'data_export_jobs',
+        buildRow('data_export_jobs', await columnsOf(admin, 'data_export_jobs'), {
+          ...isolationRegistry.tenant.data_export_jobs?.base,
+          id: exportId,
+          agency_id: agencyId,
+          created_by: newId(),
+          status: 'RUNNING',
+        }),
+      );
+    });
+  });
+
+  afterAll(async () => {
+    await withReplicaRole(admin, async () => {
+      await admin.query('delete from data_export_jobs where id = $1', [exportId]);
+    });
+  });
+
+  it('[S11-F3] app_user updating any column (status, expires_at, file_deleted_at, kind, created_by) or deleting the row gets 42501; app_system writes them', async () => {
+    for (const write of [
+      sql`update data_export_jobs set status = 'SUCCEEDED' where id = ${exportId}`,
+      sql`update data_export_jobs set expires_at = now() + interval '1 year' where id = ${exportId}`,
+      sql`update data_export_jobs set file_deleted_at = now() where id = ${exportId}`,
+      sql`update data_export_jobs set attempts = attempts + 1 where id = ${exportId}`,
+      sql`update data_export_jobs set kind = 'ACCOUNT' where id = ${exportId}`,
+      sql`update data_export_jobs set created_by = ${newId()} where id = ${exportId}`,
+      sql`update data_export_jobs set updated_at = now() where id = ${exportId}`,
+      sql`delete from data_export_jobs where id = ${exportId}`,
+    ]) {
+      await expectSqlState(() => withTenant({ agencyId }, (tx) => tx.execute(write)), DENIED);
+    }
+    // the agency still reads its own row (the status page)
+    const own = await withTenant({ agencyId }, (tx) =>
+      tx.execute<{ status: string }>(sql`select status from data_export_jobs where id = ${exportId}`),
+    );
+    expect(own.rows).toEqual([{ status: 'RUNNING' }]);
+    const system = new pg.Client({ connectionString: systemUrl });
+    await system.connect();
+    try {
+      const r = await system.query(
+        `update data_export_jobs set status = 'FAILED', expires_at = now(), file_deleted_at = now() where id = $1`,
+        [exportId],
+      );
+      expect(r.rowCount).toBe(1);
+    } finally {
+      await system.end();
+    }
   });
 });

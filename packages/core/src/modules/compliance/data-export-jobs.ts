@@ -17,7 +17,8 @@ const EXPORT_ATTEMPTS = 3;
  *   Idempotent: a redelivered event adds nothing (job ID); a retry claims the row again and rewrites the file. Progress
  *   is reported per page.
  * - `compliance.notifyDataExport` (pool `email`, one per `compliance.dataExport.requested` event): fans the alert out,
- *   one `compliance.sendDataExportNotice` per active admin (job ID = export + admin: sent once each).
+ *   one `compliance.sendDataExportNotice` per active admin (job ID = export + admin: sent once each), in one bulk add.
+ *   Both carry the agency as their fair-share `group` (S11-F8): one agency's alerts never starve another's e-mail.
  * - `compliance.sweepDataExports` (pool `maintenance`, daily): deletes expired files, fails lost runs.
  */
 export const dataExportJobs = {
@@ -48,12 +49,15 @@ export const dataExportJobs = {
     pool: 'email',
     payload: z.object({ agencyId: z.uuid(), exportId: z.uuid() }),
     jobId: (p) => `data-export-notify:${p.exportId}`,
+    group: (p) => p.agencyId,
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 30_000,
     async run(p) {
       const admins = await dataExportNoticeRecipients(p);
-      for (const userId of admins) await dataExportJobs.sendDataExportNotice.enqueue({ ...p, userId });
+      if (admins.length > 0) {
+        await dataExportJobs.sendDataExportNotice.enqueueMany(admins.map((userId) => ({ payload: { ...p, userId } })));
+      }
       return { queued: admins.length };
     },
   }),
@@ -63,6 +67,7 @@ export const dataExportJobs = {
     pool: 'email',
     payload: z.object({ agencyId: z.uuid(), exportId: z.uuid(), userId: z.uuid() }),
     jobId: (p) => `data-export-notice:${p.exportId}:${p.userId}`,
+    group: (p) => p.agencyId,
     attempts: 5,
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 30_000,

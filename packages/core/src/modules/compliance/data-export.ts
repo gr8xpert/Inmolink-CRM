@@ -104,7 +104,7 @@ export async function createDataExport(
       { now: clock.now() },
     );
     if (!prior) return null;
-    const row = await repo.getExport(ctx.tx, prior.id);
+    const row = await repo.getExport(ctx.tx, agencyId, prior.id);
     if (!row) throw new AppError('DATA_EXPORT_NOT_FOUND');
     return { export: toDto(row), replayed: true };
   };
@@ -166,8 +166,8 @@ export async function listDataExports(ctx: Ctx, q: PageQuery): Promise<DataExpor
 export async function getDataExport(ctx: Ctx, id: string, opts: { download?: boolean } = {}): Promise<DataExportDto> {
   assertCan(ctx, 'compliance.dataExport.read');
   if (opts.download) assertCan(ctx, 'compliance.dataExport.download');
-  const row = await repo.getExport(ctx.tx, id);
-  if (!row || row.agencyId !== ctx.tenant.agencyId) throw new AppError('DATA_EXPORT_NOT_FOUND');
+  const row = await repo.getExport(ctx.tx, ctx.tenant.agencyId, id);
+  if (!row) throw new AppError('DATA_EXPORT_NOT_FOUND');
   const now = clock.now().getTime();
   const live = row.status === 'SUCCEEDED' && row.expiresAt !== null && row.expiresAt.getTime() > now;
   if (!opts.download || !live) return toDto(row);

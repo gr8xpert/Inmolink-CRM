@@ -113,6 +113,21 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if (def.userReadOnly && (def.appendOnly || def.immutable || def.userSelect || def.userInsert !== undefined)) {
       throw new Error(`${name}: userReadOnly is not valid with appendOnly, immutable, userSelect or userInsert`);
     }
+    if (def.userAppendRead) {
+      if (def.kind !== 'STRICT') throw new Error(`${name}: userAppendRead is only valid for STRICT tables`);
+      if (
+        def.appendOnly ||
+        def.immutable ||
+        def.userReadOnly ||
+        def.userSelect ||
+        def.userInsert !== undefined ||
+        def.userNoUpdateColumns?.length
+      ) {
+        throw new Error(
+          `${name}: userAppendRead is not valid with appendOnly, immutable, userReadOnly, userSelect, userInsert or userNoUpdateColumns`,
+        );
+      }
+    }
     if (def.definerAppend) {
       if (def.kind !== 'STRICT' || !def.userReadOnly) {
         throw new Error(`${name}: definerAppend is only valid for STRICT userReadOnly tables`);
@@ -201,7 +216,9 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       ? APPEND_READ
       : def.userReadOnly
         ? ['SELECT']
-        : DML;
+        : def.userAppendRead
+          ? APPEND_READ
+          : DML;
   return {
     app_user: user,
     app_system: def.immutable ? APPEND_READ : DML,

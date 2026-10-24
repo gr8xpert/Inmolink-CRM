@@ -535,7 +535,7 @@ alter table public."data_export_jobs" force row level security;
 create policy own_rows on public."data_export_jobs" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."data_export_jobs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."data_export_jobs" to app_user;
+grant select, insert on table public."data_export_jobs" to app_user;
 grant select, insert, update, delete on table public."data_export_jobs" to app_system;
 
 -- development_access: NETWORK_READ

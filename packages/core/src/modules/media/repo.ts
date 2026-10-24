@@ -483,7 +483,7 @@ export async function hashesOfListings(tx: Tx, propertyIds: string[]): Promise<M
  * The shown media of these listings (no documents), in display order, with each object's processing state
  * (`property_media_property_idx`, then one PK probe per row).
  */
-export async function readModelMedia(tx: Tx, propertyIds: readonly string[]) {
+export async function readModelMedia(tx: Tx, propertyIds: readonly string[], agencyId?: string) {
   if (propertyIds.length === 0) return [];
   return tx
     .select({
@@ -503,6 +503,12 @@ export async function readModelMedia(tx: Tx, propertyIds: readonly string[]) {
     })
     .from(propertyMedia)
     .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
-    .where(and(inArray(propertyMedia.propertyId, [...propertyIds]), ne(propertyMedia.kind, 'DOCUMENT')))
+    .where(
+      and(
+        inArray(propertyMedia.propertyId, [...propertyIds]),
+        ne(propertyMedia.kind, 'DOCUMENT'),
+        agencyId === undefined ? undefined : eq(propertyMedia.agencyId, agencyId),
+      ),
+    )
     .orderBy(asc(propertyMedia.propertyId), asc(propertyMedia.position), asc(propertyMedia.id));
 }

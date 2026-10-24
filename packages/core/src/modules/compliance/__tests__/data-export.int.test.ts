@@ -9,7 +9,7 @@ import { UnrecoverableError } from '@inmolink/platform/queue';
 import { readSheetRows } from '@inmolink/platform/sheet';
 import { configureStorage, createMemoryStore, type ObjectStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
@@ -19,6 +19,7 @@ import * as compliance from '../index';
 import {
   configureDataExport,
   configureDataExportNotice,
+  dataExportJobs,
   dataExportNoticeRecipients,
   EXPORT_PAGE_ROWS,
   renderDataExportNotice,
@@ -66,6 +67,7 @@ let a: Founder;
 let b: Founder;
 let agentId: string;
 let listingId: string;
+let taxonomyIds: { location: string; type: string };
 
 const as = <T>(m: { userId: string; agencyId: string }, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -161,6 +163,7 @@ beforeAll(async () => {
     });
     return { location, type };
   });
+  taxonomyIds = ids;
   const [listing] = await rows<{ id: string }>(sql`
     insert into properties (id, agency_id, owner_user_id, ref, status, visibility, transaction_type, price_cents,
                             bedrooms, built_m2, commission_bp, property_type_id, location_id)
@@ -245,6 +248,31 @@ describe('the request', () => {
     expect(recipients).toContain(a.userId);
     expect(recipients).not.toContain(agentId);
     expect(await dataExportNoticeRecipients({ agencyId: b.agencyId, exportId: done.id })).toEqual([]);
+  });
+});
+
+describe('the alert jobs', () => {
+  it('[S11-F8] both notice jobs carry the agency group; the fan-out is one bulk add of every admin', async () => {
+    const queued = await create(a, { kind: 'LEADS', format: 'csv' });
+    const p = { agencyId: a.agencyId, exportId: queued.id };
+    expect(dataExportJobs.notifyDataExport.spec.group?.(p)).toBe(a.agencyId);
+    expect(dataExportJobs.sendDataExportNotice.spec.group?.({ ...p, userId: a.userId })).toBe(a.agencyId);
+    const one = vi.spyOn(dataExportJobs.sendDataExportNotice, 'enqueue');
+    const many = vi
+      .spyOn(dataExportJobs.sendDataExportNotice, 'enqueueMany')
+      .mockImplementation(async (entries) => entries.map(() => ({ id: newId() })));
+    try {
+      const result = await dataExportJobs.notifyDataExport.spec.run(p, {} as never);
+      const admins = await dataExportNoticeRecipients(p);
+      expect(result).toEqual({ queued: admins.length });
+      expect(one).not.toHaveBeenCalled();
+      expect(many).toHaveBeenCalledTimes(1);
+      expect(many.mock.calls[0]?.[0]).toEqual(admins.map((userId) => ({ payload: { ...p, userId } })));
+    } finally {
+      one.mockRestore();
+      many.mockRestore();
+    }
+    await runDataExport(p, job());
   });
 });
 
@@ -352,6 +380,36 @@ describe('the job', () => {
     expect(zip.readUInt16LE(local + 8)).toBe(0); // stored
     const inner = unzip(zip).get('listings.xlsx') as Buffer;
     expect((await sheet(inner)).find((r) => r[0] === listingId)?.[1]).toBe(`-${code('REF')}`);
+  });
+
+  it('[S11-F3] two agencies: the account export of one holds no row of the other (listings and media read as app_system)', async () => {
+    const mark = code('other-agency');
+    const [other] = await rows<{ id: string }>(sql`
+      insert into properties (id, agency_id, owner_user_id, ref, status, visibility, transaction_type, price_cents,
+                              bedrooms, built_m2, commission_bp, property_type_id, location_id)
+      values (gen_random_uuid(), ${b.agencyId}, ${b.userId}, ${mark}, 'ACTIVE'::listing_status,
+              'PUBLIC'::visibility, 'SALE', 99000000, 2, 80, 300, ${taxonomyIds.type}, ${taxonomyIds.location})
+      returning id`);
+    const otherListing = (other as { id: string }).id;
+    await rows(sql`insert into property_media (id, property_id, agency_id, kind, video_provider, video_id, position)
+      values (gen_random_uuid(), ${otherListing}, ${b.agencyId}, 'VIDEO', 'youtube', ${mark.slice(-11)}, 0) returning id`);
+    const contact = await as(b, (ctx) =>
+      crm.createContact(ctx, CreateContactBody.parse({ firstName: mark, emails: [`${mark}@example.com`] })),
+    );
+    await as(b, (ctx) => crm.createLead(ctx, CreateLeadBody.parse({ contactId: contact.contact.id, message: mark })));
+
+    const done = await exportOf(a, { kind: 'ACCOUNT', format: 'csv' });
+    const entries = unzip(Buffer.from(file(a.agencyId, done.id) as Uint8Array));
+    expect([...entries.keys()]).toEqual(['contacts.csv', 'leads.csv', 'listings.csv', 'media.csv', 'manifest.json']);
+    for (const [name, body] of entries) {
+      const text = body.toString('utf8');
+      for (const foreign of [mark, mark.slice(-11), otherListing, contact.contact.id, b.agencyId]) {
+        expect(text.includes(foreign), `${name} holds ${foreign}`).toBe(false);
+      }
+    }
+    // the control: the agency's own listing and media are there
+    expect(entries.get('listings.csv')?.toString('utf8')).toContain(listingId);
+    expect(entries.get('media.csv')?.toString('utf8')).toContain(listingId);
   });
 
   it('[S10-08] a permanent error fails the export at once (no 24 h block), whatever the attempt', async () => {

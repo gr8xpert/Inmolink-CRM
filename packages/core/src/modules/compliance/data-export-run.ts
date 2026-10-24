@@ -322,7 +322,9 @@ const MEDIA: Table = {
   async *rows(agencyId) {
     for await (const page of listingPages(agencyId)) {
       const ids = page.map((p) => p.id);
-      const sets = await withSystem('compliance.runDataExport media', (tx) => media.mediaForReadModels(tx, ids));
+      const sets = await withSystem('compliance.runDataExport media', (tx) =>
+        media.mediaForReadModels(tx, ids, { agencyId }),
+      );
       for (const listing of page) {
         const items = sets.get(listing.id)?.items ?? [];
         let position = 0;
@@ -407,8 +409,8 @@ async function fail(
   errorCode: DataExportErrorCode,
 ): Promise<DataExportRunResult> {
   const now = clock.now();
-  await withTenant({ agencyId: p.agencyId }, (tx) =>
-    repo.finishExport(tx, p.exportId, attempt, {
+  await withSystem('compliance.runDataExport fail', (tx) =>
+    repo.finishExport(tx, p.agencyId, p.exportId, attempt, {
       status: 'FAILED',
       errorCode,
       finishedAt: now,
@@ -423,7 +425,10 @@ export async function runDataExport(
   p: { agencyId: string; exportId: string },
   job: { log: Logger; signal: AbortSignal; lastAttempt: boolean; progress?: (value: object) => Promise<void> },
 ): Promise<DataExportRunResult> {
-  const claim = await withTenant({ agencyId: p.agencyId }, (tx) => repo.claimExport(tx, p.exportId));
+  // Job state is worker-only (S11-F3): claimed and recorded as `app_system`, the agency an explicit predicate.
+  const claim = await withSystem('compliance.runDataExport claim', (tx) =>
+    repo.claimExport(tx, p.agencyId, p.exportId),
+  );
   if (!claim) return { status: 'SKIPPED' };
   const attempt = claim.attempts;
   const kind = claim.kind as DataExportKind;
@@ -483,8 +488,8 @@ export async function runDataExport(
     const { sizeBytes } = await upload.complete();
     uploaded = true;
     const finishedAt = clock.now();
-    const recorded = await withTenant({ agencyId: p.agencyId }, (tx) =>
-      repo.finishExport(tx, p.exportId, attempt, {
+    const recorded = await withSystem('compliance.runDataExport finish', (tx) =>
+      repo.finishExport(tx, p.agencyId, p.exportId, attempt, {
         status: 'SUCCEEDED',
         counts,
         fileBytes: sizeBytes,

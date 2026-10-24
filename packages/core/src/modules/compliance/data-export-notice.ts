@@ -28,8 +28,8 @@ const escapeHtml = (s: string) =>
 /** The admins to tell (user ids), or none when the export is gone. */
 export async function dataExportNoticeRecipients(p: { agencyId: string; exportId: string }): Promise<string[]> {
   return withSystem('compliance.notifyDataExport', async (tx) => {
-    const row = await repo.getExport(tx, p.exportId);
-    if (!row || row.agencyId !== p.agencyId) return [];
+    const row = await repo.getExport(tx, p.agencyId, p.exportId);
+    if (!row) return [];
     const admins = await identity.listAgencyAdmins(tx, p.agencyId);
     return admins.map((a) => a.userId);
   });
@@ -43,8 +43,8 @@ export async function renderDataExportNotice(p: {
 }): Promise<EmailMessage | null> {
   if (!webUrl) throw new Error('compliance: webUrl is not configured');
   const loaded = await withSystem('compliance.sendDataExportNotice', async (tx) => {
-    const row = await repo.getExport(tx, p.exportId);
-    if (!row || row.agencyId !== p.agencyId) return null;
+    const row = await repo.getExport(tx, p.agencyId, p.exportId);
+    if (!row) return null;
     const admin = await identity.memberRecipient(tx, p.agencyId, p.userId);
     if (!admin) return null;
     const requester = await identity.memberRecipient(tx, p.agencyId, row.createdBy);

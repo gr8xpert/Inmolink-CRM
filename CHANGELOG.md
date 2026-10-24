@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Data-export job state is worker-only (new registry option `userAppendRead`: app_user select + insert only), the worker writes job state as app_system with the agency in SQL, two-agency export test (S11-F3); data-export notice jobs grouped per agency and bulk-enqueued (S11-F8, part).
 - Client registration (S11-01): new `mls` module — HMAC-fingerprinted (rotation-safe), encrypted, first valid wins across agencies (btree_gist exclusion constraint), owner receipts through a definer trigger, conflict probe budget + audit, merge-safe, fingerprint retention; migration 0130. New Postgres extension `btree_gist`; no new npm dependency.
 - Prospect conversion also requires `listing.create` (S11-F15).
 - One Idempotency-Key helper for crm and compliance creates; tasks, calendar events and activities naming an unknown listing answer `LEAD_TARGET_NOT_FOUND` (422, was `LISTING_NOT_FOUND` 404) (S11-F1). CRM dashboard pages for contacts, the lead inbox and data export; a data export requires a fresh 2FA code (`twoFactorCode`) checked in core after policy, replay and conflict; seller picker searches by e-mail or phone without PII in URLs (S11-F14). No new dependency.

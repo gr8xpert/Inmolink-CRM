@@ -549,8 +549,14 @@ export const tenantTables: Record<string, TenantTable> = {
     },
   },
   // S10-08: data export runs (contacts, leads, listings, the account ZIP) — the agency's own; counts and codes only,
-  // the exported file lives in the private bucket. Admins create them, the worker (as the agency) runs them.
-  data_export_jobs: { kind: 'STRICT', base: { kind: 'CONTACTS', format: 'csv', status: 'FAILED' } },
+  // the exported file lives in the private bucket. Admins create them, the worker runs them. S11-F3: rows are
+  // worker-only once created — claimed, recorded and expired as `app_system` — so app_user (an admin's request) reads
+  // and inserts but cannot update (mark a run succeeded, extend its expiry) or delete (hide a file from the sweep).
+  data_export_jobs: {
+    kind: 'STRICT',
+    base: { kind: 'CONTACTS', format: 'csv', status: 'FAILED' },
+    userAppendRead: true,
+  },
   // Staff impersonation sessions (S1-09), under the agency acted on. An impersonated request reads its own
   // session row (app_user, own agency) to check it is still open; tenants never write it (guard 0026; a
   // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;
