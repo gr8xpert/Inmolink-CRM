@@ -2,6 +2,7 @@ import type { Tx } from '@inmolink/db';
 import {
   activities,
   calendarEventAttendees,
+  calendarEvents,
   contactEmails,
   contactFacets,
   contactImports,
@@ -13,7 +14,7 @@ import {
   tasks,
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
-import { and, eq, gt, inArray, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 
@@ -496,6 +497,100 @@ export async function closeMerged(tx: Tx, agencyId: string, mergedId: string, su
       version = case when id = ${mergedId} then version + 1 else version end,
       updated_at = now()
     where agency_id = ${agencyId} and (id = ${mergedId} or merged_into_id = ${mergedId})`);
+}
+
+/** What an erased contact's free-text titles become (task, prospect, calendar event): a dash, in every language. */
+export const ERASED_TITLE = '—';
+
+/**
+ * Contact erasure (S11-F12), one statement: the contact (and the closed contacts merged into it earlier) become
+ * tombstones — names, primaries, language and tags cleared, consents off (their times kept as the record), never
+ * contacted again, closed; their e-mails, phones, facets and notes are deleted. Their leads lose the message, the
+ * visitor's details and the replay hashes; their tasks the title (`ERASED_TITLE`) and description; their seller
+ * prospects the title, the confidential notes and the seller link. Calendar events they attend get a new version (the
+ * ICS feed's fingerprint changes, so no 304 serves the old name); those where no other contact attends also lose the
+ * title, description and location. Kept: every id and timestamp (leads, tasks, prospects, attendances and activities
+ * still point at the tombstone, so reports and timelines keep their counts). Activity bodies, the inbound website
+ * leads and the listings' seller link are cleared after the commit, batched (`activitiesRepo.clearContactBodies`,
+ * `crm.eraseContactData`). Returns the rows changed per table.
+ */
+export async function eraseContact(tx: Tx, agencyId: string, contactId: string): Promise<Record<string, number>> {
+  const res = await tx.execute(sql`
+    with c as (
+        update ${contacts} set
+          first_name = null, last_name = null, primary_email = null, primary_phone = null, language = null,
+          tags = '{}'::text[], consent_marketing = false, consent_processing = false, do_not_contact = true,
+          idempotency_hash = null,
+          deleted_at = coalesce(deleted_at, now()),
+          version = case when id = ${contactId} then version + 1 else version end,
+          updated_at = now()
+        where agency_id = ${agencyId} and (id = ${contactId} or merged_into_id = ${contactId})
+        returning id),
+      e as (delete from ${contactEmails} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
+      p as (delete from ${contactPhones} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
+      f as (delete from ${contactFacets} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
+      n as (delete from ${contactNotes} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
+      l as (update ${leads} set message = null, visitor_name = null, visitor_email = null, visitor_phone = null,
+            idempotency_hash = null, request_hash = null, version = version + 1, updated_at = now()
+          where agency_id = ${agencyId} and contact_id = ${contactId}
+          returning 1),
+      t as (update ${tasks} set title = ${ERASED_TITLE}, description = null, version = version + 1, updated_at = now()
+          where agency_id = ${agencyId} and contact_id = ${contactId} returning 1),
+      s as (update ${sellerProspects} set title = ${ERASED_TITLE}, contact_id = null, confidential_notes = null,
+            version = version + 1, updated_at = now()
+          where agency_id = ${agencyId} and contact_id = ${contactId} returning 1),
+      ev as (update ${calendarEvents} ce set
+            title = case when sole.only then ${ERASED_TITLE} else ce.title end,
+            description = case when sole.only then null else ce.description end,
+            location = case when sole.only then null else ce.location end,
+            version = ce.version + 1, updated_at = now()
+          from (select a.event_id, not exists (
+                  select 1 from ${calendarEventAttendees} o
+                  where o.agency_id = ${agencyId} and o.event_id = a.event_id and o.contact_id is not null
+                    and o.contact_id <> ${contactId}) as only
+                from ${calendarEventAttendees} a
+                where a.agency_id = ${agencyId} and a.contact_id = ${contactId}) sole
+          where ce.agency_id = ${agencyId} and ce.id = sole.event_id
+          returning 1)
+    select (select count(*) from c)::int as contacts, (select count(*) from e)::int as emails,
+      (select count(*) from p)::int as phones, (select count(*) from f)::int as facets,
+      (select count(*) from n)::int as notes, (select count(*) from l)::int as leads,
+      (select count(*) from t)::int as tasks, (select count(*) from s)::int as prospects,
+      (select count(*) from ev)::int as events`);
+  return res.rows[0] as Record<string, number>;
+}
+
+/** The closed contacts merged into `contactId` (an erasure clears their seller links too). One query, `contacts_merged_into_idx`. */
+export async function mergedInto(tx: Tx, agencyId: string, contactId: string): Promise<string[]> {
+  const rows = await tx
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.mergedIntoId, contactId)));
+  return rows.map((r) => r.id);
+}
+
+/** Up to `limit` inbound website leads (`leads.inbound_lead_id`) of the contact's leads after `afterId`, by id. */
+export async function inboundLeadsOf(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  afterId: string | null,
+  limit: number,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: leads.inboundLeadId })
+    .from(leads)
+    .where(
+      and(
+        eq(leads.agencyId, agencyId),
+        eq(leads.contactId, contactId),
+        isNotNull(leads.inboundLeadId),
+        afterId ? gt(leads.inboundLeadId, afterId) : undefined,
+      ),
+    )
+    .orderBy(leads.inboundLeadId)
+    .limit(limit);
+  return rows.map((r) => r.id).filter((id): id is string => id !== null);
 }
 
 // ---- notes --------------------------------------------------------------------------------------------------------

@@ -912,6 +912,20 @@ export const tenantTables: Record<string, TenantTable> = {
     userReadOnly: true,
     definerAppend: { functions: ['lead_stage_history_append'] },
   },
+  // S11-F10: the report rollups (leads per stage now; moves per UTC day and stage; response seconds per UTC day and
+  // first responder) — own agency
+  // only, worker-written (`app_system` rebuilds them from `leads`): no request path can plant a report's numbers.
+  crm_stage_counts: { kind: 'STRICT', userReadOnly: true, base: { leads: 1, entered_epoch_sum: 0 } },
+  crm_response_rollups: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { day: '2026-01-01', leads: 1, responded: 0, seconds_sum: 0 },
+  },
+  crm_stage_move_rollups: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { day: '2026-01-01', entered: 1, exited: 0, stay_sum: 0 },
+  },
   lead_introductions: {
     kind: 'NETWORK_READ',
     immutable: true,

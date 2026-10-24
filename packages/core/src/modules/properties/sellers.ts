@@ -16,3 +16,16 @@ export async function repointSellerContact(p: {
   );
   return { rows };
 }
+
+/**
+ * A crm contact erasure (S11-F12): the agency's listings whose seller was the erased contact (or a contact merged into it) name no seller (the
+ * listing itself, its owner-side data and its history stay). Called by crm's `crm.eraseContactData` job for
+ * `crm.contact.erased`. Idempotent: a redelivery finds nothing left to clear. Under the agency's RLS.
+ */
+export async function clearSellerContact(p: {
+  agencyId: string;
+  contactIds: readonly string[];
+}): Promise<{ rows: number }> {
+  const rows = await withTenant({ agencyId: p.agencyId }, (tx) => repo.clearSeller(tx, p.agencyId, p.contactIds));
+  return { rows };
+}

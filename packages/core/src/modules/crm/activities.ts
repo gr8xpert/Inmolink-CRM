@@ -142,7 +142,8 @@ export async function logActivity(
     contactId ??= lead.contactId;
     listingId ??= lead.listingId;
   }
-  if (input.contactId && !(await activitiesRepo.contactOpen(ctx.tx, agencyId, input.contactId))) {
+  // the contact named, or the lead's (S11-F12: nothing is logged on an erased contact's leads)
+  if (contactId && !(await activitiesRepo.contactOpen(ctx.tx, agencyId, contactId))) {
     throw new AppError('CONTACT_NOT_FOUND');
   }
   if (input.listingId) {

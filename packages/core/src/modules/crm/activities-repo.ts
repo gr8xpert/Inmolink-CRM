@@ -212,6 +212,29 @@ export async function contactOpen(tx: Tx, agencyId: string, contactId: string): 
 }
 
 /**
+ * Contact erasure (S11-F12): up to `limit` activities of the erased contact — its own (`activities_contact_idx`) and
+ * its leads' (`activities_lead_idx`) — lose their body (what a member wrote, a note's opening). The rows stay: id, type,
+ * time, subjects, actor and `data` (IDs and codes only). One statement; returns the rows cleared, so the caller repeats
+ * until fewer than `limit` (a cleared row is never picked again).
+ */
+export async function clearContactBodies(tx: Tx, agencyId: string, contactId: string, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    with batch as (
+      (select id, occurred_at from ${activities}
+        where agency_id = ${agencyId} and contact_id = ${contactId} and body is not null limit ${limit})
+      union
+      (select a.id, a.occurred_at from ${activities} a
+        where a.agency_id = ${agencyId} and a.body is not null
+          and a.lead_id in (select l.id from ${leads} l where l.agency_id = ${agencyId} and l.contact_id = ${contactId})
+        limit ${limit})
+      limit ${limit}),
+    u as (update ${activities} a set body = null from batch b
+      where a.agency_id = ${agencyId} and a.id = b.id and a.occurred_at = b.occurred_at returning 1)
+    select count(*)::int as n from u`);
+  return Number((res.rows[0] as { n: number } | undefined)?.n ?? 0);
+}
+
+/**
  * A purged listing leaves the timelines (S10-04 review): up to `limit` of its activities per call — those that name
  * only the listing are deleted, the others (a lead's, a contact's) keep their row without the listing. One statement
  * (`activities_listing_idx`); returns the rows handled, so the caller repeats until fewer than `limit`.

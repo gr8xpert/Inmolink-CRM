@@ -2,7 +2,7 @@ import { type EventMeta, subscribe } from '@inmolink/platform/outbox';
 import * as properties from '../properties';
 import * as websites from '../websites';
 import { crmEvents } from './events';
-import { crmJobs } from './jobs';
+import { crmJobs, queueReportDay, queueStageCounts } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -102,6 +102,17 @@ export function registerCrmSubscriptions(): void {
         }),
       { name: 'crm.prospects.sellerMerged' },
     ),
+    // S11-F12: an erased contact's activity bodies and the listings naming it as seller (properties never imports crm)
+    subscribe(
+      crmEvents.contactErased,
+      (payload, meta) =>
+        crmJobs.eraseContactData.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          contactId: payload.contactId,
+        }),
+      { name: 'crm.contact.eraseData' },
+    ),
     subscribe(
       crmEvents.taskReminderDue,
       (payload, meta) =>
@@ -145,6 +156,31 @@ export function registerCrmSubscriptions(): void {
         }),
       { name: 'crm.activity.listingPurged' },
     ),
+    // S11-F10: the report rollups follow the leads (throttled rebuilds; `receivedMs` absent in older events: the
+    // event's own time, which is the lead's for a creation)
+    subscribe(
+      crmEvents.leadCreated,
+      async (payload, meta) => {
+        await queueStageCounts(meta.agencyId);
+        // the lead's receipt (response KPI) is also its entry into the first stage (moves)
+        await queueReportDay(meta.agencyId, payload.receivedMs ?? meta.createdAt.getTime());
+      },
+      { name: 'crm.reports.leadCreated' },
+    ),
+    subscribe(
+      crmEvents.leadStageChanged,
+      async (payload, meta) => {
+        await queueStageCounts(meta.agencyId);
+        // the move's day (moves) and, as a stage change can be the first response, the lead's receipt day (KPI)
+        const at = [payload.movedMs ?? meta.createdAt.getTime()];
+        if (payload.receivedMs !== undefined) at.push(payload.receivedMs);
+        await queueReportDay(meta.agencyId, ...at);
+      },
+      { name: 'crm.reports.stageChanged' },
+    ),
+    subscribe(crmEvents.leadResponded, (payload, meta) => queueReportDay(meta.agencyId, payload.receivedMs), {
+      name: 'crm.reports.leadResponded',
+    }),
   ];
 }
 

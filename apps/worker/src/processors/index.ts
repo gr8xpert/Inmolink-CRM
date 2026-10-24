@@ -51,6 +51,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.purgeEdgeCache,
     // S10-04: the activity timeline's writers from outbox events (lead, merge, listing status).
     crmJobs.recordActivity,
+    // S11-F10: the pipeline report's and the response KPI's rollups, rebuilt from lead events (throttled).
+    crmJobs.refreshStageCounts,
+    crmJobs.refreshReportDay,
   ],
   // S11-05: network board posts to matching subscribers, buyer requests against the other agencies' listings.
   matching: [networkJobs.notifySubscribers, networkJobs.matchBuyerRequest],
@@ -131,6 +134,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.sweepEventReminders,
     // S10-07: a contact merge moves the seller of the agency's listings to the survivor.
     crmJobs.repointSellerListings,
+    // S11-F12: a contact erasure clears its activity bodies and the listings' seller link.
+    crmJobs.eraseContactData,
     // S11-01: a contact merge moves the agency's client registrations to the survivor.
     mlsJobs.repointRegistrations,
     // S11-01: the client fingerprint rehash during an HMAC rotation window, and the fingerprints' retention.

@@ -224,6 +224,15 @@ export const CreateContactHeaders = z.object({
 export const MergeContactsBody = z.strictObject({ duplicateId: z.uuid(), version: z.number().int().min(1) });
 export type MergeContactsBody = z.infer<typeof MergeContactsBody>;
 
+/**
+ * `POST /v1/crm/contacts/:id/erase` (S11-F12, agency admins): the contact's personal data is erased for good, at
+ * `version`. The row stays as a tombstone (id, agency, types, source, consent times, created / deleted times) so the
+ * ids that point at it (leads, activities, tasks, registrations) keep their history; it answers `CONTACT_NOT_FOUND`
+ * from then on. `confirm` must be `ERASE` (it cannot be undone). Answers 204.
+ */
+export const EraseContactBody = z.strictObject({ version: z.number().int().min(1), confirm: z.literal('ERASE') });
+export type EraseContactBody = z.infer<typeof EraseContactBody>;
+
 export const ContactNoteDto = z.strictObject({
   id: z.uuid(),
   contactId: z.uuid(),

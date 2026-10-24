@@ -100,6 +100,10 @@ export const AUDIT_TYPES = [
   'crm.calendarFeed.revoked',
   // S11-F2: two contacts merged (target: the survivor; metadata: the closed contact's id).
   'crm.contact.merged',
+  // S11-F12: a contact's personal data erased (target: the tombstone; no metadata — nothing of the person).
+  'crm.contact.erased',
+  // S11-F12: the erasure's after-commit job finished (actor: system; metadata: activities, inboundLeads, listings cleared).
+  'crm.contact.erasureCompleted',
   // S11-F2: a bulk contact import queued (target: the import; metadata: rows, duplicate policy).
   'crm.contactImport.started',
   // S11-F2: client data (contacts, leads, activities, calendar, prospects, tasks, pipeline) read by staff

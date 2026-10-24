@@ -36,6 +36,8 @@ import * as leadsRepo from './leads-repo';
 import * as pipelineRepo from './pipeline-repo';
 import { assertCan } from './policy';
 import { isRank, rankBetween, spreadRank, timeRank } from './rank';
+import { mergeReportParts } from './report-rollups';
+import * as rollupsRepo from './report-rollups-repo';
 import { humanResponseOf } from './response';
 
 /**
@@ -373,6 +375,8 @@ export async function moveLead(ctx: Ctx, leadId: string, input: MoveLeadBody): P
         toStageId: stage.id,
         status: moved.status,
         version: moved.version,
+        receivedMs: lead.createdMs.getTime(),
+        movedMs: now.getTime(),
       }),
     );
   }
@@ -450,14 +454,17 @@ export async function listLeadStageHistory(ctx: Ctx, leadId: string, query: Page
 /**
  * `GET /v1/crm/pipeline/report`: per stage (active ones in order, then archived), the leads in it now and how long they
  * have been there, the leads that entered and left it in `[from, to)` and how long the stays that ended lasted; the
- * leads won and lost in the range. Two queries.
+ * leads won and lost in the range. Two queries. S11-F10: from rollups — the leads per stage now (`crm_stage_counts`)
+ * and the moves of the range's whole UTC days (`crm_stage_move_rollups`, every stay kept: exact medians); the partial
+ * days at the ends from `lead_stage_history`.
  */
 export async function getPipelineReport(ctx: Ctx, query: PipelineReportQuery): Promise<PipelineReportDto> {
   assertCan(ctx, 'crm.leads.read');
   const from = new Date(query.from);
   const to = new Date(query.to);
   const stages = await stagesOf(ctx, { archived: true });
-  const rows = new Map((await pipelineRepo.report(ctx.tx, ctx.tenant.agencyId, from, to)).map((r) => [r.stageId, r]));
+  const parts = await rollupsRepo.pipelineReportParts(ctx.tx, ctx.tenant.agencyId, from, to);
+  const rows = new Map(mergeReportParts(parts).map((r) => [r.stageId, r]));
   let won = 0;
   let lost = 0;
   const out = stages.map((stage) => {

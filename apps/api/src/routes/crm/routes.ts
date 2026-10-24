@@ -14,6 +14,7 @@ import {
   CreateContactBody,
   CreateContactHeaders,
   CreateContactNoteBody,
+  EraseContactBody,
   ListContactsQuery,
   MergeContactsBody,
   PageQuery,
@@ -25,6 +26,7 @@ import * as crm from '@inmolink/core/modules/crm';
 import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { crmActivityRoutes } from './activities';
 import { crmCalendarRoutes } from './calendar';
 import { crmKpiRoutes } from './kpis';
@@ -42,6 +44,13 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
   { name: 'crm.write.tenant', scope: 'tenant', limit: 2_000, windowSeconds: 3_600 },
 ];
+/** S11-F12: erasure is rare and irreversible — a small per-agency budget on top of the write limits. */
+const ERASE_LIMITS: readonly RateLimitRule[] = [
+  ...WRITE_LIMITS,
+  { name: 'crm.erase.user', scope: 'user', limit: 10, windowSeconds: 3_600 },
+  { name: 'crm.erase.tenant', scope: 'tenant', limit: 20, windowSeconds: 3_600 },
+];
+
 const IMPORT_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.import.ip', scope: 'ip', limit: 20, windowSeconds: 60 },
   { name: 'crm.import.user', scope: 'user', limit: 10, windowSeconds: 60 },
@@ -164,6 +173,27 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => crm.mergeContacts(ctx, req.params.id, req.body)),
+  );
+
+  app.post(
+    '/v1/crm/contacts/:id/erase',
+    {
+      schema: {
+        tags,
+        operationId: 'crm.eraseContact',
+        summary:
+          'Erase this contact’s personal data for good (agency admins; 204): names, e-mails, phones, notes and every free text about it go, ids and dates stay (crm.contact.erased clears activity bodies and listing sellers after the commit)',
+        params: ContactParams,
+        body: EraseContactBody,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: ERASE_LIMITS },
+    },
+    async (req, reply) => {
+      await app.withCtx(req, (ctx) => crm.eraseContact(ctx, req.params.id, req.body));
+      return reply.code(204).send(null);
+    },
   );
 
   app.get(

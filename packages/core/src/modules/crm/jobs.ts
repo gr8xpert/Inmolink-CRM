@@ -3,9 +3,11 @@ import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { forgetListingActivities, recordActivity } from './activities';
 import { forgetListingEvents, sendEventReminder, sweepEventReminders } from './calendar';
+import { eraseContactData } from './erasure';
 import { runContactImport, sweepContactImports } from './import';
 import { promoteInboundLead } from './leads';
 import { forgetListingProspects, repointSellerListings } from './prospects';
+import { refreshReportDay, refreshStageCounts } from './report-rollups';
 import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
 
 const IMPORT_ATTEMPTS = 3;
@@ -33,6 +35,16 @@ const IMPORT_ATTEMPTS = 3;
  * - `crm.repointSellerListings` (pool `maintenance`, one per `crm.contact.merged` event, job ID = the event's id,
  *   S10-07): the agency's listings whose seller was the closed contact name the survivor (`property_privates`, through
  *   properties' index). Idempotent: a redelivery finds nothing left to move.
+ * - `crm.eraseContactData` (pool `maintenance`, one per `crm.contact.erased` event, job ID = the event's id,
+ *   S11-F12): the erased contact's and its leads' activity bodies (batches of 1,000), the inbound website leads its leads
+ *   came from (websites, 500 at a time), then the agency's listings whose seller it (or a contact merged into it) was
+ *   name none (`property_privates`, through properties); audits `crm.contact.erasureCompleted` with the counts.
+ *   Idempotent: a rerun finds nothing left.
+ * - `crm.refreshStageCounts` / `crm.refreshReportDay` (pool `indexing` — projections; S11-F10): rebuild the agency's
+ *   leads-per-stage rollup, and its per-day rollups of one UTC day (response KPI, moves), from `leads` and
+ *   `lead_stage_history` (`report-rollups.ts`). Queued from
+ *   `crm.lead.created`, `crm.lead.stageChanged` and `crm.lead.responded`, throttled per agency (and day): a burst
+ *   becomes one rebuild per window. Idempotent (rebuilt from the source, never incremented); one per agency at a time.
  * - `crm.sweepTaskReminders` (pool `maintenance`, every minute, S10-05): claims the tasks that came due and writes one
  *   `crm.task.reminderDue` event each, in the claiming transaction (`FOR UPDATE SKIP LOCKED`: concurrent passes take
  *   different rows).
@@ -194,6 +206,20 @@ export const crmJobs = {
     },
   }),
 
+  eraseContactData: defineJob({
+    name: 'crm.eraseContactData',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), contactId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p) {
+      return eraseContactData(p);
+    },
+  }),
+
   sweepContactImports: defineJob({
     name: 'crm.sweepContactImports',
     pool: 'maintenance',
@@ -207,4 +233,70 @@ export const crmJobs = {
       return result;
     },
   }),
+
+  refreshStageCounts: defineJob({
+    name: 'crm.refreshStageCounts',
+    pool: 'indexing',
+    payload: z.object({ agencyId: z.uuid() }),
+    group: (p) => p.agencyId,
+    // one rebuild of an agency's rollups at a time: two never interleave their delete and upsert
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      await refreshStageCounts(p);
+      return { agencyId: p.agencyId };
+    },
+  }),
+
+  refreshReportDay: defineJob({
+    name: 'crm.refreshReportDay',
+    pool: 'indexing',
+    payload: z.object({ agencyId: z.uuid(), day: z.iso.date() }),
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      await refreshReportDay(p);
+      return p;
+    },
+  }),
 };
+
+/** S11-F10: a burst of one agency's lead changes rebuilds its rollups once per window (`throttleMs`). */
+export const STAGE_COUNTS_THROTTLE_MS = 5_000;
+export const REPORT_DAY_THROTTLE_MS = 10_000;
+
+/** Queues the agency's leads-per-stage rebuild (throttled: enqueues inside the window join the queued run). */
+export async function queueStageCounts(agencyId: string): Promise<void> {
+  await crmJobs.refreshStageCounts.enqueue(
+    { agencyId },
+    { throttleMs: STAGE_COUNTS_THROTTLE_MS, debounceKey: 'stage-counts' },
+  );
+}
+
+/**
+ * The UTC days whose per-day rollups an event at these instants (epoch ms) touches. Within a minute of a midnight
+ * the neighbouring day too: the lead's receipt (`created_ms`, the database's clock) and its history row (the service's
+ * clock) can fall on either side of it.
+ */
+export function reportDaysOf(...instants: readonly number[]): string[] {
+  const days = new Set<string>();
+  for (const ms of instants) {
+    for (const t of [ms - 60_000, ms, ms + 60_000]) days.add(new Date(t).toISOString().slice(0, 10));
+  }
+  return [...days].sort();
+}
+
+/** Queues the rebuild of the agency's per-day rollups of the days of `instants` (throttled per agency and day). */
+export async function queueReportDay(agencyId: string, ...instants: readonly number[]): Promise<void> {
+  for (const day of reportDaysOf(...instants)) {
+    await crmJobs.refreshReportDay.enqueue(
+      { agencyId, day },
+      { throttleMs: REPORT_DAY_THROTTLE_MS, debounceKey: `report-day.${day}` },
+    );
+  }
+}

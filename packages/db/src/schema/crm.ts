@@ -5,6 +5,8 @@ import {
   char,
   check,
   customType,
+  date,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -1122,5 +1124,90 @@ export const sellerProspects = pgTable(
       // the migration says `ON DELETE SET NULL ("contact_id")` (PostgreSQL 15+; drizzle cannot express the column
       // list): an erased contact leaves the prospect and its notes, without the seller
     }).onDelete('set null'),
+  ],
+);
+
+/**
+ * Report rollups (S11-F10, worker-written: `app_user` reads its own rows only). The pipeline report's leads per stage
+ * now: per stage, the count and the sum of their entry times (epoch seconds) — the mean age is `now - sum / n` at read
+ * time, so it never goes stale. Rebuilt per agency from `leads` by `crm.refreshStageCounts` (from `crm.lead.created`
+ * and `crm.lead.stageChanged`, throttled): one row per stage that holds leads (a stage that emptied loses its row).
+ */
+export const crmStageCounts = pgTable(
+  'crm_stage_counts',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    stageId: uuid('stage_id').notNull(),
+    leads: integer('leads').notNull(),
+    /** Σ epoch seconds of the leads' `stage_entered_at`. */
+    enteredEpochSum: doublePrecision('entered_epoch_sum').notNull(),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agencyId, t.stageId] }), check('crm_stage_counts_leads_ck', sql`${t.leads} > 0`)],
+);
+
+/**
+ * Response-time KPI rollup (S11-F10): per agency, UTC day of receipt (`leads.created_ms`) and first responder (null:
+ * unanswered or a backfilled answer without a responder), the measured leads (`source <> 'MANUAL'`), the answered ones,
+ * the sum of their response seconds and every one of those seconds, ascending — the exact histogram, so medians over
+ * any set of days stay exact. Rebuilt per agency and day from `leads` by `crm.refreshReportDay` (from
+ * `crm.lead.created`, `crm.lead.stageChanged` and `crm.lead.responded`, throttled per day): days without a measured
+ * lead have no row.
+ */
+export const crmResponseRollups = pgTable(
+  'crm_response_rollups',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    day: date('day', { mode: 'string' }).notNull(),
+    responderUserId: uuid('responder_user_id'),
+    leads: integer('leads').notNull(),
+    responded: integer('responded').notNull(),
+    secondsSum: bigint('seconds_sum', { mode: 'number' }).notNull(),
+    /** The answered leads' `response_seconds`, ascending (length = `responded`). */
+    seconds: integer('seconds').array().notNull().default(sql`'{}'::int[]`),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the KPI's full days: where agency_id = ? and day >= ? and day < ?; one row per responder (nulls not distinct)
+    unique('crm_response_rollups_uq').on(t.agencyId, t.day, t.responderUserId).nullsNotDistinct(),
+    check('crm_response_rollups_counts_ck', sql`${t.responded} between 0 and ${t.leads} and ${t.leads} > 0`),
+    check('crm_response_rollups_seconds_ck', sql`cardinality(${t.seconds}) = ${t.responded}`),
+  ],
+);
+
+/**
+ * Pipeline report rollup of the moves (S11-F10): per agency, UTC day of the move (`lead_stage_history.changed_at`) and
+ * stage, the leads that entered it, the ones that left it, the sum of the stays that ended and every one of them
+ * (seconds, ascending) — the exact histogram behind the report's median time in stage. Rebuilt per agency and day from
+ * `lead_stage_history` by `crm.refreshReportDay` (from `crm.lead.created` and `crm.lead.stageChanged`, throttled per
+ * day): days without a move have no row.
+ */
+export const crmStageMoveRollups = pgTable(
+  'crm_stage_move_rollups',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    day: date('day', { mode: 'string' }).notNull(),
+    stageId: uuid('stage_id').notNull(),
+    entered: integer('entered').notNull(),
+    exited: integer('exited').notNull(),
+    staySum: doublePrecision('stay_sum').notNull(),
+    /** The stays that ended in a move out of the stage, in seconds, ascending (length = `exited`). */
+    stays: doublePrecision('stays').array().notNull().default(sql`'{}'::float8[]`),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the report's whole days: where agency_id = ? and day >= ? and day < ?
+    primaryKey({ columns: [t.agencyId, t.day, t.stageId] }),
+    check(
+      'crm_stage_move_rollups_counts_ck',
+      sql`${t.entered} >= 0 and ${t.exited} >= 0 and ${t.entered} + ${t.exited} > 0`,
+    ),
+    check('crm_stage_move_rollups_stays_ck', sql`cardinality(${t.stays}) = ${t.exited}`),
   ],
 );

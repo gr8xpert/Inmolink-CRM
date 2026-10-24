@@ -241,7 +241,10 @@ describe('first human response', () => {
     const lead = await newLead(new Date(T0));
     const logged = await countQueries(() => log(agent1, lead.id, 'CALL', at(10)));
     const baseline = await countQueries(() => log(agent1, lead.id, 'OTHER', at(20)));
-    expect(logged).toBe(baseline + 1);
+    // S11-F10: a first response also emits `crm.lead.responded` (the KPI rollup of its day); a later one does not
+    expect(logged).toBe(baseline + 2);
+    const later = await countQueries(() => log(agent1, lead.id, 'CALL', at(30)));
+    expect(later).toBe(baseline + 1);
     const other = await newLead(new Date(T0));
     const v = (await as(agent1, (ctx) => crm.getLead(ctx, other.id))).version;
     const withResponse = await countQueries(() =>
@@ -321,6 +324,8 @@ describe('response time KPI', () => {
         );
       }
     }
+    // S11-F10: the leads were written directly (no events): rebuild the rollups the KPI's whole days read
+    await crm.rebuildReportRollups({ agencyId: a.agencyId });
   }
 
   const kpi = (i: number) => as(agent1, (ctx) => crm.getResponseTimeKpi(ctx, q(i)));

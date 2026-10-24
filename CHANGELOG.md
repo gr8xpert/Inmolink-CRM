@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- CRM report rollups: pipeline report and response KPI read worker-maintained rollups (stage counts, per-day move and response histograms, exact medians), 1.5–11 ms at 60k leads; event `crm.lead.responded`; migration 0137 (S11-F10). Contact erasure: tombstone contact, identifiers / notes / lead messages / task and prospect text cleared in the request, activity bodies, inbound website leads and listing seller links by an after-commit job; `POST /v1/crm/contacts/:id/erase` (admins, confirm) (S11-F12). No new dependency.
 - My collaborations view (S11-06): registrations and viewing requests in both directions with state / direction / kind / date filters on the mls lists; new dashboard section.
 - Network board (S11-05): posts with structured criteria and expiry, filter subscriptions, replies as `NETWORK` chat threads, buyer requests matched to other agencies' listings over the search engine with one notification per agency; migration 0136. No new dependency.
 - ICS calendar feed answers a matching `If-None-Match` with a 304 from one fingerprint statement (`calendar_feed_tag`, weak ETag); ≤ 1,000 rows read, faster render (S11-F7).

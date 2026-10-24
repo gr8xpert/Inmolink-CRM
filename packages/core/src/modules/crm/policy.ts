@@ -12,6 +12,8 @@ export const CRM_ACTIONS = [
   'crm.contacts.merge',
   /** Import a CSV / Excel file of contacts. */
   'crm.contacts.import',
+  /** Erase a contact's personal data for good (S11-F12, a data subject's request): agency admins. */
+  'crm.contacts.erase',
   /** The lead inbox and the introductions to the agency's own listings (S10-02). */
   'crm.leads.read',
   /** Enter leads, change their status and assignment. */
@@ -55,6 +57,7 @@ export const CRM_IMPERSONATION: ImpersonationRules<CrmAction> = {
   'crm.contacts.write': 'forbidden',
   'crm.contacts.merge': 'forbidden',
   'crm.contacts.import': 'forbidden',
+  'crm.contacts.erase': 'forbidden',
   'crm.leads.read': 'allowed',
   'crm.leads.write': 'forbidden',
   'crm.leads.routing': 'forbidden',
@@ -101,6 +104,7 @@ export function can(ctx: Ctx, action: CrmAction, resource?: { agencyId: string }
     case 'crm.prospects.confidential':
       return MEMBER_ROLES.has(role);
     case 'crm.contacts.import':
+    case 'crm.contacts.erase':
     case 'crm.leads.routing':
     case 'crm.pipeline.manage':
       return ADMIN_ROLES.has(role);

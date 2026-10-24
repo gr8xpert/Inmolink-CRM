@@ -10,7 +10,7 @@ import { humanResponseSet } from './response-repo';
 
 /**
  * Pipeline queries (S10-03): the agency's stages, the board (one query for every column), a drag's neighbours and
- * write, a lead's stage history and the report's aggregates. Queries only `@inmolink/db/schema/crm`. The stage history
+ * write, a lead's stage history (the report reads rollups: `report-rollups-repo.ts`). Queries only `@inmolink/db/schema/crm`. The stage history
  * is appended by the database (`leads_stage_history` → `lead_stage_history_append()`) from the stage and entry time
  * the service writes, never here.
  */
@@ -339,6 +339,7 @@ export async function lockLead(
   status: string;
   stageId: string;
   firstRespondedAt: Date | null;
+  createdMs: Date;
 } | null> {
   const [row] = await tx
     .select({
@@ -348,6 +349,7 @@ export async function lockLead(
       status: leads.status,
       stageId: leads.stageId,
       firstRespondedAt: leads.firstRespondedAt,
+      createdMs: leads.createdMs,
     })
     .from(leads)
     .where(eq(leads.id, id))
@@ -501,56 +503,4 @@ export async function leadHistory(
     )
     .orderBy(...rowOrder(leadStageHistory.changedAt, leadStageHistory.id))
     .limit(page.limit + 1);
-}
-
-export interface ReportRow {
-  stageId: string;
-  current: number;
-  currentAvgSeconds: number | null;
-  entered: number;
-  exited: number;
-  avgSeconds: number | null;
-  medianSeconds: number | null;
-}
-
-/**
- * Per stage: the leads in it now (and the mean age of their stays) from `leads`, and from `lead_stage_history` in
- * `[from, to)` the leads that entered it, left it, and how long the stays that ended lasted (mean, median). One query:
- * the moves of the range on `lead_stage_history_agency_changed_idx`, the current leads index-only.
- */
-export async function report(tx: Tx, agencyId: string, from: Date, to: Date): Promise<ReportRow[]> {
-  const res = await tx.execute<Record<string, unknown>>(sql`
-    with moves as (
-      select h.from_stage_id, h.to_stage_id, extract(epoch from h.changed_at - h.from_entered_at) as stay
-        from ${leadStageHistory} h
-       where h.agency_id = ${agencyId} and h.changed_at >= ${from.toISOString()}::timestamptz
-         and h.changed_at < ${to.toISOString()}::timestamptz
-    ),
-    entered as (select to_stage_id as stage_id, count(*)::int as n from moves group by to_stage_id),
-    exited as (
-      select from_stage_id as stage_id, count(*)::int as n, avg(stay) as avg_stay,
-             percentile_cont(0.5) within group (order by stay) as median_stay
-        from moves where from_stage_id is not null group by from_stage_id
-    ),
-    cur as (
-      select stage_id, count(*)::int as n, avg(extract(epoch from now() - stage_entered_at)) as age
-        from ${leads} where agency_id = ${agencyId} group by stage_id
-    )
-    select s.id as stage_id, coalesce(cur.n, 0) as current, cur.age, coalesce(entered.n, 0) as entered,
-           coalesce(exited.n, 0) as exited, exited.avg_stay, exited.median_stay
-      from ${pipelineStages} s
-      left join cur on cur.stage_id = s.id
-      left join entered on entered.stage_id = s.id
-      left join exited on exited.stage_id = s.id
-     where s.agency_id = ${agencyId}`);
-  const secs = (v: unknown): number | null => (v === null || v === undefined ? null : Math.round(Number(v)));
-  return res.rows.map((r) => ({
-    stageId: String(r.stage_id),
-    current: Number(r.current),
-    currentAvgSeconds: secs(r.age),
-    entered: Number(r.entered),
-    exited: Number(r.exited),
-    avgSeconds: secs(r.avg_stay),
-    medianSeconds: secs(r.median_stay),
-  }));
 }

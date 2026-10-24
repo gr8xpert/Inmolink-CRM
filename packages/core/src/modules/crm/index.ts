@@ -31,6 +31,7 @@ export {
   type ExportPageQuery,
   leadsForExport,
 } from './data-export';
+export { eraseContact, eraseContactData } from './erasure';
 export { crmErrors } from './errors';
 export { crmEvents } from './events';
 export {
@@ -78,6 +79,7 @@ export {
   repointSellerListings,
   updateProspect,
 } from './prospects';
+export { rebuildReportRollups, refreshReportDay, refreshStageCounts } from './report-rollups';
 export { getResponseTimeKpi, recordAutoAck } from './response';
 export { type Route, type RouteInput, routeLead } from './routing';
 export {

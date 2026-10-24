@@ -6,7 +6,7 @@
 import type { Tx } from '@inmolink/db';
 import { websiteLeads } from '@inmolink/db/schema/websites';
 import { emitFrom, type OutboxMessage } from '@inmolink/platform/outbox';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 
 export type LeadKind = (typeof websiteLeads.$inferSelect)['kind'];
 export type LeadVerification = (typeof websiteLeads.$inferSelect)['verification'];
@@ -199,4 +199,36 @@ export async function clearIdempotencyKeys(tx: Tx, before: Date, limit: number):
                    order by created_at limit ${limit}
                    for update skip locked)`);
   return res.rowCount ?? 0;
+}
+
+/**
+ * A crm contact erasure (S11-F12): the agency's inbound leads `ids` lose the visitor's name, e-mail (and its hash),
+ * phone, message, page and replay key. Kept: id, site, kind, target, locale, consent flag, viewing slots (times only)
+ * and the send / create times. Only rows not cleared yet are touched (a rerun changes nothing). One statement on the
+ * primary key; returns the rows cleared.
+ */
+export async function eraseLeads(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await tx
+    .update(websiteLeads)
+    .set({
+      name: '',
+      email: '',
+      emailHash: '',
+      phone: null,
+      message: null,
+      pageUrl: null,
+      idempotencyHash: null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(websiteLeads.agencyId, agencyId),
+        inArray(websiteLeads.id, [...ids]),
+        sql`(${websiteLeads.email} <> '' or ${websiteLeads.name} <> '' or ${websiteLeads.phone} is not null
+          or ${websiteLeads.message} is not null or ${websiteLeads.pageUrl} is not null)`,
+      ),
+    )
+    .returning({ id: websiteLeads.id });
+  return rows.length;
 }

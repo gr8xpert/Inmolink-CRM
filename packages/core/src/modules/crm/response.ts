@@ -1,8 +1,12 @@
 import { AppError, type ResponseTimeKpiDto, type ResponseTimeQuery } from '@inmolink/contracts';
 import { withTenant } from '@inmolink/db';
+import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import * as identity from '../identity';
+import { crmEvents } from './events';
 import { assertCan } from './policy';
+import { mergeResponseParts } from './report-rollups';
+import * as rollupsRepo from './report-rollups-repo';
 import * as responseRepo from './response-repo';
 
 /**
@@ -26,10 +30,19 @@ export function humanResponseOf(ctx: Ctx, at: Date): { at: Date; userId: string 
   return { at, userId: ctx.actor.userId };
 }
 
-/** A member logged an answer on a lead (one statement). */
+/**
+ * A member logged an answer on a lead (one statement; when it became the lead's first response, a second:
+ * `crm.lead.responded`, S11-F10 — the KPI rollup of the lead's day is rebuilt from it).
+ */
 export async function recordHumanResponse(ctx: Ctx, leadId: string, at: Date): Promise<void> {
   const r = humanResponseOf(ctx, at);
-  await responseRepo.applyHumanResponse(ctx.tx, ctx.tenant.agencyId, leadId, r.at, r.userId);
+  const first = await responseRepo.applyHumanResponse(ctx.tx, ctx.tenant.agencyId, leadId, r.at, r.userId);
+  if (first) {
+    await emit(
+      ctx.tx,
+      crmEvents.leadResponded({ agencyId: ctx.tenant.agencyId, leadId, receivedMs: first.createdMs.getTime() }),
+    );
+  }
 }
 
 /**
@@ -44,13 +57,14 @@ export function recordAutoAck(p: { agencyId: string; inboundLeadId: string; at: 
 /**
  * `GET /v1/crm/kpis/response-time`: the agency's and each first responder's median response time for the leads
  * received in the range (≤ 92 days). Leads without a human response are counted but stay out of the medians. Two
- * queries (the aggregate, the members' names).
+ * queries (the numbers, the members' names). S11-F10: the range's whole UTC days come from `crm_response_rollups`
+ * (every second kept, so the medians stay exact), the partial days at its ends straight from `leads`.
  */
 export async function getResponseTimeKpi(ctx: Ctx, query: ResponseTimeQuery): Promise<ResponseTimeKpiDto> {
   assertCan(ctx, 'crm.leads.read');
   const from = new Date(query.from);
   const to = new Date(query.to);
-  const rows = await responseRepo.responseAggregates(ctx.tx, ctx.tenant.agencyId, from, to);
+  const rows = mergeResponseParts(await rollupsRepo.responseKpiParts(ctx.tx, ctx.tenant.agencyId, from, to));
   const agency = rows.find((r) => r.userId === null);
   const agents = rows.filter((r) => r.userId !== null && r.responded > 0);
   const names = await identity.memberNames(

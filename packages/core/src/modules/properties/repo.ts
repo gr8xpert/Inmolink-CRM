@@ -51,6 +51,21 @@ export async function repointSeller(
   return rows.length;
 }
 
+/**
+ * A crm contact erasure (S11-F12): the agency's listings whose seller is one of `contactIds` (the erased contact and
+ * the closed contacts merged into it) name no seller. One statement on `property_privates_seller_idx`; returns the
+ * rows cleared.
+ */
+export async function clearSeller(tx: Tx, agencyId: string, contactIds: readonly string[]): Promise<number> {
+  if (contactIds.length === 0) return 0;
+  const rows = await tx
+    .update(propertyPrivates)
+    .set({ sellerContactId: null, updatedAt: sql`now()` })
+    .where(and(eq(propertyPrivates.agencyId, agencyId), inArray(propertyPrivates.sellerContactId, [...contactIds])))
+    .returning({ id: propertyPrivates.propertyId });
+  return rows.length;
+}
+
 export async function insertPrivates(tx: Tx, row: typeof propertyPrivates.$inferInsert): Promise<PrivatesRow> {
   const [created] = await tx.insert(propertyPrivates).values(row).returning();
   return created as PrivatesRow;

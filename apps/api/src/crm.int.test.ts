@@ -471,4 +471,36 @@ describe('crm calendar routes', () => {
     expect(revoked.json()).toMatchObject({ enabled: false });
     await expect(crm.calendarFeed(secret.token)).rejects.toThrow();
   });
+
+  it('[S11-F12] an admin erases a contact over HTTP (204); unconfirmed 422, a stale version 409; the contact is gone', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/contacts',
+      headers,
+      payload: { firstName: 'Erin', emails: [`erase-${RUN}@example.com`] },
+    });
+    const contact = created.json() as { id: string; version: number };
+    const url = `/v1/crm/contacts/${contact.id}/erase`;
+    const unconfirmed = await app.inject({ method: 'POST', url, headers, payload: { version: contact.version } });
+    expect(unconfirmed.statusCode).toBe(422);
+    const stale = await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { version: contact.version + 1, confirm: 'ERASE' },
+    });
+    expect(stale.statusCode).toBe(409);
+    const erased = await app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { version: contact.version, confirm: 'ERASE' },
+    });
+    expect(erased.statusCode).toBe(204);
+    expect(erased.headers['cache-control']).toBe('no-store');
+    const gone = await app.inject({ method: 'GET', url: `/v1/crm/contacts/${contact.id}`, headers });
+    expect(gone.statusCode).toBe(404);
+  });
 });
