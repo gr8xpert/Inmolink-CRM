@@ -1,7 +1,7 @@
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import { createFounder, type Founder } from '@inmolink/core/test';
 import { closeDb, countQueries, withSystem, withSystemClient } from '@inmolink/db';
-import { setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { sql } from 'drizzle-orm';
@@ -150,9 +150,11 @@ beforeAll(async () => {
     insert into portal_connection_issues (connection_id, property_id, agency_id, errors, checked_at)
     select ${connectionId}, id, ${owner.agencyId}, '[{"code":"NO_DOCUMENT"}]'::jsonb, now() - interval '1 day'
       from properties where agency_id = ${owner.agencyId}`);
-  await exec(sql`analyze portal_connection_issues`);
-  await exec(sql`analyze portal_listing_sync`);
-  await exec(sql`analyze agency_portal_connections`);
+  // As the owner: ANALYZE by app_system is skipped with a warning (not the owner), which left the plans to whenever
+  // autovacuum last ran (the PK, another index or a Seq Scan, run to run); VACUUM drops earlier runs' dead rows too.
+  for (const t of ['portal_connection_issues', 'portal_listing_sync', 'agency_portal_connections']) {
+    await adminQuery(`vacuum analyze ${t}`);
+  }
 }, 300_000);
 
 afterAll(async () => {

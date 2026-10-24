@@ -16,7 +16,14 @@ import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
-import { closeQueues, configureQueue, type PoolHandle, queueFor, registerPool } from '@inmolink/platform/queue';
+import {
+  closeQueues,
+  configureQueue,
+  type PoolHandle,
+  producerConnection,
+  queueFor,
+  registerPool,
+} from '@inmolink/platform/queue';
 import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -34,6 +41,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
  */
 
 const RUN = newId().slice(-8).toLowerCase();
+const PREFIX = `test-portal-nightly-${RUN}`;
 const log = createLogger({ service: 'portal-nightly-test', level: 'silent' });
 const AGENCIES = 12;
 const LANES = 2;
@@ -48,7 +56,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 beforeAll(async () => {
   loadStackEnv('test');
   await setupTestDb('worker');
-  await configureQueue({ prefix: `test-portal-nightly-${RUN}`, logger: log });
+  await configureQueue({ prefix: PREFIX, logger: log });
   await configureCache({ prefix: `t:portal-nightly:${RUN}` });
   configureStorage(createMemoryStore());
   exportsModule.configureExports({
@@ -113,8 +121,18 @@ describe('[S9-03] nightly lanes on the real queue', () => {
 
     let maxNightly = 0;
     let bounced = 0;
-    /** Heavy jobs (the shared cap group) running at once, sampled. */
+    /**
+     * The shared cap group's slot holders (live leases in its Redis set), sampled: the cap itself. BullMQ's `active`
+     * list is not the cap: a nightly pass hands its slots back before it queues its successor, then stays `active`
+     * until BullMQ completes it, while the successor already runs in the freed slot.
+     */
+    let maxHolders = 0;
+    /** Slot holders of one lane at once (a duplicate or restarted chain would show as 2). */
+    let maxPerLane = 0;
+    /** Heavy jobs in BullMQ's `active` list, sampled. */
     let maxHeavy = 0;
+    const redis = producerConnection();
+    const capSet = `${PREFIX}:cap:exports:${encodeURIComponent(`@${websiteApi.EXPORTS_FEED_CAP_GROUP}`)}`;
     const heavy = new Set([
       'exports.generateNightlyPortalFeeds',
       'exports.generatePortalFeeds',
@@ -132,6 +150,15 @@ describe('[S9-03] nightly lanes on the real queue', () => {
       const jobs = await queue.getJobs(['waiting', 'prioritized', 'delayed', 'active']);
       const nightly = jobs.filter((j) => j.name === 'exports.generateNightlyPortalFeeds');
       maxNightly = Math.max(maxNightly, nightly.length);
+      const holders = await redis.zrangebyscore(capSet, Date.now(), '+inf');
+      maxHolders = Math.max(maxHolders, holders.length);
+      const perLane = new Map<number, number>();
+      for (const j of nightly) {
+        if (j.id === undefined || !holders.includes(j.id)) continue;
+        const lane = (j.data as { p: { lane: number } }).p.lane;
+        perLane.set(lane, (perLane.get(lane) ?? 0) + 1);
+      }
+      maxPerLane = Math.max(maxPerLane, ...perLane.values(), 0);
       maxHeavy = Math.max(maxHeavy, (await queue.getJobs(['active'])).filter((j) => heavy.has(j.name)).length);
       const delayed = await queue.getJobs(['delayed']);
       bounced = Math.max(bounced, delayed.filter((j) => j.name === 'exports.generateNightlyPortalFeeds').length);
@@ -144,8 +171,12 @@ describe('[S9-03] nightly lanes on the real queue', () => {
     // delayed by a cap: no churn.
     expect(maxNightly).toBeLessThanOrEqual(2 * LANES);
     expect(bounced).toBe(0);
-    // The shared cap held: never more heavy jobs active than the pool-wide cap.
-    expect(maxHeavy).toBeLessThanOrEqual(LANES + 1);
+    // The shared cap held: never more slot holders than the pool-wide cap, never two of one lane at once.
+    expect(maxHolders).toBeGreaterThan(0);
+    expect(maxHolders).toBeLessThanOrEqual(LANES + 1);
+    expect(maxPerLane).toBe(1);
+    // BullMQ's view: the cap, plus at most one pass per lane that handed its slots back and is still completing.
+    expect(maxHeavy).toBeLessThanOrEqual(2 * LANES + 1);
     // Every due agency was covered tonight, once (one NIGHTLY run each).
     const nightlyRuns = await system((tx) =>
       tx.execute<{ agency_id: string; n: number }>(sql`select agency_id, count(*)::int as n from portal_feed_runs

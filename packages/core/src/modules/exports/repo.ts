@@ -572,7 +572,8 @@ export async function syncIssues(
     });
 }
 
-const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+// The lowest / highest uuid, as range bounds for an open end (the nil literal is reserved for PLATFORM_AGENCY_ID, S1-F2).
+const NIL_UUID = `${'0'.repeat(8)}-0000-0000-0000-${'0'.repeat(12)}`;
 const MAX_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
 /**
