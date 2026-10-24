@@ -633,6 +633,7 @@ Ref §7 M9 · Mod matching · Dep S5-05 S11-04
 **Build:** agent saved searches; alerts on new listing, price drop, back on market (event-driven + daily digest); notification + email.
 **Done when:** a new matching listing produces exactly one alert per saved search (deduplicated)
 *(Note: depends on S11-04 notifications — build alert generation first, delivery when S11-04 is done.)*
+*(S11 review: not built in S11 — it was outside the S11 run's scope; moved to S12 pending Shahzaib's approval. S11-04 notifications (`raiseNotifications`, digest) is DONE, so delivery is ready.)*
 
 ### S5-F1 · Development access and audit hardening (S4 review) 🔒
 Ref §3 #21 §5 · Mod developments, db, tests · Dep S4-F5
@@ -1612,6 +1613,126 @@ Ref §8 #3 §9.1 · Mod search, ai-features · Dep S12-01 S7-03 · ⚡
 **Done when:**
 - Eval set of 100 multilingual queries maps to expected filters with ≥ 90% accuracy
 - p95 < 600 ms uncached, < 150 ms cached
+
+### S12-F1 · Network board, chat and notification dashboard pages (S11 review)
+Ref §7 M11 M12 · Mod web, i18n · Dep S11-03 S11-04 S11-05
+**Build:** the network board (list, post, reply, my subscriptions), a chat inbox and thread view (typing indicator, WhatsApp / e-mail handoff buttons, warning in VIEWING threads that the owner must never see the client) and the notification bell, feed and preferences page — all on the existing APIs, socket.io-client behind a dynamic import, EN + ES.
+**Done when:** each route ≤ 250 KB first-load gzip; one e2e test of reply → thread → message → notification; disabling a type in the preferences page stops it (e2e)
+
+### S12-F2 · Raise the declared notification types (S11 review)
+Ref §7 M12 · Mod crm, imports, notifications · Dep S11-04
+**Build:** `LEAD_ASSIGNED` and `TASK_DUE` (contracts) are never raised; the import pause notice is still e-mail only; stale "no notifications module" comments in crm.
+**Done when:** assigning a lead, a task falling due and an import pausing each raise one notification (tests); no stale comments (review)
+
+### S12-F3 · Network subscriber matching on an index (S11 review) ⚡
+Ref §5 · Mod network, db · Dep S11-05
+**Build:** `notifySubscribers` reads every subscription per post (a Seq Scan on CI); at 5,000 agencies × members × 20 subscriptions that reaches ~1M rows. Pre-filter by kind / transaction type and a GIN on `location_ids` plus a partial index for unset filters (UNION, then the residual filter), or an inverted subscription index.
+**Done when:** a 200k–1M-subscription seed gives a batch query < 20 ms with index scans only (EXPLAIN test)
+
+### S12-F4 · Realtime nodes skip events with no local socket; pubsub buffer sized (S11 review) ⚡
+Ref §9 · Mod platform, realtime, infra · Dep S11-04
+**Build:** every realtime node JSON-parses, regex-checks and Zod-validates every user event before finding no local room; prefix messages with `agencyId:userId|` and check the adapter's rooms first; set redis-cache `client-output-buffer-limit pubsub` explicitly; metric for dropped / disconnected subscribers (or sharded pub/sub per node).
+**Done when:** a non-local event is skipped without parsing (unit test); 10k events to 3 nodes, no subscriber disconnect (load test)
+
+### S12-F5 · Buyer-request matching cannot crowd out public search (S11 review) ⚡
+Ref §9 · Mod network, search · Dep S11-05
+**Build:** `matchListingOwners` runs facet rounds over the 2M-doc index with a growing exclusion list, on the same Meilisearch as feed-api; add a pool-wide `globalConcurrency` (e.g. 4) to `network.matchBuyerRequest` and an engine-latency histogram per round.
+**Done when:** 50 concurrent buyer requests keep feed-api search p95 < 150 ms (perf test)
+
+### S12-F6 · Stage-count rollups by delta (S11 review) ⚡
+Ref §5 · Mod crm · Dep S11-F10
+**Build:** `crm.refreshStageCounts` re-aggregates all of an agency's leads every throttle window (est. 30–80 ms for a 200k-lead agency, `indexing` pool shared with search reindexing): apply ±1 deltas from lead events with a nightly full rebuild, or cap it (capGroup + perProcessConcurrency).
+**Done when:** a rebuild touches ≤ 1 row per event, or search-index queue age is unchanged under 100 leads/s (test)
+
+### S12-F7 · `leads` index review (S11 review) ⚡
+Ref §5 · Mod db, crm · Dep S11-F6
+**Build:** `leads` has 12 secondary indexes and its mutable columns (status, assignee, stage, rank) make most updates non-HOT; `leads_agency_assigned_status_created_idx` overlaps `leads_agency_assigned_created_idx`. After the scale gate read `pg_stat_user_indexes`, drop unused ones or fold overlaps; decide stage + assignee + cursor (22 ms at 60k) and source + status.
+**Done when:** every leads index has a recorded consumer query and EXPLAIN in STATUS; ≤ 10 indexes; stage + assignee + cursor < 20 ms or explicitly unsupported
+
+### S12-F8 · HMAC rotation cannot close before the fingerprint rehash finishes (S11 review) 🔒
+Ref §5 · Mod mls, platform, db, docs · Dep S11-01 S11-F13
+**Build:** fingerprint rows carry no key id, so nothing can tell when the rehash is done; add `key_id` to `client_registration_fingerprints`, `mls.fingerprintsPending()` (valid registrations without a current-key row), a worker alert when any are pending within 24 h of `HMAC_KEY_PREVIOUS_UNTIL`; runbook step 10.
+**Done when:** one stale registration → pending > 0 and the alert fires; after the rehash pending = 0 (int test)
+
+### S12-F9 · Staff reads of registrations, viewings and agency chat are audited (S11 review) 🔒
+Ref §5 · Mod mls, chat, compliance · Dep S11-F2
+**Build:** S11-F2 audits impersonated crm reads only; staff impersonating a member can read registrations (decrypted client details), introducer-side viewing requests and VIEWING / NETWORK messages without an audit row. Write `*.clientData.read` per impersonated list / get (shared helper).
+**Done when:** an impersonated list / get writes one row, a member's own read none (tests)
+
+### S12-F10 · Deactivated members and revoked sessions lose realtime (S11 review) 🔒
+Ref §5 · Mod chat, identity, realtime · Dep S11-03
+**Build:** realtime never checks membership or `sessionVersion` after connect and chat fan-out does not filter deactivated members; filter recipients by `agency_members.deactivated_at is null` and publish a user event on deactivation / session-version bump that disconnects that user's sockets in both namespaces.
+**Done when:** a deactivated participant gets no push and their open socket closes within 1 s (test)
+
+### S12-F11 · `/notifications` sockets limited like `/chat` (S11 review) 🔒
+Ref §5 · Mod realtime · Dep S11-04
+**Build:** `/notifications` has no sockets-per-user cap and no connect rate rule; reuse `CHAT_SOCKET_LIMITS.socketsPerUser` and add `realtime.notifications.connect.user`.
+**Done when:** the 11th socket and the 31st connect per minute are refused (tests)
+
+### S12-F12 · NETWORK threads close with their post or an unlisted agency (S11 review) 🔒
+Ref §7 M11 · Mod chat, network, db · Dep S11-05
+**Build:** listed / open is checked only at thread creation; the fan-out keeps copying messages after the post closes or an agency is de-verified. Refuse (42501) when either side is no longer listed; a `network.post.closed` job closes the post's threads (as `closeViewingThread`).
+**Done when:** both refusals covered by int tests
+
+### S12-F13 · Network post publish and close audited (S11 review) 🔒
+Ref §5 · Mod network, compliance · Dep S11-05
+**Build:** `compliance.audit` `network.post.published` / `network.post.closed` (ids and kind only, never title or body).
+**Done when:** create, close and the impersonation-forbidden path tested
+
+### S12-F14 · Notification preference writes limited to the member by RLS (S11-04) 🔒
+Ref §5 · Mod db, notifications · Dep S11-04
+**Build:** `notification_preferences` is readable agency-wide (needed by `notify`), but only the service limits writes to the member: a registry shape "agency reads, member writes" plus isolation-suite support.
+**Done when:** a member writing a colleague's preference gets 42501 (isolation test)
+
+### S12-F15 · Website API keys and 2FA recovery codes survive an HMAC_KEY rotation (S11-F13) 🔒
+Ref §5 · Mod identity, platform · Dep S11-F13
+**Build:** both are stored HMAC lookups without the dual-key window, so a rotation breaks every website API key and recovery code; look them up with `hmacSha256Candidates` during the window and rehash on use (or issue a rehash job).
+**Done when:** with a rotation window open, an API key and a recovery code issued under the previous key still work (tests); runbook updated
+
+### S12-F16 · One pinned search_path for every SECURITY DEFINER function (S11 review) 🔒
+Ref §5 · Mod db · Dep S11-F5
+**Build:** definers in 0130, 0133, 0135, 0136 use `pg_catalog, public`; S11-F5 set `pg_catalog, pg_temp`. Re-create them (`create or replace`, never edit applied migrations); drop the unused `definerSync` policies (`definer_update` on `chat_messages`, `definer_append` on `viewing_requests`) by letting the registry name only the operations used.
+**Done when:** a catalog test asserts every `prosecdef` function in `public` has `search_path=pg_catalog, pg_temp`; no unused definer policy (rls test)
+
+### S12-F17 · Validate `leads_assignee_member_fk` (S11-F5)
+Ref §5 · Mod db, crm · Dep S11-F5
+**Build:** 0138 added the leads member FK `NOT VALID` (orphan perf-seed leads on the shared test DB); clean the residue (and make `tests/perf/crm-filters` clean up after a crash), then `VALIDATE CONSTRAINT` in a new migration.
+**Done when:** `pg_constraint.convalidated` is true for all six S11-F5 FKs (test)
+
+### S12-F18 · One keyset helper and shared small helpers (S11 review)
+Ref §5 · Mod core, mls, crm, chat, network, notifications · Dep S11-F9
+**Build:** `rowAfter` is defined three times (crm/keyset, mls repo, mls viewings-repo) next to `pagination.ts keysetAfterRaw`; `userIdOf` 11 copies, `escapeHtml` 6, `line` 4, `wasNotSent` 2. Move to `pagination.ts`, `core/src/member.ts` and an e-mail text helper; one place per module for job bodies (`jobs.ts`).
+**Done when:** grep finds one definition of each; existing EXPLAIN tests green
+
+### S12-F19 · Test hygiene: scoped outbox dispatcher, wall-clock budgets out of the int run (S11 review)
+Ref §15 · Mod platform, realtime, tests · Dep S11-03
+**Build:** `apps/realtime/src/chat-e2e.int.test.ts` runs a global outbox dispatcher on the shared DB and claims other suites' events — add an `agencyIds` test scope; move wall-clock assertions (`network-board`, `chat-fanout`, `chat-e2e`, crm activities timeline) to the perf / smoke job, keep plan and query-count assertions in the int run.
+**Done when:** the e2e test claims only its own agency's events; the int run has no `toBeLessThan(ms)` on wall-clock time
+
+### S12-F20 · Raw keyset for the date_trunc-indexed lists (S11-F9) ⚡
+Ref §5 · Mod properties, imports, developments, compliance, db · Dep S11-F9
+**Build:** lists on `date_trunc` expression indexes (properties first, then imports, developments, bookmarks, tenants, impersonations, data exports) keep the cursor as a Filter under RLS; raw `(agency_id, created_at, id)` indexes (concurrent) or stored ms columns, then `keysetAfterRaw`.
+**Done when:** the listings list's second page shows the cursor in the Index Cond under RLS on the scale seed (EXPLAIN test)
+
+### S12-F21 · Collaborations show the target's reference (S11-06)
+Ref §7 M10 · Mod mls, search, web · Dep S11-06
+**Build:** the collaborations view shows a target as kind + id fragment; carry the listing / development reference and title from `listing_read_models` (no per-row join) into the registration and viewing DTOs.
+**Done when:** the page shows the reference and title, list endpoints stay within budget (test)
+
+### S12-F22 · ICS fingerprint index-only (S11-F7) ⚡
+Ref §9.5 · Mod crm, db · Dep S11-F7
+**Build:** the 304 fingerprint reads events by primary key (~5 buffers per event); a per-feed version column bumped by event / attendee / contact-name changes makes it one index-only read (and lets the hour bucket go).
+**Done when:** a 304 at 2,000 events reads ≤ 10 buffers (test); renames reach subscribers without the hour bucket
+
+### S12-F23 · Listing editor taxonomy at scale; test-DB prune covers taxonomy (S11 gate)
+Ref §5 §15 · Mod web, taxonomy, db · Dep S2-04
+**Build:** the listing editor renders every location as an option and every feature as a checkbox (~9,000 accessibility nodes with the shared test DB's 2.5k locations / 2.3k features — real Spanish location data is in the thousands too): a searchable location picker and grouped, lazily rendered features; the test-DB prune also clears stale shared taxonomy rows.
+**Done when:** the editor renders < 1,500 DOM nodes with 5,000 locations (test); `[S3-05]` e2e well under its timeout (< 60 s)
+
+### S12-F24 · `quality.recomputeListings` Redis script error; stale jobs after a prune (S11 gate)
+Ref §9 · Mod quality, platform, tests · Dep S8
+**Build:** the e2e worker logged 293 `quality.recomputeListings` failures "ERR value is not an integer or out of range" (a Redis script argument) and ~2,000 `crm.recordActivity` retries hitting FKs of pruned agencies; find the script bug, and make jobs for agencies that no longer exist finish (no retry) instead of failing.
+**Done when:** a regression test reproduces the Redis error and passes; a job for a deleted agency completes without retries (test)
 
 ---
 
