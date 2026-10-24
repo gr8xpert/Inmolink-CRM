@@ -88,6 +88,14 @@ export const agencyPortalConnections = pgTable(
     /** The token's last 4 characters (the dashboard shows which token is live). */
     tokenHint: text('token_hint').notNull(),
     tokenCreatedAt: timestamp('token_created_at', { withTimezone: true }).notNull(),
+    /**
+     * S10-F7: HMAC of the `Idempotency-Key` the connection was created with, the HMAC of that request's body and when it
+     * was first used. A retry within 24 h answers the same connection and token (re-derived from the key and this row's
+     * id, never stored). Null: created without a key.
+     */
+    idempotencyHash: text('idempotency_hash'),
+    idempotencyRequestHash: text('idempotency_request_hash'),
+    idempotencyAt: timestamp('idempotency_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     /**
      * The last feed validation run (S9-02, written by the generator, never bumps `version`): when it finished and how
@@ -129,6 +137,10 @@ export const agencyPortalConnections = pgTable(
     unique('agency_portal_connections_agency_id_uq').on(t.agencyId, t.id),
     // the token's lookup (S9-04): where token_hash = ?
     uniqueIndex('agency_portal_connections_token_uq').on(t.tokenHash),
+    // the idempotent create's replay (S10-F7): where agency_id = ? and idempotency_hash = ?
+    uniqueIndex('agency_portal_connections_idempotency_uq')
+      .on(t.agencyId, t.idempotencyHash)
+      .where(sql`${t.idempotencyHash} is not null`),
     // nightly sweep (S9-03): agencies with a live connection, keyset by agency_id
     index('agency_portal_connections_live_idx')
       .on(t.agencyId, t.nightlyAt)

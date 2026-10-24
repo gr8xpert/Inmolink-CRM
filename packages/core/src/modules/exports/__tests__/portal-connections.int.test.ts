@@ -491,6 +491,53 @@ describe('connections', () => {
     await system((tx) => tx.execute(sql`delete from agency_portal_connections where agency_id = ${a.agencyId}`));
   });
 
+  it('[S10-F7] a retried create with the same Idempotency-Key answers the same connection and token, no second row', async () => {
+    const body = CreatePortalConnectionBody.parse({ channelCode: 'kyero', name: 'Retried' });
+    const idempotencyKey = `retry-key-${RUN}-0123456789`;
+    const count = () =>
+      system(async (tx) => {
+        const r = await tx.execute<{ n: string }>(
+          sql`select count(*)::text n from agency_portal_connections where agency_id = ${a.agencyId} and name = 'Retried'`,
+        );
+        return Number(r.rows[0]?.n);
+      });
+    const first = await as(a, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey }));
+    const retry = await as(a, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey }));
+    expect(first.replayed).toBe(false);
+    expect(retry.replayed).toBe(true);
+    expect(retry.connection.id).toBe(first.connection.id);
+    expect(retry.token).toBe(first.token);
+    expect(first.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await count()).toBe(1);
+    // The same key with another body is refused; another key is another create (here the name is taken).
+    const other = CreatePortalConnectionBody.parse({ channelCode: 'kyero', name: 'Retried 2' });
+    expect(await refusal(as(a, (ctx) => exportsModule.createConnection(ctx, other, { idempotencyKey })))).toBe(
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    expect(
+      await refusal(
+        as(a, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey: `${idempotencyKey}-2` })),
+      ),
+    ).toBe('PORTAL_CONNECTION_NAME_TAKEN');
+    // Another agency's identical key does not see this connection.
+    const foreign = await as(b, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey }));
+    expect(foreign.replayed).toBe(false);
+    expect(foreign.connection.id).not.toBe(first.connection.id);
+    expect(foreign.token).not.toBe(first.token);
+    // After a rotation the key never yields the old token (nor the new one): the retry is refused.
+    await as(a, (ctx) => exportsModule.rotateConnectionToken(ctx, { connectionId: first.connection.id }));
+    expect(await refusal(as(a, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey })))).toBe(
+      'IDEMPOTENCY_KEY_REUSED',
+    );
+    // After a delete, the same key makes a new connection with a NEW token.
+    await as(a, (ctx) => exportsModule.deleteConnection(ctx, { connectionId: first.connection.id }));
+    const again = await as(a, (ctx) => exportsModule.createConnection(ctx, body, { idempotencyKey }));
+    expect(again.replayed).toBe(false);
+    expect(again.connection.id).not.toBe(first.connection.id);
+    expect(again.token).not.toBe(first.token);
+    expect(await count()).toBe(1);
+  });
+
   it('[S9-01] credentials are stored encrypted and never returned; the token only as a keyed hash', async () => {
     const body = CreatePortalConnectionBody.parse({
       channelCode: 'thinkspain',

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Exact pins rounded to 3 decimals in every XML feed and push portal through one `feedPin` (S10-F5, reversible default). Portal connection create takes `Idempotency-Key` with a derived-token replay bound to the body; revoked tokens never return (S10-F7; migration 0120). No new dependency.
 - CRM contacts (S10-01): new `crm` module — contacts with E.164 phones, consent, tags, notes; duplicate detection with merge; CSV / Excel import as a batched resumable worker job; `/v1/crm/contacts*` and `/v1/crm/contact-imports*`; migration 0119. Platform: failed-query parameters scrubbed from logs, queue failure reasons and telemetry. **New dependency:** `libphonenumber-js` 1.12.10 (core; `legacy-javascript` 0.0.3 → 0.0.4 transitively).
 - exports public surface trimmed, worker-only helpers internal (S10-F1); `rowCipher` in platform/crypto replaces duplicated credential encrypt / decrypt in imports and exports (S10-F3); shared `GzipObjectUpload` / `storedFeedFile` / `sendStoredFeed`, one 60 s feed redirect TTL, plain-XML polls redirected to the signed URL when the edge cache is off (S10-F2, part of S10-F9). No new dependency, no migration.
 - Plugin: wp-config API key / base changes purge the cache, mirror and sitemap (config fingerprint in every cache key); no unpinned API or update calls on non-cURL transports (cache-only, shown on the health page); deprecation notice for the legacy trusted-header setting (S10-F6). No new dependency.

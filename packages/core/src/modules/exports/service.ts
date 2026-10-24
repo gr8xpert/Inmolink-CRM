@@ -26,7 +26,7 @@ import {
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
-import { newToken } from '@inmolink/platform/crypto';
+import { newToken, safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
@@ -36,7 +36,14 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
 import * as properties from '../properties';
-import { FEED_RUNS_KEPT, portalCredentialsCipher, portalFeedTokenHash } from './config';
+import {
+  FEED_RUNS_KEPT,
+  portalCredentialsCipher,
+  portalDerivedToken,
+  portalFeedTokenHash,
+  portalIdempotencyHash,
+  portalRequestHash,
+} from './config';
 import { exportsEvents } from './events';
 import { assertCan } from './policy';
 import { feedFileOf } from './profiles';
@@ -198,19 +205,50 @@ export async function getConnection(ctx: Ctx, params: PortalConnectionParams): P
   return dtoOf(ctx.tx, await loadConnection(ctx, params.connectionId));
 }
 
-/** Adds a connection (agency admins; at most `MAX_PORTAL_CONNECTIONS`). Its feed token is in the answer only. */
+/** A retried create answers the same connection and token this long (the `Idempotency-Key` replay window). */
+export const CONNECTION_IDEMPOTENCY_MS = 24 * 3_600_000;
+
+/**
+ * Adds a connection (agency admins; at most `MAX_PORTAL_CONNECTIONS`). Its feed token is in the answer only. With an
+ * `Idempotency-Key`, a retry within 24 h of the same request answers the same connection and token (`replayed`) and
+ * adds nothing; the token is re-derived from the key and the connection's id, so once it is rotated or revoked the key
+ * never brings it back (`IDEMPOTENCY_KEY_REUSED`), and a deleted connection's key makes a new row with a new token.
+ */
 export async function createConnection(
   ctx: Ctx,
   input: CreatePortalConnectionInput,
-): Promise<PortalConnectionSecretDto> {
+  opts: { idempotencyKey?: string } = {},
+): Promise<PortalConnectionSecretDto & { replayed: boolean }> {
   assertCan(ctx, 'exports.manage');
   const userId = requireUser(ctx);
   const { agencyId } = ctx.tenant;
+  const key = opts.idempotencyKey;
+  // Serialises concurrent creates of the agency, so the cap, the name check and a retry's replay cannot be raced.
+  await agencies.lockAgencyStatus(ctx.tx, agencyId, 'update');
+  const idempotency = key
+    ? { hash: portalIdempotencyHash(agencyId, key), requestHash: portalRequestHash(JSON.stringify(input)) }
+    : undefined;
+  if (key && idempotency) {
+    const prior = await repo.getConnectionByIdempotency(ctx.tx, agencyId, idempotency.hash);
+    if (prior) {
+      const token = portalDerivedToken(agencyId, prior.id, key);
+      if (
+        !prior.requestHash ||
+        !safeEqual(prior.requestHash, idempotency.requestHash) ||
+        !prior.idempotencyAt ||
+        clock.now().getTime() - prior.idempotencyAt.getTime() >= CONNECTION_IDEMPOTENCY_MS ||
+        prior.revokedAt !== null ||
+        !safeEqual(prior.tokenHash, portalFeedTokenHash(token))
+      ) {
+        throw new AppError('IDEMPOTENCY_KEY_REUSED');
+      }
+      await compliance.audit(ctx, 'exports.connection.tokenReplayed', { type: 'portalConnection', id: prior.id }, {});
+      return { connection: toDto(prior, undefined), token, replayed: true };
+    }
+  }
   const channel = await repo.getChannel(ctx.tx, input.channelCode);
   if (!channel || !(await channelUsable(ctx, channel))) throw new AppError('PORTAL_CHANNEL_UNAVAILABLE');
   if (input.credentials) assertCredentialKeys(channel, input.credentials);
-  // Serialises concurrent creates of the agency, so the cap and the name check cannot be raced.
-  await agencies.lockAgencyStatus(ctx.tx, agencyId, 'update');
   if ((await repo.countConnections(ctx.tx, agencyId)) >= MAX_PORTAL_CONNECTIONS) {
     throw new AppError('PORTAL_CONNECTION_LIMIT_REACHED', { limit: MAX_PORTAL_CONNECTIONS });
   }
@@ -218,7 +256,7 @@ export async function createConnection(
     throw new AppError('PORTAL_CONNECTION_NAME_TAKEN');
   }
   const id = newId();
-  const token = newToken(32);
+  const token = key ? portalDerivedToken(agencyId, id, key) : newToken(32);
   const row = await repo.insertConnection(ctx.tx, {
     id,
     agencyId,
@@ -230,6 +268,7 @@ export async function createConnection(
     credentialKeys: input.credentials ? Object.keys(input.credentials).sort() : [],
     tokenHash: portalFeedTokenHash(token),
     tokenHint: token.slice(-4),
+    idempotency,
     createdBy: userId,
     now: clock.now(),
   });
@@ -243,7 +282,7 @@ export async function createConnection(
     { type: 'portalConnection', id },
     { channel: input.channelCode, mode: input.selection.mode },
   );
-  return { connection: toDto(row, undefined), token };
+  return { connection: toDto(row, undefined), token, replayed: false };
 }
 
 /**

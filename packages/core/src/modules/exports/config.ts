@@ -35,6 +35,21 @@ const tokenKey = (): Buffer => Buffer.from(configured().tokenKey);
  */
 export const portalFeedTokenHash = (token: string): string => hmacSha256(tokenKey(), 'exports.feed-token', token);
 
+/**
+ * S10-F7, the idempotent create: the token of a connection made with an `Idempotency-Key`, derived from the agency,
+ * the connection's id and the key (never stored). A new row has a new id, so a key reused after a delete gets a new token.
+ */
+export const portalDerivedToken = (agencyId: string, connectionId: string, idempotencyKey: string): string =>
+  hmacSha256(tokenKey(), 'exports.feed-token-derived', `${agencyId}:${connectionId}:${idempotencyKey}`);
+
+/** HMAC of the agency's `Idempotency-Key` (the stored `idempotency_hash`). */
+export const portalIdempotencyHash = (agencyId: string, idempotencyKey: string): string =>
+  hmacSha256(tokenKey(), 'exports.connection-idempotency', `${agencyId}:${idempotencyKey}`);
+
+/** HMAC of the create request's body: the same key with another body is refused. */
+export const portalRequestHash = (canonicalJson: string): string =>
+  hmacSha256(tokenKey(), 'exports.connection-request', canonicalJson);
+
 function keyring(): Keyring {
   const k = configured().keyring;
   if (!k) throw new Error('exports: no keyring configured (credentials cannot be encrypted or decrypted here)');

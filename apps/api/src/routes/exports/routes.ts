@@ -1,5 +1,6 @@
 import {
   CreatePortalConnectionBody,
+  CreatePortalConnectionHeaders,
   ListPortalOverridesQuery,
   PageQuery,
   PortalChannelList,
@@ -74,15 +75,26 @@ export async function exportsRoutes(app: FastifyZod): Promise<void> {
       schema: {
         tags,
         operationId: 'exports.createPortalConnection',
-        summary: 'Connect a portal; the feed token is in the answer only (agency admins)',
+        summary:
+          'Connect a portal; the feed token is in the answer only (agency admins). With an Idempotency-Key, a retry within 24 h answers the same connection and token (200)',
+        headers: CreatePortalConnectionHeaders,
         body: CreatePortalConnectionBody,
-        response: { 201: PortalConnectionSecretDto },
+        response: { 200: PortalConnectionSecretDto, 201: PortalConnectionSecretDto },
       },
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) =>
-      reply.code(201).send(await app.withCtx(req, (ctx) => exportsModule.createConnection(ctx, req.body))),
+    async (req, reply) => {
+      const { replayed, ...secret } = await app.withCtx(req, (ctx) =>
+        exportsModule.createConnection(ctx, req.body, {
+          idempotencyKey: req.headers['idempotency-key'],
+        }),
+      );
+      return reply
+        .code(replayed ? 200 : 201)
+        .header('Cache-Control', 'no-store')
+        .send(secret);
+    },
   );
 
   app.get(

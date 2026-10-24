@@ -78,6 +78,7 @@ export const AUDIT_TYPES = [
   'exports.connection.changed',
   'exports.connection.deleted',
   'exports.connection.tokenRotated',
+  'exports.connection.tokenReplayed',
   'exports.connection.tokenRevoked',
   'exports.connection.selectionChanged',
   'staff.impersonation.started',

@@ -3,7 +3,7 @@
  * `WebsiteDetail` (never an owner, commission or private note: the type has none), and the PUT / DELETE calls both
  * partner APIs are assumed to share.
  */
-import type { FeedItem } from '../../../feed-xml';
+import { type FeedItem, feedPin } from '../../../feed-xml';
 import { type PortalHttp, PortalPushError } from './types';
 
 export interface CommonFacts {
@@ -32,9 +32,8 @@ export interface CommonFacts {
  * model has it.
  */
 function blurred(geo: { lat: number; lng: number; precision: string }): { latitude: number; longitude: number } {
-  if (geo.precision !== 'EXACT') return { latitude: geo.lat, longitude: geo.lng };
-  const round = (v: number) => Math.round(v * 1000) / 1000;
-  return { latitude: round(geo.lat), longitude: round(geo.lng) };
+  const pin = feedPin(geo);
+  return { latitude: pin.lat, longitude: pin.lng };
 }
 
 /** The facts of a listing in `locale` (its own text in that language when it has one, else the base text). */

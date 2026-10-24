@@ -115,6 +115,16 @@ export type PortalConnectionDto = z.infer<typeof PortalConnectionDto>;
 export const PortalConnectionPage = pageOf(PortalConnectionDto);
 export type PortalConnectionPage = z.infer<typeof PortalConnectionPage>;
 
+/** `POST /v1/portal-connections`: an optional `Idempotency-Key` — a retry within 24 h answers the same connection and token. */
+export const CreatePortalConnectionHeaders = z.object({
+  'idempotency-key': z
+    .string()
+    .min(16)
+    .max(128)
+    .regex(/^[A-Za-z0-9_.:-]+$/)
+    .optional(),
+});
+
 /** A connection with its new token (creation, rotation): shown once. */
 export const PortalConnectionSecretDto = z.strictObject({
   connection: PortalConnectionDto,

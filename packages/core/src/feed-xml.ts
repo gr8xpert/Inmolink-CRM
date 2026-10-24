@@ -69,6 +69,21 @@ function kyeroEnergy(rating: string | null): string | null {
 
 const POOL = /\b(pool|piscina|swimming)\b/i;
 
+/**
+ * The pin a feed may carry (S10-F5), the same rule as the push portals (`exports/push/map.ts`): an EXACT pin is rounded
+ * to 3 decimals (about 110 m) until H6 confirms a portal-side setting; an APPROX one is already approximate and is
+ * written as the read model has it. Both writers use it.
+ */
+export function feedPin(geo: { lat: number; lng: number; precision: string }): {
+  lat: number;
+  lng: number;
+  precision: string;
+} {
+  if (geo.precision !== 'EXACT') return { lat: geo.lat, lng: geo.lng, precision: geo.precision };
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  return { lat: round(geo.lat), lng: round(geo.lng), precision: 'APPROX' };
+}
+
 export function writeKyeroStart(w: XmlWriter): void {
   w.open('root').newline();
   w.open('kyero').leaf('feed_version', 3).close().newline();
@@ -125,7 +140,8 @@ export function writeKyeroProperty(w: XmlWriter, item: FeedItem, opts: { maxImag
   w.leaf('province', province);
   if (d.place.city && d.place.area) w.leaf('location_detail', d.place.area.name);
   if (d.geo) {
-    w.open('location').leaf('latitude', d.geo.lat).leaf('longitude', d.geo.lng).close();
+    const pin = feedPin(d.geo);
+    w.open('location').leaf('latitude', pin.lat).leaf('longitude', pin.lng).close();
   }
   w.leaf('beds', d.bedrooms);
   w.leaf('baths', d.bathrooms);
@@ -218,7 +234,10 @@ export function writeGenericItem(w: XmlWriter, item: FeedItem): void {
   taxon(w, 'city', d.place.city);
   taxon(w, 'area', d.place.area);
   w.close();
-  if (d.geo) w.leaf('geo', '', { lat: d.geo.lat, lng: d.geo.lng, precision: d.geo.precision });
+  if (d.geo) {
+    const pin = feedPin(d.geo);
+    w.leaf('geo', '', { lat: pin.lat, lng: pin.lng, precision: pin.precision });
+  }
   w.leaf('bedrooms', d.bedrooms);
   w.leaf('bathrooms', d.bathrooms);
   if (d.kind === 'LISTING') {

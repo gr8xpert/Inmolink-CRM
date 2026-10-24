@@ -841,6 +841,13 @@
       "when": 1792800118390,
       "tag": "0119_s10_01_crm_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1792800466535,
+      "tag": "0120_s10_f7_portal_idempotency",
+      "breakpoints": true
     }
   ]
 }

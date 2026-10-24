@@ -217,4 +217,23 @@ describe('per-site XML feed documents', () => {
     expect(generic.match(/<item /g)).toHaveLength(4);
     expect(generic).toContain('<price_on_request currency="EUR">true</price_on_request>');
   });
+
+  it('[S10-F5] an EXACT pin is rounded to 3 decimals in both writers; an APPROX one is written as it is', () => {
+    const exact = listing({ geo: { lat: 36.507123, lng: -4.957389, precision: 'EXACT' } });
+    const approx = listing({ geo: { lat: 36.5071, lng: -4.9573, precision: 'APPROX' } });
+    const exactKyero = kyeroOf([item(exact)]).xml;
+    expect(exactKyero).toContain('<latitude>36.507</latitude><longitude>-4.957</longitude>');
+    expect(exactKyero).not.toContain('36.507123');
+    const exactGeneric = genericOf([item(exact)]);
+    expect(exactGeneric).toContain('lat="36.507"');
+    expect(exactGeneric).toContain('lng="-4.957"');
+    // What the feed carries is no longer an exact point, and says so.
+    expect(exactGeneric).toContain('precision="APPROX"');
+    expect(exactGeneric).not.toContain('precision="EXACT"');
+    expect(exactGeneric).not.toContain('36.507123');
+    expect(kyeroOf([item(approx)]).xml).toContain('<latitude>36.5071</latitude><longitude>-4.9573</longitude>');
+    const approxGeneric = genericOf([item(approx)]);
+    expect(approxGeneric).toContain('lat="36.5071"');
+    expect(approxGeneric).toContain('lng="-4.9573"');
+  });
 });

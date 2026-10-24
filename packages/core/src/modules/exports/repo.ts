@@ -143,6 +143,7 @@ export interface NewConnection {
   credentialKeys: string[];
   tokenHash: string;
   tokenHint: string;
+  idempotency?: { hash: string; requestHash: string };
   createdBy: string;
   now: Date;
 }
@@ -162,6 +163,9 @@ export async function insertConnection(tx: Tx, c: NewConnection): Promise<Connec
       tokenHash: c.tokenHash,
       tokenHint: c.tokenHint,
       tokenCreatedAt: c.now,
+      idempotencyHash: c.idempotency?.hash ?? null,
+      idempotencyRequestHash: c.idempotency?.requestHash ?? null,
+      idempotencyAt: c.idempotency ? c.now : null,
       createdBy: c.createdBy,
       createdAt: c.now,
       updatedAt: c.now,
@@ -169,6 +173,26 @@ export async function insertConnection(tx: Tx, c: NewConnection): Promise<Connec
     .returning(connectionColumns);
   if (!row) throw new Error('insertConnection: no row returned');
   return row;
+}
+
+/** The agency's connection an `Idempotency-Key` hash created (the idempotent create's replay), or null. */
+export async function getConnectionByIdempotency(
+  tx: Tx,
+  agencyId: string,
+  idempotencyHash: string,
+): Promise<(ConnectionRow & { tokenHash: string; requestHash: string | null; idempotencyAt: Date | null }) | null> {
+  const [row] = await tx
+    .select({
+      ...connectionColumns,
+      tokenHash: agencyPortalConnections.tokenHash,
+      requestHash: agencyPortalConnections.idempotencyRequestHash,
+      idempotencyAt: agencyPortalConnections.idempotencyAt,
+    })
+    .from(agencyPortalConnections)
+    .where(
+      and(eq(agencyPortalConnections.agencyId, agencyId), eq(agencyPortalConnections.idempotencyHash, idempotencyHash)),
+    );
+  return row ?? null;
 }
 
 export async function countConnections(tx: Tx, agencyId: string): Promise<number> {
