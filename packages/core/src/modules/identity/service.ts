@@ -485,7 +485,7 @@ export async function isActiveMember(ctx: Ctx, userId: string): Promise<boolean>
 export async function listMembers(ctx: Ctx, q: PageQuery): Promise<MemberPage> {
   assertCan(ctx, 'identity.members.read');
   const rows = await repo.listMembers(ctx.tx, ctx.tenant.agencyId, { limit: q.limit, cursor: decodeCursor(q.cursor) });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.userId }), toMemberDto);
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.userId, atUs: r.atUs }), toMemberDto);
 }
 
 /**
@@ -528,7 +528,7 @@ export async function listInvites(ctx: Ctx, q: PageQuery): Promise<InvitePage> {
     limit: q.limit,
     cursor: decodeCursor(q.cursor),
   });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id }), toInviteDto);
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toInviteDto);
 }
 
 /** Withdraws an open invite: its link stops working. `NOT_FOUND` if it was used or revoked already. */

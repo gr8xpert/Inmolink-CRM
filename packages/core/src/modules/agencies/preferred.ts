@@ -32,7 +32,8 @@ function actorOf(ctx: Ctx): { actorUserId: string; impersonatedBy: string | null
   return { actorUserId: ctx.actor.userId, impersonatedBy: ctx.actor.impersonatedBy ?? null };
 }
 
-function toDto(row: repo.PreferredRow): PreferredAgencyDto {
+// `Omit`: `add` builds the DTO of a row it just inserted, which has no list cursor stamp (`atUs`)
+function toDto(row: Omit<repo.PreferredRow, 'atUs'>): PreferredAgencyDto {
   const updatedAt = row.noteUpdatedAt ?? row.createdAt;
   return {
     agencyId: row.preferredAgencyId,
@@ -52,7 +53,7 @@ export async function listPreferredAgencies(ctx: Ctx, q: PageQuery): Promise<Pre
     limit: q.limit,
     cursor: decodeCursor(q.cursor),
   });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.preferredAgencyId }), toDto);
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.preferredAgencyId, atUs: r.atUs }), toDto);
 }
 
 /**

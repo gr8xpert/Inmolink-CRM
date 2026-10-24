@@ -8,7 +8,7 @@ import {
   preferredAgencyNotes,
 } from '@inmolink/db/schema/agencies';
 import { and, asc, count, eq, ilike, inArray, isNotNull, ne, type SQL, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * Preferred agencies and the agency directory (S1-07, PATTERNS §5). Runs as `app_user` under
@@ -18,6 +18,8 @@ import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
  */
 
 export interface PreferredRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   preferredAgencyId: string;
   createdAt: Date;
   nameWhenAdded: string | null;
@@ -29,6 +31,7 @@ export interface PreferredRow {
 }
 
 const preferredColumns = {
+  atUs: keysetStamp(preferredAgencies.createdAt),
   preferredAgencyId: preferredAgencies.preferredAgencyId,
   createdAt: preferredAgencies.createdAt,
   nameWhenAdded: preferredAgencyNotes.nameWhenAdded,
@@ -66,10 +69,10 @@ export async function listPreferred(
     .where(
       and(
         eq(preferredAgencies.agencyId, agencyId),
-        keysetAfter(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, cursor, 'asc'),
+        keysetAfterRaw(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, 'asc'))
+    .orderBy(...keysetOrderRaw(preferredAgencies.createdAt, preferredAgencies.preferredAgencyId, 'asc'))
     .limit(page.limit + 1);
 }
 

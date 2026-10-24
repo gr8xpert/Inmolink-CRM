@@ -5,12 +5,13 @@
 import type { Tx } from '@inmolink/db';
 import { websiteSites } from '@inmolink/db/schema/websites';
 import { and, count, eq, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type WebsiteMode = (typeof websiteSites.$inferSelect)['mode'];
 export type InventoryPolicy = (typeof websiteSites.$inferSelect)['inventoryPolicy'];
 
 const siteColumns = {
+  atUs: keysetStamp(websiteSites.createdAt),
   id: websiteSites.id,
   agencyId: websiteSites.agencyId,
   name: websiteSites.name,
@@ -28,6 +29,8 @@ const siteColumns = {
 };
 
 export interface SiteRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   id: string;
   agencyId: string;
   name: string;
@@ -81,13 +84,21 @@ export async function listSites(
   agencyId: string,
   q: { limit: number; cursor?: KeysetCursor },
 ): Promise<SiteRow[]> {
+  return await sitesPageQuery(tx, agencyId, q);
+}
+
+/** The statement of `listSites`, not yet run (the EXPLAIN test runs the repo's own query). */
+export function sitesPageQuery(tx: Tx, agencyId: string, q: { limit: number; cursor?: KeysetCursor }) {
   return tx
     .select(siteColumns)
     .from(websiteSites)
     .where(
-      and(eq(websiteSites.agencyId, agencyId), keysetAfter(websiteSites.createdAt, websiteSites.id, q.cursor, 'asc')),
+      and(
+        eq(websiteSites.agencyId, agencyId),
+        keysetAfterRaw(websiteSites.createdAt, websiteSites.id, q.cursor, 'asc'),
+      ),
     )
-    .orderBy(...keysetOrder(websiteSites.createdAt, websiteSites.id, 'asc'))
+    .orderBy(...keysetOrderRaw(websiteSites.createdAt, websiteSites.id, 'asc'))
     .limit(q.limit + 1);
 }
 
@@ -107,7 +118,7 @@ export async function firstSiteId(tx: Tx, agencyId: string): Promise<string | nu
     .select({ id: websiteSites.id })
     .from(websiteSites)
     .where(eq(websiteSites.agencyId, agencyId))
-    .orderBy(...keysetOrder(websiteSites.createdAt, websiteSites.id, 'asc'))
+    .orderBy(...keysetOrderRaw(websiteSites.createdAt, websiteSites.id, 'asc'))
     .limit(1);
   return row?.id ?? null;
 }

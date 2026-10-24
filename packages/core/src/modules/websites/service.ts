@@ -96,7 +96,7 @@ function assertContentLocales(locales: readonly string[]): void {
 export async function listSites(ctx: Ctx, q: PageQuery): Promise<SitePage> {
   assertCan(ctx, 'websites.read');
   const rows = await repo.listSites(ctx.tx, ctx.tenant.agencyId, { limit: q.limit, cursor: decodeCursor(q.cursor) });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id }), toSiteDto);
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toSiteDto);
 }
 
 export async function getSite(ctx: Ctx, params: SiteParams): Promise<SiteDto> {

@@ -31,7 +31,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type ChannelStatus = (typeof portalChannels.$inferSelect)['status'];
 export type SelectionMode = (typeof agencyPortalConnections.$inferSelect)['selectionMode'];
@@ -79,6 +79,8 @@ export async function upsertChannels(tx: Tx, rows: readonly (ChannelRow & { posi
 }
 
 export interface ConnectionRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   id: string;
   agencyId: string;
   channelCode: string;
@@ -111,6 +113,7 @@ export interface ConnectionRow {
  * app_system (`pushStateOf`).
  */
 const connectionColumns = {
+  atUs: keysetStamp(agencyPortalConnections.createdAt),
   id: agencyPortalConnections.id,
   agencyId: agencyPortalConnections.agencyId,
   channelCode: agencyPortalConnections.channelCode,
@@ -241,10 +244,10 @@ export async function listConnections(
     .where(
       and(
         eq(agencyPortalConnections.agencyId, agencyId),
-        keysetAfter(agencyPortalConnections.createdAt, agencyPortalConnections.id, q.cursor, 'asc'),
+        keysetAfterRaw(agencyPortalConnections.createdAt, agencyPortalConnections.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(agencyPortalConnections.createdAt, agencyPortalConnections.id, 'asc'))
+    .orderBy(...keysetOrderRaw(agencyPortalConnections.createdAt, agencyPortalConnections.id, 'asc'))
     .limit(q.limit + 1);
 }
 

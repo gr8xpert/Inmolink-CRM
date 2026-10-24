@@ -101,7 +101,7 @@ export async function listApiKeys(ctx: Ctx, q: PageQuery): Promise<ApiKeyPage> {
     limit: q.limit,
     cursor: decodeCursor(q.cursor),
   });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id }), toApiKeyDto);
+  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toApiKeyDto);
 }
 
 /**

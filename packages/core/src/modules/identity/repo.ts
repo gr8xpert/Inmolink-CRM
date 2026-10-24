@@ -9,7 +9,7 @@ import {
   users,
 } from '@inmolink/db/schema/identity';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * Identity tables only (PATTERNS §5). Runs as `app_auth` in auth flows (`withAuth`), as `app_user`
@@ -250,6 +250,7 @@ export async function updateFounderMember(
 }
 
 const memberColumns = {
+  atUs: keysetStamp(agencyMembers.createdAt),
   userId: agencyMembers.userId,
   name: agencyMembers.name,
   email: agencyMembers.email,
@@ -259,6 +260,8 @@ const memberColumns = {
 };
 
 export interface MemberRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   userId: string;
   name: string;
   email: string;
@@ -279,10 +282,10 @@ export async function listMembers(
     .where(
       and(
         eq(agencyMembers.agencyId, agencyId),
-        keysetAfter(agencyMembers.createdAt, agencyMembers.userId, q.cursor, 'asc'),
+        keysetAfterRaw(agencyMembers.createdAt, agencyMembers.userId, q.cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(agencyMembers.createdAt, agencyMembers.userId, 'asc'))
+    .orderBy(...keysetOrderRaw(agencyMembers.createdAt, agencyMembers.userId, 'asc'))
     .limit(q.limit + 1);
 }
 
@@ -338,6 +341,7 @@ export async function countSeats(tx: Tx, agencyId: string, now: Date): Promise<n
 }
 
 const inviteColumns = {
+  atUs: keysetStamp(agencyInvites.createdAt),
   id: agencyInvites.id,
   email: agencyInvites.email,
   role: agencyInvites.role,
@@ -346,6 +350,8 @@ const inviteColumns = {
 };
 
 export interface InviteRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   id: string;
   email: string;
   role: MemberRole;
@@ -403,10 +409,10 @@ export async function listOpenInvites(
       and(
         eq(agencyInvites.agencyId, agencyId),
         openInvite(now),
-        keysetAfter(agencyInvites.createdAt, agencyInvites.id, q.cursor, 'asc'),
+        keysetAfterRaw(agencyInvites.createdAt, agencyInvites.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(agencyInvites.createdAt, agencyInvites.id, 'asc'))
+    .orderBy(...keysetOrderRaw(agencyInvites.createdAt, agencyInvites.id, 'asc'))
     .limit(q.limit + 1);
 }
 

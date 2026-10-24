@@ -223,7 +223,7 @@ export async function listAgencyMembers(ctx: StaffCtx, input: { agencyId: string
   return toPage(
     rows,
     input.limit,
-    (r) => ({ at: r.createdAt, id: r.userId }),
+    (r) => ({ at: r.createdAt, id: r.userId, atUs: r.atUs }),
     (r) => ({
       userId: r.userId,
       name: r.name,

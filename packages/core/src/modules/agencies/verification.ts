@@ -224,7 +224,7 @@ export async function listVerificationQueue(ctx: StaffCtx, q: VerificationQueueQ
   return toPage(
     rows,
     q.limit,
-    (r) => ({ at: r.submittedAt, id: r.id }),
+    (r) => ({ at: r.submittedAt, id: r.id, atUs: r.atUs }),
     (r) => ({
       id: r.id,
       status: r.status,

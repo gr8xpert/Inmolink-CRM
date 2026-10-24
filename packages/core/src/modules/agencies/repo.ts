@@ -7,7 +7,7 @@ import {
   preferredAgencies,
 } from '@inmolink/db/schema/agencies';
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * agencies queries (PATTERNS §5). Runs as `app_user` under `withTenant` for dashboard work, and as
@@ -295,6 +295,7 @@ export async function listQueue(tx: Tx, q: { status: RequestStatus; limit: numbe
     .select({
       id: agencyVerificationRequests.id,
       status: agencyVerificationRequests.status,
+      atUs: keysetStamp(agencyVerificationRequests.submittedAt),
       submittedAt: agencyVerificationRequests.submittedAt,
       decidedAt: agencyVerificationRequests.decidedAt,
       agencyId: agencies.id,
@@ -307,10 +308,10 @@ export async function listQueue(tx: Tx, q: { status: RequestStatus; limit: numbe
     .where(
       and(
         eq(agencyVerificationRequests.status, q.status),
-        keysetAfter(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, q.cursor, 'asc'),
+        keysetAfterRaw(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, 'asc'))
+    .orderBy(...keysetOrderRaw(agencyVerificationRequests.submittedAt, agencyVerificationRequests.id, 'asc'))
     .limit(q.limit + 1);
 }
 

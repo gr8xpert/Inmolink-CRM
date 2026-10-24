@@ -195,7 +195,7 @@ export async function listConnections(ctx: Ctx, q: PageQuery): Promise<PortalCon
   return toPage(
     rows,
     q.limit,
-    (r) => ({ at: r.createdAt, id: r.id }),
+    (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }),
     (r) => toDto(r, counts.get(r.id)),
   );
 }

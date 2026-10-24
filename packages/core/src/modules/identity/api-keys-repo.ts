@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { apiKeys } from '@inmolink/db/schema/identity';
 import { and, count, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * `api_keys` queries (S1-05, PATTERNS §5). Kept apart from `repo.ts` (size). Runs as `app_user` under
@@ -15,6 +15,7 @@ export type ApiKeyKind = (typeof apiKeys.$inferSelect)['kind'];
 export type ApiKeyRateTier = (typeof apiKeys.$inferSelect)['rateTier'];
 
 const listColumns = {
+  atUs: keysetStamp(apiKeys.createdAt),
   id: apiKeys.id,
   name: apiKeys.name,
   kind: apiKeys.kind,
@@ -30,6 +31,8 @@ const listColumns = {
 };
 
 export interface ApiKeyRow {
+  /** `keysetStamp` of the sort time: the exact cursor of the list. */
+  atUs: string;
   id: string;
   name: string;
   kind: ApiKeyKind;
@@ -89,6 +92,16 @@ export async function listApiKeys(
   revokedSince: Date,
   q: { limit: number; cursor?: KeysetCursor },
 ): Promise<ApiKeyRow[]> {
+  return await apiKeysPageQuery(tx, agencyId, revokedSince, q);
+}
+
+/** The statement of `listApiKeys`, not yet run (the EXPLAIN test runs the repo's own query). */
+export function apiKeysPageQuery(
+  tx: Tx,
+  agencyId: string,
+  revokedSince: Date,
+  q: { limit: number; cursor?: KeysetCursor },
+) {
   return tx
     .select(listColumns)
     .from(apiKeys)
@@ -96,10 +109,10 @@ export async function listApiKeys(
       and(
         eq(apiKeys.agencyId, agencyId),
         or(isNull(apiKeys.revokedAt), gt(apiKeys.revokedAt, revokedSince)),
-        keysetAfter(apiKeys.createdAt, apiKeys.id, q.cursor, 'asc'),
+        keysetAfterRaw(apiKeys.createdAt, apiKeys.id, q.cursor, 'asc'),
       ),
     )
-    .orderBy(...keysetOrder(apiKeys.createdAt, apiKeys.id, 'asc'))
+    .orderBy(...keysetOrderRaw(apiKeys.createdAt, apiKeys.id, 'asc'))
     .limit(q.limit + 1);
 }
 
