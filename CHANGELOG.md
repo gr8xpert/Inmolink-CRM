@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- Logger redaction covers CRM payloads: visitor fields, `phones` / `emails` arrays, `body`, `description`, `notes` redacted whole (S11-F4). No new dependency.
 - S10 review: a reused Idempotency-Key after 24 h answers `IDEMPOTENCY_KEY_REUSED` on tasks, calendar events, prospects and data exports (was a 500 / 409); WordPress plugin rate counter keeps the current visitor when trimming (flaky CI test was a bug); S11-F1 … S11-F15 filed.
 - Data export (S10-08): contacts / leads / listings as CSV or XLSX and the account ZIP with a media manifest, as a streamed worker job (exports pool, per-agency fair share), formula-injection safe, admin e-mail alert, Idempotency-Key, 7-day audited signed downloads; migration 0129. Platform `sheet` gains streaming ZIP / CSV / XLSX writers (no new dependency). Test-DB stale-agency prune follows FK dependents.
 - CRM calendar (S10-06): events with member / contact attendees, per-attendee reminders, a per-member ICS feed at a secret revocable URL on feed-api (definer lookup, RFC 5545, size-capped), `/calendar` page; migration 0127. Acquisition board (S10-07): seller prospects with board / list / by-date views, confidential notes, one-click idempotent conversion to a DRAFT listing with the seller in `property_privates`, merge-safe seller re-pointing; migration 0128. No new dependency.

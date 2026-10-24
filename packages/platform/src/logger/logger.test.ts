@@ -237,6 +237,48 @@ describe('logger', () => {
     expect(redactQueryParams('no params here')).toBe('no params here');
   });
 
+  it('[S11-F4] a logged CRM request body prints none of its nested e-mails, phones or notes', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info(
+      {
+        req: {
+          id: 'r1',
+          body: {
+            emails: [{ email: 'ana-nested@example.com', label: 'work' }],
+            phones: [{ phone: '+34611222333', label: 'mobile' }],
+            notes: 'note-secret-abc',
+            description: 'desc-secret-def',
+          },
+        },
+        contact: { emails: [{ email: 'deep-mail@example.com' }], phones: ['+34699888777'], notes: 'n-secret-ghi' },
+        enquiry: { visitorName: 'Visitor Vera', visitorEmail: 'vera@example.com', visitorPhone: '+34655444333' },
+        other: { wrapper: { emails: [{ email: 'deeper-mail@example.com' }] } },
+      },
+      'crm write',
+    );
+    const text = out.raw.join('');
+    for (const pii of [
+      'ana-nested@example.com',
+      '+34611222333',
+      'note-secret-abc',
+      'desc-secret-def',
+      'deep-mail@example.com',
+      '+34699888777',
+      'n-secret-ghi',
+      'Visitor Vera',
+      'vera@example.com',
+      '+34655444333',
+      'deeper-mail@example.com',
+    ]) {
+      expect(text).not.toContain(pii);
+    }
+    const line = out.lines[0] as { req: { id: string; body: unknown }; contact: Record<string, unknown> };
+    expect(line.req.id).toBe('r1');
+    expect(line.req.body).toBe(REDACTED);
+    expect(line.contact.emails).toBe(REDACTED);
+    expect(line.contact.phones).toBe(REDACTED);
+  });
+
   it('[S0-03] bindings cannot overwrite the request id', () => {
     const out = capture();
     withRequestId(createLogger({ destination: out.destination }), 'req-1', { requestId: 'spoofed' }).info('x');

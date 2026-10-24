@@ -81,6 +81,16 @@ export const REDACT_KEYS = [
   'confidentialNotes',
   'address',
   'contactName',
+  // CRM payloads (S11-F4, S10 security review): visitor details, contact e-mail / phone arrays, free-text notes.
+  // Array-valued keys (`emails`, `phones`) are censored whole, so `req.body.emails[0].email` is covered at any depth.
+  'visitorName',
+  'visitorEmail',
+  'visitorPhone',
+  'phones',
+  'emails',
+  'body',
+  'description',
+  'notes',
   'idempotencyKey',
   'idempotency-key',
   'Idempotency-Key',
