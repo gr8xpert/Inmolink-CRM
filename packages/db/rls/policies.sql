@@ -75,10 +75,11 @@ drop function if exists calendar_feed_by_token(text, timestamptz, timestamptz, t
 create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
     max_events integer)
   returns table(event_id uuid, type text, title text, description text, location text, starts_at timestamptz,
-    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[])
+    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[],
+    feed_id uuid, feed_version bigint)
   language sql stable security definer set search_path = pg_catalog, pg_temp
   as $$ with feed as (
-          select f.agency_id, f.user_id from public.calendar_feeds f
+          select f.agency_id, f.user_id, f.id as feed_id, f.content_version from public.calendar_feeds f
             join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
              and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
             join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
@@ -99,7 +100,7 @@ create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts ti
             order by a.starts_at desc, a.event_id desc
             limit greatest(max_events - (select count(*) from upcoming), 0)))
         select e.id, e.type, e.title, e.description, e.location, e.starts_at, e.ends_at, e.status, e.version,
-               e.updated_at, names.member_names, names.contact_names
+               e.updated_at, names.member_names, names.contact_names, feed.feed_id, feed.content_version
           from feed
           left join picked p on p.agency_id = feed.agency_id
           left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
@@ -119,41 +120,16 @@ create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts ti
                        and c.deleted_at is null
                      where a2.agency_id = e.agency_id and a2.event_id = e.id) x) names on e.id is not null $$;
 drop function if exists calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer);
-create function calendar_feed_tag(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
-    max_events integer)
-  returns table(events bigint, versions bigint, ids numeric, updated_ms bigint)
+drop function if exists calendar_feed_tag(text);
+create function calendar_feed_tag(hash text)
+  returns table(feed_id uuid, feed_version bigint)
   language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ with feed as (
-          select f.agency_id, f.user_id from public.calendar_feeds f
-            join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
-             and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
-            join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
-            join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
-           where f.token_hash = hash and f.revoked_at is null),
-        upcoming as (
-          select a.agency_id, a.event_id from feed
-            join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
-           where a.starts_at >= now_ts and a.starts_at < to_ts
-           order by a.starts_at, a.event_id limit greatest(max_events, 0)),
-        picked as (
-          select agency_id, event_id from upcoming
-          union all
-          -- S11-F7: recent events only fill what the upcoming ones leave (the feed keeps upcoming ones first)
-          (select a.agency_id, a.event_id from feed
-             join public.calendar_event_attendees a on a.agency_id = feed.agency_id and a.user_id = feed.user_id
-            where a.starts_at >= from_ts and a.starts_at < now_ts
-            order by a.starts_at desc, a.event_id desc
-            limit greatest(max_events - (select count(*) from upcoming), 0)))
-        select count(e.id), coalesce(sum(e.version), 0)::bigint,
-               coalesce(sum(('x' || right(e.id::text, 12))::bit(48)::bigint), 0),
-               coalesce(floor(extract(epoch from max(e.updated_at)) * 1000)::bigint, 0)
-          from feed
-          left join picked p on p.agency_id = feed.agency_id
-          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
-         group by feed.agency_id, feed.user_id $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) from public;
+  as $$ select f.id, f.content_version from public.calendar_feeds f
+          join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
+         where f.token_hash = hash and f.revoked_at is null and f.live $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
-grant execute on function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
+grant execute on function calendar_feed_tag(text) to app_public;
 grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
@@ -161,7 +137,7 @@ alter function legacy_target_ids(text[]) owner to app_owner;
 alter function legacy_ids_of(uuid[]) owner to app_owner;
 alter function portal_feed_by_token(text) owner to app_owner;
 alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
-alter function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
+alter function calendar_feed_tag(text) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -501,11 +477,13 @@ do $$
 declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."calendar_feeds"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_hash', 'token_hint', 'user_id', 'created_at']);
+   where attrelid = 'public."calendar_feeds"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_hash', 'token_hint', 'user_id', 'created_at', 'content_version', 'live']);
   execute format('grant update (%s) on table public."calendar_feeds" to app_user', cols);
 end $$;
 grant select, insert, update, delete on table public."calendar_feeds" to app_system;
 create policy definer_read on public."calendar_feeds" for select to app_owner using (true);
+create policy definer_append on public."calendar_feeds" for insert to app_owner with check (true);
+create policy definer_update on public."calendar_feeds" for update to app_owner using (true) with check (true);
 
 -- chat_messages: STRICT
 alter table public."chat_messages" enable row level security;

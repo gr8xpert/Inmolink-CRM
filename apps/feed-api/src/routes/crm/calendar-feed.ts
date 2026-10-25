@@ -42,7 +42,7 @@ export const CalendarIcs = z.string().describe('The member’s calendar, `text/c
  * Calendar / Outlook subscriptions. The token is the credential (per member, stored as its keyed hash, redacted from logs
  * and traces): unknown, rotated and revoked tokens and deactivated members answer the same 404. Thin: one core call (one
  * statement, a SECURITY DEFINER lookup). Personal data, so never in a shared cache: `private, max-age=300` with a weak
- * ETag per encoding — S11-F7: a request with `If-None-Match` first asks for the feed's fingerprint (one statement, no
+ * ETag per encoding — S11-F7: a request with `If-None-Match` first asks for the feed's tag (S12-F22: its content version, one statement, no
  * names, no render, no gzip) and a match is a 304; a change reaches the app at its next poll, a revoked URL stops at once.
  * Gzip when the client takes it. Never indexed.
  */
@@ -68,7 +68,7 @@ export async function calendarFeedRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       const opts = req.query.lang ? { locale: req.query.lang } : {};
-      // S11-F7: a conditional request is answered from the feed's fingerprint first (one statement, no render)
+      // S11-F7: a conditional request is answered from the feed's tag first (S12-F22: the feed row; no render)
       if (req.headers['if-none-match'] !== undefined) {
         const tag = await crm.calendarFeedTag(req.params.token, opts);
         if (sendConditional(req, reply, conditionalOf(req, reply, tag))) return reply;
@@ -94,7 +94,7 @@ function conditionalOf(req: FastifyRequest, reply: FastifyReply, tag: string) {
 /** The ICS answer: the headers of `conditionalOf`, gzip when taken. */
 function sendIcs(req: FastifyRequest, reply: FastifyReply, file: crm.CalendarFeedFile) {
   const gzip = acceptsGzip(req);
-  // the fingerprint can change between the two statements: the body's own tag still answers a match
+  // the content version can change between the two statements: the body's own tag still answers a match
   if (sendConditional(req, reply, conditionalOf(req, reply, file.etag))) return reply;
   reply.type('text/calendar; charset=utf-8');
   // compressed by the core, off the event loop; a Buffer is sent as it is (never serialized)

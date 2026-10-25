@@ -1041,6 +1041,16 @@ export const calendarFeeds = pgTable(
     tokenHint: text('token_hint').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * S12-F22: bumped in the transaction of every change to what the feed renders (its member's events, their
+     * attendees, an attendee's name — the `*_calendar_feed_*` triggers): the 304's fingerprint, one row read.
+     */
+    contentVersion: bigint('content_version', { mode: 'number' }).notNull().default(1),
+    /**
+     * S12-F22: its member may still use it (an active membership in a CRM role, an agency not SUSPENDED), kept by the
+     * member and agency triggers; the login's status is read with it.
+     */
+    live: boolean('live').notNull().default(true),
   },
   (t) => [
     // feed-api: where token_hash = ? and revoked_at is null

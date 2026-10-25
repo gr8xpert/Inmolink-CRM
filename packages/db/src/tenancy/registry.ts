@@ -329,7 +329,8 @@ export const tenantTables: Record<string, TenantTable> = {
     singleRow: true,
     // S6-F1: staff's give-to-get reason is theirs (staff read it as app_staff), not the agency's to read.
     hiddenColumns: ['give_to_get_reason'],
-    triggers: ['agencies_guard', 'agencies_guard_insert', 'agencies_directory_sync'],
+    // S12-F22: `agencies_calendar_feed_live` keeps its members' calendar feeds' `live` on a suspension
+    triggers: ['agencies_guard', 'agencies_guard_insert', 'agencies_directory_sync', 'agencies_calendar_feed_live'],
     staff: { select: 'true', update: 'true' },
     // S7-03: `website_network_open` (SECURITY DEFINER) reads the give-to-get exemption and age for the website API.
     definerRead: true,
@@ -374,7 +375,8 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     definerRead: true,
     guardedInsert: true,
-    triggers: ['agency_members_guard'],
+    // S12-F22: `agency_members_calendar_feed_touch` bumps calendar feeds on a rename, keeps `live` on access changes
+    triggers: ['agency_members_guard', 'agency_members_calendar_feed_touch'],
     staff: { select: 'true' },
     auth: {
       select: 'user_id = app_user_id()',
@@ -902,7 +904,13 @@ export const tenantTables: Record<string, TenantTable> = {
   // S10-01: CRM contacts (the agency's clients: PII), their e-mails, phones, notes and CSV imports — own agency only.
   // S10-06: `definerRead` — the calendar feed's definer lookup reads a contact attendee's name (nothing else). A definer
   // function bypasses `own_rows`: every one that reads this table must filter by the agency it serves (`agency_id = …`).
-  contacts: { kind: 'STRICT', definerRead: true, base: { types: '{BUYER}', source: 'MANUAL' } },
+  // S12-F22: `contacts_calendar_feed_touch` bumps the calendar feeds that show a renamed or closed attendee contact
+  contacts: {
+    kind: 'STRICT',
+    definerRead: true,
+    triggers: ['contacts_calendar_feed_touch'],
+    base: { types: '{BUYER}', source: 'MANUAL' },
+  },
   contact_emails: { kind: 'STRICT', base: { email: 'isolation@example.com' } },
   contact_phones: { kind: 'STRICT', base: { phone: '+34600000000' } },
   contact_notes: { kind: 'STRICT', base: { body: 'isolation' } },
@@ -993,6 +1001,8 @@ export const tenantTables: Record<string, TenantTable> = {
   calendar_events: {
     kind: 'STRICT',
     definerRead: true,
+    // S12-F22: a visible change bumps its member attendees' calendar feeds
+    triggers: ['calendar_events_feed_touch'],
     userNoUpdateColumns: ['idempotency_hash', 'request_hash'],
     base: {
       type: 'MEETING',
@@ -1005,6 +1015,12 @@ export const tenantTables: Record<string, TenantTable> = {
   calendar_event_attendees: {
     kind: 'STRICT',
     definerRead: true,
+    // S12-F22: attendees added, removed or re-pointed bump the member attendees' calendar feeds
+    triggers: [
+      'calendar_event_attendees_feed_insert',
+      'calendar_event_attendees_feed_update',
+      'calendar_event_attendees_feed_delete',
+    ],
     userNoUpdateColumns: ['reminder_sent_for'],
     base: {
       event_id: '01900000-0000-7000-8000-00000000a004',
@@ -1024,9 +1040,21 @@ export const tenantTables: Record<string, TenantTable> = {
   // function above (definerRead).
   calendar_feeds: {
     kind: 'STRICT',
-    definerRead: true,
+    // S12-F22: the feed triggers (SECURITY DEFINER, app_owner) bump `content_version` and keep `live` (definer_update);
+    // members never write either
+    definerSync: {
+      functions: [
+        'calendar_feed_member_live',
+        'calendar_feeds_touch',
+        'calendar_event_attendees_feed_touch',
+        'calendar_events_feed_touch',
+        'contacts_calendar_feed_touch',
+        'agency_members_calendar_feed_touch',
+        'agencies_calendar_feed_live',
+      ],
+    },
     hiddenColumns: ['token_hash'],
-    userNoUpdateColumns: ['token_hash', 'token_hint', 'user_id', 'created_at'],
+    userNoUpdateColumns: ['token_hash', 'token_hint', 'user_id', 'created_at', 'content_version', 'live'],
     // token_hash and user_id are invented per row (unique token; one live feed per member)
     base: { token_hint: 'abcd' },
   },

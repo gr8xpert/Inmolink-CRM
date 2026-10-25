@@ -3,7 +3,7 @@ import { withMemberCtx } from '@inmolink/core';
 import * as crm from '@inmolink/core/modules/crm';
 import { countQueries, createFounder, type Founder } from '@inmolink/core/test';
 import { closeDb } from '@inmolink/db';
-import { adminQuery, setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, setupTestDb, withAdminRollback } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -105,13 +105,31 @@ describe('ICS feed at 2,000 events', () => {
         [founder.agencyId],
       )
     )[0]?.token_hash as string;
-    const plan = await adminQuery(
-      `explain (analyze, buffers) select * from calendar_feed_tag($1, now() - interval '30 days', now(),
-         now() + interval '365 days', 1000)`,
-      [hash],
-    );
+    const plan = await adminQuery('explain (analyze, buffers) select * from calendar_feed_tag($1)', [hash]);
     const server = plan.map((r) => String(Object.values(r)[0])).filter((l) => /Buffers|Execution/.test(l));
     console.info(`calendarFeedTag, 2,000 events: p95 ${p95(ms).toFixed(1)} ms; server ${server.join(', ')}`);
     expect(p95(ms)).toBeLessThan(20);
   }, 120_000);
+
+  it('[S12-F22] a 304 at 2,000 events reads ≤ 10 buffers: the feed row and the login, nothing per event', async () => {
+    const hash = (
+      await adminQuery<{ token_hash: string }>(
+        `select token_hash from calendar_feeds where agency_id = $1 and revoked_at is null`,
+        [founder.agencyId],
+      )
+    )[0]?.token_hash as string;
+    // the statement on the server (EXPLAIN ANALYZE as the owner) in a warm session, as feed-api's pooled connections
+    // are: the first call of a session also reads the catalog to plan the function's body
+    const out = await withAdminRollback([], async (q) => {
+      await q('select * from calendar_feed_tag($1)', [hash]);
+      return q<Record<string, unknown>>('explain (analyze, buffers, format json) select * from calendar_feed_tag($1)', [
+        hash,
+      ]);
+    });
+    const top = (Object.values(out[0] ?? {})[0] as { Plan: Record<string, unknown> }[])[0]?.Plan ?? {};
+    const buffers = Number(top['Shared Hit Blocks'] ?? 0) + Number(top['Shared Read Blocks'] ?? 0);
+    console.info(`calendarFeedTag at 2,000 events: ${buffers} buffers`);
+    expect(buffers).toBeGreaterThan(0);
+    expect(buffers).toBeLessThanOrEqual(10);
+  }, 60_000);
 });

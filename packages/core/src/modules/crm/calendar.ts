@@ -499,19 +499,24 @@ export interface CalendarFeedFile {
   gzip: Buffer;
   /**
    * `renderCalendarFeed`: a strong ETag (the body's hash). `calendarFeed`: the feed's weak ETag (`calendarFeedTag`),
-   * so a later If-None-Match is answered from the fingerprint alone.
+   * so a later If-None-Match is answered from the feed's content version alone.
    */
   etag: string;
 }
 
-/** Changes every feed's ETag when what a feed renders changes shape (a release that changes the ICS output). */
-const FEED_TAG_FORMAT = 1;
 /**
- * The ETag also changes every hour: attendees' names (a member or contact renamed, a contact merged) and which events a
- * capped feed keeps (upcoming ones first, relative to now) change the document without changing any event's version —
- * they reach subscribers within the hour (plus `CALENDAR_FEED_MAX_AGE_S` and their poll).
+ * Changes every feed's ETag when what a feed renders changes shape (a release that changes the ICS output). 2: S12-F22,
+ * the tag is the feed's content version.
  */
-export const FEED_TAG_BUCKET_MS = 3_600_000;
+const FEED_TAG_FORMAT = 2;
+/**
+ * S12-F22: what changes the document is in the feed's `content_version` — bumped by the database in the transaction of
+ * the change: an event's edit, its attendees, an attendee member or contact renamed, merged or closed — so a rename
+ * reaches subscribers at their next poll (S11-F7's hour bucket is gone). Time alone moves only the window's edges: an
+ * event leaving the last `FEED_PAST_DAYS`, one coming into the next `FEED_FUTURE_DAYS`, and which events a capped feed
+ * keeps (upcoming ones first). The ETag changes once a UTC day for those.
+ */
+export const FEED_TAG_WINDOW_MS = 86_400_000;
 
 const gzipAsync = promisify(gzip);
 
@@ -558,7 +563,7 @@ export async function renderCalendarFeed(
   rows: readonly repo.FeedEventRow[],
   opts: { locale: string; now: Date; etag?: string },
 ): Promise<CalendarFeedFile> {
-  // the caller's ETag when it has one (`calendarFeed`: the fingerprint's), else the body's hash
+  // the caller's ETag when it has one (`calendarFeed`: the content version's), else the body's hash
   const tagOf = (text: string) => opts.etag ?? etagFor(text);
   const locale = isUiLocale(opts.locale) ? opts.locale : DEFAULT_UI_LOCALE;
   const t = translator(locale, 'calendar');
@@ -623,10 +628,9 @@ function feedRange(now: Date) {
 
 const feedLocale = (locale: string | undefined) => (locale && isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
 
-/** The weak ETag of a feed: its events' fingerprint, the locale, the hour and the format (opaque, ≤ 40 characters). */
-function feedTag(f: repo.FeedFingerprint, locale: string, now: Date): string {
-  const parts = [FEED_TAG_FORMAT, locale, Math.floor(now.getTime() / FEED_TAG_BUCKET_MS)];
-  parts.push(f.events, f.versions.toString(), f.ids.toString(), f.updatedMs);
+/** The weak ETag of a feed: its id and content version, the locale, the day and the format (opaque, ≤ 40 chars). */
+function feedTag(f: repo.FeedVersion, locale: string, now: Date): string {
+  const parts = [FEED_TAG_FORMAT, locale, Math.floor(now.getTime() / FEED_TAG_WINDOW_MS), f.feedId, f.version];
   return `W/"${createHash('sha256').update(parts.join(':')).digest('base64url').slice(0, 27)}"`;
 }
 
@@ -638,16 +642,15 @@ function tokenHashes(token: string): string[] {
 
 /**
  * feed-api (`app_public`), before rendering: the weak ETag the feed this token names would answer now — one statement
- * (the SECURITY DEFINER `calendar_feed_tag`: no names, no texts, no render, no gzip), so a matching If-None-Match is a
- * 304 at once. `CALENDAR_FEED_NOT_FOUND` like `calendarFeed`.
+ * (the SECURITY DEFINER `calendar_feed_tag`: S12-F22, the feed row and the login only — no events, names, render or
+ * gzip), so a matching If-None-Match is a 304 at once. `CALENDAR_FEED_NOT_FOUND` like `calendarFeed`.
  */
 export async function calendarFeedTag(token: string, opts: { locale?: string; now?: Date } = {}): Promise<string> {
   const now = opts.now ?? new Date();
-  const range = feedRange(now);
   const hashes = tokenHashes(token);
   const found = await withPublicRead(async (tx) => {
     for (const hash of hashes) {
-      const f = await repo.feedFingerprint(tx, hash, range, FEED_MAX_EVENTS);
+      const f = await repo.feedVersion(tx, hash);
       if (f) return f;
     }
     return null;
@@ -670,15 +673,15 @@ export async function calendarFeed(
   const range = feedRange(now);
   const hashes = tokenHashes(token);
   // the current key, then (inside its window) the previous one: a URL issued before a rotation keeps working
-  const rows = await withPublicRead(async (tx) => {
+  const found = await withPublicRead(async (tx) => {
     for (const hash of hashes) {
-      const found = await repo.feedEvents(tx, hash, range, FEED_MAX_EVENTS);
-      if (found) return found;
+      const feed = await repo.feedEvents(tx, hash, range, FEED_MAX_EVENTS);
+      if (feed) return feed;
     }
     return null;
   });
-  if (!rows) throw new AppError('CALENDAR_FEED_NOT_FOUND');
+  if (!found) throw new AppError('CALENDAR_FEED_NOT_FOUND');
   const locale = feedLocale(opts.locale);
   // the weak ETag `calendarFeedTag` answers for the same feed, computed from these rows (no second statement)
-  return renderCalendarFeed(rows, { locale, now, etag: feedTag(repo.fingerprintOf(rows), locale, now) });
+  return renderCalendarFeed(found.rows, { locale, now, etag: feedTag(found.feed, locale, now) });
 }

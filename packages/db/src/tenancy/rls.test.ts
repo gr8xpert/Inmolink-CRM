@@ -282,21 +282,24 @@ describe('RLS generator', () => {
     }
   });
 
-  it('[S11-F7] calendar_feed_tag fingerprints the same feed and events as calendar_feed_by_token: numbers only, app_public', () => {
-    const sig = 'calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer)';
+  it('[S12-F22] calendar_feed_tag reads the feed row and the login only: its id and content version, app_public', () => {
+    const sig = 'calendar_feed_tag(text)';
     expect(HELPER_FUNCTIONS as readonly string[]).toContain('calendar_feed_tag');
+    expect(out).toContain(
+      'drop function if exists calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer);',
+    );
     expect(out).toContain(`drop function if exists ${sig};`);
     const tag = out.split('create function calendar_feed_tag(')[1]?.split('$$;')[0] ?? '';
-    const events = out.split('create function calendar_feed_by_token(')[1]?.split('$$;')[0] ?? '';
     expect(tag).toContain('security definer set search_path = pg_catalog, pg_temp');
-    // the same access rules and event set, word for word
-    const shared = (body: string) => body.split('as $$ ')[1]?.split('picked as (')[1]?.split('        select ')[0];
-    expect(shared(tag)).toBeTruthy();
-    expect(shared(tag)).toBe(shared(events));
-    expect(tag).toContain('f.token_hash = hash and f.revoked_at is null');
-    // ids, versions, counts and a timestamp only: no texts, names, e-mails or phones
-    expect(tag).toContain('returns table(events bigint, versions bigint, ids numeric, updated_ms bigint)');
-    expect(tag).not.toMatch(/title|description|location|name|email|phone/);
+    expect(tag).toContain('f.token_hash = hash and f.revoked_at is null and f.live');
+    expect(tag).toContain("u.status = 'ACTIVE'");
+    expect(tag).toContain('returns table(feed_id uuid, feed_version bigint)');
+    // nothing per event, no texts, names, e-mails or phones
+    expect(tag).not.toMatch(/calendar_event|title|description|location|name|email|phone/);
+    // the 200's ETag from the same version (calendar_feed_by_token answers it with the events)
+    const events = out.split('create function calendar_feed_by_token(')[1]?.split('$$;')[0] ?? '';
+    expect(events).toContain('feed_id uuid, feed_version bigint)');
+    expect(events).toContain('feed.feed_id, feed.content_version');
     expect(out).toContain(`grant execute on function ${sig} to app_public;`);
     expect(out).not.toMatch(/calendar_feed_tag\([^)]*\) to [^;]*app_(?:user|system|auth|staff)/);
     const owner = `alter function ${sig} owner to app_owner;`;

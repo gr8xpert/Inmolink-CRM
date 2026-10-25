@@ -391,7 +391,7 @@ function ident(name: string): string {
  * `calendar_feed_by_token` (the events) and `calendar_feed_tag` (their fingerprint, S11-F7), so both see the same set.
  */
 const CALENDAR_FEED_EVENTS = `with feed as (
-          select f.agency_id, f.user_id from public.calendar_feeds f
+          select f.agency_id, f.user_id, f.id as feed_id, f.content_version from public.calendar_feeds f
             join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
              and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
             join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
@@ -549,11 +549,12 @@ end $$;`,
     `create function calendar_feed_by_token(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
     max_events integer)
   returns table(event_id uuid, type text, title text, description text, location text, starts_at timestamptz,
-    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[])
+    ends_at timestamptz, status text, version integer, updated_at timestamptz, member_names text[], contact_names text[],
+    feed_id uuid, feed_version bigint)
   language sql stable security definer set search_path = pg_catalog, pg_temp
   as $$ ${CALENDAR_FEED_EVENTS}
         select e.id, e.type, e.title, e.description, e.location, e.starts_at, e.ends_at, e.status, e.version,
-               e.updated_at, names.member_names, names.contact_names
+               e.updated_at, names.member_names, names.contact_names, feed.feed_id, feed.content_version
           from feed
           left join picked p on p.agency_id = feed.agency_id
           left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
@@ -572,27 +573,22 @@ end $$;`,
                         on a2.contact_id is not null and c.agency_id = a2.agency_id and c.id = a2.contact_id
                        and c.deleted_at is null
                      where a2.agency_id = e.agency_id and a2.event_id = e.id) x) names on e.id is not null $$;`,
-    // S11-F7: the fingerprint of what `calendar_feed_by_token` serves for the same arguments — the events' count, the sum
-    // of their versions (bumped on every change, attendees included), the sum of their ids' random 48-bit tails (which
-    // events: one leaving and another entering the window still changes it) and their latest update (epoch ms) — so
-    // feed-api answers a matching If-None-Match with 304 without reading names or rendering. Same access rules; no row
-    // when the token is unknown, rotated or revoked or its member lost access. One statement, ids and numbers only.
+    // S12-F22 (was S11-F7's fingerprint of the events, ~5 buffers an event): what a feed's ETag is made of — the feed's
+    // id and `content_version` (bumped in the transaction of every change to what it renders: the `*_calendar_feed_*`
+    // triggers) — for the live token of a member who may still use it (`live`, kept by the member and agency triggers;
+    // the login's status read here). No row for an unknown, rotated or revoked token or a member who lost access. One
+    // statement: the token's unique index and the user's primary key, nothing per event.
     `drop function if exists calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer);`,
-    `create function calendar_feed_tag(hash text, from_ts timestamptz, now_ts timestamptz, to_ts timestamptz,
-    max_events integer)
-  returns table(events bigint, versions bigint, ids numeric, updated_ms bigint)
+    `drop function if exists calendar_feed_tag(text);`,
+    `create function calendar_feed_tag(hash text)
+  returns table(feed_id uuid, feed_version bigint)
   language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ ${CALENDAR_FEED_EVENTS}
-        select count(e.id), coalesce(sum(e.version), 0)::bigint,
-               coalesce(sum(('x' || right(e.id::text, 12))::bit(48)::bigint), 0),
-               coalesce(floor(extract(epoch from max(e.updated_at)) * 1000)::bigint, 0)
-          from feed
-          left join picked p on p.agency_id = feed.agency_id
-          left join public.calendar_events e on e.agency_id = p.agency_id and e.id = p.event_id
-         group by feed.agency_id, feed.user_id $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) from public;`,
+  as $$ select f.id, f.content_version from public.calendar_feeds f
+          join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
+         where f.token_hash = hash and f.revoked_at is null and f.live $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
-    `grant execute on function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
+    `grant execute on function calendar_feed_tag(text) to app_public;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
@@ -605,7 +601,7 @@ end $$;`,
     `alter function portal_feed_by_token(text) owner to app_owner;`,
     // S10-06: reads the calendar tables, contacts, agency_members, users and agencies through their `definer_read` policies.
     `alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;`,
-    `alter function calendar_feed_tag(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;`,
+    `alter function calendar_feed_tag(text) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

@@ -6,6 +6,7 @@ import {
   ListCalendarEventsQuery,
   UpdateCalendarEventBody,
   type UpdateCalendarEventInput,
+  UpdateContactBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
@@ -569,5 +570,113 @@ describe('ICS feed', () => {
       crm.configureCalendarFeeds({ tokenKey: KEY });
     }
     expect((await crm.calendarFeed(token)).body).toContain('BEGIN:VCALENDAR');
+  });
+});
+
+describe('ICS feed tag by content version (S12-F22)', () => {
+  it('[S12-F22] renames reach subscribers without the hour bucket: a contact or member renamed, an edit, an attendee change', async () => {
+    const buyer = (
+      await as(a, (ctx) =>
+        crm.createContact(ctx, CreateContactBody.parse({ firstName: 'Vera', lastName: title('Tag') })),
+      )
+    ).contact;
+    const e = (
+      await create(a, {
+        type: 'VIEWING',
+        title: title('tagged'),
+        ...slot(70),
+        userIds: [agent.userId],
+        contactIds: [buyer.id],
+      })
+    ).event;
+    const { token } = await as(agent, (ctx) => crm.rotateCalendarFeed(ctx));
+    // one instant throughout: what changes the tag is the content, never the clock
+    const now = new Date();
+    const tag = () => crm.calendarFeedTag(token, { now });
+    const seen = new Set<string>();
+    const fresh = async (what: string) => {
+      const t = await tag();
+      expect(seen.has(t), what).toBe(false);
+      seen.add(t);
+      // the 200's ETag is the 304's (same version, same instant)
+      expect((await crm.calendarFeed(token, { now })).etag, what).toBe(t);
+      return t;
+    };
+    const first = await fresh('first');
+    expect(await tag()).toBe(first); // stable while nothing changes
+
+    await as(a, (ctx) =>
+      crm.updateContact(ctx, buyer.id, UpdateContactBody.parse({ version: buyer.version, lastName: title('Renamed') })),
+    );
+    await fresh('contact renamed');
+    expect((await crm.calendarFeed(token, { now })).body).toContain('Renamed');
+
+    await system((tx) =>
+      tx.execute(sql`update agency_members set name = ${title('Ana Nueva')} where user_id = ${a.userId}`),
+    );
+    await fresh('organizer renamed');
+    expect((await crm.calendarFeed(token, { now })).body).toContain('Ana Nueva');
+
+    const edited = await update(a, e.id, { version: e.version, title: title('tagged edited') });
+    await fresh('event edited');
+    await update(a, e.id, { version: edited.version, contactIds: [] });
+    await fresh('attendee removed');
+
+    // what the feed does not show changes nothing: the reminder claim on an attendee row, another member's event
+    const steady = await tag();
+    await system((tx) =>
+      tx.execute(sql`update calendar_event_attendees set reminder_sent_for = now() where event_id = ${e.id}`),
+    );
+    await create(a, { type: 'CALL', title: title('not theirs'), ...slot(71) });
+    expect(await tag()).toBe(steady);
+    // the window's edges move once a day
+    expect(await crm.calendarFeedTag(token, { now: new Date(now.getTime() + 86_400_000) })).not.toBe(steady);
+  });
+
+  it('[S12-F22] the tag follows access: deactivated, moved out of the CRM roles, login disabled, agency suspended — and back', async () => {
+    const member = async (agencyId: string): Promise<Founder> => {
+      const userId = newId();
+      const email = `crm-cal-tag-${userId}@example.com`;
+      await system(async (tx) => {
+        await tx.execute(sql`insert into users (id, email, password_hash, name, locale, status)
+          values (${userId}, ${email}, 'x', 'Tag', 'en', 'ACTIVE')`);
+        await tx.execute(sql`insert into agency_members (agency_id, user_id, role, name, email)
+          values (${agencyId}, ${userId}, 'AGENT', 'Tag', ${email})`);
+      });
+      return { userId, agencyId, email, password: 'x' };
+    };
+    const m = await member(a.agencyId);
+    const { token } = await as(m, (ctx) => crm.rotateCalendarFeed(ctx));
+    const before = await crm.calendarFeedTag(token);
+    const flip = async (off: ReturnType<typeof sql>, on: ReturnType<typeof sql>) => {
+      await system((tx) => tx.execute(off));
+      expect(await refusal(crm.calendarFeedTag(token))).toBe('CALENDAR_FEED_NOT_FOUND');
+      expect(await refusal(crm.calendarFeed(token))).toBe('CALENDAR_FEED_NOT_FOUND');
+      await system((tx) => tx.execute(on));
+      const back = await crm.calendarFeedTag(token);
+      expect((await crm.calendarFeed(token)).etag).toBe(back);
+    };
+    await flip(
+      sql`update agency_members set deactivated_at = now() where user_id = ${m.userId}`,
+      sql`update agency_members set deactivated_at = null where user_id = ${m.userId}`,
+    );
+    await flip(
+      sql`update agency_members set role = 'PARTNER' where user_id = ${m.userId}`,
+      sql`update agency_members set role = 'AGENT' where user_id = ${m.userId}`,
+    );
+    await flip(
+      sql`update users set status = 'DISABLED' where id = ${m.userId}`,
+      sql`update users set status = 'ACTIVE' where id = ${m.userId}`,
+    );
+    // a version bumped by each round trip: the subscriber refetches once access is back
+    expect(await crm.calendarFeedTag(token)).not.toBe(before);
+
+    const c = await createFounder();
+    const own = (await as(c, (ctx) => crm.rotateCalendarFeed(ctx))).token;
+    await crm.calendarFeedTag(own);
+    await setAgencyStatus(c.agencyId, 'SUSPENDED');
+    expect(await refusal(crm.calendarFeedTag(own))).toBe('CALENDAR_FEED_NOT_FOUND');
+    await setAgencyStatus(c.agencyId, 'VERIFIED');
+    expect(await crm.calendarFeedTag(own)).toMatch(/^W\//);
   });
 });
