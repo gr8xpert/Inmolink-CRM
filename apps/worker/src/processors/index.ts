@@ -23,6 +23,7 @@ import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
 import { socialJobs } from '@inmolink/core/modules/social';
+import { supportJobs } from '@inmolink/core/modules/support';
 import { websiteApiJobs } from '@inmolink/core/modules/website-api';
 import { websitesJobs } from '@inmolink/core/modules/websites';
 import type { JobDef, PoolOptions } from '@inmolink/platform/queue';
@@ -104,6 +105,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.notifyLeadAgencyFallback,
     // S10-02: website leads promoted to CRM leads (speed-to-lead: the inbox within seconds).
     crmJobs.promoteInboundLead,
+    // S13-05: support ticket e-mails (staff reply → the member; new ticket / member reply → the support inbox).
+    supportJobs.sendMessageEmail,
     // S10-08: the admins' alert when a data export is requested.
     dataExportJobs.notifyDataExport,
     dataExportJobs.sendDataExportNotice,

@@ -438,6 +438,35 @@ describe('RLS generator', () => {
     ).toThrow(/userNoUpdate/);
   });
 
+  it('[S13-05] userNoDelete: no DELETE grant or policy; userNoUpdate with memberWrite: an append-and-read trail', () => {
+    const trail: TenantTable = {
+      kind: 'STRICT',
+      memberWrite: { insert: 'user_id = app_user_id()', own: {} },
+      userNoUpdate: true,
+      userNoDelete: true,
+    };
+    const sql = tablesSql({ tenant: { trail }, global: {} });
+    expect(sql).toContain('grant select, insert on table public."trail" to app_user;');
+    expect(sql).not.toContain('create policy own_delete on public."trail"');
+    expect(sql).not.toContain('create policy own_update on public."trail"');
+    expect(expectedPolicies(trail).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_insert:INSERT',
+      'own_select:SELECT',
+    ]);
+    const plain: TenantTable = { kind: 'STRICT', userNoDelete: true };
+    expect(tablesSql({ tenant: { plain }, global: {} })).toContain(
+      'grant select, insert, update on table public."plain" to app_user;',
+    );
+    const bad = (tenant: TenantRegistry['tenant'][string]) => () => tablesSql({ tenant: { t: tenant }, global: {} });
+    expect(bad({ kind: 'STRICT', immutable: true, userNoDelete: true })).toThrow(/userNoDelete/);
+    expect(bad({ kind: 'STRICT', memberWrite: { delete: 'true', own: {} }, userNoDelete: true })).toThrow(
+      /userNoDelete/,
+    );
+    expect(bad({ kind: 'STRICT', memberWrite: { update: 'true', own: {} }, userNoUpdate: true })).toThrow(
+      /userNoUpdate/,
+    );
+  });
+
   it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
     const def = {
       kind: 'STRICT',

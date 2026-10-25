@@ -28,6 +28,7 @@ import { propertiesRoutes } from './routes/properties/routes';
 import { qualityRoutes } from './routes/quality/routes';
 import { searchRoutes } from './routes/search/routes';
 import { socialRoutes } from './routes/social/routes';
+import { supportRoutes } from './routes/support/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { staffTaxonomyRoutes } from './routes/taxonomy/staff';
 import { websitesRoutes } from './routes/websites/routes';
@@ -103,5 +104,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(socialRoutes);
   await app.register(presentationsRoutes);
   await app.register(adminRoutes);
+  await app.register(supportRoutes);
   return app;
 }

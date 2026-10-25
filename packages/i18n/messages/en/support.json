@@ -1,0 +1,123 @@
+{
+  "title": "Support",
+  "intro": "Ask our team for help. Every member of your agency can see your agency's tickets.",
+  "nav": "Support",
+  "categories": {
+    "ACCOUNT": "Account and access",
+    "BILLING": "Billing",
+    "LISTINGS": "Listings",
+    "IMPORTS": "Imports and feeds",
+    "WEBSITE": "Website",
+    "INTEGRATIONS": "Portals and integrations",
+    "BUG": "Something is broken",
+    "OTHER": "Other"
+  },
+  "priorities": {
+    "LOW": "Low",
+    "NORMAL": "Normal",
+    "HIGH": "High",
+    "URGENT": "Urgent"
+  },
+  "status": {
+    "OPEN": "Waiting for support",
+    "PENDING": "Waiting for you",
+    "RESOLVED": "Resolved"
+  },
+  "list": {
+    "title": "Your tickets",
+    "empty": "No tickets yet.",
+    "updated": "Last message {date}",
+    "next": "Older tickets"
+  },
+  "create": {
+    "title": "New ticket",
+    "subject": "Subject",
+    "category": "Category",
+    "priority": "Priority",
+    "body": "Describe the problem",
+    "submit": "Send to support",
+    "attachHint": "You can attach files on the ticket once it is open."
+  },
+  "ticket": {
+    "back": "All tickets",
+    "opened": "Opened {date}",
+    "supportTeam": "Inmolink support",
+    "reply": "Reply",
+    "replySubmit": "Send reply",
+    "resolve": "Mark as resolved",
+    "resolvedNote": "This ticket is resolved. Reply to reopen it.",
+    "older": "Older messages",
+    "latest": "Latest messages"
+  },
+  "attachments": {
+    "title": "Attachments",
+    "empty": "No files attached.",
+    "upload": "Attach a file",
+    "uploadSubmit": "Upload",
+    "hint": "PDF, PNG, JPEG or WebP, up to 10 MB each, 5 per ticket.",
+    "open": "Open"
+  },
+  "notices": {
+    "created": "Ticket sent. Our team will reply here.",
+    "replied": "Reply sent.",
+    "resolved": "Ticket marked as resolved.",
+    "uploaded": "File attached."
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "VALIDATION_FAILED": "Please check the fields and try again.",
+    "NOT_FOUND": "This ticket no longer exists.",
+    "FORBIDDEN": "You cannot do this.",
+    "PAYLOAD_TOO_LARGE": "The file is larger than 10 MB.",
+    "DOCUMENT_TYPE_NOT_ALLOWED": "Only PDF, PNG, JPEG and WebP files can be attached.",
+    "DOCUMENT_LIMIT_REACHED": "This ticket already has 5 files.",
+    "RATE_LIMITED": "Too many requests. Please wait a moment."
+  },
+  "staff": {
+    "title": "Support queue",
+    "empty": "No tickets here.",
+    "open": "Open",
+    "next": "Next page",
+    "agency": "Agency",
+    "assigned": "Assigned",
+    "unassigned": "Unassigned",
+    "opened": "Opened {date}",
+    "back": "Support queue",
+    "internalBadge": "Internal note",
+    "internalHint": "Internal notes are seen by staff only, never by the agency.",
+    "replyTitle": "Reply or add a note",
+    "body": "Message",
+    "internal": "Internal note (not sent to the agency)",
+    "submit": "Post",
+    "triageTitle": "Triage",
+    "status": "Status",
+    "priority": "Priority",
+    "assignee": "Assignee",
+    "keep": "No change",
+    "assignMe": "Assign to me",
+    "release": "Unassign",
+    "save": "Save",
+    "readOnly": "Your role can read tickets but not reply or triage.",
+    "notices": {
+      "posted": "Message posted.",
+      "noted": "Internal note added.",
+      "updated": "Ticket updated."
+    }
+  },
+  "email": {
+    "reply": {
+      "subject": "Support replied: {subject}",
+      "body": "Hello {name}, our support team replied to your ticket \"{subject}\".",
+      "action": "Read the reply"
+    },
+    "inboxNew": {
+      "subject": "[Support] New ticket: {subject}",
+      "body": "A new support ticket was opened: \"{subject}\" ({category}, priority {priority})."
+    },
+    "inboxReply": {
+      "subject": "[Support] Agency replied: {subject}",
+      "body": "The agency replied on the ticket \"{subject}\" ({category}, priority {priority})."
+    },
+    "inboxAction": "Open the ticket"
+  }
+}

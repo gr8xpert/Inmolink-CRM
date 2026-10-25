@@ -9,6 +9,7 @@ import * as media from '@inmolink/core/modules/media';
 import * as mls from '@inmolink/core/modules/mls';
 import * as search from '@inmolink/core/modules/search';
 import * as social from '@inmolink/core/modules/social';
+import * as support from '@inmolink/core/modules/support';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
@@ -126,6 +127,10 @@ try {
   }
   if (config.WORKER_POOLS.includes('email') && config.WEB_URL) {
     complianceWorker.configureDataExportNotice({ webUrl: config.WEB_URL });
+  }
+  // S13-05: support ticket e-mails link to the dashboard; new tickets and member replies go to the support inbox.
+  if (config.WORKER_POOLS.includes('email') && config.WEB_URL) {
+    support.configureSupport({ webUrl: config.WEB_URL, staffInbox: config.SUPPORT_INBOX_EMAIL ?? null });
   }
   // S9-03: portal feeds (exports pool) — image URLs under the media CDN, the nightly hour and the pool caps.
   if (config.WORKER_POOLS.includes('exports') && config.MEDIA_CDN_URL) {

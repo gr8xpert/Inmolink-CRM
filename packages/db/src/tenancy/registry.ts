@@ -20,6 +20,10 @@ const SUPER_ADMIN =
 const STAFF_OPERATOR =
   "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)";
 
+/** S13-05: the session is an active super admin or support member (support ticket replies and triage). */
+const SUPPORT_AGENT =
+  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null)";
+
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
 /** S12-F16: what a `definerSync` function does to a table — each gets its own `app_owner` policy, and nothing else. */
@@ -96,11 +100,16 @@ interface TenantBase {
     write?: { insert?: string; update?: string; delete?: string };
   };
   /**
-   * S12-F3 review, with `userSelect` only: `app_user` gets SELECT, INSERT and DELETE but no UPDATE grant (and no
+   * S12-F3 review, with `userSelect` (S13-05: or `memberWrite`): `app_user` gets SELECT, INSERT and DELETE but no UPDATE grant (and no
    * `own_update` policy) — rows a trigger keeps by deleting and inserting as the member (`network_subscription_terms`),
    * which no request may rewrite in place.
    */
   userNoUpdate?: true;
+  /**
+   * S13-05, STRICT tables app_user writes: no DELETE grant (and no `own_delete` policy) — rows a request creates and
+   * may change but never removes (a support ticket, its conversation). Removal is a worker's or the agency cascade's.
+   */
+  userNoDelete?: true;
   /**
    * S12-F14, STRICT only: "agency reads, member writes". `app_user` reads every row of its agency (`own_select`) but
    * INSERTs, UPDATEs and DELETEs only rows that also satisfy that command's predicate (ANDed with
@@ -347,8 +356,9 @@ export const tenantTables: Record<string, TenantTable> = {
     intakeAppend: { column: 'type', values: ['websites.lead.received', 'presentations.selection.interacted'] },
     staff: {
       // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
-      // asks for its job (`admin.operation.requested`, a platform event).
-      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR})`,
+      // asks for its job (`admin.operation.requested`, a platform event). S13-05: a support agent's reply on a ticket
+      // (`support.message.posted`, the ticket's agency; support staff and super admins only) e-mails the member.
+      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT})`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -1505,6 +1515,40 @@ export const tenantTables: Record<string, TenantTable> = {
     intake: { selectColumns: ['id', 'selection_id', 'kind', 'created_at'] },
     base: { kind: 'VIEW' },
   },
+  // S13-05: support tickets. Every member reads and opens its agency's tickets and changes only what the service
+  // writes (status, last message, resolution); never removes one. Staff read every agency's and change only the triage
+  // columns (support staff and super admins).
+  support_tickets: {
+    kind: 'STRICT',
+    userNoDelete: true,
+    userNoUpdateColumns: ['id', 'subject', 'category', 'priority', 'created_by', 'assignee_user_id', 'created_at'],
+    staff: {
+      select: 'true',
+      update: SUPPORT_AGENT,
+      updateColumns: ['status', 'priority', 'assignee_user_id', 'last_message_at', 'resolved_at', 'updated_at'],
+    },
+  },
+  // S13-05: a ticket's conversation — a trail: members read the agency's messages and append their own AGENCY
+  // messages, never change or remove one. Staff append their own STAFF replies (support staff and super admins).
+  // Internal notes live in `support_ticket_notes`, which no tenant role reaches.
+  support_ticket_messages: {
+    kind: 'STRICT',
+    memberWrite: {
+      insert: "author_kind = 'AGENCY' and author_user_id = app_user_id()",
+      own: { author_kind: 'AGENCY', author_user_id: SAMPLE_USER },
+    },
+    userNoUpdate: true,
+    userNoDelete: true,
+    staff: { select: 'true', insert: `author_kind = 'STAFF' and author_user_id = app_user_id() and ${SUPPORT_AGENT}` },
+    base: { author_kind: 'AGENCY', body: 'iso' },
+  },
+  // S13-05: files an agency attached to a ticket (private bucket): read and appended, never changed (a member
+  // re-pointing `storage_key` would sign another object) nor removed by a request. Staff read them.
+  support_ticket_attachments: {
+    kind: 'STRICT',
+    userAppendRead: true,
+    staff: { select: 'true' },
+  },
 };
 
 /**
@@ -1541,6 +1585,16 @@ export const globalTables: Record<string, GlobalTable> = {
   feature_flags: {
     reason: 'platform feature flags, written by staff in the console',
     staffWrite: { sql: SUPER_ADMIN },
+  },
+  // S13-05: staff-only internal notes on support tickets. No `agency_id` and no tenant grant at all (`noUserRead`): an
+  // agency can never read one. Every active staff member reads them; support agents and super admins append (never
+  // delete) them.
+  support_ticket_notes: {
+    reason:
+      'staff-only internal notes on support tickets (tenant-scoped through the ticket; no tenant role reaches it)',
+    noUserRead: true,
+    staffWrite: { sql: SUPPORT_AGENT, noDelete: true },
+    base: { body: 'iso' },
   },
   // S13-03: staff bulk operations (reindex, rebuild read models, re-import, replay outbox), advanced by a worker job.
   staff_operations: {

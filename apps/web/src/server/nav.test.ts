@@ -33,6 +33,7 @@ describe('dashboard navigation', () => {
       'verification',
       'apiKeys',
       'staffAccess',
+      'support',
       'security',
     ]);
     expect(keys(member({ sections: ['team', 'settings', 'preferredAgencies'] }))).toEqual([
@@ -40,6 +41,7 @@ describe('dashboard navigation', () => {
       'team',
       'preferredAgencies',
       'settings',
+      'support',
       'security',
     ]);
     expect(buildNav(admin).find((i) => i.key === 'apiKeys')?.href).toBe('/api-keys');
@@ -54,6 +56,7 @@ describe('dashboard navigation', () => {
       ['network', '/network'],
       ['networkBoard', '/network/board'],
       ['chat', '/chat'],
+      ['support', '/support'],
       ['security', '/account/security'],
     ]);
   });
@@ -67,9 +70,14 @@ describe('dashboard navigation', () => {
     ]);
     expect(keys({ kind: 'staff', role: 'STAFF_DATA_OPS' })).toEqual(['home', 'security', 'staffConsole']);
     const acting = keys(member({ impersonating: true, sections: ['team'] }));
-    expect(acting).toEqual(['home', 'team']);
+    expect(acting).toEqual(['home', 'team', 'support']);
     expect(acting).not.toContain('staffConsole');
     // The API said nothing (refused or down): only what every account has.
     expect(keys({ kind: 'unknown' })).toEqual(['home', 'security']);
+  });
+
+  it('[S13-05] every member gets the support link, except in Client Mode', () => {
+    expect(keys(member({ sections: [] }))).toEqual(['home', 'support', 'security']);
+    expect(keys(member({ clientMode: true, sections: [] }))).not.toContain('support');
   });
 });

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(support): support tickets — categories, priority, R2 attachments (5 × 10 MB, magic bytes), staff queue and audited triage/replies, staff-only internal notes, paged threads, e-mail notifications; registry userNoDelete; optional env SUPPORT_INBOX_EMAIL; migration 0156 [S13-05]
 - feat(ai-features): white-label model pass only for network-shown documents with new text (size-bounded events), retries of degraded runs, 30-day per-agency backfill [S13-F7]
 - feat(billing): founding coupon follows the locked price only — the webhook job removes it after a portal switch to another interval or currency [S13-F23]
 - feat(billing): admin notices for failed payments, plan falling to Free, and trials/grants ending in 3 days [S13-F22]

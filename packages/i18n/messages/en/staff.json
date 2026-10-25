@@ -10,6 +10,7 @@
     "taxonomy": "Taxonomy",
     "imports": "Import health",
     "operations": "Operations",
+    "support": "Support",
     "flags": "Feature flags",
     "system": "Queues & AI"
   },

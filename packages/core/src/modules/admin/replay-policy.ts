@@ -60,6 +60,7 @@ export const REPLAY_REFUSED_PREFIXES: readonly string[] = [
   'social.',
   'aiFeatures.',
   'admin.',
+  'support.', // S13-05: ticket e-mails
 ];
 
 /** Single events never replayed (a subscriber mails, alerts, calls AI or starts a run). */

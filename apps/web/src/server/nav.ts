@@ -10,7 +10,7 @@ export type ShellIdentity =
   | { kind: 'staff'; role: StaffRole }
   | { kind: 'unknown' };
 
-export type NavKey = 'home' | 'security' | DashboardSection | 'staffConsole' | 'staffVerification';
+export type NavKey = 'home' | 'security' | 'support' | DashboardSection | 'staffConsole' | 'staffVerification';
 
 export interface NavItem {
   /** Message key under `shell.nav`. */
@@ -58,6 +58,8 @@ export function buildNav(identity: ShellIdentity): NavItem[] {
   if (identity.kind === 'member') {
     const allowed = new Set(identity.caps.sections);
     for (const [key, href] of SECTIONS) if (allowed.has(key)) items.push({ key, href });
+    // S13-05: every member may ask support (never in Client Mode: tickets are the agency's own business).
+    if (!identity.caps.clientMode) items.push({ key: 'support', href: '/support' });
     if (!identity.caps.impersonating) items.push({ key: 'security', href: '/account/security' });
     return items;
   }

@@ -111,9 +111,32 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       }
     }
     if (def.userNoUpdate) {
-      if (!def.userSelect || def.memberWrite || def.userNoUpdateColumns?.length || def.userSelect.write?.update) {
+      // S13-05: also with `memberWrite` (no `update` predicate) — rows a member appends and never rewrites.
+      if (
+        (!def.userSelect && !def.memberWrite) ||
+        (def.userSelect && def.memberWrite) ||
+        def.userNoUpdateColumns?.length ||
+        def.userSelect?.write?.update !== undefined ||
+        def.memberWrite?.update !== undefined
+      ) {
         throw new Error(
-          `${name}: userNoUpdate is only valid with userSelect (no write.update, memberWrite or userNoUpdateColumns)`,
+          `${name}: userNoUpdate is only valid with userSelect or memberWrite (no update predicate or userNoUpdateColumns)`,
+        );
+      }
+    }
+    if (def.userNoDelete) {
+      // S13-05: STRICT tables app_user writes but never removes rows from (a support ticket, its conversation).
+      if (
+        def.kind !== 'STRICT' ||
+        def.appendOnly ||
+        def.immutable ||
+        def.userReadOnly ||
+        def.userAppendRead ||
+        def.userSelect?.write?.delete !== undefined ||
+        def.memberWrite?.delete !== undefined
+      ) {
+        throw new Error(
+          `${name}: userNoDelete is only valid for STRICT tables app_user writes (no delete predicate; appendOnly, immutable, userReadOnly and userAppendRead have no DELETE already)`,
         );
       }
     }
@@ -284,7 +307,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_intake: [],
     };
   }
-  const user: Privilege[] = def.userNoUpdate
+  const granted: Privilege[] = def.userNoUpdate
     ? ['SELECT', 'INSERT', 'DELETE']
     : def.appendOnly
       ? ['INSERT']
@@ -295,6 +318,8 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
           : def.userAppendRead
             ? APPEND_READ
             : DML;
+  // S13-05: `userNoDelete` drops DELETE from whatever the table grants app_user.
+  const user = def.userNoDelete ? granted.filter((p) => p !== 'DELETE') : granted;
   return {
     app_user: user,
     app_system: def.immutable ? APPEND_READ : DML,
@@ -367,7 +392,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
       ? [
           { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
           ...(def.userNoUpdate ? [] : [{ name: 'own_update', cmd: 'UPDATE' as const, roles: ['app_user'] }]),
-          { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
+          ...(def.userNoDelete ? [] : [{ name: 'own_delete', cmd: 'DELETE' as const, roles: ['app_user'] }]),
           { name: def.userSelect ? 'user_select' : 'own_select', cmd: 'SELECT', roles: ['app_user'] },
         ]
       : [
@@ -772,8 +797,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
                 `create policy own_update on ${t} for update to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'update')}) with check (agency_id = app_agency()${userWrite(name, def, 'update')});`,
               ]),
-          `create policy own_delete on ${t} for delete to app_user
+          // S13-05: `userNoDelete` — no DELETE grant, no delete policy
+          ...(def.userNoDelete
+            ? []
+            : [
+                `create policy own_delete on ${t} for delete to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'delete')});`,
+              ]),
           def.userSelect
             ? `create policy user_select on ${t} for select to app_user
   using (agency_id = app_agency() and (${predicate(name, def.userSelect.sql)}));`

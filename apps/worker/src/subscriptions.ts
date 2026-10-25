@@ -26,6 +26,7 @@ import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
 import * as search from '@inmolink/core/modules/search';
 import * as social from '@inmolink/core/modules/social';
+import * as support from '@inmolink/core/modules/support';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
@@ -64,6 +65,7 @@ export const MODULES = {
   social,
   presentations,
   admin,
+  support,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -106,4 +108,6 @@ export function registerSubscriptions(): void {
   presentations.registerPresentationsSubscriptions();
   // S13-03: a staff bulk operation gets its job.
   admin.registerAdminSubscriptions();
+  // S13-05: a support message visible to the agency is e-mailed (staff reply → member, member → support inbox).
+  support.registerSupportSubscriptions();
 }

@@ -428,6 +428,11 @@ export const emailEnv = {
   RESEND_API_KEY: nonEmpty.optional(),
 };
 
+/** S13-05: the support inbox told about new support tickets and member replies (worker `email` pool); unset: none. */
+export const supportEnv = {
+  SUPPORT_INBOX_EMAIL: z.email().optional(),
+};
+
 /** Base URL of the dashboard (`web`) — email links, CORS and socket origin allowlists. */
 export const webUrlEnv = {
   WEB_URL: url(['http', 'https']).transform((v) => v.replace(/\/+$/, '')),

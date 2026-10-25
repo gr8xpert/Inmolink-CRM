@@ -20,6 +20,7 @@ import {
   siteFeedNetworkEnv,
   socialEnv,
   storageEnv,
+  supportEnv,
   telemetryEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
@@ -139,7 +140,7 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...baseEnv,
     ...(others ? systemEnv : {}),
     ...(pools.includes('media') ? mediaPoolEnv : {}),
-    ...(pools.includes('email') ? { ...emailEnv, ...leadEmailEnv } : {}),
+    ...(pools.includes('email') ? { ...emailEnv, ...leadEmailEnv, ...supportEnv } : {}),
     // Digests send mail (SMTP / Resend) but read no public inventory.
     ...(pools.includes('digest') ? emailEnv : {}),
     ...(pools.includes('exports') ? siteFeedEnv : {}),
@@ -157,6 +158,7 @@ export const workerEnv = {
   ...mediaPoolEnv,
   ...emailEnv,
   ...leadEmailEnv,
+  ...supportEnv, // S13-05
   ...siteFeedEnv,
   ...indexingEnv,
   ...socialPoolEnv,

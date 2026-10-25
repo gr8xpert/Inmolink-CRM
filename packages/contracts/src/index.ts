@@ -43,6 +43,7 @@ export * from './realtime';
 export * from './search';
 export * from './social';
 export * from './staff';
+export * from './support';
 export * from './taxonomy';
 export * from './values';
 export * from './verification';

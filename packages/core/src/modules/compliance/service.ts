@@ -113,6 +113,11 @@ export const AUDIT_TYPES = [
   'staff.billing.planGranted',
   'staff.billing.grantRevoked',
   'staff.billing.priceLockSet',
+  // S13-05: a support agent replied on a ticket, added an internal note, or triaged it (target: the ticket; metadata:
+  // the changed status / priority / assignment — never the text).
+  'staff.support.replied',
+  'staff.support.noted',
+  'staff.support.triaged',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
   // S11-01: a client registration refused because another agency registered the client first (probe budget).
@@ -177,7 +182,8 @@ export interface AuditTarget {
     // S13-03
     | 'staffOperation'
     | 'planGrant'
-    | 'priceLock';
+    | 'priceLock'
+    | 'supportTicket';
   id: string;
 }
 

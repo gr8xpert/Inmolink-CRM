@@ -1,0 +1,123 @@
+{
+  "title": "Soporte",
+  "intro": "Pide ayuda a nuestro equipo. Todos los miembros de tu agencia ven las incidencias de la agencia.",
+  "nav": "Soporte",
+  "categories": {
+    "ACCOUNT": "Cuenta y acceso",
+    "BILLING": "Facturación",
+    "LISTINGS": "Inmuebles",
+    "IMPORTS": "Importaciones y feeds",
+    "WEBSITE": "Web",
+    "INTEGRATIONS": "Portales e integraciones",
+    "BUG": "Algo no funciona",
+    "OTHER": "Otro"
+  },
+  "priorities": {
+    "LOW": "Baja",
+    "NORMAL": "Normal",
+    "HIGH": "Alta",
+    "URGENT": "Urgente"
+  },
+  "status": {
+    "OPEN": "Esperando a soporte",
+    "PENDING": "Esperando tu respuesta",
+    "RESOLVED": "Resuelta"
+  },
+  "list": {
+    "title": "Tus incidencias",
+    "empty": "Todavía no hay incidencias.",
+    "updated": "Último mensaje {date}",
+    "next": "Incidencias anteriores"
+  },
+  "create": {
+    "title": "Nueva incidencia",
+    "subject": "Asunto",
+    "category": "Categoría",
+    "priority": "Prioridad",
+    "body": "Describe el problema",
+    "submit": "Enviar a soporte",
+    "attachHint": "Podrás adjuntar archivos en la incidencia una vez abierta."
+  },
+  "ticket": {
+    "back": "Todas las incidencias",
+    "opened": "Abierta el {date}",
+    "supportTeam": "Soporte de Inmolink",
+    "reply": "Responder",
+    "replySubmit": "Enviar respuesta",
+    "resolve": "Marcar como resuelta",
+    "resolvedNote": "Esta incidencia está resuelta. Responde para reabrirla.",
+    "older": "Mensajes anteriores",
+    "latest": "Mensajes más recientes"
+  },
+  "attachments": {
+    "title": "Adjuntos",
+    "empty": "No hay archivos adjuntos.",
+    "upload": "Adjuntar un archivo",
+    "uploadSubmit": "Subir",
+    "hint": "PDF, PNG, JPEG o WebP, hasta 10 MB cada uno, 5 por incidencia.",
+    "open": "Abrir"
+  },
+  "notices": {
+    "created": "Incidencia enviada. Nuestro equipo responderá aquí.",
+    "replied": "Respuesta enviada.",
+    "resolved": "Incidencia marcada como resuelta.",
+    "uploaded": "Archivo adjuntado."
+  },
+  "errors": {
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "VALIDATION_FAILED": "Revisa los campos e inténtalo de nuevo.",
+    "NOT_FOUND": "Esta incidencia ya no existe.",
+    "FORBIDDEN": "No puedes hacer esto.",
+    "PAYLOAD_TOO_LARGE": "El archivo supera los 10 MB.",
+    "DOCUMENT_TYPE_NOT_ALLOWED": "Solo se pueden adjuntar archivos PDF, PNG, JPEG y WebP.",
+    "DOCUMENT_LIMIT_REACHED": "Esta incidencia ya tiene 5 archivos.",
+    "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento."
+  },
+  "staff": {
+    "title": "Cola de soporte",
+    "empty": "No hay incidencias aquí.",
+    "open": "Abrir",
+    "next": "Página siguiente",
+    "agency": "Agencia",
+    "assigned": "Asignada",
+    "unassigned": "Sin asignar",
+    "opened": "Abierta el {date}",
+    "back": "Cola de soporte",
+    "internalBadge": "Nota interna",
+    "internalHint": "Las notas internas solo las ve el equipo, nunca la agencia.",
+    "replyTitle": "Responder o añadir una nota",
+    "body": "Mensaje",
+    "internal": "Nota interna (no se envía a la agencia)",
+    "submit": "Publicar",
+    "triageTitle": "Clasificación",
+    "status": "Estado",
+    "priority": "Prioridad",
+    "assignee": "Responsable",
+    "keep": "Sin cambios",
+    "assignMe": "Asignármela",
+    "release": "Quitar asignación",
+    "save": "Guardar",
+    "readOnly": "Tu rol puede leer las incidencias, pero no responder ni clasificarlas.",
+    "notices": {
+      "posted": "Mensaje publicado.",
+      "noted": "Nota interna añadida.",
+      "updated": "Incidencia actualizada."
+    }
+  },
+  "email": {
+    "reply": {
+      "subject": "Soporte ha respondido: {subject}",
+      "body": "Hola {name}, nuestro equipo de soporte ha respondido a tu incidencia «{subject}».",
+      "action": "Leer la respuesta"
+    },
+    "inboxNew": {
+      "subject": "[Soporte] Nueva incidencia: {subject}",
+      "body": "Se ha abierto una nueva incidencia de soporte: «{subject}» ({category}, prioridad {priority})."
+    },
+    "inboxReply": {
+      "subject": "[Soporte] La agencia ha respondido: {subject}",
+      "body": "La agencia ha respondido en la incidencia «{subject}» ({category}, prioridad {priority})."
+    },
+    "inboxAction": "Abrir la incidencia"
+  }
+}
