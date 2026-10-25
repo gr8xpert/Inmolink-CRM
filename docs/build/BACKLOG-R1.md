@@ -1850,6 +1850,11 @@ Ref §3 · Mod i18n, sdk · Dep S12-08 S0-11
 **Build:** `pnpm i18n:draft` for the other content locales of the new namespaces (chat, network board, notifications, social, documents, selections, Client Mode) with review; the website widget's AI search box on `/v2/search/ai` (S8-F8's reminder test became an SDK-has-the-operation check).
 **Done when:** `i18n:check` lists no missing keys for enabled locales; a widget e2e searches by sentence
 
+### S13-F17 · AI is opt-in per agency (Shahzaib, 2026-10-25)
+Ref §8 · Mod agencies, ai-features, website-api, social, web · Dep S12-01 S12-02 S12-03 S12-07 S12-08
+**Build:** an agency setting "AI features" (default **off**; admin-only, audited) checked by the gateway call sites before any model call: website AI search (`/v2/search/ai` answers the keyword search when off), the white-label model pass (deterministic pass only when off), Listing Studio and social captions (buttons hidden, API answers a neutral `AI_NOT_ENABLED`). Every feature stays on the FAST tier (the cheapest configured model); no SMART-tier use without a recorded decision. Dashboard toggle in agency settings, EN + ES.
+**Done when:** an agency that has not opted in makes zero provider calls from any feature (test per feature); turning it on enables them; the setting change is audited
+
 ---
 
 ## S14 — Migration tooling
