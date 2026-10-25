@@ -157,6 +157,8 @@ beforeAll(async () => {
     meta: graph.app,
     mediaBaseUrl: MEDIA_BASE,
   });
+  // S13-F5: rows without a Meta user left by an earlier run (other keys) would block every revoke.
+  await system((tx) => tx.execute(sql`delete from social_accounts where meta_user_id is null`));
   a = await createFounder();
   await setAgencyStatus(a.agencyId, 'VERIFIED');
   place = await system(async (tx) => {
@@ -875,5 +877,92 @@ describe('S13-F5 revoking the Meta grant', () => {
     for (const i of items) await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id });
     expect(revokes()).toHaveLength(0);
     expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items).toHaveLength(0);
+  });
+
+  it('[S13-F5] an account of the same Meta user connected while the revoke call runs is marked NEEDS_RECONNECT and announced', async () => {
+    const b = await createFounder();
+    await setAgencyStatus(b.agencyId, 'VERIFIED');
+    await enable(b, true);
+    const user = metaUser();
+    graph.userId = user;
+    const ofA = (await connect(a)).items;
+    await disconnectAll(a, ofA);
+    let ofB: Awaited<ReturnType<typeof connect>>['items'] = [];
+    // During `DELETE /me/permissions` the same Meta user connects in agency b.
+    graph.onCall = async (call) => {
+      if (call.method !== 'DELETE' || call.path !== '/me/permissions') return;
+      graph.onCall = undefined;
+      ofB = (await connect(b)).items;
+    };
+    const results = [];
+    for (const i of ofA) results.push(await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id }));
+    graph.onCall = undefined;
+    expect(results.map((r) => r.deleted)).toEqual([true, true]);
+    expect(results.filter((r) => r.revoked)).toHaveLength(1);
+    expect(ofB.length).toBeGreaterThan(0);
+    const listed = (await as(b, (ctx) => social.listSocialAccounts(ctx))).items;
+    expect(listed.map((i) => i.status)).toEqual(ofB.map(() => 'NEEDS_RECONNECT'));
+    for (const i of ofB) expect(await countEvents('social.account.needsReconnect', 'accountId', i.id)).toBe(1);
+  });
+
+  it('[S13-F5] a live account without a stored Meta user blocks the revoke until the backfill fills it; a refused token stays empty', async () => {
+    const b = await createFounder();
+    await setAgencyStatus(b.agencyId, 'VERIFIED');
+    await enable(b, true);
+    const userA = metaUser();
+    const userB = metaUser();
+    graph.userId = userA;
+    const ofA = (await connect(a)).items;
+    graph.userId = userB;
+    const ofB = (await connect(b)).items;
+    // b's accounts predate S13-F5 (no Meta user).
+    await system((tx) =>
+      tx.execute(sql`update social_accounts set meta_user_id = null where agency_id = ${b.agencyId}`),
+    );
+    await disconnectAll(a, ofA);
+    graph.calls.length = 0;
+    for (const i of ofA) {
+      expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id })).toEqual({
+        deleted: true,
+        revoked: false,
+      });
+    }
+    expect(revokes()).toHaveLength(0);
+
+    const pending = async () =>
+      system(
+        async (tx) =>
+          (
+            await tx.execute<{ n: number }>(
+              sql`select count(*)::int as n from social_accounts
+                   where meta_user_id is null and user_token_enc is not null and status_reason is distinct from 'DISCONNECTED'`,
+            )
+          ).rows[0]?.n ?? 0,
+      );
+    const bUsers = async () =>
+      system(async (tx) =>
+        (
+          await tx.execute<{ meta_user_id: string | null }>(
+            sql`select meta_user_id from social_accounts where agency_id = ${b.agencyId}::uuid`,
+          )
+        ).rows.map((r) => r.meta_user_id),
+      );
+    // Meta refuses the tokens: left empty.
+    graph.failWith((c) => c.method === 'GET' && c.path === '/me', EXPIRED_TOKEN, await pending());
+    expect((await social.backfillMetaUsers()).filled).toBe(0);
+    expect(await bUsers()).toEqual(ofB.map(() => null));
+    // Then it fills them in.
+    graph.userId = userB;
+    const res = await social.backfillMetaUsers();
+    expect(res.filled).toBeGreaterThanOrEqual(ofB.length);
+    expect(await bUsers()).toEqual(ofB.map(() => userB));
+    expect(await pending()).toBe(0);
+    // Now b's last account revokes the grant.
+    await disconnectAll(b, ofB);
+    graph.calls.length = 0;
+    const out = [];
+    for (const i of ofB) out.push(await social.revokeAccount({ agencyId: b.agencyId, accountId: i.id }));
+    expect(out.filter((r) => r.revoked)).toHaveLength(1);
+    expect(revokes()).toHaveLength(1);
   });
 });

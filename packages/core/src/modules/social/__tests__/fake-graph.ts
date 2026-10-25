@@ -30,6 +30,8 @@ export interface FakeGraph {
     access_token: string;
     instagram_business_account?: { id: string; username: string };
   }[];
+  /** Awaited before the fake answers a call (tests simulate something landing during a request). */
+  onCall?: (call: GraphCall) => Promise<void> | void;
   failWith(match: (call: GraphCall) => boolean, failure: GraphFailure, times?: number): void;
   publishes(): GraphCall[];
   close(): Promise<void>;
@@ -51,7 +53,7 @@ export async function startFakeGraph(): Promise<FakeGraph> {
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => {
+    req.on('end', async () => {
       const url = new URL(req.url ?? '/', 'http://fake');
       const fields: Record<string, string> = Object.fromEntries(url.searchParams);
       if (req.method === 'POST')
@@ -63,6 +65,7 @@ export async function startFakeGraph(): Promise<FakeGraph> {
       const path = url.pathname.replace(`/${VERSION}`, '');
       const call: GraphCall = { method: req.method ?? 'GET', path, fields };
       calls.push(call);
+      await fake.onCall?.(call);
       const failure = failures.find((f) => f.left > 0 && f.match(call));
       if (failure) {
         failure.left -= 1;

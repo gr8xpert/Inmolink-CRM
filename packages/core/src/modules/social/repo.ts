@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { socialAccounts, socialPosts } from '@inmolink/db/schema/social';
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
@@ -187,12 +187,46 @@ export async function accountWithTokens(tx: Tx, id: string): Promise<AccountSecr
 export async function lockMetaUserAccounts(
   tx: Tx,
   metaUserId: string,
-): Promise<{ id: string; statusReason: string | null }[]> {
+): Promise<{ id: string; agencyId: string; status: 'ACTIVE' | 'NEEDS_RECONNECT'; statusReason: string | null }[]> {
   return tx
-    .select({ id: socialAccounts.id, statusReason: socialAccounts.statusReason })
+    .select({
+      id: socialAccounts.id,
+      agencyId: socialAccounts.agencyId,
+      status: socialAccounts.status,
+      statusReason: socialAccounts.statusReason,
+    })
     .from(socialAccounts)
     .where(eq(socialAccounts.metaUserId, metaUserId))
     .for('update');
+}
+
+/** S13-F5 review: a live (not disconnected) account connected before the Meta user was stored — any agency. */
+export async function hasLiveAccountWithoutMetaUser(tx: Tx): Promise<boolean> {
+  const rows = await tx
+    .select({ id: socialAccounts.id })
+    .from(socialAccounts)
+    .where(and(isNull(socialAccounts.metaUserId), notDisconnected))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Live accounts without a stored Meta user that still hold a user token, the least recently tried first (worker). */
+export async function accountsWithoutMetaUser(tx: Tx, limit: number): Promise<string[]> {
+  const rows = await tx
+    .select({ id: socialAccounts.id })
+    .from(socialAccounts)
+    .where(and(isNull(socialAccounts.metaUserId), isNotNull(socialAccounts.userTokenEnc), notDisconnected))
+    .orderBy(asc(socialAccounts.updatedAt), asc(socialAccounts.id))
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/** Stores the Meta user of an account that had none (never overwrites); null only marks it as tried. */
+export async function setMetaUser(tx: Tx, id: string, metaUserId: string | null, now: Date): Promise<void> {
+  await tx
+    .update(socialAccounts)
+    .set(metaUserId ? { metaUserId, updatedAt: now } : { updatedAt: now })
+    .where(and(eq(socialAccounts.id, id), isNull(socialAccounts.metaUserId)));
 }
 
 /**

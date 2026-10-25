@@ -1,6 +1,7 @@
 import { notificationText } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
+import { DecryptError } from '@inmolink/platform/crypto';
 import * as identity from '../identity';
 import * as notifications from '../notifications';
 import { metaApp, pageTokenCipher, socialConfig, userTokenCipher } from './config';
@@ -116,8 +117,10 @@ export async function notifyReconnect(p: {
  * S13-F5: `DELETE /me/permissions` acts on the Meta *user*, whose login may have connected Pages in other agencies too.
  * The job locks every account of the account's Meta user (any agency): while another one exists — connected, or
  * disconnected and waiting for its own job — this one is just deleted; the last one left revokes the grant with its
- * user token (outside any transaction), then is deleted. So a user's accounts revoke once, whatever the order of their
- * jobs. An account connected before S13-F5 (no user id) is never revoked. A token Meta already refuses (or a refused
+ * user token (outside any transaction), then is deleted — in a new transaction that re-locks the user's accounts and
+ * marks any ACTIVE one (connected during the Meta call; its tokens just died) NEEDS_RECONNECT, announced. So a user's
+ * accounts revoke once, whatever the order of their jobs. While any live account connected before S13-F5 (no user id)
+ * exists, nothing is revoked (`social.backfillMetaUsers` fills them in). A token Meta already refuses (or a refused
  * request) leaves nothing to revoke; a Meta outage throws so the job retries — on its last attempt the account is
  * deleted anyway, so a disconnected account's tokens never linger.
  */
@@ -133,7 +136,11 @@ export async function revokeAccount(
       const self = accounts.find((a) => a.id === account.id);
       // Connected again, or deleted by a concurrent run, while we waited for the lock.
       if (self?.statusReason !== repo.DISCONNECTED) return null;
-      if (accounts.length === 1) return { revoke: true as const, account, userTokenEnc: account.userTokenEnc };
+      // A live account connected before the Meta user was stored (any agency) may be the same login: not revoked
+      // until the backfill has filled them in.
+      if (accounts.length === 1 && !(await repo.hasLiveAccountWithoutMetaUser(tx))) {
+        return { revoke: true as const, account, userTokenEnc: account.userTokenEnc };
+      }
     }
     return { revoke: false as const, deleted: await repo.deleteDisconnected(tx, account.id) };
   });
@@ -153,8 +160,51 @@ export async function revokeAccount(
       if (err.retryable && !opts.lastAttempt) throw err;
     }
   }
-  const deleted = await withSystem(`social.revokeAccount: delete ${p.accountId}`, (tx) =>
-    repo.deleteDisconnected(tx, account.id),
-  );
+  const deleted = await withSystem(`social.revokeAccount: delete ${p.accountId}`, async (tx) => {
+    if (revoked && account.metaUserId !== null) {
+      // The grant is gone for the whole Meta user: an account of that user connected (or connected again) while the
+      // request ran — we only decided to revoke when this was its last one — has dead tokens. The member is told.
+      const now = clock.now();
+      for (const a of await repo.lockMetaUserAccounts(tx, account.metaUserId)) {
+        if (a.status === 'ACTIVE') await needsReconnect(tx, a.id, a.agencyId, 'TOKEN_REVOKED', now);
+      }
+    }
+    return repo.deleteDisconnected(tx, account.id);
+  });
   return { deleted, revoked };
+}
+
+/** Accounts looked up per backfill run (one Meta call each, outside any transaction). */
+export const META_USER_BACKFILL = { batch: 100 } as const;
+
+/**
+ * `social.backfillMetaUsers` (pool `social`, hourly, S13-F5 review): accounts connected before the Meta user was
+ * stored get it from `GET /me` with their own (encrypted) user token. A token Meta refuses is left empty (and tried
+ * last next time); a Meta outage stops the run. Until none is left, `revokeAccount` never revokes. Idempotent.
+ */
+export async function backfillMetaUsers(opts: { now?: Date } = {}): Promise<{ checked: number; filled: number }> {
+  const now = opts.now ?? clock.now();
+  const app = metaApp();
+  if (!app) return { checked: 0, filled: 0 };
+  const ids = await withSystem('social.backfillMetaUsers: due', (tx) =>
+    repo.accountsWithoutMetaUser(tx, META_USER_BACKFILL.batch),
+  );
+  const client = new MetaGraphClient(app, socialConfig().fetchOptions);
+  let filled = 0;
+  for (const id of ids) {
+    const account = await withSystem(`social.backfillMetaUsers: ${id}`, (tx) => repo.accountWithTokens(tx, id));
+    if (!account?.userTokenEnc || account.metaUserId !== null) continue;
+    let metaUserId: string | null = null;
+    try {
+      metaUserId = await client.userId(userTokenCipher.decrypt(account.agencyId, account.id, account.userTokenEnc));
+    } catch (err) {
+      // A token we cannot decrypt (a retired key) is as unusable as one Meta refuses.
+      if (err instanceof DecryptError) metaUserId = null;
+      else if (!(err instanceof MetaError)) throw err;
+      else if (err.retryable) break;
+    }
+    await withSystem(`social.backfillMetaUsers: store ${id}`, (tx) => repo.setMetaUser(tx, id, metaUserId, now));
+    if (metaUserId) filled += 1;
+  }
+  return { checked: ids.length, filled };
 }

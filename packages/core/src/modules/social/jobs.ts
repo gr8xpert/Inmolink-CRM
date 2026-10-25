@@ -1,6 +1,6 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { checkAccounts, notifyReconnect, revokeAccount } from './accounts';
+import { backfillMetaUsers, checkAccounts, notifyReconnect, revokeAccount } from './accounts';
 import { generateCaptions } from './captions';
 import { publishPost, sweepDuePosts } from './publish';
 
@@ -81,6 +81,20 @@ export const socialJobs = {
     timeoutMs: 60_000,
     async run(p, { attempt }) {
       return revokeAccount(p, { lastAttempt: attempt >= REVOKE_ATTEMPTS });
+    },
+  }),
+
+  backfillMetaUsers: defineJob({
+    name: 'social.backfillMetaUsers',
+    pool: 'social',
+    payload: z.object({}).strict(),
+    every: 60 * 60_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log }) {
+      const res = await backfillMetaUsers();
+      if (res.checked > 0) log.info(res, 'social accounts: Meta users backfilled');
+      return res;
     },
   }),
 

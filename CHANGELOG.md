@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(social): Meta revoke re-locks and marks late connects NEEDS_RECONNECT; legacy NULL-user accounts block the revoke until backfilled by social.backfillMetaUsers [S13-F5]
 - feat(db): drop the 16 date_trunc keyset indexes concurrently (migration 0160); crm notes/imports and the listing export on raw keyset [S13-F8]
 - feat(social): revoke the Meta grant only with the Meta user's last connected account (meta_user_id, migration 0159) [S13-F5]
 - feat(db): worker-written tables refuse member writes — alerts read+delete, listing states and selection interactions read-only (userNoInsert registry option) [S13-F3]

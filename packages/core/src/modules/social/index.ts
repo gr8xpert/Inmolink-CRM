@@ -2,7 +2,7 @@
  * social — public API (S12-07, PATTERNS §1). The only import path for other modules and apps. Social posting to
  * Facebook Pages and Instagram Business accounts, behind the `social.posting` feature flag (real Meta access: H3).
  */
-export { checkAccounts, notifyReconnect, revokeAccount, TOKEN_CHECK } from './accounts';
+export { backfillMetaUsers, checkAccounts, notifyReconnect, revokeAccount, TOKEN_CHECK } from './accounts';
 export { allowedNumbers, CAPTIONS_PROMPT, CaptionsAnswer, numbersIn, numbersMatchFacts } from './caption-facts';
 export { generateCaptions } from './captions';
 export { configureSocial, type MetaAppConfig, metaAppFromEnv, type SocialConfig } from './config';
