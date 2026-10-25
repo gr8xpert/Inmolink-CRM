@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- refactor(core,web): one memberUserId (lint rule), placeText, WhatsApp constant, web form-action helpers; empty presentations jobs removed, white-label jobs merged into ai-features [S13-F12]
 - feat(web): selections dashboard pages (list, create from a bookmark folder or listing ids, stats, rotate/revoke, WhatsApp/e-mail share); Lighthouse on /s/<token> [S13-F13]
 - feat(crm): rollup rebuild job; the nightly sweep backfills agencies with leads but no rollups [S13-F15]
 - refactor(core): one white-label listing-text helper and one website-api "present public docs" read for selections and PDFs [S13-F11]

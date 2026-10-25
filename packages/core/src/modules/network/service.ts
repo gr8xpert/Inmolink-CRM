@@ -18,7 +18,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -88,7 +88,7 @@ export async function createPost(
   assertCan(ctx, 'network.posts.write');
   agencies.assertVerified(ctx, 'network.board');
   const input = CreateNetworkPostBody.parse(raw);
-  const me = userIdOf(ctx);
+  const me = memberUserId(ctx);
   const agencyId = ctx.tenant.agencyId;
   const now = clock.now();
   const idempotency = idempotencyOf('network.post', me, opts.idempotencyKey, input);
@@ -262,7 +262,7 @@ export async function listSubscriptions(ctx: Ctx): Promise<NetworkSubscriptionLi
   const rows = await repo.subscriptionsOf(
     ctx.tx,
     ctx.tenant.agencyId,
-    userIdOf(ctx),
+    memberUserId(ctx),
     NETWORK_LIMITS.subscriptionsPerUser,
   );
   return { items: rows.map(toSubscriptionDto) };
@@ -276,7 +276,7 @@ export async function createSubscription(ctx: Ctx, raw: NetworkSubscriptionBody)
     ...fields,
     agencyId: ctx.tenant.agencyId,
     id: newId(),
-    userId: userIdOf(ctx),
+    userId: memberUserId(ctx),
     max: NETWORK_LIMITS.subscriptionsPerUser,
   });
   if (!row) throw new AppError('NETWORK_SUBSCRIPTION_LIMIT', { max: NETWORK_LIMITS.subscriptionsPerUser });
@@ -290,7 +290,13 @@ export async function updateSubscription(
   raw: NetworkSubscriptionBody,
 ): Promise<NetworkSubscriptionDto> {
   assertCan(ctx, 'network.subscriptions.manage');
-  const row = await repo.updateSubscription(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), id, subscriptionFields(raw));
+  const row = await repo.updateSubscription(
+    ctx.tx,
+    ctx.tenant.agencyId,
+    memberUserId(ctx),
+    id,
+    subscriptionFields(raw),
+  );
   if (!row) throw new AppError('NETWORK_SUBSCRIPTION_NOT_FOUND');
   return toSubscriptionDto(row);
 }
@@ -298,7 +304,7 @@ export async function updateSubscription(
 /** `DELETE /v1/network/subscriptions/:id`. */
 export async function deleteSubscription(ctx: Ctx, id: string): Promise<void> {
   assertCan(ctx, 'network.subscriptions.manage');
-  if (!(await repo.deleteSubscription(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), id))) {
+  if (!(await repo.deleteSubscription(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), id))) {
     throw new AppError('NETWORK_SUBSCRIPTION_NOT_FOUND');
   }
 }

@@ -10,10 +10,8 @@ import {
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
-import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import type { ApiResult, SessionRef } from '@/server/api';
-import { sessionRef } from '@/server/api';
+import { cents, requireSession, settle } from '@/server/actions';
 import {
   closeBoardPost,
   createBoardPost,
@@ -38,24 +36,6 @@ async function backTo(path: string, extra: Record<string, string>): Promise<neve
   redirect(`${getPathname({ href: path, locale: await getLocale() })}?${query.toString()}`);
 }
 const board = (extra: Record<string, string>) => backTo('/network/board', extra);
-
-async function requireSession(): Promise<SessionRef> {
-  const s = await auth();
-  if (!s?.user?.id) redirect('/session/expired');
-  return sessionRef(s.user);
-}
-
-async function settle(res: ApiResult<unknown>, done: string): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return board(res.ok ? { done } : { error: res.error?.code ?? 'generic' });
-}
-
-/** Whole euros or euros and cents ("250000", "250.000,50" is not accepted) to cents; undefined when empty or invalid. */
-function cents(v: string): number | undefined | null {
-  if (!v) return undefined;
-  if (!/^\d{1,12}([.,]\d{1,2})?$/.test(v)) return null;
-  return Math.round(Number(v.replace(',', '.')) * 100);
-}
 
 const integer = (v: string): number | undefined | null => {
   if (!v) return undefined;
@@ -88,13 +68,13 @@ export async function createPostAction(form: FormData): Promise<void> {
     ...(expires !== undefined ? { expiresInDays: expires } : {}),
   });
   if (!parsed.success) return board({ error: 'VALIDATION_FAILED' });
-  return settle(await createBoardPost(session, parsed.data, key), 'posted');
+  return settle(await createBoardPost(session, parsed.data, key), board, 'posted');
 }
 
 export async function closePostAction(form: FormData): Promise<void> {
   const id = text(form, 'id');
   if (!z.uuid().safeParse(id).success) return board({ error: 'VALIDATION_FAILED' });
-  return settle(await closeBoardPost(await requireSession(), id), 'closed');
+  return settle(await closeBoardPost(await requireSession(), id), board, 'closed');
 }
 
 /** A reply opens (or joins) the agency's chat thread with the poster and sends the first message in it. */
@@ -122,11 +102,11 @@ export async function addSubscriptionAction(form: FormData): Promise<void> {
     ...(max !== undefined ? { priceMaxCents: max } : {}),
   });
   if (!parsed.success) return board({ error: 'VALIDATION_FAILED' });
-  return settle(await createSubscription(await requireSession(), parsed.data), 'subscribed');
+  return settle(await createSubscription(await requireSession(), parsed.data), board, 'subscribed');
 }
 
 export async function deleteSubscriptionAction(form: FormData): Promise<void> {
   const id = text(form, 'id');
   if (!z.uuid().safeParse(id).success) return board({ error: 'VALIDATION_FAILED' });
-  return settle(await deleteSubscription(await requireSession(), id), 'unsubscribed');
+  return settle(await deleteSubscription(await requireSession(), id), board, 'unsubscribed');
 }

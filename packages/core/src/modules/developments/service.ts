@@ -26,11 +26,6 @@ import { developmentsEvents } from './events';
 import { assertCan, type DevelopmentsAction } from './policy';
 import * as repo from './repo';
 
-export function actorId(ctx: Ctx): string {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-}
-
 export const num = (v: string | null) => (v === null ? null : Number(v));
 
 /** Commission as columns (the development's and a unit's have the same three). */

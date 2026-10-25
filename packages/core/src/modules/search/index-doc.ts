@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import type { ListingCardDoc, ReadModelPlace, UnitCardDoc } from '@inmolink/contracts';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import type { IndexDefinition } from '@inmolink/platform/search';
+import { placeText } from '../../place-text';
 import { cutAtWord, type OwnerMatcher, plainText, SANITIZER_VERSION } from '../../white-label';
 
 export const LISTINGS_INDEX_UID = 'listings';
@@ -189,9 +190,6 @@ export function listingsIndex(
   };
 }
 
-const placeText = (p: ReadModelPlace) =>
-  [p.area, p.city, p.region, p.country].flatMap((t) => (t ? [t.name] : [])).join(', ');
-
 const placeIds = (p: ReadModelPlace) => [p.country, p.region, p.city, p.area].flatMap((t) => (t ? [t.id] : []));
 
 /**
@@ -278,7 +276,7 @@ export function buildIndexDoc(rows: readonly IndexSourceRow[], owner: OwnerMatch
   for (const r of sorted) {
     const c = r.card as ListingCardDoc | UnitCardDoc;
     doc[field('title', r.locale)] = indexedText(c.title, owner, c.ref, INDEXED_TITLE_CHARS);
-    doc[field('place', r.locale)] = placeText(c.place);
+    doc[field('place', r.locale)] = placeText(c.place, ['area', 'city', 'region', 'country']);
     if (r.description)
       doc[field('description', r.locale)] = indexedText(r.description, owner, c.ref, INDEXED_DESCRIPTION_CHARS);
   }

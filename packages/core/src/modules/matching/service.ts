@@ -14,7 +14,7 @@ import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import * as agencies from '../agencies';
 import * as notifications from '../notifications';
 import * as search from '../search';
@@ -123,7 +123,7 @@ async function fieldsOf(ctx: Ctx, raw: SavedSearchBody): Promise<repo.SavedSearc
 /** `GET /v1/saved-searches`: the caller's own, oldest first (one query; at most `perUser`, so no cursor). */
 export async function listSavedSearches(ctx: Ctx): Promise<SavedSearchList> {
   assertCan(ctx, 'matching.savedSearches.manage');
-  const rows = await repo.savedSearchesOf(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), SAVED_SEARCH_LIMITS.perUser);
+  const rows = await repo.savedSearchesOf(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), SAVED_SEARCH_LIMITS.perUser);
   return { items: rows.map(toDto) };
 }
 
@@ -135,7 +135,7 @@ export async function createSavedSearch(ctx: Ctx, raw: SavedSearchBody): Promise
     ...fields,
     agencyId: ctx.tenant.agencyId,
     id: newId(),
-    userId: userIdOf(ctx),
+    userId: memberUserId(ctx),
     max: SAVED_SEARCH_LIMITS.perUser,
   });
   if (!row) throw new AppError('SAVED_SEARCH_LIMIT', { max: SAVED_SEARCH_LIMITS.perUser });
@@ -145,7 +145,13 @@ export async function createSavedSearch(ctx: Ctx, raw: SavedSearchBody): Promise
 /** `PUT /v1/saved-searches/:id`: the caller's saved search, every field replaced. */
 export async function updateSavedSearch(ctx: Ctx, id: string, raw: SavedSearchBody): Promise<SavedSearchDto> {
   assertCan(ctx, 'matching.savedSearches.manage');
-  const row = await repo.updateSavedSearch(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), id, await fieldsOf(ctx, raw));
+  const row = await repo.updateSavedSearch(
+    ctx.tx,
+    ctx.tenant.agencyId,
+    memberUserId(ctx),
+    id,
+    await fieldsOf(ctx, raw),
+  );
   if (!row) throw new AppError('SAVED_SEARCH_NOT_FOUND');
   return toDto(row);
 }
@@ -153,7 +159,7 @@ export async function updateSavedSearch(ctx: Ctx, id: string, raw: SavedSearchBo
 /** `DELETE /v1/saved-searches/:id` (its alerts go with it). */
 export async function deleteSavedSearch(ctx: Ctx, id: string): Promise<void> {
   assertCan(ctx, 'matching.savedSearches.manage');
-  if (!(await repo.deleteSavedSearch(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), id))) {
+  if (!(await repo.deleteSavedSearch(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), id))) {
     throw new AppError('SAVED_SEARCH_NOT_FOUND');
   }
 }

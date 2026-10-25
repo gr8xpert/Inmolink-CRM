@@ -30,6 +30,7 @@ import { newId } from '@inmolink/platform/ids';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as billing from '../billing';
+import { WHATSAPP_SHARE_URL } from '../chat';
 import * as crm from '../crm';
 import * as documents from '../documents';
 import * as properties from '../properties';
@@ -85,9 +86,6 @@ function newToken(): { token: string; hash: string; hint: string } {
   return { token, hash: selectionTokenHash(token), hint: token.slice(-4) };
 }
 
-/** WhatsApp's share link (`wa.me`): the client's number when known, else the picker. */
-const WHATSAPP_SHARE = 'https://wa.me/';
-
 /**
  * The share links of a page (pure): the page URL on the public pages host (`PUBLIC_PAGES_URL`), a WhatsApp deep link
  * with the title and URL as the text, and a `mailto:` with them as subject and body. Without a configured host only
@@ -112,7 +110,7 @@ export function shareLinks(input: {
     token: input.token,
     path,
     url,
-    whatsappUrl: `${WHATSAPP_SHARE}${to}?text=${encodeURIComponent(text)}`,
+    whatsappUrl: `${WHATSAPP_SHARE_URL}${to}?text=${encodeURIComponent(text)}`,
     emailUrl: `mailto:${mailTo}?subject=${encodeURIComponent(input.title)}&body=${encodeURIComponent(text)}`,
   };
 }

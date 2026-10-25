@@ -19,17 +19,16 @@ import {
 } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import { assertCan } from './policy';
 import * as repo from './repo';
-import { actorId } from './service';
 
 /** Bookmarks belong to the member and carry internal notes: any use needs a member outside Client Mode. */
 function member(ctx: Ctx): repo.MemberRef {
   assertCan(ctx, 'listing.read');
   if (ctx.clientMode) throw new AppError('FORBIDDEN');
-  return { agencyId: ctx.tenant.agencyId, userId: actorId(ctx) };
+  return { agencyId: ctx.tenant.agencyId, userId: memberUserId(ctx) };
 }
 
 /** Unique violations as the caller's error, not a 500. */

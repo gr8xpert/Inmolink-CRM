@@ -12,10 +12,9 @@ import {
 } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { assertCan } from './policy';
 import * as repo from './repo';
-import { actorId } from './service';
 
 function toDto(row: repo.ViewRow): ListingViewDto {
   // Written through the contract; a view whose query no longer parses (a filter was dropped) keeps its name.
@@ -51,7 +50,7 @@ async function withNameCheck<T>(fn: () => Promise<T>): Promise<T> {
 /** `GET /v1/listing-views`: the caller's views by name. */
 export async function listListingViews(ctx: Ctx): Promise<ListingViewList> {
   assertCan(ctx, 'listing.read');
-  const rows = await repo.listViews(ctx.tx, ctx.tenant.agencyId, actorId(ctx), LISTING_VIEWS_MAX);
+  const rows = await repo.listViews(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), LISTING_VIEWS_MAX);
   return { items: rows.map(toDto) };
 }
 
@@ -61,7 +60,7 @@ export async function createListingView(ctx: Ctx, body: ListingViewBody): Promis
   const row = await withNameCheck(() =>
     repo.insertView(
       ctx.tx,
-      { id: newId(), agencyId: ctx.tenant.agencyId, userId: actorId(ctx), ...body, columns: [...body.columns] },
+      { id: newId(), agencyId: ctx.tenant.agencyId, userId: memberUserId(ctx), ...body, columns: [...body.columns] },
       LISTING_VIEWS_MAX,
     ),
   );
@@ -75,7 +74,7 @@ export async function updateListingView(ctx: Ctx, id: string, body: ListingViewB
   const row = await withNameCheck(() =>
     repo.updateView(
       ctx.tx,
-      { id, agencyId: ctx.tenant.agencyId, userId: actorId(ctx) },
+      { id, agencyId: ctx.tenant.agencyId, userId: memberUserId(ctx) },
       { ...body, columns: [...body.columns] },
     ),
   );
@@ -86,6 +85,6 @@ export async function updateListingView(ctx: Ctx, id: string, body: ListingViewB
 /** `DELETE /v1/listing-views/:id`. */
 export async function deleteListingView(ctx: Ctx, id: string): Promise<void> {
   assertCanSave(ctx);
-  const deleted = await repo.deleteView(ctx.tx, { id, agencyId: ctx.tenant.agencyId, userId: actorId(ctx) });
+  const deleted = await repo.deleteView(ctx.tx, { id, agencyId: ctx.tenant.agencyId, userId: memberUserId(ctx) });
   if (!deleted) throw new AppError('LISTING_VIEW_NOT_FOUND');
 }

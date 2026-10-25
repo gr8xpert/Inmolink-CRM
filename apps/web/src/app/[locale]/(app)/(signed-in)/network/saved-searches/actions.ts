@@ -10,10 +10,8 @@ import {
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
-import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import type { ApiResult, SessionRef } from '@/server/api';
-import { sessionRef } from '@/server/api';
+import { cents, requireSession, settle } from '@/server/actions';
 import { createSavedSearch, deleteSavedSearch } from '@/server/matching-api';
 
 /**
@@ -31,24 +29,6 @@ async function back(extra: Record<string, string>): Promise<never> {
   redirect(`${getPathname({ href: '/network/saved-searches', locale: await getLocale() })}?${query.toString()}`);
 }
 
-async function requireSession(): Promise<SessionRef> {
-  const s = await auth();
-  if (!s?.user?.id) redirect('/session/expired');
-  return sessionRef(s.user);
-}
-
-async function settle(res: ApiResult<unknown>, done: string): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return back(res.ok ? { done } : { error: res.error?.code ?? 'generic' });
-}
-
-/** Whole euros to cents; undefined when empty, null when invalid. */
-function cents(v: string): number | undefined | null {
-  if (!v) return undefined;
-  if (!/^\d{1,12}$/.test(v)) return null;
-  return Number(v) * 100;
-}
-
 const integer = (v: string): number | undefined | null => {
   if (!v) return undefined;
   return /^\d{1,2}$/.test(v) ? Number(v) : null;
@@ -62,7 +42,11 @@ const optionalId = (v: string): string | undefined | null => {
 
 export async function createSavedSearchAction(form: FormData): Promise<void> {
   const session = await requireSession();
-  const [min, max, beds] = [cents(text(form, 'priceMin')), cents(text(form, 'priceMax')), integer(text(form, 'beds'))];
+  const [min, max, beds] = [
+    cents(text(form, 'priceMin'), false),
+    cents(text(form, 'priceMax'), false),
+    integer(text(form, 'beds')),
+  ];
   const [type, location] = [optionalId(text(form, 'propertyTypeId')), optionalId(text(form, 'locationId'))];
   const transactionType = text(form, 'transactionType');
   const alerts = form.getAll('alerts').filter((k): k is string => SAVED_SEARCH_ALERT_KINDS.includes(k as never));
@@ -92,11 +76,11 @@ export async function createSavedSearchAction(form: FormData): Promise<void> {
     ...(beds !== undefined ? { bedsMin: beds } : {}),
   });
   if (!parsed.success) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await createSavedSearch(session, parsed.data), 'saved');
+  return settle(await createSavedSearch(session, parsed.data), back, 'saved');
 }
 
 export async function deleteSavedSearchAction(form: FormData): Promise<void> {
   const id = text(form, 'id');
   if (!UUID.safeParse(id).success) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await deleteSavedSearch(await requireSession(), id), 'deleted');
+  return settle(await deleteSavedSearch(await requireSession(), id), back, 'deleted');
 }

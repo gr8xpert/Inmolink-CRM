@@ -9,6 +9,7 @@
 import type { WebsiteDetail, WebsiteImage, WebsitePresenter } from '@inmolink/contracts';
 import type { Translate } from '@inmolink/i18n/server';
 import { escapeHtml } from '../../email-text';
+import { placeText } from '../../place-text';
 
 /** Formats amounts and dates in the document's locale. */
 export interface DocFormat {
@@ -126,11 +127,6 @@ function priceText(d: WebsiteDetail, t: Translate, f: DocFormat): string {
   return amount;
 }
 
-function placeText(d: WebsiteDetail): string {
-  const pl = d.place;
-  return [pl.area?.name, pl.city?.name, pl.region?.name].filter((x): x is string => !!x).join(', ');
-}
-
 function badges(d: WebsiteDetail, t: Translate): string {
   const out: string[] = [];
   if (d.kind === 'LISTING') out.push(t(`listing.transaction.${d.transactionType}`));
@@ -178,7 +174,7 @@ function cutText(text: string, max: number): string {
 }
 
 function heading(d: WebsiteDetail, t: Translate, f: DocFormat): string {
-  const place = placeText(d);
+  const place = placeText(d.place);
   const ref = t('listing.reference', { ref: d.ref });
   const development = d.kind === 'UNIT' ? ` · ${e(t('listing.development', { name: d.development.name }))}` : '';
   return `<div>${badges(d, t)}</div><h1>${e(d.title)}</h1><div class="meta">${e(ref)}${place ? ` · ${e(place)}` : ''}${development}</div><div class="price">${e(priceText(d, t, f))}</div>`;

@@ -31,12 +31,12 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, scanDocument, storage } from '@inmolink/platform/storage';
-import type { Ctx, CtxRunner } from '../../context';
+import { type Ctx, type CtxRunner, memberUserId } from '../../context';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import { assertCan, can } from './policy';
 import * as repo from './repo';
-import { actorId, ownForChange, readable } from './service';
+import { ownForChange, readable } from './service';
 
 /** Where a document's object lives in the private bucket: per agency and development, the id unguessable (UUIDv7). */
 export const DEVELOPMENT_DOCUMENTS_PREFIX = 'development-documents/';
@@ -158,7 +158,7 @@ export async function uploadDevelopmentDocument(
         sha256,
         storageKey,
         shared: input.shared ?? false,
-        uploadedBy: actorId(ctx),
+        uploadedBy: memberUserId(ctx),
       });
       await compliance.audit(ctx, 'developments.document.uploaded', target(row.id), {
         developmentId: locked.id,

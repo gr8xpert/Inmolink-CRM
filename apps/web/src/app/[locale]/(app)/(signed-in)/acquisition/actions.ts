@@ -12,6 +12,7 @@ import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { requireSession } from '@/server/actions';
 import { readAgencyTimeZone } from '@/server/agency-time-zone';
 import type { ApiResult, SessionRef } from '@/server/api';
 import { sessionRef } from '@/server/api';
@@ -36,12 +37,6 @@ export type ActionResult<T> = { ok: true; data: T } | { ok: false; code: string 
 async function session(): Promise<SessionRef | null> {
   const s = await auth();
   return s?.user?.id ? sessionRef(s.user) : null;
-}
-
-async function requireSession(): Promise<SessionRef> {
-  const s = await session();
-  if (!s) redirect('/session/expired');
-  return s;
 }
 
 function resultOf<T, U>(res: ApiResult<T>, map: (data: T) => U): ActionResult<U> {

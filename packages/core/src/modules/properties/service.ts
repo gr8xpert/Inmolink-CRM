@@ -29,7 +29,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
 import { z } from 'zod';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
@@ -188,11 +188,6 @@ export function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow
   };
 }
 
-export function actorId(ctx: Ctx): string {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-}
-
 /** Foreign keys the caller can get wrong, by constraint: the field to report. */
 const FK_FIELDS: Record<string, string> = {
   properties_location_id_locations_id_fk: 'locationId',
@@ -273,7 +268,7 @@ export async function createListing(
   } = {},
 ): Promise<ListingDto> {
   assertCan(ctx, 'listing.create');
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   const ownerUserId = input.ownerUserId ?? userId;
   if (input.ownerUserId !== undefined) await assertAssignable(ctx, ownerUserId);
   assertPricePeriod(input.transactionType, input.pricePeriod ?? null);
@@ -416,7 +411,7 @@ export async function listFilterOf(ctx: Ctx, f: ListingFilter): Promise<repo.Lis
     ...(f.visibility ? { visibility: f.visibility } : {}),
     ...(f.transactionType ? { transactionType: f.transactionType } : {}),
     ...(f.propertyTypeId ? { propertyTypeId: f.propertyTypeId } : {}),
-    ...(f.mine ? { ownerUserId: actorId(ctx) } : f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
+    ...(f.mine ? { ownerUserId: memberUserId(ctx) } : f.ownerUserId ? { ownerUserId: f.ownerUserId } : {}),
     ...(f.priceMin !== undefined ? { priceMin: f.priceMin } : {}),
     ...(f.priceMax !== undefined ? { priceMax: f.priceMax } : {}),
     ...(f.bedroomsMin !== undefined ? { bedroomsMin: f.bedroomsMin } : {}),
@@ -574,7 +569,7 @@ export async function updateListing(ctx: Ctx, id: string, input: UpdateListingBo
   if (current.deletedAt) throw new AppError('LISTING_NOT_FOUND');
   assertCan(ctx, 'listing.update', current);
   if (input.version !== current.version) throw new AppError('VERSION_CONFLICT');
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
 
   const privates = await repo.getPrivates(ctx.tx, id);
   const currentExact =

@@ -21,14 +21,14 @@ import {
 import { AppError, isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
 import { propertiesEvents } from './events';
 import { assertCan, can, type PropertiesAction } from './policy';
 import * as repo from './repo';
-import { actorId, assertVisibilityAllowed, listFilterOf, reconfirmed, statusChangeAllowed } from './service';
+import { assertVisibilityAllowed, listFilterOf, reconfirmed, statusChangeAllowed } from './service';
 
 /** Listings per chunk (one transaction): a few statements each, well inside the dashboard statement timeout. */
 export const BULK_CHUNK = 250;
@@ -126,7 +126,7 @@ async function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
  */
 export async function startBulkAction(ctx: Ctx, body: StartListingBulkBody): Promise<ListingBulkDto> {
   await assertActionAllowed(ctx, body.action);
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   const agencyId = ctx.tenant.agencyId;
   let ids: string[];
   if ('ids' in body.target) {
@@ -157,7 +157,7 @@ export async function startBulkAction(ctx: Ctx, body: StartListingBulkBody): Pro
 export async function getBulkAction(ctx: Ctx, id: string): Promise<ListingBulkDto> {
   assertCan(ctx, 'listing.read');
   const row = await repo.getBulk(ctx.tx, ctx.tenant.agencyId, id);
-  const mine = row?.createdByUserId === actorId(ctx);
+  const mine = row?.createdByUserId === memberUserId(ctx);
   // Another member's action is visible to whoever may administer every listing (`listing.assign`: admins).
   if (!row || (!mine && !can(ctx, 'listing.assign'))) throw new AppError('LISTING_BULK_NOT_FOUND');
   return toDto(row);
@@ -213,7 +213,7 @@ export async function runBulkChunk(ctx: Ctx, bulkActionId: string): Promise<Bulk
   if (!head || head.state === 'DONE' || head.state === 'FAILED') {
     return { done: true, processed: head?.processed ?? 0, total: head?.total ?? 0 };
   }
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   // The job acts as the member who asked, never as whoever a payload names.
   if (head.createdByUserId !== userId) throw new AppError('FORBIDDEN', { reason: 'not_the_requester' });
   const action = actionOf(head);

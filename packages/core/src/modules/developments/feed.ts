@@ -20,11 +20,11 @@ import { type DevelopmentStatus, MAX_UNITS_PER_DEVELOPMENT, type UnitStatus } fr
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { developmentsEvents } from './events';
 import { can } from './policy';
 import * as repo from './repo';
-import { actorId, withDbErrors } from './service';
+import { withDbErrors } from './service';
 import { unitChangeRecords } from './units';
 
 export interface FeedUnitInput {
@@ -198,7 +198,7 @@ async function writeBatch(ctx: Ctx, inputs: readonly FeedDevelopmentInput[]): Pr
   }
   const canCreate = can(ctx, 'development.create');
   const agencyId = ctx.tenant.agencyId;
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
 
   const current = new Map(
     (

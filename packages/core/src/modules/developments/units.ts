@@ -17,13 +17,12 @@ import {
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
 import {
-  actorId,
   assertCommissionCurrency,
   commissionColumns,
   commissionLabel,
@@ -118,7 +117,7 @@ export function unitChangeRecords(
   ctx: Ctx,
   pairs: readonly { before: repo.UnitListRow; after: repo.UnitRow }[],
 ): { statuses: StatusHistoryRow[]; prices: PriceHistoryRow[]; events: OutboxMessage[] } {
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   const prices: PriceHistoryRow[] = [];
   const statuses: StatusHistoryRow[] = [];
   const events: OutboxMessage[] = [];
@@ -182,7 +181,7 @@ export async function createUnits(ctx: Ctx, developmentId: string, input: Create
   if (existing + input.units.length > MAX_UNITS_PER_DEVELOPMENT) {
     throw new AppError('DEVELOPMENT_UNIT_LIMIT', { max: MAX_UNITS_PER_DEVELOPMENT });
   }
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   const rows = await withDbErrors(() =>
     repo.insertUnits(
       ctx.tx,

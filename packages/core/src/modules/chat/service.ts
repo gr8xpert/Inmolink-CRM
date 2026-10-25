@@ -18,7 +18,7 @@ import {
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -113,7 +113,7 @@ async function threadLookups(ctx: Ctx, rows: readonly repo.ThreadRow[]): Promise
 }
 
 async function memberThread(ctx: Ctx, threadId: string): Promise<repo.ThreadRow> {
-  const t = await repo.threadForMember(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), threadId);
+  const t = await repo.threadForMember(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), threadId);
   if (!t) throw new AppError('CHAT_THREAD_NOT_FOUND');
   return t;
 }
@@ -144,7 +144,7 @@ export async function getThread(ctx: Ctx, threadId: string): Promise<ChatThreadD
 /** `GET /v1/chat/threads`: the caller's threads, latest activity first, keyset (two queries; three with a `NETWORK` thread). */
 export async function listThreads(ctx: Ctx, query: ListChatThreadsQuery): Promise<ChatThreadPage> {
   assertCan(ctx, 'chat.read');
-  const rows = await repo.inbox(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), {
+  const rows = await repo.inbox(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), {
     limit: query.limit,
     cursor: decodeCursor(query.cursor),
   });
@@ -189,7 +189,7 @@ export async function listMessages(ctx: Ctx, threadId: string, query: ListChatMe
 export async function createDirectThread(ctx: Ctx, raw: CreateDirectThreadBody): Promise<ChatThreadDetailDto> {
   assertCan(ctx, 'chat.write');
   const body = CreateDirectThreadBody.parse(raw);
-  const me = userIdOf(ctx);
+  const me = memberUserId(ctx);
   const others = [...new Set(body.userIds)].filter((u) => u !== me);
   if (others.length === 0) throw new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'no_colleague' });
   const members = await identity.activeClientMembersAmong(ctx.tx, ctx.tenant.agencyId, others);
@@ -226,7 +226,7 @@ export async function openViewingThread(ctx: Ctx, raw: OpenViewingThreadBody): P
     });
     if (created) await emit(ctx.tx, chatEvents.viewingThreadOpened({ threadId: viewing.id }));
   }
-  await repo.joinThread(ctx.tx, agencyId, viewing.id, userIdOf(ctx), CHAT_LIMITS.participants);
+  await repo.joinThread(ctx.tx, agencyId, viewing.id, memberUserId(ctx), CHAT_LIMITS.participants);
   try {
     return await getThread(ctx, viewing.id);
   } catch (err) {
@@ -252,7 +252,7 @@ export async function replyInNetworkThread(
 ): Promise<{ thread: ChatThreadDetailDto } & SendChatMessageDto> {
   assertCan(ctx, 'chat.write');
   if (input.posterAgencyId === ctx.tenant.agencyId) throw new AppError('VALIDATION_FAILED', { reason: 'own_post' });
-  const me = userIdOf(ctx);
+  const me = memberUserId(ctx);
   const agencyId = ctx.tenant.agencyId;
   const { id } = await repo.insertNetworkThread(ctx.tx, {
     agencyId,
@@ -275,7 +275,7 @@ export async function joinNetworkThread(ctx: Ctx, threadId: string): Promise<Cha
   const agencyId = ctx.tenant.agencyId;
   const [copy] = await repo.threadCopies(ctx.tx, threadId, [agencyId]);
   if (!copy || copy.kind !== 'NETWORK') throw new AppError('CHAT_THREAD_NOT_FOUND');
-  await repo.joinThread(ctx.tx, agencyId, threadId, userIdOf(ctx), CHAT_LIMITS.participants);
+  await repo.joinThread(ctx.tx, agencyId, threadId, memberUserId(ctx), CHAT_LIMITS.participants);
   try {
     return await getThread(ctx, threadId);
   } catch (err) {
@@ -312,7 +312,7 @@ export function isNetworkClosedRefusal(err: unknown): boolean {
 export async function sendMessage(ctx: Ctx, threadId: string, raw: SendChatMessageBody): Promise<SendChatMessageDto> {
   assertCan(ctx, 'chat.write');
   const body = SendChatMessageBody.parse(raw);
-  const me = userIdOf(ctx);
+  const me = memberUserId(ctx);
   const agencyId = ctx.tenant.agencyId;
   const thread = await memberThread(ctx, threadId);
   if (body.clientKey) {
@@ -357,7 +357,7 @@ export async function sendMessage(ctx: Ctx, threadId: string, raw: SendChatMessa
  */
 export async function markThreadRead(ctx: Ctx, threadId: string): Promise<MarkChatReadDto> {
   assertCan(ctx, 'chat.write');
-  const me = userIdOf(ctx);
+  const me = memberUserId(ctx);
   const r = await repo.markRead(ctx.tx, ctx.tenant.agencyId, me, threadId);
   if (!r) throw new AppError('CHAT_THREAD_NOT_FOUND');
   if (r.changed && r.lastReadAt) {
@@ -375,5 +375,5 @@ export async function markThreadRead(ctx: Ctx, threadId: string): Promise<MarkCh
  */
 export async function canJoinThread(ctx: Ctx, threadId: string): Promise<boolean> {
   if (!can(ctx, 'chat.read')) return false;
-  return (await repo.threadForMember(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), threadId)) !== null;
+  return (await repo.threadForMember(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), threadId)) !== null;
 }

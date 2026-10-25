@@ -1,0 +1,6 @@
+language js
+
+`import { $specs } from $source` where {
+  $specs <: contains `memberUserId as $alias`,
+  register_diagnostic(span=$alias, message="Import memberUserId under its own name (an alias hides the nullable userIdOf).", severity="error")
+}

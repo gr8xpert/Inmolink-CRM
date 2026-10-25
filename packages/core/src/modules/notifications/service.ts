@@ -26,7 +26,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { z } from 'zod';
-import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { wasNotSent } from '../../email-text';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
@@ -286,7 +286,7 @@ const KNOWN_TYPES = new Set<string>(NOTIFICATION_TYPES);
 /** `GET /v1/notifications`: the caller's feed, newest first, keyset (≤ 100). One query. */
 export async function listNotifications(ctx: Ctx, query: ListNotificationsQuery): Promise<NotificationPage> {
   assertCan(ctx, 'notifications.read');
-  const rows = await repo.listFeed(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), {
+  const rows = await repo.listFeed(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), {
     limit: query.limit,
     cursor: decodeCursor(query.cursor),
     unread: query.unread,
@@ -311,7 +311,7 @@ async function unreadOf(tx: Tx, agencyId: string, userId: string): Promise<Unrea
 /** `GET /v1/notifications/unread-count`: one bounded count (≤ 100 index entries). */
 export async function getUnreadCount(ctx: Ctx): Promise<UnreadCountDto> {
   assertCan(ctx, 'notifications.read');
-  return unreadOf(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx));
+  return unreadOf(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx));
 }
 
 /** `POST /v1/notifications/read`: these of the caller's notifications read (by primary key); the new unread count. */
@@ -320,7 +320,7 @@ export async function markNotificationsRead(
   body: MarkNotificationsReadBody,
 ): Promise<MarkNotificationsReadDto> {
   assertCan(ctx, 'notifications.markRead');
-  const userId = userIdOf(ctx);
+  const userId = memberUserId(ctx);
   const keys = body.items.map((k) => ({ id: k.id, at: new Date(k.createdAt) }));
   const updated = await repo.markRead(ctx.tx, ctx.tenant.agencyId, userId, keys);
   return { updated, unread: await unreadOf(ctx.tx, ctx.tenant.agencyId, userId) };
@@ -332,7 +332,7 @@ export async function markNotificationsRead(
  */
 export async function markAllNotificationsRead(ctx: Ctx): Promise<MarkAllNotificationsReadDto> {
   assertCan(ctx, 'notifications.markRead');
-  const userId = userIdOf(ctx);
+  const userId = memberUserId(ctx);
   const updated = await repo.markAllRead(ctx.tx, ctx.tenant.agencyId, userId, NOTIFICATION_LIMITS.markAllMax);
   const unread = await unreadOf(ctx.tx, ctx.tenant.agencyId, userId);
   return { updated, more: unread.count > 0, unread };
@@ -353,7 +353,7 @@ export async function markLinkRead(
   return repo.markLinkRead(
     ctx.tx,
     ctx.tenant.agencyId,
-    userIdOf(ctx),
+    memberUserId(ctx),
     type,
     link,
     input.since,
@@ -365,7 +365,7 @@ export async function markLinkRead(
 export async function getNotificationPreferences(ctx: Ctx): Promise<NotificationPreferencesDto> {
   assertCan(ctx, 'notifications.read');
   const saved = new Map(
-    (await repo.listPreferences(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx))).map((p) => [p.type, p]),
+    (await repo.listPreferences(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx))).map((p) => [p.type, p]),
   );
   return {
     items: NOTIFICATION_TYPES.map((type) => {
@@ -385,7 +385,7 @@ export async function updateNotificationPreference(
   body: UpdateNotificationPreferenceBody,
 ): Promise<NotificationPreferenceDto> {
   assertCan(ctx, 'notifications.preferences');
-  const userId = userIdOf(ctx);
+  const userId = memberUserId(ctx);
   const current = (await repo.preferencesFor(ctx.tx, ctx.tenant.agencyId, [userId], type)).get(userId);
   const base = current ?? repo.DEFAULT_PREFERENCE;
   const saved = await repo.upsertPreference(ctx.tx, {

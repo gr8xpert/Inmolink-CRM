@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "root": true,
+  "plugins": ["./scripts/lint/no-member-user-id-alias.grit"],
   "extends": ["./packages/config/biome.preset.json"],
   "vcs": {
     "enabled": true,

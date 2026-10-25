@@ -4,11 +4,9 @@ import { CreateTaskBody, UpdateTaskBody } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
-import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { requireSession, settle } from '@/server/actions';
 import { readAgencyTimeZone } from '@/server/agency-time-zone';
-import type { ApiResult, SessionRef } from '@/server/api';
-import { sessionRef } from '@/server/api';
 import { createTask, deleteTask, updateTask } from '@/server/crm-api';
 import { parseLocalDateTime } from './time';
 
@@ -35,17 +33,6 @@ async function back(form: FormData, extra: Record<string, string>): Promise<neve
   redirect(`${getPathname({ href: '/tasks', locale: await getLocale() })}?${query.toString()}`);
 }
 
-async function requireSession(): Promise<SessionRef> {
-  const s = await auth();
-  if (!s?.user?.id) redirect('/session/expired');
-  return sessionRef(s.user);
-}
-
-async function settle(form: FormData, res: ApiResult<unknown>): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return back(form, res.ok ? { done: '1' } : { error: res.error?.code ?? 'generic' });
-}
-
 export async function addTaskAction(form: FormData): Promise<void> {
   const session = await requireSession();
   const due = text(form, 'dueAt');
@@ -62,7 +49,7 @@ export async function addTaskAction(form: FormData): Promise<void> {
   if ((due && !dueAt) || !parsed.success || !/^[A-Za-z0-9-]{16,64}$/.test(key)) {
     return back(form, { error: 'VALIDATION_FAILED' });
   }
-  return settle(form, await createTask(session, parsed.data, key));
+  return settle(await createTask(session, parsed.data, key), (e) => back(form, e));
 }
 
 /** Completes, reopens or deletes one task (`intent`), at the `version` the member saw. */
@@ -72,8 +59,8 @@ export async function taskIntentAction(form: FormData): Promise<void> {
   const version = Number(text(form, 'version'));
   if (!z.uuid().safeParse(id).success) return back(form, { error: 'VALIDATION_FAILED' });
   const s = await requireSession();
-  if (intent === 'delete') return settle(form, await deleteTask(s, id));
+  if (intent === 'delete') return settle(await deleteTask(s, id), (e) => back(form, e));
   const parsed = UpdateTaskBody.safeParse({ version, status: intent === 'reopen' ? 'OPEN' : 'DONE' });
   if (!parsed.success || !['complete', 'reopen'].includes(intent)) return back(form, { error: 'VALIDATION_FAILED' });
-  return settle(form, await updateTask(s, id, parsed.data));
+  return settle(await updateTask(s, id, parsed.data), (e) => back(form, e));
 }

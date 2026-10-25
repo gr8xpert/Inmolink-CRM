@@ -35,7 +35,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { type EventMeta, type EventPayload, emit } from '@inmolink/platform/outbox';
-import { type Ctx, type CtxRunner, memberUserId as userIdOf } from '../../context';
+import { type Ctx, type CtxRunner, memberUserId } from '../../context';
 import { advisoryLock, idempotencyOf, isUniqueViolation, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -199,7 +199,7 @@ async function changed(ctx: Ctx, r: repo.ViewingRow, action: Action, termsAccept
       ownerAgencyId: r.ownerAgencyId,
       action,
       by: r.side,
-      userId: userIdOf(ctx),
+      userId: memberUserId(ctx),
       termsAccepted,
     }),
   );
@@ -232,7 +232,7 @@ export async function requestViewing(
 ): Promise<{ request: ViewingRequestDto; replayed: boolean }> {
   assertCan(ctx, 'mls.viewings.write');
   const agencyId = ctx.tenant.agencyId;
-  const userId = userIdOf(ctx);
+  const userId = memberUserId(ctx);
   const now = clock.now();
   const idempotency = idempotencyOf('mls.viewing', userId, opts.idempotencyKey, input);
   const prior = await replayOf(
@@ -313,7 +313,7 @@ async function assertMayBind(ctx: Ctx, r: repo.ViewingRow): Promise<void> {
   if (ctx.actor.kind === 'user' && ADMIN_ROLES.has(ctx.actor.role)) return;
   if (r.targetKind === 'LISTING') {
     const listing = await properties.leadTargetListing(ctx.tx, ctx.tenant.agencyId, r.targetId);
-    if (listing?.ownerUserId && listing.ownerUserId === userIdOf(ctx)) return;
+    if (listing?.ownerUserId && listing.ownerUserId === memberUserId(ctx)) return;
   }
   throw new AppError('FORBIDDEN');
 }
@@ -346,7 +346,7 @@ export async function acceptViewing(ctx: Ctx, id: string): Promise<ViewingReques
     status: 'SCHEDULED',
     awaiting: null,
     scheduledAt: r.proposedStartAt,
-    ...(acceptsTerms ? { ownerAccept: { userId: userIdOf(ctx) } } : {}),
+    ...(acceptsTerms ? { ownerAccept: { userId: memberUserId(ctx) } } : {}),
   });
   return answered(ctx, next, 'ACCEPTED', acceptsTerms);
 }
@@ -384,7 +384,7 @@ export async function rescheduleViewing(
     proposedStartAt: at,
     scheduledAt: null,
     expiresAt: expiryOf(at, now),
-    ...(acceptsTerms ? { ownerAccept: { userId: userIdOf(ctx) } } : {}),
+    ...(acceptsTerms ? { ownerAccept: { userId: memberUserId(ctx) } } : {}),
   });
   return answered(ctx, next, 'RESCHEDULED', acceptsTerms);
 }

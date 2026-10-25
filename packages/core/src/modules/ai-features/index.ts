@@ -2,7 +2,13 @@
 // S12-02: errors, events, jobs, policy and the AI Listing Studio.
 export { aiFeaturesErrors } from './errors';
 export { aiFeaturesEvents } from './events';
-export { aiFeaturesJobs, STUDIO_BATCH_RETENTION_DAYS, STUDIO_MAX_POLLS, STUDIO_POLL_MS } from './jobs';
+export {
+  aiFeaturesJobs,
+  STUDIO_BATCH_RETENTION_DAYS,
+  STUDIO_MAX_POLLS,
+  STUDIO_POLL_MS,
+  whiteLabelJobs,
+} from './jobs';
 export { AI_FEATURES_ACTIONS, AI_FEATURES_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from './policy';
 export {
   abandonListingStudioBatch,
@@ -29,8 +35,13 @@ export {
   type StudioInput,
   studioFacts,
 } from './studio-facts';
-export { registerAiFeaturesSubscriptions, unregisterAiFeaturesSubscriptions } from './subscriptions';
-// S12-03: the white-label sanitizer's jobs and subscriptions (owned by the S12-03 lane).
+export {
+  registerAiFeaturesSubscriptions,
+  registerWhiteLabelSubscriptions,
+  unregisterAiFeaturesSubscriptions,
+  unregisterWhiteLabelSubscriptions,
+} from './subscriptions';
+// S12-03: the white-label sanitizer (its jobs and subscriptions live in jobs.ts / subscriptions.ts).
 export {
   docTexts,
   MAX_MODEL_TEXT_CHARS,
@@ -50,5 +61,4 @@ export {
   WHITE_LABEL_PROMPT,
   WhiteLabelRemovals,
 } from './white-label';
-export { registerWhiteLabelSubscriptions, unregisterWhiteLabelSubscriptions, whiteLabelJobs } from './white-label-jobs';
 // Export service functions and DTO-facing types here as they are added. Never export repo or schema.

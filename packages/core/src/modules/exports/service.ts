@@ -31,7 +31,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { z } from 'zod';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as billing from '../billing';
@@ -102,11 +102,6 @@ async function loadConnection(ctx: Ctx, id: string, forUpdate = false): Promise<
   const row = await repo.getConnection(ctx.tx, ctx.tenant.agencyId, id, forUpdate);
   if (!row) throw new AppError('PORTAL_CONNECTION_NOT_FOUND');
   return row;
-}
-
-function requireUser(ctx: Ctx): string {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
 }
 
 function assertCredentialKeys(channel: repo.ChannelRow, credentials: Record<string, string>): void {
@@ -221,7 +216,7 @@ export async function createConnection(
   opts: { idempotencyKey?: string } = {},
 ): Promise<PortalConnectionSecretDto & { replayed: boolean }> {
   assertCan(ctx, 'exports.manage');
-  const userId = requireUser(ctx);
+  const userId = memberUserId(ctx);
   // S13-02: portal exports are a paid feature (PLAN §11).
   await billing.requirePlan(ctx, 'portal_exports');
   const { agencyId } = ctx.tenant;
@@ -428,7 +423,7 @@ export async function setOverrides(
   input: SetPortalOverridesInput,
 ): Promise<PortalConnectionDto> {
   assertCan(ctx, 'exports.manage');
-  const userId = requireUser(ctx);
+  const userId = memberUserId(ctx);
   const { agencyId } = ctx.tenant;
   const connection = await loadConnection(ctx, params.connectionId, true);
 

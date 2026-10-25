@@ -6,6 +6,7 @@ import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { requireSession, settle } from '@/server/actions';
 import type { ApiResult, SessionRef } from '@/server/api';
 import { sessionRef } from '@/server/api';
 import {
@@ -75,27 +76,16 @@ async function back(query: Record<string, string>): Promise<never> {
   redirect(`${base}?${new URLSearchParams(query).toString()}`);
 }
 
-async function settle(res: ApiResult<unknown>): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return back(res.ok ? { done: '1' } : { error: res.error?.code ?? 'generic' });
-}
-
 const text = (form: FormData, name: string) => {
   const v = form.get(name);
   return typeof v === 'string' ? v.trim() : '';
 };
 
-async function requireSession(): Promise<SessionRef> {
-  const s = await session();
-  if (!s) redirect('/session/expired');
-  return s;
-}
-
 export async function addStageAction(form: FormData): Promise<void> {
   const parsed = CreatePipelineStageBody.safeParse({ name: text(form, 'name'), kind: text(form, 'kind') });
   const key = text(form, 'idempotencyKey');
   if (!parsed.success || !/^[A-Za-z0-9-]{8,64}$/.test(key)) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await createPipelineStage(await requireSession(), parsed.data, key));
+  return settle(await createPipelineStage(await requireSession(), parsed.data, key), back);
 }
 
 export async function updateStageAction(form: FormData): Promise<void> {
@@ -112,7 +102,7 @@ export async function updateStageAction(form: FormData): Promise<void> {
           : { version, name: text(form, 'name') };
   const parsed = UpdatePipelineStageBody.safeParse(body);
   if (!Uuid.safeParse(id).success || !parsed.success) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await updatePipelineStage(await requireSession(), id, parsed.data));
+  return settle(await updatePipelineStage(await requireSession(), id, parsed.data), back);
 }
 
 /** Moves one stage up or down: the whole active order, re-read just before (a concurrent change is refused). */
@@ -129,5 +119,5 @@ export async function shiftStageAction(form: FormData): Promise<void> {
   const to = at + dir;
   if (at < 0 || to < 0 || to >= ids.length) return back({});
   [ids[at], ids[to]] = [ids[to] as string, ids[at] as string];
-  return settle(await reorderPipelineStages(s, ids));
+  return settle(await reorderPipelineStages(s, ids), back);
 }

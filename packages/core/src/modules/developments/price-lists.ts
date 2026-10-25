@@ -19,11 +19,11 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { z } from 'zod';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId } from '../../context';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import * as repo from './repo';
-import { actorId, ownForChange, ownForRead, withDbErrors } from './service';
+import { ownForChange, ownForRead, withDbErrors } from './service';
 
 /**
  * At most this many unit changes, and this many bytes of them, are spelled out in an approval's audit entry (the
@@ -128,7 +128,7 @@ export async function createPriceList(
       extractedBy: input.extractedBy ?? 'HUMAN',
       entries: input.entries,
       diffSummary: diff,
-      createdByUserId: actorId(ctx),
+      createdByUserId: memberUserId(ctx),
     }),
   );
   await emit(
@@ -164,7 +164,7 @@ export async function approvePriceList(ctx: Ctx, developmentId: string, version:
       return { id: u.id, priceCents: c.priceCents ? c.priceCents.to : u.priceCents, status: c.status?.to ?? u.status };
     }),
   );
-  const userId = actorId(ctx);
+  const userId = memberUserId(ctx);
   await repo.insertPriceListHistories(ctx.tx, {
     agencyId: dev.agencyId,
     priceListId: list.id,

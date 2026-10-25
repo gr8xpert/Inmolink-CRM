@@ -10,6 +10,7 @@ import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
 import { escapeHtml } from '../../email-text';
+import { placeText } from '../../place-text';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const colour = (value: string | null, fallback: string) => (value && HEX.test(value) ? value : fallback);
@@ -38,11 +39,6 @@ function priceText(card: WebsiteCard, locale: string, onRequest: string): string
   } catch {
     return `${Math.round(amountCents / 100)} ${currency}`;
   }
-}
-
-function placeText(card: WebsiteCard): string {
-  const p = card.place;
-  return [p.area?.name, p.city?.name].filter(Boolean).join(', ');
 }
 
 function imageOf(card: WebsiteCard): string | null {
@@ -107,7 +103,7 @@ export function renderLeadAck(input: LeadAckInput): EmailMessage {
     title: card.title,
     ref: t('ack.reference', { ref: card.ref }),
     price: priceText(card, input.locale, t('ack.priceOnRequest')),
-    place: placeText(card),
+    place: placeText(card.place, ['area', 'city']),
     beds: card.bedrooms === null ? null : t('ack.bedrooms', { count: card.bedrooms }),
     image: imageOf(card),
   }));

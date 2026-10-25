@@ -4,11 +4,9 @@ import { CreateCalendarEventBody, UpdateCalendarEventBody } from '@inmolink/cont
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
-import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
+import { requireSession, settle } from '@/server/actions';
 import { readAgencyTimeZone } from '@/server/agency-time-zone';
-import type { ApiResult, SessionRef } from '@/server/api';
-import { sessionRef } from '@/server/api';
 import {
   createCalendarEvent,
   revokeCalendarFeed,
@@ -44,17 +42,6 @@ async function back(form: FormData, extra: Record<string, string>): Promise<neve
   redirect(`${getPathname({ href: '/calendar', locale: await getLocale() })}?${query.toString()}`);
 }
 
-async function requireSession(): Promise<SessionRef> {
-  const s = await auth();
-  if (!s?.user?.id) redirect('/session/expired');
-  return sessionRef(s.user);
-}
-
-async function settle(form: FormData, res: ApiResult<unknown>): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return back(form, res.ok ? { done: '1' } : { error: res.error?.code ?? 'generic' });
-}
-
 export async function addEventAction(form: FormData): Promise<void> {
   const session = await requireSession();
   const timeZone = await readAgencyTimeZone(session);
@@ -75,7 +62,7 @@ export async function addEventAction(form: FormData): Promise<void> {
     remindMinutes: remind === 'none' ? null : Number(remind),
   });
   if (!parsed.success) return back(form, { error: 'VALIDATION_FAILED' });
-  return settle(form, await createCalendarEvent(session, parsed.data, key));
+  return settle(await createCalendarEvent(session, parsed.data, key), (e) => back(form, e));
 }
 
 /** Cancels or restores one event (`intent`), at the `version` the member saw. */
@@ -90,7 +77,7 @@ export async function eventIntentAction(form: FormData): Promise<void> {
     status: intent === 'cancel' ? 'CANCELLED' : 'SCHEDULED',
   });
   if (!parsed.success) return back(form, { error: 'VALIDATION_FAILED' });
-  return settle(form, await updateCalendarEvent(await requireSession(), id, parsed.data));
+  return settle(await updateCalendarEvent(await requireSession(), id, parsed.data), (e) => back(form, e));
 }
 
 /** A new feed URL (the previous one stops working), shown once in the form. */

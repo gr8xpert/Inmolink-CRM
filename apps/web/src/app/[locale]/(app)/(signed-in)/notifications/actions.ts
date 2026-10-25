@@ -4,10 +4,8 @@ import { NOTIFICATION_TYPES, UpdateNotificationPreferenceBody } from '@inmolink/
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
-import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
-import type { ApiResult, SessionRef } from '@/server/api';
-import { sessionRef } from '@/server/api';
+import { requireSession, settle } from '@/server/actions';
 import {
   markAllNotificationsRead,
   markNotificationsRead,
@@ -26,27 +24,16 @@ async function back(extra: Record<string, string>): Promise<never> {
   redirect(`${getPathname({ href: '/notifications', locale: await getLocale() })}?${query.toString()}`);
 }
 
-async function requireSession(): Promise<SessionRef> {
-  const s = await auth();
-  if (!s?.user?.id) redirect('/session/expired');
-  return sessionRef(s.user);
-}
-
-async function settle(res: ApiResult<unknown>, done: string): Promise<never> {
-  if (res === 'revoked') redirect('/session/expired');
-  return back(res.ok ? { done } : { error: res.error?.code ?? 'generic' });
-}
-
 export async function markReadAction(form: FormData): Promise<void> {
   const parsed = z
     .object({ id: z.uuid(), createdAt: z.iso.datetime() })
     .safeParse({ id: text(form, 'id'), createdAt: text(form, 'createdAt') });
   if (!parsed.success) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await markNotificationsRead(await requireSession(), [parsed.data]), 'read');
+  return settle(await markNotificationsRead(await requireSession(), [parsed.data]), back, 'read');
 }
 
 export async function markAllReadAction(): Promise<void> {
-  return settle(await markAllNotificationsRead(await requireSession()), 'readAll');
+  return settle(await markAllNotificationsRead(await requireSession()), back, 'readAll');
 }
 
 /** One type's three switches; an unchecked box is absent from the form, so all three are sent. */
@@ -58,5 +45,5 @@ export async function savePreferenceAction(form: FormData): Promise<void> {
     email: form.get('email') === 'on',
   });
   if (!type.success || !parsed.success) return back({ error: 'VALIDATION_FAILED' });
-  return settle(await updateNotificationPreference(await requireSession(), type.data, parsed.data), 'saved');
+  return settle(await updateNotificationPreference(await requireSession(), type.data, parsed.data), back, 'saved');
 }
