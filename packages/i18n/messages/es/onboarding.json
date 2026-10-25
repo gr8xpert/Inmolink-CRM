@@ -57,5 +57,61 @@
     "forbidden": "Solo un administrador de tu empresa puede cambiar estos datos.",
     "generic": "Algo ha ido mal. Inténtalo de nuevo.",
     "locked": "Tu empresa está verificada: el nombre, el NIF/CIF y el número de registro solo los puede cambiar nuestro equipo."
+  },
+  "checklist": {
+    "title": "Primeros pasos",
+    "progress": "{completed} de {total} completados",
+    "done": "hecho",
+    "todo": "pendiente",
+    "help": "Cómo hacerlo",
+    "steps": {
+      "VERIFY_AGENCY": {
+        "title": "Verifica tu agencia",
+        "body": "Envía los datos y documentos de tu empresa. Cuando los aprobemos podrás compartir inmuebles y publicarlos en tu web.",
+        "action": "Verificar ahora"
+      },
+      "IMPORT_LISTINGS": {
+        "title": "Añade o importa tus inmuebles",
+        "body": "Añade un inmueble, o conecta tu feed o tu hoja de cálculo para traer toda tu cartera.",
+        "action": "Ir a inmuebles"
+      },
+      "CONNECT_WEBSITE": {
+        "title": "Conecta tu web",
+        "body": "Crea una conexión de web para que tus inmuebles aparezcan en tu propia página.",
+        "action": "Conectar una web"
+      },
+      "INVITE_TEAM": {
+        "title": "Invita a tu equipo",
+        "body": "Invita a tus agentes para que trabajen contigo en inmuebles y clientes.",
+        "action": "Invitar personas"
+      },
+      "SHARE_LISTING": {
+        "title": "Comparte tu primer inmueble",
+        "body": "Comparte un inmueble con otras agencias (o publícalo) para empezar a colaborar en la red.",
+        "action": "Compartir un inmueble"
+      }
+    }
+  },
+  "tour": {
+    "start": "Hacer el recorrido",
+    "next": "Siguiente",
+    "back": "Atrás",
+    "done": "Terminar",
+    "close": "Cerrar el recorrido",
+    "intro": {
+      "title": "Bienvenido a Inmolink",
+      "body": "Un vistazo rápido a por dónde empezar. Tu lista se marca sola a medida que avanzas."
+    },
+    "steps": {
+      "VERIFY_AGENCY": "Aquí está la verificación: envía los datos y documentos de tu empresa para revisarlos.",
+      "IMPORT_LISTINGS": "Aquí están tus inmuebles: añade uno o impórtalos desde tu feed o una hoja de cálculo.",
+      "CONNECT_WEBSITE": "Conecta aquí tu web para mostrar tus inmuebles en tu propia página.",
+      "INVITE_TEAM": "Invita a tus agentes y gestiona sus roles aquí.",
+      "SHARE_LISTING": "Abre un inmueble y cambia su visibilidad para compartirlo con otras agencias."
+    },
+    "support": {
+      "title": "Estamos para ayudarte",
+      "body": "¿Dudas? Abre un ticket de soporte cuando quieras."
+    }
   }
 }

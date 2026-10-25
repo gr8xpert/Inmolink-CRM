@@ -130,7 +130,10 @@
     "giveToGetGrant": "Eximir de dar para recibir",
     "giveToGetEnd": "Quitar exención",
     "giveToGetReason": "Motivo (ticket de soporte, por qué la agencia es solo compradora) — se guarda con la exención",
-    "giveToGetLastReason": "Motivo indicado: {reason}"
+    "giveToGetLastReason": "Motivo indicado: {reason}",
+    "onboarding": "Puesta en marcha",
+    "onboardingProgress": "{completed} de {total} pasos completados",
+    "onboardingOpen": "Todavía no"
   },
   "impersonation": {
     "start": "Actuar como {name}",

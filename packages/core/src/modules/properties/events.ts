@@ -23,7 +23,16 @@ export const propertiesEvents = {
   visibilityChanged: defineEvent(
     'properties.listing.visibilityChanged',
     1,
-    z.object({ ...listing, visibility: z.string(), shareScope: z.string() }),
+    z.object({
+      ...listing,
+      visibility: z.string(),
+      shareScope: z.string(),
+      /**
+       * S13-04: true when the freshness sweep hid the listing from the network (visibility unchanged); absent on every
+       * other change (and on events emitted before it existed). Lets "shared a listing" consumers skip hides.
+       */
+      networkHidden: z.boolean().optional(),
+    }),
   ),
   deleted: defineEvent('properties.listing.deleted', 1, z.object(listing)),
   restored: defineEvent('properties.listing.restored', 1, z.object(listing)),

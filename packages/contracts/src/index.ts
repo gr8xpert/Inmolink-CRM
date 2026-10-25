@@ -34,6 +34,7 @@ export * from './migration';
 export * from './mls';
 export * from './network';
 export * from './notifications';
+export * from './onboarding';
 export * from './plugin-updates';
 export * from './preferred-agencies';
 export * from './presentations';

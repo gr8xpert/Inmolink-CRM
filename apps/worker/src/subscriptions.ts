@@ -20,6 +20,7 @@ import * as migration from '@inmolink/core/modules/migration';
 import * as mls from '@inmolink/core/modules/mls';
 import * as network from '@inmolink/core/modules/network';
 import * as notifications from '@inmolink/core/modules/notifications';
+import * as onboarding from '@inmolink/core/modules/onboarding';
 import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
 import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
@@ -66,6 +67,7 @@ export const MODULES = {
   presentations,
   admin,
   support,
+  onboarding,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -110,4 +112,6 @@ export function registerSubscriptions(): void {
   admin.registerAdminSubscriptions();
   // S13-05: a support message visible to the agency is e-mailed (staff reply → member, member → support inbox).
   support.registerSupportSubscriptions();
+  // S13-04: the onboarding checklist completes from the agency's events (projection only).
+  onboarding.registerOnboardingSubscriptions();
 }

@@ -60,6 +60,8 @@ export function PrimaryNav({
             <li key={item.href}>
               <Link
                 href={item.href}
+                // S13-04: product tours point at nav items by their path
+                data-tour-target={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'block rounded-md px-3 py-2 text-sm font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',

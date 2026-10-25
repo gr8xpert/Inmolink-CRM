@@ -3,6 +3,7 @@ import { Button, EmptyState, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { fetchStaffOnboarding } from '@/server/onboarding-api';
 import { requireStaff } from '@/server/staff';
 import { fetchStaffAuditLog, fetchTenant, fetchTenantMembers } from '@/server/staff-api';
 import { fetchAgencyBilling } from '@/server/staff-ops-api';
@@ -28,17 +29,25 @@ export default async function TenantPage({
   if (!parsed.success) notFound();
   const { agencyId } = parsed.data;
   const canImpersonate = me.role !== 'STAFF_DATA_OPS';
-  const [tenant, members, audit, billing] = await Promise.all([
+  const [tenant, members, audit, billing, onboarding] = await Promise.all([
     fetchTenant(session, agencyId),
     canImpersonate ? fetchTenantMembers(session, agencyId) : Promise.resolve(null),
     canImpersonate ? fetchStaffAuditLog(session, { agencyId, limit: 20 }) : Promise.resolve(null),
     fetchAgencyBilling(session, agencyId),
+    fetchStaffOnboarding(session, agencyId),
   ]);
-  if (tenant === 'revoked' || members === 'revoked' || audit === 'revoked' || billing === 'revoked') {
+  if (
+    tenant === 'revoked' ||
+    members === 'revoked' ||
+    audit === 'revoked' ||
+    billing === 'revoked' ||
+    onboarding === 'revoked'
+  ) {
     redirect('/session/expired');
   }
   if (!tenant.ok && tenant.status === 404) notFound();
   const t = await getTranslations('staff');
+  const tOnboarding = await getTranslations('onboarding');
   const format = await getFormatter();
   const query = await searchParams;
   const error = ERRORS.find((e) => e === query.error);
@@ -137,6 +146,32 @@ export default async function TenantPage({
             ) : null}
           </dd>
         </dl>
+      </section>
+
+      {/* S13-04: the agency's onboarding progress — every checklist step, ticked from its events. */}
+      <section aria-labelledby="onboarding-heading" className="flex flex-col gap-2 rounded-md border p-4 text-sm">
+        <h2 id="onboarding-heading" className="font-medium">
+          {t('tenant.onboarding')}
+        </h2>
+        {onboarding.ok ? (
+          <>
+            <p className="text-muted-foreground" data-testid="tenant-onboarding-progress">
+              {t('tenant.onboardingProgress', { completed: onboarding.data.completed, total: onboarding.data.total })}
+            </p>
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1" data-testid="tenant-onboarding">
+              {onboarding.data.steps.map((s) => (
+                <div key={s.step} className="contents">
+                  <dt className="text-muted-foreground">{tOnboarding(`checklist.steps.${s.step}.title`)}</dt>
+                  <dd>{s.completedAt ? date(s.completedAt) : t('tenant.onboardingOpen')}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        ) : (
+          <p role="alert" className="text-sm text-destructive">
+            {t('errors.generic')}
+          </p>
+        )}
       </section>
 
       {/* S13-03: plan grants and founding price locks (super admins change them). */}

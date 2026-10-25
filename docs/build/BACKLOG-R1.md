@@ -1895,6 +1895,11 @@ Ref §7 M18 · Mod chat, db · Dep S11-05
 Ref §8 #2 · Mod ai-features, agencies, db · Dep S13-F7
 **Build:** a STRICT `white_label_batches` table (id, agency_id, provider_batch_id, items jsonb, cursor jsonb, state, created_at; tenant registry) so the backfill walk submits pages through `ai.batch` (half price) and collects them later instead of `ai.structured`; an owner identity change (agency rename, new or renamed agent — the agencies / identity events) queues that agency's backfill walk early.
 **Done when:** a backfill page goes through `ai.batch` and its removals land after collect (test against the fake provider); renaming an agent queues the agency's walk once (test)
+
+### S13-F26 · Onboarding backfill for existing agencies (S13-04)
+Ref §7 M21 · Mod onboarding · Dep S13-04
+**Build:** a one-off, batched, idempotent backfill (script or staff operation) that completes onboarding steps for agencies that did them before S13-04 shipped — from current state, not events: any listing or development (IMPORT_LISTINGS), any SHARED / PUBLIC listing with scope ALL (SHARE_LISTING), any site (CONNECT_WEBSITE), any invite or second member (INVITE_TEAM), VERIFIED status (VERIFY_AGENCY), with the earliest known timestamp; also run after the legacy import (S14).
+**Done when:** an agency with existing data shows the matching steps done after the backfill, a rerun changes nothing (test)
 ---
 
 ## S14 — Migration tooling

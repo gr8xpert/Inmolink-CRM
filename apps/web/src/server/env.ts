@@ -63,6 +63,14 @@ export const webEnv = {
     .transform((v) => v.replace(/\/+$/, '')),
   /** MapLibre style for the staff taxonomy editor's polygon map (S2-04). The default is MapLibre's demo style; set a real one in production. */
   MAP_STYLE_URL: z.url().default('https://demotiles.maplibre.org/style.json'),
+  /**
+   * S13-04: the help centre (knowledge base) the onboarding checklist's contextual help links point into
+   * (`<url>/<locale>/<article>`). Unset: the checklist shows no help links.
+   */
+  HELP_CENTER_URL: z
+    .url()
+    .optional()
+    .transform((v) => v?.replace(/\/+$/, '')),
   ...authSessionEnv,
   /** Login challenge once the per-email ceiling is reached (S1-F5); unset keeps the hard block. */
   ...turnstileEnv,

@@ -130,7 +130,10 @@
     "giveToGetGrant": "Exempt from give-to-get",
     "giveToGetEnd": "End exemption",
     "giveToGetReason": "Reason (support ticket, why the agency is buyer-only) — kept with the exemption",
-    "giveToGetLastReason": "Reason given: {reason}"
+    "giveToGetLastReason": "Reason given: {reason}",
+    "onboarding": "Onboarding",
+    "onboardingProgress": "{completed} of {total} steps done",
+    "onboardingOpen": "Not yet"
   },
   "impersonation": {
     "start": "Act as {name}",

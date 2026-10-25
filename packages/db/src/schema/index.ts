@@ -23,6 +23,7 @@ export * from './migration';
 export * from './mls';
 export * from './network';
 export * from './notifications';
+export * from './onboarding';
 export * from './outbox';
 export * from './presentations';
 export * from './properties';

@@ -57,5 +57,61 @@
     "forbidden": "Only an administrator of your company can change these details.",
     "generic": "Something went wrong. Please try again.",
     "locked": "Your company is verified: its name, tax id and register number can only change through our team."
+  },
+  "checklist": {
+    "title": "Get started",
+    "progress": "{completed} of {total} done",
+    "done": "done",
+    "todo": "to do",
+    "help": "How to",
+    "steps": {
+      "VERIFY_AGENCY": {
+        "title": "Verify your agency",
+        "body": "Send your company details and documents. Once we approve them you can share listings and publish them on your website.",
+        "action": "Verify now"
+      },
+      "IMPORT_LISTINGS": {
+        "title": "Add or import your listings",
+        "body": "Add a listing, or connect your feed or spreadsheet to bring in your whole portfolio.",
+        "action": "Go to listings"
+      },
+      "CONNECT_WEBSITE": {
+        "title": "Connect your website",
+        "body": "Create a website connection so your listings appear on your own site.",
+        "action": "Connect a website"
+      },
+      "INVITE_TEAM": {
+        "title": "Invite your team",
+        "body": "Invite your agents so they can work on listings and clients with you.",
+        "action": "Invite people"
+      },
+      "SHARE_LISTING": {
+        "title": "Share your first listing",
+        "body": "Share a listing with other agencies (or publish it) to start collaborating on the network.",
+        "action": "Share a listing"
+      }
+    }
+  },
+  "tour": {
+    "start": "Take the tour",
+    "next": "Next",
+    "back": "Back",
+    "done": "Finish",
+    "close": "Close the tour",
+    "intro": {
+      "title": "Welcome to Inmolink",
+      "body": "A quick look at where to start. Your checklist ticks itself as you go."
+    },
+    "steps": {
+      "VERIFY_AGENCY": "Verification is here: send your company details and documents for review.",
+      "IMPORT_LISTINGS": "Your listings live here: add one, or import them from your feed or a spreadsheet.",
+      "CONNECT_WEBSITE": "Connect your website here to show your listings on your own site.",
+      "INVITE_TEAM": "Invite your agents and manage their roles here.",
+      "SHARE_LISTING": "Open a listing and change its visibility to share it with other agencies."
+    },
+    "support": {
+      "title": "We are here to help",
+      "body": "Questions? Open a support ticket at any time."
+    }
   }
 }

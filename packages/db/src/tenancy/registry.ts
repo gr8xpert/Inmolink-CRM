@@ -1515,6 +1515,9 @@ export const tenantTables: Record<string, TenantTable> = {
     intake: { selectColumns: ['id', 'selection_id', 'kind', 'created_at'] },
     base: { kind: 'VIEW' },
   },
+  // S13-04: the onboarding checklist's projection — written only by the outbox subscribers (`withSystem`); members read
+  // their agency's completed steps, staff read every agency's (the tenant page shows the progress).
+  onboarding_steps: { kind: 'STRICT', userReadOnly: true, staff: { select: 'true' } },
   // S13-05: support tickets. Every member reads and opens its agency's tickets and changes only what the service
   // writes (status, last message, resolution); never removes one. Staff read every agency's and change only the triage
   // columns (support staff and super admins).

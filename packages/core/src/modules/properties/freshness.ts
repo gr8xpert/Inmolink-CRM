@@ -62,7 +62,12 @@ export async function sweepFreshnessBatch(
     const base = { listingId: r.id, agencyId: r.agencyId, version: r.version };
     events.push(
       propertiesEvents.updated({ ...base, changed: ['freshness'] }),
-      propertiesEvents.visibilityChanged({ ...base, visibility: r.visibility, shareScope: r.shareScope }),
+      propertiesEvents.visibilityChanged({
+        ...base,
+        visibility: r.visibility,
+        shareScope: r.shareScope,
+        networkHidden: true,
+      }),
     );
   }
   for (const r of prompted) {
