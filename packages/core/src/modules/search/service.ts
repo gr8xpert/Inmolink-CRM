@@ -765,6 +765,14 @@ export async function ownListingDetails(
 }
 
 /**
+ * S12-04: which of these other agencies' listings and units `agencyId` may present to its clients now (shared with it,
+ * public, not hidden from the network) — re-checked at view time by selection pages. One statement, `app_public`.
+ */
+export function networkSharedTargets(tx: Tx, agencyId: string, ids: readonly string[]): Promise<Set<string>> {
+  return repo.networkSharedTargetIds(tx, agencyId, ids).then((r) => new Set(r));
+}
+
+/**
  * S12-04: which of these listings and units the caller may present (a read model their RLS shows: their own agency's
  * or a network one). One statement (primary key range per target).
  */

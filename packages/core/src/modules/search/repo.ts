@@ -387,6 +387,22 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
     );
 }
 
+/**
+ * S12-04: which of these other agencies' targets `agencyId` may present now — the network search's rule on the fallback
+ * rows (`othersInNetwork` + `sharesWith`): public, not hidden from the network, shared with ALL or with `agencyId` among
+ * the owner's preferred agencies. `app_public` reads the rows (global, public). One statement.
+ */
+export async function networkSharedTargetIds(tx: Tx, agencyId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute(sql`
+    select d.target_id as "targetId" from ${listingSearchDocs} d
+     where d.target_id = any(${uuidArray([...new Set(ids)])})
+       and d.owner_agency_id <> ${agencyId}::uuid
+       and d.network_hidden is not true
+       and (d.share_scope = 'ALL' or d.preferred_agency_ids @> array[${agencyId}::uuid])`);
+  return (res.rows as { targetId: string }[]).map((r) => r.targetId);
+}
+
 /** S12-04: which of these targets have a read model the caller's RLS shows (own or network), any locale. */
 export async function visibleTargetIds(tx: Tx, ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];

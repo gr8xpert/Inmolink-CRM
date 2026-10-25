@@ -9,18 +9,26 @@ export {
 export { presentationsErrors } from './errors';
 export { presentationsEvents } from './events';
 export { presentationsJobs } from './jobs';
-export { CLIENT_MODE_ALLOWED, can, type PresentationsAction } from './policy';
+export {
+  CLIENT_MODE_ALLOWED,
+  can,
+  PRESENTATIONS_ACTIONS,
+  PRESENTATIONS_IMPERSONATION,
+  type PresentationsAction,
+} from './policy';
 export {
   checkSelectionLimits,
   interactionOf,
   presentSelection,
   recordSelectionInteraction,
+  recordSelectionPageView,
   SELECTION_PAGE_LIMITS,
   type SelectionDocRow,
   type SelectionInteraction,
   type SelectionPageItem,
   type SelectionPageModel,
   selectionPage,
+  VIEW_WINDOW_SECONDS,
 } from './public';
 export {
   createSelection,

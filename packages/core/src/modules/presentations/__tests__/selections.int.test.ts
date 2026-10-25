@@ -197,7 +197,7 @@ describe('selections (S12-04)', () => {
     expect(made.selection.items.map((i) => i.targetId)).toEqual([L.own, L.network]);
   });
 
-  it('[S12-04] the page passes the white-label test (cached model removals applied), in ≤ 4 statements', async () => {
+  it('[S12-04] the page passes the white-label test (cached model removals applied), in ≤ 5 statements', async () => {
     const made = await create({
       title: 'Villas for Ana',
       locale: 'en',
@@ -213,7 +213,7 @@ describe('selections (S12-04)', () => {
     const statements = await countQueries(async () => {
       model = await presentations.selectionPage(made.share.token);
     });
-    expect(statements).toBeLessThanOrEqual(4);
+    expect(statements).toBeLessThanOrEqual(5);
     const ownerRef = (await as(b, (ctx) => properties.getListing(ctx, L.network))).ref as string;
     expect(
       whiteLabelLeaks(model, {
@@ -312,6 +312,32 @@ describe('selections (S12-04)', () => {
     const own = timeline.items.filter((i) => i.listingId === L.own);
     expect(own.length).toBe(2);
     expect(timeline.items.some((i) => i.listingId === L.network)).toBe(false);
+  });
+
+  it('[S12-04] an owner narrowing its sharing takes its listing off other agencies’ selections at the next view', async () => {
+    const id = await listing(b, 52_000_000, 'Townhouse near the beach.');
+    const made = await create({
+      title: 'Sharing re-check',
+      locale: 'en',
+      items: [{ targetId: id }, { targetId: L.own }],
+    });
+    const shown = async () => (await presentations.selectionPage(made.share.token)).items.map((i) => i.detail !== null);
+    expect(await shown()).toEqual([true, true]);
+    const share = async (shareScope: 'ALL' | 'PREFERRED') => {
+      await as(b, async (ctx) =>
+        properties.updateListing(
+          ctx,
+          id,
+          UpdateListingBody.parse({ shareScope, version: (await properties.getListing(ctx, id)).version }),
+        ),
+      );
+      await rebuild(id);
+    };
+    // Still public on b's own sites, but shared only with b's preferred agencies (a is not one): gone from a's page.
+    await share('PREFERRED');
+    expect(await shown()).toEqual([false, true]);
+    await share('ALL');
+    expect(await shown()).toEqual([true, true]);
   });
 
   it('[S12-04] expiry, revocation and a new link: the old page is gone, the new one live', async () => {

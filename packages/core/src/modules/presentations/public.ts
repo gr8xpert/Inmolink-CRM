@@ -11,8 +11,9 @@
  * the deterministic pass and the model pass's cached removals (S12-03). The agent's own title and note for an item
  * are plain text (rendered escaped) and, on another agency's listing, white-labelled too.
  *
- * Statements per page: the selection with its items (1), the documents (1), the presentation (1: overrides and owner
- * identities), the agency's public profile (1) — plus one redis-cache MGET (cached removals).
+ * Statements per page: the selection with its items (1), the agency's public profile (1), the documents (1), whether
+ * the other agencies' ones are still shared with the agency (1, when there are any), the presentation (1: overrides
+ * and owner identities) — plus one redis-cache MGET (cached removals).
  */
 import type { WebsiteDetail, WebsitePresenter } from '@inmolink/contracts';
 import { AppError, type SelectionPageAction } from '@inmolink/contracts';
@@ -25,7 +26,7 @@ import * as agencies from '../agencies';
 import * as search from '../search';
 import * as websiteApi from '../website-api';
 import * as websites from '../websites';
-import { SELECTION_TOKEN, selectionTokenHashCandidates } from './config';
+import { SELECTION_TOKEN, selectionTokenHash, selectionTokenHashCandidates } from './config';
 import { presentationsEvents } from './events';
 import * as repo from './repo';
 
@@ -67,13 +68,19 @@ export async function selectionPage(token: string, lang?: string): Promise<Selec
     const locale = lang && /^[a-z]{2}(-[A-Z]{2})?$/.test(lang) ? lang : sel.locale;
     const agency = (await agencies.publicAgencies(tx, [sel.agencyId])).get(sel.agencyId) ?? null;
     const presenter = websites.sitePresenter({ name: agency?.name ?? sel.title, contact: null }, agency);
-    const rows = await search.publicDocs(
+    const docs = await search.publicDocs(
       tx,
       sel.items.map((i) => i.targetId),
       'detail',
       locale,
       sel.locale,
     );
+    // Re-checked at every view (security review): another agency's listing shows only while its owner still shares it
+    // with the selection's agency (shared with ALL or this agency preferred, not hidden from the network) — an owner
+    // narrowing or withdrawing it takes it off every selection at once, whatever the selection's expiry.
+    const others = docs.filter((r) => r.ownerAgencyId !== sel.agencyId).map((r) => r.targetId);
+    const shared = others.length > 0 ? await search.networkSharedTargets(tx, sel.agencyId, others) : new Set<string>();
+    const rows = docs.filter((r) => r.ownerAgencyId === sel.agencyId || shared.has(r.targetId));
     const scope = { agencyId: sel.agencyId, referencePrefix: null, presenter };
     const { view } = await websiteApi.viewWith(tx, { scope }, locale, rows);
     return presentSelection({ selection: sel, locale, view, rows });
@@ -175,6 +182,41 @@ export async function recordSelectionInteraction(token: string, interaction: Sel
   if (targetId && !sel.items.some((i) => i.targetId === targetId)) {
     throw new AppError('VALIDATION_FAILED', { field: 'item', reason: 'not in this selection' });
   }
+  await writeInteraction(sel, interaction, targetId);
+}
+
+/**
+ * A view of a page just rendered (`selectionPage`'s model: the token was looked up for it) — no second lookup. Counted
+ * once per selection per client address per `VIEW_WINDOW_SECONDS` (the limiter's window; a browser dropping its cookie
+ * cannot flood the timeline). False: not counted (seen in the window).
+ */
+export async function recordSelectionPageView(
+  limiter: RateLimiter,
+  page: Pick<SelectionPageModel, 'id' | 'agencyId'>,
+  facts: { ip: string },
+): Promise<boolean> {
+  const [first] = await limiter.consumeMany(
+    [
+      {
+        rule: { name: 'selection.view', scope: 'ip', limit: 1, windowSeconds: VIEW_WINDOW_SECONDS, fixedWindow: true },
+        identity: `${page.id}|${facts.ip}`,
+      },
+    ],
+    { slot: facts.ip },
+  );
+  if (first && !first.allowed) return false;
+  await writeInteraction(page, { kind: 'VIEW' }, null);
+  return true;
+}
+
+/** A view is counted once per selection and client address in this window. */
+export const VIEW_WINDOW_SECONDS = 6 * 3_600;
+
+async function writeInteraction(
+  sel: { id: string; agencyId: string },
+  interaction: SelectionInteraction,
+  targetId: string | null,
+): Promise<void> {
   const id = newId();
   await withIntake({ agencyId: sel.agencyId }, async (tx) => {
     await repo.insertInteraction(tx, {
@@ -198,16 +240,17 @@ export async function recordSelectionInteraction(token: string, interaction: Sel
   });
 }
 
-/** Page views per client IP (all selections), and actions per page per IP. */
-export const SELECTION_PAGE_LIMITS = { perMinute: 60, actionsPerHour: 30 } as const;
+/** Page views per client IP (all selections); actions per page per IP; enquiries per page (every client together). */
+export const SELECTION_PAGE_LIMITS = { perMinute: 60, actionsPerHour: 30, enquiriesPerHour: 20 } as const;
 
 /**
- * The page's request limits: views per IP and, with `write`, the actions (likes, enquiries) per selection × IP — one
- * Redis round trip; the limiter fails open when Redis is down.
+ * The page's request limits: views per IP and, with `write`, the actions (likes, enquiries) per selection × IP, and
+ * with `enquiry` the selection's enquiries per hour whoever sends them — one Redis round trip; the limiter fails open
+ * when Redis is down. Keyed by the token's keyed hash, never the token.
  */
 export async function checkSelectionLimits(
   limiter: RateLimiter,
-  facts: { ip: string; write?: { token: string } },
+  facts: { ip: string; write?: { token: string; enquiry?: boolean } },
 ): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
   const checks: RateLimitCheck[] = [
     {
@@ -216,6 +259,7 @@ export async function checkSelectionLimits(
     },
   ];
   if (facts.write) {
+    const page = selectionTokenHash(facts.write.token).slice(0, 22);
     checks.push({
       rule: {
         name: 'selection.actions',
@@ -223,8 +267,19 @@ export async function checkSelectionLimits(
         limit: SELECTION_PAGE_LIMITS.actionsPerHour,
         windowSeconds: 3_600,
       },
-      identity: `${facts.write.token.slice(0, 12)}|${facts.ip}`,
+      identity: `${page}|${facts.ip}`,
     });
+    if (facts.write.enquiry) {
+      checks.push({
+        rule: {
+          name: 'selection.enquiries',
+          scope: 'ip',
+          limit: SELECTION_PAGE_LIMITS.enquiriesPerHour,
+          windowSeconds: 3_600,
+        },
+        identity: page,
+      });
+    }
   }
   const results = await limiter.consumeMany(checks, { slot: facts.ip });
   const denied = results.filter((r) => !r.allowed);

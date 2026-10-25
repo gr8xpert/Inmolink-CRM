@@ -20,11 +20,15 @@ import { selectionActionResponse, selectionResponse } from './handlers';
  * `POST /s/<token>` — likes and enquiries from the page itself (cross-site posts refused), answered by a 303.
  */
 
+const { BUCKET } = vi.hoisted(() => ({ BUCKET: `203.0.113.7-${Math.random().toString(36).slice(2)}` }));
 vi.mock('@/server/embed', () => ({
-  clientAddress: async () => ({ ip: '203.0.113.7', bucket: `203.0.113.7-${Math.random()}` }),
+  clientAddress: async () => ({ ip: '203.0.113.7', bucket: BUCKET }),
   embedPageConfig: async () => ({ mediaOrigin: 'https://media.example', turnstileSiteKey: null }),
 }));
-vi.mock('@/server/env', () => ({ publicConfig: async () => ({ NODE_ENV: 'test' }) }));
+vi.mock('@/server/env', () => ({
+  publicConfig: async () => ({ NODE_ENV: 'test', PUBLIC_URL: 'https://sites.test' }),
+  LOCAL_PUBLIC_URL: 'http://localhost:3101',
+}));
 
 const RUN = newId().slice(-8);
 const OWNER_NAME = `Ownerhaus Pagina ${RUN}`;
@@ -187,14 +191,15 @@ describe('selection page as served (S12-04)', () => {
     );
   });
 
-  it('[S12-04] a view is counted once per browser, never for link-preview bots', async () => {
-    const before = await views();
+  it('[S12-04] a view is counted once per client address per window, never for link-preview bots', async () => {
+    // The first test's page view was counted (a browser without the cookie).
+    expect(await views()).toBe(1);
     await get(`/s/${token}`, { cookie: 'seen=1' });
     await get(`/s/${token}`, { 'user-agent': 'WhatsApp/2.23.20.0 A' });
     await get(`/s/${token}`, { 'user-agent': 'facebookexternalhit/1.1' });
-    expect(await views()).toBe(before);
+    // A browser that drops its cookie is still the same client address within the window: not counted again.
     await get(`/s/${token}`);
-    expect(await views()).toBe(before + 1);
+    expect(await views()).toBe(1);
   });
 
   it('[S12-04] a like and an enquiry from the page are recorded; a cross-site post is refused', async () => {
@@ -211,6 +216,20 @@ describe('selection page as served (S12-04)', () => {
     expect((await post({ action: 'enquire', message: '' })).headers.get('location')).toBe(`/s/${token}?n=invalid`);
     const cross = await post({ action: 'like', item: bListing }, { origin: 'https://evil.example' });
     expect(cross.status).toBe(403);
+    // No Origin: only a browser's same-origin fetch metadata passes.
+    const bare = (headers: Record<string, string>) =>
+      selectionActionResponse(
+        new Request(`https://sites.test/s/${token}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
+          body: new URLSearchParams({ action: 'unlike', item: bListing }).toString(),
+        }),
+        token,
+      );
+    expect((await bare({})).status).toBe(403);
+    expect((await bare({ 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await bare({ 'sec-fetch-site': 'same-origin' })).status).toBe(303);
+    expect((await post({ action: 'like', item: bListing })).status).toBe(303);
     const got = await as(a, (ctx) => presentations.getSelection(ctx, selectionId));
     expect(got.items[0]).toMatchObject({ likes: 1, enquiries: 1 });
   });

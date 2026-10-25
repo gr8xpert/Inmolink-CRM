@@ -74,6 +74,8 @@ export {
   listingAlertStatesPage,
   listingLabels,
   MAX_LOCKS_IN_FLIGHT,
+  // S12-04: selections check their items against the caller's view, and the network's sharing at view time.
+  networkSharedTargets,
   type OwnListingDetail,
   ownListingDetails,
   publicCodeInUse,
@@ -88,7 +90,6 @@ export {
   rebuildListingReadModels,
   rebuildReadModels,
   rebuildUnitReadModels,
-  // S12-04: selections check their items against the caller's view.
   visibleTargets,
 } from './service';
 export {

@@ -10,7 +10,7 @@ import { embedCsp } from '@/embed/csp';
 import { readFormBody } from '@/embed/form-body';
 import type { ViewText } from '@/embed/views';
 import { clientAddress, embedPageConfig } from '@/server/embed';
-import { publicConfig } from '@/server/env';
+import { LOCAL_PUBLIC_URL, publicConfig } from '@/server/env';
 import { renderGonePage, renderSelectionPage, type SelectionNotice } from './page';
 
 /**
@@ -78,6 +78,16 @@ async function secure(): Promise<boolean> {
   return (await publicConfig()).NODE_ENV === 'production';
 }
 
+/** A language as the page may name it (anything else: English) — never echoed unchecked. */
+const LANG = /^[a-z]{2}(-[A-Z]{2})?$/;
+const langOf = (lang: string | null | undefined): string => (lang && LANG.test(lang) ? lang : 'en');
+
+/** What a failure is, for the log: its code and message — never the request's fields (an enquiry's text). */
+const failure = (err: unknown) =>
+  isAppError(err)
+    ? { code: err.code }
+    : { error: err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 200) : 'unknown' };
+
 async function gone(lang: string, status: number): Promise<Response> {
   return new Response(renderGonePage({ lang, text: textFor(lang) }), { status, headers: await headers() });
 }
@@ -85,7 +95,8 @@ async function gone(lang: string, status: number): Promise<Response> {
 /** GET `/s/<token>`. */
 export async function selectionResponse(request: Request, token: string): Promise<Response> {
   const url = new URL(request.url);
-  const lang = url.searchParams.get('lang') ?? undefined;
+  const asked = url.searchParams.get('lang');
+  const lang = asked && LANG.test(asked) ? asked : undefined;
   const client = await clientAddress(request.headers.get('x-forwarded-for'));
   const limit = await presentations.checkSelectionLimits(rateLimiter(), { ip: client.bucket });
   if (!limit.allowed) {
@@ -96,7 +107,7 @@ export async function selectionResponse(request: Request, token: string): Promis
   try {
     model = await presentations.selectionPage(token, lang);
   } catch (err) {
-    if (isAppError(err) && err.code === 'SELECTION_NOT_FOUND') return gone(lang ?? 'en', 404);
+    if (isAppError(err) && err.code === 'SELECTION_NOT_FOUND') return gone(langOf(lang), 404);
     throw err;
   }
   const h = await headers();
@@ -104,11 +115,12 @@ export async function selectionResponse(request: Request, token: string): Promis
   const bot = PREVIEW_BOT.test(request.headers.get('user-agent') ?? '');
   if (!bot && !jar.has('seen')) {
     try {
-      await presentations.recordSelectionInteraction(token, { kind: 'VIEW' });
+      // The page's own selection (no second token lookup); once per selection and client address per window.
+      await presentations.recordSelectionPageView(rateLimiter(), model, { ip: client.bucket });
       h.append('Set-Cookie', cookieFor(token, 'seen', '1', VIEW_COOKIE_HOURS * 3_600, await secure()));
     } catch (err) {
       // The page still renders: a lost view is better than no page.
-      log.warn({ err }, 'selection view not recorded');
+      log.warn(failure(err), 'selection view not recorded');
     }
   }
   const n = url.searchParams.get('n');
@@ -126,16 +138,16 @@ export async function selectionResponse(request: Request, token: string): Promis
   return new Response(body, { status: 200, headers: h });
 }
 
-/** Whether a form post came from the page itself (no cross-site post may like or enquire for the client). */
-function sameOrigin(request: Request): boolean {
-  if (request.headers.get('sec-fetch-site') === 'cross-site') return false;
+/**
+ * Whether a form post came from the page itself (no cross-site post may like or enquire for the client): its `Origin`
+ * is the public pages' own (`PUBLIC_URL`); without one, only a browser's `Sec-Fetch-Site: same-origin` passes.
+ */
+async function sameOrigin(request: Request): Promise<boolean> {
+  const config = await publicConfig();
+  const own = new URL(config.PUBLIC_URL ?? LOCAL_PUBLIC_URL).origin;
   const origin = request.headers.get('origin');
-  if (!origin || origin === 'null') return origin !== 'null';
-  try {
-    return new URL(origin).host === new URL(request.url).host;
-  } catch {
-    return false;
-  }
+  if (origin === null) return request.headers.get('sec-fetch-site') === 'same-origin';
+  return origin === own;
 }
 
 /** POST `/s/<token>`: a like, an unlike or an enquiry. */
@@ -150,10 +162,9 @@ export async function selectionActionResponse(request: Request, token: string): 
     return new Response(null, { status: 303, headers: h });
   };
   if (!presentations.SELECTION_TOKEN.test(token)) return gone('en', 404);
-  if (!sameOrigin(request)) return new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } });
-  const client = await clientAddress(request.headers.get('x-forwarded-for'));
-  const limit = await presentations.checkSelectionLimits(rateLimiter(), { ip: client.bucket, write: { token } });
-  if (!limit.allowed) return back('limited');
+  if (!(await sameOrigin(request))) {
+    return new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  }
   const read = await readFormBody(request, MAX_FORM_BYTES);
   if (!read.ok) return new Response(null, { status: read.status, headers: { 'Cache-Control': 'no-store' } });
   const form = read.fields;
@@ -164,12 +175,18 @@ export async function selectionActionResponse(request: Request, token: string): 
     ...(form.get('action') === 'enquire' ? { message: form.get('message') ?? '' } : {}),
   });
   if (!parsed.success) return back('invalid', UUID.test(item) ? item : undefined);
+  const client = await clientAddress(request.headers.get('x-forwarded-for'));
+  const limit = await presentations.checkSelectionLimits(rateLimiter(), {
+    ip: client.bucket,
+    write: { token, enquiry: parsed.data.action === 'enquire' },
+  });
+  if (!limit.allowed) return back('limited');
   try {
     await presentations.recordSelectionInteraction(token, presentations.interactionOf(parsed.data));
   } catch (err) {
     if (isAppError(err) && err.code === 'SELECTION_NOT_FOUND') return gone('en', 404);
     if (isAppError(err) && err.code === 'VALIDATION_FAILED') return back('invalid');
-    log.warn({ err }, 'selection action not recorded');
+    log.warn(failure(err), 'selection action not recorded');
     return back('error', parsed.data.action === 'enquire' ? undefined : parsed.data.item);
   }
   const action = parsed.data;
