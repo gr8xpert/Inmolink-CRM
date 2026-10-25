@@ -6,6 +6,7 @@ import { chatJobs } from '@inmolink/core/modules/chat';
 import { crmJobs } from '@inmolink/core/modules/crm';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
+import { socialJobs } from '@inmolink/core/modules/social';
 import { describe, expect, it } from 'vitest';
 import { DIGEST_CONCURRENCY, POOL_JOBS, POOL_OPTIONS } from './index';
 
@@ -40,6 +41,8 @@ describe('worker pools (S11 review)', () => {
       // S12-F2: notifications raised after the commit
       crmJobs.notifyLeadAssigned,
       importsJobs.notifyConnectionPaused,
+      // S12-07: a social account to reconnect, announced to the admins.
+      socialJobs.notifyReconnect,
     ];
     for (const job of live) {
       expect(job.pool, job.name).toBe('realtime');

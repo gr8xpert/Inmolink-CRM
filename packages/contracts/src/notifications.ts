@@ -27,6 +27,8 @@ export const NOTIFICATION_TYPES = [
   'NETWORK_POST',
   'NETWORK_MATCH',
   'IMPORT_PAUSED',
+  // S12-07: a social account's access expired or was revoked — connect it again (to the agency's admins).
+  'SOCIAL_ACCOUNT_RECONNECT',
   // S5-06: a saved search's alert (a new listing, a price drop, back on the market) or its daily digest.
   'SAVED_SEARCH_ALERT',
 ] as const;

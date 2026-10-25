@@ -23,6 +23,7 @@ import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
 import * as search from '@inmolink/core/modules/search';
+import * as social from '@inmolink/core/modules/social';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
@@ -58,11 +59,14 @@ export const MODULES = {
   network,
   'ai-features': aiFeatures,
   matching,
+  social,
   presentations,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
 export function registerSubscriptions(): void {
+  // S12-07: claimed posts publish, caption requests are drafted, accounts to reconnect are announced.
+  social.registerSocialSubscriptions();
   identity.registerIdentitySubscriptions();
   agencies.registerAgenciesSubscriptions();
   taxonomy.registerTaxonomySubscriptions();

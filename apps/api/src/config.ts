@@ -12,6 +12,7 @@ import {
   rateLimitEnv,
   redisEnv,
   searchEnv,
+  socialEnv,
   storageEnv,
   telemetryEnv,
   websitesEnv,
@@ -50,6 +51,8 @@ export const apiEnv = {
   /** Network search give-to-get (S5-05). */
   ...networkEnv,
   ...websitesEnv,
+  // S12-07: the Meta app (connecting social accounts; H3).
+  ...socialEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */

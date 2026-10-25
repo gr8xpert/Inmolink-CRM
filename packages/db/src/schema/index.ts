@@ -27,5 +27,6 @@ export * from './presentations';
 export * from './properties';
 export * from './quality';
 export * from './search';
+export * from './social';
 export * from './taxonomy';
 export * from './websites';

@@ -482,6 +482,14 @@ export const tenantTables: Record<string, TenantTable> = {
     triggers: ['agency_portal_connections_push_retry'],
   },
   portal_connection_properties: { kind: 'STRICT', base: { action: 'INCLUDE' } },
+  // S12-07: social posting — connected Facebook Pages / Instagram accounts (their tokens are platform/crypto envelopes,
+  // hidden from app_user: it only writes them when connecting; the social pool reads them as app_system) and posts.
+  social_accounts: {
+    kind: 'STRICT',
+    base: { platform: 'FACEBOOK_PAGE', external_id: '1234567', name: 'Isolation', token_enc: 'x' },
+    hiddenColumns: ['token_enc', 'user_token_enc'],
+  },
+  social_posts: { kind: 'STRICT', base: { locale: 'en', media_ids: '{01900000-0000-7000-8000-000000000001}' } },
   // Listings a connection's last run left out and why (S9-02).
   portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
   // A connection's feed runs (S9-03): written by the generator, read by the dashboard (S10-F4: SELECT only for app_user).

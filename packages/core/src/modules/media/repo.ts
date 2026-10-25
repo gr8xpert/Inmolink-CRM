@@ -512,3 +512,26 @@ export async function readModelMedia(tx: Tx, propertyIds: readonly string[], age
     )
     .orderBy(asc(propertyMedia.propertyId), asc(propertyMedia.position), asc(propertyMedia.id));
 }
+
+/** S12-07: a listing's images of its owner agency, in display order, with their processing state (social posts). */
+export async function listingImageRows(tx: Tx, propertyId: string, agencyId: string) {
+  return tx
+    .select({
+      id: propertyMedia.id,
+      sha256: propertyMedia.sha256,
+      isCover: propertyMedia.isCover,
+      pipeline: mediaObjects.pipeline,
+      variantsReady: mediaObjects.variantsReady,
+    })
+    .from(propertyMedia)
+    .leftJoin(mediaObjects, eq(mediaObjects.sha256, propertyMedia.sha256))
+    .where(
+      and(
+        eq(propertyMedia.propertyId, propertyId),
+        eq(propertyMedia.agencyId, agencyId),
+        eq(propertyMedia.kind, 'IMAGE'),
+      ),
+    )
+    .orderBy(asc(propertyMedia.position), asc(propertyMedia.id))
+    .limit(100);
+}

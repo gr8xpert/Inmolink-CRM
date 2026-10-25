@@ -19,6 +19,7 @@ import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
+import { socialJobs } from '@inmolink/core/modules/social';
 import { websiteApiJobs } from '@inmolink/core/modules/website-api';
 import { websitesJobs } from '@inmolink/core/modules/websites';
 import type { JobDef, PoolOptions } from '@inmolink/platform/queue';
@@ -121,12 +122,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S12-F2: notifications raised after the commit — a lead assigned, an import connection paused.
     crmJobs.notifyLeadAssigned,
     importsJobs.notifyConnectionPaused,
+    // S12-07: a social account to reconnect, announced to the agency's admins.
+    socialJobs.notifyReconnect,
   ],
   // S11 review: the 5-minute notification e-mail digests (S11-04), thousands at once after a broad network post.
   digest: [notificationsJobs.sendDigest],
   maintenance: [
-    // S12-02: Listing Studio batch records past their retention are deleted daily.
-    aiFeaturesJobs.pruneListingStudioBatches,
     identityJobs.pruneAuthTokens,
     // S11-05: network board posts past their expiry are closed every 15 minutes.
     networkJobs.closeExpiredPosts,
@@ -179,6 +180,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.notifyViewing,
     // S12-05: a viewing request's accepted terms are queued for their PDF.
     mlsJobs.queueViewingTermsPdf,
+    // S12-02: Listing Studio batch records past their retention are deleted daily.
+    aiFeaturesJobs.pruneListingStudioBatches,
   ],
   ai: [
     // S12-01: worker-path AI usage records whose first write failed (ADR 0008 #6a).
@@ -189,13 +192,16 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiFeaturesJobs.generateListingCopy,
     aiFeaturesJobs.submitListingStudioBatch,
     aiFeaturesJobs.collectListingStudioBatch,
+    // S12-07: AI captions of social posts, per language and platform.
+    socialJobs.generateCaptions,
   ],
-  social: [],
-  // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
-  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms],
   // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds, on their own queue — the only one
   // feed-api's `feed_ai` Redis user can write; the worker validates every record.
   'ai-usage': [aiJobs.recordUsage, aiJobs.refreshSpend],
+  // S12-07: scheduled posts' claim and publish (once), and the connected accounts' token upkeep.
+  social: [socialJobs.sweepDuePosts, socialJobs.publishPost, socialJobs.checkAccounts],
+  // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
+  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms],
 };
 
 /** Digests in flight per process (each one a database claim and one e-mail): the SMTP relay sets the pace, not slots. */

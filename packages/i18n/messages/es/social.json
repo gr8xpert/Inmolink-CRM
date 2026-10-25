@@ -1,0 +1,87 @@
+{
+  "title": "Redes sociales",
+  "intro": "Publica tus inmuebles en tus páginas de Facebook y cuentas de Instagram Business, con textos en cada idioma, ahora o cuando elijas.",
+  "notEnabled": "La publicación en redes sociales aún no está activada para tu agencia.",
+  "next": "Publicaciones anteriores",
+  "platforms": {
+    "FACEBOOK_PAGE": "Página de Facebook",
+    "INSTAGRAM_BUSINESS": "Instagram"
+  },
+  "statuses": {
+    "DRAFT": "Borrador",
+    "SCHEDULED": "Programada",
+    "PUBLISHING": "Publicando",
+    "PUBLISHED": "Publicada",
+    "FAILED": "Fallida",
+    "CANCELLED": "Cancelada"
+  },
+  "accounts": {
+    "title": "Cuentas conectadas",
+    "connect": "Conectar Facebook e Instagram",
+    "empty": "Aún no hay ninguna cuenta conectada.",
+    "needsReconnect": "Vuelve a conectarla: su acceso ha caducado",
+    "disconnect": "Desconectar"
+  },
+  "posts": {
+    "title": "Publicaciones",
+    "compose": "Las publicaciones parten de un inmueble.",
+    "new": "Crear una publicación",
+    "empty": "Aún no hay publicaciones.",
+    "cancel": "Cancelar",
+    "columns": {
+      "account": "Cuenta",
+      "status": "Estado",
+      "when": "Cuándo",
+      "caption": "Texto",
+      "actions": "Acciones"
+    }
+  },
+  "compose": {
+    "title": "Crear una publicación",
+    "noAccounts": "Conecta primero una página de Facebook o una cuenta de Instagram.",
+    "listing": "Inmueble (id)",
+    "account": "Cuenta",
+    "locale": "Idioma del texto",
+    "caption": "Texto",
+    "aiCaptions": "Textos con IA en",
+    "aiHint": "Se redactan en segundo plano a partir de los datos del inmueble; si dejas el texto vacío, se usa el del idioma elegido.",
+    "when": "Publicar el",
+    "whenHint": "En la zona horaria de tu agencia. Déjalo vacío para guardar un borrador.",
+    "submit": "Guardar publicación",
+    "back": "Volver"
+  },
+  "notices": {
+    "connected": "Cuentas conectadas.",
+    "disconnected": "Cuenta desconectada.",
+    "scheduled": "Publicación programada.",
+    "drafted": "Borrador guardado.",
+    "cancelled": "Publicación cancelada."
+  },
+  "postErrors": {
+    "OUTCOME_UNKNOWN": "Meta no confirmó la publicación: revisa la página antes de publicarla de nuevo.",
+    "ACCOUNT_NEEDS_RECONNECT": "Hay que volver a conectar la cuenta.",
+    "ACCOUNT_NOT_FOUND": "La cuenta se ha eliminado.",
+    "RATE_LIMITED": "Meta ha limitado el ritmo de publicación.",
+    "UNAVAILABLE": "Meta no estaba disponible.",
+    "REJECTED": "Meta ha rechazado la publicación.",
+    "NETWORK": "No se pudo contactar con Meta.",
+    "LISTING_UNAVAILABLE": "El inmueble ya no es público.",
+    "NO_IMAGES": "El inmueble no tiene imágenes listas.",
+    "NOT_CONFIGURED": "La publicación en redes sociales no está configurada."
+  },
+  "errors": {
+    "FORBIDDEN": "No puedes hacer esto aquí.",
+    "SOCIAL_NOT_ENABLED": "La publicación en redes sociales aún no está activada para tu agencia.",
+    "SOCIAL_ACCOUNT_NOT_FOUND": "Esta cuenta ya no está conectada.",
+    "SOCIAL_POST_NOT_FOUND": "Esta publicación ya no existe.",
+    "SOCIAL_ACCOUNT_NEEDS_RECONNECT": "Vuelve a conectar la cuenta antes de publicar en ella.",
+    "SOCIAL_POST_NOT_EDITABLE": "Esta publicación ya no se puede cambiar.",
+    "SOCIAL_CONNECT_FAILED": "Meta no ha conectado las cuentas. Inténtalo de nuevo.",
+    "SOCIAL_PROVIDER_UNAVAILABLE": "Meta no ha respondido. Inténtalo de nuevo en un momento.",
+    "VALIDATION_FAILED": "Revisa el inmueble (público, con imágenes listas), el texto y la hora.",
+    "VERSION_CONFLICT": "La publicación ha cambiado mientras tanto. Recarga e inténtalo de nuevo.",
+    "LISTING_NOT_FOUND": "No hay ningún inmueble con este id.",
+    "RATE_LIMITED": "Demasiados cambios. Inténtalo de nuevo más tarde.",
+    "generic": "Algo ha fallado. Inténtalo de nuevo."
+  }
+}

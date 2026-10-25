@@ -8,6 +8,7 @@
     "NETWORK_POST": "Nueva publicación en la red: {subject}",
     "NETWORK_MATCH": "La solicitud de comprador «{subject}» coincide con {count, plural, one {# de tus inmuebles} other {# de tus inmuebles}}: {refs}",
     "IMPORT_PAUSED": "Importación pausada para revisión: {subject}",
+    "SOCIAL_ACCOUNT_RECONNECT": "Vuelve a conectar {subject}: su acceso a Facebook o Instagram ha caducado",
     "SAVED_SEARCH_ALERT": "{kind, select, NEW {Nuevo inmueble} PRICE_DROP {Bajada de precio} BACK_ON_MARKET {De nuevo en el mercado} other {{count, plural, one {# nueva coincidencia} other {# nuevas coincidencias}}}} en tu búsqueda guardada «{subject}»: {refs}"
   },
   "typeLabels": {
@@ -19,6 +20,7 @@
     "NETWORK_POST": "Publicaciones del tablón de la red",
     "NETWORK_MATCH": "Solicitudes de compradores que coinciden con mis inmuebles",
     "IMPORT_PAUSED": "Importaciones pausadas para revisión",
+    "SOCIAL_ACCOUNT_RECONNECT": "Cuentas sociales que reconectar",
     "SAVED_SEARCH_ALERT": "Mis búsquedas guardadas"
   },
   "email": {

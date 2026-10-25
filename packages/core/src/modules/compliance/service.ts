@@ -52,6 +52,9 @@ export const AUDIT_TYPES = [
   'identity.clientMode.started',
   'identity.clientMode.ended',
   'identity.clientMode.pinFailed',
+  // S12-07: a member connected Facebook Pages / Instagram accounts (counts and platforms only) or disconnected one.
+  'social.account.connected',
+  'social.account.disconnected',
   'agencies.verification.decided',
   'agencies.profile.updated',
   'agencies.giveToGet.changed',
@@ -151,7 +154,9 @@ export interface AuditTarget {
     | 'lead'
     | 'prospect'
     | 'task'
-    | 'networkPost';
+    | 'networkPost'
+    // S12-07
+    | 'socialAccount';
   id: string;
 }
 

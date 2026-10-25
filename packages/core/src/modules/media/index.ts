@@ -22,7 +22,13 @@ export {
 export { MEDIA_DELETE_GRACE_DAYS, mediaJobs, requestFeedImages, requestVariants } from './jobs';
 export { CLIENT_MODE_ALLOWED, can, MEDIA_ACTIONS, MEDIA_IMPERSONATION } from './policy';
 export { hammingDistance } from './processing';
-export { mediaForReadModels, type ReadModelMediaSet } from './read-models';
+export {
+  listingSocialImages,
+  mediaForReadModels,
+  type ReadModelMediaSet,
+  // S12-07
+  type SocialImage,
+} from './read-models';
 export {
   addListingVideo,
   checkUploads,

@@ -63,3 +63,27 @@ export async function mediaForReadModels(
   }
   return out;
 }
+
+/** S12-07: one processed image of a listing for a social post — its `og` variant (JPEG 1200 × 630, Instagram's 1.91:1). */
+export interface SocialImage {
+  mediaId: string;
+  cover: boolean;
+  /** The public variant key (served under `MEDIA_CDN_URL`); null while it is processing. */
+  key: string | null;
+}
+
+/**
+ * S12-07: a listing's images in display order, for composing and publishing social posts (the JPEG `og` variant: both
+ * Facebook and Instagram take it). `agencyId`: the listing's owner agency. One statement; at most 100.
+ */
+export async function listingSocialImages(tx: Tx, listingId: string, agencyId: string): Promise<SocialImage[]> {
+  const rows = await repo.listingImageRows(tx, listingId, agencyId);
+  return rows.map((r) => ({
+    mediaId: r.id,
+    cover: r.isCover,
+    key:
+      r.sha256 !== null && r.pipeline !== null && variantsIn(r.variantsReady ?? 0).includes('og')
+        ? variantKey(r.sha256, 'og', r.pipeline)
+        : null,
+  }));
+}

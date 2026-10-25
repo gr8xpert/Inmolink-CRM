@@ -1,0 +1,87 @@
+{
+  "title": "Social media",
+  "intro": "Post your listings to your Facebook Pages and Instagram Business accounts, with captions in each language, now or at a time you choose.",
+  "notEnabled": "Social posting is not switched on for your agency yet.",
+  "next": "Older posts",
+  "platforms": {
+    "FACEBOOK_PAGE": "Facebook Page",
+    "INSTAGRAM_BUSINESS": "Instagram"
+  },
+  "statuses": {
+    "DRAFT": "Draft",
+    "SCHEDULED": "Scheduled",
+    "PUBLISHING": "Publishing",
+    "PUBLISHED": "Published",
+    "FAILED": "Failed",
+    "CANCELLED": "Cancelled"
+  },
+  "accounts": {
+    "title": "Connected accounts",
+    "connect": "Connect Facebook and Instagram",
+    "empty": "No account connected yet.",
+    "needsReconnect": "Connect again: its access expired",
+    "disconnect": "Disconnect"
+  },
+  "posts": {
+    "title": "Posts",
+    "compose": "Posts start from a listing.",
+    "new": "Compose a post",
+    "empty": "No posts yet.",
+    "cancel": "Cancel",
+    "columns": {
+      "account": "Account",
+      "status": "Status",
+      "when": "When",
+      "caption": "Caption",
+      "actions": "Actions"
+    }
+  },
+  "compose": {
+    "title": "Compose a post",
+    "noAccounts": "Connect a Facebook Page or Instagram account first.",
+    "listing": "Listing (id)",
+    "account": "Account",
+    "locale": "Caption language",
+    "caption": "Caption",
+    "aiCaptions": "AI captions in",
+    "aiHint": "Drafted in the background from the listing's facts; the one in the caption language is used if you leave the caption empty.",
+    "when": "Publish at",
+    "whenHint": "In your agency's time zone. Leave empty to keep a draft.",
+    "submit": "Save post",
+    "back": "Back"
+  },
+  "notices": {
+    "connected": "Accounts connected.",
+    "disconnected": "Account disconnected.",
+    "scheduled": "Post scheduled.",
+    "drafted": "Draft saved.",
+    "cancelled": "Post cancelled."
+  },
+  "postErrors": {
+    "OUTCOME_UNKNOWN": "Meta did not confirm the post: check the Page before posting it again.",
+    "ACCOUNT_NEEDS_RECONNECT": "The account needs connecting again.",
+    "ACCOUNT_NOT_FOUND": "The account was removed.",
+    "RATE_LIMITED": "Meta limited the posting rate.",
+    "UNAVAILABLE": "Meta was unavailable.",
+    "REJECTED": "Meta refused the post.",
+    "NETWORK": "Meta could not be reached.",
+    "LISTING_UNAVAILABLE": "The listing is no longer public.",
+    "NO_IMAGES": "The listing has no ready images.",
+    "NOT_CONFIGURED": "Social posting is not configured."
+  },
+  "errors": {
+    "FORBIDDEN": "You cannot do this here.",
+    "SOCIAL_NOT_ENABLED": "Social posting is not switched on for your agency yet.",
+    "SOCIAL_ACCOUNT_NOT_FOUND": "This account is no longer connected.",
+    "SOCIAL_POST_NOT_FOUND": "This post no longer exists.",
+    "SOCIAL_ACCOUNT_NEEDS_RECONNECT": "Connect the account again before posting to it.",
+    "SOCIAL_POST_NOT_EDITABLE": "This post can no longer change.",
+    "SOCIAL_CONNECT_FAILED": "Meta did not connect the accounts. Try again.",
+    "SOCIAL_PROVIDER_UNAVAILABLE": "Meta did not answer. Try again in a moment.",
+    "VALIDATION_FAILED": "Check the listing (public, with images ready), the caption and the time.",
+    "VERSION_CONFLICT": "The post changed meanwhile. Reload and try again.",
+    "LISTING_NOT_FOUND": "No listing with this id.",
+    "RATE_LIMITED": "Too many changes. Try again later.",
+    "generic": "Something went wrong. Try again."
+  }
+}

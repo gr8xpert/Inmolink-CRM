@@ -18,6 +18,7 @@ import type onboarding from '../messages/en/onboarding.json';
 import type portals from '../messages/en/portals.json';
 import type security from '../messages/en/security.json';
 import type shell from '../messages/en/shell.json';
+import type social from '../messages/en/social.json';
 import type staff from '../messages/en/staff.json';
 import type staffAccess from '../messages/en/staff-access.json';
 import type tasks from '../messages/en/tasks.json';
@@ -57,6 +58,7 @@ export interface Messages {
   tasks: typeof tasks;
   team: typeof team;
   verification: typeof verification;
+  social: typeof social;
   websites: typeof websites;
   widget: typeof widget;
 }

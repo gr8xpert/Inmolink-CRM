@@ -321,6 +321,19 @@ export const ErrorCodes = {
   NETWORK_POST_NOT_FOUND: 404,
   /** The post was closed or has expired: no new reply thread. */
   NETWORK_POST_CLOSED: 409,
+  // S12-07: social posting.
+  /** Social posting is not switched on for the agency (feature flag `social.posting`), or Meta is not configured. */
+  SOCIAL_NOT_ENABLED: 403,
+  SOCIAL_ACCOUNT_NOT_FOUND: 404,
+  SOCIAL_POST_NOT_FOUND: 404,
+  /** The account's access expired or was revoked: connect it again before posting to it. */
+  SOCIAL_ACCOUNT_NEEDS_RECONNECT: 409,
+  /** Only DRAFT and SCHEDULED posts change; this one is publishing, published, failed or cancelled. */
+  SOCIAL_POST_NOT_EDITABLE: 409,
+  /** Meta refused the connection (`details.reason`: `state` — expired or not this member's, `exchange`, `no_pages`). */
+  SOCIAL_CONNECT_FAILED: 422,
+  /** Meta did not answer (timeout, outage): try again. */
+  SOCIAL_PROVIDER_UNAVAILABLE: 503,
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,

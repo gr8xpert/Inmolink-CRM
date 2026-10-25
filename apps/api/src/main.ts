@@ -7,6 +7,7 @@ import * as media from '@inmolink/core/modules/media';
 import * as mls from '@inmolink/core/modules/mls';
 import * as presentations from '@inmolink/core/modules/presentations';
 import * as search from '@inmolink/core/modules/search';
+import * as social from '@inmolink/core/modules/social';
 import * as websites from '@inmolink/core/modules/websites';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { hmacRotationFromEnv, keyringFromEnv } from '@inmolink/platform/crypto';
@@ -78,6 +79,12 @@ try {
   });
   // S12-F25: minimum-commission edits per agency per day.
   websites.configureWebsites({ minCommissionEditsPerDay: config.WEBSITE_MIN_COMMISSION_EDITS_PER_DAY });
+  // S12-07: social accounts' tokens are encrypted here when connected; the OAuth state is signed with HMAC_KEY.
+  social.configureSocial({
+    keyring: keyringFromEnv(config),
+    stateKey: config.HMAC_KEY,
+    meta: social.metaAppFromEnv(config),
+  });
 
   const app = await buildApp({
     logger,

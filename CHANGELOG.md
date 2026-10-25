@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(social): Facebook/Instagram posting from listings — Meta OAuth with encrypted tokens, AI captions per language, scheduled publish-once, reconnect notices, history (migration 0147) [S12-07]
 - feat(documents): PDF brochures, portfolios, selection PDFs and accepted viewing terms via platform/pdf [S12-05] — new dependency puppeteer-core 25.13.0 (platform)
 - feat(mls): fingerprints labelled with their HMAC key; fingerprintsPending + HmacRotationRehashPending alert near the end of a rotation window; runbook step 10 (migration 0145) [S12-F8]
 - feat(presentations): selections — live white-labelled client page /s/<token> (no JS), WhatsApp/e-mail share links, expiry and rotation, views/likes/enquiries to the CRM timeline (migration 0144) [S12-04]

@@ -7,6 +7,7 @@ import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as mls from '@inmolink/core/modules/mls';
 import * as search from '@inmolink/core/modules/search';
+import * as social from '@inmolink/core/modules/social';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
@@ -75,6 +76,33 @@ try {
   }
   // S12-01: the AI gateway (ai pool) — tiers, prices and budgets from env; AI_PROVIDER=none keeps it switched off.
   if (config.WORKER_POOLS.includes('ai')) await configureAiRuntime({ logger });
+  // S12-07: social posting — the social pool publishes and refreshes tokens (decrypts them), the ai pool drafts captions.
+  if ((config.WORKER_POOLS.includes('social') || config.WORKER_POOLS.includes('ai')) && config.HMAC_KEY) {
+    social.configureSocial({
+      ...(config.ENCRYPTION_KEYS && config.ENCRYPTION_ACTIVE_KEY_ID
+        ? {
+            keyring: keyringFromEnv({
+              ENCRYPTION_KEYS: config.ENCRYPTION_KEYS,
+              ENCRYPTION_ACTIVE_KEY_ID: config.ENCRYPTION_ACTIVE_KEY_ID,
+            }),
+          }
+        : {}),
+      stateKey: config.HMAC_KEY,
+      ...(config.META_GRAPH_URL
+        ? {
+            meta: social.metaAppFromEnv({
+              META_APP_ID: config.META_APP_ID,
+              META_APP_SECRET: config.META_APP_SECRET,
+              META_GRAPH_URL: config.META_GRAPH_URL,
+              META_DIALOG_URL: config.META_DIALOG_URL as string,
+              META_GRAPH_VERSION: config.META_GRAPH_VERSION as string,
+              SOCIAL_OAUTH_REDIRECT_URL: config.SOCIAL_OAUTH_REDIRECT_URL,
+            }),
+          }
+        : {}),
+      ...(config.MEDIA_CDN_URL ? { mediaBaseUrl: config.MEDIA_CDN_URL } : {}),
+    });
+  }
   // S10-08: data exports (exports pool) — the media manifest's image URLs under the media CDN; the admins' alert
   // (email pool) links to the dashboard.
   if (config.WORKER_POOLS.includes('exports')) {

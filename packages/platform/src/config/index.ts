@@ -297,6 +297,27 @@ export const importsEnv = {
 };
 
 /**
+ * Social posting (S12-07): the Meta developer app (H3 — business verification and app review for Pages and Instagram
+ * publishing). Without `META_APP_ID`, `META_APP_SECRET` and `SOCIAL_OAUTH_REDIRECT_URL` connecting answers
+ * `SOCIAL_NOT_ENABLED`; the Graph and dialog hosts default to Meta's production ones (a sandbox or fake otherwise).
+ */
+export const socialEnv = {
+  META_APP_ID: z
+    .string()
+    .trim()
+    .regex(/^\d{5,32}$/)
+    .optional(),
+  META_APP_SECRET: z.string().trim().min(16).max(128).optional(),
+  META_GRAPH_URL: url(['https']).default('https://graph.facebook.com'),
+  META_DIALOG_URL: url(['https']).default('https://www.facebook.com'),
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d{1,3}\.\d{1,2}$/)
+    .default('v21.0'),
+  SOCIAL_OAUTH_REDIRECT_URL: url(['http', 'https']).optional(),
+};
+
+/**
  * Dashboard sites (S12-F25, S7-F10 security review): how many times per sliding day an agency may set or change a
  * CUSTOM site's minimum commission (each edit tells it whether other agencies' listings pay at least that much).
  */

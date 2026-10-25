@@ -40,6 +40,7 @@ export * from './properties';
 export * from './quality';
 export * from './realtime';
 export * from './search';
+export * from './social';
 export * from './staff';
 export * from './taxonomy';
 export * from './values';

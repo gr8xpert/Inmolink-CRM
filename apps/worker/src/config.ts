@@ -16,6 +16,7 @@ import {
   redisEnv,
   searchEnv,
   siteFeedNetworkEnv,
+  socialEnv,
   storageEnv,
   telemetryEnv,
   webUrlEnv,
@@ -119,6 +120,9 @@ const leadEmailEnv = {
  */
 const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv, ...portalPushEnv };
 
+/** S12-07: the `social` pool publishes to Meta (the app, image URLs under the media CDN). */
+const socialPoolEnv = { ...socialEnv, ...mediaCdnEnv };
+
 /** S12-05: the `pdf` pool renders brochures with Chrome (its binary, page pool, sandbox) and listing images from the media CDN. */
 const pdfPoolEnv = { ...pdfEnv, ...mediaCdnEnv };
 
@@ -147,6 +151,7 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(pools.includes('digest') ? emailEnv : {}),
     ...(pools.includes('exports') ? siteFeedEnv : {}),
     ...(pools.includes('indexing') ? indexingEnv : {}),
+    ...(pools.includes('social') ? socialPoolEnv : {}),
     ...(pools.includes('pdf') ? pdfPoolEnv : {}), // S12-05
   };
 }
@@ -160,6 +165,7 @@ export const workerEnv = {
   ...leadEmailEnv,
   ...siteFeedEnv,
   ...indexingEnv,
+  ...socialPoolEnv,
   ...pdfPoolEnv, // S12-05
 };
 type Full = Config<typeof workerEnv>;
