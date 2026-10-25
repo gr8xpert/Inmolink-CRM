@@ -22,7 +22,7 @@
     "@inmolink/platform": "workspace:*",
     "@inmolink/ui": "workspace:*",
     "maplibre-gl": "6.14.0",
-    "next": "16.4.0",
+    "next": "16.4.3",
     "next-auth": "5.0.0-beta.32",
     "next-intl": "4.14.9",
     "qrcode": "1.5.4",
