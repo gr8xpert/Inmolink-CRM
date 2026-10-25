@@ -443,3 +443,33 @@ export async function closeThread(tx: Tx, threadId: string, agencyIds: readonly 
     .returning({ agencyId: chatThreads.agencyId });
   return rows.length;
 }
+
+/**
+ * S12-F12: up to `limit` open reply threads of a network post become read-only — the poster's copies
+ * (`chat_threads_network_uq`: agency, post) and the repliers' copies of those threads (their agency, the post).
+ */
+export async function closeNetworkThreads(
+  tx: Tx,
+  posterAgencyId: string,
+  postId: string,
+  limit: number,
+): Promise<{ threads: number; copies: number }> {
+  const result = await tx.execute<{ agency_id: string }>(sql`
+    with own as (
+      select t.id, t.peer_agency_id from ${chatThreads} t
+       where t.agency_id = ${posterAgencyId} and t.network_post_id = ${postId} and t.kind = 'NETWORK'
+         and t.closed_at is null
+       order by t.id
+       limit ${limit}
+       for update)
+    update ${chatThreads} t set closed_at = now(), updated_at = now()
+      from own
+     where t.id = own.id and t.kind = 'NETWORK' and t.network_post_id = ${postId} and t.closed_at is null
+       and ((t.agency_id = ${posterAgencyId} and t.peer_agency_id = own.peer_agency_id)
+            or (t.agency_id = own.peer_agency_id and t.peer_agency_id = ${posterAgencyId}))
+    returning t.agency_id`);
+  return {
+    threads: result.rows.filter((r) => r.agency_id === posterAgencyId).length,
+    copies: result.rows.length,
+  };
+}

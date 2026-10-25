@@ -388,10 +388,10 @@ export async function matchingSubscribers(
 
 /**
  * The expiry sweep: up to `limit` OPEN posts past their expiry closed, the longest expired first
- * (`network_posts_expiry_idx`; `skip locked`: a concurrent close or sweep is left alone). Their ids.
+ * (`network_posts_expiry_idx`; `skip locked`: a concurrent close or sweep is left alone). Their ids and agencies.
  */
-export async function closeExpiredPosts(tx: Tx, limit: number): Promise<string[]> {
-  const result = await tx.execute<{ id: string }>(sql`
+export async function closeExpiredPosts(tx: Tx, limit: number): Promise<{ id: string; agencyId: string }[]> {
+  const result = await tx.execute<{ id: string; agencyId: string }>(sql`
     update ${networkPosts} p set status = 'CLOSED', closed_at = now(), updated_at = now()
      where p.id in (
        select id from ${networkPosts}
@@ -399,6 +399,6 @@ export async function closeExpiredPosts(tx: Tx, limit: number): Promise<string[]
         order by expires_at, id
         limit ${limit}
         for update skip locked)
-    returning p.id`);
-  return result.rows.map((r) => r.id);
+    returning p.id, p.agency_id as "agencyId"`);
+  return result.rows.map((r) => ({ id: r.id, agencyId: r.agencyId }));
 }

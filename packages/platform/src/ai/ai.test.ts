@@ -117,7 +117,7 @@ describe('AI gateway — budgets', () => {
       details: { reason: 'NO_USAGE_STORE' },
     });
     // Platform scripts (no tenant) are unmetered.
-    expect((await gateway.generate({ tenant: null }, call)).meta.budget).toBe('UNMETERED');
+    expect((await gateway.generate({ tenant: null, unmetered: 'test.script' }, call)).meta.budget).toBe('UNMETERED');
     expect(provider.calls).toHaveLength(1);
   });
 });
@@ -209,7 +209,12 @@ describe('AI gateway — structured output', () => {
     const res = await gateway.structured(ctx, { ...call, schema });
     expect(res.data.bullets).toEqual(['Pool']);
     expect(provider.calls).toHaveLength(2);
-    expect(provider.calls[1]?.user).toMatch(/did not match the required schema/);
+    // The rejected answer goes back as the assistant's turn, the original request unchanged.
+    expect(provider.calls[1]?.user).toBe(provider.calls[0]?.user);
+    expect(provider.calls[1]?.repair).toEqual({
+      previous: '{"title":"x"}',
+      correction: expect.stringMatching(/did not match the required schema/),
+    });
     // One job, both attempts' tokens.
     expect(store.jobs).toHaveLength(1);
     expect(store.jobs[0]).toMatchObject({ kind: 'STRUCTURED', status: 'SUCCEEDED', usage: { inputTokens: 2_000 } });

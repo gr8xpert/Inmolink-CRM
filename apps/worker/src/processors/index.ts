@@ -111,6 +111,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     identityJobs.pruneAuthTokens,
     // S11-05: network board posts past their expiry are closed every 15 minutes.
     networkJobs.closeExpiredPosts,
+    networkJobs.closePostThreads,
     websitesJobs.pruneLeadIdempotency,
     identityJobs.flushApiKeyUsage,
     identityJobs.syncApiKeyAgencyStatus,

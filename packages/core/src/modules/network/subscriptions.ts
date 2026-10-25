@@ -22,6 +22,12 @@ export function registerNetworkSubscriptions(): void {
       },
       { name: 'network.posts.published' },
     ),
+    // S12-F12: a closed post's reply threads become read-only
+    subscribe(
+      networkEvents.postClosed,
+      (payload, meta) => networkJobs.closePostThreads.enqueue({ postId: payload.postId, agencyId: meta.agencyId }),
+      { name: 'network.posts.closed' },
+    ),
   ];
 }
 

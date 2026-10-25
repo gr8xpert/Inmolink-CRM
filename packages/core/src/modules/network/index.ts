@@ -12,6 +12,7 @@ export { networkEvents } from './events';
 export { networkJobs } from './jobs';
 export {
   closeExpiredPosts,
+  closePostThreads,
   EXPIRY_BATCH,
   MATCH_AGENCY_BATCH,
   matchBuyerRequest,

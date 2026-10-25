@@ -1,6 +1,6 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { closeExpiredPosts, matchBuyerRequest, notifySubscribers } from './matching';
+import { closeExpiredPosts, closePostThreads, matchBuyerRequest, notifySubscribers } from './matching';
 
 /**
  * network worker jobs (PATTERNS §12). Idempotent, batched, per-tenant fair share (group = the posting agency, two at a
@@ -14,6 +14,9 @@ import { closeExpiredPosts, matchBuyerRequest, notifySubscribers } from './match
  *   other agencies whose subscriptions match the post. Idempotent (`sourceKey` = the post).
  * - `network.closeExpiredPosts` (pool `maintenance`, every 15 minutes): OPEN posts past their expiry closed, batches
  *   of 500. Idempotent.
+ * - `network.closePostThreads` (pool `maintenance`, one per `network.post.closed`, job ID = the post): the post's reply
+ *   threads become read-only, both agencies' copies (`closePostThreads` → `chat.closeNetworkThreads`, S12-F12).
+ *   Idempotent.
  */
 const payload = z.object({ postId: z.uuid(), agencyId: z.uuid() });
 
@@ -51,6 +54,20 @@ export const networkJobs = {
         // job ID = the post: queued once, whichever attempt gets here first
         await networkJobs.notifySubscribers.enqueue(p);
       }
+    },
+  }),
+
+  closePostThreads: defineJob({
+    name: 'network.closePostThreads',
+    pool: 'maintenance',
+    payload,
+    jobId: (p) => `network.closeThreads:${p.postId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p) {
+      return closePostThreads(p);
     },
   }),
 

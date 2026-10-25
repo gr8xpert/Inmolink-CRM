@@ -470,8 +470,10 @@ describe('replies', () => {
     expect(await refusal(as(m, (ctx) => network.replyToPost(ctx, post.id, { body: 'Late' })))).toBe(
       'NETWORK_POST_NOT_FOUND',
     );
-    // the conversation goes on after the post closed
-    await as(s, (ctx) => chat.sendMessage(ctx, reply.thread.id, { body: 'Still interested?' }));
+    // S12-F12: the post closed, so its threads take no more messages
+    expect(await refusal(as(s, (ctx) => chat.sendMessage(ctx, reply.thread.id, { body: 'Still interested?' })))).toBe(
+      'CHAT_THREAD_CLOSED',
+    );
     // staff impersonating a member do not reply for them
     const other = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Imp ${RUN}` })));
     expect(
@@ -588,5 +590,93 @@ describe('audit (S12-F13)', () => {
     // only the member's own publish of the control post
     expect((after[0]?.n ?? 0) - (before[0]?.n ?? 0)).toBe(1);
     expect((await auditOf(post.id)).map((r) => r.type)).toEqual(['network.post.published']);
+  });
+});
+
+describe('reply threads close with their post or an unlisted agency (S12-F12)', () => {
+  const rawSend = (f: Founder, threadId: string) =>
+    asUser(
+      f,
+      sql`insert into chat_messages (agency_id, id, thread_id, sender_agency_id, sender_user_id, sender_name, body)
+        values (${f.agencyId}, ${newId()}, ${threadId}, ${f.agencyId}, ${f.userId}, 'x', 'raw')`,
+    );
+  const copies = (threadId: string) =>
+    rows<{ agency_id: string; closed: boolean }>(sql`
+      select agency_id, closed_at is not null as closed from chat_threads where id = ${threadId} order by agency_id`);
+
+  it('[S12-F12] a closed post refuses messages in its threads (42501), and the close job makes both copies read-only', async () => {
+    const { post } = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Thread close ${RUN}` })));
+    const a = await as(s, (ctx) => network.replyToPost(ctx, post.id, { body: 'Two villas.' }));
+    const b = await as(n, (ctx) => network.replyToPost(ctx, post.id, { body: 'One villa.' }));
+    // open: both sides write (the control)
+    expect(await sqlState(rawSend(p, a.thread.id))).toBe(undefined);
+    expect(await sqlState(rawSend(s, a.thread.id))).toBe(undefined);
+
+    await as(p, (ctx) => network.closePost(ctx, post.id));
+    const [event] = await rows<{ agency_id: string; payload: { postId: string; agencyId: string } }>(sql`
+      select agency_id, payload from outbox_events where type = 'network.post.closed' and payload ->> 'postId' = ${post.id}`);
+    expect(event).toMatchObject({ agency_id: p.agencyId, payload: { postId: post.id, agencyId: p.agencyId } });
+    // before the job ran: the database refuses either side, the service answers CHAT_THREAD_CLOSED
+    expect(await sqlState(rawSend(s, a.thread.id))).toBe('42501');
+    expect(await sqlState(rawSend(p, b.thread.id))).toBe('42501');
+    expect(await refusal(as(p, (ctx) => chat.sendMessage(ctx, a.thread.id, { body: 'Hello?' })))).toBe(
+      'CHAT_THREAD_CLOSED',
+    );
+
+    // the job closes both copies of both threads, once
+    expect(await network.closePostThreads({ agencyId: p.agencyId, postId: post.id })).toEqual({ closed: 4 });
+    expect(await network.closePostThreads({ agencyId: p.agencyId, postId: post.id })).toEqual({ closed: 0 });
+    for (const t of [a.thread.id, b.thread.id]) expect((await copies(t)).every((c) => c.closed)).toBe(true);
+    expect((await copies(a.thread.id)).length).toBe(2);
+    expect((await as(s, (ctx) => chat.getThread(ctx, a.thread.id))).closed).toBe(true);
+    // an open post's threads, or an event naming another agency, close nothing (the job re-reads the post)
+    const other = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Other ${RUN}` })));
+    const c = await as(s, (ctx) => network.replyToPost(ctx, other.post.id, { body: 'Hi.' }));
+    expect(await network.closePostThreads({ agencyId: p.agencyId, postId: other.post.id })).toEqual({ closed: 0 });
+    await as(p, (ctx) => network.closePost(ctx, other.post.id));
+    expect(await network.closePostThreads({ agencyId: s.agencyId, postId: other.post.id })).toEqual({ closed: 0 });
+    expect((await copies(c.thread.id)).some((x) => x.closed)).toBe(false);
+  });
+
+  it('[S12-F12] the expiry sweep emits network.post.closed for each post it closes', async () => {
+    const old = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Sweep close ${RUN}` })));
+    const r = await as(s, (ctx) => network.replyToPost(ctx, old.post.id, { body: 'Still open?' }));
+    await system((tx) =>
+      tx.execute(sql`update network_posts set created_at = now() - interval '40 days',
+        expires_at = now() - interval '1 minute' where id = ${old.post.id}`),
+    );
+    // expired, not yet swept: already refused
+    expect(await sqlState(rawSend(s, r.thread.id))).toBe('42501');
+    await network.closeExpiredPosts();
+    const events = await rows<{ agency_id: string }>(sql`
+      select agency_id from outbox_events where type = 'network.post.closed' and payload ->> 'postId' = ${old.post.id}`);
+    expect(events).toEqual([{ agency_id: p.agencyId }]);
+  });
+
+  it('[S12-F12] a NETWORK thread refuses messages (42501) once either agency is no longer listed', async () => {
+    const [q, r] = await Promise.all([createFounder(), createFounder()]);
+    await Promise.all([setAgencyStatus(q.agencyId, 'VERIFIED'), setAgencyStatus(r.agencyId, 'VERIFIED')]);
+    const { post } = await as(q, (ctx) => network.createPost(ctx, buyerRequest({ title: `Unlisted ${RUN}` })));
+    const { thread } = await as(r, (ctx) => network.replyToPost(ctx, post.id, { body: 'Interested.' }));
+    expect(await sqlState(rawSend(q, thread.id))).toBe(undefined);
+
+    // the replier is no longer listed: neither side writes
+    await setAgencyStatus(r.agencyId, 'PENDING');
+    expect(await sqlState(rawSend(r, thread.id))).toBe('42501');
+    expect(await sqlState(rawSend(q, thread.id))).toBe('42501');
+    expect(await refusal(as(q, (ctx) => chat.sendMessage(ctx, thread.id, { body: 'Hello?' })))).toBe(
+      'CHAT_THREAD_CLOSED',
+    );
+    // listed again: the thread works again
+    await setAgencyStatus(r.agencyId, 'VERIFIED');
+    expect(await sqlState(rawSend(r, thread.id))).toBe(undefined);
+    // the poster is no longer listed
+    await setAgencyStatus(q.agencyId, 'PENDING');
+    expect(await sqlState(rawSend(r, thread.id))).toBe('42501');
+    expect(await sqlState(rawSend(q, thread.id))).toBe('42501');
+    // other threads are untouched: a DIRECT thread of the unlisted agency still takes messages
+    const colleague = await agent(q.agencyId, 'Quinn');
+    const direct = await as(q, (ctx) => chat.createDirectThread(ctx, { userIds: [colleague.userId] }));
+    expect(await sqlState(rawSend(q, direct.id))).toBe(undefined);
   });
 });

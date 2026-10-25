@@ -184,7 +184,8 @@ export async function getPost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
 
 /**
  * `POST /v1/network/posts/:id/close`: the agency's post off the board (its author or an admin). Closing a closed post
- * answers it as it is. Reply threads stay open: the conversation is the agencies'. The close is audited
+ * answers it as it is. Its reply threads close with it (`network.post.closed` → `network.closePostThreads`, S12-F12;
+ * the fan-out trigger already refuses messages to a closed post's threads). The close is audited
  * (`network.post.closed`, S12-F13); publishing too (`network.post.published`) — ids and kind, never title or body.
  */
 export async function closePost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
@@ -195,7 +196,11 @@ export async function closePost(ctx: Ctx, id: string): Promise<NetworkPostDto> {
   assertCan(ctx, 'network.posts.close', { agencyId, authorUserId: await repo.authorOf(ctx.tx, agencyId, id) });
   // a concurrent close won: answer the post as it now is (and audit only the close this call made)
   const closed = row.status === 'OPEN' ? await repo.closePost(ctx.tx, agencyId, id) : null;
-  if (closed) await compliance.audit(ctx, 'network.post.closed', { type: 'networkPost', id }, { kind: closed.kind });
+  if (closed) {
+    await compliance.audit(ctx, 'network.post.closed', { type: 'networkPost', id }, { kind: closed.kind });
+    // S12-F12: its reply threads become read-only (the worker's)
+    await emit(ctx.tx, networkEvents.postClosed({ postId: id, agencyId }));
+  }
   const result = closed ?? (await readablePost(ctx, id));
   return toPostDto(result, await namesOf(ctx, [result]), agencyId);
 }

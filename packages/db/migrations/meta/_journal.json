@@ -981,6 +981,13 @@
       "when": 1792883432441,
       "tag": "0139_s12_01_ai_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1792887455217,
+      "tag": "0140_s12_f12_network_threads_close",
+      "breakpoints": true
     }
   ]
 }

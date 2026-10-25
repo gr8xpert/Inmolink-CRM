@@ -2,12 +2,15 @@ import { NETWORK_LIMITS, NOTIFICATION_LIMITS, NotificationParams } from '@inmoli
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
+import { emit } from '@inmolink/platform/outbox';
 import type { SearchEngine } from '@inmolink/platform/search';
 import * as agencies from '../agencies';
+import * as chat from '../chat';
 import * as identity from '../identity';
 import * as notifications from '../notifications';
 import * as properties from '../properties';
 import * as search from '../search';
+import { networkEvents } from './events';
 import * as repo from './repo';
 
 /**
@@ -213,13 +216,32 @@ export async function matchBuyerRequest(
 }
 
 /**
+ * `network.closePostThreads` (one per `network.post.closed`, S12-F12): re-reads the post — CLOSED and of the event's
+ * agency, else nothing (a closed post is never reopened) — then its reply threads become read-only, both copies.
+ */
+export async function closePostThreads(p: { postId: string; agencyId: string }): Promise<{ closed: number }> {
+  const post = await withSystem(`network.closePostThreads: ${p.postId}`, (tx) => repo.postById(tx, p.postId));
+  if (!post || post.status !== 'CLOSED' || post.agencyId !== p.agencyId) return { closed: 0 };
+  return chat.closeNetworkThreads({ agencyId: post.agencyId, postId: post.id });
+}
+
+/**
  * `network.closeExpiredPosts` (every 15 minutes): OPEN posts past their expiry become CLOSED, the longest expired first,
- * `EXPIRY_BATCH` per transaction and at most `EXPIRY_BATCHES_PER_RUN` a run (the next run takes the rest). Idempotent.
+ * `EXPIRY_BATCH` per transaction and at most `EXPIRY_BATCHES_PER_RUN` a run (the next run takes the rest), each with its
+ * `network.post.closed` event. Idempotent.
  */
 export async function closeExpiredPosts(): Promise<{ closed: number }> {
   let closed = 0;
   for (let i = 0; i < EXPIRY_BATCHES_PER_RUN; i++) {
-    const ids = await withSystem('network.closeExpiredPosts', (tx) => repo.closeExpiredPosts(tx, EXPIRY_BATCH));
+    const ids = await withSystem('network.closeExpiredPosts', async (tx) => {
+      const posts = await repo.closeExpiredPosts(tx, EXPIRY_BATCH);
+      // S12-F12: each closed post's reply threads become read-only (one event per post, in the close's transaction)
+      await emit(
+        tx,
+        posts.map((p) => networkEvents.postClosed({ postId: p.id, agencyId: p.agencyId })),
+      );
+      return posts;
+    });
     closed += ids.length;
     if (ids.length < EXPIRY_BATCH) break;
   }

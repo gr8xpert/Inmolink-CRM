@@ -268,9 +268,22 @@ export async function joinNetworkThread(ctx: Ctx, threadId: string): Promise<Cha
   }
 }
 
+/** The Postgres SQLSTATE of a driver error (or the one Drizzle wraps in `cause`). */
+function pgCodeOf(err: unknown): string | undefined {
+  for (
+    let e = err as { code?: unknown; cause?: unknown } | undefined, i = 0;
+    e && i < 3;
+    e = e.cause as typeof e, i++
+  ) {
+    if (typeof e.code === 'string' && /^[0-9A-Z]{5}$/.test(e.code)) return e.code;
+  }
+  return undefined;
+}
+
 /**
  * `POST /v1/chat/threads/:id/messages`: a message from a participant (4 statements: membership, name, insert, event);
- * a closed viewing thread is read-only (`CHAT_THREAD_CLOSED`; the fan-out trigger refuses it too).
+ * a closed viewing or network thread is read-only (`CHAT_THREAD_CLOSED`; the fan-out trigger refuses it too, and a
+ * `NETWORK` thread's message once its post closed or either agency is no longer listed — S12-F12).
  * `clientKey` replays a retried send. The other agency's copy is appended in the same statement; the event drives
  * delivery to every participant's sockets and the `CHAT_MESSAGE` notification (→ e-mail digest after 5 minutes).
  */
@@ -289,15 +302,22 @@ export async function sendMessage(ctx: Ctx, threadId: string, raw: SendChatMessa
   }
   if (thread.closedAt) throw new AppError('CHAT_THREAD_CLOSED');
   const name = ((await identity.memberNames(ctx, [me])).get(me) ?? '').slice(0, 200);
-  const inserted = await repo.insertMessage(ctx.tx, {
-    agencyId,
-    id: newId(),
-    threadId,
-    senderUserId: me,
-    senderName: name,
-    body: body.body,
-    clientKey: body.clientKey ?? null,
-  });
+  const inserted = await repo
+    .insertMessage(ctx.tx, {
+      agencyId,
+      id: newId(),
+      threadId,
+      senderUserId: me,
+      senderName: name,
+      body: body.body,
+      clientKey: body.clientKey ?? null,
+    })
+    .catch((err: unknown) => {
+      // S12-F12: the fan-out trigger refuses a NETWORK thread whose post closed or whose agencies are no longer listed
+      // (before the worker marks it closed): read-only, like a closed thread
+      if (thread.kind === 'NETWORK' && pgCodeOf(err) === '42501') throw new AppError('CHAT_THREAD_CLOSED');
+      throw err;
+    });
   if (!inserted) {
     // the same key, sent twice at once: the other request's message
     const prior = body.clientKey ? await repo.messageByClientKey(ctx.tx, agencyId, me, body.clientKey) : null;

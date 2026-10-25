@@ -6,13 +6,14 @@
  * live delivery over apps/realtime `/chat` (`canJoinThread` gates a socket's thread room: typing indicator), and a
  * `CHAT_MESSAGE` notification per run of unread messages (the notifications module's 5-minute e-mail digest).
  * S11-05: `NETWORK` threads — a reply to a network board post, between the post's agency and the replying agency
- * (`replyInNetworkThread`, called by the network module).
+ * (`replyInNetworkThread`, called by the network module); S12-F12: they close with their post (`closeNetworkThreads`).
  */
 export { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from './delivery';
 export { chatErrors } from './errors';
 export { chatEvents } from './events';
 export { handoffLinks, WHATSAPP_SHARE_URL } from './handoff';
 export { chatJobs } from './jobs';
+export { closeNetworkThreads, NETWORK_CLOSE_BATCH } from './network-threads';
 export { CHAT_ACTIONS, CHAT_IMPERSONATION, type ChatAction, CLIENT_MODE_ALLOWED, can } from './policy';
 export {
   canJoinThread,
