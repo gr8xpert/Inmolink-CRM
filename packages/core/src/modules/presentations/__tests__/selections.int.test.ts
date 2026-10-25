@@ -10,6 +10,7 @@ import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
+import { closeRateLimit, configureRateLimit, rateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -99,6 +100,7 @@ const create = (body: Record<string, unknown>) =>
 beforeAll(async () => {
   await setupTestDb('worker');
   await configureCache({ prefix: `t:sel:${RUN}`, commandTimeoutMs: 2_000 });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   presentations.configurePresentations({
     tokenKey: 'test-hmac-key-0123456789abcdef0123456789',
     publicBaseUrl: 'https://sites.example',
@@ -157,6 +159,7 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  await closeRateLimit();
   await closeCache();
   await closeDb();
 });
@@ -376,6 +379,32 @@ describe('selections (S12-04)', () => {
     );
     // Malformed tokens never reach the database.
     expect(await refusal(presentations.selectionPage('short'))).toBe('SELECTION_NOT_FOUND');
+  });
+
+  it('[S12-04] a selection’s enquiry budget is shared by every client address (not per IP)', async () => {
+    const token = `${RUN}${'e'.repeat(43)}`.slice(0, 43);
+    const limiter = rateLimiter();
+    const ips = [`198.51.100.1-${RUN}`, `198.51.100.2-${RUN}`];
+    const enquire = (ip: string) =>
+      presentations.checkSelectionLimits(limiter, { ip, write: { token, enquiry: true } });
+    for (let n = 0; n < presentations.SELECTION_PAGE_LIMITS.enquiriesPerHour; n++) {
+      expect((await enquire(ips[n % 2] as string)).allowed, `enquiry ${n + 1}`).toBe(true);
+    }
+    // Both addresses together used the page's budget: a third address is refused too, likes still pass.
+    expect((await enquire(`198.51.100.3-${RUN}`)).allowed).toBe(false);
+    expect(
+      (await presentations.checkSelectionLimits(limiter, { ip: ips[0] as string, write: { token } })).allowed,
+    ).toBe(true);
+    // Another page has its own budget.
+    const other = `${'f'.repeat(35)}${RUN}`;
+    expect(
+      (
+        await presentations.checkSelectionLimits(limiter, {
+          ip: ips[0] as string,
+          write: { token: other, enquiry: true },
+        })
+      ).allowed,
+    ).toBe(true);
   });
 
   it('[S12-04] the list: newest first, keyset, with views and item counts', async () => {

@@ -269,19 +269,28 @@ export async function checkSelectionLimits(
       },
       identity: `${page}|${facts.ip}`,
     });
-    if (facts.write.enquiry) {
-      checks.push({
-        rule: {
-          name: 'selection.enquiries',
-          scope: 'ip',
-          limit: SELECTION_PAGE_LIMITS.enquiriesPerHour,
-          windowSeconds: 3_600,
-        },
-        identity: page,
-      });
-    }
   }
   const results = await limiter.consumeMany(checks, { slot: facts.ip });
   const denied = results.filter((r) => !r.allowed);
+  if (denied.length === 0 && facts.write?.enquiry) {
+    // The selection's enquiry budget is shared by every client address: its own call, keyed (and slotted) by the page
+    // alone — in the call above the IP's slot would be part of its key and make it a per-address cap.
+    const page = selectionTokenHash(facts.write.token).slice(0, 22);
+    const [enquiries] = await limiter.consumeMany(
+      [
+        {
+          rule: {
+            name: 'selection.enquiries',
+            scope: 'key',
+            limit: SELECTION_PAGE_LIMITS.enquiriesPerHour,
+            windowSeconds: 3_600,
+          },
+          identity: page,
+        },
+      ],
+      { slot: page },
+    );
+    if (enquiries && !enquiries.allowed) denied.push(enquiries);
+  }
   return { allowed: denied.length === 0, retryAfterSeconds: Math.max(0, ...denied.map((r) => r.retryAfterSeconds)) };
 }
