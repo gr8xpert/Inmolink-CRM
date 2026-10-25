@@ -1,5 +1,5 @@
 import { closeDb, withSystem } from '@inmolink/db';
-import { loadStackEnv, setupTestDb } from '@inmolink/db/testing';
+import { createStaffUser, loadStackEnv, setupTestDb } from '@inmolink/db/testing';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
@@ -8,6 +8,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
+import { withStaffCtx } from '../../../staff';
 import { countQueries, createFounder, type Founder } from '../../../testing/factories';
 import * as billing from '../index';
 import { type FakeStripe, startFakeStripe } from './fake-stripe';
@@ -486,5 +487,88 @@ describe('billing', () => {
     expect(gone.result).toEqual({ applied: 'nothing' });
     // Not an event type billing handles: acknowledged, nothing queued.
     expect((await deliver('product.updated', { id: 'prod_x', object: 'product' })).queued).toBe(false);
+  });
+
+  let c: Founder;
+  let cSubscription: string;
+
+  it('[S13-02] a founding price lock: Checkout discounts the plan down to the locked price with a Stripe coupon', async () => {
+    c = await createFounder();
+    const staff = (await createStaffUser('SUPER_ADMIN')).userId;
+    await withStaffCtx({ userId: staff, requestId: newId(), reason: 'billing test' }, (ctx) =>
+      billing.setPriceLock(ctx, {
+        agencyId: c.agencyId,
+        planCode: PRO,
+        interval: 'YEAR',
+        currency: 'EUR',
+        amountCents: 50_000,
+        endsAt: new Date(Date.now() + 3 * 365 * 86_400_000).toISOString(),
+        reason: 'founding offer: migrated agency',
+      }),
+    );
+    // Monthly is not locked: no discount.
+    await billing.startCheckout(run(c), { planCode: PRO, interval: 'MONTH', currency: 'EUR', addons: [] });
+    expect(lastCheckout()?.fields['discounts[0][coupon]']).toBeUndefined();
+
+    await billing.startCheckout(run(c), { planCode: PRO, interval: 'YEAR', currency: 'EUR', addons: [] });
+    const couponId = lastCheckout()?.fields['discounts[0][coupon]'] as string;
+    expect(couponId).toMatch(/^founding_[0-9a-f-]{36}_30000_36$/);
+    expect(stripe.coupons.get(couponId)).toMatchObject({
+      amount_off: 30_000,
+      currency: 'eur',
+      duration: 'repeating',
+      duration_in_months: '36',
+    });
+    // A second visit reuses the coupon.
+    await billing.startCheckout(run(c), { planCode: PRO, interval: 'YEAR', currency: 'EUR', addons: [] });
+    expect(lastCheckout()?.fields['discounts[0][coupon]']).toBe(couponId);
+    expect(stripe.calls.filter((x) => x.method === 'POST' && x.path === '/v1/coupons')).toHaveLength(1);
+  });
+
+  it('[S13-02] dunning grace: a failed payment keeps the plan until the grace ends (with notice), then Free', async () => {
+    const sessionId = [...stripe.sessions.keys()].at(-1) as string;
+    const sub = stripe.completeCheckout(sessionId, { paymentMethod: 'card', periodEnd });
+    cSubscription = sub.id as string;
+    await deliver('checkout.session.completed', { id: sessionId, object: 'checkout.session', customer: sub.customer });
+    expect((await as(c, (ctx) => billing.getBillingOverview(ctx))).plan).toBe(PRO);
+
+    stripe.updateSubscription(cSubscription, { status: 'past_due' });
+    const pastDue = await deliver('customer.subscription.updated', {
+      id: cSubscription,
+      object: 'subscription',
+      customer: sub.customer,
+    });
+    expect(pastDue.result).toMatchObject({ plan: PRO, status: 'PAST_DUE' });
+    const notice = await as(c, (ctx) => billing.getBillingOverview(ctx));
+    expect(notice.plan).toBe(PRO);
+    const graceDays = (Date.parse(notice.graceEndsAt as string) - Date.now()) / 86_400_000;
+    expect(graceDays).toBeGreaterThan(13.9);
+    expect(graceDays).toBeLessThanOrEqual(14);
+    const dunning = await system(async (tx) => {
+      const r = await tx.execute<{ grace: string }>(
+        sql`select payload->>'graceEndsAt' as grace from outbox_events
+            where type = 'billing.dunning.started' and agency_id = ${c.agencyId}::uuid`,
+      );
+      return r.rows.map((x) => x.grace);
+    });
+    expect(dunning).toEqual([notice.graceEndsAt]);
+
+    // Stripe retries and reports past due again: the grace still counts from the first failure.
+    await deliver('customer.subscription.updated', {
+      id: cSubscription,
+      object: 'subscription',
+      customer: sub.customer,
+    });
+    expect((await as(c, (ctx) => billing.getBillingOverview(ctx))).graceEndsAt).toBe(notice.graceEndsAt);
+
+    // The grace runs out: Free (the subscription row and every other datum stay).
+    await system((tx) =>
+      tx.execute(sql`update billing_subscriptions set past_due_since = now() - interval '15 days'
+                     where agency_id = ${c.agencyId}::uuid`),
+    );
+    const lapsed = await as(c, (ctx) => billing.getBillingOverview(ctx));
+    expect(lapsed.plan).toBe('free');
+    expect(lapsed.subscription).toMatchObject({ planCode: PRO, status: 'PAST_DUE' });
+    expect(await as(c, async (ctx) => ctx.tenant.plan)).toBe('free');
   });
 });

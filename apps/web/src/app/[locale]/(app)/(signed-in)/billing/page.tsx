@@ -59,7 +59,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
       </div>
     );
   }
-  const { plan, subscription, hasCustomer, canManage, catalog } = overview.data;
+  const { plan, seats, grant, graceEndsAt, subscription, hasCustomer, canManage, catalog } = overview.data;
   const canSubscribe = canManage && (!subscription || ENDED.has(subscription.status));
   const plans = catalog.filter((i: CatalogItemDto) => i.kind === 'PLAN' && i.prices.length > 0);
 
@@ -100,6 +100,22 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
             </form>
           ) : null}
         </div>
+        {seats !== null ? (
+          <p className="text-sm text-muted-foreground">{t('current.seats', { count: seats })}</p>
+        ) : null}
+        {graceEndsAt ? (
+          <p role="alert" className="rounded-md border border-destructive/40 p-2 text-sm" data-testid="billing-grace">
+            {t('current.graceEnds', { date: day(graceEndsAt) })}
+          </p>
+        ) : null}
+        {grant ? (
+          <p className="text-sm" data-testid="billing-grant">
+            {t(grant.kind === 'TRIAL' ? 'current.trialEnds' : 'current.grantEnds', {
+              plan: planName(grant.planCode),
+              date: day(grant.endsAt),
+            })}
+          </p>
+        ) : null}
         {subscription ? (
           <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
             <dt className="text-muted-foreground">{t('current.status')}</dt>
@@ -128,7 +144,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
               </>
             ) : null}
           </dl>
-        ) : (
+        ) : grant ? null : (
           <p className="text-sm text-muted-foreground">{t('current.free')}</p>
         )}
       </section>

@@ -8,4 +8,6 @@ export const billingErrors = [
   'BILLING_NO_CUSTOMER',
   'BILLING_PROVIDER_UNAVAILABLE',
   'BILLING_WEBHOOK_INVALID',
+  'BILLING_GRANT_NOT_FOUND',
+  'PLAN_REQUIRED',
 ] as const satisfies readonly ErrorCode[];

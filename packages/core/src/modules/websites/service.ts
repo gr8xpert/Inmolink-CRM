@@ -36,6 +36,7 @@ import { rateLimiter } from '@inmolink/platform/rate-limit';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import { minCommissionEditBudget } from './config';
 import { websitesEvents } from './events';
@@ -185,6 +186,8 @@ export async function agencySiteIds(tx: Tx, agencyId: string): Promise<string[]>
 export async function createSite(ctx: Ctx, input: CreateSiteInput): Promise<SiteDto> {
   assertCan(ctx, 'websites.manage');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  // S13-02: the website API is a paid feature (PLAN §11).
+  await billing.requirePlan(ctx, 'website_api');
   assertNetworkAllowed(ctx, input.inventoryPolicy, input.inventoryFilters);
   assertContentLocales(input.locales);
   const { agencyId } = ctx.tenant;

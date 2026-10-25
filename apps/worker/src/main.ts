@@ -105,12 +105,17 @@ try {
     });
   }
   // S13-01: Stripe (H3) — the maintenance pool syncs the catalog and applies webhook events; unset, both idle.
+  // S13-02: it also starts trials, ends plan grants and applies the dunning grace.
   if (config.WORKER_POOLS.includes('maintenance')) {
     billing.configureBilling(
       billing.billingFromEnv({
         STRIPE_SECRET_KEY: config.STRIPE_SECRET_KEY,
         STRIPE_API_URL: config.STRIPE_API_URL as string,
         STRIPE_API_VERSION: config.STRIPE_API_VERSION,
+        BILLING_ENFORCE_PLANS: config.BILLING_ENFORCE_PLANS,
+        BILLING_TRIAL_PLAN: config.BILLING_TRIAL_PLAN,
+        BILLING_TRIAL_DAYS: config.BILLING_TRIAL_DAYS,
+        BILLING_DUNNING_GRACE_DAYS: config.BILLING_DUNNING_GRACE_DAYS,
       }),
     );
   }

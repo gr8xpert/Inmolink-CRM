@@ -9,6 +9,7 @@ import {
   loadConfigOrExit,
   mediaEnv,
   networkEnv,
+  planEnv,
   portVar,
   rateLimitEnv,
   redisEnv,
@@ -56,6 +57,8 @@ export const apiEnv = {
   ...socialEnv,
   // S13-01: Stripe (H3).
   ...billingEnv,
+  // S13-02: plan gates, trial, dunning grace.
+  ...planEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */

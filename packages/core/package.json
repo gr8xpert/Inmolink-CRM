@@ -16,6 +16,11 @@
       "types": "./dist/modules/compliance/worker.d.ts",
       "default": "./dist/modules/compliance/worker.js"
     },
+    "./modules/billing/worker": {
+      "@inmolink/source": "./src/modules/billing/worker.ts",
+      "types": "./dist/modules/billing/worker.d.ts",
+      "default": "./dist/modules/billing/worker.js"
+    },
     "./modules/exports/worker": {
       "@inmolink/source": "./src/modules/exports/worker.ts",
       "types": "./dist/modules/exports/worker.d.ts",

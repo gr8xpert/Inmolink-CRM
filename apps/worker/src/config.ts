@@ -11,6 +11,7 @@ import {
   loadConfigOrExit,
   mediaCdnEnv,
   mediaEnv,
+  planEnv,
   portalFeedsEnv,
   portalPushEnv,
   portVar,
@@ -126,6 +127,8 @@ const billingPoolEnv = {
   STRIPE_SECRET_KEY: billingEnv.STRIPE_SECRET_KEY,
   STRIPE_API_URL: billingEnv.STRIPE_API_URL,
   STRIPE_API_VERSION: billingEnv.STRIPE_API_VERSION,
+  // S13-02: trials, plan grants ending, dunning grace.
+  ...planEnv,
 };
 
 /** S12-07: the `social` pool publishes to Meta (the app, image URLs under the media CDN). */

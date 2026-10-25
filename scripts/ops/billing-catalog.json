@@ -1,11 +1,31 @@
 {
-  "$comment": "S13-01: the plan catalog (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). Add-on prices are set by staff before they are offered.",
+  "$comment": "S13-01/S13-02: the plan catalog and plan matrix (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). `features` are the gated features a plan includes (`PlanFeature` keys); Free and Enterprise have no prices (Enterprise is a staff grant). Add-on prices are set by staff before they are offered; an add-on's `seatsIncluded` is the seats one unit adds.",
   "items": [
+    {
+      "code": "free",
+      "kind": "PLAN",
+      "seatsIncluded": 1,
+      "rank": 0,
+      "features": [],
+      "prices": []
+    },
     {
       "code": "pro",
       "kind": "PLAN",
       "seatsIncluded": 4,
       "rank": 10,
+      "features": [
+        "website_api",
+        "portal_exports",
+        "new_builds_full",
+        "crm_full",
+        "client_matching",
+        "speed_to_lead",
+        "social_posting",
+        "pdfs_and_forms",
+        "client_portal",
+        "reports_standard"
+      ],
       "prices": [
         { "interval": "YEAR", "currency": "EUR", "amountCents": 80000 },
         { "interval": "MONTH", "currency": "EUR", "amountCents": 7900 }
@@ -16,9 +36,54 @@
       "kind": "PLAN",
       "seatsIncluded": 10,
       "rank": 20,
+      "features": [
+        "website_api",
+        "portal_exports",
+        "new_builds_full",
+        "crm_full",
+        "crm_automations",
+        "client_matching",
+        "matching_auto_send",
+        "speed_to_lead",
+        "social_posting",
+        "pdfs_and_forms",
+        "client_portal",
+        "chat_agent",
+        "crm_copilot",
+        "email_campaigns",
+        "ai_video",
+        "reports_standard",
+        "reports_advanced"
+      ],
       "prices": [{ "interval": "YEAR", "currency": "EUR", "amountCents": 150000 }]
     },
-    { "code": "extra_user", "kind": "ADDON", "seatsIncluded": null, "rank": 100, "prices": [] },
+    {
+      "code": "enterprise",
+      "kind": "PLAN",
+      "seatsIncluded": null,
+      "rank": 30,
+      "features": [
+        "website_api",
+        "portal_exports",
+        "new_builds_full",
+        "crm_full",
+        "crm_automations",
+        "client_matching",
+        "matching_auto_send",
+        "speed_to_lead",
+        "social_posting",
+        "pdfs_and_forms",
+        "client_portal",
+        "chat_agent",
+        "crm_copilot",
+        "email_campaigns",
+        "ai_video",
+        "reports_standard",
+        "reports_advanced"
+      ],
+      "prices": []
+    },
+    { "code": "extra_user", "kind": "ADDON", "seatsIncluded": 1, "rank": 100, "prices": [] },
     { "code": "extra_website", "kind": "ADDON", "seatsIncluded": null, "rank": 110, "prices": [] }
   ]
 }

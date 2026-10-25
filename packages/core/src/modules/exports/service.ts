@@ -34,6 +34,7 @@ import { z } from 'zod';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import * as properties from '../properties';
 import {
@@ -221,6 +222,8 @@ export async function createConnection(
 ): Promise<PortalConnectionSecretDto & { replayed: boolean }> {
   assertCan(ctx, 'exports.manage');
   const userId = requireUser(ctx);
+  // S13-02: portal exports are a paid feature (PLAN §11).
+  await billing.requirePlan(ctx, 'portal_exports');
   const { agencyId } = ctx.tenant;
   const key = opts.idempotencyKey;
   // Serialises concurrent creates of the agency, so the cap, the name check and a retry's replay cannot be raced.

@@ -1,20 +1,30 @@
-import type {
-  BillingOverviewDto,
-  BillingRedirectDto,
-  CatalogItemDto,
-  InvoicePage,
-  ListInvoicesQuery,
-  StartCheckoutBody,
-  SubscriptionDto,
+import {
+  type BillingOverviewDto,
+  type BillingRedirectDto,
+  type CatalogItemDto,
+  FREE_PLAN,
+  type GrantPlanBody,
+  type InvoicePage,
+  type ListInvoicesQuery,
+  type PlanFeature,
+  PlanFeature as PlanFeatureSchema,
+  type PlanGrantDto,
+  type PriceLockBody,
+  type StartCheckoutBody,
+  type SubscriptionDto,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx, CtxRunner } from '../../context';
+import { newId } from '@inmolink/platform/ids';
+import { emit } from '@inmolink/platform/outbox';
+import type { Ctx, CtxRunner, StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
-import { billingConfig, stripeClient } from './config';
+import { billingConfig, dunningGraceMs, stripeClient } from './config';
+import { billingEvents } from './events';
 import { billingJobs } from './jobs';
-import { effectivePlan } from './plan';
-import { assertCan, can } from './policy';
+import { effectivePlan, planGate } from './plan';
+import { assertCan, assertStaffCan, can } from './policy';
 import * as repo from './repo';
 import { StripeError, verifyStripeSignature } from './stripe';
 
@@ -23,13 +33,68 @@ import { StripeError, verifyStripeSignature } from './stripe';
  * write through `./repo`, emit outbox events in the same transaction, never call the network inside one.
  */
 
+/** The start of the dunning grace window: a subscription past due since before it has lost its plan. */
+const graceStart = (now: Date) => new Date(now.getTime() - dunningGraceMs());
+
 /**
- * Seat check before a new member is added (S1-02). `used` counts active members plus open invites;
- * the caller counts them, since billing never reads another module's tables. A stub until seats are
- * enforced (S13-02): every agency has unlimited seats. S13-02 makes it throw `PLAN_REQUIRED` when
- * `used + 1` exceeds the plan's seats.
+ * S13-02: the agency's plan in force (one statement) — the highest of its live subscription's (past due: within the
+ * dunning grace) and its running grants' (trial, staff), else Free. `withMemberCtx` puts its code in `ctx.tenant.plan`.
  */
-export async function assertSeat(_ctx: Ctx, _seats: { used: number }): Promise<void> {}
+export async function planOf(tx: Tx, agencyId: string): Promise<repo.PlanInForce> {
+  const now = clock.now();
+  return repo.planInForce(tx, agencyId, now, graceStart(now));
+}
+
+/**
+ * S13-02: the gate of a plan feature (PLAN §11). A gated use case calls it after its policy check; without the feature
+ * on the agency's plan it answers `PLAN_REQUIRED` with the cheapest plan that has it (`requiredPlan`, null when only a
+ * custom plan would). Off while plans are not enforced (`BILLING_ENFORCE_PLANS`, until billing is live: H3).
+ */
+export async function requirePlan(ctx: Ctx, feature: PlanFeature): Promise<void> {
+  if (!billingConfig().enforcePlans) return;
+  const gate = planGate(await repo.planMatrix(ctx.tx), ctx.tenant.plan, feature);
+  if (!gate.allowed) {
+    throw new AppError('PLAN_REQUIRED', { feature, plan: ctx.tenant.plan, requiredPlan: gate.requiredPlan });
+  }
+}
+
+/**
+ * S13-02: serialises the seat checks of the caller's agency until the transaction ends. Call it before counting the
+ * seats in use (two concurrent invites must not both take the last seat; S1-02 review).
+ */
+export async function lockSeats(ctx: Ctx): Promise<void> {
+  await repo.lockSeats(ctx.tx, ctx.tenant.agencyId);
+}
+
+/**
+ * Seat check before a new member is added (S1-02). `used` counts active members plus open invites, counted by the
+ * caller after `lockSeats` (billing never reads another module's tables). S13-02: `PLAN_REQUIRED` (`reason: seats`)
+ * when `used + 1` exceeds the plan's seats plus extra-user add-ons — only while plans are enforced.
+ */
+export async function assertSeat(ctx: Ctx, seats: { used: number }): Promise<void> {
+  if (!billingConfig().enforcePlans) return;
+  const limit = await seatLimit(ctx.tx, ctx.tenant.agencyId);
+  if (limit.seats !== null && seats.used + 1 > limit.seats) {
+    throw new AppError('PLAN_REQUIRED', { reason: 'seats', plan: limit.plan, seats: limit.seats });
+  }
+}
+
+/** Members the agency may have: its plan's seats (null: no limit) plus the seats of its live subscription's add-ons. */
+async function seatLimit(tx: Tx, agencyId: string): Promise<{ plan: string; seats: number | null }> {
+  const now = clock.now();
+  const plan = await repo.planInForce(tx, agencyId, now, graceStart(now));
+  if (plan.seats === null) return { plan: plan.code, seats: null };
+  const sub = await repo.subscriptionOf(tx, agencyId);
+  if (!sub || effectivePlan(sub, graceStart(now)) === FREE_PLAN || sub.addons.length === 0) {
+    return { plan: plan.code, seats: plan.seats };
+  }
+  const perUnit = await repo.addonSeats(
+    tx,
+    sub.addons.map((a) => a.code),
+  );
+  const extra = sub.addons.reduce((n, a) => n + (perUnit.get(a.code) ?? 0) * a.quantity, 0);
+  return { plan: plan.code, seats: plan.seats + extra };
+}
 
 /** The billing page: the plan in force, the subscription, and what can be bought. */
 export async function getBillingOverview(ctx: Ctx): Promise<BillingOverviewDto> {
@@ -38,8 +103,16 @@ export async function getBillingOverview(ctx: Ctx): Promise<BillingOverviewDto> 
   const sub = await repo.subscriptionOf(ctx.tx, agencyId);
   const customer = await repo.customerOf(ctx.tx, agencyId);
   const catalog = await repo.offeredCatalog(ctx.tx);
+  const plan = await planOf(ctx.tx, agencyId);
+  const seats = await seatLimit(ctx.tx, agencyId);
   return {
-    plan: effectivePlan(sub),
+    plan: plan.code,
+    seats: seats.seats,
+    grant: plan.grant ? { ...plan.grant, endsAt: plan.grant.endsAt.toISOString() } : null,
+    graceEndsAt:
+      sub?.status === 'PAST_DUE' && sub.pastDueSince
+        ? new Date(sub.pastDueSince.getTime() + dunningGraceMs()).toISOString()
+        : null,
     subscription: sub ? toSubscriptionDto(sub) : null,
     hasCustomer: customer !== null,
     canManage: can(ctx, 'billing.manage'),
@@ -90,12 +163,18 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
     // A live (or still paying-up) subscription is changed in the Customer Portal, never doubled.
     if (sub && !['CANCELED', 'INCOMPLETE_EXPIRED'].includes(sub.status))
       throw new AppError('BILLING_ALREADY_SUBSCRIBED');
-    const priceOf = (code: string, kind: 'PLAN' | 'ADDON') =>
+    const rowOf = (code: string, kind: 'PLAN' | 'ADDON') =>
       catalog.find(
         (r) => r.code === code && r.kind === kind && r.interval === input.interval && r.currency === input.currency,
-      )?.stripePriceId ?? null;
+      );
+    const priceOf = (code: string, kind: 'PLAN' | 'ADDON') => rowOf(code, kind)?.stripePriceId ?? null;
     const planPrice = priceOf(input.planCode, 'PLAN');
     if (!planPrice) throw new AppError('BILLING_PRICE_UNAVAILABLE', { code: input.planCode });
+    // S13-02: a founding price lock discounts the plan's current price down to the locked amount until it ends.
+    const now = clock.now();
+    const lock = await repo.priceLockFor(ctx.tx, agencyId, input, now);
+    const amount = rowOf(input.planCode, 'PLAN')?.amountCents ?? 0;
+    const coupon = lock && lock.amountCents < amount ? lockCoupon(lock, amount, input.currency, now) : null;
     const lineItems = [{ price: planPrice, quantity: 1 }];
     const seen = new Set<string>();
     for (const a of input.addons) {
@@ -104,7 +183,7 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
       seen.add(a.code);
       lineItems.push({ price, quantity: a.quantity });
     }
-    return { agencyId, customer, lineItems, locale: ctx.locale, requestId: ctx.requestId };
+    return { agencyId, customer, lineItems, coupon, locale: ctx.locale, requestId: ctx.requestId };
   });
 
   // S13-01 security review: the webhook may not have reported a subscription yet, and another tab may hold an open
@@ -121,6 +200,8 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
     });
   }
   const customer = customerId;
+  const coupon = plan.coupon;
+  const couponId = coupon ? await callStripe(() => stripe.ensureCoupon(coupon)) : null;
   const session = await callStripe(() =>
     stripe.createCheckoutSession({
       customerId: customer,
@@ -133,10 +214,29 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
       cancelUrl: `${returnUrl}?checkout=cancelled`,
       locale: checkoutLocale(plan.locale),
       idempotencyKey: `checkout:${plan.agencyId}:${plan.requestId}`,
+      ...(couponId ? { couponId } : {}),
     }),
   );
   return { url: session.url };
 }
+
+/**
+ * The coupon of a price lock: the difference off every invoice until the lock ends (whole months, at least one). Its
+ * id names the lock, the amount and the months, so a changed lock is a new coupon and a repeated checkout reuses it.
+ */
+function lockCoupon(
+  lock: { id: string; amountCents: number; endsAt: Date },
+  priceCents: number,
+  currency: string,
+  now: Date,
+) {
+  const amountOffCents = priceCents - lock.amountCents;
+  const months = Math.max(1, Math.ceil((lock.endsAt.getTime() - now.getTime()) / MONTH_MS));
+  return { id: `founding_${lock.id}_${amountOffCents}_${months}`, amountOffCents, currency, months };
+}
+
+/** An average calendar month (365.25 / 12 days). */
+const MONTH_MS = 30.4375 * 86_400_000;
 
 /** A Customer Portal session (plan changes, payment methods, VAT ID, cancellation, invoices). Admins only. */
 export async function openCustomerPortal(run: CtxRunner): Promise<BillingRedirectDto> {
@@ -222,7 +322,14 @@ function toCatalogDto(rows: repo.CatalogPriceRow[]): CatalogItemDto[] {
   for (const r of rows) {
     let item = items.get(r.code);
     if (!item) {
-      item = { code: r.code, kind: r.kind, seatsIncluded: r.seatsIncluded, prices: [] };
+      item = {
+        code: r.code,
+        kind: r.kind,
+        seatsIncluded: r.seatsIncluded,
+        // S13-02: only known feature keys (a catalog row ahead of this release keeps its others for later).
+        features: r.features.filter((f): f is PlanFeature => PlanFeatureSchema.safeParse(f).success),
+        prices: [],
+      };
       items.set(r.code, item);
     }
     if (r.interval && r.amountCents !== null && (r.currency === 'EUR' || r.currency === 'GBP')) {
@@ -230,4 +337,85 @@ function toCatalogDto(rows: repo.CatalogPriceRow[]): CatalogItemDto[] {
     }
   }
   return [...items.values()];
+}
+
+// ---- staff: plan grants and founding price locks (S13-02) ----
+
+/**
+ * Puts an agency on a plan until `endsAt` without a subscription (founding parallel run, pilot, goodwill). Super admins
+ * only; the grant row records who, why and until when (never deleted). The plan applies on the agency's next request.
+ */
+export async function grantPlan(ctx: StaffCtx, input: GrantPlanBody): Promise<PlanGrantDto> {
+  assertStaffCan(ctx, 'staff.billing.grant');
+  const now = clock.now();
+  const endsAt = new Date(input.endsAt);
+  if (endsAt <= now) throw new AppError('VALIDATION_FAILED', { field: 'endsAt', reason: 'past' });
+  if (!(await repo.isPlan(ctx.tx, input.planCode))) {
+    throw new AppError('BILLING_PRICE_UNAVAILABLE', { code: input.planCode });
+  }
+  const id = newId();
+  await repo.insertGrant(ctx.tx, {
+    id,
+    agencyId: input.agencyId,
+    kind: 'STAFF',
+    planCode: input.planCode,
+    startsAt: now,
+    endsAt,
+    reason: input.reason,
+    grantedBy: ctx.actor.userId,
+  });
+  const plan = await repo.planInForce(ctx.tx, input.agencyId, now, graceStart(now));
+  await emit(ctx.tx, billingEvents.planChanged({ agencyId: input.agencyId, plan: plan.code, reason: 'GRANT_STARTED' }));
+  return toGrantDto((await repo.grantById(ctx.tx, id)) as repo.GrantRow);
+}
+
+/**
+ * Ends a grant now (super admins) and announces the plan in force (`billing.plan.changed`). The plan falls back on the
+ * agency's next request; the row stays, revoked.
+ */
+export async function revokePlanGrant(ctx: StaffCtx, grantId: string): Promise<PlanGrantDto> {
+  assertStaffCan(ctx, 'staff.billing.grant');
+  const now = clock.now();
+  const row = await repo.revokeGrant(ctx.tx, grantId, ctx.actor.userId, now);
+  if (!row) throw new AppError('BILLING_GRANT_NOT_FOUND');
+  const plan = await repo.planInForce(ctx.tx, row.agencyId, now, graceStart(now));
+  await emit(ctx.tx, billingEvents.planChanged({ agencyId: row.agencyId, plan: plan.code, reason: 'GRANT_ENDED' }));
+  return toGrantDto(row);
+}
+
+/**
+ * Sets a founding price lock (super admins): Checkout of that plan price discounts it down to `amountCents` until
+ * `endsAt` (a Stripe coupon). Setting it again replaces the earlier lock of the same plan, interval and currency.
+ */
+export async function setPriceLock(ctx: StaffCtx, input: PriceLockBody): Promise<{ id: string }> {
+  assertStaffCan(ctx, 'staff.billing.grant');
+  const endsAt = new Date(input.endsAt);
+  if (endsAt <= clock.now()) throw new AppError('VALIDATION_FAILED', { field: 'endsAt', reason: 'past' });
+  if (!(await repo.isPlan(ctx.tx, input.planCode))) {
+    throw new AppError('BILLING_PRICE_UNAVAILABLE', { code: input.planCode });
+  }
+  const id = await repo.upsertPriceLock(ctx.tx, {
+    id: newId(),
+    agencyId: input.agencyId,
+    planCode: input.planCode,
+    interval: input.interval,
+    currency: input.currency,
+    amountCents: input.amountCents,
+    endsAt,
+    reason: input.reason,
+    grantedBy: ctx.actor.userId,
+  });
+  return { id };
+}
+
+function toGrantDto(g: repo.GrantRow): PlanGrantDto {
+  return {
+    id: g.id,
+    agencyId: g.agencyId,
+    kind: g.kind,
+    planCode: g.planCode,
+    startsAt: g.startsAt.toISOString(),
+    endsAt: g.endsAt.toISOString(),
+    revokedAt: g.revokedAt?.toISOString() ?? null,
+  };
 }

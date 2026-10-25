@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { BillingCurrency, BillingInterval, CatalogCode } from '@inmolink/contracts';
+import { BillingCurrency, BillingInterval, CatalogCode, PlanFeature } from '@inmolink/contracts';
 import { z } from 'zod';
 
 /** The plan catalog file's shape (S13-01, `scripts/ops/billing-catalog.json`): prices are data, never code. */
@@ -13,6 +13,8 @@ export const CatalogFile = z.object({
           kind: z.enum(['PLAN', 'ADDON']),
           seatsIncluded: z.number().int().min(1).max(10_000).nullable(),
           rank: z.number().int().min(0).max(10_000),
+          /** S13-02: the gated features a plan includes (the plan matrix as data). */
+          features: z.array(PlanFeature).max(100).optional(),
           prices: z.array(
             z
               .object({ interval: BillingInterval, currency: BillingCurrency, amountCents: z.number().int().min(0) })

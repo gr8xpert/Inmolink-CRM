@@ -12,6 +12,10 @@ import { NIL_UUID, PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 const SUPER_ADMIN_OR_OWN_SESSION =
   "staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
 
+/** S13-02: the session is an active super admin (plan grants and price locks give revenue away). */
+const SUPER_ADMIN =
+  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
+
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
 /** S12-F16: what a `definerSync` function does to a table — each gets its own `app_owner` policy, and nothing else. */
@@ -328,7 +332,8 @@ export const tenantTables: Record<string, TenantTable> = {
     // S12-04: a client's view, like or enquiry on a selection page, appended with its interaction.
     intakeAppend: { column: 'type', values: ['websites.lead.received', 'presentations.selection.interacted'] },
     staff: {
-      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
+      // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`).
+      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -503,8 +508,34 @@ export const tenantTables: Record<string, TenantTable> = {
   // S13-01: billing. The Stripe customer is written by the member starting a checkout; the subscription and invoices
   // mirror Stripe and are written by the webhook job alone (members read them).
   billing_customers: { kind: 'STRICT', userAppendRead: true },
-  billing_subscriptions: { kind: 'STRICT', userReadOnly: true },
+  // S13-02: staff read it (the plan in force after a grant; the console).
+  billing_subscriptions: { kind: 'STRICT', userReadOnly: true, staff: { select: 'true' } },
   billing_invoices: { kind: 'STRICT', userReadOnly: true },
+  // S13-02: plan grants (trial: the worker; staff grants: the staff console) and founding price locks (staff). Members
+  // read their own (the plan in force, Checkout's coupon); staff revoke a grant or change a lock, never delete either.
+  billing_plan_grants: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { kind: 'STAFF', starts_at: '2026-01-01T00:00:00Z', ends_at: '2026-02-01T00:00:00Z' },
+    // S13-02 security review: only an active super admin writes (the service checks too).
+    staff: {
+      select: 'true',
+      insert: `kind = 'STAFF' and ${SUPER_ADMIN}`,
+      update: SUPER_ADMIN,
+      updateColumns: ['revoked_at', 'revoked_by', 'ended_at'],
+    },
+  },
+  billing_price_locks: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { currency: 'EUR', amount_cents: 0 },
+    staff: {
+      select: 'true',
+      insert: SUPER_ADMIN,
+      update: SUPER_ADMIN,
+      updateColumns: ['amount_cents', 'ends_at', 'reason', 'granted_by', 'updated_at'],
+    },
+  },
   // Listings a connection's last run left out and why (S9-02).
   portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
   // A connection's feed runs (S9-03): written by the generator, read by the dashboard (S10-F4: SELECT only for app_user).

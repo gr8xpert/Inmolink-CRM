@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(billing): plan gates (`requirePlan`, PLAN §11 matrix as catalog data), seat limits with a seat lock, 14-day Pro trial for new agencies, staff plan grants with expiry, founding price-lock coupons, dunning grace with notice; all enforced only with `BILLING_ENFORCE_PLANS=true`; migration 0154; no new dependency [S13-02]
 - feat(billing): Stripe billing core — plan catalog (data) synced to Stripe, Checkout (annual default; card + SEPA DD; Stripe Tax; VAT ID), Customer Portal, signed idempotent out-of-order-safe webhooks, invoices, dashboard billing page; migration 0153; no new dependency (REST over safe-fetch); real Stripe E2E BLOCKED-HUMAN H3 [S13-01]
 - chore(deps): Next.js 16.4.0 → 16.4.3 in apps/web and apps/public (security patch; 16.4.0 is flagged by Next.js itself) [S12 review]
 - perf(properties,imports,developments,agencies,identity,compliance): raw keyset on 16 new (…, created_at, id) indexes — a list next-page cursor is an index condition under RLS; migration 0152 (11 built concurrently) [S12-F20]

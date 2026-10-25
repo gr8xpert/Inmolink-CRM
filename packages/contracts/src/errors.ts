@@ -347,6 +347,8 @@ export const ErrorCodes = {
   BILLING_PROVIDER_UNAVAILABLE: 503,
   /** A webhook whose `Stripe-Signature` is missing, wrong or too old. */
   BILLING_WEBHOOK_INVALID: 400,
+  /** S13-02: no such plan grant, or it was already revoked. */
+  BILLING_GRANT_NOT_FOUND: 404,
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,

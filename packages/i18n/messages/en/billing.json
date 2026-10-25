@@ -23,7 +23,11 @@
     "renewsOn": "Renews on",
     "endsOn": "Ends on",
     "endsNote": "{date} — you then move to Free and keep all your data",
-    "free": "You are on the Free plan. Your listings and data are always kept, whatever the plan."
+    "free": "You are on the Free plan. Your listings and data are always kept, whatever the plan.",
+    "trialEnds": "Your {plan} trial runs until {date}. Afterwards you move to Free and keep all your data.",
+    "grantEnds": "{plan} is included for your agency until {date}. Afterwards you move to Free unless you subscribe, and keep all your data.",
+    "graceEnds": "Your last payment failed. Your plan stays active until {date} while Stripe retries it — update your payment method to keep it.",
+    "seats": "Up to {count, plural, one {# member} other {# members}}"
   },
   "planNames": {
     "free": "Free",

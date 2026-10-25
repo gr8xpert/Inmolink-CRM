@@ -16,4 +16,26 @@ export const billingEvents = {
     1,
     z.object({ agencyId: z.uuid(), plan: z.string().max(40), status: SubscriptionStatus }),
   ),
+  /**
+   * S13-02: the agency's plan in force changed without a subscription change — a trial started, a grant started, ended
+   * or was revoked. `plan` is the plan in force now (`free` after a trial ends: data is never touched).
+   */
+  planChanged: defineEvent(
+    'billing.plan.changed',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      plan: z.string().max(40),
+      reason: z.enum(['TRIAL_STARTED', 'GRANT_STARTED', 'GRANT_ENDED']),
+    }),
+  ),
+  /**
+   * S13-02: a payment failed and the subscription is past due. The plan stays until `graceEndsAt` (no access cut
+   * mid-deal without notice): the billing page shows the date, Stripe retries the payment and emails the customer.
+   */
+  dunningStarted: defineEvent(
+    'billing.dunning.started',
+    1,
+    z.object({ agencyId: z.uuid(), plan: z.string().max(40), graceEndsAt: z.iso.datetime() }),
+  ),
 };

@@ -346,6 +346,24 @@ export const billingEnv = {
 };
 
 /**
+ * S13-02: plan gates, trial and dunning (api and the worker's `maintenance` pool). Gates stay off until billing is live
+ * (H3): with `BILLING_ENFORCE_PLANS=false` every agency keeps every feature and seat, while plans, trials and grants are
+ * still recorded. Trial and grace lengths are working assumptions of PLAN §11 — settings, never constants in code.
+ */
+export const planEnv = {
+  BILLING_ENFORCE_PLANS: z.enum(['true', 'false']).default('false'),
+  /** The catalog plan a new, non-migrated agency trials (empty: no trial). */
+  BILLING_TRIAL_PLAN: z
+    .string()
+    .trim()
+    .regex(/^([a-z][a-z0-9_]{1,39})?$/, 'must be a catalog plan code')
+    .default('pro'),
+  BILLING_TRIAL_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  /** Days a PAST_DUE subscription keeps its plan (Stripe retries the payment) before the agency falls back to Free. */
+  BILLING_DUNNING_GRACE_DAYS: z.coerce.number().int().min(0).max(60).default(14),
+};
+
+/**
  * Dashboard sites (S12-F25, S7-F10 security review): how many times per sliding day an agency may set or change a
  * CUSTOM site's minimum commission (each edit tells it whether other agencies' listings pay at least that much).
  */

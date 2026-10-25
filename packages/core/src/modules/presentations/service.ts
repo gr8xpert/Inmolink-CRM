@@ -29,6 +29,7 @@ import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as billing from '../billing';
 import * as crm from '../crm';
 import * as documents from '../documents';
 import * as properties from '../properties';
@@ -217,6 +218,8 @@ export async function getSelection(ctx: Ctx, id: string): Promise<SelectionDto> 
 export async function selectionPdf(run: CtxRunner, id: string): Promise<PdfDocumentDto> {
   const prepared = await run(async (ctx) => {
     assertCan(ctx, 'presentations.write');
+    // S13-02: Free has selections; their PDFs are a paid feature (PLAN §11).
+    await billing.requirePlan(ctx, 'pdfs_and_forms');
     const row = await repo.getSelection(ctx.tx, ctx.tenant.agencyId, id);
     if (!row) throw new AppError('SELECTION_NOT_FOUND');
     const items = await repo.itemsWithStats(ctx.tx, id);

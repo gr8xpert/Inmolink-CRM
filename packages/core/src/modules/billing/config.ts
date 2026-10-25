@@ -15,6 +15,12 @@ export interface BillingConfig {
   };
   /** Tests: options handed to safe-fetch (the fake Stripe server). */
   fetchOptions?: Pick<SafeFetchOptions, 'resolver'>;
+  /** S13-02: plan gates and seats are enforced (`BILLING_ENFORCE_PLANS`); off, every agency keeps every feature. */
+  enforcePlans?: boolean;
+  /** S13-02: the catalog plan a new, non-migrated agency trials, and for how many days (no plan or 0 days: no trial). */
+  trial?: { planCode: string; days: number };
+  /** S13-02: days a PAST_DUE subscription keeps its plan (`BILLING_DUNNING_GRACE_DAYS`; default 14). */
+  dunningGraceDays?: number;
 }
 
 let current: BillingConfig = {};
@@ -46,16 +52,33 @@ export function stripeClient(): StripeClient | null {
     : null;
 }
 
-/** Billing settings from `billingEnv` values: Stripe only when its secret key is set. */
+/** Days a past-due subscription keeps its plan when no setting says otherwise (PLAN §11 working assumption). */
+const DEFAULT_GRACE_DAYS = 14;
+
+export const dunningGraceMs = (): number => (current.dunningGraceDays ?? DEFAULT_GRACE_DAYS) * 86_400_000;
+
+/** Billing settings from `billingEnv` / `planEnv` values: Stripe only when its secret key is set. */
 export function billingFromEnv(env: {
   STRIPE_SECRET_KEY?: string | undefined;
   STRIPE_WEBHOOK_SECRET?: string | undefined;
   STRIPE_API_URL: string;
   STRIPE_API_VERSION?: string | undefined;
   BILLING_RETURN_URL?: string | undefined;
+  BILLING_ENFORCE_PLANS?: 'true' | 'false' | undefined;
+  BILLING_TRIAL_PLAN?: string | undefined;
+  BILLING_TRIAL_DAYS?: number | undefined;
+  BILLING_DUNNING_GRACE_DAYS?: number | undefined;
 }): BillingConfig {
-  if (!env.STRIPE_SECRET_KEY) return {};
+  const plans: BillingConfig = {
+    enforcePlans: env.BILLING_ENFORCE_PLANS === 'true',
+    ...(env.BILLING_TRIAL_PLAN && env.BILLING_TRIAL_DAYS
+      ? { trial: { planCode: env.BILLING_TRIAL_PLAN, days: env.BILLING_TRIAL_DAYS } }
+      : {}),
+    ...(env.BILLING_DUNNING_GRACE_DAYS !== undefined ? { dunningGraceDays: env.BILLING_DUNNING_GRACE_DAYS } : {}),
+  };
+  if (!env.STRIPE_SECRET_KEY) return plans;
   return {
+    ...plans,
     stripe: {
       secretKey: env.STRIPE_SECRET_KEY,
       apiUrl: env.STRIPE_API_URL,

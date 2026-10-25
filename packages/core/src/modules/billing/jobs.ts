@@ -7,7 +7,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { stripeClient } from './config';
+import { billingConfig, dunningGraceMs, stripeClient } from './config';
 import { billingEvents } from './events';
 import { effectivePlan, UNKNOWN_PLAN } from './plan';
 import * as repo from './repo';
@@ -20,12 +20,16 @@ import { type StripeClient, StripeError, type StripeInvoice, type StripeSubscrip
  *   that, one job at a time per Stripe customer. Idempotent: the event id is recorded in the transaction that applies it.
  * - `billing.syncCatalog` — every 15 minutes: Stripe products and prices for catalog rows that have none yet.
  * - `billing.pruneStripeEvents` — daily: applied event ids after `STRIPE_EVENT_RETENTION_DAYS`.
+ * - `billing.startTrial` (S13-02) — once per new agency (onboarding finished): its trial grant.
+ * - `billing.endPlanGrants` (S13-02) — every 15 minutes: ended or revoked grants announced (`billing.plan.changed`).
  */
 
 const STRIPE_EVENT_RETENTION_DAYS = 30;
 const PRUNE_BATCH = 5_000;
 /** Stripe calls per catalog sync run (workers.md: ≤ 100 API calls per batch). */
 const SYNC_BATCH = 50;
+/** Grants claimed per `billing.endPlanGrants` statement (one plan read and one event per agency). */
+const GRANT_BATCH = 200;
 
 export const billingJobs = {
   applyStripeEvent: defineJob({
@@ -99,6 +103,80 @@ export const billingJobs = {
       }
       if (products || prices) log.info({ products, prices }, 'billing catalog synced to Stripe');
       return { products, prices };
+    },
+  }),
+
+  /**
+   * S13-02: a new agency finished onboarding — it trials the configured plan once (`BILLING_TRIAL_PLAN`, 14 days), unless
+   * it has any billing history (a migrated or founding agency is given its grant and price lock by staff or the import;
+   * one that already subscribed needs no trial). Idempotent: one trial per agency, ever (unique index).
+   */
+  startTrial: defineJob({
+    name: 'billing.startTrial',
+    pool: 'maintenance',
+    payload: z.object({ agencyId: z.uuid() }).strict(),
+    jobId: (p) => `trial:${p.agencyId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    timeoutMs: 30_000,
+    async run(p, { log }) {
+      const trial = billingConfig().trial;
+      if (!trial) return { skipped: 'no_trial' };
+      return withSystem('billing.startTrial', async (tx) => {
+        if (await repo.hasBillingHistory(tx, p.agencyId)) return { skipped: 'history' };
+        if (!(await repo.isPlan(tx, trial.planCode))) {
+          log.error({ planCode: trial.planCode }, 'billing: the trial plan is not in the catalog (ALERT)');
+          return { skipped: 'unknown_plan' };
+        }
+        const now = clock.now();
+        const started = await repo.insertGrant(tx, {
+          id: newId(),
+          agencyId: p.agencyId,
+          kind: 'TRIAL',
+          planCode: trial.planCode,
+          startsAt: now,
+          endsAt: new Date(now.getTime() + trial.days * 86_400_000),
+          reason: 'trial',
+          grantedBy: null,
+        });
+        if (!started) return { skipped: 'had_trial' };
+        const plan = await repo.planInForce(tx, p.agencyId, now, new Date(now.getTime() - dunningGraceMs()));
+        await emit(tx, billingEvents.planChanged({ agencyId: p.agencyId, plan: plan.code, reason: 'TRIAL_STARTED' }));
+        return { started: trial.planCode };
+      });
+    },
+  }),
+
+  /**
+   * S13-02: every 15 minutes — grants (trials included) that ended or were revoked are announced once
+   * (`billing.plan.changed` with the plan now in force: `free` after a trial, data untouched). The plan itself already
+   * changed at the end (the plan in force is computed per request); this tells the modules that react to it.
+   */
+  endPlanGrants: defineJob({
+    name: 'billing.endPlanGrants',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 15 * 60_000,
+    attempts: 3,
+    timeoutMs: 5 * 60_000,
+    async run(_p, { log, signal }) {
+      let agencies = 0;
+      for (;;) {
+        const ended = await withSystem('billing.endPlanGrants', async (tx) => {
+          const now = clock.now();
+          const ids = await repo.claimEndedGrants(tx, now, GRANT_BATCH);
+          const graceStart = new Date(now.getTime() - dunningGraceMs());
+          for (const agencyId of ids) {
+            const plan = await repo.planInForce(tx, agencyId, now, graceStart);
+            await emit(tx, billingEvents.planChanged({ agencyId, plan: plan.code, reason: 'GRANT_ENDED' }));
+          }
+          return ids.length;
+        });
+        agencies += ended;
+        if (ended === 0 || signal.aborted) break;
+      }
+      if (agencies) log.info({ agencies }, 'plan grants ended');
+      return { agencies };
     },
   }),
 
@@ -189,6 +267,14 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     const p = prices.get(i.priceId);
     return p?.kind === 'ADDON' ? [{ code: p.code, quantity: i.quantity }] : [];
   });
+  const now = clock.now();
+  // The dunning grace counts from the first time Stripe reported the subscription past due.
+  const pastDueSince =
+    status === 'PAST_DUE'
+      ? current?.stripeSubscriptionId === s.id && current.status === 'PAST_DUE' && current.pastDueSince
+        ? current.pastDueSince
+        : now
+      : null;
   await repo.upsertSubscription(tx, {
     agencyId,
     stripeSubscriptionId: s.id,
@@ -200,12 +286,18 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     paymentMethod: s.paymentMethod,
     currentPeriodEnd: first?.currentPeriodEnd ?? null,
     cancelAt: s.cancelAt,
-    syncedAt: clock.now(),
+    pastDueSince,
+    syncedAt: now,
   });
   const before = current ? effectivePlan(current) : null;
   const plan = effectivePlan({ planCode, status });
   if (before !== plan || current?.status !== status) {
     await emit(tx, billingEvents.subscriptionChanged({ agencyId, plan, status }));
+  }
+  // S13-02: the notice before access changes — the plan stays until the grace ends (Stripe retries meanwhile).
+  if (status === 'PAST_DUE' && current?.status !== 'PAST_DUE') {
+    const graceEndsAt = new Date((pastDueSince ?? now).getTime() + dunningGraceMs()).toISOString();
+    await emit(tx, billingEvents.dunningStarted({ agencyId, plan, graceEndsAt }));
   }
   return { applied: 'subscription', plan, status };
 }

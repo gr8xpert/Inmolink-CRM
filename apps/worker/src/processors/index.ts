@@ -142,6 +142,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     billingJobs.applyStripeEvent,
     billingJobs.syncCatalog,
     billingJobs.pruneStripeEvents,
+    billingJobs.startTrial, // S13-02
+    billingJobs.endPlanGrants, // S13-02
     // S10-08: expired data export files are deleted daily.
     dataExportJobs.sweepDataExports,
     propertiesJobs.failStaleBulkActions,

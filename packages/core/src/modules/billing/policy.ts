@@ -1,5 +1,5 @@
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx } from '../../context';
+import type { Ctx, StaffCtx } from '../../context';
 import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /** Who may do what in billing (PATTERNS §6). Deny by default; services call `assertCan`. */
@@ -33,4 +33,24 @@ export function can(ctx: Ctx, action: BillingAction, resource?: { agencyId: stri
 
 export function assertCan(...args: Parameters<typeof can>): void {
   if (!can(...args)) throw new AppError('FORBIDDEN');
+}
+
+/**
+ * S13-02: staff billing actions. Plan grants and price locks give away revenue: super admins only (support asks them;
+ * the staff console lists grants for every staff role).
+ */
+export type StaffBillingAction = 'staff.billing.read' | 'staff.billing.grant';
+
+export function canStaff(ctx: StaffCtx, action: StaffBillingAction): boolean {
+  if (ctx.actor.kind !== 'staff') return false;
+  switch (action) {
+    case 'staff.billing.read':
+      return true;
+    case 'staff.billing.grant':
+      return ctx.actor.role === 'SUPER_ADMIN';
+  }
+}
+
+export function assertStaffCan(...args: Parameters<typeof canStaff>): void {
+  if (!canStaff(...args)) throw new AppError('FORBIDDEN');
 }

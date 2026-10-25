@@ -91,6 +91,8 @@ export interface CheckoutParams {
   cancelUrl: string;
   locale: string;
   idempotencyKey: string;
+  /** S13-02: a founding price lock's coupon (amount off the plan's price for a number of months). */
+  couponId?: string;
 }
 
 const TIMEOUT_MS = 20_000;
@@ -161,6 +163,7 @@ export class StripeClient {
         cancel_url: p.cancelUrl,
         metadata: { agency_id: p.agencyId, plan_code: p.planCode },
         subscription_data: { metadata: { agency_id: p.agencyId, plan_code: p.planCode } },
+        ...(p.couponId ? { discounts: [{ coupon: p.couponId }] } : {}),
       },
       idempotencyKey: p.idempotencyKey,
     });
@@ -201,6 +204,27 @@ export class StripeClient {
     const res = await this.#find(`/v1/checkout/sessions/${encodeURIComponent(id)}`);
     if (!res) return null;
     return { id: str(res.id), customerId: idOf(res.customer), subscriptionId: idOf(res.subscription) };
+  }
+
+  /**
+   * S13-02: a coupon with our id (a price lock's: `founding_<lock>_<amount>_<months>`), created once — Stripe refuses a
+   * second create with the same id, so it is looked up first; the idempotency key covers a retried create.
+   */
+  async ensureCoupon(p: { id: string; amountOffCents: number; currency: string; months: number }): Promise<string> {
+    const found = await this.#find(`/v1/coupons/${encodeURIComponent(p.id)}`);
+    if (found) return str(found.id);
+    const res = await this.#request('POST', '/v1/coupons', {
+      params: {
+        id: p.id,
+        amount_off: p.amountOffCents,
+        currency: p.currency.toLowerCase(),
+        duration: 'repeating',
+        duration_in_months: p.months,
+        name: 'Founding price',
+      },
+      idempotencyKey: `coupon:${p.id}`,
+    });
+    return str(res.id);
   }
 
   /** A product for a catalog item (idempotent on the item's id). */

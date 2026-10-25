@@ -1,6 +1,7 @@
 import * as agencies from '@inmolink/core/modules/agencies';
 import * as aiFeatures from '@inmolink/core/modules/ai-features';
 import * as billing from '@inmolink/core/modules/billing';
+import * as billingWorker from '@inmolink/core/modules/billing/worker'; // S13-02
 import * as chat from '@inmolink/core/modules/chat';
 import * as compliance from '@inmolink/core/modules/compliance';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
@@ -68,6 +69,7 @@ export function registerSubscriptions(): void {
   // S12-07: claimed posts publish, caption requests are drafted, accounts to reconnect are announced.
   social.registerSocialSubscriptions();
   identity.registerIdentitySubscriptions();
+  billingWorker.registerBillingSubscriptions(); // S13-02: trials
   agencies.registerAgenciesSubscriptions();
   taxonomy.registerTaxonomySubscriptions();
   media.registerMediaSubscriptions();

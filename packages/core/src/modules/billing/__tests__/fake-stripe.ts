@@ -28,6 +28,7 @@ export interface FakeStripe {
   calls: StripeCall[];
   customers: Map<string, Obj>;
   sessions: Map<string, Obj>;
+  coupons: Map<string, Obj>;
   subscriptions: Map<string, Obj>;
   invoices: Map<string, Obj>;
   prices: Map<string, Obj>;
@@ -45,6 +46,7 @@ export async function startFakeStripe(): Promise<FakeStripe> {
   const calls: StripeCall[] = [];
   const customers = new Map<string, Obj>();
   const sessions = new Map<string, Obj>();
+  const coupons = new Map<string, Obj>();
   const subscriptions = new Map<string, Obj>();
   const invoices = new Map<string, Obj>();
   const products = new Map<string, Obj>();
@@ -133,6 +135,11 @@ export async function startFakeStripe(): Promise<FakeStripe> {
           url: `https://billing.stripe.test/p/${seq}`,
         });
       }
+      if (req.method === 'POST' && p === '/v1/coupons') {
+        const c = { object: 'coupon', ...params, amount_off: Number(params.amount_off) };
+        coupons.set(String(params.id), c);
+        return send(200, c);
+      }
       if (req.method === 'POST' && p === '/v1/products') {
         const prod = { id: id('prod'), object: 'product', ...params };
         products.set(prod.id, prod);
@@ -178,6 +185,7 @@ export async function startFakeStripe(): Promise<FakeStripe> {
           : missing(res);
       }
       for (const [pattern, store] of [
+        [/^\/v1\/coupons\/([^/]+)$/, coupons],
         [/^\/v1\/invoices\/([^/]+)$/, invoices],
         [/^\/v1\/checkout\/sessions\/([^/]+)$/, sessions],
       ] as const) {
@@ -199,6 +207,7 @@ export async function startFakeStripe(): Promise<FakeStripe> {
     calls,
     customers,
     sessions,
+    coupons,
     subscriptions,
     invoices,
     prices,

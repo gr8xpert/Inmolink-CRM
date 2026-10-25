@@ -23,7 +23,11 @@
     "renewsOn": "Se renueva el",
     "endsOn": "Termina el",
     "endsNote": "{date}: después pasas al plan Free y conservas todos tus datos",
-    "free": "Estás en el plan Free. Tus inmuebles y datos se conservan siempre, sea cual sea el plan."
+    "free": "Estás en el plan Free. Tus inmuebles y datos se conservan siempre, sea cual sea el plan.",
+    "trialEnds": "Tu prueba de {plan} dura hasta el {date}. Después pasas al plan Free y conservas todos tus datos.",
+    "grantEnds": "Tu agencia tiene {plan} incluido hasta el {date}. Después pasas al plan Free si no te suscribes, y conservas todos tus datos.",
+    "graceEnds": "Tu último pago no se ha podido cobrar. Tu plan sigue activo hasta el {date} mientras Stripe lo reintenta: actualiza tu método de pago para mantenerlo.",
+    "seats": "Hasta {count, plural, one {# miembro} other {# miembros}}"
   },
   "planNames": {
     "free": "Free",

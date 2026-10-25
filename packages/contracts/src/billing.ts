@@ -31,6 +31,36 @@ export type SubscriptionStatus = z.infer<typeof SubscriptionStatus>;
 /** A catalog code: lower-case letters, digits and underscores (`pro`, `extra_user`). */
 export const CatalogCode = z.string().regex(/^[a-z][a-z0-9_]{1,39}$/);
 
+/**
+ * S13-02: features a plan gates (PLAN §11, §3 #29: gate on value — website API, exports, new-builds, AI — never on
+ * sharing). The keys are code; which plans include them is catalog data (`billing-catalog.json` `features`). A gated
+ * use case calls `billing.requirePlan(ctx, feature)`, which answers `PLAN_REQUIRED` with the cheapest plan that has it.
+ */
+export const PlanFeature = z.enum([
+  'website_api',
+  'portal_exports',
+  'new_builds_full',
+  'crm_full',
+  'crm_automations',
+  'client_matching',
+  'matching_auto_send',
+  'speed_to_lead',
+  'social_posting',
+  'pdfs_and_forms',
+  'client_portal',
+  'chat_agent',
+  'crm_copilot',
+  'email_campaigns',
+  'ai_video',
+  'reports_standard',
+  'reports_advanced',
+]);
+export type PlanFeature = z.infer<typeof PlanFeature>;
+
+/** S13-02: what put an agency on a plan without a subscription — a trial, or a staff grant (founding, pilot, support). */
+export const PlanGrantKind = z.enum(['TRIAL', 'STAFF']);
+export type PlanGrantKind = z.infer<typeof PlanGrantKind>;
+
 export const BillingPriceDto = z.object({
   interval: BillingInterval,
   currency: BillingCurrency,
@@ -42,9 +72,11 @@ export type BillingPriceDto = z.infer<typeof BillingPriceDto>;
 export const CatalogItemDto = z.object({
   code: CatalogCode,
   kind: z.enum(['PLAN', 'ADDON']),
-  /** Members included (plans); null for add-ons. */
+  /** Members included (plans; null: no limit) or added per unit (add-ons; null: none). */
   seatsIncluded: z.number().int().nullable(),
-  /** Only prices Stripe knows (synced) are offered. */
+  /** S13-02: the features a plan includes (empty for add-ons). */
+  features: z.array(PlanFeature),
+  /** Only prices Stripe knows (synced) are offered; a plan without any (Free, Enterprise) is not bought by Checkout. */
   prices: z.array(BillingPriceDto),
 });
 export type CatalogItemDto = z.infer<typeof CatalogItemDto>;
@@ -64,8 +96,17 @@ export const SubscriptionDto = z.object({
 export type SubscriptionDto = z.infer<typeof SubscriptionDto>;
 
 export const BillingOverviewDto = z.object({
-  /** The plan in force now: the subscription's while it is live (trialing, active, past due), else `free`. */
+  /**
+   * The plan in force now (S13-02): the highest of the subscription's while it is live (a past-due one only within the
+   * dunning grace) and the agency's running grants (trial, staff), else `free`.
+   */
   plan: z.string(),
+  /** S13-02: members the agency may have (the plan's plus extra-user add-ons); null: no limit. */
+  seats: z.number().int().nullable(),
+  /** S13-02: the running grant that sets the plan (a trial, a staff grant), if one does. */
+  grant: z.object({ kind: PlanGrantKind, planCode: z.string(), endsAt: z.iso.datetime() }).nullable(),
+  /** S13-02: a past-due subscription keeps its plan until then (the notice before access changes). */
+  graceEndsAt: z.iso.datetime().nullable(),
   subscription: SubscriptionDto.nullable(),
   /** Whether the agency has a Stripe customer (the Customer Portal opens only then). */
   hasCustomer: z.boolean(),
@@ -118,5 +159,44 @@ export const ListInvoicesQuery = z
   })
   .strict();
 export type ListInvoicesQuery = z.infer<typeof ListInvoicesQuery>;
+
+/** S13-02: staff put an agency on a plan until a date (founding parallel run, pilot, support goodwill). */
+export const GrantPlanBody = z
+  .object({
+    agencyId: z.uuid(),
+    planCode: CatalogCode,
+    endsAt: z.iso.datetime(),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+export type GrantPlanBody = z.infer<typeof GrantPlanBody>;
+
+/**
+ * S13-02: a price lock (the founding offer: migrated and pilot agencies keep a price for years). Checkout discounts the
+ * plan's current price down to `amountCents` until `endsAt` with a Stripe coupon.
+ */
+export const PriceLockBody = z
+  .object({
+    agencyId: z.uuid(),
+    planCode: CatalogCode,
+    interval: BillingInterval,
+    currency: BillingCurrency,
+    amountCents: z.number().int().min(0),
+    endsAt: z.iso.datetime(),
+    reason: z.string().trim().min(3).max(500),
+  })
+  .strict();
+export type PriceLockBody = z.infer<typeof PriceLockBody>;
+
+export const PlanGrantDto = z.object({
+  id: z.uuid(),
+  agencyId: z.uuid(),
+  kind: PlanGrantKind,
+  planCode: z.string(),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  revokedAt: z.iso.datetime().nullable(),
+});
+export type PlanGrantDto = z.infer<typeof PlanGrantDto>;
 
 export const StripeWebhookAck = z.object({ received: z.literal(true) });

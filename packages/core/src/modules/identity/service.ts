@@ -521,8 +521,8 @@ export async function listMembers(ctx: Ctx, q: PageQuery): Promise<MemberPage> {
 
 /**
  * Invites `email` with `role` (admins only, roles of their own family). Inviting the same email again
- * replaces its open invite. The seat check counts active members and open invites (`billing.assertSeat`,
- * a stub until S13). The email job creates the link (7 days, single use).
+ * replaces its open invite. The seat check counts active members and open invites (`billing.assertSeat`, S13-02:
+ * the plan's seats) under the agency's seat lock (`billing.lockSeats`). The email job creates the link (7 days, single use).
  */
 export async function inviteMember(ctx: Ctx, input: InviteMemberInput): Promise<InviteDto> {
   assertCan(ctx, 'identity.members.manage', { role: input.role });
@@ -530,6 +530,7 @@ export async function inviteMember(ctx: Ctx, input: InviteMemberInput): Promise<
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   if (await repo.memberEmailExists(ctx.tx, agencyId, input.email)) throw new AppError('ALREADY_MEMBER');
   const now = clock.now();
+  await billing.lockSeats(ctx);
   await repo.revokeOpenInvites(ctx.tx, agencyId, input.email, now);
   const used = await repo.countSeats(ctx.tx, agencyId, now);
   if (!ctx.tenant.verified && used >= UNVERIFIED_SEAT_CAP) {

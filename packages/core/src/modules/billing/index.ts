@@ -3,14 +3,20 @@ export { billingConfig, billingFromEnv, configureBilling } from './config';
 export { billingErrors } from './errors';
 export { billingEvents } from './events';
 export { billingJobs } from './jobs';
-export { effectivePlan } from './plan';
-export { BILLING_ACTIONS, can } from './policy';
-export { type CatalogInput, upsertCatalog } from './repo';
+export { effectivePlan, planGate } from './plan';
+export { BILLING_ACTIONS, can, canStaff } from './policy';
+export { type CatalogInput, type PlanInForce, upsertCatalog } from './repo';
 export {
   assertSeat,
   getBillingOverview,
+  grantPlan,
   listInvoices,
+  lockSeats,
   openCustomerPortal,
+  planOf,
   receiveStripeWebhook,
+  requirePlan,
+  revokePlanGrant,
+  setPriceLock,
   startCheckout,
 } from './service';

@@ -31,6 +31,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { type RateLimitRule, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import * as media from '../media';
 import * as properties from '../properties';
@@ -165,6 +166,8 @@ function openState(ctx: Ctx, state: string): StatePayload | null {
 /** `POST /v1/social/connect`: Meta's login dialog with a state signed for this member and agency (10 minutes). */
 export async function startSocialConnect(ctx: Ctx): Promise<StartSocialConnectDto> {
   assertCan(ctx, 'social.manage');
+  // S13-02: social posting is a paid feature (PLAN §11).
+  await billing.requirePlan(ctx, 'social_posting');
   await assertEnabled(ctx);
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   const client = meta();

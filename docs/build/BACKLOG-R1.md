@@ -1870,6 +1870,16 @@ Ref §3 #28 · Mod billing · Dep S13-01 · [H3]
 Ref §12 · Mod billing, api · Dep S13-01
 **Build:** confirm `TRUST_PROXY` in the production deploy; give signed webhook deliveries their own bucket (unsigned requests counted separately), so junk from one address cannot push Stripe's deliveries into 429.
 **Done when:** a flood of unsigned requests from Stripe's egress range leaves signed deliveries accepted (test)
+
+### S13-F21 · Plan quotas and the remaining gates (S13-02)
+Ref §11 · Mod billing, websites, social, crm, matching, developments, ai-features, website-api · Dep S13-02
+**Build:** per-plan quotas as catalog data (`limits` per plan: sites, social accounts, Free CRM contacts, AI Listing Studio listings/month) checked by `billing.requireQuota(ctx, key, used)`; `requirePlan` at the entry points not gated yet (client matching REVIEW / AUTO_SEND, speed-to-lead, new-build database full view, CRM full vs basic, reports tiers) and on every new paid feature as it ships; a site of an agency whose plan lost `website_api` keeps serving for a notice period, then answers 402 (feed-api reads the plan through the cached site scope — no extra query per request).
+**Done when:** each quota refuses the first item over the plan's limit with `PLAN_REQUIRED` (table-driven test); a downgraded agency's site serves until the notice ends, then refuses (test)
+
+### S13-F22 · Billing notices to admins (S13-02)
+Ref §11 · Mod notifications, billing · Dep S13-02
+**Build:** the agency's admins get an in-app notification and an email (EN/ES) on `billing.dunning.started` (grace end date, link to the billing page) and 3 days before a trial or staff grant ends (a daily sweep), and when `billing.plan.changed` lands on Free.
+**Done when:** each notice reaches the admins once per event (test); members who are not admins get none
 ---
 
 ## S14 — Migration tooling

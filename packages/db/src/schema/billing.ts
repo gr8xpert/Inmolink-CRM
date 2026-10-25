@@ -6,6 +6,10 @@
  * `billing.syncCatalog`. An agency's Stripe customer is written when it first starts a checkout; its subscription and
  * invoices are Stripe's state mirrored by the webhook job (`billing.applyStripeEvent`, `withSystem`) — members only
  * read them. Nothing here is ever deleted when a subscription ends: the agency falls back to Free with its data intact.
+ *
+ * S13-02: plan grants (a trial, a staff grant) put an agency on a plan until a date without a subscription; price locks
+ * keep a founding price. Both are written by staff (`app_staff`) or the worker, never by members, and never deleted
+ * (a revoked grant keeps its row: who granted what, why, until when).
  */
 import { sql } from 'drizzle-orm';
 import {
@@ -44,16 +48,22 @@ export const billingInvoiceStatusEnum = pgEnum('billing_invoice_status', [
   'VOID',
   'UNCOLLECTIBLE',
 ]);
+export const billingPlanGrantKindEnum = pgEnum('billing_plan_grant_kind', ['TRIAL', 'STAFF']);
 
-/** Plans (Pro, Business, …) and add-ons (extra user, extra website, …). Free is no subscription, not a row. */
+/**
+ * Plans (Free, Pro, Business, …) and add-ons (extra user, extra website, …). Free is the plan of an agency without a
+ * live subscription or grant; its row (S13-02) only carries its seats and features and has no prices.
+ */
 export const billingCatalogItems = pgTable(
   'billing_catalog_items',
   {
     id: uuid('id').primaryKey(),
     code: text('code').notNull(),
     kind: billingItemKindEnum('kind').notNull(),
-    /** Members a plan includes (PLAN §11 "Users included"); null for add-ons. */
+    /** Members a plan includes (PLAN §11 "Users included"; null: no limit), or an add-on adds per unit (null: none). */
     seatsIncluded: integer('seats_included'),
+    /** S13-02: the gated features a plan includes (`PlanFeature` keys; PLAN §11 matrix as data). */
+    features: text('features').array().notNull().default(sql`'{}'::text[]`),
     /** Display order of plans (lower first). */
     rank: integer('rank').notNull().default(0),
     active: boolean('active').notNull().default(true),
@@ -134,6 +144,8 @@ export const billingSubscriptions = pgTable(
     currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),
     /** When the subscription ends (cancel at period end, or a set date); null while it renews. */
     cancelAt: timestamp('cancel_at', { withTimezone: true }),
+    /** S13-02: when it became PAST_DUE (the dunning grace counts from here); null in any other status. */
+    pastDueSince: timestamp('past_due_since', { withTimezone: true }),
     /** When Stripe's state was last read (the job re-reads the object, so a late event never rolls it back). */
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull(),
   },
@@ -165,6 +177,70 @@ export const billingInvoices = pgTable(
     uniqueIndex('billing_invoices_stripe_uq').on(t.stripeInvoiceId),
     // the invoices list: where agency_id = ? order by issued_at desc, id desc
     index('billing_invoices_agency_issued_idx').on(t.agencyId, t.issuedAt, t.id),
+  ],
+);
+
+/**
+ * S13-02: a plan for an agency until `ends_at`, without a subscription: the 14-day trial of a new, non-migrated agency
+ * (the worker, once per agency) or a staff grant (founding parallel run, pilot, goodwill). The plan in force is the
+ * highest of the live subscription's and the running grants'. Revoking keeps the row.
+ */
+export const billingPlanGrants = pgTable(
+  'billing_plan_grants',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    kind: billingPlanGrantKindEnum('kind').notNull(),
+    planCode: text('plan_code').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    reason: text('reason').notNull(),
+    /** The staff member who granted it; null for a trial. */
+    grantedBy: uuid('granted_by'),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    revokedBy: uuid('revoked_by'),
+    /** Set by `billing.endPlanGrants` once the end (or revocation) was announced (`billing.plan.changed`). */
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the plan in force: where agency_id = ? and revoked_at is null and ends_at > now()
+    index('billing_plan_grants_agency_idx').on(t.agencyId, t.endsAt),
+    // one trial per agency, ever
+    uniqueIndex('billing_plan_grants_trial_uq').on(t.agencyId).where(sql`${t.kind} = 'TRIAL'`),
+    // billing.endPlanGrants: grants past their end not yet announced
+    index('billing_plan_grants_due_idx').on(t.endsAt).where(sql`${t.endedAt} is null`),
+    check('billing_plan_grants_period_ck', sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+);
+
+/**
+ * S13-02: a founding price lock — the agency pays at most `amount_cents` for the plan (interval, currency) until
+ * `ends_at`; Checkout applies a Stripe coupon for the difference. One per agency, plan, interval and currency.
+ */
+export const billingPriceLocks = pgTable(
+  'billing_price_locks',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    planCode: text('plan_code').notNull(),
+    interval: billingIntervalEnum('interval').notNull(),
+    currency: char('currency', { length: 3 }).notNull(),
+    amountCents: bigint('amount_cents', { mode: 'number' }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    reason: text('reason').notNull(),
+    grantedBy: uuid('granted_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('billing_price_locks_uq').on(t.agencyId, t.planCode, t.interval, t.currency),
+    check('billing_price_locks_amount_ck', sql`${t.amountCents} >= 0`),
+    check('billing_price_locks_currency_ck', sql`${t.currency} in ('EUR', 'GBP')`),
   ],
 );
 
