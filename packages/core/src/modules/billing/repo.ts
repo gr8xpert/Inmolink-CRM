@@ -263,6 +263,8 @@ export interface CatalogInput {
   rank: number;
   /** S13-02: gated features a plan includes (`PlanFeature` keys). */
   features?: string[];
+  /** S13-F19: Stripe Tax product tax code (`txcd_…`); undefined keeps the stored one, null clears it. */
+  taxCode?: string | null;
   prices: { interval: BillingInterval; currency: BillingCurrency; amountCents: number }[];
 }
 
@@ -289,6 +291,7 @@ export async function upsertCatalog(
         seatsIncluded: item.seatsIncluded,
         rank: item.rank,
         features: item.features ?? [],
+        taxCode: item.taxCode ?? null,
       })
       .onConflictDoUpdate({
         target: billingCatalogItems.code,
@@ -297,6 +300,7 @@ export async function upsertCatalog(
           seatsIncluded: item.seatsIncluded,
           rank: item.rank,
           features: item.features ?? [],
+          ...(item.taxCode !== undefined ? { taxCode: item.taxCode } : {}),
           updatedAt: sql`now()`,
         },
       })
@@ -340,7 +344,7 @@ export async function upsertCatalog(
 /** Catalog items without a Stripe product yet that have a price to sell (Free and Enterprise have none: S13-02). */
 export async function itemsToSync(tx: Tx, limit: number) {
   return tx
-    .select({ id: billingCatalogItems.id, code: billingCatalogItems.code })
+    .select({ id: billingCatalogItems.id, code: billingCatalogItems.code, taxCode: billingCatalogItems.taxCode })
     .from(billingCatalogItems)
     .where(
       and(
@@ -357,11 +361,43 @@ export async function itemsToSync(tx: Tx, limit: number) {
     .limit(limit);
 }
 
-export async function setProductId(tx: Tx, itemId: string, stripeProductId: string): Promise<void> {
+export async function setProductId(
+  tx: Tx,
+  itemId: string,
+  stripeProductId: string,
+  stripeTaxCode: string | null = null,
+): Promise<void> {
   await tx
     .update(billingCatalogItems)
-    .set({ stripeProductId, updatedAt: sql`now()` })
+    .set({ stripeProductId, stripeTaxCode, updatedAt: sql`now()` })
     .where(and(eq(billingCatalogItems.id, itemId), isNull(billingCatalogItems.stripeProductId)));
+}
+
+/**
+ * S13-F19: products whose tax code changed since Stripe last got it (sync updates the product, outside transactions).
+ * A few dozen rows; no index needed.
+ */
+export async function productsToTax(tx: Tx, limit: number) {
+  return tx
+    .select({
+      id: billingCatalogItems.id,
+      stripeProductId: billingCatalogItems.stripeProductId,
+      taxCode: billingCatalogItems.taxCode,
+    })
+    .from(billingCatalogItems)
+    .where(
+      and(
+        isNotNull(billingCatalogItems.stripeProductId),
+        sql`${billingCatalogItems.taxCode} is distinct from ${billingCatalogItems.stripeTaxCode}`,
+      ),
+    )
+    .orderBy(asc(billingCatalogItems.id))
+    .limit(limit);
+}
+
+/** S13-F19: Stripe has `taxCode` on the product now (the value sent is recorded: a later change syncs again). */
+export async function setStripeTaxCode(tx: Tx, itemId: string, taxCode: string | null): Promise<void> {
+  await tx.update(billingCatalogItems).set({ stripeTaxCode: taxCode }).where(eq(billingCatalogItems.id, itemId));
 }
 
 /** Active prices without a Stripe price yet whose item has a product (sync). */

@@ -86,9 +86,18 @@ export const billingJobs = {
       let prices = 0;
       const items = await withSystem('billing.syncCatalog', (tx) => repo.itemsToSync(tx, SYNC_BATCH));
       for (const item of items) {
-        const product = await failFast(() => stripe.createProduct(item.id, item.code));
-        await withSystem('billing.syncCatalog', (tx) => repo.setProductId(tx, item.id, product.id));
+        const product = await failFast(() => stripe.createProduct(item.id, item.code, item.taxCode));
+        await withSystem('billing.syncCatalog', (tx) => repo.setProductId(tx, item.id, product.id, item.taxCode));
         products++;
+      }
+      // S13-F19: a changed tax code reaches the existing Stripe product (Stripe Tax uses it from the next Checkout).
+      let taxed = 0;
+      const retaxed = await withSystem('billing.syncCatalog', (tx) => repo.productsToTax(tx, SYNC_BATCH));
+      for (const item of retaxed) {
+        const known = await failFast(() => stripe.setProductTaxCode(item.stripeProductId as string, item.taxCode));
+        if (!known) log.warn({ itemId: item.id }, 'billing: product unknown to Stripe — tax code marked synced');
+        await withSystem('billing.syncCatalog', (tx) => repo.setStripeTaxCode(tx, item.id, item.taxCode));
+        taxed++;
       }
       const pending = await withSystem('billing.syncCatalog', (tx) => repo.pricesToSync(tx, SYNC_BATCH));
       for (const price of pending) {
@@ -113,8 +122,9 @@ export const billingJobs = {
         await withSystem('billing.syncCatalog', (tx) => repo.setPriceRetired(tx, price.id));
         retired++;
       }
-      if (products || prices || retired) log.info({ products, prices, retired }, 'billing catalog synced to Stripe');
-      return { products, prices, retired };
+      if (products || prices || retired || taxed)
+        log.info({ products, prices, retired, taxed }, 'billing catalog synced to Stripe');
+      return { products, prices, retired, taxed };
     },
   }),
 

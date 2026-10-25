@@ -636,6 +636,46 @@ describe('billing', () => {
     expect(removals()).toHaveLength(1);
   });
 
+  it('[S13-F19] the product tax code is data: sent on product creation, updated in Stripe when it changes, never twice', async () => {
+    const TAXED = `taxed_${RUN}`;
+    const item = (taxCode?: string | null) => [
+      {
+        code: TAXED,
+        kind: 'PLAN' as const,
+        seatsIncluded: 2,
+        rank: 6,
+        ...(taxCode !== undefined ? { taxCode } : {}),
+        prices: [{ interval: 'YEAR' as const, currency: 'EUR' as const, amountCents: 40_000 }],
+      },
+    ];
+    await system((tx) => billing.upsertCatalog(tx, item('txcd_10103001'), newId));
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    const productOf = async () => {
+      const id = (await stripePriceOf(TAXED, 'YEAR', 'EUR')) as string;
+      return stripe.products.get(stripe.prices.get(id)?.product as string);
+    };
+    expect((await productOf())?.tax_code).toBe('txcd_10103001');
+    const productId = stripe.prices.get((await stripePriceOf(TAXED, 'YEAR', 'EUR')) as string)?.product as string;
+    const updates = () => stripe.calls.filter((c) => c.method === 'POST' && c.path === `/v1/products/${productId}`);
+    expect(updates()).toHaveLength(0);
+
+    // A changed code reaches the existing product, once.
+    await system((tx) => billing.upsertCatalog(tx, item('txcd_10103000'), newId));
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    expect((await productOf())?.tax_code).toBe('txcd_10103000');
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    expect(updates()).toHaveLength(1);
+
+    // An absent code keeps the stored one; null clears it in Stripe.
+    await system((tx) => billing.upsertCatalog(tx, item(), newId));
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    expect(updates()).toHaveLength(1);
+    await system((tx) => billing.upsertCatalog(tx, item(null), newId));
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    expect((await productOf())?.tax_code ?? null).toBeNull();
+    expect(updates()).toHaveLength(2);
+  });
+
   it('[S13-F18] a changed or removed catalog price can no longer be bought in Checkout or the portal; subscribers on it are unaffected', async () => {
     // Its own plan: retiring Pro's prices would change the tests above.
     const LITE = `lite_${RUN}`;

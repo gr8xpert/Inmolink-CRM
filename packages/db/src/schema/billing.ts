@@ -69,6 +69,10 @@ export const billingCatalogItems = pgTable(
     active: boolean('active').notNull().default(true),
     /** The Stripe product, once `billing.syncCatalog` created it. */
     stripeProductId: text('stripe_product_id'),
+    /** S13-F19: the Stripe Tax product tax code (`txcd_…`; data from the catalog file; null: the account's preset applies). */
+    taxCode: text('tax_code'),
+    /** S13-F19: the tax code Stripe's product has now (set by `billing.syncCatalog`); differs from `taxCode` until synced. */
+    stripeTaxCode: text('stripe_tax_code'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

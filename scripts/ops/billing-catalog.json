@@ -1,11 +1,12 @@
 {
-  "$comment": "S13-01/S13-02: the plan catalog and plan matrix (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). `features` are the gated features a plan includes (`PlanFeature` keys); Free and Enterprise have no prices (Enterprise is a staff grant). Add-on prices are set by staff before they are offered; an add-on's `seatsIncluded` is the seats one unit adds.",
+  "$comment": "S13-01/S13-02: the plan catalog and plan matrix (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). `features` are the gated features a plan includes (`PlanFeature` keys); every item carries a Stripe Tax `taxCode` (SaaS: txcd_10103001), sent on its Stripe product and updated there when changed; Free and Enterprise have no prices (Enterprise is a staff grant). Add-on prices are set by staff before they are offered; an add-on's `seatsIncluded` is the seats one unit adds.",
   "items": [
     {
       "code": "free",
       "kind": "PLAN",
       "seatsIncluded": 1,
       "rank": 0,
+      "taxCode": "txcd_10103001",
       "features": [],
       "prices": []
     },
@@ -14,6 +15,7 @@
       "kind": "PLAN",
       "seatsIncluded": 4,
       "rank": 10,
+      "taxCode": "txcd_10103001",
       "features": [
         "website_api",
         "portal_exports",
@@ -36,6 +38,7 @@
       "kind": "PLAN",
       "seatsIncluded": 10,
       "rank": 20,
+      "taxCode": "txcd_10103001",
       "features": [
         "website_api",
         "portal_exports",
@@ -62,6 +65,7 @@
       "kind": "PLAN",
       "seatsIncluded": null,
       "rank": 30,
+      "taxCode": "txcd_10103001",
       "features": [
         "website_api",
         "portal_exports",
@@ -83,7 +87,21 @@
       ],
       "prices": []
     },
-    { "code": "extra_user", "kind": "ADDON", "seatsIncluded": 1, "rank": 100, "prices": [] },
-    { "code": "extra_website", "kind": "ADDON", "seatsIncluded": null, "rank": 110, "prices": [] }
+    {
+      "code": "extra_user",
+      "kind": "ADDON",
+      "seatsIncluded": 1,
+      "rank": 100,
+      "taxCode": "txcd_10103001",
+      "prices": []
+    },
+    {
+      "code": "extra_website",
+      "kind": "ADDON",
+      "seatsIncluded": null,
+      "rank": 110,
+      "taxCode": "txcd_10103001",
+      "prices": []
+    }
   ]
 }

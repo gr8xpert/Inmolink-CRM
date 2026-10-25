@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(billing): product tax codes in the catalog, sent on Stripe product create and updated on change (migration 0162) [S13-F19]
 - feat(billing): retire changed/removed catalog prices and deactivate them in Stripe via billing.syncCatalog (stripe_retired_at, migration 0161) [S13-F18]
 - fix(social): Meta revoke re-locks and marks late connects NEEDS_RECONNECT; legacy NULL-user accounts block the revoke until backfilled by social.backfillMetaUsers [S13-F5]
 - feat(db): drop the 16 date_trunc keyset indexes concurrently (migration 0160); crm notes/imports and the listing export on raw keyset [S13-F8]

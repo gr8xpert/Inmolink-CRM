@@ -255,12 +255,25 @@ export class StripeClient {
   }
 
   /** A product for a catalog item (idempotent on the item's id). */
-  async createProduct(itemId: string, code: string): Promise<{ id: string }> {
+  async createProduct(itemId: string, code: string, taxCode?: string | null): Promise<{ id: string }> {
     const res = await this.#request('POST', '/v1/products', {
-      params: { name: code, metadata: { inmolink_item_id: itemId, code } },
+      params: { name: code, metadata: { inmolink_item_id: itemId, code }, ...(taxCode ? { tax_code: taxCode } : {}) },
       idempotencyKey: `product:${itemId}`,
     });
     return { id: str(res.id) };
+  }
+
+  /**
+   * S13-F19: sets (or, with null, clears) the product's Stripe Tax code. Naturally idempotent, so it carries no
+   * idempotency key (a key would replay a cached answer when the code goes A, B, A within a day). A product Stripe no
+   * longer knows answers false.
+   */
+  async setProductTaxCode(stripeProductId: string, taxCode: string | null): Promise<boolean> {
+    const res = await this.#send('POST', `/v1/products/${encodeURIComponent(stripeProductId)}`, {
+      params: { tax_code: taxCode ?? '' },
+      missingIsNull: true,
+    });
+    return res !== null;
   }
 
   /** A recurring price, VAT exclusive (Stripe Tax adds it), idempotent on our price's id. */

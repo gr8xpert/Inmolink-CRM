@@ -15,6 +15,12 @@ export const CatalogFile = z.object({
           rank: z.number().int().min(0).max(10_000),
           /** S13-02: the gated features a plan includes (the plan matrix as data). */
           features: z.array(PlanFeature).max(100).optional(),
+          /** S13-F19: the Stripe Tax product tax code (`txcd_…`) sent on the Stripe product; null/absent: the account's preset. */
+          taxCode: z
+            .string()
+            .regex(/^txcd_\d{8}$/)
+            .nullable()
+            .optional(),
           prices: z.array(
             z
               .object({ interval: BillingInterval, currency: BillingCurrency, amountCents: z.number().int().min(0) })

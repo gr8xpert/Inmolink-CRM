@@ -32,6 +32,7 @@ export interface FakeStripe {
   subscriptions: Map<string, Obj>;
   invoices: Map<string, Obj>;
   prices: Map<string, Obj>;
+  products: Map<string, Obj>;
   /** Stripe completes a Checkout: an active subscription with the session's line items. */
   completeCheckout(sessionId: string, opts: { paymentMethod: 'card' | 'sepa_debit'; periodEnd: number }): Obj;
   updateSubscription(id: string, patch: Obj): Obj;
@@ -174,6 +175,14 @@ export async function startFakeStripe(): Promise<FakeStripe> {
         prices.set(price.id, price);
         return send(200, price);
       }
+      // S13-F19: updates a product; billing only ever sends `tax_code` ('' clears it, like Stripe).
+      const updateProduct = req.method === 'POST' ? /^\/v1\/products\/([^/]+)$/.exec(p) : null;
+      if (updateProduct) {
+        const prod = products.get(decodeURIComponent(updateProduct[1] as string));
+        if (!prod) return missing(res);
+        if (params.tax_code !== undefined) prod.tax_code = params.tax_code === '' ? null : params.tax_code;
+        return send(200, prod);
+      }
       // S13-F18: updates a price; billing only ever sends `active=false` (retiring it).
       const updatePrice = req.method === 'POST' ? /^\/v1\/prices\/([^/]+)$/.exec(p) : null;
       if (updatePrice) {
@@ -241,6 +250,7 @@ export async function startFakeStripe(): Promise<FakeStripe> {
     subscriptions,
     invoices,
     prices,
+    products,
     completeCheckout(sessionId, opts) {
       const s = sessions.get(sessionId);
       if (!s) throw new Error(`no session ${sessionId}`);
