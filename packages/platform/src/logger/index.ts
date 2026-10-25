@@ -176,6 +176,7 @@ const SECRET_PATHS: readonly RegExp[] = [
   /^(\/v2\/feeds\/)[^/?#]+/,
   /^(\/v2\/portal-feeds\/)[^/?#]+/,
   /^(\/v2\/calendars\/)[^/?#]+/,
+  /^(\/s\/)[^/?#]+/,
 ];
 /**
  * The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). Also the
@@ -186,6 +187,7 @@ const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [
   /(\/v2\/feeds\/)[^/?#\s"'<>]+/g,
   /(\/v2\/portal-feeds\/)[^/?#\s"'<>]+/g,
   /(\/v2\/calendars\/)[^/?#\s"'<>]+/g,
+  /(\/s\/)[^/?#\s"'<>]+/g,
   /([?&]api_key=)[^&#\s"'<>]+/g,
 ];
 

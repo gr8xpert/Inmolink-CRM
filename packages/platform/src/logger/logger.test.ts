@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createLogger,
   REDACTED,
+  redactPath,
   redactPaths,
   redactPathsInText,
   redactQueryParams,
@@ -201,6 +202,15 @@ describe('logger', () => {
     expect(stripQuery(`/v2/calendars/${token}/calendar.ics?lang=es`)).toBe(`/v2/calendars/${REDACTED}/calendar.ics`);
     expect(redactPathsInText(`GET https://feed.example/v2/calendars/${token}/calendar.ics failed`)).toBe(
       `GET https://feed.example/v2/calendars/${REDACTED}/calendar.ics failed`,
+    );
+  });
+
+  it('[S13-F2] a selection token path (/s/<token>) is redacted in paths and in text', () => {
+    const token = 's'.repeat(43);
+    expect(redactPath(`/s/${token}`)).toBe(`/s/${REDACTED}`);
+    expect(stripQuery(`/s/${token}?lang=es`)).toBe(`/s/${REDACTED}`);
+    expect(redactPathsInText(`GET https://inmolink.es/s/${token} failed`)).toBe(
+      `GET https://inmolink.es/s/${REDACTED} failed`,
     );
   });
 
