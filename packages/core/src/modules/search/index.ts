@@ -42,6 +42,7 @@ export {
 export {
   MATCH_ENGINE_TIMEOUT_MS,
   MATCH_MAX_ROUNDS,
+  MATCH_ROUND_METRIC,
   MATCH_SAMPLE,
   matchListingOwners,
   type OwnerMatch,

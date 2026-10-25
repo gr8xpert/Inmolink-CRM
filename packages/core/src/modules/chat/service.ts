@@ -31,17 +31,17 @@ import { handoffLinks } from './handoff';
 import { assertCan, can } from './policy';
 import * as repo from './repo';
 
+const userIdOf = (ctx: Ctx): string => {
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  return ctx.actor.userId;
+};
+
 /**
  * chat use cases (PATTERNS §7): `(ctx: Ctx, input) → DTO`. Every read and write is the caller's own: a thread is found
  * through the caller's participant row (one join), so a thread they are not in answers `CHAT_THREAD_NOT_FOUND` like no
  * thread at all — and RLS shows its messages to its participants only. Delivery (sockets, notifications, the e-mail
  * digest) is the worker's, after commit (`delivery.ts`).
  */
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 /** A thread never read before: its notifications of this long ago are read with it (older ones were mailed long since). */
 const NOTIFIED_LOOKBACK_MS = 30 * 86_400_000;
@@ -55,7 +55,22 @@ export const threadLink = (threadId: string) => `/chat/${threadId}`;
  */
 const isUnread = (r: repo.ThreadRow) => r.lastMessageAt.getTime() > (r.lastReadAt ?? r.createdAt).getTime();
 
-function toThreadDto(r: repo.ThreadRow, names: Map<string, string>): ChatThreadDto {
+interface ThreadLookups {
+  names: Map<string, string>;
+  /** Agencies listed now (VERIFIED) — looked up only when a `NETWORK` thread is shown. */
+  listed: ReadonlySet<string>;
+}
+
+/**
+ * Read-only: closed (a declined viewing request; a network post's close job), or — S12-F12 review — a `NETWORK` thread
+ * whose agency or peer is no longer listed (the fan-out trigger refuses its messages), so the UI hides the composer.
+ */
+const isReadOnly = (r: repo.ThreadRow, readerAgencyId: string, l: ThreadLookups) =>
+  r.closedAt !== null ||
+  (r.kind === 'NETWORK' && !(l.listed.has(readerAgencyId) && r.peerAgencyId !== null && l.listed.has(r.peerAgencyId)));
+
+function toThreadDto(r: repo.ThreadRow, l: ThreadLookups, readerAgencyId: string): ChatThreadDto {
+  const names = l.names;
   return {
     id: r.id,
     kind: r.kind as ChatThreadKind,
@@ -67,7 +82,7 @@ function toThreadDto(r: repo.ThreadRow, names: Map<string, string>): ChatThreadD
     lastMessageAt: r.lastMessageAt.toISOString(),
     lastReadAt: r.lastReadAt ? r.lastReadAt.toISOString() : null,
     unread: isUnread(r),
-    closed: r.closedAt !== null,
+    closed: isReadOnly(r, readerAgencyId, l),
   };
 }
 
@@ -87,11 +102,20 @@ export function toMessageDto(m: repo.MessageRow, readerAgencyId: string): ChatMe
   };
 }
 
-const peerNames = (ctx: Ctx, rows: readonly repo.ThreadRow[]) =>
-  agencies.directoryNamesOf(
-    ctx.tx,
-    rows.flatMap((r) => (r.peerAgencyId ? [r.peerAgencyId] : [])),
-  );
+/** The peers' names, and — when a `NETWORK` thread is among them — which of the agencies are listed (one more query). */
+async function threadLookups(ctx: Ctx, rows: readonly repo.ThreadRow[]): Promise<ThreadLookups> {
+  const network = rows.filter((r) => r.kind === 'NETWORK' && r.peerAgencyId !== null);
+  const [names, listed] = await Promise.all([
+    agencies.directoryNamesOf(
+      ctx.tx,
+      rows.flatMap((r) => (r.peerAgencyId ? [r.peerAgencyId] : [])),
+    ),
+    network.length === 0
+      ? Promise.resolve(new Map<string, string>())
+      : agencies.listedAgencyNamesOf(ctx.tx, [ctx.tenant.agencyId, ...network.map((r) => r.peerAgencyId as string)]),
+  ]);
+  return { names, listed: new Set(listed.keys()) };
+}
 
 async function memberThread(ctx: Ctx, threadId: string): Promise<repo.ThreadRow> {
   const t = await repo.threadForMember(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), threadId);
@@ -109,10 +133,10 @@ export async function getThread(ctx: Ctx, threadId: string): Promise<ChatThreadD
       ctx,
       participants.map((p) => p.userId),
     ),
-    peerNames(ctx, [t]),
+    threadLookups(ctx, [t]),
   ]);
   return {
-    ...toThreadDto(t, peers),
+    ...toThreadDto(t, peers, ctx.tenant.agencyId),
     participants: participants.map((p) => ({
       userId: p.userId,
       name: names.get(p.userId) ?? null,
@@ -122,19 +146,19 @@ export async function getThread(ctx: Ctx, threadId: string): Promise<ChatThreadD
   };
 }
 
-/** `GET /v1/chat/threads`: the caller's threads, latest activity first, keyset (two queries). */
+/** `GET /v1/chat/threads`: the caller's threads, latest activity first, keyset (two queries; three with a `NETWORK` thread). */
 export async function listThreads(ctx: Ctx, query: ListChatThreadsQuery): Promise<ChatThreadPage> {
   assertCan(ctx, 'chat.read');
   const rows = await repo.inbox(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), {
     limit: query.limit,
     cursor: decodeCursor(query.cursor),
   });
-  const names = await peerNames(ctx, rows.slice(0, query.limit));
+  const lookups = await threadLookups(ctx, rows.slice(0, query.limit));
   return toPage(
     rows,
     query.limit,
     (r) => ({ at: r.lastMessageAt, id: r.id, atUs: r.atUs }),
-    (r) => toThreadDto(r, names),
+    (r) => toThreadDto(r, lookups, ctx.tenant.agencyId),
   );
 }
 

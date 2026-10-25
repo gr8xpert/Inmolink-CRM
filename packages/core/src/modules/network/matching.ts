@@ -216,13 +216,22 @@ export async function matchBuyerRequest(
 }
 
 /**
- * `network.closePostThreads` (one per `network.post.closed`, S12-F12): re-reads the post — CLOSED and of the event's
- * agency, else nothing (a closed post is never reopened) — then its reply threads become read-only, both copies.
+ * `network.closePostThreads` (one per `network.post.closed`, S12-F12): its reply threads become read-only, both
+ * copies, `chat.NETWORK_CLOSE_BATCH` threads per transaction. Each transaction re-reads the post — CLOSED and of the
+ * event's agency, else nothing (a closed post is never reopened) — before closing.
  */
 export async function closePostThreads(p: { postId: string; agencyId: string }): Promise<{ closed: number }> {
-  const post = await withSystem(`network.closePostThreads: ${p.postId}`, (tx) => repo.postById(tx, p.postId));
-  if (!post || post.status !== 'CLOSED' || post.agencyId !== p.agencyId) return { closed: 0 };
-  return chat.closeNetworkThreads({ agencyId: post.agencyId, postId: post.id });
+  let closed = 0;
+  for (;;) {
+    const r = await withSystem(`network.closePostThreads: ${p.postId}`, async (tx) => {
+      const post = await repo.postById(tx, p.postId);
+      if (post?.status !== 'CLOSED' || post.agencyId !== p.agencyId) return null;
+      return chat.closeNetworkThreadsForWorker(tx, post.agencyId, post.id);
+    });
+    if (!r) return { closed };
+    closed += r.copies;
+    if (r.threads < chat.NETWORK_CLOSE_BATCH) return { closed };
+  }
 }
 
 /**

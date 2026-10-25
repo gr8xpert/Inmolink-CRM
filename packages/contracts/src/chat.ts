@@ -86,7 +86,10 @@ export const ChatThreadDto = z.strictObject({
   /** The caller's read state. */
   lastReadAt: z.iso.datetime().nullable(),
   unread: z.boolean(),
-  /** `VIEWING`: the viewing request was declined, cancelled or expired — the thread is read-only. */
+  /**
+   * Read-only (hide the composer). `VIEWING`: the viewing request was declined, cancelled or expired. `NETWORK`: its
+   * post closed (or expired), or either agency is no longer listed (S12-F12).
+   */
   closed: z.boolean(),
 });
 export type ChatThreadDto = z.infer<typeof ChatThreadDto>;

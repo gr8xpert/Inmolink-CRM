@@ -9,7 +9,7 @@
  */
 export { networkErrors } from './errors';
 export { networkEvents } from './events';
-export { networkJobs } from './jobs';
+export { MATCH_GLOBAL_CONCURRENCY, networkJobs } from './jobs';
 export {
   closeExpiredPosts,
   closePostThreads,

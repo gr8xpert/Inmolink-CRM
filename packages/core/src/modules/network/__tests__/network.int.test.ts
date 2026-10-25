@@ -653,7 +653,7 @@ describe('reply threads close with their post or an unlisted agency (S12-F12)', 
     expect(events).toEqual([{ agency_id: p.agencyId }]);
   });
 
-  it('[S12-F12] a NETWORK thread refuses messages (42501) once either agency is no longer listed', async () => {
+  it('[S12-F12] a NETWORK thread refuses messages (42501) and shows read-only once either agency is no longer listed', async () => {
     const [q, r] = await Promise.all([createFounder(), createFounder()]);
     await Promise.all([setAgencyStatus(q.agencyId, 'VERIFIED'), setAgencyStatus(r.agencyId, 'VERIFIED')]);
     const { post } = await as(q, (ctx) => network.createPost(ctx, buyerRequest({ title: `Unlisted ${RUN}` })));
@@ -667,9 +667,15 @@ describe('reply threads close with their post or an unlisted agency (S12-F12)', 
     expect(await refusal(as(q, (ctx) => chat.sendMessage(ctx, thread.id, { body: 'Hello?' })))).toBe(
       'CHAT_THREAD_CLOSED',
     );
+    // and both sides see it read-only (the UI hides the composer)
+    expect((await as(q, (ctx) => chat.getThread(ctx, thread.id))).closed).toBe(true);
+    expect(
+      (await as(r, (ctx) => chat.listThreads(ctx, { limit: 100 }))).items.find((i) => i.id === thread.id)?.closed,
+    ).toBe(true);
     // listed again: the thread works again
     await setAgencyStatus(r.agencyId, 'VERIFIED');
     expect(await sqlState(rawSend(r, thread.id))).toBe(undefined);
+    expect((await as(q, (ctx) => chat.getThread(ctx, thread.id))).closed).toBe(false);
     // the poster is no longer listed
     await setAgencyStatus(q.agencyId, 'PENDING');
     expect(await sqlState(rawSend(r, thread.id))).toBe('42501');

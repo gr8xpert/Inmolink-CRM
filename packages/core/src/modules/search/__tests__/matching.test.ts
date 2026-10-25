@@ -1,5 +1,6 @@
 import type { Filter, SearchEngine, SearchQuery } from '@inmolink/platform/search';
-import { describe, expect, it } from 'vitest';
+import { metrics } from '@opentelemetry/api';
+import { describe, expect, it, vi } from 'vitest';
 import { listingsIndex } from '../index-doc';
 import { matchListingOwners } from '../matching';
 
@@ -126,5 +127,30 @@ describe('matchListingOwners', () => {
       truncated: false,
     });
     expect(engine.calls).toBe(1);
+  });
+});
+
+describe('matching rounds (S12-F5)', () => {
+  it('[S12-F5] each round records its engine time on inmolink.network.match_round_ms', async () => {
+    const record = vi.fn();
+    const createHistogram = vi.fn(() => ({ record }));
+    const createCounter = vi.fn(() => ({ add: vi.fn() }));
+    const spy = vi
+      .spyOn(metrics, 'getMeter')
+      .mockReturnValue({ createHistogram, createCounter } as unknown as ReturnType<typeof metrics.getMeter>);
+    try {
+      // a fresh module: its histogram is taken on first use, from the meter above
+      vi.resetModules();
+      const fresh = await import('../matching');
+      // 450 owners: three rounds of 200, 200, 50 owners
+      await fresh.matchListingOwners({}, { excludeAgencyId: SELF, perAgency: 10, engine: fakeEngine(docsOf(450)) });
+      expect(createHistogram).toHaveBeenCalledWith(fresh.MATCH_ROUND_METRIC, expect.objectContaining({ unit: 'ms' }));
+      expect(fresh.MATCH_ROUND_METRIC).toBe('inmolink.network.match_round_ms');
+      expect(record).toHaveBeenCalledTimes(3);
+      for (const [ms] of record.mock.calls) expect(ms).toBeGreaterThanOrEqual(0);
+    } finally {
+      spy.mockRestore();
+      vi.resetModules();
+    }
   });
 });

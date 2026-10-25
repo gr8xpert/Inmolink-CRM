@@ -1,21 +1,19 @@
-import { withSystem } from '@inmolink/db';
+import type { Tx } from '@inmolink/db';
 import * as repo from './repo';
 
 /** Reply threads of one post closed per statement (the poster's copies, and the repliers' copies of those threads). */
 export const NETWORK_CLOSE_BATCH = 500;
 
 /**
- * S12-F12, `network.closePostThreads` (one per `network.post.closed`): every reply thread of a closed network post
- * becomes read-only, both copies — the poster's and each replying agency's — like `closeViewingThread`. A closed post
- * is never reopened (`network_posts_guard`); the network module re-reads it and passes its agency (the poster's). Batches of `NETWORK_CLOSE_BATCH` threads, one transaction each; idempotent (closed copies are skipped).
+ * Worker form (S12-F12; PATTERNS §12): up to `NETWORK_CLOSE_BATCH` open reply threads of a network post become
+ * read-only, both copies — the poster's and each replying agency's — like `closeViewingThread`. It trusts its
+ * arguments: the caller (`network.closePostThreads`) runs it in the `withSystem` transaction in which it re-read the
+ * post as CLOSED and of `posterAgencyId`. Never call it from a request path. Idempotent (closed copies are skipped).
  */
-export async function closeNetworkThreads(p: { agencyId: string; postId: string }): Promise<{ closed: number }> {
-  let closed = 0;
-  for (;;) {
-    const r = await withSystem(`chat.closeNetworkThreads: ${p.postId}`, (tx) =>
-      repo.closeNetworkThreads(tx, p.agencyId, p.postId, NETWORK_CLOSE_BATCH),
-    );
-    closed += r.copies;
-    if (r.threads < NETWORK_CLOSE_BATCH) return { closed };
-  }
+export async function closeNetworkThreadsForWorker(
+  tx: Tx,
+  posterAgencyId: string,
+  postId: string,
+): Promise<{ threads: number; copies: number }> {
+  return repo.closeNetworkThreads(tx, posterAgencyId, postId, NETWORK_CLOSE_BATCH);
 }

@@ -1,6 +1,6 @@
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { type Filter, type SearchEngine, searchEngine } from '@inmolink/platform/search';
-import { metrics } from '@opentelemetry/api';
+import { type Histogram, metrics } from '@opentelemetry/api';
 import { type AttributeQuery, attributeFilters, othersInNetwork } from './filters';
 import { listingsIndex } from './index-doc';
 import { listingsIndexUid } from './indexer';
@@ -17,6 +17,10 @@ import { listingsIndexUid } from './indexer';
  * owners than the facet's cap. `MATCH_MAX_ROUNDS` bounds a request matching nearly the whole network: the rest is left
  * out, counted on `inmolink.network.match_truncated` and logged. An owner whose matches all fall outside its round's
  * sample is still counted, with no ids.
+ *
+ * S12-F5: the rounds run on the Meilisearch that answers website search (feed-api), so the worker caps the matching
+ * jobs pool-wide (`network.matchBuyerRequest`, `MATCH_GLOBAL_CONCURRENCY`), and each round's engine time (its two or
+ * three calls) goes to `inmolink.network.match_round_ms` — the signal to lower the cap or move matching to a replica.
  */
 
 /** Matching ids read per round (the newest first). */
@@ -29,6 +33,17 @@ export const MATCH_MAX_ROUNDS = 50;
 const truncations = metrics.getMeter('@inmolink/core').createCounter('inmolink.network.match_truncated', {
   description: 'Buyer requests whose matching owners exceeded MATCH_MAX_ROUNDS rounds (the rest were not notified)',
 });
+
+/** Engine time of one matching round (facet + sample + owners), ms. Created on first use (after the meter provider). */
+let roundHistogram: Histogram | undefined;
+const roundMs = () => {
+  roundHistogram ??= metrics.getMeter('@inmolink/core').createHistogram(MATCH_ROUND_METRIC, {
+    description: 'Search engine time of one buyer-request matching round (facet, sample and owner reads), ms',
+    unit: 'ms',
+  });
+  return roundHistogram;
+};
+export const MATCH_ROUND_METRIC = 'inmolink.network.match_round_ms';
 
 let log: Logger | undefined;
 const logger = () => {
@@ -66,6 +81,7 @@ export async function matchListingOwners(
   const found = new Map<string, OwnerMatch>();
   const maxRounds = options.maxRounds ?? MATCH_MAX_ROUNDS;
   for (let round = 0; ; round++) {
+    const started = performance.now();
     const notYet: Filter[] =
       found.size === 0 ? [] : [{ op: 'not', filter: { op: 'in', field: 'ownerAgencyId', values: [...found.keys()] } }];
     const facet = await engine.search(def, {
@@ -77,8 +93,12 @@ export async function matchListingOwners(
     const counts = Object.entries(facet.facets.ownerAgencyId ?? {}).filter(
       ([agencyId, count]) => agencyId !== options.excludeAgencyId && count > 0 && !found.has(agencyId),
     );
-    if (counts.length === 0) return { owners: sorted(found), truncated: false };
+    if (counts.length === 0) {
+      roundMs().record(performance.now() - started);
+      return { owners: sorted(found), truncated: false };
+    }
     if (round >= maxRounds) {
+      roundMs().record(performance.now() - started);
       truncations.add(1);
       logger().warn({ owners: found.size, rounds: round }, 'network matching: owners beyond the round limit left out');
       return { owners: sorted(found), truncated: true };
@@ -100,6 +120,7 @@ export async function matchListingOwners(
         if (match && match.listingIds.length < options.perAgency) match.listingIds.push(id);
       }
     }
+    roundMs().record(performance.now() - started);
     // the facet listed every remaining owner: nothing is left for another round
     if (Object.keys(facet.facets.ownerAgencyId ?? {}).length < def.maxValuesPerFacet) {
       return { owners: sorted(found), truncated: false };
