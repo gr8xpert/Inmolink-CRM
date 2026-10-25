@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   closeDb,
@@ -39,16 +40,27 @@ export async function configureDb(next: DbConfig, options: PoolOptions = {}): Pr
 }
 
 /** The outbox dispatcher for the worker's `outbox` pool, wired to `withSystem` (routine: debug-level audit lines). Polls (ADR 0014). */
-export function createOutboxDispatcher(options: { logger: Logger }): Dispatcher {
+export function createOutboxDispatcher(options: {
+  logger: Logger;
+  /** S12-F19: tests on the shared database claim only their own agencies' events (`DispatcherOptions.agencyIds`). */
+  agencyIds?: readonly string[];
+}): Dispatcher {
   return createDispatcher({
     runSystem: <T>(reason: string, fn: (tx: SqlExecutor) => Promise<T>) =>
       withSystem(reason, (tx: Tx) => fn(tx), { routine: true }),
     logger: options.logger,
+    ...(options.agencyIds ? { agencyIds: options.agencyIds } : {}),
   });
 }
 
-/** The versioned prompt files (`prompts/<id>/v<N>.md`, ADR 0008 #5) — same path from `src/` and `dist/`. */
-export const AI_PROMPTS_DIR = fileURLToPath(new URL('../prompts', import.meta.url));
+/**
+ * The versioned prompt files (`prompts/<id>/v<N>.md`, ADR 0008 #5) — same path from `src/` and `dist/`. Resolved on
+ * call, not as `new URL('../prompts', import.meta.url)`: bundlers (Turbopack in the Next apps) treat that literal as an
+ * asset import and fail the build.
+ */
+export function aiPromptsDir(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
+}
 
 const aiSystemRunner: SystemRunner = (reason, fn) => withSystem(reason, (tx: Tx) => fn(tx), { routine: true });
 
@@ -61,12 +73,12 @@ const aiSystemRunner: SystemRunner = (reason, fn) => withSystem(reason, (tx: Tx)
 export async function configureAiRuntime(options: { logger: Logger }): Promise<void> {
   configureAi(
     createAiGatewayFromEnv({
-      promptsDir: AI_PROMPTS_DIR,
+      promptsDir: aiPromptsDir(),
       store: createPgAiStore(aiSystemRunner),
       logger: options.logger,
     }),
   );
-  const prompts = await listPrompts(AI_PROMPTS_DIR);
+  const prompts = await listPrompts(aiPromptsDir());
   const added = await withSystem('ai.syncPrompts', (tx: Tx) => syncPromptVersions(tx, prompts));
   if (added > 0) options.logger.info({ added }, 'ai prompt versions recorded');
 }
