@@ -5,6 +5,7 @@ import { and, eq, gt, isNull, type SQL, sql } from 'drizzle-orm';
 import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 import { DEFAULT_STAGES } from './pipeline-defaults';
+import { stageWriteLock } from './report-rollups-repo';
 import { humanResponseSet } from './response-repo';
 
 /**
@@ -143,10 +144,13 @@ export async function leadByIdempotency(
   return row ?? null;
 }
 
-/** One lead with its contact's summary (one query); `forUpdate` locks the lead row. */
+/**
+ * One lead with its contact's summary (one query); `forUpdate` locks the lead row — and, first, takes the agency's
+ * stage-write lock (S12-F6: a status change is a stage move the stage-count pass must not step over).
+ */
 export async function getLead(tx: Tx, id: string, opts: { forUpdate?: boolean } = {}): Promise<LeadRow | null> {
   const q = tx
-    .select(detailColumns)
+    .select(opts.forUpdate ? { ...detailColumns, stageLock: stageWriteLock(leads.agencyId) } : detailColumns)
     .from(leads)
     .innerJoin(contacts, and(eq(contacts.agencyId, leads.agencyId), eq(contacts.id, leads.contactId)))
     .where(eq(leads.id, id));
@@ -358,7 +362,8 @@ export async function entryStageAndRule(
       select id from ${pipelineStages} where agency_id = ${agencyId} and status = 'NEW'
       limit 1
     )
-    select (select id from entry) as stage_id, r.mode, r.agent_user_ids, r.last_assigned_user_id, r.version
+    select (select id from entry) as stage_id, r.mode, r.agent_user_ids, r.last_assigned_user_id, r.version,
+           ${stageWriteLock(sql`${agencyId}::uuid`)} as stage_lock
       from (values (1)) as one(x)
       left join ${leadRoutingSettings} r on r.agency_id = ${agencyId}`);
   const row = res.rows[0];

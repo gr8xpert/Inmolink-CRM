@@ -6,6 +6,7 @@ import type { KeysetCursor } from '../../pagination';
 import { rowAfter, rowOrder } from './keyset';
 import type { LeadListRow } from './leads-repo';
 import { DEFAULT_STAGES } from './pipeline-defaults';
+import { stageWriteLock } from './report-rollups-repo';
 import { humanResponseSet } from './response-repo';
 
 /**
@@ -350,6 +351,8 @@ export async function lockLead(
       stageId: leads.stageId,
       firstRespondedAt: leads.firstRespondedAt,
       createdMs: leads.createdMs,
+      // S12-F6: the agency's stage-write lock, before the row lock (the stage-count pass waits for this move)
+      stageLock: stageWriteLock(leads.agencyId),
     })
     .from(leads)
     .where(eq(leads.id, id))

@@ -6,7 +6,7 @@ import {
   leadStageHistory,
   leads,
 } from '@inmolink/db/schema/crm';
-import { type SQL, sql } from 'drizzle-orm';
+import { type AnyColumn, type SQL, sql } from 'drizzle-orm';
 
 /**
  * Report rollups (S11-F10): the statements that rebuild `crm_stage_counts` and `crm_response_rollups` from `leads`,
@@ -29,12 +29,28 @@ export function utcDays(from: string, to: string): string[] {
   return out;
 }
 
+/** S12-F6: the advisory lock key of an agency's stage counts (`agencyId`: a uuid expression). */
+const stageKey = (agencyId: SQL) => sql`hashtextextended('crm_stage_counts:' || (${agencyId})::text, 0)`;
+
 /**
- * S12-F6: one agency's stage-count work at a time (a delta pass and a rebuild never interleave their reads and
- * writes, also outside the job's group lease — a repair script, a test). Transaction-scoped advisory lock.
+ * S12-F6: the writers' side of the stage-count lock — a transaction that moves a lead into or out of a stage (a new
+ * lead, a move, a status set) takes the agency's lock SHARED before it reads the clock for `stage_entered_at`, in its
+ * first statement (a column of it: no extra round trip). Writers never wait for each other; the pass's exclusive lock
+ * waits for every writer of the agency still open and holds new ones back for its few milliseconds — so no move it
+ * could not see yet ever sits below its cutoff (commit-ordered, whatever a writer's duration).
  */
-export async function lockStageCounts(tx: Tx, agencyId: string): Promise<void> {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`crm_stage_counts:${agencyId}`}, 0))`);
+export const stageWriteLock = (agencyId: SQL | AnyColumn) =>
+  sql<null>`pg_advisory_xact_lock_shared(${stageKey(sql`${agencyId}`)})`;
+
+/**
+ * S12-F6: the pass's side — the agency's stage-count lock EXCLUSIVE (waits for its open writers: their moves are then
+ * committed and visible to the pass's next statement; serializes passes and rebuilds too), then the database clock,
+ * which the cutoff is taken from. One statement.
+ */
+export async function lockStageCounts(tx: Tx, agencyId: string): Promise<Date> {
+  const res = await tx.execute<{ now: Date | string }>(sql`
+    select clock_timestamp() as now from (select pg_advisory_xact_lock(${stageKey(sql`${agencyId}::uuid`)})) l`);
+  return new Date(res.rows[0]?.now ?? Date.now());
 }
 
 /**
@@ -62,40 +78,56 @@ export function stageCountsRebuild(agencyId: string, cutoff: Date): SQL {
     agg as (
       select stage_id, sum(n)::int as n, sum(s)::float8 as s from parts group by stage_id having sum(n) > 0
     ),
+    prior as (select stage_id, leads from ${crmStageCounts} where agency_id = ${agencyId}),
     gone as (
       delete from ${crmStageCounts} c
        where c.agency_id = ${agencyId} and not exists (select 1 from agg where agg.stage_id = c.stage_id)
+    ),
+    up as (
+      insert into ${crmStageCounts} (agency_id, stage_id, leads, entered_epoch_sum, refreshed_at)
+      select ${agencyId}::uuid, stage_id, n, s, ${at} from agg
+      on conflict (agency_id, stage_id) do update
+         set leads = excluded.leads, entered_epoch_sum = excluded.entered_epoch_sum, refreshed_at = excluded.refreshed_at
     )
-    insert into ${crmStageCounts} (agency_id, stage_id, leads, entered_epoch_sum, refreshed_at)
-    select ${agencyId}::uuid, stage_id, n, s, ${at} from agg
-    on conflict (agency_id, stage_id) do update
-       set leads = excluded.leads, entered_epoch_sum = excluded.entered_epoch_sum, refreshed_at = excluded.refreshed_at`;
+    select coalesce(sum(abs(coalesce(agg.n, 0) - coalesce(prior.leads, 0))), 0)::int as drift,
+           (select count(*) from prior)::int as prior_rows
+      from agg full join prior on prior.stage_id = agg.stage_id`;
 }
 
-export async function rebuildStageCounts(tx: Tx, agencyId: string, cutoff: Date): Promise<void> {
-  await tx.execute(stageCountsRebuild(agencyId, cutoff));
+/**
+ * Rebuilds as of `cutoff`. `drift`: Σ |leads before − leads rebuilt| over the stages — after a delta pass up to the same
+ * cutoff, what the deltas had wrong (0 when they were exact); `priorRows`: 0 when the agency had no rows.
+ */
+export async function rebuildStageCounts(
+  tx: Tx,
+  agencyId: string,
+  cutoff: Date,
+): Promise<{ drift: number; priorRows: number }> {
+  const res = await tx.execute<{ drift: number; prior_rows: number }>(stageCountsRebuild(agencyId, cutoff));
+  return { drift: Number(res.rows[0]?.drift ?? 0), priorRows: Number(res.rows[0]?.prior_rows ?? 0) };
 }
 
 /**
  * S12-F6, the delta pass: the stage moves (`lead_stage_history`: a lead's entry — `from_stage_id` null — or a move)
  * after the agency's watermark (the latest `refreshed_at` of its rows) up to `cutoff`, applied as ±1 and ± entry time
- * to the stages they touch — one history row read per event (a range on `lead_stage_history_agency_changed_idx`,
- * index-only), one rollup row written per stage touched (`refreshed_at = cutoff`: the new watermark); `leads` is never
+ * to the stages they touch — one history row read per event (one range on `lead_stage_history_agency_changed_idx`,
+ * index-only, each row giving its entry and its exit), one rollup row written per stage touched (`refreshed_at = cutoff`: the new watermark); `leads` is never
  * read. A stage brought to 0 loses its row. Nothing is written when a stage would go below 0 (the rollup drifted: a
  * direct or backdated write — `negative`: the caller rebuilds). One statement; it also says whether the agency has rows
  * at all (`watermark`) and whether moves after `cutoff` wait for a later pass (`pending`).
  */
 export function stageCountsDelta(agencyId: string, cutoff: Date): SQL {
   const at = sql`${cutoff.toISOString()}::timestamptz`;
+  // the window's rows read once (index-only), each giving its entry (+1) and, for a move, its exit (−1)
   const window = sql`h.agency_id = ${agencyId} and h.changed_at > (select w from wm) and h.changed_at <= ${at}`;
   return sql`
     with wm as (select max(refreshed_at) as w from ${crmStageCounts} where agency_id = ${agencyId}),
     raw as (
-      select h.to_stage_id as stage_id, 1 as n, extract(epoch from h.changed_at)::float8 as s
-        from ${leadStageHistory} h where ${window}
-      union all
-      select h.from_stage_id, -1, -extract(epoch from h.from_entered_at)::float8
-        from ${leadStageHistory} h where ${window} and h.from_stage_id is not null
+      select v.stage_id, v.n, v.s
+        from ${leadStageHistory} h
+        cross join lateral (values (h.to_stage_id, 1, extract(epoch from h.changed_at)::float8),
+                                   (h.from_stage_id, -1, -extract(epoch from h.from_entered_at)::float8)) v(stage_id, n, s)
+       where ${window} and v.stage_id is not null
     ),
     d as (
       select stage_id, sum(n)::int as n, sum(s)::float8 as s, (count(*) filter (where n = 1))::int as moves

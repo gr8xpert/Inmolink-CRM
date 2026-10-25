@@ -9,7 +9,7 @@ import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
 import * as crm from '../index';
-import { STAGE_COUNTS_THROTTLE_MS } from '../jobs';
+import { STAGE_COUNTS_SWEEP_SPREAD_MS, STAGE_COUNTS_THROTTLE_MS, sweepDelayOf } from '../jobs';
 import { stageCountsDelta } from '../report-rollups-repo';
 
 /**
@@ -95,8 +95,10 @@ describe('stage counts by delta', () => {
     await newLead();
     const at = upToNow();
 
-    // the plan: index-only ranges on the history's (agency, changed_at) index, ≤ one row per event per branch, no leads
+    // the plan: one index-only range on the history's (agency, changed_at) index, one row per event, no leads
     const cutoff = new Date((at.now as Date).getTime() - crm.STAGE_COUNTS_LAG_MS);
+    // the window's pages all-visible (as autovacuum keeps them), so the index-only scan needs no heap
+    await adminQuery('vacuum lead_stage_history');
     // at volume: 50,000 older moves of this agency (before its watermark) in a rolled-back seed, analysed, the pass
     // EXPLAIN ANALYZEd as the worker's role (its writes rolled back with the seed)
     const plan = await withAdminRollback(['lead_stage_history'], async (q) => {
@@ -123,26 +125,27 @@ describe('stage counts by delta', () => {
     walk((plan as { Plan: Record<string, unknown> }[])[0]?.Plan as Record<string, unknown>);
     const relations = new Set(nodes.map((n) => n['Relation Name']).filter(Boolean));
     expect(relations.has('leads')).toBe(false);
-    const windowScans = nodes.filter(
-      (n) => n['Relation Name'] === 'lead_stage_history' && n['Index Name'] === 'lead_stage_history_agency_changed_idx',
-    );
-    expect(windowScans.length).toBeGreaterThanOrEqual(2);
-    expect(nodes.filter((n) => n['Relation Name'] === 'lead_stage_history' && n['Node Type'] === 'Seq Scan')).toEqual(
-      [],
-    );
-    // the two window branches read the 3 events' rows (to-stage) and their 2 moves' (from-stage), nothing else
-    const read = windowScans.reduce(
-      (sum, n) => sum + Number(n['Actual Rows'] ?? 0) * Number(n['Actual Loops'] ?? 1),
-      0,
-    );
-    expect(read).toBeLessThanOrEqual(3 + 3); // the "pending" probe reads at most one more row of its own
+    const scans = nodes.filter((n) => n['Relation Name'] === 'lead_stage_history');
+    // the window (read once) and the "pending" probe, both index-only on the (agency, changed_at, …) index
+    expect(scans.length).toBeGreaterThanOrEqual(1);
+    expect(scans.length).toBeLessThanOrEqual(2);
+    for (const n of scans) {
+      expect(n['Node Type']).toBe('Index Only Scan');
+      expect(n['Index Name']).toBe('lead_stage_history_agency_changed_idx');
+    }
+    const read = scans.reduce((sum, n) => sum + Number(n['Actual Rows'] ?? 0) * Number(n['Actual Loops'] ?? 1), 0);
+    const heap = scans.reduce((sum, n) => sum + Number(n['Heap Fetches'] ?? 0), 0);
+    // the 3 events' rows (each giving its entry and its exit), at most one more for the probe; none of the 50k
+    expect(read).toBeLessThanOrEqual(3 + 1);
+    // 0 once vacuumed; a page left not-all-visible by another suite's open snapshot costs at most its own rows
+    expect(heap).toBeLessThanOrEqual(read);
     console.info(
-      `[S12-F6] delta pass over 50k older moves: ${read} history rows read, ${(plan as { 'Execution Time': number }[])[0]?.['Execution Time']} ms`,
+      `[S12-F6] delta pass over 50k older moves: ${read} history rows read, ${heap} heap fetches, ${(plan as { 'Execution Time': number }[])[0]?.['Execution Time']} ms`,
     );
 
     const pass = await crm.refreshStageCounts({ agencyId: r.agencyId }, at);
     // entry (−2 +1) and the two target stages: 3 rows for 3 events
-    expect(pass).toEqual({ mode: 'delta', moves: 3, written: 3, pending: false });
+    expect(pass).toEqual({ mode: 'delta', moves: 3, written: 3, pending: false, drift: 0 });
     same(await counts(), await truth());
   });
 
@@ -212,10 +215,74 @@ describe('stage counts by delta', () => {
       const spec = crm.crmJobs.sweepStageCounts.spec;
       const out = (await spec.run({}, jobCtx())) as { queued: number };
       expect(out.queued).toBeGreaterThanOrEqual(1);
-      const queued = many.mock.calls.flatMap((call) => call[0].map((e) => e.payload));
-      expect(queued).toContainEqual({ agencyId: r.agencyId, full: true });
+      const queued = many.mock.calls.flatMap((call) => call[0]);
+      expect(queued).toContainEqual({
+        payload: { agencyId: r.agencyId, full: true, day: new Date().toISOString().slice(0, 10) },
+        options: { delayMs: sweepDelayOf(r.agencyId) },
+      });
     } finally {
       many.mockRestore();
     }
+  });
+
+  it('[S12-F6] a move still uncommitted when a pass starts is counted exactly once: the pass waits for it', async () => {
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
+    const lead = await newLead();
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
+    // transaction A: the move written, not committed
+    let release: () => void = () => {};
+    const gate = new Promise<void>((done) => {
+      release = done;
+    });
+    let moved: () => void = () => {};
+    const inside = new Promise<void>((done) => {
+      moved = done;
+    });
+    const a = as(async (ctx) => {
+      const card = await crm.moveLead(ctx, lead.id, MoveLeadBody.parse({ version: lead.version, stageId: won }));
+      moved();
+      await gate;
+      return card;
+    });
+    await inside;
+    // a pass whose cutoff is past A's move starts while A is open: it waits for A (the stage-count lock)
+    const pass = crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
+    for (let i = 0; i < 100; i += 1) {
+      const waiting = await adminQuery<{ n: number }>(
+        "select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted",
+      );
+      if ((waiting[0]?.n ?? 0) > 0) break;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    release();
+    await a;
+    const first = await pass;
+    expect(first).toMatchObject({ mode: 'delta', moves: 1 });
+    // the next pass finds it applied: never twice, never lost
+    expect(await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow())).toMatchObject({ moves: 0, written: 0 });
+    same(await counts(), await truth());
+  });
+
+  it('[S12-F6] the nightly rebuild reports the deltas’ drift, once per agency and day, spread over hours', async () => {
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
+    // a write around the services (no history row): the deltas cannot see it
+    await adminQuery('update crm_stage_counts set leads = leads + 2 where agency_id = $1 and stage_id = $2', [
+      r.agencyId,
+      entry,
+    ]);
+    const full = await crm.refreshStageCounts({ agencyId: r.agencyId, full: true }, upToNow());
+    expect(full).toMatchObject({ mode: 'rebuild', drift: 2 });
+    same(await counts(), await truth());
+    expect((await crm.refreshStageCounts({ agencyId: r.agencyId, full: true }, upToNow())).drift).toBe(0);
+
+    const spec = crm.crmJobs.refreshStageCounts.spec;
+    const day = '2026-10-25';
+    expect(spec.jobId?.({ agencyId: r.agencyId, full: true, day })).toBe(`crm.stageCounts.full:${r.agencyId}:${day}`);
+    const delays = [newId(), newId(), newId(), r.agencyId].map(sweepDelayOf);
+    for (const d of delays) {
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThan(STAGE_COUNTS_SWEEP_SPREAD_MS);
+    }
+    expect(sweepDelayOf(r.agencyId)).toBe(sweepDelayOf(r.agencyId));
   });
 });

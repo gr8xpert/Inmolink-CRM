@@ -42,9 +42,11 @@ const IMPORT_ATTEMPTS = 3;
  *   name none (`property_privates`, through properties); audits `crm.contact.erasureCompleted` with the counts.
  *   Idempotent: a rerun finds nothing left.
  * - `crm.refreshStageCounts` (S12-F6): the agency's leads per stage by deltas — the stage moves since its last pass,
- *   up to `STAGE_COUNTS_LAG_MS` ago, one history row read per move, one rollup row written per stage touched; queues
- *   one more pass while newer moves wait. `crm.sweepStageCounts` (pool `maintenance`, daily) queues a full rebuild
- *   (`full`) of every agency with counts, 500 agencies per page, so any drift lasts a day at most.
+ *   up to the database clock − `STAGE_COUNTS_LAG_MS` (it waits for the agency's open moves first), one history row
+ *   read per move, one rollup row written per stage touched; queues one more pass while newer moves wait.
+ *   `crm.sweepStageCounts` (pool `maintenance`, daily) queues a full rebuild (`full`, job ID per agency and UTC day)
+ *   of every agency with counts, 500 per page, spread over `STAGE_COUNTS_SWEEP_SPREAD_MS`; a rebuild that finds the
+ *   deltas wrong logs the drift. Any drift lasts a day at most.
  * - `crm.refreshStageCounts` / `crm.refreshReportDay` (pool `indexing` — projections; S11-F10): rebuild the agency's
  *   leads-per-stage rollup, and its per-day rollups of one UTC day (response KPI, moves), from `leads` and
  *   `lead_stage_history` (`report-rollups.ts`). Queued from
@@ -270,16 +272,21 @@ export const crmJobs = {
   refreshStageCounts: defineJob({
     name: 'crm.refreshStageCounts',
     pool: 'indexing',
-    // S12-F6: `full` — the nightly rebuild from `leads`; otherwise the delta pass (the stage moves since the last one)
-    payload: z.object({ agencyId: z.uuid(), full: z.boolean().optional() }),
+    // S12-F6: `full` — the nightly rebuild from `leads` (`day`: its UTC day); otherwise the delta pass (the stage moves
+    // since the last one, always queued throttled)
+    payload: z.object({ agencyId: z.uuid(), full: z.boolean().optional(), day: z.iso.date().optional() }),
+    // the nightly rebuild once per agency and day, however often the sweep runs
+    jobId: (p) => (p.full ? `crm.stageCounts.full:${p.agencyId}:${p.day ?? ''}` : `crm.stageCounts:${p.agencyId}`),
     group: (p) => p.agencyId,
     // one pass over an agency's rollup at a time (the service also holds an advisory lock)
     concurrencyPerGroup: 1,
     attempts: 5,
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: 60_000,
-    async run(p) {
+    async run(p, { log }) {
       const result = await refreshStageCounts(p);
+      // the deltas had it wrong (a writer outside the services, a lost event): the nightly rebuild says by how much
+      if (result.drift > 0) log.warn({ agencyId: p.agencyId, drift: result.drift }, 'stage counts drifted; rebuilt');
       // moves newer than the cutoff (their own enqueues fell inside this run's throttle window): one more pass
       if (result.pending) await queueStageCounts(p.agencyId);
       return { agencyId: p.agencyId, ...result };
@@ -296,11 +303,17 @@ export const crmJobs = {
     async run(_p, { log, signal }) {
       let after: string | null = null;
       let queued = 0;
+      const day = new Date().toISOString().slice(0, 10);
       while (!signal.aborted) {
         const agencies = await stageCountAgencies(after);
         if (agencies.length === 0) break;
+        // spread over STAGE_COUNTS_SWEEP_SPREAD_MS by agency (stable per agency): 5,000 rebuilds never land at once in
+        // the pool search indexing shares
         await crmJobs.refreshStageCounts.enqueueMany(
-          agencies.map((agencyId) => ({ payload: { agencyId, full: true } })),
+          agencies.map((agencyId) => ({
+            payload: { agencyId, full: true, day },
+            options: { delayMs: sweepDelayOf(agencyId) },
+          })),
         );
         queued += agencies.length;
         after = agencies.at(-1) ?? null;
@@ -325,6 +338,14 @@ export const crmJobs = {
     },
   }),
 };
+
+/** S12-F6: the nightly rebuilds are spread over this long (a stable offset per agency). */
+export const STAGE_COUNTS_SWEEP_SPREAD_MS = 4 * 3_600_000;
+
+/** An agency's offset in the nightly spread: its id's last 32 bits, scaled (stable, evenly spread for UUIDv7 tails). */
+export function sweepDelayOf(agencyId: string): number {
+  return Math.floor((Number.parseInt(agencyId.slice(-8), 16) / 0x1_0000_0000) * STAGE_COUNTS_SWEEP_SPREAD_MS);
+}
 
 /**
  * S11-F10: a burst of one agency's lead changes rebuilds its rollups once per window (`throttleMs`). S12-F6: the stage

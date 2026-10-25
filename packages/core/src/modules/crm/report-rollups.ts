@@ -1,5 +1,4 @@
 import { withSystem } from '@inmolink/db';
-import { clock } from '@inmolink/platform/clock';
 import * as repo from './report-rollups-repo';
 
 /**
@@ -26,49 +25,62 @@ import * as repo from './report-rollups-repo';
  */
 
 /**
- * S12-F6: how far behind the clock the stage counts are brought up to date (the cutoff): a transaction that wrote a
- * stage move (its `changed_at`, the writer's clock) has committed by then, so a pass never steps over a move it cannot
- * see yet. Covers commit delay and clock skew between app nodes.
+ * S12-F6: how far behind the database clock a pass's cutoff sits — only the clock skew between the app nodes that
+ * write `stage_entered_at` (their clock) and the database. Moves still open are not a matter of time: the pass waits
+ * for them (`lockStageCounts`, the writers' shared lock), so none is left below its cutoff however long it runs.
  */
-export const STAGE_COUNTS_LAG_MS = 30_000;
+export const STAGE_COUNTS_LAG_MS = 15_000;
 
 export interface StageCountsResult {
   /** `delta`: the moves since the watermark applied; `rebuild`: rebuilt from `leads` (first time, drift, nightly). */
   mode: 'delta' | 'rebuild';
-  /** Stage moves applied (delta). */
+  /** Stage moves applied (delta; a full pass applies the deltas first). */
   moves: number;
   /** Rollup rows written or removed (delta). */
   written: number;
   /** Moves after the cutoff wait for a later pass (the job queues one). */
   pending: boolean;
+  /** Rebuild: Σ |leads before − rebuilt| over the stages — after the deltas up to the same cutoff, their error. */
+  drift: number;
 }
 
 /**
- * Brings the agency's leads-per-stage rollup up to `now − STAGE_COUNTS_LAG_MS` (S12-F6). By default a delta pass: the
- * stage moves since the last pass, ±1 per stage touched (O(events), not O(agency leads) — S11 review: the full
- * re-aggregate was 30–80 ms for a 200k-lead agency every throttle window, in the pool search indexing shares). A full
- * rebuild from `leads` when asked (`full`: the nightly pass, a repair), the first time (no rows) or when the deltas
- * drifted (a stage would go below 0: a direct or backdated write). One system transaction, serialized per agency
- * (advisory lock); 2 statements for a delta (lock, pass), 3–4 with a rebuild.
+ * Brings the agency's leads-per-stage rollup up to `cutoff` = the database clock − `STAGE_COUNTS_LAG_MS` (S12-F6;
+ * `now`: a caller's own clock instead, for tests). By default a delta pass: the stage moves since the last pass, ±1 per
+ * stage touched (O(events), not O(agency leads) — S11 review: the full re-aggregate was 30–80 ms for a 200k-lead agency
+ * every throttle window, in the pool search indexing shares). A full rebuild from `leads` when asked (`full`: the
+ * nightly pass — the deltas up to the cutoff first, so `drift` measures what they had wrong), the first time (no rows)
+ * or when the deltas drifted (a stage would go below 0).
  *
- * Writers that backdate `stage_entered_at` (a seed, a legacy import) or write `leads` around the history trigger
- * (replica mode) rebuild afterwards (`rebuildReportRollups`); the nightly rebuild repairs any drift left.
+ * Exactly once per move: the pass first takes the agency's stage-count lock exclusively, which waits for every open
+ * transaction holding a move of the agency (writers take it shared in their first statement, before they read the clock
+ * for `stage_entered_at`) — so every move dated at or before the cutoff is committed and visible to the pass, and a
+ * writer that starts after it dates its move after the cutoff (up to the clock skew the lag covers). One system
+ * transaction; 2 statements for a delta (lock + clock, pass), 3–4 with a rebuild.
+ *
+ * Writers outside the services (a seed, the S14 legacy load, `replica` mode, a backdated `stage_entered_at`) take no
+ * lock: they rebuild the agency afterwards (`rebuildReportRollups`); the nightly rebuild repairs any drift left.
  */
 export function refreshStageCounts(
   p: { agencyId: string; full?: boolean },
   opts: { now?: Date } = {},
 ): Promise<StageCountsResult> {
-  const cutoff = new Date((opts.now ?? clock.now()).getTime() - STAGE_COUNTS_LAG_MS);
   return withSystem('crm.refreshStageCounts', async (tx) => {
-    await repo.lockStageCounts(tx, p.agencyId);
-    if (!p.full) {
-      const delta = await repo.applyStageCountsDelta(tx, p.agencyId, cutoff);
-      if (delta.watermark && !delta.negative) {
-        return { mode: 'delta', moves: delta.moves, written: delta.written, pending: delta.pending };
-      }
+    const dbNow = await repo.lockStageCounts(tx, p.agencyId);
+    const cutoff = new Date((opts.now ?? dbNow).getTime() - STAGE_COUNTS_LAG_MS);
+    const delta = await repo.applyStageCountsDelta(tx, p.agencyId, cutoff);
+    if (!p.full && delta.watermark && !delta.negative) {
+      return { mode: 'delta', moves: delta.moves, written: delta.written, pending: delta.pending, drift: 0 };
     }
-    await repo.rebuildStageCounts(tx, p.agencyId, cutoff);
-    return { mode: 'rebuild', moves: 0, written: 0, pending: await repo.movesAfter(tx, p.agencyId, cutoff) };
+    const rebuilt = await repo.rebuildStageCounts(tx, p.agencyId, cutoff);
+    return {
+      mode: 'rebuild',
+      moves: delta.negative ? 0 : delta.moves,
+      written: 0,
+      pending: await repo.movesAfter(tx, p.agencyId, cutoff),
+      // a first build, or deltas refused as negative, is not the deltas' error to report
+      drift: rebuilt.priorRows === 0 ? 0 : rebuilt.drift,
+    };
   });
 }
 
