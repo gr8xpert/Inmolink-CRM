@@ -229,7 +229,7 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
  * The coupon of a price lock: the difference off every invoice until the lock ends (whole months, at least one). Its
  * id names the lock, the amount and the months, so a changed lock is a new coupon and a repeated checkout reuses it.
  * Security review: it applies to the locked plan's Stripe product only — never to add-ons or another plan. (A switch to
- * another interval of the same plan in the Customer Portal is S13-F23.)
+ * another interval or currency of the same plan in the Customer Portal loses it: S13-F23, `billing.applyStripeEvent`.)
  */
 function lockCoupon(
   lock: { id: string; amountCents: number; endsAt: Date },

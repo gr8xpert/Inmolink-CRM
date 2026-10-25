@@ -7,7 +7,7 @@ import { signStripePayload } from '../stripe';
 
 /**
  * A fake Stripe API (S13-01 tests; the real test-mode account waits on H3): customers, Checkout and portal sessions,
- * products and prices, subscriptions and invoices — enough state for the webhook job to re-read. Every call is recorded
+ * products and prices, subscriptions (with discounts: `DELETE …/discount`) and invoices — enough state for the webhook job to re-read. Every call is recorded
  * (method, path, decoded form fields, idempotency key). Idempotency keys replay the first answer, like Stripe.
  * `completeCheckout`, `updateSubscription` and `upsertInvoice` play Stripe's side; `event` signs a webhook body.
  */
@@ -85,9 +85,16 @@ export async function startFakeStripe(): Promise<FakeStripe> {
     return out;
   };
 
-  const expandSubscription = (sub: Obj, expand: boolean): Obj => {
+  const expandSubscription = (sub: Obj, expand: readonly string[]): Obj => {
     const pm = sub.default_payment_method as Obj | null;
-    return { ...sub, default_payment_method: pm ? (expand ? pm : pm.id) : null };
+    const discounts = (sub.discounts ?? []) as Obj[];
+    return {
+      ...sub,
+      default_payment_method: pm ? (expand.includes('default_payment_method') ? pm : pm.id) : null,
+      // S13-F23: ids unless expanded (like Stripe); the older single `discount` is the first one.
+      discounts: expand.includes('discounts') ? discounts : discounts.map((d) => d.id),
+      discount: discounts[0] ?? null,
+    };
   };
 
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -180,9 +187,16 @@ export async function startFakeStripe(): Promise<FakeStripe> {
       };
       const sub = read(/^\/v1\/subscriptions\/([^/]+)$/, subscriptions);
       if (sub !== undefined) {
-        return sub
-          ? send(200, expandSubscription(sub, fields['expand[0]'] === 'default_payment_method'))
-          : missing(res);
+        const expand = Object.entries(fields).flatMap(([k, v]) => (/^expand\[\d+\]$/.test(k) ? [v] : []));
+        return sub ? send(200, expandSubscription(sub, expand)) : missing(res);
+      }
+      // S13-F23: removes the subscription's discount; none left is an error, like Stripe.
+      const dropDiscount = req.method === 'DELETE' ? /^\/v1\/subscriptions\/([^/]+)\/discount$/.exec(p) : null;
+      if (dropDiscount) {
+        const s = subscriptions.get(decodeURIComponent(dropDiscount[1] as string));
+        if (!s || !((s.discounts ?? []) as Obj[]).length) return missing(res);
+        s.discounts = ((s.discounts ?? []) as Obj[]).slice(1);
+        return send(200, { object: 'discount', deleted: true });
       }
       for (const [pattern, store] of [
         [/^\/v1\/coupons\/([^/]+)$/, coupons],
@@ -234,6 +248,10 @@ export async function startFakeStripe(): Promise<FakeStripe> {
         items: { object: 'list', data: items },
         metadata: (s.subscription_data as Obj | undefined)?.metadata ?? {},
         default_payment_method: { id: id('pm'), object: 'payment_method', type: opts.paymentMethod },
+        // The session's coupons become the subscription's discounts (API 2025-09+ shape: `source.coupon`).
+        discounts: ((s.discounts ?? []) as { coupon?: string }[]).flatMap((d) =>
+          d.coupon ? [{ id: id('di'), object: 'discount', source: { type: 'coupon', coupon: d.coupon } }] : [],
+        ),
       };
       subscriptions.set(sub.id as string, sub);
       s.subscription = sub.id;

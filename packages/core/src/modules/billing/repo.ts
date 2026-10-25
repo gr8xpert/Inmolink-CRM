@@ -609,6 +609,28 @@ export async function priceLockFor(
   return row ?? null;
 }
 
+/**
+ * S13-F23: the agency's price locks among `ids` (the locks a subscription's founding coupons name; primary key), by id.
+ * Another agency's lock is never answered: a coupon naming it is not this agency's to keep.
+ */
+export async function priceLocksByIds(
+  tx: Tx,
+  agencyId: string,
+  ids: string[],
+): Promise<Map<string, { planCode: string; interval: BillingInterval; currency: string }>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: billingPriceLocks.id,
+      planCode: billingPriceLocks.planCode,
+      interval: billingPriceLocks.interval,
+      currency: billingPriceLocks.currency,
+    })
+    .from(billingPriceLocks)
+    .where(and(eq(billingPriceLocks.agencyId, agencyId), inArray(billingPriceLocks.id, ids)));
+  return new Map(rows.map(({ id, ...lock }) => [id, lock]));
+}
+
 // ---- staff console: an agency's grants and price locks (S13-03) ----
 
 export interface StaffGrantRow extends GrantRow {

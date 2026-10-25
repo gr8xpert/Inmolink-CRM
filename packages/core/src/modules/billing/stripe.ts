@@ -57,6 +57,12 @@ export interface StripeSubscription {
   metadata: Record<string, string>;
   /** The default payment method's type (`card`, `sepa_debit`), when it is set. */
   paymentMethod: string | null;
+  /**
+   * S13-F23: the coupons of the discounts applied to the subscription (`discounts[]` expanded, and the older single
+   * `discount`), deduplicated. `discountCount` is how many discount objects carry them.
+   */
+  couponIds: string[];
+  discountCount: number;
 }
 
 export interface StripeInvoice {
@@ -191,8 +197,21 @@ export class StripeClient {
   }
 
   async getSubscription(id: string): Promise<StripeSubscription | null> {
-    const res = await this.#find(`/v1/subscriptions/${encodeURIComponent(id)}`, { expand: ['default_payment_method'] });
+    const res = await this.#find(`/v1/subscriptions/${encodeURIComponent(id)}`, {
+      expand: ['default_payment_method', 'discounts'],
+    });
     return res ? toSubscription(res) : null;
+  }
+
+  /**
+   * S13-F23: removes the discount applied to a subscription (`DELETE /v1/subscriptions/:id/discount`). Idempotent: a
+   * subscription without one (already removed by an earlier run) answers false, never an error.
+   */
+  async removeSubscriptionDiscount(subscriptionId: string): Promise<boolean> {
+    const res = await this.#send('DELETE', `/v1/subscriptions/${encodeURIComponent(subscriptionId)}/discount`, {
+      missingIsNull: true,
+    });
+    return res !== null;
   }
 
   async getInvoice(id: string): Promise<StripeInvoice | null> {
@@ -282,7 +301,7 @@ export class StripeClient {
   }
 
   async #send(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     opts: { params?: Params; idempotencyKey?: string; missingIsNull?: boolean },
   ): Promise<Record<string, unknown> | null> {
@@ -435,7 +454,31 @@ function toSubscription(res: Record<string, unknown>): StripeSubscription {
     items: mapped,
     metadata,
     paymentMethod: pm && typeof pm === 'object' ? text((pm as Record<string, unknown>).type, 40) : null,
+    ...discountsOf(res),
   };
+}
+
+/**
+ * The coupons of a subscription's discounts: `discounts[]` (expanded objects; an id alone carries no coupon) and the
+ * older single `discount`. A discount names its coupon as `source.coupon` (API 2025-09+) or `coupon` (earlier), each an
+ * id or an object.
+ */
+function discountsOf(res: Record<string, unknown>): { couponIds: string[]; discountCount: number } {
+  const objects = new Map<string, Record<string, unknown>>();
+  const list = Array.isArray(res.discounts) ? (res.discounts as unknown[]) : [];
+  for (const d of [...list, res.discount]) {
+    if (d && typeof d === 'object') {
+      const o = d as Record<string, unknown>;
+      objects.set(typeof o.id === 'string' ? o.id : `#${objects.size}`, o);
+    }
+  }
+  const unexpanded = list.filter((d) => typeof d === 'string' && !objects.has(d)).length;
+  const couponIds = new Set<string>();
+  for (const o of objects.values()) {
+    const coupon = idOf((o.source as Record<string, unknown> | undefined)?.coupon) ?? idOf(o.coupon);
+    if (coupon) couponIds.add(coupon.slice(0, 200));
+  }
+  return { couponIds: [...couponIds], discountCount: objects.size + unexpanded };
 }
 
 function toInvoice(res: Record<string, unknown>): StripeInvoice {

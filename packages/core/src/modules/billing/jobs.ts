@@ -56,6 +56,8 @@ export const billingJobs = {
       const stripe = stripeClient();
       if (!stripe) throw new Error('billing: Stripe is not configured on this worker');
       const state = await failFast(() => readState(stripe, p));
+      // S13-F23: a founding coupon follows its locked plan price only (network outside the transaction below).
+      if (state?.kind === 'subscription') await dropStrayFoundingDiscount(stripe, state.subscription, log);
       return withSystem('billing.applyStripeEvent', async (tx) => {
         if (!(await repo.markEvent(tx, p.eventId, p.type))) return { skipped: 'seen' };
         if (!state) return { applied: 'nothing' };
@@ -225,6 +227,58 @@ async function readState(stripe: StripeClient, p: { type: string; objectId: stri
     return invoice ? { kind: 'invoice', customerId: invoice.customerId, invoice } : null;
   }
   return null;
+}
+
+/** A price lock's coupon id (service.ts `lockCoupon`): `founding_<lock id>_<amount off>_<months>`. */
+const FOUNDING_COUPON = /^founding_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_\d+_\d+$/;
+
+/**
+ * S13-F23 (S13-02 security review): a founding coupon applies to the locked plan's product, so a Customer Portal switch
+ * to another interval or currency of that plan would keep it (a yearly-sized amount off a monthly invoice). When the
+ * subscription's plan price no longer matches the lock its coupon names (or the lock is not this agency's), the
+ * discount is removed from the subscription and an alert logged. Read state → decide (short transaction) → call Stripe
+ * outside it. Idempotent: the next run re-reads the subscription, which then has no founding coupon (and a discount
+ * already removed answers false). A subscription with other discounts too is only alerted: Stripe's delete removes
+ * "the" discount, and the wrong one must never go.
+ */
+async function dropStrayFoundingDiscount(stripe: StripeClient, s: StripeSubscription, log: Logger): Promise<void> {
+  const lockIds = s.couponIds.flatMap((c) => FOUNDING_COUPON.exec(c)?.[1] ?? []);
+  if (lockIds.length === 0 || ENDED.has(toStatus(s.status))) return;
+  const verdict = await withSystem('billing.applyStripeEvent', async (tx) => {
+    const agencyId = await repo.agencyOfCustomer(tx, s.customerId);
+    if (!agencyId) return null;
+    const prices = await repo.pricesByStripeIds(
+      tx,
+      s.items.map((i) => i.priceId),
+    );
+    const plan = s.items.map((i) => prices.get(i.priceId)).find((p) => p?.kind === 'PLAN');
+    const locks = await repo.priceLocksByIds(tx, agencyId, lockIds);
+    const matches = lockIds.every((id) => {
+      const lock = locks.get(id);
+      return (
+        !!lock &&
+        !!plan &&
+        lock.planCode === plan.code &&
+        lock.interval === plan.interval &&
+        lock.currency === plan.currency
+      );
+    });
+    return { agencyId, matches };
+  });
+  if (!verdict || verdict.matches) return;
+  const alert = { agencyId: verdict.agencyId, subscription: s.id, coupons: s.couponIds };
+  if (s.discountCount > 1) {
+    log.error(
+      alert,
+      'billing: founding coupon on another plan price, next to other discounts — remove by hand (ALERT)',
+    );
+    return;
+  }
+  const removed = await failFast(() => stripe.removeSubscriptionDiscount(s.id));
+  log.error(
+    { ...alert, removed },
+    'billing: founding coupon removed — the subscription left its locked plan price (ALERT)',
+  );
 }
 
 /** Statuses after which a subscription never comes back: a late event about it never replaces a newer one. */

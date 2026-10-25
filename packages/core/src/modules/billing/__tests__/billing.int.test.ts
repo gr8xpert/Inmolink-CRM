@@ -576,4 +576,63 @@ describe('billing', () => {
     expect(lapsed.subscription).toMatchObject({ planCode: PRO, status: 'PAST_DUE' });
     expect(await as(c, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code)).toBe('free');
   });
+
+  it('[S13-F23] a locked subscription switched to the monthly price loses the founding discount; the yearly one keeps it', async () => {
+    const d = await createFounder();
+    const staff = (await createStaffUser('SUPER_ADMIN')).userId;
+    await withStaffCtx({ userId: staff, requestId: newId(), reason: 'billing test' }, (ctx) =>
+      billing.setPriceLock(ctx, {
+        agencyId: d.agencyId,
+        planCode: PRO,
+        interval: 'YEAR',
+        currency: 'EUR',
+        amountCents: 50_000,
+        endsAt: new Date(Date.now() + 3 * 365 * 86_400_000).toISOString(),
+        reason: 'founding offer: migrated agency',
+      }),
+    );
+    await billing.startCheckout(run(d), { planCode: PRO, interval: 'YEAR', currency: 'EUR', addons: [] });
+    const couponId = lastCheckout()?.fields['discounts[0][coupon]'] as string;
+    expect(couponId).toMatch(/^founding_/);
+    const sessionId = [...stripe.sessions.keys()].at(-1) as string;
+    const sub = stripe.completeCheckout(sessionId, { paymentMethod: 'card', periodEnd });
+    const subId = sub.id as string;
+    const removals = () =>
+      stripe.calls.filter((x) => x.method === 'DELETE' && x.path === `/v1/subscriptions/${subId}/discount`);
+    const discounted = () =>
+      ((stripe.subscriptions.get(subId)?.discounts ?? []) as { source: { coupon: string } }[]).map(
+        (x) => x.source.coupon,
+      );
+
+    // Yearly, as locked: the discount stays.
+    const yearly = await deliver('checkout.session.completed', {
+      id: sessionId,
+      object: 'checkout.session',
+      customer: sub.customer,
+    });
+    expect(yearly.result).toMatchObject({ applied: 'subscription', plan: PRO, status: 'ACTIVE' });
+    expect(discounted()).toEqual([couponId]);
+    expect(removals()).toHaveLength(0);
+
+    // The Customer Portal switches it to the monthly price of the same plan (the coupon's product): it is removed.
+    const monthly = stripe.prices.get((await stripePriceOf(PRO, 'MONTH', 'EUR')) as string);
+    const items = (sub.items as { data: Record<string, unknown>[] }).data;
+    stripe.updateSubscription(subId, { items: { object: 'list', data: [{ ...items[0], price: monthly }] } });
+    const switched = await deliver('customer.subscription.updated', {
+      id: subId,
+      object: 'subscription',
+      customer: sub.customer,
+    });
+    expect(switched.result).toMatchObject({ applied: 'subscription', plan: PRO, status: 'ACTIVE' });
+    expect(removals()).toHaveLength(1);
+    expect(discounted()).toEqual([]);
+    expect((await as(d, (ctx) => billing.getBillingOverview(ctx))).subscription).toMatchObject({
+      planCode: PRO,
+      interval: 'MONTH',
+    });
+
+    // Idempotent: the next event finds no founding coupon and calls Stripe for nothing more.
+    await deliver('customer.subscription.updated', { id: subId, object: 'subscription', customer: sub.customer });
+    expect(removals()).toHaveLength(1);
+  });
 });
