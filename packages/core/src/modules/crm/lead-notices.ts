@@ -9,7 +9,9 @@ import * as leadsRepo from './leads-repo';
  * reassignment). Raised by the `crm.notifyLeadAssigned` job after the commit, so the lead's own request pays nothing.
  *
  * - The member who made the assignment is left out (assigning a lead to yourself tells you nothing).
- * - A lead reassigned again before the job ran is not announced to the earlier assignee (the current one is checked).
+ * - A lead changed again before the job ran (its `version` moved on) is not announced from the older event: a
+ *   reassignment away and back (A → B → A) tells A once — from the latest event — not twice. Any later change counts
+ *   (a stage move too): an assignment followed within seconds by a move is then not announced (accepted: rare).
  * - A website lead (`inbound`) is already mailed to its agent at once (website-api's lead e-mail): in-app only, so the
  *   digest does not mail it a second time.
  * - Idempotent: `sourceKey` = the event's id, `at` = its time — a redelivered event or a retried job raises nothing more.
@@ -21,11 +23,12 @@ export async function notifyLeadAssigned(p: {
   userId: string;
   assignedBy: string | null;
   inbound: boolean;
+  version: number;
   occurredAt: string;
 }): Promise<{ notified: number }> {
   return withSystem(`crm.notifyLeadAssigned: lead ${p.leadId}`, async (tx) => {
     const lead = await leadsRepo.leadNotice(tx, p.agencyId, p.leadId);
-    if (!lead || lead.assignedUserId !== p.userId) return { notified: 0 };
+    if (!lead || lead.assignedUserId !== p.userId || lead.version > p.version) return { notified: 0 };
     const name = [lead.firstName, lead.lastName].filter((v) => v?.trim()).join(' ');
     const subject = notificationText([name, lead.shownRef].filter(Boolean).join(' · ')) || lead.source;
     const res = await notifications.raiseNotifications(tx, {

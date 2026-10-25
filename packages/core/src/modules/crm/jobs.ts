@@ -133,6 +133,8 @@ export const crmJobs = {
       assignedBy: z.uuid().nullable(),
       inbound: z.boolean(),
       occurredAt: z.iso.datetime(),
+      /** The lead's version the event left (S12-F2 review). */
+      version: z.number().int(),
     }),
     jobId: (p) => `crm.notifyLeadAssigned:${p.eventId}`,
     group: (p) => p.agencyId,

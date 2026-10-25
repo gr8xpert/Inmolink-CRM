@@ -46,7 +46,10 @@ import * as tasksRepo from './tasks-repo';
  *     the reminder is still to come; not again after it was sent).
  *  5. S12-F2: the send claim's transaction also raises the assignee's `TASK_DUE` notification (in-app only — the
  *     reminder e-mail is the mail; `sourceKey` = task + due time, so a claim given back and taken again raises nothing
- *     more). It is raised even when the e-mail cannot go (no address): the member still sees it in the app.
+ *     more). It is raised even when the e-mail cannot go (no address): the member still sees it in the app. A task
+ *     reassigned between a claim given back and the claim taken again notifies the new assignee too (the key names the
+ *     task and due time, the row its recipient): both see it in-app, once each; the e-mail goes to the assignee at
+ *     the send.
  * "My tasks" lists what is due. Times are shown in the agency's time zone (`agency_settings.time_zone`, S11-F11).
  */
 

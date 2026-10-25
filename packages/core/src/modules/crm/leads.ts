@@ -246,6 +246,7 @@ export async function receiveLead(tx: Tx, holderAgencyId: string, lead: Incoming
       inboundLeadId: lead.inboundLeadId,
       assignedUserId,
       assignedBy: lead.createdBy,
+      version: written.version,
       receivedMs: written.createdMs.getTime(),
     }),
   );

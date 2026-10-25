@@ -385,8 +385,8 @@ export async function setLastAssigned(tx: Tx, agencyId: string, userId: string):
 }
 
 /**
- * S12-F2: what a `LEAD_ASSIGNED` notification shows (system role, the agency named): the current assignee, the
- * contact's name and the reference shown. One statement.
+ * S12-F2: what a `LEAD_ASSIGNED` notification shows (system role, the agency named): the current assignee and
+ * version, the contact's name and the reference shown. One statement.
  */
 export async function leadNotice(
   tx: Tx,
@@ -394,6 +394,7 @@ export async function leadNotice(
   id: string,
 ): Promise<{
   assignedUserId: string | null;
+  version: number;
   source: string;
   shownRef: string | null;
   firstName: string | null;
@@ -402,6 +403,7 @@ export async function leadNotice(
   const [row] = await tx
     .select({
       assignedUserId: leads.assignedUserId,
+      version: leads.version,
       source: leads.source,
       shownRef: leads.shownRef,
       firstName: contacts.firstName,

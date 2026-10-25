@@ -180,6 +180,33 @@ describe('notifications', () => {
     });
   });
 
+  it('[S12-F2] an in-app-only notification for a member with in-app off and e-mail on writes no row', async () => {
+    const s = subject('in-app only, in-app off');
+    await as(agent, (ctx) =>
+      notifications.updateNotificationPreference(ctx, 'IMPORT_PAUSED', { inApp: false, email: true }),
+    );
+    const one = await as(a, (ctx) =>
+      notifications.notify(ctx, {
+        type: 'IMPORT_PAUSED',
+        userIds: [agent.userId],
+        params: { subject: s },
+        inAppOnly: true,
+      }),
+    );
+    const across = await withSystem('notifications.test', (tx) =>
+      notifications.raiseNotificationsAcross(tx, 'IMPORT_PAUSED', [
+        { agencyId: a.agencyId, userIds: [agent.userId], params: { subject: s }, inAppOnly: true },
+      ]),
+    );
+    expect(one.notified).toEqual([]);
+    expect(across.notified).toEqual([]);
+    const rows = await adminQuery<{ n: number }>(
+      `select count(*)::int as n from notifications where agency_id = $1 and params->>'subject' = $2`,
+      [a.agencyId, s],
+    );
+    expect(rows[0]?.n).toBe(0);
+  });
+
   it('[S11-04] unread counts, mark read; what was read in-app is not mailed', async () => {
     const before = await as(agent, (ctx) => notifications.getUnreadCount(ctx));
     const read = subject('read in app');
@@ -289,6 +316,33 @@ describe('notifications', () => {
       params: { subject: s },
       link: '/mls/viewings/1',
     });
+  });
+
+  it('[S12-F10] a member deactivated after a notification was raised gets no live push', async () => {
+    const leaver = await addMember(a.agencyId, 'AGENT', 'Leaver');
+    const { notified } = await as(a, (ctx) =>
+      notifications.notify(ctx, {
+        type: 'VIEWING_UPDATED',
+        userIds: [agent.userId, leaver.userId],
+        params: { subject: subject('leaver') },
+        link: '/mls/viewings/2',
+      }),
+    );
+    await adminQuery('update agency_members set deactivated_at = now() where agency_id = $1 and user_id = $2', [
+      a.agencyId,
+      leaver.userId,
+    ]);
+    const stored = await adminQuery<{ id: string; created_at: Date }>(
+      'select id, created_at from notifications where id = any($1::uuid[])',
+      [notified.map((n) => n.notificationId)],
+    );
+    const pushed: UserEvent[] = [];
+    const result = await notifications.pushNotifications(
+      { agencyId: a.agencyId, items: stored.map((r) => ({ id: r.id, at: new Date(r.created_at).getTime() })) },
+      async (evs) => void pushed.push(...evs),
+    );
+    expect(result.pushed).toBe(1);
+    expect(pushed.map((e) => e.userId)).toEqual([agent.userId]);
   });
 
   it('[S11-04] the outbox event queues the push and one throttled digest per recipient waiting for e-mail', async () => {

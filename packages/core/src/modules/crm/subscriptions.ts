@@ -74,6 +74,7 @@ export function registerCrmSubscriptions(): void {
           userId: payload.assignedUserId,
           assignedBy: payload.assignedBy ?? null,
           inbound: payload.inboundLeadId !== null,
+          version: payload.version ?? 1,
         });
       },
       { name: 'crm.notify.leadCreated' },
@@ -88,6 +89,7 @@ export function registerCrmSubscriptions(): void {
           userId: payload.assignedUserId,
           assignedBy: payload.assignedBy ?? null,
           inbound: false,
+          version: payload.version,
         });
       },
       { name: 'crm.notify.leadUpdated' },

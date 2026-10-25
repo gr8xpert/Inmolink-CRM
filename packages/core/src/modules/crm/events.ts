@@ -68,6 +68,8 @@ export const crmEvents = {
       assignedUserId: z.uuid().nullable(),
       /** S12-F2: the member who entered the lead by hand (null: a channel delivered it). Absent in older events. */
       assignedBy: z.uuid().nullable().optional(),
+      /** S12-F2 review: the new lead's `version` (a later change outdates its `LEAD_ASSIGNED`). Absent in older events. */
+      version: z.number().int().optional(),
       /** S11-F10: the lead's `created_ms` (epoch ms) — the day of the response-KPI rollup. Absent in older events. */
       receivedMs: z.number().int().optional(),
     }),

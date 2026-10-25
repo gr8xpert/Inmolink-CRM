@@ -469,6 +469,7 @@ describe('staff import health', () => {
     let queued: unknown[] = [];
     try {
       for (const sub of defaultSubscribers.get('imports.connection.paused', 1)) {
+        if (sub.name !== 'imports.connection.pausedNotice') continue;
         await sub.handler(sub.def.schema.parse(event?.payload), meta);
       }
       queued = enqueue.mock.calls.map((call) => call[0]);
@@ -498,5 +499,21 @@ describe('staff import health', () => {
     await as((ctx) => imports.resumeFeedConnection(ctx, c.id, { acceptChange: false }));
     const late = { ...spec.payload.parse(payload), eventId: newId() };
     expect(await spec.run(late, jobCtx())).toEqual({ notified: 0 });
+
+    // resumed and paused again before the first pause's job ran: only the second pause's event announces it
+    expect(await runFeed(c, [])).toMatchObject({ errorCode: 'FEED_PAUSED_EMPTY_FEED' });
+    const outdated = { ...spec.payload.parse(payload), eventId: newId() };
+    expect(await spec.run(outdated, jobCtx())).toEqual({ notified: 0 });
+    const [again] = await rows<{ id: string; created_at: Date }>(sql`
+      select id, created_at from outbox_events where type = 'imports.connection.paused'
+         and agency_id = ${owner.agencyId} and payload->>'connectionId' = ${c.id}
+       order by created_at desc limit 1`);
+    const second = {
+      eventId: again?.id ?? '',
+      agencyId: owner.agencyId,
+      connectionId: c.id,
+      occurredAt: new Date(again?.created_at ?? 0).toISOString(),
+    };
+    expect(await spec.run(second, jobCtx())).toEqual({ notified: 1 });
   });
 });

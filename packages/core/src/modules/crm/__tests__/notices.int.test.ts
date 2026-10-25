@@ -7,7 +7,13 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
-import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
+import {
+  closeEmail,
+  configureEmail,
+  createMemoryMailer,
+  EmailSendError,
+  type MemoryMailer,
+} from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
@@ -161,6 +167,20 @@ describe('CRM notifications', () => {
     // the agent no longer holds it when the job runs
     expect(await runNotify(first[0])).toEqual({ notified: 0 });
     expect(await raised('LEAD_ASSIGNED', `/inbox/${moved.id}`)).toEqual([]);
+
+    // agent → admin → agent before any job ran: the agent hears of it once, from the latest event
+    const { lead: back } = await createLead(a, { assignedUserId: agent.userId });
+    const created = await deliver('crm.lead.created', back.id);
+    const away = await as(a, (ctx) =>
+      crm.updateLead(ctx, back.id, UpdateLeadBody.parse({ version: back.version, assignedUserId: a.userId })),
+    );
+    await as(a, (ctx) =>
+      crm.updateLead(ctx, back.id, UpdateLeadBody.parse({ version: away.version, assignedUserId: agent.userId })),
+    );
+    const latest = await deliver('crm.lead.updated', back.id);
+    expect(await runNotify(created[0])).toEqual({ notified: 0 });
+    expect(await runNotify(latest[0])).toEqual({ notified: 1 });
+    expect(await raised('LEAD_ASSIGNED', `/inbox/${back.id}`)).toHaveLength(1);
   });
 
   it('[S12-F2] a task falling due raises one TASK_DUE notification to its assignee, in-app only (the reminder is the e-mail)', async () => {
@@ -188,5 +208,36 @@ describe('CRM notifications', () => {
     expect(notes.filter((n) => n.params.subject === title)).toEqual([
       { user_id: agent.userId, actor_user_id: null, params: { subject: title }, in_app: true, email_pending: false },
     ]);
+  });
+
+  it('[S12-F2] a reminder whose send failed and was claimed again leaves one TASK_DUE notification', async () => {
+    const title = `Sign the deeds ${RUN}`;
+    const { task } = await as(a, (ctx) =>
+      crm.createTask(
+        ctx,
+        CreateTaskBody.parse({
+          title,
+          dueAt: new Date(Date.now() + 120_000).toISOString(),
+          assignedUserId: agent.userId,
+        }),
+      ),
+    );
+    const due = new Date(task.dueAt ?? '').getTime();
+    const claim = (await crm.sweepTaskReminders({ now: new Date(due + 1_000) })).claimed.find(
+      (c) => c.taskId === task.id,
+    );
+    expect(claim).toBeDefined();
+    if (!claim) return;
+    // the provider refuses once (known not sent): the claim is given back, the retry claims and sends
+    const fail = vi.spyOn(mail, 'send').mockRejectedValueOnce(new EmailSendError('refused', { notSent: true }));
+    try {
+      await expect(crm.sendTaskReminder(claim)).rejects.toThrow('refused');
+    } finally {
+      fail.mockRestore();
+    }
+    expect((await crm.sendTaskReminder(claim)).sent).toBe(true);
+    const notes = (await raised('TASK_DUE', '/tasks')).filter((n) => n.params.subject === title);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.user_id).toBe(agent.userId);
   });
 });
