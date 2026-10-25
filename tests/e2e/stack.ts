@@ -27,6 +27,11 @@ export const PORTS = {
   devtools: 54_113,
   /** The fixture feed host the generic XML import reads (S6-04). */
   feed: 54_114,
+  /** The public pages (apps/public): selection links `/s/<token>` (S12-04). */
+  public: 54_115,
 };
+
+/** The public pages' origin: the api builds selection links on it (`PUBLIC_PAGES_URL`), public checks posts against it. */
+export const PUBLIC_URL = `http://localhost:${PORTS.public}`;
 
 export const MAILPIT_URL = env.MAILPIT_URL ?? 'http://localhost:58025';

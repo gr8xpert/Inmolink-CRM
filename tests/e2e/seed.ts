@@ -116,6 +116,7 @@ export async function seedListingTaxonomy(): Promise<void> {
 /** A verified agency (it may share listings) with one agent, and the names of `LISTING_TAXONOMY` to list in. */
 export async function seedListingAgent(): Promise<{
   email: string;
+  company: string;
   agencyId: string;
   location: string;
   propertyType: string;
@@ -125,7 +126,7 @@ export async function seedListingAgent(): Promise<{
   await asOwner((admin) =>
     admin.query(`update agencies set status = 'VERIFIED' where agency_id = $1`, [agent.agencyId]),
   );
-  return { email: agent.email, agencyId: agent.agencyId, ...LISTING_TAXONOMY };
+  return { email: agent.email, company: agent.company, agencyId: agent.agencyId, ...LISTING_TAXONOMY };
 }
 
 /**

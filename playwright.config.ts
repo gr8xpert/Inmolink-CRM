@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { PORTS, ROOT, testStackEnv } from './tests/e2e/stack';
+import { PORTS, PUBLIC_URL, ROOT, testStackEnv } from './tests/e2e/stack';
 
 /**
  * E2E (PLAN §15 critical flows) against the full local stack on the docker `test` profile:
- * api + worker (outbox, email) from source, web as a production build (`next start`; `pnpm test:e2e`
- * builds it and the workspace packages first). Not `next dev`: on-demand compiles and dev-server
+ * api + worker (outbox, email) from source, web and public as production builds (`next start`; `pnpm test:e2e`
+ * builds them and the workspace packages first). Not `next dev`: on-demand compiles and dev-server
  * reloads made the flows flaky (S1-F1). Emails land in the test Mailpit.
  */
 const env = testStackEnv();
@@ -44,7 +44,8 @@ export default defineConfig({
       command: node('api'),
       cwd: ROOT,
       url: `http://127.0.0.1:${PORTS.api}/readyz`,
-      env: { ...common, API_PORT: String(PORTS.api) },
+      // S12-04: selection links point at the public pages started below.
+      env: { ...common, API_PORT: String(PORTS.api), PUBLIC_PAGES_URL: PUBLIC_URL },
       // Warnings and errors only (LOG_LEVEL=warn): visible in the run's output, also in CI.
       stdout: 'pipe',
       timeout: 120_000,
@@ -70,6 +71,16 @@ export default defineConfig({
       cwd: join(ROOT, 'apps', 'web'),
       url: `${env.WEB_URL}/healthz`,
       env: common,
+      stdout: 'pipe',
+      timeout: 120_000,
+      reuseExistingServer: false,
+    },
+    {
+      // The public pages (S12-04 selection links), a production build like web.
+      command: `pnpm exec next start --port ${PORTS.public}`,
+      cwd: join(ROOT, 'apps', 'public'),
+      url: `${PUBLIC_URL}/healthz`,
+      env: { ...common, PUBLIC_URL },
       stdout: 'pipe',
       timeout: 120_000,
       reuseExistingServer: false,

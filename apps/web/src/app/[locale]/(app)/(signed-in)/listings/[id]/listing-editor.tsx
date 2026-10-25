@@ -92,6 +92,10 @@ export function ListingEditor(props: ListingEditorProps) {
   const t = makeT(props.messages);
   const readOnly = props.listing.private === null || props.listing.deletedAt !== null;
   const id = props.listing.id;
+  // S12-06: what the API strips (Client Mode: commission and the private block; another agency's listing: the private
+  // block) is not shown as empty fields either.
+  const hasCommission = props.listing.commission !== null;
+  const hasPrivate = props.listing.private !== null;
 
   const [values, setValues] = useState<ListingValues>(() => listingValues(props.listing));
   const [drafts, setDrafts] = useState<Record<string, TranslationDraft>>(() => draftsOf(props.content));
@@ -364,11 +368,13 @@ export function ListingEditor(props: ListingEditorProps) {
     <div className="flex flex-col gap-4">
       <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b bg-background py-2">
         <nav className="flex flex-wrap gap-3 text-sm" aria-label={t('title')}>
-          {['basics', 'location', 'specs', 'features', 'price', 'visibility', 'private', 'translations'].map((s) => (
-            <a key={s} href={`#section-${s}`} className="underline-offset-4 hover:underline">
-              {t(`editor.sections.${s}`)}
-            </a>
-          ))}
+          {['basics', 'location', 'specs', 'features', 'price', 'visibility', 'private', 'translations']
+            .filter((s) => s !== 'private' || hasPrivate)
+            .map((s) => (
+              <a key={s} href={`#section-${s}`} className="underline-offset-4 hover:underline">
+                {t(`editor.sections.${s}`)}
+              </a>
+            ))}
         </nav>
         <p role="status" aria-live="polite" data-testid="save-status" className="text-sm text-muted-foreground">
           {state.kind === 'saving'
@@ -530,7 +536,7 @@ export function ListingEditor(props: ListingEditorProps) {
 
         {section(
           'price',
-          ['price', 'commission', 'split'],
+          hasCommission ? ['price', 'commission', 'split'] : ['price'],
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {text('price', { inputMode: 'decimal' })}
@@ -548,22 +554,26 @@ export function ListingEditor(props: ListingEditorProps) {
               />
               {t('editor.fields.priceOnRequest')}
             </label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {select('commissionType', ['PCT', 'FIXED'], (o) => t(`editor.options.commissionType.${o}`))}
-              {values.commissionType === 'PCT'
-                ? text('commissionPercent', { inputMode: 'decimal' })
-                : text('commissionAmount', { inputMode: 'decimal' })}
-              {text('splitPercent', { inputMode: 'decimal' })}
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                disabled={disabled}
-                checked={values.commissionIncludesVat}
-                onChange={(e) => set('commissionIncludesVat', e.target.checked)}
-              />
-              {t('editor.fields.commissionIncludesVat')}
-            </label>
+            {hasCommission ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {select('commissionType', ['PCT', 'FIXED'], (o) => t(`editor.options.commissionType.${o}`))}
+                  {values.commissionType === 'PCT'
+                    ? text('commissionPercent', { inputMode: 'decimal' })
+                    : text('commissionAmount', { inputMode: 'decimal' })}
+                  {text('splitPercent', { inputMode: 'decimal' })}
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    disabled={disabled}
+                    checked={values.commissionIncludesVat}
+                    onChange={(e) => set('commissionIncludesVat', e.target.checked)}
+                  />
+                  {t('editor.fields.commissionIncludesVat')}
+                </label>
+              </>
+            ) : null}
           </>,
         )}
 
@@ -579,23 +589,25 @@ export function ListingEditor(props: ListingEditorProps) {
           </div>,
         )}
 
-        {section(
-          'private',
-          [],
-          <>
-            {text('cadastralRef', { maxLength: 40 })}
-            {field('internalNotes', t('editor.fields.internalNotes'), (aria) => (
-              <textarea
-                {...aria}
-                className={TEXTAREA}
-                maxLength={10_000}
-                value={values.internalNotes}
-                onChange={(e) => set('internalNotes', e.target.value)}
-              />
-            ))}
-            {text('keysInfo', { maxLength: 2_000 })}
-          </>,
-        )}
+        {hasPrivate
+          ? section(
+              'private',
+              [],
+              <>
+                {text('cadastralRef', { maxLength: 40 })}
+                {field('internalNotes', t('editor.fields.internalNotes'), (aria) => (
+                  <textarea
+                    {...aria}
+                    className={TEXTAREA}
+                    maxLength={10_000}
+                    value={values.internalNotes}
+                    onChange={(e) => set('internalNotes', e.target.value)}
+                  />
+                ))}
+                {text('keysInfo', { maxLength: 2_000 })}
+              </>,
+            )
+          : null}
 
         {section(
           'translations',

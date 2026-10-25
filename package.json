@@ -55,7 +55,7 @@
     "check:boundaries": "tsx scripts/boundaries/check.ts",
     "test:boundaries": "vitest run --project boundaries --reporter=dot",
     "test:isolation": "vitest run --project isolation --reporter=dot",
-    "test:e2e": "turbo run build --filter=@inmolink/app-web... && tsx tests/e2e/prepare.ts && playwright test",
+    "test:e2e": "turbo run build --filter=@inmolink/app-web... --filter=@inmolink/app-public... && tsx tests/e2e/prepare.ts && playwright test",
     "perf:smoke": "tsx --conditions=@inmolink/source scripts/perf/smoke.ts",
     "perf:load:setup": "tsx --conditions=@inmolink/source scripts/perf/load-setup.ts",
     "perf:bundle": "tsx scripts/perf/bundle.ts",
