@@ -431,7 +431,8 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       };
 
       it(`[S0-05] ${table}: tenant B cannot update tenant A's rows`, async () => {
-        await changes(() =>
+        // S12-F3 review: a `userNoUpdate` table has no UPDATE grant at all
+        await (def.userNoUpdate ? (run: () => Promise<unknown>) => expectSqlState(run, DENIED) : changes)(() =>
           withTenant(as(b), (tx) =>
             tx.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${a}`),
           ),
@@ -593,6 +594,20 @@ describe.each(tenantNames)('tenant table %s', (table) => {
             if (PASSED_RLS.includes(sqlState(err) ?? '')) return 0;
             throw err;
           });
+        if (def.userNoUpdate) {
+          // S12-F3 review: no UPDATE grant, even on the member's own rows (the insert above proves the grant)
+          expect(inserted ?? 0).toBeLessThanOrEqual(1);
+          await expectSqlState(
+            () =>
+              tx
+                .transaction((sp) =>
+                  sp.execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`),
+                )
+                .then(() => undefined),
+            DENIED,
+          );
+          return;
+        }
         const res = await tx.execute(
           sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`,
         );

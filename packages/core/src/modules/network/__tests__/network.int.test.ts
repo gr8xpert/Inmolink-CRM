@@ -727,6 +727,42 @@ describe('subscription terms (S12-F3)', () => {
     ).toBe('42501');
   });
 
+  it('[S12-F3] review: no member rewrites terms in place (a colleague or their own) nor deletes a colleague', async () => {
+    const theirs = await as(s2, (ctx) =>
+      network.createSubscription(ctx, { name: `Colleague terms ${RUN}`, locationIds: [ids.city] }),
+    );
+    const mine = await as(s, (ctx) => network.createSubscription(ctx, { name: `Own terms ${RUN}` }));
+    // no UPDATE grant at all (the trigger deletes and inserts): a colleague's terms and the member's own
+    for (const sub of [theirs, mine]) {
+      expect(
+        await sqlState(
+          asUser(
+            s,
+            sql`update network_subscription_terms set location_id = ${ids.country}, kind = '*'
+                 where subscription_id = ${sub.id}`,
+          ),
+        ),
+      ).toBe('42501');
+    }
+    // a colleague's terms are not the member's to delete (0 rows), nor to read
+    const deleted = await asUser<{ subscription_id: string }>(
+      s,
+      sql`delete from network_subscription_terms where subscription_id = ${theirs.id} returning subscription_id`,
+    );
+    expect(deleted).toEqual([]);
+    expect(await asUser(s, sql`select 1 from network_subscription_terms where subscription_id = ${theirs.id}`)).toEqual(
+      [],
+    );
+    expect((await termsOf(theirs.id)).map((t) => t.location_id)).toEqual([ids.city]);
+    // the member's own subscription still changes its terms (the trigger's delete + insert)
+    await as(s, (ctx) =>
+      network.updateSubscription(ctx, mine.id, { name: `Own terms ${RUN}`, locationIds: [ids.area] }),
+    );
+    expect((await termsOf(mine.id)).map((t) => t.location_id)).toEqual([ids.area]);
+    await as(s, (ctx) => network.deleteSubscription(ctx, mine.id));
+    await as(s2, (ctx) => network.deleteSubscription(ctx, theirs.id));
+  });
+
   it('[S12-F3] the walk pages by member: batches of one find what one batch finds', async () => {
     const { post } = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Walk ${RUN}` })));
     const row = (await system((tx) => repo.postById(tx, post.id))) as repo.PostRow;

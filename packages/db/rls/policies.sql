@@ -1231,14 +1231,12 @@ alter table public."network_subscription_terms" enable row level security;
 alter table public."network_subscription_terms" force row level security;
 create policy own_insert on public."network_subscription_terms" for insert to app_user
   with check (agency_id = app_agency() and (user_id = app_user_id()));
-create policy own_update on public."network_subscription_terms" for update to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
 create policy own_delete on public."network_subscription_terms" for delete to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
 create policy user_select on public."network_subscription_terms" for select to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
 revoke all on table public."network_subscription_terms" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."network_subscription_terms" to app_user;
+grant select, insert, delete on table public."network_subscription_terms" to app_user;
 grant select, insert, update, delete on table public."network_subscription_terms" to app_system;
 
 -- network_subscriptions: STRICT

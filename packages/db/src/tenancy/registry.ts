@@ -85,6 +85,12 @@ interface TenantBase {
     write?: { insert?: string; update?: string; delete?: string };
   };
   /**
+   * S12-F3 review, with `userSelect` only: `app_user` gets SELECT, INSERT and DELETE but no UPDATE grant (and no
+   * `own_update` policy) — rows a trigger keeps by deleting and inserting as the member (`network_subscription_terms`),
+   * which no request may rewrite in place.
+   */
+  userNoUpdate?: true;
+  /**
    * S12-F14, STRICT only: "agency reads, member writes". `app_user` reads every row of its agency (`own_select`) but
    * INSERTs, UPDATEs and DELETEs only rows that also satisfy that command's predicate (ANDed with
    * `agency_id = app_agency()` in `own_insert` / `own_update` / `own_delete`), such as `user_id = app_user_id()` — for
@@ -1361,9 +1367,12 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { name: 'Marbella villas' },
   },
   // S12-F3: the subscriptions' inverted index for the subscriber walk — written by the subscription's trigger as the
-  // member (their own rows, like the subscriptions'); the worker reads every agency's (`app_system`).
+  // member (their own rows, like the subscriptions'); the worker reads every agency's (`app_system`). S12-F3 review:
+  // never updated (`userNoUpdate`: the trigger deletes and inserts — an UPDATE would otherwise be checked by agency
+  // only, so a member could rewrite a colleague's terms).
   network_subscription_terms: {
     kind: 'STRICT',
+    userNoUpdate: true,
     userSelect: {
       sql: 'user_id = app_user_id()',
       write: { insert: 'user_id = app_user_id()', delete: 'user_id = app_user_id()' },

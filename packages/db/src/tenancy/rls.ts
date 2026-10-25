@@ -79,6 +79,13 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         throw new Error(`${name}: userSelect is not valid for appendOnly or immutable tables`);
       }
     }
+    if (def.userNoUpdate) {
+      if (!def.userSelect || def.memberWrite || def.userNoUpdateColumns?.length || def.userSelect.write?.update) {
+        throw new Error(
+          `${name}: userNoUpdate is only valid with userSelect (no write.update, memberWrite or userNoUpdateColumns)`,
+        );
+      }
+    }
     if (def.memberWrite) {
       if (def.kind !== 'STRICT') throw new Error(`${name}: memberWrite is only valid for STRICT tables`);
       if (
@@ -241,15 +248,17 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_intake: [],
     };
   }
-  const user: Privilege[] = def.appendOnly
-    ? ['INSERT']
-    : def.immutable
-      ? APPEND_READ
-      : def.userReadOnly
-        ? ['SELECT']
-        : def.userAppendRead
-          ? APPEND_READ
-          : DML;
+  const user: Privilege[] = def.userNoUpdate
+    ? ['SELECT', 'INSERT', 'DELETE']
+    : def.appendOnly
+      ? ['INSERT']
+      : def.immutable
+        ? APPEND_READ
+        : def.userReadOnly
+          ? ['SELECT']
+          : def.userAppendRead
+            ? APPEND_READ
+            : DML;
   return {
     app_user: user,
     app_system: def.immutable ? APPEND_READ : DML,
@@ -319,7 +328,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     def.userSelect || def.memberWrite
       ? [
           { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
-          { name: 'own_update', cmd: 'UPDATE', roles: ['app_user'] },
+          ...(def.userNoUpdate ? [] : [{ name: 'own_update', cmd: 'UPDATE' as const, roles: ['app_user'] }]),
           { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
           { name: def.userSelect ? 'user_select' : 'own_select', cmd: 'SELECT', roles: ['app_user'] },
         ]
@@ -713,8 +722,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
           // S12-F14: `memberWrite` — the same write policies, and every row of the agency is read.
           `create policy own_insert on ${t} for insert to app_user
   with check (agency_id = app_agency()${userWrite(name, def, 'insert')});`,
-          `create policy own_update on ${t} for update to app_user
+          // S12-F3 review: `userNoUpdate` — no UPDATE grant, no update policy
+          ...(def.userNoUpdate
+            ? []
+            : [
+                `create policy own_update on ${t} for update to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'update')}) with check (agency_id = app_agency()${userWrite(name, def, 'update')});`,
+              ]),
           `create policy own_delete on ${t} for delete to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'delete')});`,
           def.userSelect

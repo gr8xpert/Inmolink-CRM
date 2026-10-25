@@ -409,6 +409,35 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S12-F3] userNoUpdate: a member inserts and deletes their own rows, and no member updates any', () => {
+    const def: TenantTable = {
+      kind: 'STRICT',
+      userNoUpdate: true,
+      userSelect: {
+        sql: 'user_id = app_user_id()',
+        write: { insert: 'user_id = app_user_id()', delete: 'user_id = app_user_id()' },
+        samples: { visible: [], hidden: [] },
+      },
+    };
+    const sql = tablesSql({ tenant: { terms: def }, global: {} });
+    expect(sql).not.toContain('create policy own_update on public."terms"');
+    expect(sql).toContain('grant select, insert, delete on table public."terms" to app_user;');
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_insert:INSERT',
+      'own_delete:DELETE',
+      'user_select:SELECT',
+    ]);
+    const bad = (tenant: TenantRegistry['tenant'][string]) => () => tablesSql({ tenant: { t: tenant }, global: {} });
+    expect(bad({ kind: 'STRICT', userNoUpdate: true })).toThrow(/userNoUpdate/);
+    expect(
+      bad({
+        kind: 'STRICT',
+        userNoUpdate: true,
+        userSelect: { sql: 'true', write: { update: 'true' }, samples: { visible: [], hidden: [] } },
+      }),
+    ).toThrow(/userNoUpdate/);
+  });
+
   it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
     const def = {
       kind: 'STRICT',
