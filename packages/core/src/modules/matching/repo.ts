@@ -391,11 +391,15 @@ export interface NewAlert {
 
 /**
  * Writes the alerts, waiting to be sent (one statement); a saved search, listing, kind and state alerted already is
- * skipped (`saved_search_alerts_dedupe_uq`). Answers how many were written now, and their agencies.
+ * skipped (`saved_search_alerts_dedupe_uq`). S13-F9: a saved search gets at most `dailyCap` alerts in 24 hours — its
+ * recent count is read once per search in the batch (≤ `dailyCap` index entries of
+ * `saved_search_alerts_search_created_idx`), the rest of the batch's alerts for it are dropped. Answers how many were
+ * written now, and their agencies.
  */
 export async function insertAlerts(
   tx: Tx,
   alerts: readonly NewAlert[],
+  dailyCap: number,
 ): Promise<{ written: number; agencies: string[] }> {
   if (alerts.length === 0) return { written: 0, agencies: [] };
   const json = JSON.stringify(
@@ -413,11 +417,23 @@ export async function insertAlerts(
     })),
   );
   const res = await tx.execute<{ agency_id: string }>(sql`
+    with x as (
+      select x.*, row_number() over (partition by x.saved_search_id order by x.id) as rn
+        from jsonb_to_recordset(${json}::jsonb) as x(id uuid, agency_id uuid, user_id uuid, saved_search_id uuid,
+               listing_id uuid, kind text, dedupe_key int, ref text, price_cents bigint, previous_price_cents bigint)),
+    recent as (
+      select s.saved_search_id,
+             (select count(*) from (
+                select 1 from ${savedSearchAlerts} a
+                 where a.saved_search_id = s.saved_search_id and a.created_at >= now() - interval '1 day'
+                 limit ${dailyCap}) c) as n
+        from (select distinct saved_search_id from x) s)
     insert into ${savedSearchAlerts}
       (id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents, previous_price_cents)
-    select id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents, previous_price_cents
-      from jsonb_to_recordset(${json}::jsonb) as x(id uuid, agency_id uuid, user_id uuid, saved_search_id uuid,
-             listing_id uuid, kind text, dedupe_key int, ref text, price_cents bigint, previous_price_cents bigint)
+    select x.id, x.agency_id, x.user_id, x.saved_search_id, x.listing_id, x.kind, x.dedupe_key, x.ref, x.price_cents,
+           x.previous_price_cents
+      from x join recent r on r.saved_search_id = x.saved_search_id
+     where r.n + x.rn <= ${dailyCap}
     on conflict (saved_search_id, listing_id, kind, dedupe_key) do nothing
     returning agency_id`);
   return { written: res.rows.length, agencies: [...new Set(res.rows.map((r) => r.agency_id))] };

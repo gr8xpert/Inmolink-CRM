@@ -271,7 +271,7 @@ export async function matchListings(
           },
         ];
       });
-      written = await repo.insertAlerts(tx, rows);
+      written = await repo.insertAlerts(tx, rows, ALERT_DAILY_CAP);
     }
 
     await repo.upsertStates(
@@ -438,6 +438,11 @@ export const ALERT_RETENTION_DAYS = 90;
 /** States of listings gone this long are dropped (a return later counts as new). */
 export const GONE_RETENTION_DAYS = 180;
 export const PRUNE_BATCH = 5_000;
+/**
+ * S13-F9: at most this many alerts per saved search in 24 hours (a broad search meeting a bulk import would otherwise
+ * write — and digest — thousands); the rest of the day's matches for it are not alerted.
+ */
+export const ALERT_DAILY_CAP = 50;
 
 /** The daily prune: old alerts and long-gone listing states, `PRUNE_BATCH` rows per statement. */
 export async function pruneMatching(nowMs: number = clock.nowMs()): Promise<{ alerts: number; states: number }> {

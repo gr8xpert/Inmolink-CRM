@@ -189,6 +189,21 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'contact_notes',
     definition: `ON "contact_notes" USING btree ("agency_id","contact_id","created_at","id")`,
   },
+  {
+    // S13-F9: the ai_jobs retention prune. 0163 built it pre-launch; ai_jobs grows with every AI call, so from then on
+    // a rebuild runs concurrently
+    name: 'ai_jobs_prune_idx',
+    table: 'ai_jobs',
+    definition: `ON "ai_jobs" USING btree ("created_at") WHERE "ai_jobs"."status" <> 'PENDING'`,
+    declaredBy: '0163_s13_f9_retention_indexes',
+  },
+  {
+    // S13-F9: the per-search daily alert cap; saved_search_alerts grows with every listing change matched
+    name: 'saved_search_alerts_search_created_idx',
+    table: 'saved_search_alerts',
+    definition: `ON "saved_search_alerts" USING btree ("saved_search_id","created_at")`,
+    declaredBy: '0163_s13_f9_retention_indexes',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

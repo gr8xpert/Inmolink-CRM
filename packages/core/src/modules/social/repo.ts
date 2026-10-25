@@ -469,3 +469,17 @@ export async function settleStaleClaims(
      where status = 'PUBLISHING' and claimed_at < ${c}::timestamptz and publish_started_at is null`);
   return { unknown: unknown.rowCount ?? 0, requeued: requeued.rowCount ?? 0 };
 }
+
+/**
+ * S13-F9: deletes PUBLISHED and FAILED posts last changed before `before` — at most `limit`, one statement, over
+ * `social_posts_finished_idx` (`updated_at` where finished). A finished post is never changed again; nothing references
+ * it (its outbox events and jobs are long done). `skip locked`: a row in use is left for the next run.
+ */
+export async function pruneFinishedPosts(tx: Tx, before: Date, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    delete from ${socialPosts} where id in (
+      select id from ${socialPosts}
+       where status in ('PUBLISHED', 'FAILED') and updated_at < ${before.toISOString()}::timestamptz
+       limit ${limit} for update skip locked)`);
+  return res.rowCount ?? 0;
+}

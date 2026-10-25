@@ -102,7 +102,7 @@ export const savedSearches = pgTable(
  * listing, kind and listing state (`dedupe_key`: 0 for NEW — a listing is new once — else the listing's version that
  * dropped the price or came back): a redelivered event, a retried job or two rebuilds of the same change raise
  * nothing more (`saved_search_alerts_dedupe_uq`). `notified_at` is set when the alert went out as a notification
- * (instantly, or in its search's daily digest). Pruned after 90 days.
+ * (instantly, or in its search's daily digest). Pruned after 90 days; at most `ALERT_DAILY_CAP` per search a day (S13-F9).
  */
 export const savedSearchAlerts = pgTable(
   'saved_search_alerts',
@@ -132,6 +132,8 @@ export const savedSearchAlerts = pgTable(
     index('saved_search_alerts_pending_idx').on(t.agencyId, t.savedSearchId, t.id).where(sql`${t.notifiedAt} is null`),
     // the 90-day prune: where created_at < ? limit ?
     index('saved_search_alerts_created_idx').on(t.createdAt),
+    // S13-F9, the per-search daily cap: where saved_search_id = ? and created_at >= ? limit <cap>
+    index('saved_search_alerts_search_created_idx').on(t.savedSearchId, t.createdAt),
     check('saved_search_alerts_kind_ck', sql`${t.kind} in ('NEW', 'PRICE_DROP', 'BACK_ON_MARKET')`),
   ],
 );

@@ -10,6 +10,7 @@ import {
   createSpendMirror,
   listPrompts,
   loadAiSettings,
+  pruneAiJobs,
   recordUsageRow,
   refreshSpendMirror,
   type SpendMirror,
@@ -18,6 +19,7 @@ import {
   usageMonth,
 } from '@inmolink/platform/ai';
 import { cacheConnection } from '@inmolink/platform/cache';
+import { clock } from '@inmolink/platform/clock';
 import type { Logger } from '@inmolink/platform/logger';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { sql } from 'drizzle-orm';
@@ -135,6 +137,34 @@ const RequestPathRecord = z.object({
   month: z.string().regex(MONTH_RE),
 });
 
+/**
+ * S13-F9: `ai_jobs` retention — settled rows are kept this many months (the usage page's year plus the month it
+ * compares against; the totals stay in `ai_usage_monthly`), deleted `PRUNE_BATCH` per statement by `ai.pruneJobs`.
+ */
+export const AI_JOBS_RETENTION = { MONTHS: 13, PRUNE_BATCH: 5_000 } as const;
+
+/** The instant `months` calendar months (UTC) before `nowMs`. */
+export function monthsBefore(nowMs: number, months: number): Date {
+  const d = new Date(nowMs);
+  d.setUTCMonth(d.getUTCMonth() - months);
+  return d;
+}
+
+/** The daily `ai_jobs` prune (S13-F9): settled rows older than `AI_JOBS_RETENTION.MONTHS`, batch by batch. */
+export async function pruneAiJobRows(
+  nowMs: number = clock.nowMs(),
+  signal?: AbortSignal,
+): Promise<{ deleted: number }> {
+  const before = monthsBefore(nowMs, AI_JOBS_RETENTION.MONTHS);
+  let deleted = 0;
+  for (;;) {
+    const n = await withSystem('ai.pruneJobs', (tx: Tx) => pruneAiJobs(tx, before, AI_JOBS_RETENTION.PRUNE_BATCH));
+    deleted += n;
+    if (n < AI_JOBS_RETENTION.PRUNE_BATCH || signal?.aborted) break;
+  }
+  return { deleted };
+}
+
 export const aiJobs = {
   /**
    * Appends a request-path usage record (no `withSystem` there) — queue `ai-usage`, the only one feed-api's `feed_ai`
@@ -159,6 +189,21 @@ export const aiJobs = {
       });
       if (inserted === null) throw new UnrecoverableError('ai.recordUsage: unknown agency');
       if (inserted) await spendMirror().recorded(job.agencyId, job.month, job.costMicroUsd);
+    },
+  }),
+
+  /** S13-F9: daily, pool `maintenance` — settled `ai_jobs` rows past their retention (`pruneAiJobRows`). */
+  pruneJobs: defineJob({
+    name: 'ai.pruneJobs',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 24 * 60 * 60_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      const res = await pruneAiJobRows(clock.nowMs(), signal);
+      if (res.deleted) log.info(res, 'ai jobs pruned');
+      return res;
     },
   }),
 

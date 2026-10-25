@@ -12,6 +12,7 @@ export { socialJobs } from './jobs';
 export { META_SCOPES, MetaError, MetaGraphClient } from './meta';
 export { CLIENT_MODE_ALLOWED, can, SOCIAL_ACTIONS, SOCIAL_IMPERSONATION, type SocialAction } from './policy';
 export { IN_FLIGHT_MS, MAX_ATTEMPTS, networkPostable, publishPost, SWEEP, sweepDuePosts } from './publish';
+export { POST_RETENTION, pruneFinishedPosts } from './retention';
 export {
   CAPTION_REQUESTS,
   CONNECT_STATE_TTL_MS,

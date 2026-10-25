@@ -29,6 +29,7 @@ export {
   type MatchingAction,
 } from './policy';
 export {
+  ALERT_DAILY_CAP,
   ALERT_RETENTION_DAYS,
   BACKFILL_BATCH,
   backfillListingStates,

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(platform,presentations,social,matching,db): retention for the S12 growth tables — daily batched prunes of ai_jobs (13 mo), social_posts and selection_interactions (12 mo), per-search daily alert cap, 4 index-backed deletes (migration 0163) [S13-F9]
 - feat(billing): product tax codes in the catalog, sent on Stripe product create and updated on change (migration 0162) [S13-F19]
 - feat(billing): retire changed/removed catalog prices and deactivate them in Stripe via billing.syncCatalog (stripe_retired_at, migration 0161) [S13-F18]
 - fix(social): Meta revoke re-locks and marks late connects NEEDS_RECONNECT; legacy NULL-user accounts block the revoke until backfilled by social.backfillMetaUsers [S13-F5]

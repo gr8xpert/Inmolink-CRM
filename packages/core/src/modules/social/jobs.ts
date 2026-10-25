@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { backfillMetaUsers, checkAccounts, notifyReconnect, revokeAccount } from './accounts';
 import { generateCaptions } from './captions';
 import { publishPost, sweepDuePosts } from './publish';
+import { pruneFinishedPosts } from './retention';
 
 /**
  * social worker jobs (S12-07, PATTERNS §12). Idempotent, per-tenant fair share.
@@ -19,6 +20,8 @@ import { publishPost, sweepDuePosts } from './publish';
  *   the admins' `SOCIAL_ACCOUNT_RECONNECT` notification.
  * - `social.generateCaptions` (pool `ai`, one per `social.captions.requested` event, job ID = the request's id): AI
  *   captions per language (`captions.ts`).
+ * - `social.pruneFinishedPosts` (pool `maintenance`, daily): PUBLISHED and FAILED posts past their retention
+ *   (`retention.ts`, S13-F9).
  */
 /** S13-F5: on its last attempt a Meta outage no longer keeps the disconnected account (and its tokens). */
 const REVOKE_ATTEMPTS = 5;
@@ -94,6 +97,20 @@ export const socialJobs = {
     async run(_p, { log }) {
       const res = await backfillMetaUsers();
       if (res.checked > 0) log.info(res, 'social accounts: Meta users backfilled');
+      return res;
+    },
+  }),
+
+  pruneFinishedPosts: defineJob({
+    name: 'social.pruneFinishedPosts',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 24 * 60 * 60_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      const res = await pruneFinishedPosts(undefined, signal);
+      if (res.deleted) log.info(res, 'finished social posts pruned');
       return res;
     },
   }),

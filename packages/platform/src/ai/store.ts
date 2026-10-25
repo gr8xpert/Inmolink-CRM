@@ -94,6 +94,25 @@ export function usageMonth(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
 
+/**
+ * S13-F9: deletes settled `ai_jobs` rows created before `before` — at most `limit`, one statement, over
+ * `ai_jobs_prune_idx` (`created_at`, `status <> 'PENDING'`). A PENDING batch keeps its row (its budget reservation is
+ * released when it is collected); the month totals stay in `ai_usage_monthly`, the response cache lives on redis, and
+ * `ai_feedback.ai_job_id` has no foreign key (the feedback outlives the job). `skip locked`: a row being settled is
+ * left for the next run. Answers how many were deleted.
+ */
+export async function pruneAiJobs(tx: SqlExecutor, before: Date, limit: number): Promise<number> {
+  const { rows } = await tx.execute(sql`
+    with d as (
+      delete from ai_jobs where id in (
+        select id from ai_jobs
+         where created_at < ${before.toISOString()}::timestamptz and status <> 'PENDING'
+         limit ${limit} for update skip locked)
+      returning 1)
+    select count(*)::int as n from d`);
+  return Number(rows[0]?.n ?? 0);
+}
+
 async function bumpMonth(
   tx: SqlExecutor,
   agencyId: string,

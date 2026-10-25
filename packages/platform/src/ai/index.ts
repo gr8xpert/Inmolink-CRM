@@ -60,6 +60,7 @@ export {
   createPgAiStore,
   createRequestAiStore,
   type PgAiStoreOptions,
+  pruneAiJobs,
   type RequestAiStoreOptions,
   type ReserveResult,
   recordAiFeedback,

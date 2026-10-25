@@ -19,6 +19,7 @@ import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { mlsJobs } from '@inmolink/core/modules/mls';
 import { networkJobs } from '@inmolink/core/modules/network';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
+import { presentationsJobs } from '@inmolink/core/modules/presentations';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
 import { searchJobs } from '@inmolink/core/modules/search';
@@ -203,6 +204,11 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiFeaturesJobs.pruneListingStudioBatches,
     // S13-F7: every 30 days, queues each agency's white-label backfill walk (network-shown documents).
     whiteLabelJobs.whiteLabelSweep,
+    // S13-F9: retention of the S12 growth tables — settled AI job rows (13 months), finished social posts and the
+    // interactions of ended selections (12 months).
+    aiJobs.pruneJobs,
+    socialJobs.pruneFinishedPosts,
+    presentationsJobs.pruneInteractions,
   ],
   ai: [
     // S12-01: worker-path AI usage records whose first write failed (ADR 0008 #6a).

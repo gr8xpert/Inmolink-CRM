@@ -69,6 +69,8 @@ export const aiJobs = pgTable(
     index('ai_jobs_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
     // settling a collected batch: where agency_id = ? and provider_batch_id = ? and status = 'PENDING'
     uniqueIndex('ai_jobs_batch_uq').on(t.agencyId, t.providerBatchId).where(sql`${t.providerBatchId} is not null`),
+    // S13-F9, the retention prune: where created_at < ? and status <> 'PENDING' limit ?
+    index('ai_jobs_prune_idx').on(t.createdAt).where(sql`${t.status} <> 'PENDING'`),
     check('ai_jobs_kind_ck', sql`${t.kind} in ('GENERATE', 'STRUCTURED', 'BATCH', 'EMBED')`),
     check('ai_jobs_status_ck', sql`${t.status} in ('SUCCEEDED', 'FAILED', 'PENDING')`),
     check('ai_jobs_tier_ck', sql`${t.tier} is null or ${t.tier} in ('FAST', 'SMART')`),

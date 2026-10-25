@@ -49,6 +49,10 @@ export const selections = pgTable(
     index('selections_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
     // a contact's selections: where agency_id = ? and contact_id = ?
     index('selections_contact_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
+    // S13-F9, the interactions' retention: ended selections in (least(revoked_at, expires_at), id) order (keyset)
+    index('selections_ended_idx')
+      .on(sql`least(${t.revokedAt}, ${t.expiresAt})`, t.id)
+      .where(sql`${t.revokedAt} is not null or ${t.expiresAt} is not null`),
     check('selections_title_ck', sql`length(${t.title}) between 1 and 200`),
     check('selections_message_ck', sql`${t.message} is null or length(${t.message}) between 1 and 2000`),
     check('selections_locale_ck', sql`${t.locale} ~ '^[a-z]{2}(-[A-Z]{2})?$'`),

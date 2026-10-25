@@ -214,3 +214,43 @@ export async function selectionContact(
     .where(eq(selections.id, selectionId));
   return row ?? null;
 }
+
+export type EndedSelection = { id: string; endedAt: string };
+
+/**
+ * S13-F9: selections that ended (revoked or expired, whichever came first) before `before`, after `after` in
+ * (ended, id) order — at most `limit`, over `selections_ended_idx` (keyset, never OFFSET).
+ */
+export async function endedSelectionsPage(
+  tx: Tx,
+  before: Date,
+  after: EndedSelection | null,
+  limit: number,
+): Promise<EndedSelection[]> {
+  const ended = sql`least(${selections.revokedAt}, ${selections.expiresAt})`;
+  const cursor = after
+    ? sql`and (${ended}, ${selections.id}) > (${after.endedAt}::timestamptz, ${after.id}::uuid)`
+    : sql``;
+  const res = await tx.execute<{ id: string; ended_at: string }>(sql`
+    select ${selections.id} as id, to_char(${ended} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as ended_at
+      from ${selections}
+     where (${selections.revokedAt} is not null or ${selections.expiresAt} is not null)
+       and ${ended} < ${before.toISOString()}::timestamptz ${cursor}
+     order by ${ended}, ${selections.id}
+     limit ${limit}`);
+  return res.rows.map((r) => ({ id: r.id, endedAt: r.ended_at }));
+}
+
+/**
+ * S13-F9: deletes interactions of `selectionIds` — at most `limit`, one statement, over
+ * `selection_interactions_selection_idx`. `skip locked`: a row in use is left for the next run.
+ */
+export async function pruneInteractionsOf(tx: Tx, selectionIds: readonly string[], limit: number): Promise<number> {
+  if (selectionIds.length === 0) return 0;
+  const res = await tx.execute(sql`
+    delete from ${selectionInteractions} where id in (
+      select id from ${selectionInteractions}
+       where selection_id = any(${`{${selectionIds.join(',')}}`}::uuid[])
+       limit ${limit} for update skip locked)`);
+  return res.rowCount ?? 0;
+}

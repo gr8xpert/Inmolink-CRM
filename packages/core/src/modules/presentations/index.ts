@@ -8,6 +8,7 @@ export {
 } from './config';
 export { presentationsErrors } from './errors';
 export { presentationsEvents } from './events';
+export { presentationsJobs } from './jobs';
 export {
   CLIENT_MODE_ALLOWED,
   can,
@@ -29,6 +30,7 @@ export {
   selectionPage,
   VIEW_WINDOW_SECONDS,
 } from './public';
+export { INTERACTION_RETENTION, pruneSelectionInteractions } from './retention';
 export {
   createSelection,
   getSelection,

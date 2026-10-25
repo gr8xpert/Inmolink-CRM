@@ -144,6 +144,8 @@ export const socialPosts = pgTable(
     index('social_posts_listing_idx').on(t.listingId),
     // the publish sweep: where status = 'SCHEDULED' and scheduled_at <= now() order by scheduled_at
     index('social_posts_due_idx').on(t.scheduledAt).where(sql`${t.status} = 'SCHEDULED'`),
+    // S13-F9, the retention prune: where status in ('PUBLISHED', 'FAILED') and updated_at < ? limit ?
+    index('social_posts_finished_idx').on(t.updatedAt).where(sql`${t.status} in ('PUBLISHED', 'FAILED')`),
     check('social_posts_media_ck', sql`cardinality(${t.mediaIds}) between 1 and 10`),
     check('social_posts_caption_ck', sql`${t.caption} is null or length(${t.caption}) <= 2200`),
     check('social_posts_scheduled_ck', sql`${t.status} <> 'SCHEDULED' or ${t.scheduledAt} is not null`),
