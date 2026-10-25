@@ -1770,6 +1770,86 @@ Ref §7 M21 · Mod support · Dep S1-09
 **Build:** tickets with categories, priority, attachments (R2, 10 MB × 5), staff queue, internal notes, email notifications.
 **Done when:** agency users see only their agency's tickets; internal notes are never visible to agencies
 
+### S13-F1 · Selection reads locked to the link token (S12 review) 🔒
+Ref §7 M13 · Mod presentations, db · Dep S12-04
+**Build:** `app_public` can read every agency's live `selections` / `selection_items` (titles, messages, item notes that can name clients), and `app_public` also serves feed-api, export downloads and websites. A `selection_by_token(hashes text[])` SECURITY DEFINER function (pinned search_path, S12-F16 pattern) or a token-hash term in the public read predicate; revoke the plain SELECT.
+**Done when:** isolation shows `app_public` without the token hash reads 0 rows from both tables; selections tests green
+
+### S13-F2 · Selection token path redacted in logs (S12 review) 🔒
+Ref §5 · Mod platform · Dep S12-04
+**Build:** `SECRET_PATHS` / `SECRET_PATHS_IN_TEXT` miss `/s/<token>` (a bearer secret): add the `/s/` prefix to both.
+**Done when:** `redactPath('/s/…')` and `redactPathsInText` give `/s/[REDACTED]` (unit test)
+
+### S13-F3 · Worker-written tables: no member writes (S12 review) 🔒
+Ref §5 · Mod db, matching, presentations · Dep S5-06 S12-04
+**Build:** `saved_search_alerts` lets app_user INSERT/UPDATE (forged alerts), `matching_listing_states` gives app_user full CRUD (worker-only), `selection_interactions` lets members UPDATE/DELETE the client history intake writes: alerts read + delete for the member, states no app_user grant (or read-only), interactions immutable.
+**Done when:** the generated isolation suite asserts 42501 on each now-forbidden write
+
+### S13-F4 · Client Mode allow-lists pinned for the S12 modules (S12 review) 🔒
+Ref §3 #56 · Mod identity, social, matching, presentations, documents, ai-features · Dep S12-06
+**Build:** a test per module pinning `CLIENT_MODE_ALLOWED`, plus a contract check that a Client Mode token gets 403 on `/v1/social/*`, `/v1/selections*`, `/v1/saved-searches*` and `/v1/listings/:id/studio`.
+**Done when:** both green; adding an action to an allow-list fails the pin test
+
+### S13-F5 · Social: revoke the Meta grant by Meta user id (S12 review) 🔒
+Ref §7 M25 · Mod social, db · Dep S12-07
+**Build:** disconnect no longer revokes (a Meta login can serve several agencies; `MetaGraphClient.revokePermissions` is unused, TODO in `social/accounts.ts`). Store the Meta user id at connect (migration); revoke only when no non-disconnected account in any agency has it, or revoke only the Page connection.
+**Done when:** the last account of a Meta user revokes once (test); another agency's account with the same user keeps working (test); TODO gone
+
+### S13-F6 · AI pool fairness: bulk white-label work apart from interactive jobs (S12 review) ⚡
+Ref §9 · Mod ai-features, platform · Dep S12-03
+**Build:** fair share is per pool + agency, so ~50 queued `sanitizeTexts` jobs after an import put the agency's next Listing Studio / caption request behind them. Own group namespace (`wl:<agency>`) or an `ai-bulk` pool for sanitize; interactive jobs keep the agency group.
+**Done when:** with 50 queued sanitize jobs for agency A, A's `generateListingCopy` starts within one free slot (p95 < 5 s, perf test)
+
+### S13-F7 · White-label pass only for network-shown documents; backfill (S12 review) ⚡
+Ref §8 #2 · Mod search, ai-features · Dep S12-03
+**Build:** every `search.publicDocs.changed` queues a job that reads 100 targets × locales of detail JSON before filtering `shownOnNetwork` (a full rebuild = ~20k jobs, almost none with a model call). Carry `networkShownIds` in the event (the `networkAudience` rule); skip events with none; optionally skip unchanged text hashes. Add the backfill sweep (per agency, fair share, `ai.batch`) for existing documents and imports. Index the search docs through the same removals or record why not (agent first names still match free text).
+**Done when:** a price-only edit and a private/own-only change queue zero `sanitizeTexts` jobs (test); ≈ 0 jobs per 1k unchanged targets on a rebuild (perf test); existing network docs get removals via the backfill (test)
+
+### S13-F8 · S12-F20b: drop the 16 date_trunc indexes (S12 review) ⚡
+Ref §5 · Mod db, properties, imports, developments, crm · Dep S12-F20
+**Build:** contract step of S12-F20, next release: drop the 16 old date_trunc indexes concurrently (`DROPPED_INDEXES`, 0106 pattern); move crm contact notes and contact imports to raw keyset.
+**Done when:** migration applied, `properties` ≤ 21 indexes, the list EXPLAIN tests still show the cursor in the Index Cond, import throughput no slower than before 0152
+
+### S13-F9 · Retention for the S12 growth tables (S12 review) ⚡
+Ref §5 · Mod platform, presentations, social, matching, db · Dep S12-01 S12-04 S12-07 S5-06
+**Build:** daily maintenance prunes in batches: `ai_jobs` 13 months (totals live in `ai_usage_monthly`; or monthly partitions), `selection_interactions` 12 months after expiry/revoke, `social_posts` PUBLISHED/FAILED older than 12 months; `saved_search_alerts` monthly partitions and a per-search daily alert cap (needs an index). Each delete index-backed.
+**Done when:** an int test per table keeps recent rows and deletes old ones; each delete EXPLAINs as an Index Scan
+
+### S13-F10 · Scale perf tests for the S12 hot paths (S12 review) ⚡
+Ref §15 · Mod presentations, website-api, matching, ops · Dep S12-04 S12-08 S5-06
+**Build:** `tests/perf/selection-page.int.test.ts` (50 items, own + network, scale seed); `/v2/search/ai` (warm) and `/s/<token>` in `scripts/perf/smoke.ts`; an outbox fan-out case for a 10k-listing import (matching + white-label + read models). Re-measure S12-08 (uncached < 600 / cached < 150 ms) and the S12-05 20-page portfolio on a quiet runner, and S12-F5 on the H4 box.
+**Done when:** selection page p95 < 150 ms with 5 statements, each SQL p95 < 20 ms; smoke thresholds pass for both routes; ≤ 2 events per 100 listings and outbox lag under threshold
+
+### S13-F11 · One white-label helper and one "present public docs" read (S12 review)
+Ref §8 #2 · Mod core, properties, social, presentations, documents, website-api · Dep S12-03
+**Build:** a single async `whiteLabelListingText(tx, listing, viewerAgencyId, texts)` (identity + `ownerRefsOf` + cached removals) used by properties content, social and presentations; one website-api function (`publicDocs` + `sitePresenter` + `viewWith` + `serializeDetail`) used by selections and the PDF render.
+**Done when:** one implementation each, one test covering every consumer
+
+### S13-F12 · Small shared helpers and scaffold leftovers (S12 review)
+Ref §5 · Mod core, chat, presentations, documents, web · Dep S12-F18
+**Build:** drop the `memberUserId as userIdOf` aliases (chat, matching, mls viewings, network, notifications) and fold `actorId` / `requireUser` into `memberUserId` (a lint rule bans the alias); one WhatsApp share constant; one `placeText`; web `requireSession` / `settle` / `cents` into `apps/web/src/server/actions.ts`; remove the empty `presentationsJobs` (or add the expiry sweep); merge `white-label-jobs.ts` into ai-features `jobs.ts`; job bodies in each module's `jobs.ts` (the rest of S12-F18).
+**Done when:** grep finds one definition of each; gen:module layout and module contents agree
+
+### S13-F13 · Selections dashboard pages; real Lighthouse on the page (S12-04)
+Ref §7 M13 · Mod web, presentations · Dep S12-04
+**Build:** create a selection from search results or a bookmark folder, list, stats (views/likes/enquiries), rotate/revoke, share buttons (WhatsApp/e-mail), on the existing API, EN + ES; Lighthouse through the perf project on `/s/<token>` instead of static proxies; a staging run with the real app + CDN.
+**Done when:** each route ≤ 250 KB first-load gzip; e2e of create → share link → client view counted; Lighthouse ≥ 90 asserted by the test
+
+### S13-F14 · Listing Studio batch submit idempotent; studio auto-drafts (S12-02)
+Ref §8 #1 · Mod ai-features, platform · Dep S12-02
+**Build:** a crash between `ai.batch` and saving the provider batch id can double-submit: an idempotency key through the gateway/provider (or a submitted marker the collect job reconciles); optional auto-draft on create/update behind a flag (§3 #15); the bulk UI.
+**Done when:** a crash-after-submit test submits once; the auto-draft flag is off by default and tested on
+
+### S13-F15 · CRM report rollups rebuilt for pre-0137 data (S12-F7)
+Ref §5 · Mod crm, ops · Dep S11-F10
+**Build:** migration 0137's backfill ran as app_owner under forced RLS and copied nothing, and the nightly stage sweep only visits agencies that already have rows. A one-off ops job running `crm.rebuildReportRollups` per agency with leads; the sweep also visits agencies with leads but no rollup rows; the S14-02 legacy lead load calls the rebuild per agency.
+**Done when:** an agency with old leads and no rollups gets them from the sweep (test)
+
+### S13-F16 · i18n drafts for the S12 namespaces; widget AI box (S12 review)
+Ref §3 · Mod i18n, sdk · Dep S12-08 S0-11
+**Build:** `pnpm i18n:draft` for the other content locales of the new namespaces (chat, network board, notifications, social, documents, selections, Client Mode) with review; the website widget's AI search box on `/v2/search/ai` (S8-F8's reminder test became an SDK-has-the-operation check).
+**Done when:** `i18n:check` lists no missing keys for enabled locales; a widget e2e searches by sentence
+
 ---
 
 ## S14 — Migration tooling
