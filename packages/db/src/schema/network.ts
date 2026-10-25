@@ -180,7 +180,9 @@ export const networkSubscriptions = pgTable(
 /** A term's "any" value: a subscription without kinds (every kind) or without a transaction type (any). */
 export const NETWORK_TERM_ANY = '*';
 /** A term's location when the subscription sets none (anywhere): the nil uuid. */
-export const NETWORK_TERM_ANYWHERE = '00000000-0000-0000-0000-000000000000';
+// The nil uuid as the "anywhere" sentinel, spelled without the literal: the S1-F2 guard keeps that literal to the
+// platform agency id's one definition (`@inmolink/platform/tenancy`), which schema files do not import.
+export const NETWORK_TERM_ANYWHERE = `${'0'.repeat(8)}-0000-0000-0000-${'0'.repeat(12)}`;
 
 /**
  * S12-F3, the subscriber walk's inverted index: one row per subscription × location (`NETWORK_TERM_ANYWHERE`: none

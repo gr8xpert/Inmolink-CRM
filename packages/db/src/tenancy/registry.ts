@@ -1378,7 +1378,7 @@ export const tenantTables: Record<string, TenantTable> = {
       write: { insert: 'user_id = app_user_id()', delete: 'user_id = app_user_id()' },
       samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
     },
-    base: { location_id: '00000000-0000-0000-0000-000000000000', kind: '*', transaction_type: '*' },
+    base: { location_id: NIL_UUID, kind: '*', transaction_type: '*' },
   },
   // S5-06: an agent's saved searches — the member's own only (colleagues neither read nor change them). The matching
   // worker (app_system) reads every agency's candidates through the GIN `match_keys` index.
