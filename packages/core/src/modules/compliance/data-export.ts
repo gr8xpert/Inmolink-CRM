@@ -152,7 +152,7 @@ export async function listDataExports(ctx: Ctx, q: PageQuery): Promise<DataExpor
   return toPage(
     rows,
     q.limit,
-    (r) => ({ at: r.createdAt, id: r.id }),
+    (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }),
     (r) => toDto(r),
   );
 }

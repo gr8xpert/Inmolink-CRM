@@ -432,7 +432,7 @@ function decodeListCursor(sort: ListingSort, cursor: string | undefined): repo.L
   if (cursor === undefined) return undefined;
   if (sort !== 'price_asc' && sort !== 'price_desc') {
     const c = decodeCursor(cursor);
-    return c && { kind: 'time', at: c.at, id: c.id };
+    return c && { kind: 'time', at: c.at, id: c.id, ...(c.atUs ? { atUs: c.atUs } : {}) };
   }
   try {
     const [tag, price, id] = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown[];
@@ -446,11 +446,13 @@ function decodeListCursor(sort: ListingSort, cursor: string | undefined): repo.L
   throw new AppError('VALIDATION_FAILED', { field: 'cursor' });
 }
 
-function encodeListCursor(sort: ListingSort, row: repo.ListingSummaryRow): string {
+function encodeListCursor(sort: ListingSort, row: repo.ListingListRow): string {
   if (sort === 'price_asc' || sort === 'price_desc') {
     return Buffer.from(JSON.stringify([PRICE_CURSOR, row.priceCents, row.id])).toString('base64url');
   }
-  return encodeCursor({ at: sort === 'updated' ? row.updatedAt : row.createdAt, id: row.id });
+  return sort === 'updated'
+    ? encodeCursor({ at: row.updatedAt, id: row.id, atUs: row.updatedAtUs })
+    : encodeCursor({ at: row.createdAt, id: row.id, atUs: row.createdAtUs });
 }
 
 /**

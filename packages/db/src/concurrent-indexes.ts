@@ -112,6 +112,72 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "agency_portal_connections" USING btree (hashtext("agency_id"::text),"agency_id","nightly_at") WHERE "agency_portal_connections"."enabled" and "agency_portal_connections"."revoked_at" is null`,
     declaredBy: '0122_s10_f4_portal_secrets',
   },
+  {
+    // S12-F20: the listings list, newest/oldest, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_created_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","created_at","id")`,
+  },
+  {
+    // S12-F20: the list filtered by a region subtree, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_region_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","region_id","created_at","id")`,
+  },
+  {
+    // S12-F20: the list filtered by a city subtree, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_city_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","city_id","created_at","id")`,
+  },
+  {
+    // S12-F20: the list filtered by an area, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_location_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","location_id","created_at","id")`,
+  },
+  {
+    // S12-F20: the list filtered by status, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_status_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","status_code","created_at","id") WHERE "properties"."deleted_at" is null`,
+  },
+  {
+    // S12-F20: the list filtered by a country subtree, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_country_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","country_id","created_at","id")`,
+  },
+  {
+    // S12-F20: an agent's own listings, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_owner_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","owner_user_id","created_at","id")`,
+  },
+  {
+    // S12-F20: the list sorted by last change, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_updated_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","updated_at","id")`,
+  },
+  {
+    // S12-F20: the restorable listings, raw keyset (the cursor an index condition under RLS)
+    name: 'properties_agency_deleted_raw_idx',
+    table: 'properties',
+    definition: `ON "properties" USING btree ("agency_id","created_at","id") WHERE "properties"."deleted_at" is not null`,
+  },
+  {
+    // S12-F20: a folder's bookmarks, raw keyset (the cursor an index condition under RLS)
+    name: 'listing_bookmarks_folder_created_raw_idx',
+    table: 'listing_bookmarks',
+    definition: `ON "listing_bookmarks" USING btree ("agency_id","folder_id","created_at","id")`,
+  },
+  {
+    // S12-F20: a connection's run history, raw keyset (the cursor an index condition under RLS)
+    name: 'feed_runs_connection_created_raw_idx',
+    table: 'feed_runs',
+    definition: `ON "feed_runs" USING btree ("connection_id","created_at","id")`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

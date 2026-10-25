@@ -187,22 +187,38 @@ export const properties = pgTable(
     uniqueIndex('properties_agency_ref_uq').on(t.agencyId, t.ref),
     // the agency's listings, newest first (keyset `keysetOrder`, S2-F1): where agency_id = ? order by … desc
     index('properties_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // the list filtered by a region / city / area subtree (S3-F6), newest first; other orders sort the matches
     index('properties_agency_region_idx').on(t.agencyId, t.regionId, keysetTime(t.createdAt), t.id),
     index('properties_agency_city_idx').on(t.agencyId, t.cityId, keysetTime(t.createdAt), t.id),
     index('properties_agency_location_idx').on(t.agencyId, t.locationId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the three above
+    index('properties_agency_region_raw_idx').on(t.agencyId, t.regionId, t.createdAt, t.id),
+    index('properties_agency_city_raw_idx').on(t.agencyId, t.cityId, t.createdAt, t.id),
+    index('properties_agency_location_raw_idx').on(t.agencyId, t.locationId, t.createdAt, t.id),
     // the list filtered by status (S3 review), newest first; other orders sort the matches (a rare status is few)
     index('properties_agency_status_idx')
       .on(t.agencyId, t.statusCode, keysetTime(t.createdAt), t.id)
       .where(sql`${t.deletedAt} is null`),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_status_raw_idx')
+      .on(t.agencyId, t.statusCode, t.createdAt, t.id)
+      .where(sql`${t.deletedAt} is null`),
     // the list filtered by a country subtree (S3 review: depth-1 filter of `country_id`), newest first
     index('properties_agency_country_idx').on(t.agencyId, t.countryId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_country_raw_idx').on(t.agencyId, t.countryId, t.createdAt, t.id),
     // the list's reference prefix (S3 review): `ref_key collate "C" >= P and < succ(P)` within the agency
     index('properties_agency_ref_key_idx').on(t.agencyId, sql`(${t.refKey} collate "C")`),
     // FK to the owner's membership + an agent's own listings (`mine`), newest first: keyset like the agency list
     index('properties_agency_owner_idx').on(t.agencyId, t.ownerUserId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_owner_raw_idx').on(t.agencyId, t.ownerUserId, t.createdAt, t.id),
     // the dashboard list sorted by last change (S3-07 `sort=updated`), keyset like the created order
     index('properties_agency_updated_idx').on(t.agencyId, keysetTime(t.updatedAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_updated_raw_idx').on(t.agencyId, t.updatedAt, t.id),
     // the dashboard list sorted by price (S3-07), listings without a price last: `sort=price_asc` walks the first
     // forwards; `sort=price_desc` needs its own (a backward scan of the first puts them first)
     index('properties_agency_price_idx').on(t.agencyId, t.priceCents, t.id),
@@ -211,6 +227,8 @@ export const properties = pgTable(
     index('properties_agency_deleted_idx')
       .on(t.agencyId, keysetTime(t.createdAt), t.id)
       .where(sql`${t.deletedAt} is not null`),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('properties_agency_deleted_raw_idx').on(t.agencyId, t.createdAt, t.id).where(sql`${t.deletedAt} is not null`),
     // the purge (S5-F2): soft-deleted listings of every agency, longest deleted first (built CONCURRENTLY)
     index('properties_deleted_idx').on(t.deletedAt).where(sql`${t.deletedAt} is not null`),
     foreignKey({
@@ -653,6 +671,8 @@ export const listingBookmarks = pgTable(
     }).onDelete('cascade'),
     // FK + a folder's bookmarks, newest first (keyset `keysetOrder`); a listing once per folder
     index('listing_bookmarks_folder_created_idx').on(t.agencyId, t.folderId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('listing_bookmarks_folder_created_raw_idx').on(t.agencyId, t.folderId, t.createdAt, t.id),
     uniqueIndex('listing_bookmarks_folder_property_uq').on(t.agencyId, t.folderId, t.propertyId),
     // the caller's bookmarks of one listing (the editor's bookmark button)
     index('listing_bookmarks_member_property_idx').on(t.agencyId, t.userId, t.propertyId),

@@ -17,7 +17,7 @@ import {
   feedSourceHashes,
 } from '@inmolink/db/schema/imports';
 import { and, asc, desc, eq, gt, inArray, or, type SQL, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type ConnectionRow = typeof feedConnections.$inferSelect;
 export type ConnectionInsert = typeof feedConnections.$inferInsert;
@@ -120,17 +120,17 @@ export async function listConnections(
   tx: Tx,
   agencyId: string,
   q: { limit: number; cursor?: KeysetCursor },
-): Promise<{ items: ConnectionView[]; hasMore: boolean }> {
+): Promise<{ items: (ConnectionView & { atUs: string })[]; hasMore: boolean }> {
   const rows = await tx
-    .select(connectionColumns)
+    .select({ ...connectionColumns, atUs: keysetStamp(feedConnections.createdAt) })
     .from(feedConnections)
     .where(
       and(
         eq(feedConnections.agencyId, agencyId),
-        keysetAfter(feedConnections.createdAt, feedConnections.id, q.cursor, 'desc'),
+        keysetAfterRaw(feedConnections.createdAt, feedConnections.id, q.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(feedConnections.createdAt, feedConnections.id, 'desc'))
+    .orderBy(...keysetOrderRaw(feedConnections.createdAt, feedConnections.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
 }
@@ -247,12 +247,14 @@ export async function listRuns(
   tx: Tx,
   connectionId: string,
   q: { limit: number; cursor?: KeysetCursor },
-): Promise<{ items: RunView[]; hasMore: boolean }> {
+): Promise<{ items: (RunView & { atUs: string })[]; hasMore: boolean }> {
   const rows = await tx
-    .select(runColumns)
+    .select({ ...runColumns, atUs: keysetStamp(feedRuns.createdAt) })
     .from(feedRuns)
-    .where(and(eq(feedRuns.connectionId, connectionId), keysetAfter(feedRuns.createdAt, feedRuns.id, q.cursor, 'desc')))
-    .orderBy(...keysetOrder(feedRuns.createdAt, feedRuns.id, 'desc'))
+    .where(
+      and(eq(feedRuns.connectionId, connectionId), keysetAfterRaw(feedRuns.createdAt, feedRuns.id, q.cursor, 'desc')),
+    )
+    .orderBy(...keysetOrderRaw(feedRuns.createdAt, feedRuns.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
 }
@@ -828,18 +830,18 @@ export async function listProfiles(
   tx: Tx,
   agencyId: string,
   q: { limit: number; cursor?: KeysetCursor; connector: string },
-): Promise<{ items: ProfileSummary[]; hasMore: boolean }> {
+): Promise<{ items: (ProfileSummary & { atUs: string })[]; hasMore: boolean }> {
   const rows = await tx
-    .select(summaryColumns)
+    .select({ ...summaryColumns, atUs: keysetStamp(feedMappingProfiles.createdAt) })
     .from(feedMappingProfiles)
     .where(
       and(
         eq(feedMappingProfiles.agencyId, agencyId),
         eq(feedMappingProfiles.connector, q.connector),
-        keysetAfter(feedMappingProfiles.createdAt, feedMappingProfiles.id, q.cursor, 'desc'),
+        keysetAfterRaw(feedMappingProfiles.createdAt, feedMappingProfiles.id, q.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(feedMappingProfiles.createdAt, feedMappingProfiles.id, 'desc'))
+    .orderBy(...keysetOrderRaw(feedMappingProfiles.createdAt, feedMappingProfiles.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
 }

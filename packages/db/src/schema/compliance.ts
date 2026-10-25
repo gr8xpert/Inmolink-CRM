@@ -120,6 +120,8 @@ export const dataExportJobs = pgTable(
       sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
       t.id,
     ),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('data_export_jobs_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // one export at a time per agency: where agency_id = ? and status in ('QUEUED', 'RUNNING')
     uniqueIndex('data_export_jobs_active_uq').on(t.agencyId).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
     // POST replay: where agency_id = ? and idempotency_hash = ?

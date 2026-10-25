@@ -221,6 +221,8 @@ export const staffImpersonations = pgTable(
       sql`date_trunc('milliseconds', ${t.startedAt}, 'UTC')`,
       t.id,
     ),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('staff_impersonations_agency_raw_idx').on(t.agencyId, t.startedAt, t.id),
     // FK + the staff member's history: where staff_user_id = ? order by started_at
     index('staff_impersonations_staff_idx').on(t.staffUserId, t.startedAt),
     // FK: removing a user

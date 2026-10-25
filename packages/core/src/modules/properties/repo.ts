@@ -20,7 +20,7 @@ import {
   propertyTranslations,
 } from '@inmolink/db/schema/properties';
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, lte, notInArray, or, type SQL, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type ListingRow = typeof properties.$inferSelect;
 export type ListingInsert = typeof properties.$inferInsert;
@@ -165,6 +165,8 @@ const summaryColumns = {
   deletedAt: properties.deletedAt,
 };
 export type ListingSummaryRow = { [K in keyof typeof summaryColumns]: ListingRow[K] };
+/** S12-F20: a list row with its sort times as the raw keyset cursor holds them (`keysetStamp`). */
+export type ListingListRow = ListingSummaryRow & { createdAtUs: string; updatedAtUs: string };
 
 /** The list filters (S3-07), all optional; each narrows the agency's own listings. */
 /** The listing column holding a location of each depth (1 country … 4 area), for subtree filters (S3-F6). */
@@ -193,7 +195,9 @@ export interface ListFilter {
 
 export type ListSort = 'newest' | 'oldest' | 'updated' | 'price_asc' | 'price_desc';
 /** Where a page starts: the last row's sort key — a time for the time sorts, the price (or null) for price sorts. */
-export type ListCursor = { kind: 'time'; at: Date; id: string } | { kind: 'price'; price: number | null; id: string };
+export type ListCursor =
+  | { kind: 'time'; at: Date; id: string; atUs?: string }
+  | { kind: 'price'; price: number | null; id: string };
 
 /** The next string after every string starting with `prefix` in byte order (its characters are `[A-Z0-9]`). */
 function prefixEnd(prefix: string): string {
@@ -239,22 +243,24 @@ function priceAfter(dir: 'asc' | 'desc', cursor: ListCursor | undefined): SQL | 
 }
 
 function orderFor(sort: ListSort, cursor: ListCursor | undefined): { after: SQL | undefined; order: SQL[] } {
-  const time = cursor?.kind === 'time' ? { at: cursor.at, id: cursor.id } : undefined;
+  // S12-F20: the raw keyset — `(created_at, id) < (?, ?)` is an index condition under RLS (the `date_trunc` form was a
+  // Filter, so a deep page read the agency's whole index range)
+  const time = cursor?.kind === 'time' ? { at: cursor.at, id: cursor.id, atUs: cursor.atUs } : undefined;
   switch (sort) {
     case 'newest':
       return {
-        after: keysetAfter(properties.createdAt, properties.id, time, 'desc'),
-        order: keysetOrder(properties.createdAt, properties.id, 'desc'),
+        after: keysetAfterRaw(properties.createdAt, properties.id, time, 'desc'),
+        order: keysetOrderRaw(properties.createdAt, properties.id, 'desc'),
       };
     case 'oldest':
       return {
-        after: keysetAfter(properties.createdAt, properties.id, time, 'asc'),
-        order: keysetOrder(properties.createdAt, properties.id, 'asc'),
+        after: keysetAfterRaw(properties.createdAt, properties.id, time, 'asc'),
+        order: keysetOrderRaw(properties.createdAt, properties.id, 'asc'),
       };
     case 'updated':
       return {
-        after: keysetAfter(properties.updatedAt, properties.id, time, 'desc'),
-        order: keysetOrder(properties.updatedAt, properties.id, 'desc'),
+        after: keysetAfterRaw(properties.updatedAt, properties.id, time, 'desc'),
+        order: keysetOrderRaw(properties.updatedAt, properties.id, 'desc'),
       };
     case 'price_asc':
       return {
@@ -272,7 +278,7 @@ function orderFor(sort: ListSort, cursor: ListCursor | undefined): { after: SQL 
 
 /**
  * The agency's own listings, filtered and sorted (S3-07), keyset-paged: the time sorts walk
- * `properties_agency_created_idx` / `properties_agency_updated_idx`, the price sorts
+ * `properties_agency_created_raw_idx` / `properties_agency_updated_raw_idx` (S12-F20), the price sorts
  * `properties_agency_price_idx`. `deletedSince`: the listings deleted since then (the restorable ones),
  * newest first, instead of the live ones.
  */
@@ -280,11 +286,15 @@ export async function listOwn(
   tx: Tx,
   agencyId: string,
   q: { limit: number; sort: ListSort; cursor?: ListCursor; filter: ListFilter; deletedSince?: Date },
-): Promise<ListingSummaryRow[]> {
+): Promise<ListingListRow[]> {
   const sort = q.deletedSince ? 'newest' : q.sort;
   const { after, order } = orderFor(sort, q.cursor);
   return tx
-    .select(summaryColumns)
+    .select({
+      ...summaryColumns,
+      createdAtUs: keysetStamp(properties.createdAt),
+      updatedAtUs: keysetStamp(properties.updatedAt),
+    })
     .from(properties)
     .where(
       and(
@@ -303,7 +313,7 @@ export async function idsMatching(tx: Tx, agencyId: string, filter: ListFilter, 
     .select({ id: properties.id })
     .from(properties)
     .where(and(...filterWhere(agencyId, filter), isNull(properties.deletedAt)))
-    .orderBy(...keysetOrder(properties.createdAt, properties.id, 'desc'))
+    .orderBy(...keysetOrderRaw(properties.createdAt, properties.id, 'desc'))
     .limit(limit);
   return rows.map((r) => r.id);
 }
@@ -991,7 +1001,7 @@ const bookmarkWithListing = {
 };
 
 /**
- * A folder's bookmarks, newest first (keyset, `listing_bookmarks_folder_created_idx`), each with its listing as
+ * A folder's bookmarks, newest first (raw keyset, `listing_bookmarks_folder_created_raw_idx`), each with its listing as
  * the caller sees it now: the left join runs under the caller's RLS on `properties`, so a listing that left
  * their view (unshared, off the market, hidden by freshness) comes back as nulls, never an error.
  */
@@ -1000,9 +1010,9 @@ export async function listFolderBookmarks(
   ref: MemberRef & { folderId: string },
   cursor: KeysetCursor | undefined,
   limit: number,
-): Promise<FolderBookmarkRow[]> {
+): Promise<(FolderBookmarkRow & { atUs: string })[]> {
   return tx
-    .select(bookmarkWithListing)
+    .select({ ...bookmarkWithListing, atUs: keysetStamp(listingBookmarks.createdAt) })
     .from(listingBookmarks)
     .leftJoin(properties, eq(properties.id, listingBookmarks.propertyId))
     .where(
@@ -1010,10 +1020,10 @@ export async function listFolderBookmarks(
         eq(listingBookmarks.agencyId, ref.agencyId),
         eq(listingBookmarks.folderId, ref.folderId),
         eq(listingBookmarks.userId, ref.userId),
-        keysetAfter(listingBookmarks.createdAt, listingBookmarks.id, cursor, 'desc'),
+        keysetAfterRaw(listingBookmarks.createdAt, listingBookmarks.id, cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(listingBookmarks.createdAt, listingBookmarks.id, 'desc'))
+    .orderBy(...keysetOrderRaw(listingBookmarks.createdAt, listingBookmarks.id, 'desc'))
     .limit(limit + 1);
 }
 
@@ -1067,7 +1077,7 @@ export async function visibleFolderListingIds(
         isNull(properties.deletedAt),
       ),
     )
-    .orderBy(...keysetOrder(listingBookmarks.createdAt, listingBookmarks.id, 'asc'))
+    .orderBy(...keysetOrderRaw(listingBookmarks.createdAt, listingBookmarks.id, 'asc'))
     .limit(limit);
   return rows.map((r) => r.id);
 }

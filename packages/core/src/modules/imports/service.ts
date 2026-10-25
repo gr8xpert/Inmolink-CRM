@@ -229,7 +229,7 @@ export async function listFeedConnections(ctx: Ctx, q: ListFeedConnectionsQuery)
   const last = page.items.at(-1);
   return {
     items: page.items.map((row) => toConnectionDto(ctx, row)),
-    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id }) : null,
+    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id, atUs: last.atUs }) : null,
   };
 }
 
@@ -362,7 +362,7 @@ export async function listFeedRuns(ctx: Ctx, connectionId: string, q: ListFeedRu
   const last = page.items.at(-1);
   return {
     items: page.items.map(toRunDto),
-    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id }) : null,
+    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id, atUs: last.atUs }) : null,
   };
 }
 

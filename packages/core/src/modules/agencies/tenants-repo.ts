@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { agencies } from '@inmolink/db/schema/agencies';
 import { and, eq, ilike, inArray, or, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * Staff console tenant queries (S1-09, PATTERNS §5), as `app_staff` (registry `staff.select = 'true'`
@@ -34,27 +34,27 @@ function likeEscape(q: string): string {
 }
 
 /**
- * Newest agencies first, keyset on `(created_at, agency_id)` (`agencies_created_idx`, scanned backwards).
+ * Newest agencies first, raw keyset on `(created_at, agency_id)` (`agencies_created_raw_idx`, scanned backwards).
  * `q`: a name substring (case-insensitive) or the exact, normalized tax id. A few thousand agencies: the
  * name filter uses `agencies_name_trgm_idx` (pg_trgm GIN, S1-F9; two characters or more).
  */
 export async function listTenants(
   tx: Tx,
   q: { limit: number; cursor?: KeysetCursor; status?: AgencyStatus; search?: string },
-): Promise<TenantRow[]> {
+): Promise<(TenantRow & { atUs: string })[]> {
   const { cursor, search } = q;
   const taxId = search?.toUpperCase().replace(/[\s.-]/g, '');
   return tx
-    .select(summaryColumns)
+    .select({ ...summaryColumns, atUs: keysetStamp(agencies.createdAt) })
     .from(agencies)
     .where(
       and(
         q.status ? eq(agencies.status, q.status) : undefined,
         search ? or(ilike(agencies.name, `%${likeEscape(search)}%`), eq(agencies.taxId, taxId ?? '')) : undefined,
-        keysetAfter(agencies.createdAt, agencies.id, cursor, 'desc'),
+        keysetAfterRaw(agencies.createdAt, agencies.id, cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(agencies.createdAt, agencies.id, 'desc'))
+    .orderBy(...keysetOrderRaw(agencies.createdAt, agencies.id, 'desc'))
     .limit(q.limit + 1);
 }
 

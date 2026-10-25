@@ -265,7 +265,7 @@ export async function listMappingProfiles(ctx: Ctx, q: ListMappingProfilesQuery)
   const last = page.items.at(-1);
   return {
     items: page.items.map(toSummary),
-    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id }) : null,
+    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id, atUs: last.atUs }) : null,
   };
 }
 

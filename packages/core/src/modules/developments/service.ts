@@ -230,7 +230,7 @@ export async function listDevelopments(ctx: Ctx, q: ListDevelopmentsQuery): Prom
   const last = page.items.at(-1);
   return {
     items: page.items.map((r) => toDevelopmentDto(ctx, r, access.get(r.id) ?? [])),
-    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id }) : null,
+    nextCursor: page.hasMore && last ? encodeCursor({ at: last.createdAt, id: last.id, atUs: last.atUs }) : null,
   };
 }
 

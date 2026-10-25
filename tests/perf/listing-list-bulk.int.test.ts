@@ -216,8 +216,9 @@ const seqScansOn = (node: unknown, table: string): string[] => {
 
 /** The list statements as the repo builds them (`repo.listOwn`), one per sort, plus the tag filter. */
 const PLANS: Record<string, string> = {
-  newest: `order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc`,
-  updated: `order by date_trunc('milliseconds', updated_at, 'UTC') desc, id desc`,
+  // S12-F20: the raw keyset (`keysetOrderRaw`)
+  newest: 'order by created_at desc, id desc',
+  updated: 'order by updated_at desc, id desc',
   price_asc: 'order by price_cents asc nulls last, id asc',
   price_desc: 'order by price_cents desc nulls last, id desc nulls last',
 };
@@ -234,7 +235,7 @@ it('[S3-07] [S3-F6] [S3-F10] EXPLAIN on scale: every list order and filter reads
     `select id, ref from properties
       where agency_id = '${big.agencyId}' and deleted_at is null
         and exists (select 1 from property_tags t where t.property_id = properties.id and t.tag = 'golf')
-      order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc limit 51`,
+      order by created_at desc, id desc limit 51`,
   ]);
   // S3-F6: a rare subtree — one of the agency's 5,000 listings in this region — reads its matches only, by index
   const region = await system((tx) =>
@@ -244,7 +245,7 @@ it('[S3-07] [S3-F6] [S3-F10] EXPLAIN on scale: every list order and filter reads
     where id = (select id from properties where agency_id = ${big.agencyId} order by id limit 1)`);
   await system((tx) => tx.execute(sql`analyze properties`));
   for (const [name, order] of [
-    ['region subtree, newest', `order by date_trunc('milliseconds', created_at, 'UTC') desc, id desc`],
+    ['region subtree, newest', 'order by created_at desc, id desc'],
     ['region subtree, price', 'order by price_cents desc nulls last, id desc'],
   ]) {
     statements.push([
@@ -282,4 +283,57 @@ it('[S3-07] [S3-F6] [S3-F10] EXPLAIN on scale: every list order and filter reads
     expect(ms, name).toBeLessThan(20);
   }
   log.info(report, 'S3-07 list plans on 200,000 listings');
+});
+
+it("[S12-F20] EXPLAIN on scale: the listings list's second page has its cursor in the Index Cond under RLS", async () => {
+  const big = agencies[0] as Founder;
+  // the real second page first: the service's cursor round-trips (the raw keyset's `atUs`), no gap, no repeat
+  const query = (cursor?: string) =>
+    ListListingsQuery.parse({ limit: 50, sort: 'newest', ...(cursor ? { cursor } : {}) });
+  const first = await as(big, (ctx) => properties.listListings(ctx, query()));
+  expect(first.nextCursor).not.toBeNull();
+  const second = await as(big, (ctx) => properties.listListings(ctx, query(first.nextCursor ?? '')));
+  expect(second.items).toHaveLength(50);
+  const firstIds = new Set(first.items.map((i) => i.id));
+  expect(second.items.some((i) => firstIds.has(i.id))).toBe(false);
+
+  // the statement `repo.listOwn` builds for that page (newest; and one filter's index), EXPLAINed as `app_user`
+  const [last] = await rows<{ id: string; at_us: string }>(sql`
+    select id, to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at_us from properties
+     where agency_id = ${big.agencyId} and deleted_at is null order by created_at desc, id desc offset 49 limit 1`);
+  if (!last) throw new Error('no 50th listing');
+  const after = `(created_at, id) < ('${last.at_us}'::timestamptz, '${last.id}'::uuid)`;
+  const live = `agency_id = '${big.agencyId}' and deleted_at is null`;
+  const statements: [string, string, string][] = [
+    [
+      'newest, page 2',
+      `select id, ref from properties where ${live} and ${after} order by created_at desc, id desc limit 51`,
+      'properties_agency_created_raw_idx',
+    ],
+    [
+      'status, newest, page 2',
+      `select id, ref from properties where ${live} and status_code = 4 and ${after} order by created_at desc, id desc limit 51`,
+      '',
+    ],
+  ];
+  for (const [name, statement, index] of statements) {
+    const plan = await withTenant({ agencyId: big.agencyId, userId: big.userId }, async (tx) => {
+      await tx.execute(sql.raw(statement)); // warm
+      const res = await tx.execute<{ 'QUERY PLAN': unknown }>(
+        sql.raw(`explain (analyze, buffers, format json) ${statement}`),
+      );
+      return res.rows[0]?.['QUERY PLAN'] as [{ Plan: unknown; 'Execution Time': number }];
+    });
+    const text = JSON.stringify(plan[0].Plan);
+    log.info(
+      { list: name, index: /"Index Name":"([a-z_]+)"/.exec(text)?.[1], ms: plan[0]['Execution Time'] },
+      'S12-F20 second page',
+    );
+    if (index) expect(text, name).toContain(`"Index Name":"${index}"`);
+    // the cursor is part of the index condition (a row comparison), never a filter over the agency's range
+    expect(/"Index Cond":"[^"]*ROW\(created_at, id\) < ROW\(/.test(text), name).toBe(true);
+    expect(/"Filter":"[^"]*created_at/.test(text), name).toBe(false);
+    expect(seqScansOn(plan[0].Plan, 'properties'), name).toEqual([]);
+    expect(plan[0]['Execution Time'], name).toBeLessThan(20);
+  }
 });

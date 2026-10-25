@@ -177,7 +177,7 @@ export async function listStaffAccess(ctx: Ctx, q: PageQuery): Promise<StaffAcce
   return toPage(
     rows,
     q.limit,
-    (r) => ({ at: r.startedAt, id: r.id }),
+    (r) => ({ at: r.startedAt, id: r.id, atUs: r.atUs }),
     (r) => ({
       id: r.id,
       startedAt: r.startedAt.toISOString(),

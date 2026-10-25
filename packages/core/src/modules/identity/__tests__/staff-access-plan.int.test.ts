@@ -5,7 +5,7 @@ import { newId } from '@inmolink/platform/ids';
 import { and, eq, sql } from 'drizzle-orm';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw } from '../../../pagination';
 
 /**
  * Query plan of an agency's staff access list at scale (S2-F1). 300 agencies and 30,000 sessions are seeded and
@@ -35,10 +35,10 @@ const listStaffAccess = (agencyId: string, cursor: KeysetCursor | undefined) =>
     .where(
       and(
         eq(staffImpersonations.agencyId, agencyId),
-        keysetAfter(staffImpersonations.startedAt, staffImpersonations.id, cursor, 'desc'),
+        keysetAfterRaw(staffImpersonations.startedAt, staffImpersonations.id, cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(staffImpersonations.startedAt, staffImpersonations.id, 'desc'))
+    .orderBy(...keysetOrderRaw(staffImpersonations.startedAt, staffImpersonations.id, 'desc'))
     .limit(26)
     .toSQL();
 
@@ -78,7 +78,9 @@ it('[S2-F1] EXPLAIN on scale: the staff access list uses an index with no separa
     await q('analyze staff_impersonations');
     await q(`select set_config('app.agency_id', $1, true), set_config('app.user_id', $2, true)`, [agencyId, admin]);
     await q('set local role app_user');
-    const cursor = { at: new Date(Date.now() - 60 * 60_000), id: newId() };
+    const at = new Date(Date.now() - 60 * 60_000);
+    // S12-F20: the raw keyset's cursor carries the sort time's microseconds (`keysetStamp`)
+    const cursor = { at, id: newId(), atUs: `${at.toISOString().slice(0, 23)}000Z` };
     const out: Record<string, string> = {};
     for (const [name, c] of [
       ['first page', undefined],
@@ -92,7 +94,12 @@ it('[S2-F1] EXPLAIN on scale: the staff access list uses an index with no separa
   });
   for (const [name, text] of Object.entries(plans)) {
     console.log(`[S2-F1] staff access list, ${name}:\n${text}`);
-    expect(text, name).toMatch(/Index Scan Backward using staff_impersonations_agency_idx/);
+    expect(text, name).toMatch(/Index Scan Backward using staff_impersonations_agency_raw_idx/);
     expect(text, name).not.toMatch(/\bSort\b/);
+    // S12-F20: a next page's cursor is an index condition under RLS, not a filter over the walk
+    if (name === 'next page') {
+      expect(text, name).toMatch(/Index Cond: .*ROW\(.*started_at, .*id\) < ROW\(/);
+      expect(text, name).not.toMatch(/Filter: .*started_at/);
+    }
   }
 });

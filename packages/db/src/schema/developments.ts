@@ -111,6 +111,8 @@ export const developments = pgTable(
     uniqueIndex('developments_agency_ref_uq').on(t.agencyId, t.ref),
     // the agency's developments, newest first (keyset)
     index('developments_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('developments_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // FK + network browse by location
     index('developments_location_idx').on(t.locationId),
     // migration: legacy id → development within an agency

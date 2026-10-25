@@ -29,7 +29,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * `legacy_id` (developments) and `uploaded_by` (documents) are owner-only data on rows other agencies read:
@@ -102,23 +102,23 @@ export async function updateDevelopment(
   return row ?? null; // null → version conflict
 }
 
-/** The agency's developments, newest first (`developments_agency_created_idx`). */
+/** The agency's developments, newest first (raw keyset, `developments_agency_created_raw_idx`). */
 export async function listOwnDevelopments(
   tx: Tx,
   agencyId: string,
   q: { limit: number; cursor?: KeysetCursor },
-): Promise<{ items: DevelopmentListRow[]; hasMore: boolean }> {
+): Promise<{ items: (DevelopmentListRow & { atUs: string })[]; hasMore: boolean }> {
   const rows = await tx
-    .select(developmentListColumns)
+    .select({ ...developmentListColumns, atUs: keysetStamp(developments.createdAt) })
     .from(developments)
     .where(
       and(
         eq(developments.agencyId, agencyId),
         isNull(developments.deletedAt),
-        keysetAfter(developments.createdAt, developments.id, q.cursor, 'desc'),
+        keysetAfterRaw(developments.createdAt, developments.id, q.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(developments.createdAt, developments.id, 'desc'))
+    .orderBy(...keysetOrderRaw(developments.createdAt, developments.id, 'desc'))
     .limit(q.limit + 1);
   return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
 }

@@ -152,7 +152,7 @@ export async function listBookmarks(ctx: Ctx, folderId: string, query: ListBookm
   return toPage(
     rows,
     query.limit,
-    (r) => ({ at: r.createdAt, id: r.id }),
+    (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }),
     (r) => bookmarkDto(ctx, r),
   );
 }

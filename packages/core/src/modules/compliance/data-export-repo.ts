@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { dataExportJobs } from '@inmolink/db/schema/compliance';
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /** `data_export_jobs` queries (S10-08). Takes `tx`; only the columns the callers need. */
 
@@ -107,22 +107,22 @@ export async function getExport(
   return row ?? null;
 }
 
-/** The agency's exports, newest first (keyset). */
+/** The agency's exports, newest first (raw keyset, `data_export_jobs_agency_created_raw_idx`). */
 export async function listExports(
   tx: Tx,
   agencyId: string,
   page: { limit: number; cursor?: KeysetCursor | undefined },
-): Promise<ExportRow[]> {
+): Promise<(ExportRow & { atUs: string })[]> {
   return tx
-    .select(exportColumns)
+    .select({ ...exportColumns, atUs: keysetStamp(dataExportJobs.createdAt) })
     .from(dataExportJobs)
     .where(
       and(
         eq(dataExportJobs.agencyId, agencyId),
-        keysetAfter(dataExportJobs.createdAt, dataExportJobs.id, page.cursor, 'desc'),
+        keysetAfterRaw(dataExportJobs.createdAt, dataExportJobs.id, page.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(dataExportJobs.createdAt, dataExportJobs.id, 'desc'))
+    .orderBy(...keysetOrderRaw(dataExportJobs.createdAt, dataExportJobs.id, 'desc'))
     .limit(page.limit + 1);
 }
 

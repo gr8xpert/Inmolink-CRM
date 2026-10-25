@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- perf(properties,imports,developments,agencies,identity,compliance): raw keyset on 16 new (…, created_at, id) indexes — a list next-page cursor is an index condition under RLS; migration 0152 (11 built concurrently) [S12-F20]
 - fix(db): one pinned search_path (pg_catalog, pg_temp) for every SECURITY DEFINER function (0151); definerSync names only the owner operations used; network-closed chat refusal is P0001/network_closed [S12-F16]
 - fix(db,crm): validate leads_assignee_member_fk (migration 0150); CRM filters perf seed uses real members and purges a crashed run rows [S12-F17]
 - perf(crm,db): leads down to 10 secondary indexes — stage pages via the status index, combined filters on the more selective index; stage + assignee + cursor 0.3 ms at 60k (migration 0149) [S12-F7]

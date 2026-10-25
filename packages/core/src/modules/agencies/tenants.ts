@@ -24,8 +24,8 @@ export async function listTenants(ctx: StaffCtx, q: TenantListQuery): Promise<Te
   return toPage(
     rows,
     q.limit,
-    (r) => ({ at: r.createdAt, id: r.id }),
-    (r) => ({ ...r, createdAt: r.createdAt.toISOString() }),
+    (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }),
+    ({ atUs: _, ...r }) => ({ ...r, createdAt: r.createdAt.toISOString() }),
   );
 }
 

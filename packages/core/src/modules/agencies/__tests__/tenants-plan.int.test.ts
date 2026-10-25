@@ -5,7 +5,7 @@ import { newId } from '@inmolink/platform/ids';
 import { and, eq } from 'drizzle-orm';
 import { QueryBuilder } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw } from '../../../pagination';
 
 /**
  * Query plan of the staff tenants list at scale (S2-F1). 5,000 agencies (PLAN §15) are seeded and analysed on
@@ -24,10 +24,10 @@ const listTenants = (status: 'VERIFIED' | 'SUSPENDED' | undefined, cursor: Keyse
     .where(
       and(
         status ? eq(agencies.status, status) : undefined,
-        keysetAfter(agencies.createdAt, agencies.id, cursor, 'desc'),
+        keysetAfterRaw(agencies.createdAt, agencies.id, cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(agencies.createdAt, agencies.id, 'desc'))
+    .orderBy(...keysetOrderRaw(agencies.createdAt, agencies.id, 'desc'))
     .limit(26)
     .toSQL();
 
@@ -48,7 +48,9 @@ it('[S2-F1] EXPLAIN on scale: the status-filtered tenants list uses an index wit
     await q('analyze agencies');
     await q(`select set_config('app.user_id', $1, true)`, [staff]);
     await q('set local role app_staff');
-    const cursor = { at: new Date(Date.now() - 60 * 60_000), id: newId() };
+    const at = new Date(Date.now() - 60 * 60_000);
+    // S12-F20: the raw keyset's cursor carries the sort time's microseconds (`keysetStamp`)
+    const cursor = { at, id: newId(), atUs: `${at.toISOString().slice(0, 23)}000Z` };
     const out: Record<string, string> = {};
     for (const [name, status, c] of [
       ['all, first page', undefined, undefined],
@@ -66,7 +68,12 @@ it('[S2-F1] EXPLAIN on scale: the status-filtered tenants list uses an index wit
   for (const [name, text] of Object.entries(plans)) {
     console.log(`[S2-F1] tenants list, ${name}:\n${text}`);
     // Under app_staff RLS a status (enum `=`, not leakproof) only filters: the keyset index gives the order.
-    expect(text, name).toMatch(/Index Scan Backward using agencies_created_idx/);
+    expect(text, name).toMatch(/Index Scan Backward using agencies_created_raw_idx/);
     expect(text, name).not.toMatch(/\bSort\b/);
+    // S12-F20: a next page's cursor is an index condition under RLS, not a filter over the walk
+    if (name.includes('next page')) {
+      expect(text, name).toMatch(/Index Cond: \(ROW\(created_at, agency_id\) < ROW\(/);
+      expect(text, name).not.toMatch(/Filter: .*created_at/);
+    }
   }
 });

@@ -58,7 +58,8 @@ export const feedMappingProfiles = pgTable(
   (t) => [
     unique('feed_mapping_profiles_id_agency_uq').on(t.id, t.agencyId),
     // FK + the agency's profiles, newest first
-    index('feed_mapping_profiles_agency_created_idx').on(t.agencyId, t.createdAt),
+    // S12-F20: + id, so the raw keyset's `(created_at, id) < (?, ?)` is one index condition (a small table)
+    index('feed_mapping_profiles_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
     check('feed_mapping_profiles_name_ck', sql`char_length(${t.name}) between 1 and 120`),
     check('feed_mapping_profiles_connector_ck', sql`${t.connector} ~ '^[a-z][a-z0-9-]{1,31}$'`),
   ],
@@ -123,6 +124,8 @@ export const feedConnections = pgTable(
       sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
       t.id,
     ),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('feed_connections_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // scheduler: enabled connections due now, oldest first
     index('feed_connections_due_idx').on(t.nextRunAt).where(sql`${t.enabled} and ${t.nextRunAt} is not null`),
     // FK to the mapping profile
@@ -226,6 +229,8 @@ export const feedRuns = pgTable(
       sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
       t.id,
     ),
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    index('feed_runs_connection_created_raw_idx').on(t.connectionId, t.createdAt, t.id),
     // FK (agency_id)
     index('feed_runs_agency_created_idx').on(t.agencyId, t.createdAt),
     // retention prune (`imports.pruneRuns`): finished runs older than the cut-off, oldest first

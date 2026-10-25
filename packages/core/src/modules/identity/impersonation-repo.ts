@@ -1,7 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { agencyMembers, staffImpersonations } from '@inmolink/db/schema/identity';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * `staff_impersonations` queries (S1-09, PATTERNS §5). Kept apart from `repo.ts` (size). Runs as
@@ -151,11 +151,13 @@ export interface StaffAccessRow {
   memberUserId: string;
   memberName: string;
   reason: string;
+  /** S12-F20: `keysetStamp` of `started_at`, the raw keyset cursor. */
+  atUs: string;
 }
 
 /**
  * The agency's record of staff access (S1-F9, `app_user`, own agency by RLS), newest first, keyset on
- * `(started_at, id)` over `staff_impersonations_agency_idx`, with the member's name in the same query
+ * `(started_at, id)` over `staff_impersonations_agency_raw_idx` (S12-F20), with the member's name in the same query
  * (`agency_members` primary key). The staff member's id is not selected: staff identities stay with Inmolink.
  */
 export async function listStaffAccess(
@@ -175,6 +177,7 @@ export async function listStaffAccess(
       memberUserId: staffImpersonations.targetUserId,
       memberName: sql<string>`coalesce(${agencyMembers.name}, '')`,
       reason: staffImpersonations.reason,
+      atUs: keysetStamp(staffImpersonations.startedAt),
     })
     .from(staffImpersonations)
     .leftJoin(
@@ -187,11 +190,11 @@ export async function listStaffAccess(
     .where(
       and(
         eq(staffImpersonations.agencyId, agencyId),
-        // Millisecond-truncated keys (PATTERNS §5): `started_at` is microseconds, the cursor a JS Date.
-        keysetAfter(staffImpersonations.startedAt, staffImpersonations.id, cursor, 'desc'),
+        // the raw keyset (S12-F20): the cursor carries `started_at`'s microseconds (`atUs`)
+        keysetAfterRaw(staffImpersonations.startedAt, staffImpersonations.id, cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(staffImpersonations.startedAt, staffImpersonations.id, 'desc'))
+    .orderBy(...keysetOrderRaw(staffImpersonations.startedAt, staffImpersonations.id, 'desc'))
     .limit(page.limit + 1);
 }
 
