@@ -114,6 +114,12 @@ export const clientRegistrationFingerprints = pgTable(
     targetId: uuid('target_id').notNull(),
     /** HMAC-SHA256 (base64url) of `email:<normalized>` or `phone:<E.164>`; not reversible without `HMAC_KEY`. */
     fingerprint: text('fingerprint').notNull(),
+    /**
+     * S12-F8: `hmacKeyLabel` of the HMAC key that made `fingerprint` (16 base64url characters, not secret). Null for
+     * fingerprints stored before S12-F8 (the rehash labels them when it recomputes the same value). Tells the rehash —
+     * and `mls.fingerprintsPending` — which valid registrations still lack a current-key fingerprint.
+     */
+    keyId: text('key_id'),
     /** The registration's validity, copied: the exclusion constraint compares `[registered_at, expires_at)`. */
     registeredAt: timestamp('registered_at', { withTimezone: true }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -140,6 +146,7 @@ export const clientRegistrationFingerprints = pgTable(
       'client_registration_fingerprints_validity_ck',
       sql`${t.expiresAt} > ${t.registeredAt} and ${t.expiresAt} <= ${t.registeredAt} + ${MAX_VALIDITY}`,
     ),
+    check('client_registration_fingerprints_key_id_ck', sql`${t.keyId} is null or ${t.keyId} ~ '^[A-Za-z0-9_-]{16}$'`),
   ],
 );
 

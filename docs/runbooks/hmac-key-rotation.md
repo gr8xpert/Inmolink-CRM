@@ -74,6 +74,16 @@ and inside it a second statement only for URLs that miss under the current key (
     since (a used key was rehashed; the mark is best effort, so re-check one by authenticating it) — and tell their
     agencies to rotate them: `select agency_id, prefix, last_used_at from api_keys where revoked_at is null and
     created_at < :cutover and coalesce(rotated_at, created_at) < :cutover and (last_used_at is null or last_used_at < :cutover)`.
+    **Client fingerprints first (S12-F8):** the window must not close while a valid client registration still lacks a
+    fingerprint under the new key — it would stop blocking a duplicate registration ("first valid wins"). Every
+    fingerprint row carries the label of its key (`key_id`, `hmacKeyLabel`), and `mls.fingerprintsPending()` counts the
+    valid registrations without a current-key row. `mls.rehashFingerprints` (hourly during the window) brings it to 0.
+    From 24 h before `HMAC_KEY_PREVIOUS_UNTIL`, `mls.checkFingerprintRehash` (every 15 minutes) records the count; any
+    pending registration fires **`HmacRotationRehashPending`** (critical, `infra/monitoring/rules/security.yml`; worker
+    log line with the same name). On that alert: check the `maintenance` pool runs (`queues.md`), queue a pass
+    (`mls.scheduleFingerprintRehash`), and if it cannot finish in time **move `HMAC_KEY_PREVIOUS_UNTIL` later** (redeploy
+    api, feed-api and the worker with the new end, at most 90 days after the cutover) — never let the window close
+    with pending > 0.
 11. **Destroy the old key** in the secret store once it is out of every deploy (and every backup of the config).
 
 **After a key leak** there is no window: skip `HMAC_KEY_PREVIOUS` entirely, deploy the new key, and have every holder

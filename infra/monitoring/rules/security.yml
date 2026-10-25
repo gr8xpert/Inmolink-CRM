@@ -1,0 +1,21 @@
+# Security operations alerts (S12-F8). Loaded by Prometheus on the monitoring host (Ansible role `monitoring`). Unit
+# tests: security.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metric: worker processes (pool `maintenance`, OpenTelemetry → Prometheus exporter), from
+# packages/core/src/modules/mls/alerts.ts:
+#   inmolink_mls_fingerprint_rehash_pending   gauge: valid client registrations without a fingerprint under the
+#                                             current HMAC_KEY, recorded every 15 minutes by `mls.checkFingerprintRehash`
+#                                             within 24 h of HMAC_KEY_PREVIOUS_UNTIL (0 otherwise)
+# The worker log line with the same alert name (`alert: HmacRotationRehashPending`) carries the count and the end.
+groups:
+  - name: security
+    rules:
+      # An HMAC rotation window ends within 24 h and the fingerprint rehash has not reached every valid registration:
+      # once the previous key is gone those registrations stop blocking duplicates ("first valid wins"). Extend
+      # HMAC_KEY_PREVIOUS_UNTIL or finish the rehash before the window closes (runbook step 10).
+      - alert: HmacRotationRehashPending
+        expr: max(inmolink_mls_fingerprint_rehash_pending) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "HMAC rotation: {{ $value }} client registrations still lack a current-key fingerprint near the window's end"
+          runbook: docs/runbooks/hmac-key-rotation.md#rotation-steps

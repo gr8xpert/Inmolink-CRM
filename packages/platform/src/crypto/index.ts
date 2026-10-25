@@ -18,6 +18,8 @@ export {
   type HmacPurpose,
   type HmacRotationInput,
   hmacKeyCandidates,
+  hmacKeyLabel,
+  hmacRotationEndsAt,
   hmacRotationFromEnv,
   hmacSha256,
   hmacSha256Candidates,

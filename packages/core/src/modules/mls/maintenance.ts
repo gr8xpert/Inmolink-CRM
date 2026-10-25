@@ -1,6 +1,14 @@
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
-import { clientFingerprints, mlsConfigured, registeredClientCipher, rotationWindowOpen } from './config';
+import { reportRehashPending } from './alerts';
+import {
+  clientFingerprints,
+  currentFingerprintKeyId,
+  mlsConfigured,
+  registeredClientCipher,
+  rotationEndsAt,
+  rotationWindowOpen,
+} from './config';
 import * as repo from './repo';
 
 /**
@@ -12,6 +20,10 @@ const REHASH_BATCH = 500;
 const AGENCY_PAGE = 1_000;
 const PRUNE_BATCH = 1_000;
 const PRUNE_MAX_BATCHES = 50;
+/** S12-F8: `fingerprintsPending` counts up to this many (the alert needs "any", the runbook a rough size). */
+export const PENDING_COUNT_CAP = 100_000;
+/** S12-F8: the alert window — pending fingerprints this close to `HMAC_KEY_PREVIOUS_UNTIL` page ops. */
+export const REHASH_ALERT_BEFORE_MS = 24 * 3_600_000;
 /** Expired fingerprints block nothing; kept this long after expiry for support questions, then deleted. */
 export const FINGERPRINT_RETENTION_DAYS = 30;
 
@@ -46,19 +58,56 @@ export async function rehashAgencyFingerprints(agencyId: string): Promise<{ regi
   for (;;) {
     const batch = await withSystem(`mls.rehashFingerprints: agency ${agencyId}`, async (tx) => {
       const rows = await repo.validBatch(tx, agencyId, after, REHASH_BATCH);
+      const keyId = currentFingerprintKeyId();
       const prints = rows.flatMap((r) =>
         clientFingerprints(registeredClientCipher.decrypt(agencyId, r.id, r.detailsEnc)).current.map((fingerprint) => ({
           registrationId: r.id,
           fingerprint,
+          keyId,
         })),
       );
-      return { rows, added: await repo.addFingerprints(tx, agencyId, prints) };
+      return { rows, added: (await repo.addFingerprints(tx, agencyId, prints)).added };
     });
     registrations += batch.rows.length;
     added += batch.added;
     if (batch.rows.length < REHASH_BATCH) return { registrations, added };
     after = batch.rows.at(-1)?.id ?? null;
   }
+}
+
+/** S12-F8: limits the pending count to some agencies (support looking at one agency; tests on the shared DB). */
+export interface PendingScope {
+  agencyIds?: readonly string[];
+}
+
+/**
+ * S12-F8: valid registrations without a fingerprint under the current `HMAC_KEY` (capped at `PENDING_COUNT_CAP`) —
+ * what the rehash still has to do. The runbook closes a rotation window only at 0 (step 10).
+ */
+export async function fingerprintsPending(scope: PendingScope = {}): Promise<number> {
+  if (!mlsConfigured()) return 0;
+  const keyId = currentFingerprintKeyId();
+  return withSystem('mls.fingerprintsPending: valid registrations without current-key fingerprints', (tx) =>
+    repo.countPendingFingerprints(tx, keyId, PENDING_COUNT_CAP, scope.agencyIds),
+  );
+}
+
+/**
+ * S12-F8, the worker check (`mls.checkFingerprintRehash`): within `REHASH_ALERT_BEFORE_MS` of the window's end, any
+ * pending registration raises `HmacRotationRehashPending` (gauge + warning log). Outside that stretch nothing is counted
+ * and the gauge reads 0.
+ */
+export async function checkFingerprintRehash(
+  scope: PendingScope = {},
+): Promise<{ pending: number; alert: boolean; endsAt: string | null }> {
+  const endsAt = mlsConfigured() ? rotationEndsAt() : null;
+  if (!endsAt || endsAt.getTime() - clock.nowMs() > REHASH_ALERT_BEFORE_MS) {
+    reportRehashPending(0, endsAt);
+    return { pending: 0, alert: false, endsAt: endsAt?.toISOString() ?? null };
+  }
+  const pending = await fingerprintsPending(scope);
+  reportRehashPending(pending, endsAt);
+  return { pending, alert: pending > 0, endsAt: endsAt.toISOString() };
 }
 
 /**

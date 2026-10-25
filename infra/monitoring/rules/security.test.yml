@@ -1,0 +1,26 @@
+# promtool test rules security.test.yml — run by tests/ops/alerts.int.test.ts (S12-F8).
+rule_files:
+  - security.yml
+evaluation_interval: 15s
+
+tests:
+  # The check reports 0 outside the last 24 h, then 3 pending registrations at 15m: the alert fires at once and clears
+  # when the rehash has reached them (0 at 45m).
+  - interval: 15m
+    input_series:
+      - series: 'inmolink_mls_fingerprint_rehash_pending{instance="worker-1"}'
+        values: "0 3 3 0 0"
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: HmacRotationRehashPending
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: HmacRotationRehashPending
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "HMAC rotation: 3 client registrations still lack a current-key fingerprint near the window's end"
+              runbook: docs/runbooks/hmac-key-rotation.md#rotation-steps
+      - eval_time: 46m
+        alertname: HmacRotationRehashPending
+        exp_alerts: []

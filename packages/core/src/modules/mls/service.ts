@@ -141,7 +141,7 @@ async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Pro
         contactId: contact.id,
         registeredByUserId,
         detailsEnc: registeredClientCipher.encrypt(agencyId, id, client),
-        fingerprints: prints.candidates,
+        fingerprints: prints.keyed,
       }),
     );
   } catch (err) {

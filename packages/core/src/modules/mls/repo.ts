@@ -50,7 +50,8 @@ export interface NewRegistration {
   contactId: string;
   registeredByUserId: string | null;
   detailsEnc: string;
-  fingerprints: readonly string[];
+  /** S12-F8: each with the label of the key that made it (`key_id`). */
+  fingerprints: readonly { fingerprint: string; keyId: string }[];
 }
 
 /**
@@ -69,12 +70,15 @@ export async function insertRegistration(tx: Tx, r: NewRegistration): Promise<{ 
       returning registered_at, expires_at
     ), prints as (
       insert into ${clientRegistrationFingerprints}
-        (registration_id, agency_id, target_id, fingerprint, registered_at, expires_at)
-      select ${r.id}, ${r.agencyId}, ${r.targetId}, f, reg.registered_at, reg.expires_at
+        (registration_id, agency_id, target_id, fingerprint, key_id, registered_at, expires_at)
+      select ${r.id}, ${r.agencyId}, ${r.targetId}, f.fingerprint, f.key_id, reg.registered_at, reg.expires_at
         from reg, unnest(${sql`array[${sql.join(
-          r.fingerprints.map((f) => sql`${f}`),
+          r.fingerprints.map((f) => sql`${f.fingerprint}`),
           sql`, `,
-        )}]::text[]`}) as f
+        )}]::text[]`}, ${sql`array[${sql.join(
+          r.fingerprints.map((f) => sql`${f.keyId}`),
+          sql`, `,
+        )}]::text[]`}) as f(fingerprint, key_id)
       returning 1
     )
     select registered_at, expires_at, (select count(*) from prints)::int as prints from reg`);
@@ -290,30 +294,65 @@ export async function validBatch(
 /**
  * Adds fingerprints to the agency's registrations (one statement), with each registration's own target and validity
  * copied in SQL (the FK compares them at microsecond precision); rows already there are skipped (`on conflict do
- * nothing`: the primary key, and the exclusion constraint).
+ * nothing`: the primary key, and the exclusion constraint). S12-F8: a row already there with another `key_id` — a
+ * fingerprint stored before key ids existed (null) — gets this one (a second statement): the same HMAC value can only
+ * come from the same key. Answers the rows added and the rows labelled.
  */
 export async function addFingerprints(
   tx: Tx,
   agencyId: string,
-  rows: readonly { registrationId: string; fingerprint: string }[],
-): Promise<number> {
-  if (rows.length === 0) return 0;
-  const ids = sql.join(
-    rows.map((r) => sql`${r.registrationId}`),
-    sql`, `,
-  );
-  const prints = sql.join(
-    rows.map((r) => sql`${r.fingerprint}`),
-    sql`, `,
-  );
-  const res = await tx.execute(sql`
+  rows: readonly { registrationId: string; fingerprint: string; keyId: string }[],
+): Promise<{ added: number; labelled: number }> {
+  if (rows.length === 0) return { added: 0, labelled: 0 };
+  const list = <T>(pick: (r: (typeof rows)[number]) => T) =>
+    sql.join(
+      rows.map((r) => sql`${pick(r)}`),
+      sql`, `,
+    );
+  const values = sql`unnest(array[${list((r) => r.registrationId)}]::uuid[], array[${list((r) => r.fingerprint)}]::text[],
+      array[${list((r) => r.keyId)}]::text[]) as v(registration_id, fingerprint, key_id)`;
+  const labelled = await tx.execute(sql`
+    update ${clientRegistrationFingerprints} f set key_id = v.key_id
+      from ${values}
+     where f.agency_id = ${agencyId} and f.registration_id = v.registration_id and f.fingerprint = v.fingerprint
+       and f.key_id is distinct from v.key_id`);
+  const added = await tx.execute(sql`
     insert into ${clientRegistrationFingerprints}
-      (registration_id, agency_id, target_id, fingerprint, registered_at, expires_at)
-    select r.id, r.agency_id, r.target_id, v.fingerprint, r.registered_at, r.expires_at
-      from unnest(array[${ids}]::uuid[], array[${prints}]::text[]) as v(registration_id, fingerprint)
+      (registration_id, agency_id, target_id, fingerprint, key_id, registered_at, expires_at)
+    select r.id, r.agency_id, r.target_id, v.fingerprint, v.key_id, r.registered_at, r.expires_at
+      from ${values}
       join ${clientRegistrations} r on r.agency_id = ${agencyId} and r.id = v.registration_id
     on conflict do nothing`);
-  return res.rowCount ?? 0;
+  return { added: added.rowCount ?? 0, labelled: labelled.rowCount ?? 0 };
+}
+
+/**
+ * S12-F8 (app_system): registrations still valid that have fingerprints but none under the key labelled `keyId` — the
+ * rehash has not reached them yet, so they would stop blocking once the previous key is gone. One statement over every
+ * agency (the primary key's (agency_id, registration_id) prefix serves both probes); capped at `cap`.
+ */
+export async function countPendingFingerprints(
+  tx: Tx,
+  keyId: string,
+  cap: number,
+  agencyIds?: readonly string[],
+): Promise<number> {
+  const scope = agencyIds
+    ? sql`and r.agency_id = any(${sql`array[${sql.join(
+        agencyIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::uuid[]`})`
+    : sql``;
+  const res = await tx.execute(sql`
+    select count(*)::int as n from (
+      select 1 from ${clientRegistrations} r
+       where r.expires_at > now() ${scope}
+         and exists (select 1 from ${clientRegistrationFingerprints} f
+                      where f.agency_id = r.agency_id and f.registration_id = r.id)
+         and not exists (select 1 from ${clientRegistrationFingerprints} f
+                          where f.agency_id = r.agency_id and f.registration_id = r.id and f.key_id = ${keyId})
+       limit ${cap}) p`);
+  return (res.rows[0] as { n: number } | undefined)?.n ?? 0;
 }
 
 /** Retention: deletes up to `limit` fingerprints that expired before `before` (they block nothing any more). */

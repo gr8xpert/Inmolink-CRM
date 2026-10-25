@@ -1016,6 +1016,13 @@
       "when": 1792898552017,
       "tag": "0144_s12_04_selections",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1792900280353,
+      "tag": "0145_s12_f8_fingerprint_key_id",
+      "breakpoints": true
     }
   ]
 }

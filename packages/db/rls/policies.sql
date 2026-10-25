@@ -566,7 +566,7 @@ do $$
 declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."client_registration_fingerprints"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['target_id', 'fingerprint', 'registered_at', 'expires_at']);
+   where attrelid = 'public."client_registration_fingerprints"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['target_id', 'fingerprint', 'key_id', 'registered_at', 'expires_at']);
   execute format('grant update (%s) on table public."client_registration_fingerprints" to app_user', cols);
 end $$;
 grant select, insert, update, delete on table public."client_registration_fingerprints" to app_system;

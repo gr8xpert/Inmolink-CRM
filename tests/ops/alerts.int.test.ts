@@ -66,6 +66,16 @@ describe('Queue age alerts', () => {
   }, 200_000);
 });
 
+describe('Security alerts', () => {
+  it('[S12-F8] security alert rules are valid Prometheus rules', async () => {
+    expect(await promtool('check', 'rules', '/rules/security.yml')).toMatch(/SUCCESS: \d+ rules found/);
+  }, 200_000);
+
+  it('[S12-F8] pending fingerprint rehash near the end of an HMAC rotation window alerts at once and clears at 0', async () => {
+    expect(await promtool('test', 'rules', '/rules/security.test.yml')).toMatch(/SUCCESS/);
+  }, 200_000);
+});
+
 describe('Redis memory alerts', () => {
   it('[S7-04] redis memory alert rules are valid Prometheus rules', async () => {
     expect(await promtool('check', 'rules', '/rules/redis.yml')).toMatch(/SUCCESS: \d+ rules found/);

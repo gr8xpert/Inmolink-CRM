@@ -1130,7 +1130,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // registration (and by the rehash job during an HMAC rotation, app_system); app_user never changes one.
   client_registration_fingerprints: {
     kind: 'STRICT',
-    userNoUpdateColumns: ['target_id', 'fingerprint', 'registered_at', 'expires_at'],
+    // S12-F8: nor its key label (`key_id`, set at registration and by the rehash)
+    userNoUpdateColumns: ['target_id', 'fingerprint', 'key_id', 'registered_at', 'expires_at'],
     // app_user never deletes one (only the retention sweep, app_system); the FK ties it to its registration's target and
     // capped validity (ON UPDATE CASCADE)
     triggers: ['client_registration_fingerprints_guard'],

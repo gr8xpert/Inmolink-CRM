@@ -8,6 +8,8 @@ import {
   DecryptError,
   generateKey,
   hmacKeyCandidates,
+  hmacKeyLabel,
+  hmacRotationEndsAt,
   hmacRotationFromEnv,
   hmacSha256,
   hmacSha256Candidates,
@@ -184,6 +186,35 @@ describe('HMAC_KEY rotation window (S11-F13)', () => {
       { warn },
     );
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('HMAC key labels and the window end (S12-F8)', () => {
+  const CUR = 'label-test-current-key-0123456789abcdef';
+  const PREV = 'label-test-previous-key-0123456789abcdef';
+
+  it('[S12-F8] a key label is short, stable, differs per key and is not a hash of the key or of data under it', () => {
+    expect(hmacKeyLabel(CUR)).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(hmacKeyLabel(Buffer.from(CUR))).toBe(hmacKeyLabel(CUR));
+    expect(hmacKeyLabel(PREV)).not.toBe(hmacKeyLabel(CUR));
+    expect(hmacSha256(CUR, 'mls.client-fingerprint', 'v1').startsWith(hmacKeyLabel(CUR))).toBe(false);
+  });
+
+  it('[S12-F8] hmacRotationEndsAt is the open window’s end, else null', () => {
+    vi.useFakeTimers({ now: new Date('2026-11-01T00:00:00Z') });
+    try {
+      expect(hmacRotationEndsAt(CUR)).toBeNull();
+      configureHmacRotation({ current: CUR, previous: PREV });
+      expect(hmacRotationEndsAt(CUR)).toBeNull(); // no end set (development)
+      const until = new Date('2026-12-01T00:00:00Z');
+      configureHmacRotation({ current: CUR, previous: PREV, previousUntil: until });
+      expect(hmacRotationEndsAt(CUR)).toEqual(until);
+      vi.setSystemTime(until);
+      expect(hmacRotationEndsAt(CUR)).toBeNull();
+    } finally {
+      configureHmacRotation({ current: CUR });
+      vi.useRealTimers();
+    }
   });
 });
 

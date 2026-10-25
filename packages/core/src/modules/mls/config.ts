@@ -1,4 +1,11 @@
-import { hmacKeyCandidates, hmacSha256, type Keyring, rowCipher } from '@inmolink/platform/crypto';
+import {
+  hmacKeyCandidates,
+  hmacKeyLabel,
+  hmacRotationEndsAt,
+  hmacSha256,
+  type Keyring,
+  rowCipher,
+} from '@inmolink/platform/crypto';
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { z } from 'zod';
 
@@ -68,6 +75,8 @@ export interface ClientFingerprints {
   current: string[];
   /** Every key candidate's (the previous key's too while a rotation window is open, S11-F13). Sorted. */
   candidates: string[];
+  /** S12-F8: `candidates` with the label of the key that made each (`hmacKeyLabel`), as stored (`key_id`). */
+  keyed: { fingerprint: string; keyId: string }[];
 }
 
 /**
@@ -85,9 +94,24 @@ export function clientFingerprints(client: {
   const keys = hmacKeyCandidates(key);
   const hash = (k: Buffer) => values.map((v) => hmacSha256(k, FINGERPRINT_PURPOSE, v));
   const currentPrints = [...new Set(hash(key))].sort();
-  const candidates = [...new Set(keys.flatMap(hash))].sort();
-  return { current: currentPrints, candidates };
+  const byPrint = new Map<string, string>();
+  for (const k of keys) {
+    const keyId = hmacKeyLabel(k);
+    for (const fingerprint of hash(k)) if (!byPrint.has(fingerprint)) byPrint.set(fingerprint, keyId);
+  }
+  const candidates = [...byPrint.keys()].sort();
+  return {
+    current: currentPrints,
+    candidates,
+    keyed: candidates.map((fingerprint) => ({ fingerprint, keyId: byPrint.get(fingerprint) as string })),
+  };
 }
+
+/** S12-F8: the label of the current `HMAC_KEY` (`key_id` of the fingerprints it made). */
+export const currentFingerprintKeyId = (): string => hmacKeyLabel(configured().key);
+
+/** S12-F8: when the open rotation window ends (`HMAC_KEY_PREVIOUS_UNTIL`); null when none is open or it has no end. */
+export const rotationEndsAt = (): Date | null => hmacRotationEndsAt(configured().key);
 
 /** Whether a rotation window is open (the rehash job has work only then). */
 export const rotationWindowOpen = (): boolean => hmacKeyCandidates(configured().key).length > 1;

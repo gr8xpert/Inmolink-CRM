@@ -2,7 +2,12 @@ import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { mlsEvents } from './events';
-import { agenciesToRehash, pruneExpiredFingerprints, rehashAgencyFingerprints } from './maintenance';
+import {
+  agenciesToRehash,
+  checkFingerprintRehash,
+  pruneExpiredFingerprints,
+  rehashAgencyFingerprints,
+} from './maintenance';
 import { repointRegistrations } from './service';
 import { expireViewingRequests, notifyViewingChange } from './viewings';
 
@@ -18,6 +23,9 @@ const HOUR_MS = 3_600_000;
  *   `mls.rehashFingerprints` per agency with valid registrations (job ID = agency + hour); nothing otherwise.
  * - `mls.rehashFingerprints` (pool `maintenance`, group = the agency, one at a time per agency): adds the current key's
  *   fingerprints to the agency's valid registrations from their encrypted snapshot, batches of 500. Idempotent.
+ * - `mls.checkFingerprintRehash` (pool `maintenance`, every 15 minutes, S12-F8): within 24 h of
+ *   `HMAC_KEY_PREVIOUS_UNTIL`, valid registrations still without a current-key fingerprint raise
+ *   `HmacRotationRehashPending`; nothing is counted otherwise.
  * - `mls.pruneFingerprints` (pool `maintenance`, daily): deletes fingerprints expired more than 30 days ago, batches of
  *   1,000 (registrations and receipts are kept as evidence).
  * - `mls.expireViewingRequests` (pool `maintenance`, every 15 minutes, S11-02): unanswered viewing proposals past their
@@ -68,6 +76,18 @@ export const mlsJobs = {
       await mlsJobs.rehashFingerprints.enqueueMany(agencyIds.map((agencyId) => ({ payload: { agencyId, hour } })));
       if (agencyIds.length > 0) log.info({ agencies: agencyIds.length }, 'client fingerprint rehash queued');
       return { agencies: agencyIds.length };
+    },
+  }),
+
+  checkFingerprintRehash: defineJob({
+    name: 'mls.checkFingerprintRehash',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 15 * 60_000,
+    attempts: 1,
+    timeoutMs: 5 * 60_000,
+    async run() {
+      return checkFingerprintRehash();
     },
   }),
 

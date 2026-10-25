@@ -110,6 +110,25 @@ export function hmacKeyCandidates(key: string | Uint8Array): Buffer[] {
 }
 
 /**
+ * S12-F8: when the open rotation window for `key` ends — null when none is open, or when it has no end (a previous key
+ * without `previousUntil`, development only: production requires one).
+ */
+export function hmacRotationEndsAt(key: string | Uint8Array): Date | null {
+  const r = rotations.get(keyId(toKey(key)));
+  if (!r || r.untilMs === null || clock.nowMs() >= r.untilMs) return null;
+  return new Date(r.untilMs);
+}
+
+/**
+ * S12-F8: a short public label of an HMAC key (16 base64url characters), stored next to hashes so a rehash can tell
+ * which key made a row. An HMAC under the key's own HKDF subkey (purpose `hmac-key-label`): it reveals nothing about
+ * the key and cannot be confused with a hash of data.
+ */
+export function hmacKeyLabel(key: string | Uint8Array): string {
+  return hmacSha256(key, 'hmac-key-label', 'v1').slice(0, 16);
+}
+
+/**
  * The stored-lookup side of the window: the hashes `data` may have been stored under — first the current key's (what
  * new rows get), then the previous key's while the window is open. A token lookup (feed URLs) tries them in order and
  * stops at the first hit, so outside a window it is still one hash and one query.
