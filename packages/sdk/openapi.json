@@ -1308,10 +1308,15 @@
                             "NETWORK_SUBSCRIPTION_LIMIT",
                             "SAVED_SEARCH_NOT_FOUND",
                             "SAVED_SEARCH_LIMIT",
+                            "NETWORK_GIVE_TO_GET_LOCKED",
                             "AI_BUDGET_EXCEEDED",
                             "AI_UNAVAILABLE",
                             "AI_OUTPUT_INVALID",
-                            "AI_REFUSED"
+                            "AI_REFUSED",
+                            "LISTING_STUDIO_BATCH_LIMIT",
+                            "SELECTION_NOT_FOUND",
+                            "SELECTION_GONE",
+                            "SELECTION_ITEMS_INVALID"
                           ],
                           "type": "string"
                         },
@@ -3539,10 +3544,15 @@
                             "NETWORK_SUBSCRIPTION_LIMIT",
                             "SAVED_SEARCH_NOT_FOUND",
                             "SAVED_SEARCH_LIMIT",
+                            "NETWORK_GIVE_TO_GET_LOCKED",
                             "AI_BUDGET_EXCEEDED",
                             "AI_UNAVAILABLE",
                             "AI_OUTPUT_INVALID",
-                            "AI_REFUSED"
+                            "AI_REFUSED",
+                            "LISTING_STUDIO_BATCH_LIMIT",
+                            "SELECTION_NOT_FOUND",
+                            "SELECTION_GONE",
+                            "SELECTION_ITEMS_INVALID"
                           ],
                           "type": "string"
                         },
