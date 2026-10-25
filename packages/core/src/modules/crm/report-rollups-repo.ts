@@ -207,6 +207,27 @@ export async function stageCountAgencies(tx: Tx, after: string | null, limit: nu
 }
 
 /**
+ * S13-F15: agencies with leads but no stage-count rows (data that predates the rollups, or a load that wrote `leads`
+ * directly), after `after` in id order. A loose index scan over `leads_agency_created_idx` (one probe per agency, not
+ * per lead), each probe checked against `crm_stage_counts` by its key prefix; stops at `limit`.
+ */
+export async function unbuiltRollupAgencies(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  const res = await tx.execute<{ agency_id: string }>(sql`
+    with recursive a(agency_id) as (
+      (select agency_id from ${leads} where ${after ? sql`agency_id > ${after}::uuid` : sql`true`}
+        order by agency_id limit 1)
+      union all
+      select (select l.agency_id from ${leads} l where l.agency_id > a.agency_id order by l.agency_id limit 1)
+        from a where a.agency_id is not null
+    )
+    select agency_id from a
+     where agency_id is not null
+       and not exists (select 1 from ${crmStageCounts} c where c.agency_id = a.agency_id)
+     limit ${limit}`);
+  return res.rows.map((r) => String(r.agency_id));
+}
+
+/**
  * The agency's `crm_response_rollups` rows of the UTC `days` rebuilt from its measured leads (`source <> 'MANUAL'`)
  * received on them: per first responder, the count, the answered count, Σ and every one of the seconds (ascending).
  * One statement: per day a range on `leads_agency_response_idx` (index-only), the upsert and the delete of rows no

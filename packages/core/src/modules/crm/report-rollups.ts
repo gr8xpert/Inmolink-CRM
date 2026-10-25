@@ -92,6 +92,14 @@ export function stageCountAgencies(after: string | null): Promise<string[]> {
   return withSystem('crm.sweepStageCounts', (tx) => repo.stageCountAgencies(tx, after, STAGE_COUNTS_SWEEP_PAGE));
 }
 
+/**
+ * S13-F15: the agencies with leads but no rollup rows, a keyset page at a time (the nightly sweep queues
+ * `crm.rebuildReportRollups` for each).
+ */
+export function unbuiltRollupAgencies(after: string | null): Promise<string[]> {
+  return withSystem('crm.sweepStageCounts', (tx) => repo.unbuiltRollupAgencies(tx, after, STAGE_COUNTS_SWEEP_PAGE));
+}
+
 /** Rebuilds the agency's per-day rollup rows (response KPI, moves) of one UTC day (`YYYY-MM-DD`, two statements). */
 export function refreshReportDay(p: { agencyId: string; day: string }): Promise<void> {
   return withSystem('crm.refreshReportDay', (tx) => repo.refreshReportDays(tx, p.agencyId, [p.day]));

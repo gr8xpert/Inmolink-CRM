@@ -8,7 +8,14 @@ import { runContactImport, sweepContactImports } from './import';
 import { notifyLeadAssigned } from './lead-notices';
 import { promoteInboundLead } from './leads';
 import { forgetListingProspects, repointSellerListings } from './prospects';
-import { refreshReportDay, refreshStageCounts, STAGE_COUNTS_LAG_MS, stageCountAgencies } from './report-rollups';
+import {
+  rebuildReportRollups,
+  refreshReportDay,
+  refreshStageCounts,
+  STAGE_COUNTS_LAG_MS,
+  stageCountAgencies,
+  unbuiltRollupAgencies,
+} from './report-rollups';
 import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
 
 const IMPORT_ATTEMPTS = 3;
@@ -329,7 +336,41 @@ export const crmJobs = {
         after = agencies.at(-1) ?? null;
       }
       log.info({ queued }, 'nightly stage-count rebuilds queued');
-      return { queued };
+      // S13-F15: agencies with leads but no rollup rows (data that predates the rollups) get the whole rebuild
+      let rebuilds = 0;
+      after = null;
+      while (!signal.aborted) {
+        const agencies = await unbuiltRollupAgencies(after);
+        if (agencies.length === 0) break;
+        await crmJobs.rebuildReportRollups.enqueueMany(
+          agencies.map((agencyId) => ({ payload: { agencyId }, options: { delayMs: sweepDelayOf(agencyId) } })),
+        );
+        rebuilds += agencies.length;
+        after = agencies.at(-1) ?? null;
+      }
+      if (rebuilds > 0) log.info({ rebuilds }, 'rollup rebuilds queued for agencies with leads and no rollups');
+      return { queued, rebuilds };
+    },
+  }),
+
+  /**
+   * S13-F15: rebuilds both rollups of an agency from its whole history (`rebuildReportRollups`: the stage counts, then
+   * the per-day rollups 31 days per transaction). Queued by the nightly sweep for agencies with leads and no rollups,
+   * by an ops run, and by the S14-02 legacy lead load per agency after loading its leads. Idempotent; one per agency.
+   */
+  rebuildReportRollups: defineJob({
+    name: 'crm.rebuildReportRollups',
+    pool: 'maintenance',
+    payload: z.object({ agencyId: z.uuid() }),
+    jobId: (p) => `crm.rollups.rebuild:${p.agencyId}`,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p) {
+      const { days } = await rebuildReportRollups(p);
+      return { agencyId: p.agencyId, days };
     },
   }),
 
