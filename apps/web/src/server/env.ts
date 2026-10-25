@@ -56,6 +56,11 @@ export const webEnv = {
     .url()
     .default('http://localhost:3101')
     .transform((v) => v.replace(/\/+$/, '')),
+  /** The realtime service's public address (Socket.io, `https://realtime.inmolink.es`): chat and notification sockets (S12-F1). */
+  REALTIME_PUBLIC_URL: z
+    .url()
+    .default('http://localhost:4002')
+    .transform((v) => v.replace(/\/+$/, '')),
   /** MapLibre style for the staff taxonomy editor's polygon map (S2-04). The default is MapLibre's demo style; set a real one in production. */
   MAP_STYLE_URL: z.url().default('https://demotiles.maplibre.org/style.json'),
   ...authSessionEnv,

@@ -46,6 +46,18 @@ describe('dashboard navigation', () => {
     expect(buildNav(admin).find((i) => i.key === 'listings')?.href).toBe('/listings');
   });
 
+  it('[S12-F1] the board and chat sections link to their pages, after network search', () => {
+    const items = buildNav(member({ sections: ['chat', 'networkBoard', 'network', 'listings'] }));
+    expect(items.map((i) => [i.key, i.href])).toEqual([
+      ['home', '/'],
+      ['listings', '/listings'],
+      ['network', '/network'],
+      ['networkBoard', '/network/board'],
+      ['chat', '/chat'],
+      ['security', '/account/security'],
+    ]);
+  });
+
   it('[S1-10] staff links only for staff; none while impersonating, and no account security then', () => {
     expect(keys({ kind: 'staff', role: 'STAFF_SUPPORT' })).toEqual([
       'home',

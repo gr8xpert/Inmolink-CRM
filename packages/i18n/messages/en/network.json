@@ -133,5 +133,86 @@
     "empty": "Nothing matches these filters.",
     "loadMore": "Show more",
     "load": "The collaborations could not be loaded. Try again."
+  },
+  "board": {
+    "title": "Network board",
+    "toSearch": "Network search",
+    "intro": "Buyer requests, property offers, distressed sales and developer announcements from agencies on the network. Reply to start a chat with the poster; subscribe to be told about matching posts.",
+    "kinds": {
+      "BUYER_REQUEST": "Buyer request",
+      "PROPERTY_OFFER": "Property offer",
+      "DISTRESSED": "Distressed sale",
+      "DEVELOPER_ANNOUNCEMENT": "Developer announcement"
+    },
+    "filters": {
+      "label": "Board filters",
+      "all": "All posts",
+      "mine": "My agency's posts"
+    },
+    "post": {
+      "title": "Post to the network",
+      "kind": "Kind",
+      "titleLabel": "Title",
+      "body": "Details",
+      "bodyHelp": "No phone numbers or e-mail addresses: contact happens in the chat.",
+      "transaction": "Transaction",
+      "propertyType": "Property type",
+      "any": "Any",
+      "priceMin": "Price from (EUR)",
+      "priceMax": "Price up to (EUR)",
+      "beds": "Bedrooms from",
+      "expires": "Expires in (days)",
+      "submit": "Post"
+    },
+    "criteria": {
+      "beds": "{count}+ bedrooms"
+    },
+    "by": "Posted by {agency}",
+    "byYou": "Posted by your agency",
+    "unknownAgency": "an agency",
+    "expires": "expires {date}",
+    "closed": "Closed",
+    "expired": "Expired",
+    "close": "Close post",
+    "more": "More posts",
+    "empty": "No posts match yet.",
+    "reply": {
+      "label": "Reply to the poster",
+      "submit": "Reply"
+    },
+    "subscriptions": {
+      "title": "My subscriptions",
+      "intro": "You get a notification when a new post matches a subscription.",
+      "empty": "No subscriptions yet.",
+      "name": "Name",
+      "kinds": "Kinds (none = all)",
+      "transaction": "Transaction",
+      "priceMax": "Price up to (EUR)",
+      "add": "Subscribe",
+      "delete": "Remove"
+    },
+    "done": {
+      "posted": "Your post is on the board.",
+      "closed": "The post is closed.",
+      "subscribed": "Subscription added.",
+      "unsubscribed": "Subscription removed."
+    },
+    "errors": {
+      "load": "The board could not be loaded. Try again.",
+      "generic": "Something went wrong. Try again.",
+      "VALIDATION_FAILED": "Check the fields: texts must not contain phone numbers or e-mail addresses.",
+      "FORBIDDEN": "You cannot do this on the board.",
+      "VERIFICATION_REQUIRED": "Posting and replying open once your agency is verified.",
+      "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
+      "NETWORK_POST_NOT_FOUND": "That post is no longer there.",
+      "NETWORK_POST_CLOSED": "That post is closed.",
+      "NETWORK_SUBSCRIPTION_NOT_FOUND": "That subscription is gone.",
+      "NETWORK_SUBSCRIPTION_LIMIT": "You have reached the number of subscriptions allowed."
+    },
+    "transactions": {
+      "SALE": "Sale",
+      "RENT_LONG_TERM": "Long-term rental",
+      "RENT_SHORT_TERM": "Holiday rental"
+    }
   }
 }

@@ -13,6 +13,8 @@
     "developments": "Promociones",
     "imports": "Importación de feeds",
     "listings": "Inmuebles",
+    "networkBoard": "Tablón de la red",
+    "chat": "Chat",
     "network": "Búsqueda en la red",
     "collaborations": "Mis colaboraciones",
     "team": "Equipo",
@@ -52,7 +54,9 @@
     "open": "Notificaciones",
     "title": "Notificaciones",
     "empty": "Aún no hay notificaciones",
-    "emptyBody": "Aquí verás las novedades de tus inmuebles, contactos y equipo."
+    "emptyBody": "Aquí verás las novedades de tus inmuebles, contactos y equipo.",
+    "viewAll": "Todas las notificaciones y ajustes",
+    "unread": "{count} sin leer"
   },
   "clientMode": "El Modo Cliente está activado: la información interna se oculta en todas las páginas.",
   "loading": "Cargando…",

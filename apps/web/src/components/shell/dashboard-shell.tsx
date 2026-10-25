@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { logoutAction } from '@/app/[locale]/(auth)/actions';
 import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
+import { webConfig } from '@/server/env';
 import type { Shell } from '@/server/shell';
 import { LocaleSwitcher } from './locale-switcher';
 import { NotificationsBell } from './notifications-bell';
@@ -24,6 +25,7 @@ function nativeName(code: string): string {
 export async function DashboardShell({ shell, children }: { shell: Shell; children: ReactNode }) {
   const t = await getTranslations('shell');
   const locale = await getLocale();
+  const realtimeUrl = shell.unread ? (await webConfig()).REALTIME_PUBLIC_URL : null;
   const caps = shell.identity.kind === 'member' ? shell.identity.caps : null;
   const locales = routing.locales.map((code) => ({ code, name: nativeName(code) }));
   const roleLabel =
@@ -55,7 +57,11 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
               title: t('notifications.title'),
               empty: t('notifications.empty'),
               emptyBody: t('notifications.emptyBody'),
+              viewAll: t('notifications.viewAll'),
+              unread: t('notifications.unread'),
             }}
+            unread={shell.unread}
+            realtimeUrl={realtimeUrl}
           />
           <div className="hidden sm:block">
             <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />

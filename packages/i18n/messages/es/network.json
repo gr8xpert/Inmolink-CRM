@@ -133,5 +133,86 @@
     "empty": "Nada coincide con estos filtros.",
     "loadMore": "Ver más",
     "load": "No se han podido cargar las colaboraciones. Inténtalo de nuevo."
+  },
+  "board": {
+    "title": "Tablón de la red",
+    "toSearch": "Búsqueda en la red",
+    "intro": "Demandas de compradores, ofertas de inmuebles, ventas urgentes y anuncios de promotores de las agencias de la red. Responde para abrir un chat con quien publica; suscríbete para que te avisemos de publicaciones afines.",
+    "kinds": {
+      "BUYER_REQUEST": "Demanda de comprador",
+      "PROPERTY_OFFER": "Oferta de inmueble",
+      "DISTRESSED": "Venta urgente",
+      "DEVELOPER_ANNOUNCEMENT": "Anuncio de promotor"
+    },
+    "filters": {
+      "label": "Filtros del tablón",
+      "all": "Todas las publicaciones",
+      "mine": "Publicaciones de mi agencia"
+    },
+    "post": {
+      "title": "Publicar en la red",
+      "kind": "Tipo",
+      "titleLabel": "Título",
+      "body": "Detalles",
+      "bodyHelp": "Sin teléfonos ni correos electrónicos: el contacto se hace en el chat.",
+      "transaction": "Operación",
+      "propertyType": "Tipo de inmueble",
+      "any": "Cualquiera",
+      "priceMin": "Precio desde (EUR)",
+      "priceMax": "Precio hasta (EUR)",
+      "beds": "Dormitorios desde",
+      "expires": "Caduca en (días)",
+      "submit": "Publicar"
+    },
+    "criteria": {
+      "beds": "{count}+ dormitorios"
+    },
+    "by": "Publicado por {agency}",
+    "byYou": "Publicado por tu agencia",
+    "unknownAgency": "una agencia",
+    "expires": "caduca el {date}",
+    "closed": "Cerrada",
+    "expired": "Caducada",
+    "close": "Cerrar publicación",
+    "more": "Más publicaciones",
+    "empty": "Aún no hay publicaciones que coincidan.",
+    "reply": {
+      "label": "Responder a quien publica",
+      "submit": "Responder"
+    },
+    "subscriptions": {
+      "title": "Mis suscripciones",
+      "intro": "Recibirás una notificación cuando una publicación nueva coincida con una suscripción.",
+      "empty": "Aún no tienes suscripciones.",
+      "name": "Nombre",
+      "kinds": "Tipos (ninguno = todos)",
+      "transaction": "Operación",
+      "priceMax": "Precio hasta (EUR)",
+      "add": "Suscribirme",
+      "delete": "Quitar"
+    },
+    "done": {
+      "posted": "Tu publicación está en el tablón.",
+      "closed": "La publicación está cerrada.",
+      "subscribed": "Suscripción añadida.",
+      "unsubscribed": "Suscripción eliminada."
+    },
+    "errors": {
+      "load": "No se pudo cargar el tablón. Inténtalo de nuevo.",
+      "generic": "Algo salió mal. Inténtalo de nuevo.",
+      "VALIDATION_FAILED": "Revisa los campos: los textos no pueden contener teléfonos ni correos electrónicos.",
+      "FORBIDDEN": "No puedes hacer esto en el tablón.",
+      "VERIFICATION_REQUIRED": "Publicar y responder se activa cuando tu agencia está verificada.",
+      "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+      "NETWORK_POST_NOT_FOUND": "Esa publicación ya no está.",
+      "NETWORK_POST_CLOSED": "Esa publicación está cerrada.",
+      "NETWORK_SUBSCRIPTION_NOT_FOUND": "Esa suscripción ya no existe.",
+      "NETWORK_SUBSCRIPTION_LIMIT": "Has alcanzado el número de suscripciones permitido."
+    },
+    "transactions": {
+      "SALE": "Venta",
+      "RENT_LONG_TERM": "Alquiler de larga duración",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    }
   }
 }

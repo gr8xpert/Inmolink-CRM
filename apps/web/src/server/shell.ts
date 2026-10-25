@@ -3,12 +3,15 @@ import { cache } from 'react';
 import { auth } from '@/auth';
 import { fetchMyCapabilities, sessionRef } from './api';
 import { buildNav, type NavItem, type ShellIdentity } from './nav';
+import { fetchUnreadCount } from './notifications-api';
 import { fetchStaffMe } from './staff-api';
 
 export interface Shell {
   user: { name: string; email: string };
   identity: ShellIdentity;
   nav: NavItem[];
+  /** Unread notifications for the bell (capped, S12-F1); null when the member cannot have any or the API failed. */
+  unread: { count: number; capped: boolean } | null;
 }
 
 /**
@@ -32,5 +35,11 @@ export const loadShell = cache(async (): Promise<Shell | null> => {
     if (staff === 'revoked') redirect('/session/expired');
     if (staff.ok) identity = { kind: 'staff', role: staff.data.role };
   }
-  return { user, identity, nav: buildNav(identity) };
+  // The bell's badge: one cheap call for members who may read notifications (not Client Mode); a failure hides it.
+  let unread: Shell['unread'] = null;
+  if (identity.kind === 'member' && !identity.caps.clientMode) {
+    const res = await fetchUnreadCount(session);
+    if (res !== 'revoked' && res.ok) unread = res.data;
+  }
+  return { user, identity, nav: buildNav(identity), unread };
 });

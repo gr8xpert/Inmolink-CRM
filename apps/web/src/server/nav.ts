@@ -29,6 +29,8 @@ const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
   ['contacts', '/contacts'],
   ['inbox', '/inbox'],
   ['network', '/network'],
+  ['networkBoard', '/network/board'],
+  ['chat', '/chat'],
   ['collaborations', '/collaborations'],
   ['developments', '/developments'],
   ['imports', '/imports'],

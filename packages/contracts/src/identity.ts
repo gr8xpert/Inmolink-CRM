@@ -155,6 +155,10 @@ export const DashboardSection = z.enum([
   'inbox',
   /** Data export, admins only (S11-F14). */
   'dataExport',
+  /** The network board: posts, replies and subscriptions (S12-F1). */
+  'networkBoard',
+  /** The chat inbox and threads (S12-F1). */
+  'chat',
 ]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 

@@ -14,5 +14,25 @@
     "subjectViewing": "Viewing {subject}",
     "subjectDirect": "Our conversation",
     "text": "Following up on our Inmolink conversation: {subject}"
+  },
+  "intro": "Your conversations with colleagues and other agencies.",
+  "untitled": "Conversation",
+  "back": "All conversations",
+  "more": "More conversations",
+  "closed": "Closed",
+  "noMessages": "No messages yet.",
+  "kinds": {
+    "DIRECT": "Team",
+    "VIEWING": "Viewing request",
+    "NETWORK": "Network board"
+  },
+  "viewingWarning": "This conversation is with another agency. Never share your client's name, e-mail or phone number here: the other side must not learn who your client is.",
+  "errors": {
+    "load": "The conversation could not be loaded. Try again.",
+    "generic": "The message was not sent. Try again.",
+    "VALIDATION_FAILED": "Write a message of up to 4,000 characters.",
+    "FORBIDDEN": "You cannot write in this conversation.",
+    "RATE_LIMITED": "Too many messages. Wait a moment.",
+    "CHAT_THREAD_CLOSED": "This conversation is closed."
   }
 }

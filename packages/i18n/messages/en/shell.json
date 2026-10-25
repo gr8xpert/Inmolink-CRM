@@ -11,6 +11,8 @@
     "home": "Dashboard",
     "security": "Security",
     "listings": "Listings",
+    "networkBoard": "Network board",
+    "chat": "Chat",
     "network": "Network search",
     "collaborations": "My collaborations",
     "developments": "Developments",
@@ -52,7 +54,9 @@
     "open": "Notifications",
     "title": "Notifications",
     "empty": "No notifications yet",
-    "emptyBody": "Updates about your listings, leads and team will appear here."
+    "emptyBody": "Updates about your listings, leads and team will appear here.",
+    "viewAll": "All notifications and settings",
+    "unread": "{count} unread"
   },
   "clientMode": "Client Mode is on: internal information is hidden on every page.",
   "loading": "Loading…",

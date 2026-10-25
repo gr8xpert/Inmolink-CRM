@@ -43,6 +43,18 @@
   "errors": {
     "load": "No se han podido cargar las notificaciones. Inténtalo de nuevo.",
     "generic": "Algo ha ido mal. Inténtalo de nuevo.",
-    "FORBIDDEN": "No puedes cambiar estas notificaciones."
+    "FORBIDDEN": "No puedes cambiar estas notificaciones.",
+    "VALIDATION_FAILED": "Ese cambio no era válido.",
+    "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo."
+  },
+  "filters": {
+    "all": "Todas",
+    "unread": "Sin leer"
+  },
+  "markRead": "Marcar como leída",
+  "done": {
+    "read": "Marcada como leída.",
+    "readAll": "Todo está marcado como leído.",
+    "saved": "Ajustes guardados."
   }
 }

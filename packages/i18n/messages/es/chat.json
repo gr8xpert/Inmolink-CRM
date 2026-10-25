@@ -14,5 +14,25 @@
     "subjectViewing": "Visita {subject}",
     "subjectDirect": "Nuestra conversación",
     "text": "Seguimos con nuestra conversación de Inmolink: {subject}"
+  },
+  "intro": "Tus conversaciones con compañeros y con otras agencias.",
+  "untitled": "Conversación",
+  "back": "Todas las conversaciones",
+  "more": "Más conversaciones",
+  "closed": "Cerrada",
+  "noMessages": "Aún no hay mensajes.",
+  "kinds": {
+    "DIRECT": "Equipo",
+    "VIEWING": "Solicitud de visita",
+    "NETWORK": "Tablón de la red"
+  },
+  "viewingWarning": "Esta conversación es con otra agencia. No compartas aquí el nombre, el correo ni el teléfono de tu cliente: la otra parte no debe saber quién es.",
+  "errors": {
+    "load": "No se pudo cargar la conversación. Inténtalo de nuevo.",
+    "generic": "El mensaje no se envió. Inténtalo de nuevo.",
+    "VALIDATION_FAILED": "Escribe un mensaje de hasta 4.000 caracteres.",
+    "FORBIDDEN": "No puedes escribir en esta conversación.",
+    "RATE_LIMITED": "Demasiados mensajes. Espera un momento.",
+    "CHAT_THREAD_CLOSED": "Esta conversación está cerrada."
   }
 }

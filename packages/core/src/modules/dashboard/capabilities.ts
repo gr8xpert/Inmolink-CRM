@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
+import * as chat from '../chat';
 import * as compliance from '../compliance';
 import * as crm from '../crm';
 import * as developments from '../developments';
@@ -10,6 +11,7 @@ import * as exportsModule from '../exports';
 import * as identity from '../identity';
 import * as imports from '../imports';
 import * as mls from '../mls';
+import * as network from '../network';
 import * as properties from '../properties';
 import * as search from '../search';
 import * as websites from '../websites';
@@ -33,6 +35,10 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['inbox', (ctx) => crm.can(ctx, 'crm.leads.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
   ['network', (ctx) => search.can(ctx, 'search.network')],
+  // The network board (S12-F1): agent side only, never Client Mode.
+  ['networkBoard', (ctx) => network.can(ctx, 'network.posts.read')],
+  // Chat (S12-F1): the member's own threads.
+  ['chat', (ctx) => chat.can(ctx, 'chat.read')],
   // My collaborations (S11-06): registrations and viewing requests, in and out — members who work clients.
   ['collaborations', (ctx) => mls.can(ctx, 'mls.registrations.read')],
   // The agency's own developments: the members who maintain them (not partners, not Client Mode).

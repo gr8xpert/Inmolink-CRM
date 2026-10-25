@@ -43,6 +43,18 @@
   "errors": {
     "load": "Notifications could not be loaded. Try again.",
     "generic": "Something went wrong. Try again.",
-    "FORBIDDEN": "You cannot change these notifications."
+    "FORBIDDEN": "You cannot change these notifications.",
+    "VALIDATION_FAILED": "That change was not valid.",
+    "RATE_LIMITED": "Too many requests. Wait a moment and try again."
+  },
+  "filters": {
+    "all": "All",
+    "unread": "Unread"
+  },
+  "markRead": "Mark as read",
+  "done": {
+    "read": "Marked as read.",
+    "readAll": "Everything is marked as read.",
+    "saved": "Settings saved."
   }
 }
