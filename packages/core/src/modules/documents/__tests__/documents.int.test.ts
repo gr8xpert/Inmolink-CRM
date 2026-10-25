@@ -42,6 +42,8 @@ let pool: PoolHandle;
 /** Renders by agency name (the band of every page): running now and the most at once. */
 const running = new Map<string, number>();
 const most = new Map<string, number>();
+/** The presenting agency of each render, in the order the renders started (an order, not a clock). */
+const starts: string[] = [];
 let delayMs = 0;
 let fake: ReturnType<typeof fakePdfRenderer>;
 
@@ -106,6 +108,7 @@ function countingRenderer(): PdfRenderer {
       const n = (running.get(who) ?? 0) + 1;
       running.set(who, n);
       most.set(who, Math.max(most.get(who) ?? 0, n));
+      starts.push(who);
       try {
         if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
         return await fake.render(html, options);
@@ -335,6 +338,7 @@ describe('PDF documents (S12-05)', () => {
     delayMs = 150;
     running.clear();
     most.clear();
+    starts.length = 0;
     try {
       const mine = await Promise.all(
         Array.from({ length: 6 }, (_, i) =>
@@ -351,28 +355,22 @@ describe('PDF documents (S12-05)', () => {
           () => documents.getDocument(run(m), id),
           (d) => d.status !== 'PENDING',
         );
-      const finishedAt = new Map<string, number>();
       await Promise.all([
-        ...mine.map(async (d) => {
-          expect((await ready(a, d.id)).status).toBe('READY');
-          finishedAt.set(d.id, Date.now());
-        }),
-        ...theirs.map(async (d) => {
-          expect((await ready(c, d.id)).status).toBe('READY');
-          finishedAt.set(d.id, Date.now());
-        }),
+        ...mine.map(async (d) => expect((await ready(a, d.id)).status).toBe('READY')),
+        ...theirs.map(async (d) => expect((await ready(c, d.id)).status).toBe('READY')),
       ]);
       const nameOf = async (m: Founder, id: string) =>
         (await documents.loadDocumentListings({ agencyId: m.agencyId, listingIds: [id], locale: 'en' })).presenter.name;
       const [aName, cName] = [await nameOf(a, L.aOwn as string), await nameOf(c, L.cOwn as string)];
       expect(aName).not.toBe(cName);
       for (const [who, n] of most) expect(n, who).toBeLessThanOrEqual(documents.DOCUMENT_RENDERS_PER_AGENCY);
-      // The busy agency did hit its cap; the other agency's two finished before the busy one's six.
+      // The busy agency did hit its cap, and the other agency was not held behind its backlog: its first render
+      // started before the busy agency's last one (start order, no wall clock: timing-independent on slow runners).
       expect(most.get(aName)).toBe(documents.DOCUMENT_RENDERS_PER_AGENCY);
-      expect(most.get(cName)).toBeGreaterThanOrEqual(1);
-      const lastOfTheirs = Math.max(...theirs.map((d) => finishedAt.get(d.id) ?? 0));
-      const lastOfMine = Math.max(...mine.map((d) => finishedAt.get(d.id) ?? 0));
-      expect(lastOfTheirs).toBeLessThan(lastOfMine);
+      const mineStarts = starts.filter((w) => w === aName).length;
+      expect(mineStarts).toBe(mine.length);
+      expect(starts.indexOf(cName)).toBeGreaterThanOrEqual(0);
+      expect(starts.indexOf(cName)).toBeLessThan(starts.lastIndexOf(aName));
     } finally {
       delayMs = 0;
     }
