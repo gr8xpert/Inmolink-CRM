@@ -489,7 +489,6 @@ begin
 end $$;
 grant select, insert, update, delete on table public."calendar_feeds" to app_system;
 create policy definer_read on public."calendar_feeds" for select to app_owner using (true);
-create policy definer_append on public."calendar_feeds" for insert to app_owner with check (true);
 create policy definer_update on public."calendar_feeds" for update to app_owner using (true) with check (true);
 
 -- chat_messages: STRICT
@@ -515,7 +514,6 @@ end $$;
 grant select, insert, update, delete on table public."chat_messages" to app_system;
 create policy definer_read on public."chat_messages" for select to app_owner using (true);
 create policy definer_append on public."chat_messages" for insert to app_owner with check (true);
-create policy definer_update on public."chat_messages" for update to app_owner using (true) with check (true);
 
 -- chat_participants: STRICT
 alter table public."chat_participants" enable row level security;
@@ -1861,7 +1859,6 @@ begin
 end $$;
 grant select, insert, update, delete on table public."viewing_requests" to app_system;
 create policy definer_read on public."viewing_requests" for select to app_owner using (true);
-create policy definer_append on public."viewing_requests" for insert to app_owner with check (true);
 create policy definer_update on public."viewing_requests" for update to app_owner using (true) with check (true);
 
 -- website_feeds: PUBLIC_READ

@@ -1,6 +1,6 @@
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 import type pg from 'pg';
-import type { AuthAccess, GlobalTable, StaffAccess, TenantRegistry, TenantTable } from './registry';
+import type { AuthAccess, DefinerOp, GlobalTable, StaffAccess, TenantRegistry, TenantTable } from './registry';
 
 /**
  * RLS generator (PATTERNS §2). Turns the tenant registry into idempotent SQL: helper functions,
@@ -63,6 +63,29 @@ export const APP_ROLE_NAMES: readonly AppRole[] = [
 ];
 
 const DML: Privilege[] = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+
+/** S12-F16: `definerSync` operations and the `app_owner` policy each gets. */
+const DEFINER_OPS: readonly DefinerOp[] = ['read', 'append', 'update'];
+const DEFINER_POLICY: Record<
+  DefinerOp,
+  { name: string; cmd: 'SELECT' | 'INSERT' | 'UPDATE'; sql: (t: string) => string }
+> = {
+  read: {
+    name: 'definer_read',
+    cmd: 'SELECT',
+    sql: (t) => `create policy definer_read on ${t} for select to app_owner using (true);`,
+  },
+  append: {
+    name: 'definer_append',
+    cmd: 'INSERT',
+    sql: (t) => `create policy definer_append on ${t} for insert to app_owner with check (true);`,
+  },
+  update: {
+    name: 'definer_update',
+    cmd: 'UPDATE',
+    sql: (t) => `create policy definer_update on ${t} for update to app_owner using (true) with check (true);`,
+  },
+};
 /** `immutable` tables (S1-08): read and append, never change or remove. */
 const APPEND_READ: Privilege[] = ['SELECT', 'INSERT'];
 
@@ -172,6 +195,11 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       }
       if (def.definerSync.functions.length === 0 || def.definerSync.functions.some((f) => !IDENT.test(f))) {
         throw new Error(`${name}: definerSync needs function names`);
+      }
+      // S12-F16: only the operations the functions use, each named once.
+      const ops = def.definerSync.ops;
+      if (ops.length === 0 || new Set(ops).size !== ops.length || ops.some((o) => !DEFINER_OPS.includes(o))) {
+        throw new Error(`${name}: definerSync needs its operations (read, append, update), each once`);
       }
     }
     if (def.userInsert !== undefined && !def.immutable)
@@ -361,11 +389,11 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   if (def.definerRead) out.push({ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] });
   if (def.definerAppend) out.push({ name: 'definer_append', cmd: 'INSERT', roles: ['app_owner'] });
   if (def.definerSync) {
-    out.push(
-      { name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] },
-      { name: 'definer_append', cmd: 'INSERT', roles: ['app_owner'] },
-      { name: 'definer_update', cmd: 'UPDATE', roles: ['app_owner'] },
-    );
+    // S12-F16: one policy per operation the functions use, in a fixed order.
+    for (const op of DEFINER_OPS) {
+      if (def.definerSync.ops.includes(op))
+        out.push({ name: DEFINER_POLICY[op].name, cmd: DEFINER_POLICY[op].cmd, roles: ['app_owner'] });
+    }
   }
   return out;
 }
@@ -855,11 +883,10 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   }
   if (def.definerSync) {
     // S11-02: two agencies' copies kept in step by SECURITY DEFINER trigger functions only (owned by app_owner).
-    out.push(
-      `create policy definer_read on ${t} for select to app_owner using (true);`,
-      `create policy definer_append on ${t} for insert to app_owner with check (true);`,
-      `create policy definer_update on ${t} for update to app_owner using (true) with check (true);`,
-    );
+    // S12-F16: only the operations they use.
+    for (const op of DEFINER_OPS) {
+      if (def.definerSync.ops.includes(op)) out.push(DEFINER_POLICY[op].sql(t));
+    }
   }
   return out;
 }

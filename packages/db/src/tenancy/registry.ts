@@ -14,6 +14,9 @@ const SUPER_ADMIN_OR_OWN_SESSION =
 
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
+/** S12-F16: what a `definerSync` function does to a table — each gets its own `app_owner` policy, and nothing else. */
+export type DefinerOp = 'read' | 'append' | 'update';
+
 /** Column overrides (DB column names) for rows the isolation suite seeds. */
 export type SampleRow = Record<string, unknown>;
 
@@ -169,10 +172,11 @@ interface TenantBase {
   /**
    * STRICT, not userReadOnly (S11-02): a table two agencies keep in step — each changes its own row, and these SECURITY
    * DEFINER trigger functions (created in a migration, owned by `app_owner`, executable by no app role) write the other
-   * agency's copy in the same statement. `app_owner` gets `definer_read`, `definer_append` and `definer_update`
-   * policies (forced RLS binds the owner); never DELETE. The guard accepts these functions as definers.
+   * agency's copy in the same statement. `app_owner` gets one policy per operation the functions use on this table
+   * (S12-F16: `ops` — `read` → `definer_read`, `append` → `definer_append`, `update` → `definer_update`; forced RLS binds
+   * the owner); never DELETE. The guard accepts these functions as definers.
    */
-  definerSync?: { functions: readonly string[] };
+  definerSync?: { functions: readonly string[]; ops: readonly DefinerOp[] };
   /**
    * `app_owner` (the owner of SECURITY DEFINER functions) may read every row (S7-03): a definer function reads the table
    * for a public path and answers less than a row (`website_network_open`: one boolean per agency). No application
@@ -1074,6 +1078,8 @@ export const tenantTables: Record<string, TenantTable> = {
         'agency_members_calendar_feed_touch',
         'agencies_calendar_feed_live',
       ],
+      // S12-F16: they read (lock) and update feed rows; none inserts one (no definer_append)
+      ops: ['read', 'update'],
     },
     hiddenColumns: ['token_hash'],
     userNoUpdateColumns: ['token_hash', 'token_hint', 'user_id', 'created_at', 'content_version', 'live'],
@@ -1166,7 +1172,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // role); `viewing_requests_insert_guard` lets app_user insert only a proposal awaiting the owner.
   viewing_requests: {
     kind: 'STRICT',
-    definerSync: { functions: ['viewing_request_receipts_sync'] },
+    // S12-F16: the owner's sync reads and updates the introducer's copy; it never appends one (no definer_append).
+    definerSync: { functions: ['viewing_request_receipts_sync'], ops: ['read', 'update'] },
     userNoUpdateColumns: [
       'id',
       'owner_agency_id',
@@ -1216,7 +1223,10 @@ export const tenantTables: Record<string, TenantTable> = {
   viewing_request_receipts: {
     kind: 'STRICT',
     guardedInsert: true,
-    definerSync: { functions: ['viewing_requests_receipt', 'viewing_requests_sync'] },
+    definerSync: {
+      functions: ['viewing_requests_receipt', 'viewing_requests_sync'],
+      ops: ['read', 'append', 'update'],
+    },
     userNoUpdateColumns: [
       'request_id',
       'introducer_agency_id',
@@ -1256,7 +1266,7 @@ export const tenantTables: Record<string, TenantTable> = {
   // agencies; `chat_messages_fanout` (definer) moves both copies' `last_message_at`.
   chat_threads: {
     kind: 'STRICT',
-    definerSync: { functions: ['chat_threads_mirror', 'chat_messages_fanout'] },
+    definerSync: { functions: ['chat_threads_mirror', 'chat_messages_fanout'], ops: ['read', 'append', 'update'] },
     userNoUpdateColumns: [
       'id',
       'kind',
@@ -1279,7 +1289,7 @@ export const tenantTables: Record<string, TenantTable> = {
   chat_participants: {
     kind: 'STRICT',
     // S11-05: `chat_threads_mirror` (definer) seats a network post's author on a reply thread's copy
-    definerSync: { functions: ['chat_messages_fanout', 'chat_threads_mirror'] },
+    definerSync: { functions: ['chat_messages_fanout', 'chat_threads_mirror'], ops: ['read', 'append', 'update'] },
     userNoUpdateColumns: ['thread_id', 'user_id', 'joined_at', 'last_message_at', 'notified_at'],
     triggers: ['chat_participants_guard', 'chat_participants_change_guard'],
   },
@@ -1288,7 +1298,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // changed (no updatable column) nor deleted by a request (`chat_messages_guard`).
   chat_messages: {
     kind: 'STRICT',
-    definerSync: { functions: ['chat_messages_fanout'] },
+    // S12-F16: the fan-out appends the other agency's copy; it never updates a message (no definer_update).
+    definerSync: { functions: ['chat_messages_fanout'], ops: ['read', 'append'] },
     userNoUpdateColumns: [
       'id',
       'thread_id',

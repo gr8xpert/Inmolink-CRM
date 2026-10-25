@@ -826,15 +826,53 @@ describe('userNoUpdateColumns', () => {
   });
 
   it('[S11-02] definerSync: app_owner reads, appends and updates both copies of a viewing request; never deletes', () => {
-    const def: TenantTable = { kind: 'STRICT', definerSync: { functions: ['viewing_requests_sync'] } };
+    const def: TenantTable = {
+      kind: 'STRICT',
+      definerSync: { functions: ['viewing_requests_sync'], ops: ['read', 'append', 'update'] },
+    };
     const owner = expectedPolicies(def).filter((p) => p.roles.includes('app_owner'));
     expect(owner.map((p) => p.cmd).sort()).toEqual(['INSERT', 'SELECT', 'UPDATE']);
     const part = tablesSql({ tenant: { viewing_requests: def }, global: {} });
     expect(part).toContain('create policy definer_update on public."viewing_requests" for update to app_owner');
     expect(part).not.toMatch(/for delete to app_owner/);
     const bad = (d: TenantTable) => () => tablesSql({ tenant: { t: d }, global: {} });
-    expect(bad({ kind: 'STRICT', userReadOnly: true, definerSync: { functions: ['f'] } })).toThrow(/definerSync/);
-    expect(bad({ kind: 'STRICT', definerRead: true, definerSync: { functions: ['f'] } })).toThrow(/definerSync/);
-    expect(bad({ kind: 'STRICT', definerSync: { functions: [] } })).toThrow(/definerSync/);
+    const sync = { functions: ['f'], ops: ['read'] } as const;
+    expect(bad({ kind: 'STRICT', userReadOnly: true, definerSync: sync })).toThrow(/definerSync/);
+    expect(bad({ kind: 'STRICT', definerRead: true, definerSync: sync })).toThrow(/definerSync/);
+    expect(bad({ kind: 'STRICT', definerSync: { functions: [], ops: ['read'] } })).toThrow(/definerSync/);
+  });
+
+  it('[S12-F16] definerSync grants app_owner only the operations its functions use', () => {
+    const def: TenantTable = { kind: 'STRICT', definerSync: { functions: ['f'], ops: ['read', 'update'] } };
+    expect(
+      expectedPolicies(def)
+        .filter((p) => p.roles.includes('app_owner'))
+        .map((p) => p.name),
+    ).toEqual(['definer_read', 'definer_update']);
+    const part = tablesSql({ tenant: { t: def }, global: {} });
+    expect(part).toContain('create policy definer_update on public."t"');
+    expect(part).not.toContain('definer_append');
+    const bad = (ops: readonly string[]) => () =>
+      tablesSql({
+        tenant: { t: { kind: 'STRICT', definerSync: { functions: ['f'], ops: ops as never } } },
+        global: {},
+      });
+    expect(bad([])).toThrow(/operations/);
+    expect(bad(['read', 'read'])).toThrow(/operations/);
+    expect(bad(['delete'])).toThrow(/operations/);
+  });
+
+  it('[S12-F16] no unused definer policy: the chat fan-out never updates a message, the owner sync never appends a request', () => {
+    const sql = generateRlsSql(registry);
+    expect(sql).not.toContain('create policy definer_update on public."chat_messages"');
+    expect(sql).toContain('create policy definer_append on public."chat_messages"');
+    expect(sql).not.toContain('create policy definer_append on public."viewing_requests"');
+    expect(sql).toContain('create policy definer_update on public."viewing_requests"');
+    // every definerSync table names its operations, and only the ones its functions use
+    for (const [name, def] of Object.entries(registry.tenant)) {
+      if (!def.definerSync) continue;
+      const owner = expectedPolicies(def).filter((p) => p.roles.includes('app_owner') && p.name.startsWith('definer_'));
+      expect(owner.length, name).toBe(def.definerSync.ops.length);
+    }
   });
 });

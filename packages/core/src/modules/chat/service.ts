@@ -287,16 +287,19 @@ export async function joinNetworkThread(ctx: Ctx, threadId: string): Promise<Cha
   }
 }
 
-/** The Postgres SQLSTATE of a driver error (or the one Drizzle wraps in `cause`). */
-function pgCodeOf(err: unknown): string | undefined {
+/**
+ * S12-F16: the fan-out trigger's refusal of a message in a NETWORK thread whose post closed or whose agencies are no
+ * longer listed (`chat_messages_fanout`: SQLSTATE P0001 with hint `network_closed`), wherever Drizzle wraps it.
+ */
+export function isNetworkClosedRefusal(err: unknown): boolean {
   for (
-    let e = err as { code?: unknown; cause?: unknown } | undefined, i = 0;
+    let e = err as { code?: unknown; hint?: unknown; cause?: unknown } | undefined, i = 0;
     e && i < 3;
     e = e.cause as typeof e, i++
   ) {
-    if (typeof e.code === 'string' && /^[0-9A-Z]{5}$/.test(e.code)) return e.code;
+    if (e.code === 'P0001' && e.hint === 'network_closed') return true;
   }
-  return undefined;
+  return false;
 }
 
 /**
@@ -333,8 +336,9 @@ export async function sendMessage(ctx: Ctx, threadId: string, raw: SendChatMessa
     })
     .catch((err: unknown) => {
       // S12-F12: the fan-out trigger refuses a NETWORK thread whose post closed or whose agencies are no longer listed
-      // (before the worker marks it closed): read-only, like a closed thread
-      if (thread.kind === 'NETWORK' && pgCodeOf(err) === '42501') throw new AppError('CHAT_THREAD_CLOSED');
+      // (before the worker marks it closed): read-only, like a closed thread. S12-F16: only that refusal — any other
+      // (a 42501 from a participant or RLS check) propagates.
+      if (thread.kind === 'NETWORK' && isNetworkClosedRefusal(err)) throw new AppError('CHAT_THREAD_CLOSED');
       throw err;
     });
   if (!inserted) {
