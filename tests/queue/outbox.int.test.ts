@@ -29,16 +29,6 @@ const types = [noted.type, platformWide.type];
 
 class Rollback extends Error {}
 
-/** Agencies with due rows of other suites' types: each takes a slot in the claim's agency rotation. */
-async function foreignDueAgencies(): Promise<number> {
-  const { rows } = await withSystem('test.foreign', (tx) =>
-    tx.execute(sql`select count(distinct agency_id)::int as n from outbox_events
-                    where processed_at is null and available_at <= now()
-                      and type not in (select jsonb_array_elements_text(${JSON.stringify(types)}::jsonb))`),
-  );
-  return Number(rows[0]?.n);
-}
-
 /** Due rows of other suites' types (never dispatched by anyone): they take their share of a batch too. */
 async function foreignDue(): Promise<number> {
   const { rows } = await withSystem('test.foreign', (tx) =>
@@ -348,12 +338,17 @@ describe('outbox', () => {
     });
     await waitFor(async () => (await pendingOf(types)) === 0);
     // 64 agencies per claim (3 rows each fit the equal share), so 150 agencies take three claims.
+    /** The ids each claim round took (S12-F19 robustness: the rotation slots other agencies used). */
+    const rounds: string[][] = [];
     const dispatcher = createDispatcher({
       runSystem,
       logger: log,
       subscribers,
       batchSize: 500,
       maxAgenciesPerClaim: 64,
+      onClaim: (round) => {
+        rounds.push([...round.ids]);
+      },
     });
     try {
       for (let n = 0; n < 3; n++) {
@@ -363,17 +358,27 @@ describe('outbox', () => {
         }
       }
       // Other suites' agencies take rotation slots too (one claim serves 64 agencies), so the ideal three
-      // claims grow with them; one more for rows that come due or get leased meanwhile.
-      const maxClaims = Math.ceil((agencies.length + (await foreignDueAgencies())) / 64) + 1;
+      // claims grow with them; one more for an agency enumerated whose rows another dispatcher holds. On a shared
+      // database (CI runs the root projects side by side) other agencies' rows come due during the walk — and a
+      // retried foreign row comes due again after its backoff, taking another slot — so the bound counts the slots
+      // the claims actually gave other agencies (distinct agencies per claim, summed over the claims).
       const claims: number[] = [];
       while (servedBy.size < agencies.length) {
         claimNo++;
         claims.push((await dispatcher.runOnce()).claimed);
-        if (claimNo > maxClaims + 5) {
-          throw new Error(`rotation did not reach every agency: ${servedBy.size} / ${agencies.length}`);
-        }
+        if (claimNo > 50) throw new Error(`rotation did not reach every agency: ${servedBy.size} / ${agencies.length}`);
       }
-      expect(claimNo).toBeLessThanOrEqual(maxClaims);
+      const ours = new Set(agencies);
+      const { rows: taken } = await withSystem('test.foreign', (tx) =>
+        tx.execute(sql`select id::text as id, agency_id::text as agency_id from outbox_events
+                        where id = any(${`{${rounds.flat().join(',')}}`}::uuid[])`),
+      );
+      const agencyOf = new Map(taken.map((r) => [String(r.id), String(r.agency_id)]));
+      const foreignSlots = rounds
+        .map((ids) => new Set(ids.map((id) => agencyOf.get(id)).filter((a) => a && !ours.has(a))).size)
+        .reduce((a, b) => a + b, 0);
+      const maxClaims = Math.ceil((agencies.length + foreignSlots) / 64) + 1;
+      expect(claimNo, `foreign rotation slots ${foreignSlots}`).toBeLessThanOrEqual(maxClaims);
       expect(claims.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(agencies.length * 3);
       // Every agency was served by exactly one claim, which took all three of its rows at once.
       for (const agencyId of agencies) {
