@@ -11,7 +11,7 @@
 import { ListingDetailDoc, PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
-import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
+import { emit, MAX_EVENT_PAYLOAD_BYTES, type OutboxMessage } from '@inmolink/platform/outbox';
 import {
   type EnsureIndexResult,
   type IndexDefinition,
@@ -155,7 +155,10 @@ async function write(
   for (const d of docs) if (d.developmentId && d.developmentRef) developmentRefs.set(d.developmentId, d.developmentRef);
   const dropped = await repo.deleteOthers(tx, ids, docs);
   const deleted = dropped.map((r) => r.targetId);
-  const written = await repo.upsertDocs(tx, docs);
+  const writtenRows = await repo.upsertDocsWithText(tx, docs, PUBLIC_SEARCH_STATUSES);
+  const written = writtenRows.map((r) => r.targetId);
+  // S13-F7: targets whose free texts changed (or that got a new row): only they may need the white-label model pass.
+  const textChanged = new Set(writtenRows.filter((r) => r.textChanged).map((r) => r.targetId));
   // S5-06: the listings whose status, price or version changed (or that got or lost their read model), for the saved
   // searches' alerts (matching) — not a text, media or sanitizer rewrite of the same state
   if (kind === 'LISTING') await emit(tx, listingsChangedEvents(written, dropped, docs, before));
@@ -179,7 +182,7 @@ async function write(
   const moved = await repo.syncCommissions(tx, ids, wanted);
   const changed = [...new Set([...deleted, ...written, ...coded, ...moved])];
   if (changed.length > 0) {
-    await logPublicChanges(tx, changed, docs);
+    await logPublicChanges(tx, changed, docs, textChanged);
     await repo.queueIndexSync(tx, changed);
     if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed, developmentRefs);
   }
@@ -237,7 +240,12 @@ function listingsChangedEvents(
  * targets go out as `search.publicDocs.changed` (per owner agency, ≤ 100 per event) for the website edge cache purge.
  * Three statements.
  */
-async function logPublicChanges(tx: Tx, changed: readonly string[], docs: readonly BuiltDoc[]): Promise<void> {
+async function logPublicChanges(
+  tx: Tx,
+  changed: readonly string[],
+  docs: readonly BuiltDoc[],
+  textChanged: ReadonlySet<string> = new Set(),
+): Promise<void> {
   if (changed.length === 0) return;
   const before = new Map((await repo.publicRowsOf(tx, changed)).map((r) => [r.targetId, r]));
   const after = new Map<string, BuiltDoc>();
@@ -260,39 +268,63 @@ async function logPublicChanges(tx: Tx, changed: readonly string[], docs: readon
     });
   }
   await repo.logPublicChanges(tx, rows);
-  await emit(tx, publicDocsEvents(rows, before, after));
+  await emit(tx, publicDocsEvents(rows, before, after, textChanged));
 }
 
-/** `search.publicDocs.changed` for these change-log rows: per owner agency, in chunks; the units' developments too. */
-function publicDocsEvents(
+/**
+ * `search.publicDocs.changed` for these change-log rows: per owner agency, in chunks; the units' developments too.
+ * S13-F7: `networkShownIds` — the targets other agencies' network sites show now (`networkAudience`) whose text is new
+ * to that audience: their free texts changed, or nobody on the network could see them before. Only those may need the
+ * white-label model pass; a price-only edit, a re-written row with the same text, a private or own-only change carry
+ * none.
+ */
+export function publicDocsEvents(
   rows: readonly repo.PublicChangeRow[],
   before: ReadonlyMap<string, repo.PublicRowBefore>,
   after: ReadonlyMap<string, BuiltDoc>,
+  textChanged: ReadonlySet<string>,
 ): OutboxMessage[] {
   const byOwner = new Map<string, string[]>();
   for (const r of rows) byOwner.set(r.ownerAgencyId, [...(byOwner.get(r.ownerAgencyId) ?? []), r.targetId]);
   const events: OutboxMessage[] = [];
-  for (const [agencyId, ids] of byOwner) {
-    for (let i = 0; i < ids.length; i += PUBLIC_DOCS_EVENT_TARGETS) {
-      const targetIds = ids.slice(i, i + PUBLIC_DOCS_EVENT_TARGETS);
-      // A unit's development before and after: a unit leaving the public set changes its development's card too.
-      const developmentIds = [
-        ...new Set(
-          targetIds.flatMap((id) =>
-            [after.get(id)?.developmentId, before.get(id)?.developmentId].filter((d): d is string => !!d),
-          ),
+  const payloadOf = (agencyId: string, targetIds: string[]) => {
+    // A unit's development before and after: a unit leaving the public set changes its development's card too.
+    const developmentIds = [
+      ...new Set(
+        targetIds.flatMap((id) =>
+          [after.get(id)?.developmentId, before.get(id)?.developmentId].filter((d): d is string => !!d),
         ),
-      ];
-      const networkLost = lostByNetwork(targetIds, before, after);
-      events.push(
-        searchEvents.publicDocsChanged({
-          agencyId,
-          targetIds,
-          developmentIds,
-          ...(networkLost ? { networkLost } : {}),
-        }),
-      );
+      ),
+    ];
+    const networkLost = lostByNetwork(targetIds, before, after);
+    const networkShownIds = targetIds.filter((id) => newToNetwork(id, before, after, textChanged));
+    return {
+      agencyId,
+      targetIds,
+      developmentIds,
+      ...(networkLost ? { networkLost } : {}),
+      // S13-F7: absent means every target (new listings, a first build): the payload stays small.
+      ...(networkShownIds.length === targetIds.length ? {} : { networkShownIds }),
+    };
+  };
+  // S13-F7: a chunk whose payload would not fit the outbox's cap (many developments, a long `networkLost`) is halved
+  // until it does; one target's always fits (≤ 2 developments, ≤ 2 × MAX_PREFERRED_AGENCIES lost agencies).
+  const push = (agencyId: string, targetIds: string[]) => {
+    const payload = payloadOf(agencyId, targetIds);
+    const tooBig =
+      payload.developmentIds.length > PUBLIC_DOCS_EVENT_TARGETS ||
+      Buffer.byteLength(JSON.stringify(payload)) > MAX_EVENT_PAYLOAD_BYTES;
+    if (tooBig && targetIds.length > 1) {
+      const half = Math.ceil(targetIds.length / 2);
+      push(agencyId, targetIds.slice(0, half));
+      push(agencyId, targetIds.slice(half));
+      return;
     }
+    events.push(searchEvents.publicDocsChanged(payload));
+  };
+  for (const [agencyId, ids] of byOwner) {
+    for (let i = 0; i < ids.length; i += PUBLIC_DOCS_EVENT_TARGETS)
+      push(agencyId, ids.slice(i, i + PUBLIC_DOCS_EVENT_TARGETS));
   }
   return events;
 }
@@ -317,6 +349,22 @@ function networkAudience(
 ): 'ALL' | ReadonlySet<string> {
   if (!doc || doc.public === false || doc.networkHidden || !SHOWN_STATUSES.has(doc.status)) return new Set();
   return doc.shareScope === 'PREFERRED' ? new Set(doc.preferredAgencyIds ?? []) : 'ALL';
+}
+
+const seenBy = (audience: 'ALL' | ReadonlySet<string>) => audience === 'ALL' || audience.size > 0;
+
+/**
+ * S13-F7: whether network sites show this target now with text their audience has not seen — its free texts changed,
+ * or nobody on the network saw it before (made public, back in a shown status, shared again).
+ */
+function newToNetwork(
+  id: string,
+  before: ReadonlyMap<string, repo.PublicRowBefore>,
+  after: ReadonlyMap<string, BuiltDoc>,
+  textChanged: ReadonlySet<string>,
+): boolean {
+  if (!seenBy(networkAudience(after.get(id)))) return false;
+  return textChanged.has(id) || !seenBy(networkAudience(before.get(id)));
 }
 
 /**
@@ -813,6 +861,21 @@ export async function listingLabels(
  */
 export function readModelDocs(tx: Tx, ids: readonly string[], locale?: string) {
   return repo.readDocs(tx, ids, locale);
+}
+
+/**
+ * S13-F7: a page of `agencyId`'s targets network sites show (`networkAudience`), in (kind, target) order after
+ * `after` — the white-label backfill's walk. Workers only (raw `tx` under `withSystem`). One statement.
+ */
+export type TargetPosition = repo.TargetPosition;
+
+export function networkShownTargetsPage(
+  tx: Tx,
+  agencyId: string,
+  after: TargetPosition | null,
+  limit: number,
+): Promise<TargetPosition[]> {
+  return repo.networkShownTargetsPage(tx, agencyId, after, limit, PUBLIC_SEARCH_STATUSES);
 }
 
 /**

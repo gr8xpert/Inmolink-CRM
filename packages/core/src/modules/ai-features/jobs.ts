@@ -4,6 +4,7 @@ import { clock } from '@inmolink/platform/clock';
 import { isAppError } from '@inmolink/platform/errors';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as agencies from '../agencies';
 import {
   abandonListingStudioBatch,
   collectListingStudioBulk,
@@ -12,7 +13,7 @@ import {
   type StudioRequest,
   submitListingStudioBulk,
 } from './studio';
-import { sanitizeTargetTexts } from './white-label';
+import { sanitizeTargetTexts, whiteLabelBackfillPage } from './white-label';
 
 /** The provider's batch answers within 24 h; polled every 2 minutes, given up after a day. */
 export const STUDIO_POLL_MS = 2 * 60_000;
@@ -179,6 +180,22 @@ export const aiFeaturesJobs = {
   }),
 };
 
+/**
+ * S13-F7: how often the white-label backfill sweeps every agency's network-shown documents — well inside the cached
+ * removals' lifetime (`AI_REMOVALS_TTL_SECONDS`, 60 days), so an answered entry is rewritten before it expires.
+ */
+export const WHITE_LABEL_SWEEP_EVERY_MS = 30 * 86_400_000;
+/**
+ * S13-F7: when a degraded `sanitizeTexts` run (budget, outage) asks again for its degraded targets: 15 minutes, 1 hour,
+ * 4 hours, 12 hours after the previous run; then the backfill sweep.
+ */
+export const DEGRADED_RETRY_DELAYS_MS: readonly number[] = [15 * 60_000, 3_600_000, 4 * 3_600_000, 12 * 3_600_000];
+/** Agencies read per statement by the sweep. */
+const SWEEP_AGENCY_PAGE = 500;
+/** A sweep's run id (its UTC day): part of its jobs' ids, so a re-run sweep of the same day queues nothing twice. */
+const RUN_RE = /^\d{4}-\d{2}-\d{2}$/;
+const backfillCursor = z.object({ kind: z.enum(['LISTING', 'UNIT']), targetId: z.uuid() });
+
 /** S13-F6: the white-label sanitizer's fair-share group, apart from the agency's interactive `ai` jobs. */
 export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
 
@@ -192,6 +209,16 @@ export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
  * (pool, group) backlog depth, so ~50 sanitize jobs queued by an import used to put the agency's next interactive `ai`
  * job (Listing Studio, captions) at priority 51 behind all of them, and took one of its `concurrencyPerGroup` slots.
  * In its own group the bulk backlog no longer counts: an interactive job keeps the agency group at priority 1.
+ *
+ * S13-F7: `search.publicDocs.changed` queues it for the event's `networkShownIds` only (none: no job), so a price edit
+ * or a full rebuild that rewrites rows with the same text costs nothing. Documents shown before the pass existed (or
+ * whose pass degraded) get it from the backfill:
+ * - `aiFeatures.whiteLabelSweep` (pool `maintenance`, every `WHITE_LABEL_SWEEP_EVERY_MS`, stable job ids per run day):
+ *   queues one `whiteLabelBackfill` per agency (agency id pages of `SWEEP_AGENCY_PAGE`).
+ * - `aiFeatures.whiteLabelBackfill` (pool `ai`, group `wl:<agency>`, one at a time per agency): one page of
+ *   `BACKFILL_PAGE_TARGETS` network-shown targets (`whiteLabelBackfillPage`), then queues the next page (job id = run,
+ *   agency and cursor: resumable, a re-run collapses). Answered targets and cached answers cost no model call; a
+ *   degraded page (budget, outage) stops the agency's walk until the next sweep.
  */
 export const whiteLabelJobs = {
   sanitizeTexts: defineJob({
@@ -202,8 +229,10 @@ export const whiteLabelJobs = {
       eventId: z.uuid(),
       agencyId: z.uuid(),
       targetIds: z.array(z.uuid()).min(1).max(100),
+      /** S13-F7: the how-manieth later run for targets a degraded run left deterministic-only (0: the event's run). */
+      retry: z.number().int().min(0).max(DEGRADED_RETRY_DELAYS_MS.length).default(0),
     }),
-    jobId: (p) => p.eventId,
+    jobId: (p) => (p.retry > 0 ? `${p.eventId}.r${p.retry}` : p.eventId),
     group: (p) => whiteLabelGroup(p.agencyId),
     concurrencyPerGroup: 1,
     attempts: 3,
@@ -216,7 +245,70 @@ export const whiteLabelJobs = {
         { requestId: jobId, onDegrade: (code) => degradedCodes.add(code) },
       );
       if (result.degraded > 0) {
-        log.warn({ ...result, codes: [...degradedCodes] }, 'white-label model pass degraded: deterministic only');
+        // S13-F7: the event will not come again for unchanged text — ask again later for the degraded targets (the
+        // budget or the provider may be back), a bounded number of times; after that the backfill sweep covers them.
+        const delayMs = DEGRADED_RETRY_DELAYS_MS[p.retry];
+        if (delayMs !== undefined) {
+          await whiteLabelJobs.sanitizeTexts.enqueue(
+            { eventId: p.eventId, agencyId: p.agencyId, targetIds: result.degradedTargetIds, retry: p.retry + 1 },
+            { delayMs },
+          );
+        }
+        log.warn(
+          { ...result, codes: [...degradedCodes], retryInMs: delayMs ?? null },
+          'white-label model pass degraded: deterministic only',
+        );
+      }
+      return result;
+    },
+  }),
+
+  whiteLabelSweep: defineJob({
+    name: 'aiFeatures.whiteLabelSweep',
+    pool: 'maintenance',
+    payload: z.object({}),
+    every: WHITE_LABEL_SWEEP_EVERY_MS,
+    timeoutMs: 10 * 60_000,
+    async run(_p, job) {
+      const run = clock.now().toISOString().slice(0, 10);
+      let after: string | null = null;
+      let queued = 0;
+      for (;;) {
+        const ids = await withSystem('aiFeatures.whiteLabelSweep', (tx) =>
+          agencies.agencyIdsPage(tx, after, SWEEP_AGENCY_PAGE),
+        );
+        for (const agencyId of ids) await whiteLabelJobs.whiteLabelBackfill.enqueue({ run, agencyId, after: null });
+        queued += ids.length;
+        after = ids.at(-1) ?? null;
+        if (ids.length < SWEEP_AGENCY_PAGE || job.signal.aborted) break;
+      }
+      return { run, queued };
+    },
+  }),
+
+  whiteLabelBackfill: defineJob({
+    name: 'aiFeatures.whiteLabelBackfill',
+    pool: 'ai',
+    payload: z.object({ run: z.string().regex(RUN_RE), agencyId: z.uuid(), after: backfillCursor.nullable() }),
+    jobId: (p) => `wlb.${p.run}.${p.agencyId}.${p.after?.targetId ?? 'start'}`,
+    group: (p) => whiteLabelGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { log, jobId }) {
+      const degradedCodes = new Set<string>();
+      const result = await whiteLabelBackfillPage(
+        { agencyId: p.agencyId, after: p.after },
+        { requestId: jobId, onDegrade: (code) => degradedCodes.add(code) },
+      );
+      if (result.degraded > 0) {
+        // Over budget or the model unavailable: the agency's walk stops here; events and the next sweep carry on.
+        log.warn({ ...result, codes: [...degradedCodes] }, 'white-label backfill degraded: walk stopped');
+        return { ...result, stopped: true };
+      }
+      if (result.next) {
+        await whiteLabelJobs.whiteLabelBackfill.enqueue({ run: p.run, agencyId: p.agencyId, after: result.next });
       }
       return result;
     },

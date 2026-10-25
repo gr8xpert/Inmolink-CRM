@@ -34,18 +34,21 @@ export function unregisterAiFeaturesSubscriptions(): void {
   unsubscribe = undefined;
 }
 
-/** Outbox → the model pass: what websites show of these targets changed (S7-06's event). Called once by the worker. */
+/**
+ * Outbox → the model pass: what websites show of these targets changed (S7-06's event). Called once by the worker.
+ * S13-F7: only the targets network sites show with text new to them (`networkShownIds`): an event without any (a price
+ * edit, a re-written row with the same text, a private or own-only change) queues no job. Events from before the field
+ * existed name every target, as before.
+ */
 export function registerWhiteLabelSubscriptions(): void {
   if (unsubscribeWhiteLabel) return;
   unsubscribeWhiteLabel = [
     subscribe(
       search.searchEvents.publicDocsChanged,
       async (payload, meta) => {
-        await whiteLabelJobs.sanitizeTexts.enqueue({
-          eventId: meta.eventId,
-          agencyId: payload.agencyId,
-          targetIds: payload.targetIds,
-        });
+        const targetIds = payload.networkShownIds ?? payload.targetIds;
+        if (targetIds.length === 0) return;
+        await whiteLabelJobs.sanitizeTexts.enqueue({ eventId: meta.eventId, agencyId: payload.agencyId, targetIds });
       },
       { name: 'aiFeatures.whiteLabel.publicDocsChanged' },
     ),

@@ -89,6 +89,7 @@ describe('ai pool fairness (S13-F6)', () => {
       eventId: newId(),
       agencyId,
       targetIds: [newId()],
+      retry: 0,
     });
     const studioGroup = aiFeaturesJobs.generateListingCopy.spec.group?.(
       aiFeaturesJobs.generateListingCopy.spec.payload.parse(studioPayload(agencyId)),

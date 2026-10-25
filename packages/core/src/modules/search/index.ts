@@ -76,6 +76,7 @@ export {
   MAX_LOCKS_IN_FLIGHT,
   // S12-04 / S12 review: selections, social posts and PDF documents re-check the network's sharing (and both agencies listed).
   networkPresentable,
+  networkShownTargetsPage,
   type OwnListingDetail,
   ownListingDetails,
   publicCodeInUse,
@@ -91,6 +92,7 @@ export {
   rebuildListingReadModels,
   rebuildReadModels,
   rebuildUnitReadModels,
+  type TargetPosition,
   visibleTargets,
 } from './service';
 export {

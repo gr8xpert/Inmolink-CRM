@@ -198,12 +198,16 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.queueViewingTermsPdf,
     // S12-02: Listing Studio batch records past their retention are deleted daily.
     aiFeaturesJobs.pruneListingStudioBatches,
+    // S13-F7: every 30 days, queues each agency's white-label backfill walk (network-shown documents).
+    whiteLabelJobs.whiteLabelSweep,
   ],
   ai: [
     // S12-01: worker-path AI usage records whose first write failed (ADR 0008 #6a).
     aiJobs.retryUsageRecord,
     // S12-03: the white-label sanitizer's model pass over changed public documents.
     whiteLabelJobs.sanitizeTexts,
+    // S13-F7: the backfill walk, one page of an agency's network-shown documents per job.
+    whiteLabelJobs.whiteLabelBackfill,
     // S12-02: the AI Listing Studio — one listing's drafts, and bulk drafts through the batch API.
     aiFeaturesJobs.generateListingCopy,
     aiFeaturesJobs.submitListingStudioBatch,

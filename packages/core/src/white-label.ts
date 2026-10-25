@@ -254,6 +254,28 @@ function tidy(text: string): string {
 // ── S12-03: the model pass's removals ───────────────────────────────────────────────────────────────────────────
 
 /**
+ * S13-F7: where a listing's detail document keeps the free texts the white-label model pass reads (title, description,
+ * meta texts, payment terms, development and phase names). One list for both readers: the pass (`docTexts` in
+ * ai-features) and the read-model upsert's text-change check (search), so they can never drift apart.
+ */
+export const DETAIL_TEXT_PATHS: readonly (readonly string[])[] = [
+  ['title'],
+  ['description'],
+  ['metaTitle'],
+  ['metaDescription'],
+  ['paymentTerms'],
+  ['development', 'name'],
+  ['phase', 'name'],
+];
+
+/** The value at a `DETAIL_TEXT_PATHS` path of a detail document (undefined when absent). */
+export function detailAt(detail: unknown, path: readonly string[]): unknown {
+  let v: unknown = detail;
+  for (const key of path) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined;
+  return v;
+}
+
+/**
  * The key of a source text's cached model removals: a hash of its plain text (the `plainText` of the source — pass
  * that, not the source), so an edited text (a new listing version) never takes the removals of the old one: it is
  * served deterministic-only until the worker ran.

@@ -1,5 +1,5 @@
 import { PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
-import { withSystem } from '@inmolink/db';
+import { type Tx, withSystem } from '@inmolink/db';
 import { type AiCtx, ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
 import type { ErrorCode } from '@inmolink/platform/errors';
@@ -7,6 +7,8 @@ import { z } from 'zod';
 import {
   acceptRemovals,
   compileOwner,
+  DETAIL_TEXT_PATHS,
+  detailAt,
   NO_OWNER,
   type OwnerIdentity,
   type OwnerMatcher,
@@ -34,6 +36,14 @@ import * as websiteApi from '../website-api';
  * cached per (owner, target) with the read model version (`white-label-store.ts`) and every serving path applies it
  * by target and `textKey` — a text the worker has not seen yet, or with the model unavailable or over budget, is
  * served with the deterministic pass alone. A target whose removals changed has its edge pages purged.
+ *
+ * S13-F7: the event names only the targets network sites show with text new to them (`networkShownIds`); documents
+ * shown before the pass existed, or whose pass degraded, get it from the backfill walk (`whiteLabelBackfillPage`).
+ * The search index documents are NOT cleaned with these removals: they are built in the read-model transaction, before
+ * any model pass (the pass runs later, outside it), so applying them would need a second index push per answered
+ * target, and the index text is only matched, never shown — a buyer-facing page always renders the cleaned text. The
+ * deterministic pass already strips the owner's identity from the index text (S7-F5); a free-text query for an
+ * agent's first name can still match a network document (it reveals nothing that page shows).
  */
 
 export const WHITE_LABEL_FEATURE = 'white-label.sanitize';
@@ -60,16 +70,8 @@ const SHOWN_STATUSES: ReadonlySet<string> = new Set(PUBLIC_SEARCH_STATUSES);
 /** A document's texts the serializer white-labels (titles, descriptions, payment terms, meta texts). */
 export function docTexts(detail: unknown): string[] {
   if (!detail || typeof detail !== 'object') return [];
-  const d = detail as Record<string, unknown>;
-  const texts = [
-    d.title,
-    d.description,
-    d.metaTitle,
-    d.metaDescription,
-    d.paymentTerms,
-    nameOf(d.development),
-    nameOf(d.phase),
-  ];
+  // S13-F7: the same paths the read-model upsert compares to tell a text change (`DETAIL_TEXT_PATHS`).
+  const texts = DETAIL_TEXT_PATHS.map((path) => detailAt(detail, path));
   return texts.filter((t): t is string => typeof t === 'string' && t.trim() !== '');
 }
 
@@ -185,6 +187,28 @@ async function eachLimited<T>(items: readonly T[], limit: number, fn: (item: T) 
   await Promise.all(lanes);
 }
 
+/**
+ * Writes a target's answered texts: an entry when the model found something, the old entry dropped when it found
+ * nothing now. An entry of a newer read model version (another run's) is kept. Answers what changed.
+ */
+async function storeTargetRemovals(
+  target: { agencyId: string; targetId: string },
+  before: AiRemovalsEntry | undefined,
+  version: number,
+  texts: Record<string, string[]>,
+): Promise<'STORED' | 'DROPPED' | 'NONE'> {
+  if (before && before.version > version) return 'NONE';
+  if (Object.values(texts).some((s) => s.length > 0)) {
+    await writeAiRemovals(target, { version, prompt: WHITE_LABEL_PROMPT.version, texts });
+    return 'STORED';
+  }
+  if (before && Object.keys(texts).length > 0) {
+    await writeAiRemovals(target, null);
+    return 'DROPPED';
+  }
+  return 'NONE';
+}
+
 export interface SanitizeTextsResult {
   /** Documents (target × locale) of the agency looked at. */
   docs: number;
@@ -194,6 +218,8 @@ export interface SanitizeTextsResult {
   stored: number;
   /** Documents left deterministic-only because the gateway degraded. */
   degraded: number;
+  /** S13-F7: the targets with such a document (the job asks again for them later). */
+  degradedTargetIds: string[];
 }
 
 type DocRow = Awaited<ReturnType<typeof search.readModelDocs>>[number];
@@ -201,6 +227,14 @@ type DocRow = Awaited<ReturnType<typeof search.readModelDocs>>[number];
 /** Whether network sites show a document (the website search's rule): public, a shown status, not network-hidden. */
 export const shownOnNetwork = (row: Pick<DocRow, 'public' | 'status' | 'networkHidden'>): boolean =>
   row.public && !row.networkHidden && SHOWN_STATUSES.has(row.status);
+
+/** The owner's documents and identity, read in one short system transaction. */
+interface OwnerDocs {
+  rows: DocRow[];
+  identity: OwnerIdentity;
+}
+
+type SanitizeOptions = { requestId?: string; onDegrade?: (code: ErrorCode) => void };
 
 /**
  * `aiFeatures.sanitizeTexts`: the model pass over one owner agency's changed documents (every locale built). Reads
@@ -211,24 +245,38 @@ export const shownOnNetwork = (row: Pick<DocRow, 'public' | 'status' | 'networkH
  */
 export async function sanitizeTargetTexts(
   input: { agencyId: string; targetIds: readonly string[] },
-  options: { requestId?: string; onDegrade?: (code: ErrorCode) => void } = {},
+  options: SanitizeOptions = {},
 ): Promise<SanitizeTextsResult> {
-  const { rows, identity } = await withSystem('aiFeatures.sanitizeTexts', async (tx) => {
-    const docs = await search.readModelDocs(tx, input.targetIds);
-    const owned = docs.filter((d) => d.agencyId === input.agencyId);
-    const identities = owned.length > 0 ? await agencies.ownerIdentities(tx, [input.agencyId]) : new Map();
-    return { rows: owned, identity: (identities.get(input.agencyId) as OwnerIdentity | undefined) ?? NO_OWNER };
-  });
-  const result: SanitizeTextsResult = { docs: rows.length, asked: 0, stored: 0, degraded: 0 };
+  const owner = await withSystem('aiFeatures.sanitizeTexts', async (tx) =>
+    ownerDocs(tx, input.agencyId, await search.readModelDocs(tx, input.targetIds)),
+  );
+  return sanitizeDocs(input.agencyId, owner, options, { keepAlive: false });
+}
+
+async function ownerDocs(tx: Tx, agencyId: string, docs: readonly DocRow[]): Promise<OwnerDocs> {
+  const rows = docs.filter((d) => d.agencyId === agencyId);
+  const identities = rows.length > 0 ? await agencies.ownerIdentities(tx, [agencyId]) : new Map();
+  return { rows, identity: (identities.get(agencyId) as OwnerIdentity | undefined) ?? NO_OWNER };
+}
+
+/**
+ * The pass over documents already read. `keepAlive` (the backfill): an entry that already answers a target's texts is
+ * written again, so its lifetime (`AI_REMOVALS_TTL_SECONDS`) counts from now while the text is shown.
+ */
+async function sanitizeDocs(
+  agencyId: string,
+  { rows, identity }: OwnerDocs,
+  options: SanitizeOptions,
+  { keepAlive }: { keepAlive: boolean },
+): Promise<SanitizeTextsResult> {
+  const result: SanitizeTextsResult = { docs: rows.length, asked: 0, stored: 0, degraded: 0, degradedTargetIds: [] };
   if (rows.length === 0) return result;
   const matcher = compileOwner(identity);
-  const ctx: AiCtx = { tenant: { agencyId: input.agencyId }, requestId: options.requestId };
+  const ctx: AiCtx = { tenant: { agencyId }, requestId: options.requestId };
 
   const byTarget = new Map<string, DocRow[]>();
   for (const r of rows) byTarget.set(r.targetId, [...(byTarget.get(r.targetId) ?? []), r]);
-  const existing = await readAiRemovalEntries(
-    [...byTarget.keys()].map((targetId) => ({ agencyId: input.agencyId, targetId })),
-  );
+  const existing = await readAiRemovalEntries([...byTarget.keys()].map((targetId) => ({ agencyId, targetId })));
   const prepared = (row: DocRow) => {
     const detail = row.detail as { ref?: unknown };
     const refs = ownerRefsOf({
@@ -240,7 +288,7 @@ export async function sanitizeTargetTexts(
 
   const changed: string[] = [];
   await eachLimited([...byTarget.entries()], CALL_CONCURRENCY, async ([targetId, docs]) => {
-    const target = { agencyId: input.agencyId, targetId };
+    const target = { agencyId, targetId };
     const before = existing.get(targetId);
     // Only what network sites show is worth a model call (a hidden or private document is never white-labelled).
     const perDoc = docs
@@ -252,12 +300,15 @@ export async function sanitizeTargetTexts(
       return;
     }
     if (
+      before &&
       answered(
         before,
         perDoc.flatMap((d) => d.texts),
       )
-    )
+    ) {
+      if (keepAlive) await writeAiRemovals(target, before);
       return;
+    }
     const texts: Record<string, string[]> = {};
     for (const doc of perDoc) {
       result.asked++;
@@ -265,27 +316,65 @@ export async function sanitizeTargetTexts(
       if (spans === null) {
         // Unanswered texts stay out of the entry: the next run asks again.
         result.degraded++;
+        if (!result.degradedTargetIds.includes(targetId)) result.degradedTargetIds.push(targetId);
         continue;
       }
       Object.assign(texts, removalsByText(doc.texts, spans, { protectedNames: doc.names }));
     }
-    if (Object.values(texts).some((s) => s.length > 0)) {
-      const version = Math.max(...perDoc.map((d) => d.row.version));
-      await writeAiRemovals(target, { version, prompt: WHITE_LABEL_PROMPT.version, texts });
-      result.stored++;
-      changed.push(targetId);
-    } else if (before && Object.keys(texts).length > 0) {
-      await writeAiRemovals(target, null);
-      changed.push(targetId);
-    }
+    const outcome = await storeTargetRemovals(target, before, Math.max(...perDoc.map((d) => d.row.version)), texts);
+    if (outcome === 'STORED') result.stored++;
+    if (outcome !== 'NONE') changed.push(targetId);
   });
   // Pages the edge cached with the previous text show the new one within the purge window (S7-06).
   if (changed.length > 0) {
     await websiteApi.queueEdgePurge(
-      input.agencyId,
+      agencyId,
       changed.map((id) => ({ kind: 't' as const, id })),
       clock.now(),
     );
   }
   return result;
+}
+
+/** Targets per backfill page (S13-F7), each with every locale built. */
+export const BACKFILL_PAGE_TARGETS = 50;
+
+export type BackfillCursor = search.TargetPosition;
+
+export interface BackfillPageResult extends SanitizeTextsResult {
+  /** Network-shown targets of the page. */
+  targets: number;
+  /** Where the next page starts; null when the agency's walk is done. */
+  next: BackfillCursor | null;
+}
+
+/**
+ * S13-F7: one page of the white-label backfill (`aiFeatures.whiteLabelBackfill`) — documents network sites show that
+ * never had the model pass (shown before it existed, a degraded run, an entry about to expire). Reads the agency's next
+ * `BACKFILL_PAGE_TARGETS` network-shown targets (keyset on `listing_read_models_agency_idx`), their documents and the
+ * owner's identity in one short system transaction, then runs the same pass as the event path: answered targets cost
+ * nothing (their entry is kept alive), unchanged texts are answered by the gateway's response cache, only the rest
+ * reach the model. Idempotent and resumable by its cursor.
+ */
+export async function whiteLabelBackfillPage(
+  input: { agencyId: string; after: BackfillCursor | null },
+  options: SanitizeOptions = {},
+): Promise<BackfillPageResult> {
+  const { page, owner } = await withSystem('aiFeatures.whiteLabelBackfill', async (tx) => {
+    const page = await search.networkShownTargetsPage(tx, input.agencyId, input.after, BACKFILL_PAGE_TARGETS);
+    const docs =
+      page.length > 0
+        ? await search.readModelDocs(
+            tx,
+            page.map((p) => p.targetId),
+          )
+        : [];
+    return { page, owner: await ownerDocs(tx, input.agencyId, docs) };
+  });
+  const result = await sanitizeDocs(input.agencyId, owner, options, { keepAlive: true });
+  return {
+    ...result,
+    targets: page.length,
+    next: page.length === BACKFILL_PAGE_TARGETS ? (page.at(-1) ?? null) : null,
+  };
 }

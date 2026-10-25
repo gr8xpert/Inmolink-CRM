@@ -1890,6 +1890,11 @@ Ref §11 · Mod billing · Dep S13-02 · [H3]
 Ref §7 M18 · Mod chat, db · Dep S11-05
 **Build:** two messages sent at once into the same cross-agency thread (each side's `chat_messages` insert + mirror trigger) deadlock (`40P01`, e2e `collaboration.spec.ts` → 500 on `POST /v1/chat/threads/:id/messages`, CI run on 2b4c41fc). Take the thread's locks in one fixed order (e.g. lock the thread row / both agencies' thread rows by id before inserting), or serialise per thread; a deadlock that still happens is retried once, never a 500.
 **Done when:** concurrent sends from both agencies into one network thread all succeed (int test with parallel sends); the S11 e2e flow passes repeatedly
+
+### S13-F25 · White-label backfill on the batch API; owner changes re-run it (S13-F7)
+Ref §8 #2 · Mod ai-features, agencies, db · Dep S13-F7
+**Build:** a STRICT `white_label_batches` table (id, agency_id, provider_batch_id, items jsonb, cursor jsonb, state, created_at; tenant registry) so the backfill walk submits pages through `ai.batch` (half price) and collects them later instead of `ai.structured`; an owner identity change (agency rename, new or renamed agent — the agencies / identity events) queues that agency's backfill walk early.
+**Done when:** a backfill page goes through `ai.batch` and its removals land after collect (test against the fake provider); renaming an agent queues the agency's walk once (test)
 ---
 
 ## S14 — Migration tooling

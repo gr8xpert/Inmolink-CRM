@@ -20,6 +20,7 @@ import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
 import { NIL_UUID } from '@inmolink/platform/tenancy';
 import { and, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
+import { DETAIL_TEXT_PATHS } from '../../white-label';
 import type { BuiltDoc } from './build';
 import type { ListingIndexDoc } from './index-doc';
 
@@ -51,6 +52,38 @@ export async function lockTargets(tx: Tx, ids: readonly string[]): Promise<void>
  * writes nothing.
  */
 export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<string[]> {
+  return (await upsertDocsWithText(tx, docs)).map((r) => r.targetId);
+}
+
+/**
+ * S13-F7: a detail document's free texts as one JSON array — the paths the white-label model pass reads
+ * (`DETAIL_TEXT_PATHS`, shared with `docTexts`), so moving text between fields counts as a change too.
+ */
+const textsOf = (detail: SQL) =>
+  sql`jsonb_build_array(${sql.join(
+    DETAIL_TEXT_PATHS.map((path) => sql`${detail} #> ${`{${path.join(',')}}`}::text[]`),
+    sql`, `,
+  )})`;
+
+/** A row `upsertDocs` wrote: its target, and whether its free texts changed (or it is new). */
+export interface WrittenDoc {
+  targetId: string;
+  textChanged: boolean;
+}
+
+/**
+ * `upsertDocs`, answering per written row whether its free texts changed (S13-F7: a price-only edit or a builder
+ * change re-writes the row, but the white-label model pass only needs new text). Still one statement: the old row is
+ * read by primary key in `returning` — a statement does not see its own writes, so the subquery reads the row as it
+ * was (none: a new row, changed). Only for written rows network sites show now (`shownStatuses`, not hidden, shared
+ * with someone): the others never need the pass, so `case` skips their subquery; an identical detail document skips
+ * the text comparison.
+ */
+export async function upsertDocsWithText(
+  tx: Tx,
+  docs: readonly BuiltDoc[],
+  shownStatuses: readonly string[] = [],
+): Promise<WrittenDoc[]> {
   if (docs.length === 0) return [];
   const excluded = (c: string) => sql.raw(`excluded.${c}`);
   const rows = await tx
@@ -104,8 +137,27 @@ export async function upsertDocs(tx: Tx, docs: readonly BuiltDoc[]): Promise<str
                  or excluded.allowed_agency_ids is distinct from ${listingReadModels.allowedAgencyIds}
                  or excluded.preferred_agency_ids is distinct from ${listingReadModels.preferredAgencyIds}))`,
     })
-    .returning({ targetId: listingReadModels.targetId });
-  return rows.map((r) => r.targetId);
+    .returning({
+      targetId: listingReadModels.targetId,
+      textChanged:
+        shownStatuses.length === 0
+          ? sql<boolean>`false`
+          : sql<boolean>`case
+            when listing_read_models.public and not listing_read_models.network_hidden
+             and listing_read_models.status in (${sql.join(
+               shownStatuses.map((st) => sql`${st}`),
+               sql`, `,
+             )})
+             and (listing_read_models.share_scope is distinct from 'PREFERRED'
+                  or coalesce(cardinality(listing_read_models.preferred_agency_ids), 0) > 0)
+            then coalesce((select o.detail <> listing_read_models.detail
+                                  and ${textsOf(sql`o.detail`)} is distinct from ${textsOf(sql`listing_read_models.detail`)}
+                             from listing_read_models o
+                            where o.target_id = listing_read_models.target_id
+                              and o.locale = listing_read_models.locale), true)
+            else false end`,
+    });
+  return rows;
 }
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -385,6 +437,46 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
         locale === undefined ? undefined : eq(listingReadModels.locale, locale),
       ),
     );
+}
+
+/** A position in one agency's read models (`networkShownTargetsPage`): after this target of this kind. */
+export interface TargetPosition {
+  kind: Kind;
+  targetId: string;
+}
+
+/**
+ * S13-F7: the next `limit` targets of `agencyId` that network sites show (`networkAudience`: public, a shown status,
+ * not hidden from the network, shared with ALL or with at least one preferred agency), in (kind, target) order after
+ * `after`. Keyset walk of `listing_read_models_agency_idx`; ids only (the white-label backfill reads the documents of
+ * the page with `readDocs`).
+ */
+export async function networkShownTargetsPage(
+  tx: Tx,
+  agencyId: string,
+  after: TargetPosition | null,
+  limit: number,
+  shownStatuses: readonly string[],
+): Promise<TargetPosition[]> {
+  return tx
+    .selectDistinct({ kind: listingReadModels.kind, targetId: listingReadModels.targetId })
+    .from(listingReadModels)
+    .where(
+      and(
+        eq(listingReadModels.agencyId, agencyId),
+        // A row comparison: an index condition on `listing_read_models_agency_idx` (an OR would be a filter).
+        after
+          ? sql`(${listingReadModels.kind}, ${listingReadModels.targetId}) > (${after.kind}::read_model_kind, ${after.targetId}::uuid)`
+          : undefined,
+        eq(listingReadModels.public, true),
+        eq(listingReadModels.networkHidden, false),
+        inArray(listingReadModels.status, [...shownStatuses]),
+        sql`(${listingReadModels.shareScope} is distinct from 'PREFERRED'
+             or coalesce(cardinality(${listingReadModels.preferredAgencyIds}), 0) > 0)`,
+      ),
+    )
+    .orderBy(listingReadModels.kind, listingReadModels.targetId)
+    .limit(limit);
 }
 
 /**

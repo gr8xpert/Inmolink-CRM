@@ -7,21 +7,35 @@ import { FakeProvider, memoryAiCache, memoryAiStore } from '@inmolink/platform/a
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
 import { whiteLabelLeaks } from '../../../testing/white-label';
 import { blocksOf } from '../../../testing/white-label-fixtures';
-import { readAiRemovalEntries } from '../../../white-label-store';
+import { readAiRemovalEntries, writeAiRemovals } from '../../../white-label-store';
+import * as agencies from '../../agencies';
 import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../../website-api';
 import * as websites from '../../websites';
-import { sanitizeTargetTexts, whiteLabelJobs } from '../index';
+import {
+  BACKFILL_PAGE_TARGETS,
+  type BackfillCursor,
+  type BackfillPageResult,
+  DEGRADED_RETRY_DELAYS_MS,
+  registerWhiteLabelSubscriptions,
+  sanitizeTargetTexts,
+  unregisterWhiteLabelSubscriptions,
+  WHITE_LABEL_SWEEP_EVERY_MS,
+  whiteLabelBackfillPage,
+  whiteLabelJobs,
+} from '../index';
 
 /**
  * White-label sanitizer's model pass end to end (S12-03): a network listing's description with direct and indirect
@@ -44,6 +58,7 @@ let a: Founder;
 let b: Founder;
 let listingId = '';
 let siteId = '';
+let taxonomyIds = { city: '', villa: '' };
 
 const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -150,6 +165,7 @@ beforeAll(async () => {
     });
     return { country, city, villa };
   });
+  taxonomyIds = { city: ids.city, villa: ids.villa };
   // a's own listing: give-to-get lets a's site show the network.
   for (const [m, description] of [
     [a, 'Sunny villa with a pool.'],
@@ -273,4 +289,278 @@ describe('white-label sanitizer model pass (S12-03)', () => {
     expect(fresh.description).not.toContain('Marisol');
     expect(fresh.description).toContain('New kitchen');
   });
+});
+
+/** `search.publicDocs.changed` events of an agency written after `since` (a UUIDv7 taken before the change). */
+async function publicDocsEvents(agencyId: string, since: string) {
+  const res = await withSystem('wl.test', (tx) =>
+    tx.execute<{ payload: { targetIds: string[]; networkShownIds?: string[] } }>(
+      sql`select payload from outbox_events
+           where agency_id = ${agencyId} and type = 'search.publicDocs.changed' and id > ${since}::uuid
+           order by id`,
+    ),
+  );
+  return res.rows.map((r) => r.payload);
+}
+
+/** Runs the model pass's subscriber over these events as the dispatcher would; answers the jobs it queued. */
+async function sanitizeJobsOf(agencyId: string, events: readonly unknown[]): Promise<{ targetIds: string[] }[]> {
+  const spy = vi.spyOn(whiteLabelJobs.sanitizeTexts, 'enqueue').mockResolvedValue(undefined as never);
+  try {
+    for (const payload of events) {
+      for (const sub of defaultSubscribers.get('search.publicDocs.changed', 1)) {
+        if (sub.name !== 'aiFeatures.whiteLabel.publicDocsChanged') continue;
+        await sub.handler(payload as never, {
+          eventId: newId(),
+          agencyId,
+          type: 'search.publicDocs.changed',
+          version: 1,
+          createdAt: new Date(),
+          attempt: 1,
+        });
+      }
+    }
+    return spy.mock.calls.map((c) => c[0] as { targetIds: string[] });
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+/** A change of the owner's listing, its rebuild, and the sanitize jobs its events queue. */
+async function jobsAfter(change: () => Promise<unknown>) {
+  const since = newId();
+  await tick();
+  await change();
+  await withSystem('wl.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [listingId]));
+  const events = await publicDocsEvents(b.agencyId, since);
+  return { events, jobs: await sanitizeJobsOf(b.agencyId, events) };
+}
+
+const updateB = (fields: Record<string, unknown>) =>
+  as(b, async (ctx) =>
+    properties.updateListing(
+      ctx,
+      listingId,
+      UpdateListingBody.parse({ ...fields, version: (await properties.getListing(ctx, listingId)).version }),
+    ),
+  );
+
+const ownerOfB = async () => ({
+  name: OWNER_NAME,
+  email: OWNER_MAIL,
+  domain: 'ownerhaus-sanitize.example',
+  ref: (await as(b, (ctx) => properties.getListing(ctx, listingId))).ref as string,
+  phone: '+34 952 761 234',
+  phoneDigits: '952761234',
+});
+
+describe('white-label pass only for network-shown documents; backfill (S13-F7)', () => {
+  beforeAll(() => registerWhiteLabelSubscriptions());
+  afterAll(() => unregisterWhiteLabelSubscriptions());
+
+  it('[S13-F7] a price-only edit and a private/own-only change queue zero sanitizeTexts jobs', async () => {
+    // Price only: the documents are rewritten (the event still goes out for the edge purge), the text is not.
+    const price = await jobsAfter(() => updateB({ priceCents: 46_000_000 }));
+    expect(price.events.length).toBeGreaterThan(0);
+    expect(price.events.flatMap((e) => e.networkShownIds ?? ['absent'])).toEqual([]);
+    expect(price.jobs).toEqual([]);
+
+    // Control: a text edit of a network-shown listing queues exactly its pass.
+    const text = await jobsAfter(() => setDescription(`${DESCRIPTION} Sea views.`));
+    expect(text.jobs).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+
+    // Own-only: public, shared with PREFERRED agencies but none chosen (only the owner's own site shows it).
+    const ownOnly = await jobsAfter(async () => {
+      await updateB({ shareScope: 'PREFERRED' });
+      await setDescription(`${DESCRIPTION} Own site only.`);
+    });
+    expect(ownOnly.events.length).toBeGreaterThan(0);
+    expect(ownOnly.jobs).toEqual([]);
+    expect(
+      await withSystem('wl.test', (tx) => search.networkShownTargetsPage(tx, b.agencyId, null, 100)),
+    ).not.toContainEqual(expect.objectContaining({ targetId: listingId }));
+    // Shared with every agency again: new to the network, so its pass runs (no text edit needed).
+    const shared = await jobsAfter(() => updateB({ shareScope: 'ALL' }));
+    expect(shared.jobs).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+
+    // Private, with a text edit on the way: nobody on the network sees it.
+    const priv = await jobsAfter(async () => {
+      await updateB({ visibility: 'PRIVATE' });
+      await setDescription(`${DESCRIPTION} Private now.`);
+    });
+    expect(priv.events.length).toBeGreaterThan(0);
+    expect(priv.jobs).toEqual([]);
+    const back = await jobsAfter(() => updateB({ visibility: 'PUBLIC', shareScope: 'ALL' }));
+    expect(back.jobs).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+
+    // An event from before the field (no `networkShownIds`) still names every target.
+    expect(
+      await sanitizeJobsOf(b.agencyId, [{ agencyId: b.agencyId, targetIds: [listingId], developmentIds: [] }]),
+    ).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+  });
+
+  it('[S13-F7] visibility changes with unchanged text put the target in networkShownIds', async () => {
+    const shownIn = (events: { targetIds: string[]; networkShownIds?: string[] }[]) =>
+      events.flatMap((e) => e.networkShownIds ?? e.targetIds);
+
+    // PRIVATE → PUBLIC.
+    expect(shownIn((await jobsAfter(() => updateB({ visibility: 'PRIVATE' }))).events)).toEqual([]);
+    expect(shownIn((await jobsAfter(() => updateB({ visibility: 'PUBLIC' }))).events)).toEqual([listingId]);
+
+    // PREFERRED with an empty list → one preferred agency.
+    expect(shownIn((await jobsAfter(() => updateB({ shareScope: 'PREFERRED' }))).events)).toEqual([]);
+    const preferred = await jobsAfter(() => as(b, (ctx) => agencies.addPreferredAgency(ctx, { agencyId: a.agencyId })));
+    expect(shownIn(preferred.events)).toEqual([listingId]);
+    expect(preferred.jobs).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+    await as(b, (ctx) => agencies.removePreferredAgency(ctx, { agencyId: a.agencyId }));
+    await jobsAfter(() => updateB({ shareScope: 'ALL' }));
+
+    // WITHDRAWN → a shown status.
+    expect(shownIn((await jobsAfter(() => updateB({ status: 'WITHDRAWN' }))).events)).toEqual([]);
+    expect(shownIn((await jobsAfter(() => updateB({ status: 'ACTIVE' }))).events)).toEqual([listingId]);
+  });
+
+  it('[S13-F7] a degraded run asks again later for its degraded targets, a bounded number of times', async () => {
+    gateway(new FakeProvider().failWith());
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const spy = vi.spyOn(whiteLabelJobs.sanitizeTexts, 'enqueue').mockResolvedValue(undefined as never);
+    const ctx = { log, jobId: 'wl-retry', attempt: 1, progress: async () => {}, signal: new AbortController().signal };
+    const payload = { eventId: newId(), agencyId: b.agencyId, targetIds: [listingId], retry: 0 };
+    try {
+      await whiteLabelJobs.sanitizeTexts.spec.run(payload, ctx);
+      expect(spy.mock.calls).toEqual([[{ ...payload, retry: 1 }, { delayMs: DEGRADED_RETRY_DELAYS_MS[0] }]]);
+      expect(whiteLabelJobs.sanitizeTexts.spec.jobId?.({ ...payload, retry: 1 })).toBe(`${payload.eventId}.r1`);
+      // The last retry gives up (the backfill sweep covers the target).
+      spy.mockClear();
+      await whiteLabelJobs.sanitizeTexts.spec.run({ ...payload, retry: DEGRADED_RETRY_DELAYS_MS.length }, ctx);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('[S13-F7] existing network docs get removals via the backfill (model only where needed, leak-free after)', async () => {
+    expect(whiteLabelJobs.whiteLabelBackfill.pool).toBe('ai');
+    expect(whiteLabelJobs.whiteLabelBackfill.spec.concurrencyPerGroup).toBe(1);
+    expect(
+      whiteLabelJobs.whiteLabelBackfill.spec.group?.({ run: '2026-10-25', agencyId: b.agencyId, after: null }),
+    ).toBe(`wl:${b.agencyId}`);
+    expect(whiteLabelJobs.whiteLabelSweep.pool).toBe('maintenance');
+    expect(whiteLabelJobs.whiteLabelSweep.spec.every).toBe(WHITE_LABEL_SWEEP_EVERY_MS);
+
+    // A document shown before the model pass existed: no entry, deterministic only.
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const before = await served();
+    expect(before.description).toContain(INDIRECT);
+    expect(whiteLabelLeaks(before.detail, await ownerOfB())).toEqual([]);
+
+    const provider = gateway(model());
+    const walk = async () => {
+      const pages: BackfillPageResult[] = [];
+      let after: BackfillCursor | null = null;
+      do {
+        const page: BackfillPageResult = await whiteLabelBackfillPage({ agencyId: b.agencyId, after });
+        pages.push(page);
+        after = page.next;
+      } while (after);
+      return pages;
+    };
+    const first = await walk();
+    expect(first.reduce((n, p) => n + p.stored, 0)).toBe(1);
+    expect(provider.calls).toHaveLength(1);
+    const after = await served();
+    expect(after.description).not.toContain('Marisol');
+    for (const f of FACTS) expect(after.description).toContain(f);
+    expect(whiteLabelLeaks(after.detail, await ownerOfB())).toEqual([]);
+
+    // Idempotent: a second walk finds the entry answering the text (kept alive) — no model call.
+    const second = await walk();
+    expect(second.reduce((n, p) => n + p.asked, 0)).toBe(0);
+    expect(provider.calls).toHaveLength(1);
+    expect((await readAiRemovalEntries([{ agencyId: b.agencyId, targetId: listingId }])).has(listingId)).toBe(true);
+
+    // A private document is never walked.
+    await updateB({ visibility: 'PRIVATE' });
+    await withSystem('wl.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [listingId]));
+    expect((await walk()).reduce((n, p) => n + p.targets, 0)).toBe(0);
+    await updateB({ visibility: 'PUBLIC', shareScope: 'ALL' });
+    await withSystem('wl.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [listingId]));
+  });
+
+  it('[S13-F7] perf: ~0 sanitize jobs per 1k unchanged targets on a rebuild', async () => {
+    const N = 250;
+    const ids: string[] = [];
+    for (let i = 0; i < N; i++) {
+      const { id } = await as(a, (ctx) =>
+        properties.createListing(
+          ctx,
+          CreateListingBody.parse({
+            propertyTypeId: taxonomyIds.villa,
+            locationId: taxonomyIds.city,
+            priceCents: 30_000_000 + i,
+            energyRating: 'B',
+          }),
+        ),
+      );
+      await as(a, async (ctx) =>
+        properties.updateListing(
+          ctx,
+          id,
+          UpdateListingBody.parse({
+            status: 'ACTIVE',
+            visibility: 'PUBLIC',
+            shareScope: 'ALL',
+            version: (await properties.getListing(ctx, id)).version,
+          }),
+        ),
+      );
+      ids.push(id);
+    }
+    const rebuild = async () => {
+      for (let i = 0; i < ids.length; i += search.READ_MODEL_BATCH) {
+        await withSystem('wl.test', (tx) =>
+          search.rebuildReadModels(tx, 'LISTING', ids.slice(i, i + search.READ_MODEL_BATCH)),
+        );
+      }
+    };
+    // First build: every target is new to the network (control).
+    let since = newId();
+    await tick();
+    await rebuild();
+    const built = await publicDocsEvents(a.agencyId, since);
+    expect(new Set(built.flatMap((e) => e.networkShownIds ?? e.targetIds)).size).toBe(N);
+
+    // The backfill's walk pages the agency (> 50 targets) by a row keyset: every target exactly once.
+    const walked: string[] = [];
+    let cursor: BackfillCursor | null = null;
+    do {
+      const after: BackfillCursor | null = cursor;
+      const page: BackfillCursor[] = await withSystem('wl.test', (tx) =>
+        search.networkShownTargetsPage(tx, a.agencyId, after, BACKFILL_PAGE_TARGETS),
+      );
+      walked.push(...page.map((p) => p.targetId));
+      cursor = page.length === BACKFILL_PAGE_TARGETS ? (page.at(-1) ?? null) : null;
+    } while (cursor);
+    expect(walked).toHaveLength(new Set(walked).size);
+    for (const id of ids) expect(walked).toContain(id);
+
+    // A builder change re-writes every row with the same text (the stored etags no longer match).
+    await withSystem('wl.test', (tx) =>
+      tx.execute(
+        sql`update listing_read_models set etag = 'stale' where target_id = any(${`{${ids.join(',')}}`}::uuid[])`,
+      ),
+    );
+    since = newId();
+    await tick();
+    await rebuild();
+    const events = await publicDocsEvents(a.agencyId, since);
+    // The rows were re-written (events went out for the edge purge) …
+    expect(new Set(events.flatMap((e) => e.targetIds)).size).toBe(N);
+    // … but no target is new to the network: zero ids, zero jobs (0 per 1k).
+    expect(events.flatMap((e) => e.networkShownIds ?? ['absent'])).toEqual([]);
+    const jobs = await sanitizeJobsOf(a.agencyId, events);
+    expect((jobs.length * 1_000) / N).toBe(0);
+  }, 300_000);
 });

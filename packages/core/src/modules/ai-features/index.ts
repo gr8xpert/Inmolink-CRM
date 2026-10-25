@@ -4,9 +4,11 @@ export { aiFeaturesErrors } from './errors';
 export { aiFeaturesEvents } from './events';
 export {
   aiFeaturesJobs,
+  DEGRADED_RETRY_DELAYS_MS,
   STUDIO_BATCH_RETENTION_DAYS,
   STUDIO_MAX_POLLS,
   STUDIO_POLL_MS,
+  WHITE_LABEL_SWEEP_EVERY_MS,
   whiteLabelJobs,
 } from './jobs';
 export { AI_FEATURES_ACTIONS, AI_FEATURES_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from './policy';
@@ -43,6 +45,9 @@ export {
 } from './subscriptions';
 // S12-03: the white-label sanitizer (its jobs and subscriptions live in jobs.ts / subscriptions.ts).
 export {
+  BACKFILL_PAGE_TARGETS,
+  type BackfillCursor,
+  type BackfillPageResult,
   docTexts,
   MAX_MODEL_TEXT_CHARS,
   MIN_MODEL_TEXT_CHARS,
@@ -60,5 +65,6 @@ export {
   WHITE_LABEL_FEATURE,
   WHITE_LABEL_PROMPT,
   WhiteLabelRemovals,
+  whiteLabelBackfillPage,
 } from './white-label';
 // Export service functions and DTO-facing types here as they are added. Never export repo or schema.
