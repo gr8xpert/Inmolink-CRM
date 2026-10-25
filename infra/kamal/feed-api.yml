@@ -99,6 +99,6 @@ env:
     - ENCRYPTION_ACTIVE_KEY_ID
     - HMAC_KEY
     # S12-08 AI search (ADR 0018, Proposed) — uncomment with the clear entries above:
-    # redis-queue as the `feed_ai` ACL user: produces `ai` pool jobs only (ai.recordUsage, ai.refreshSpend).
+    # redis-queue as the `feed_ai` ACL user: produces `ai-usage` queue jobs only (ai.recordUsage, ai.refreshSpend; S12-01).
     # - REDIS_QUEUE_URL:REDIS_QUEUE_URL_FEED_AI
     # - ANTHROPIC_API_KEY

@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+// S12-01 (ADR 0018)
+import { aiJobs } from '@inmolink/core';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { crmJobs } from '@inmolink/core/modules/crm';
 import { importsJobs } from '@inmolink/core/modules/imports';
@@ -49,5 +53,19 @@ describe('worker pools (S11 review)', () => {
     }
     // The delivery pool keeps no per-process-capped job either (a capped job bounces through delayed).
     for (const job of POOL_JOBS.email) expect(job.spec.perProcessConcurrency, job.name).toBeUndefined();
+  });
+
+  it('[S12-01] the ai-usage queue holds only the request-path usage jobs; feed_ai reaches that queue alone', () => {
+    expect(POOL_JOBS['ai-usage'].map((j) => j.name).sort()).toEqual(['ai.recordUsage', 'ai.refreshSpend']);
+    expect(poolOf('ai.recordUsage')).toEqual(['ai-usage']);
+    expect(POOL_JOBS.ai.map((j) => j.name)).toContain(aiJobs.retryUsageRecord.name);
+    const vars = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', '..', 'infra', 'ansible', 'group_vars', 'all.yml'),
+      'utf8',
+    );
+    const acl = /^redis_feed_ai_acl: "([^"]+)"/m.exec(vars)?.[1] ?? '';
+    const keys = acl.split(' ').filter((t) => t.startsWith('~'));
+    expect(keys).toEqual(['~inl:ai-usage:*', '~inl:fair:ai-usage:*']);
+    expect(acl).toContain('-@blocking');
   });
 });

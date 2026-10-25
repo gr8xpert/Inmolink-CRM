@@ -176,9 +176,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.notifyViewing,
   ],
   ai: [
-    // S12-01: AI usage records (request path, failed writes) and the request path's spend mirror (ADR 0008 #6a).
-    aiJobs.recordUsage,
-    aiJobs.refreshSpend,
+    // S12-01: worker-path AI usage records whose first write failed (ADR 0008 #6a).
+    aiJobs.retryUsageRecord,
     // S12-03: the white-label sanitizer's model pass over changed public documents.
     whiteLabelJobs.sanitizeTexts,
     // S12-02: the AI Listing Studio — one listing's drafts, and bulk drafts through the batch API.
@@ -188,6 +187,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   ],
   social: [],
   pdf: [],
+  // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds, on their own queue — the only one
+  // feed-api's `feed_ai` Redis user can write; the worker validates every record.
+  'ai-usage': [aiJobs.recordUsage, aiJobs.refreshSpend],
 };
 
 /** Digests in flight per process (each one a database claim and one e-mail): the SMTP relay sets the pace, not slots. */

@@ -28,7 +28,8 @@ servers:
       clear:
         # Every pool but `media` (its own role below). S11 review: `realtime` (live socket pushes) and `digest`
         # (notification e-mail digests) are pools of their own, so a digest burst never takes a live push's slot.
-        WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,realtime,digest,ai,social,pdf,maintenance"
+        # S12-01 (ADR 0018): `ai-usage` holds the request path's AI usage records, apart from the `ai` pool.
+        WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,realtime,digest,ai,ai-usage,social,pdf,maintenance"
         # S12-F4 rollout: prefix per-user realtime events (`agencyId:userId|`, so realtime nodes skip other members'
         # events unparsed). Realtime of the previous release cannot read the prefix: deploy realtime first, and set
         # "true" here in the next release, once every realtime node reads both forms.

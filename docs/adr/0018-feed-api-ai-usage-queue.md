@@ -20,15 +20,22 @@ S12-01's request-safe store does this without a database write: the budget comes
 - feed-api gets an **optional** `REDIS_QUEUE_URL`, used **only when AI is on** (`AI_PROVIDER` ≠ `none`): boot calls
   `configureQueue` then `configureAiRequestRuntime`. Without it (or with AI off) no gateway is installed and AI search
   answers with a keyword search. `apps/feed-api/src/app.test.ts` pins that the variable stays optional.
-- In production it authenticates as a dedicated **`feed_ai` ACL user** that can only produce jobs on the `ai` queue:
-  keys `~inl:ai:*` and the pool's fair-share keys `~inl:fair:ai:*` (the queue prefix is `inl`, not BullMQ's default
-  `bull`), the commands a BullMQ producer needs (`+@read +@write +@scripting +@connection +@transaction`), no
-  `@blocking` (it never consumes), no admin, no key listing. Defined in `infra/ansible` (`redis_feed_ai_acl`, role
-  `redis_queue`); the user is created only once the vault holds `vault_redis_feed_ai_password` (human step, below).
-- Redis ACLs scope by key, not by job name: the `ai` queue's other jobs are reachable by key. The worker's processors
-  validate every payload (Zod) and `ai.recordUsage` only appends usage for the agency it names; the residual risk is
-  a compromised feed-api inflating an agency's recorded AI spend. Narrowing further = a dedicated `ai-usage` queue for
-  these two jobs (alternative 3).
+- In production it authenticates as a dedicated **`feed_ai` ACL user** that can only produce jobs on the
+  **`ai-usage` queue** (S12-01 follow-up — alternative 3 adopted): keys `~inl:ai-usage:*` and the pool's fair-share
+  keys `~inl:fair:ai-usage:*` (the queue prefix is `inl`, not BullMQ's default `bull`; the colon keeps them from
+  matching the `ai` pool's `inl:ai:*`), the commands a BullMQ producer needs (`+@read +@write +@scripting +@connection
+  +@transaction`), no `@blocking` (it never consumes), no admin, no key listing. Defined in `infra/ansible`
+  (`redis_feed_ai_acl`, role `redis_queue`); the user is created only once the vault holds
+  `vault_redis_feed_ai_password` (human step, below).
+- The `ai-usage` queue holds only `ai.recordUsage` and `ai.refreshSpend` (worker pool `ai-usage`, `apps/worker`
+  `POOL_JOBS`); the `ai` pool's jobs (Listing Studio, sanitizer, batches, worker-path usage retries
+  `ai.retryUsageRecord`) are out of feed-api's reach. Redis ACLs scope by key, not job name, so the worker treats every
+  `ai-usage` payload as untrusted: `ai.recordUsage` accepts only request-path features (`REQUEST_PATH_AI_FEATURES`),
+  single calls within `REQUEST_PATH_RECORD_LIMITS` (≤ 1 USD, ≤ 200k input / 16k output tokens), no batches, this or
+  last month, for an agency that exists — anything else is dead-lettered unwritten; `ai.refreshSpend` seeds only
+  existing agencies' recent months. **Residual risk:** a compromised feed-api can inflate a real agency's recorded AI
+  spend in small plausible steps (it already holds that agency's budget through AI search itself), never plant a large
+  cost, a batch or another queue's job.
 - The Kamal entries (`infra/kamal/feed-api.yml`) ship **commented out**: AI search stays off in every destination
   until this ADR is accepted, the ACL user exists (`infra/ansible`), and the `AI_*` variables are set.
 
@@ -49,8 +56,7 @@ S12-01's request-safe store does this without a database write: the budget comes
    alerts, idempotency) and puts durable accounting on the evicting cache instance. A good fallback if a queue
    connection is not acceptable.
 3. **A dedicated `ai-usage` queue** holding only `ai.recordUsage` / `ai.refreshSpend`, with the ACL on its keys
-   alone — the tightest scope; costs one more queue and worker registration. Can follow this ADR without changing
-   feed-api (only the pool name of the two jobs).
+   alone — **adopted** (S12-01 follow-up, 2026-10-25): it closes the gap where `feed_ai` could reach every `ai` job.
 4. **Make the AI call from a worker** (feed-api enqueues the parse, polls the cache) — rejected: an uncached search
    would wait on queue latency, breaking the 600 ms p95 budget.
 

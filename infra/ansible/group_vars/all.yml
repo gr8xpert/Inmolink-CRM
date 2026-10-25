@@ -52,10 +52,11 @@ redis_limits_acl: "resetkeys ~inl:rl:* resetchannels -@all +ping +client|setname
 # and its fair-share sets — so it cannot add a job to a pool that runs as app_system. No admin, no key listing.
 # apps/worker/src/least-privilege.int.test.ts runs a media worker as it.
 redis_media_acl: "resetkeys ~inl:media:* ~inl:media.dead:* ~inl:fair:media:* resetchannels -@all +@read +@write +@scripting +@connection +@transaction +@blocking +@keyspace -@dangerous -@admin -script|flush -script|kill -function -fcall -fcall_ro -scan -randomkey +info"
-# ACL of redis-queue's `feed_ai` user (S12-08, ADR 0018 — Proposed): feed-api enqueues AI usage jobs on the `ai`
-# pool's keys only (its queue and fair-share sets) — no other pool, no blocking reads (it never consumes), no admin,
-# no key listing. Redis ACLs scope keys, not job names: the worker validates every `ai` job's payload.
-redis_feed_ai_acl: "resetkeys ~inl:ai:* ~inl:fair:ai:* resetchannels -@all +@read +@write +@scripting +@connection +@transaction -@blocking -@dangerous -@admin -script|flush -script|kill -function -fcall -fcall_ro -scan -randomkey -keys"
+# ACL of redis-queue's `feed_ai` user (S12-08, ADR 0018): feed-api enqueues request-path AI usage jobs on the
+# `ai-usage` queue's keys only (S12-01: its own queue — `ai.recordUsage` / `ai.refreshSpend`, nothing else; the `ai`
+# pool's keys `inl:ai:*` are out of reach, the colon keeps `~inl:ai-usage:*` from matching them) — no other pool, no
+# blocking reads (it never consumes), no admin, no key listing. The worker validates every `ai-usage` payload.
+redis_feed_ai_acl: "resetkeys ~inl:ai-usage:* ~inl:fair:ai-usage:* resetchannels -@all +@read +@write +@scripting +@connection +@transaction -@blocking -@dangerous -@admin -script|flush -script|kill -function -fcall -fcall_ro -scan -randomkey -keys"
 
 # Cloudflare's published edge ranges (https://www.cloudflare.com/ips/). App hosts accept 80/443 only
 # from these (roles/docker origin lock), and the Kamal apps trust them in TRUST_PROXY — keep both in sync

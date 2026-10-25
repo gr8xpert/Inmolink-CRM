@@ -37,6 +37,8 @@ export const POOLS = [
   // S11 review: notification e-mail digests, bursty (a broad network post), in their own queue and slots.
   'digest',
   'ai',
+  // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds — the only queue feed-api can write.
+  'ai-usage',
   'social',
   'pdf',
   'maintenance',
