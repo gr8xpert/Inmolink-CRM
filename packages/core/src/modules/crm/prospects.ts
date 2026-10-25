@@ -19,7 +19,7 @@ import {
 } from '@inmolink/contracts';
 import { withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -49,7 +49,6 @@ import { isRank, rankBetween, spreadRank, timeRank } from './rank';
  * not to staff impersonating one (`crm.prospects.confidential`), never in Client Mode (nothing of the CRM is).
  */
 
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function toProspectDto(ctx: Ctx, row: prospectsRepo.ProspectRow): ProspectDto {

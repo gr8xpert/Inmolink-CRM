@@ -1,8 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import { contacts, sellerProspects } from '@inmolink/db/schema/crm';
 import { and, asc, eq, gt, gte, isNull, lt, type SQL, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
-import { rowAfter, rowOrder } from './keyset';
+import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
 /**
  * Seller prospect queries (S10-07, the acquisition board). Queries only `@inmolink/db/schema/crm`. Board order is

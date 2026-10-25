@@ -1,5 +1,6 @@
 import { type Tx, withAuth, withTenant } from '@inmolink/db';
 import type { UiLocale } from '@inmolink/i18n';
+import { AppError } from '@inmolink/platform/errors';
 
 /** A UI locale code from `packages/i18n` (`locales.json`); validate input with `isUiLocale`. */
 export type Locale = UiLocale;
@@ -21,6 +22,15 @@ export interface Ctx {
   locale: Locale;
   requestId: string;
   clientMode: boolean;
+}
+
+/** S12-F18: the member acting (`actor.kind === 'user'`), or null for API keys and system work. */
+export const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
+
+/** S12-F18: the member acting; anyone else (API key, system) is `FORBIDDEN`. */
+export function memberUserId(ctx: Ctx): string {
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  return ctx.actor.userId;
 }
 
 /** Inmolink staff roles (PLAN §3 #2); `identity.STAFF_ROLES` is the runtime list. */

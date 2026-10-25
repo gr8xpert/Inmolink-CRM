@@ -3,6 +3,7 @@ import { withSystem } from '@inmolink/db';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
+import { escapeHtml } from '../../email-text';
 import * as identity from '../identity';
 import * as repo from './data-export-repo';
 
@@ -21,9 +22,6 @@ export function configureDataExportNotice(config: { webUrl?: string }): void {
 }
 
 const localeOf = (locale: string) => (isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
-
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
 /** The admins to tell (user ids), or none when the export is gone. */
 export async function dataExportNoticeRecipients(p: { agencyId: string; exportId: string }): Promise<string[]> {

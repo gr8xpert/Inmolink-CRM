@@ -15,8 +15,7 @@ import {
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
 import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder } from '../../pagination';
-import { rowAfter, rowOrder } from './keyset';
+import { type KeysetCursor, keysetAfter, keysetOrder, rowAfter, rowOrder } from '../../pagination';
 
 /**
  * crm queries (PATTERNS §5). Takes `tx`, selects only the columns it needs, paginates by cursor.

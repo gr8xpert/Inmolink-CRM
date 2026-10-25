@@ -6,8 +6,8 @@
 import type { RegistrationTargetKind, ViewingStatus } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clientRegistrations, viewingRequestReceipts, viewingRequests } from '@inmolink/db/schema/mls';
-import { type AnyColumn, and, desc, eq, gt, type SQL, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { and, desc, eq, gt, type SQL, sql } from 'drizzle-orm';
+import { type KeysetCursor, rowAfter } from '../../pagination';
 
 export type Side = 'INTRODUCER' | 'OWNER';
 
@@ -125,12 +125,6 @@ const asOwner = (r: Omit<ViewingRow, 'side' | 'registrationId' | 'contactId' | '
   contactId: null,
   requestedByUserId: null,
 });
-
-/** Newest first on the stored millisecond column and the id, the cursor as one row comparison (index condition). */
-function rowAfter(ms: AnyColumn, id: AnyColumn, cursor: KeysetCursor | undefined): SQL | undefined {
-  if (!cursor) return undefined;
-  return sql`(${ms}, ${id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
-}
 
 // ---- reads -------------------------------------------------------------------------------------------------------------
 

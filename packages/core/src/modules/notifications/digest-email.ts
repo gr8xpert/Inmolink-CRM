@@ -1,12 +1,7 @@
 import { DEFAULT_UI_LOCALE, formatter, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
-
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
-
-/** One header-safe line. */
-const line = (s: string, max: number) => s.replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').slice(0, max);
+import { escapeHtml, line } from '../../email-text';
 
 /** Notifications listed in one digest; the rest are counted ("…and 3 more"). */
 export const DIGEST_LISTED = 20;

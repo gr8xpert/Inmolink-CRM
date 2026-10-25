@@ -19,7 +19,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, storage } from '@inmolink/platform/storage';
-import type { Ctx, CtxRunner, StaffCtx } from '../../context';
+import { type Ctx, type CtxRunner, type StaffCtx, userIdOf } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as compliance from '../compliance';
 import { agenciesEvents } from './events';
@@ -36,8 +36,6 @@ import { toAgencyDto } from './service';
 
 /** Signed document links live this long: enough to open the file, too short to share around. */
 export const DOCUMENT_URL_TTL_SECONDS = 300;
-
-const userIdOf = (ctx: Ctx) => (ctx.actor.kind === 'user' ? ctx.actor.userId : '');
 
 function toDocumentDto(row: repo.DocumentRow): VerificationDocumentDto {
   return {
@@ -117,7 +115,7 @@ export async function uploadVerificationDocument(
         sizeBytes: input.body.byteLength,
         sha256,
         storageKey,
-        uploadedBy: userIdOf(ctx),
+        uploadedBy: userIdOf(ctx) ?? '',
       });
       return { dto: toDocumentDto(row), duplicate: false };
     });
@@ -196,7 +194,7 @@ export async function submitVerification(ctx: Ctx, input: SubmitVerificationBody
       id: requestId,
       agencyId: agency.id,
       detailsVersion: agency.version,
-      submittedBy: userIdOf(ctx),
+      submittedBy: userIdOf(ctx) ?? '',
       submittedAt: clock.now(),
     });
   } catch (err) {

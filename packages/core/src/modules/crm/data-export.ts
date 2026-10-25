@@ -7,8 +7,7 @@
 import type { Tx } from '@inmolink/db';
 import { contacts, leads } from '@inmolink/db/schema/crm';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
-import { rowAfter, rowOrder } from './keyset';
+import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
 /** Most rows one page may ask for. */
 export const EXPORT_PAGE_MAX = 2_000;

@@ -21,7 +21,7 @@ import {
 import { type Tx, withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -49,7 +49,6 @@ import { routeLead } from './routing';
  */
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 
 /** Members considered by the round robin (the agency's active members who work clients). */
 const ROUND_ROBIN_MEMBERS = 500;

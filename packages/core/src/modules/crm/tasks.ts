@@ -9,7 +9,7 @@ import {
 } from '@inmolink/contracts';
 import { withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
@@ -53,7 +53,6 @@ import * as tasksRepo from './tasks-repo';
  * "My tasks" lists what is due. Times are shown in the agency's time zone (`agency_settings.time_zone`, S11-F11).
  */
 
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 /** How long after its due time a task can still be reminded (a longer worker outage skips it). */
 export const REMINDER_GRACE_MS = 24 * 3_600_000;
 const COMPLETED_EXCERPT_CHARS = 280;

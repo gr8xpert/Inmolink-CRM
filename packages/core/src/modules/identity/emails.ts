@@ -1,6 +1,7 @@
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
+import { escapeHtml } from '../../email-text';
 
 /** Auth emails rendered from `@inmolink/i18n` (EN/ES written by hand). Text + minimal escaped HTML. */
 export type AuthEmailKind = 'VERIFY_EMAIL' | 'PASSWORD_RESET' | 'ACCOUNT_EXISTS';
@@ -19,9 +20,6 @@ const TAG: Record<AuthEmailKind, string> = {
 
 /** The user's UI locale, or the default when it is no longer configured. Also the link's locale prefix. */
 export const emailLocale = (locale: string) => (isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
-
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 
 function message(
   to: string,

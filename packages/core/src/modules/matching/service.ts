@@ -14,7 +14,7 @@ import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId as userIdOf } from '../../context';
 import * as agencies from '../agencies';
 import * as notifications from '../notifications';
 import * as search from '../search';
@@ -37,11 +37,6 @@ import * as repo from './repo';
  *   ones wait for `sendDigest`. The notifications module does the rest: the bell, the live push and the e-mail summary.
  * - `sendDigest` (daily, per agency): one notification per saved search with what it matched since.
  */
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 /** Where an alert opens: the member's saved searches. */
 export const SAVED_SEARCHES_LINK = '/network/saved-searches';

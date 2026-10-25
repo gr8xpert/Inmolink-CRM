@@ -2,8 +2,7 @@ import type { Tx } from '@inmolink/db';
 import { activities, contacts, leads } from '@inmolink/db/schema/crm';
 import { and, eq, gt, gte, isNull, lte, type SQL, type SQLWrapper, sql } from 'drizzle-orm';
 import { unionAll } from 'drizzle-orm/pg-core';
-import type { KeysetCursor } from '../../pagination';
-import { rowAfter, rowOrder } from './keyset';
+import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
 /**
  * Activity timeline queries (S10-04). `activities` is partitioned by month on `occurred_at`; every list is a keyset on

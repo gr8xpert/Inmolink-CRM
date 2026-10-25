@@ -117,6 +117,21 @@ export function keysetOrderRaw(at: AnyColumn, id: AnyColumn, dir: 'asc' | 'desc'
   return [by(at), by(id)];
 }
 
+/**
+ * Keyset on a STORED millisecond column (crm, mls; S10-02 review), newest first: the cursor as one row comparison
+ * `(ms, id) < (?, ?)`, an index condition under RLS (`keysetAfter`'s `date_trunc(…)` `or` form is not leakproof, so a
+ * deep page read the agency's whole index range). S12-F18: the one definition (was crm/keyset.ts and two mls copies).
+ */
+export function rowAfter(ms: AnyColumn, id: AnyColumn, cursor: KeysetCursor | undefined): SQL | undefined {
+  if (!cursor) return undefined;
+  return sql`(${ms}, ${id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
+}
+
+/** `ORDER BY` matching `rowAfter`: the stored millisecond time, then the id, newest first. */
+export function rowOrder(ms: AnyColumn, id: AnyColumn): SQL[] {
+  return [desc(ms), desc(id)];
+}
+
 /** `ORDER BY` of a keyset list: truncated time, then id, both in `dir`. */
 export function keysetOrder(at: AnyColumn, id: AnyColumn, dir: 'asc' | 'desc'): SQL[] {
   const by = dir === 'asc' ? asc : desc;

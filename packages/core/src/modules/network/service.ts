@@ -18,7 +18,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId as userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -37,11 +37,6 @@ import * as repo from './repo';
  */
 
 const DAY_MS = 86_400_000;
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 const orNull = <T>(xs: readonly T[] | undefined): T[] | null => (xs && xs.length > 0 ? [...new Set(xs)] : null);
 

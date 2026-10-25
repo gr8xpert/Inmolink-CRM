@@ -27,7 +27,7 @@ import {
 } from '@inmolink/contracts';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import { auditImpersonatedRead } from './audit';
@@ -46,8 +46,6 @@ import { humanResponseOf } from './response';
  * entry stage (seeding the defaults on an agency's first lead) and appends every move to `lead_stage_history`. A move
  * to another stage emits `crm.lead.stageChanged` in its transaction; the timeline records `STAGE_CHANGED` from it.
  */
-
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 
 export function toStageDto(row: pipelineRepo.StageRow): PipelineStageDto {
   return {

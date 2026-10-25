@@ -9,9 +9,7 @@ import type { ViewingSlot, WebsiteCard, WebsitePresenter } from '@inmolink/contr
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { EmailMessage } from '@inmolink/platform/email';
-
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+import { escapeHtml } from '../../email-text';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const colour = (value: string | null, fallback: string) => (value && HEX.test(value) ? value : fallback);

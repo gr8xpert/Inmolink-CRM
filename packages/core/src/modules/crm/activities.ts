@@ -8,7 +8,7 @@ import {
 } from '@inmolink/contracts';
 import { type Tx, withTenant } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as activitiesRepo from './activities-repo';
@@ -33,7 +33,6 @@ import { RESPONSE_ACTIVITY_TYPES, recordHumanResponse } from './response';
  * merge (the only way a contact closes) re-points them in its transaction, and writers check the contact is open.
  */
 
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 const DAY_MS = 86_400_000;
 /** A logged time may run this far ahead of the server's clock (a client's clock skew), never more. */
 const CLOCK_SKEW_MS = 60_000;

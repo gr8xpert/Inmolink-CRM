@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- refactor(core): one keyset helper (pagination.rowAfter/rowOrder), shared actor (context.userIdOf/memberUserId) and e-mail text helpers (email-text.ts) replace 26 copies [S12-F18]
 - feat(ai-features): AI Listing Studio — AI_DRAFT copy and SEO meta per enabled locale from listing facts, tone presets, fact validator with repair, locked locales protected, bulk batch jobs, eval listing-studio, migration 0142 listing_studio_batches [S12-02]
 - perf(network,search): cap buyer-request matching pool-wide (4), record engine time per round [S12-F5] (acceptance pending H4)
 - feat(ai-features): white-label sanitizer model pass — deterministic handles/spelled e-mails (SANITIZER_VERSION 2, ReDoS-bounded), FAST-model removals with a fact-safe acceptor cached per target on redis-cache, cache.peekMany, prompt white-label/v1 + evals [S12-03]

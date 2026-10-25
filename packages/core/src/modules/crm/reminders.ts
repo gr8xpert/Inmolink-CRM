@@ -1,6 +1,7 @@
 import { type Tx, withSystem } from '@inmolink/db';
-import { type EmailMessage, EmailSendError, mailer } from '@inmolink/platform/email';
+import { type EmailMessage, mailer } from '@inmolink/platform/email';
 import { emit, type OutboxMessage } from '@inmolink/platform/outbox';
+import { wasNotSent } from '../../email-text';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
 
@@ -22,7 +23,6 @@ import * as identity from '../identity';
 export const REMINDER_SWEEP = { batch: 200, perAgency: 50, maxBatches: 25 } as const;
 
 /** Failures known to precede the send: a message the adapter refused, a provider 4xx refusal. */
-const wasNotSent = (err: unknown) => err instanceof TypeError || (err instanceof EmailSendError && err.notSent);
 
 /** The sweep loop: returns every row claimed. `claim` runs inside the batch transaction and gets the batch limits. */
 export async function sweepReminders<R extends { agencyId: string }>(opts: {

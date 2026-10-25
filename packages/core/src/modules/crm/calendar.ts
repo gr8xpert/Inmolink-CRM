@@ -18,7 +18,7 @@ import { translator } from '@inmolink/i18n/server';
 import { hmacSha256, hmacSha256Candidates, newToken } from '@inmolink/platform/crypto';
 import { etagFor } from '@inmolink/platform/http';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { advisoryLock, idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as compliance from '../compliance';
@@ -59,7 +59,6 @@ import { sendReminder, sweepReminders } from './reminders';
  * - **Who changes an event.** Its organizer or an agency admin: edits, cancelling and attendee changes.
  */
 
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 /** How long after its remind time an event can still be reminded (a longer worker outage skips it). */
 export const EVENT_REMINDER_GRACE_MS = 2 * 3_600_000;
 

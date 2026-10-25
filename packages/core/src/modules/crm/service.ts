@@ -21,7 +21,7 @@ import {
 } from '@inmolink/contracts';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, userIdOf } from '../../context';
 import { idempotencyHashOf, idempotencyWindowStart, isUniqueViolation } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as compliance from '../compliance';
@@ -91,8 +91,6 @@ function toNoteDto(row: repo.NoteRow): ContactNoteDto {
     updatedAt: row.updatedAt.toISOString(),
   };
 }
-
-const userIdOf = (ctx: Ctx): string | null => (ctx.actor.kind === 'user' ? ctx.actor.userId : null);
 
 /** E-mails as stored (distinct); one that is not an address is the caller's error. */
 function emailsOf(raw: readonly string[]): string[] {

@@ -11,16 +11,7 @@ import {
   clientRegistrations,
 } from '@inmolink/db/schema/mls';
 import { type AnyColumn, and, asc, desc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
-
-/**
- * Newest first on the stored millisecond column and the id, the cursor as one row comparison — an index condition
- * under RLS (crm's keyset, S10-02 review).
- */
-function rowAfter(ms: AnyColumn, id: AnyColumn, cursor: KeysetCursor | undefined): SQL | undefined {
-  if (!cursor) return undefined;
-  return sql`(${ms}, ${id}) < (${cursor.at.toISOString()}::timestamptz, ${cursor.id}::uuid)`;
-}
+import { type KeysetCursor, rowAfter } from '../../pagination';
 
 /**
  * S11-06 filters of the collaborations view (all optional): state by the database's clock, target kind, and a day range

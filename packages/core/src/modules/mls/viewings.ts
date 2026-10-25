@@ -34,7 +34,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { type EventMeta, type EventPayload, emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId as userIdOf } from '../../context';
 import { advisoryLock, idempotencyOf, isUniqueViolation, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -58,11 +58,6 @@ const DAY_MS = 86_400_000;
 const DEVELOPMENT_SPLIT_BP = 10_000;
 
 type Action = EventPayload<typeof mlsEvents.viewingChanged>['action'];
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 const other = (side: repo.Side): repo.Side => (side === 'OWNER' ? 'INTRODUCER' : 'OWNER');

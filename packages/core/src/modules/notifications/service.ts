@@ -21,12 +21,13 @@ import {
 import { type Tx, withSystem } from '@inmolink/db';
 import { publishUserEvents, type UserEvent } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
-import { EmailSendError, mailer } from '@inmolink/platform/email';
+import { mailer } from '@inmolink/platform/email';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { z } from 'zod';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { wasNotSent } from '../../email-text';
 import { decodeCursor, toPage } from '../../pagination';
 import * as identity from '../identity';
 import { renderDigest } from './digest-email';
@@ -49,11 +50,6 @@ import * as repo from './repo';
  * throttled per member) mails the member what is still unread and whose type still has e-mail on — read in-app
  * meanwhile means seen (the member was online), so it is not mailed.
  */
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 /** What `notify` / `raiseNotifications` take (validated: other modules' code is trusted, its data is not). */
 export const NotifyInput = z.strictObject({
@@ -454,8 +450,6 @@ export const DIGEST_DELAY_MS = 5 * 60_000;
 
 /** Notifications one digest takes; a member with more gets the next digest at once (`retryInMs` 0). */
 export const DIGEST_BATCH = 200;
-
-const wasNotSent = (err: unknown) => err instanceof TypeError || (err instanceof EmailSendError && err.notSent);
 
 export interface DigestResult {
   sent: boolean;

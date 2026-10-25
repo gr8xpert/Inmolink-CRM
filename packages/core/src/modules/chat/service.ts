@@ -18,7 +18,7 @@ import {
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
-import type { Ctx } from '../../context';
+import { type Ctx, memberUserId as userIdOf } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -30,11 +30,6 @@ import { chatEvents } from './events';
 import { handoffLinks } from './handoff';
 import { assertCan, can } from './policy';
 import * as repo from './repo';
-
-const userIdOf = (ctx: Ctx): string => {
-  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
-  return ctx.actor.userId;
-};
 
 /**
  * chat use cases (PATTERNS §7): `(ctx: Ctx, input) → DTO`. Every read and write is the caller's own: a thread is found

@@ -1,6 +1,7 @@
 import type { ChatHandoffDto } from '@inmolink/contracts';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
+import { line } from '../../email-text';
 
 /** WhatsApp's share link (wa.me "click to chat" without a number: the member picks the recipient in WhatsApp). */
 export const WHATSAPP_SHARE_URL = 'https://wa.me/';
@@ -9,8 +10,6 @@ export const WHATSAPP_SHARE_URL = 'https://wa.me/';
  * One line of display text: control characters, line / paragraph separators and format characters (bidi overrides)
  * out — joiners kept — at most `max` characters.
  */
-const line = (s: string, max: number) =>
-  s.replace(/(?:[\p{Cc}\p{Zl}\p{Zp}]|[^\P{Cf}\p{Join_Control}])+/gu, ' ').slice(0, max);
 
 /**
  * WhatsApp / e-mail handoff (S11-03, PLAN §7 M12): deep links that open the member's own WhatsApp or mail client with a
