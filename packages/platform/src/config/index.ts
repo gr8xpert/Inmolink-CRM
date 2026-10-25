@@ -57,6 +57,15 @@ export const redisEnv = {
 };
 
 /**
+ * S12-F4: publishers (workers) prefix per-user realtime events with `agencyId:userId|` so realtime nodes skip other
+ * members' events unparsed. Off for the release that ships it: a realtime node of the previous release cannot read
+ * the prefix. Turn it on (worker env) once every realtime node runs a release that reads both forms.
+ */
+export const realtimeEventsEnv = {
+  REALTIME_PREFIX_EVENTS: z.enum(['true', 'false']).default('false'),
+};
+
+/**
  * Rate-limit counters (S1-F6): a Redis that never evicts, so memory pressure cannot reset a login limit.
  * redis-queue in every environment; production connects as an ACL user limited to `inl:rl:*` keys.
  */

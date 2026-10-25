@@ -8,6 +8,7 @@ import {
 import { type Tx, withSystem } from '@inmolink/db';
 import { publishUserEvents, type UserEvent } from '@inmolink/platform/cache';
 import type { EventMeta } from '@inmolink/platform/outbox';
+import * as identity from '../identity';
 import * as mls from '../mls';
 import * as notifications from '../notifications';
 import * as repo from './repo';
@@ -21,14 +22,19 @@ import { threadLink, toMessageDto } from './service';
 
 type Publish = (events: readonly UserEvent[]) => Promise<void>;
 
-/** Every participant of the thread's copies at `agencyId` and its peer (never a third agency's rows). */
+/**
+ * Every participant of the thread's copies at `agencyId` and its peer (never a third agency's rows) who is still an
+ * active member of their agency (S12-F10: a deactivated member gets no push, no notification).
+ */
 async function seated(tx: Tx, agencyId: string, threadId: string) {
   const [own] = await repo.threadCopies(tx, threadId, [agencyId]);
   if (!own) return null;
   const agencyIds = new Set([agencyId, ...(own.peerAgencyId ? [own.peerAgencyId] : [])]);
-  const participants = (await repo.participantsAcross(tx, threadId, 2 * CHAT_LIMITS.participants)).filter((p) =>
+  const seatedRows = (await repo.participantsAcross(tx, threadId, 2 * CHAT_LIMITS.participants)).filter((p) =>
     agencyIds.has(p.agencyId),
   );
+  const active = await identity.activeMembersAcross(tx, seatedRows);
+  const participants = seatedRows.filter((p) => active.has(`${p.agencyId}:${p.userId}`));
   return { thread: own, participants };
 }
 

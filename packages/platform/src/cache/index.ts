@@ -1,5 +1,5 @@
 import { Redis, type RedisOptions } from 'ioredis';
-import { loadConfig, redisEnv } from '../config';
+import { loadConfig, realtimeEventsEnv, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
 import type { CacheKey } from './key';
@@ -15,9 +15,11 @@ export {
   decodeUserEvent,
   encodeUserEvent,
   MAX_USER_EVENT_BYTES,
+  type SubscribeUserEventsOptions,
   subscribeUserEvents,
   USER_EVENTS_CHANNEL,
   type UserEvent,
+  userEventRecipient,
 } from './user-events';
 
 export interface CacheConfig {
@@ -31,6 +33,8 @@ export interface CacheConfig {
    * machine raise it; a slow cache in production must fail fast instead.
    */
   commandTimeoutMs?: number;
+  /** S12-F4: prefix published user events with their recipient (default `REALTIME_PREFIX_EVENTS`, off). */
+  prefixUserEvents?: boolean;
 }
 
 interface State {
@@ -38,6 +42,7 @@ interface State {
   prefix: string;
   logger: Logger;
   commandTimeoutMs: number;
+  prefixUserEvents: boolean;
   redis?: Redis;
   cache?: Cache;
   seen?: SeenTimes;
@@ -65,6 +70,7 @@ function fromEnv(config: CacheConfig = {}): State {
     prefix: config.prefix ?? 'inl:c',
     logger: config.logger ?? createLogger({ service: 'cache', level: process.env.LOG_LEVEL }),
     commandTimeoutMs: config.commandTimeoutMs ?? 200,
+    prefixUserEvents: config.prefixUserEvents ?? loadConfig(realtimeEventsEnv).REALTIME_PREFIX_EVENTS === 'true', // S12-F4
   };
 }
 
@@ -112,7 +118,8 @@ export function pubSubConnections(): { pub: Redis; sub: Redis } {
  */
 export async function publishUserEvents(events: readonly UserEvent[]): Promise<void> {
   if (events.length === 0) return;
-  const encoded = events.map(encodeUserEvent);
+  const { prefixUserEvents } = current(); // S12-F4: the rollout flag
+  const encoded = events.map((e) => encodeUserEvent(e, { prefix: prefixUserEvents }));
   const pipeline = cacheConnection().pipeline();
   for (const text of encoded) pipeline.publish(USER_EVENTS_CHANNEL, text);
   const results = await pipeline.exec();
@@ -148,6 +155,49 @@ function seenInstance(): SeenTimes {
   const s = current();
   s.seen ??= new SeenTimes(cacheConnection(), s.prefix, s.logger);
   return s.seen;
+}
+
+/**
+ * S12-F10: a member's realtime revocation, shared by every realtime node (a restarted node, or one that missed the
+ * pub/sub message, still refuses the old token). Workers write it before publishing; it lives as long as a token
+ * issued before it can (`ttlSeconds`). allkeys-lru may evict it early: nodes also keep what they heard in memory.
+ */
+export interface SessionRevocation {
+  /** Epoch ms of the deactivation, or null. */
+  deactivatedAt: number | null;
+  /** Tokens with an older `sv` are refused, or null. */
+  sessionVersion: number | null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function revocationKey(agencyId: string, userId: string): string {
+  if (!UUID_RE.test(agencyId) || !UUID_RE.test(userId)) throw new TypeError('session revocation: ids must be UUIDs');
+  return `${current().prefix}:rt:revoked:${agencyId}:${userId}`;
+}
+
+/** Stores the fields given (each one the database's current value), and (re)sets the expiry. */
+export async function markSessionRevoked(
+  agencyId: string,
+  userId: string,
+  r: Partial<SessionRevocation>,
+  ttlSeconds: number,
+): Promise<void> {
+  const key = revocationKey(agencyId, userId);
+  const fields: Record<string, string> = {};
+  if (r.deactivatedAt != null) fields.dv = String(r.deactivatedAt);
+  if (r.sessionVersion != null) fields.sv = String(r.sessionVersion);
+  if (Object.keys(fields).length === 0) return;
+  const results = await cacheConnection().multi().hset(key, fields).expire(key, ttlSeconds).exec();
+  const failed = results?.find(([err]) => err);
+  if (failed?.[0]) throw failed[0];
+}
+
+/** The member's revocation, or null (none, expired or evicted). Errors reach the caller (realtime fails open). */
+export async function sessionRevocation(agencyId: string, userId: string): Promise<SessionRevocation | null> {
+  const [dv, sv] = await cacheConnection().hmget(revocationKey(agencyId, userId), 'dv', 'sv');
+  if (dv == null && sv == null) return null;
+  const num = (v: string | null | undefined) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  return { deactivatedAt: num(dv), sessionVersion: num(sv) };
 }
 
 /** Graceful shutdown. */

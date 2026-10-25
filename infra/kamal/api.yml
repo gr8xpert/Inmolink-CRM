@@ -98,6 +98,11 @@ accessories:
   # The image's entrypoint then drops to the redis user as usual.
   # S7-F7: a keyless `exporter` ACL user for redis_exporter (the same ACL as redis-queue's, infra/ansible group_vars
   # `redis_exporter_acl` — keep both in sync): server state only, no key, no CONFIG, never the cache password.
+  # S12-F4: pub/sub output buffer set explicitly (default 32mb 8mb 60): every realtime node subscribes to every per-user
+  # event (and the Socket.io adapter channels); a node that falls behind by 64 MB, or 16 MB for a minute, is dropped
+  # (`inmolink_realtime_subscriber_disconnects_total`) and resubscribes. 10k events (~1 KB) to 3 nodes stay far below
+  # (perf test: a stalled node peaked at ~7 MB). Headroom: output buffers are not part of `maxmemory`, so the host
+  # needs N realtime nodes × 64 MB (× 2 subscriber connections each: user events + Socket.io adapter) above the 4 GB.
   redis-cache:
     image: redis:7.4.11-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     cmd: >-
@@ -108,7 +113,8 @@ accessories:
       "resetkeys resetchannels -@all +ping +auth +hello +select +client|setname +client|getname +client|info +info +slowlog|get +slowlog|len +latency|latest +latency|histogram +command|info +cluster|info"
       > /tmp/redis.conf && chown redis:redis /tmp/redis.conf
       && exec docker-entrypoint.sh redis-server /tmp/redis.conf
-      --maxmemory 4gb --maxmemory-policy allkeys-lru --save "" --appendonly no'
+      --maxmemory 4gb --maxmemory-policy allkeys-lru --save "" --appendonly no
+      --client-output-buffer-limit "pubsub 64mb 16mb 60"'
     host: "" # per destination
     env:
       secret:

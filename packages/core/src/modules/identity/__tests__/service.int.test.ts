@@ -1,6 +1,13 @@
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
-import { closeCache, configureCache } from '@inmolink/platform/cache';
+import {
+  cacheConnection,
+  closeCache,
+  configureCache,
+  sessionRevocation,
+  type UserEvent,
+  whenReady,
+} from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { newToken } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
@@ -286,6 +293,64 @@ describe('identity password reset', () => {
     const unknown = uniqueEmail();
     await identity.requestPasswordReset(ctx(), { email: unknown });
     expect(await eventsFor(unknown)).toEqual([]);
+  });
+
+  it('[S12-F10] a password reset emits identity.sessions.revoked; its subscriber tells realtime the new session version for the user’s agency', async () => {
+    const { email, password } = await signUpAndVerify();
+    const user = await identity.verifyCredentials(ctx(), { email, password });
+    const token = await requestReset(email);
+    await identity.resetPassword(ctx(), { token, password: 'brand new password' });
+    const revoked = (await eventsFor(user.id)).filter((e) => e.type === 'identity.sessions.revoked');
+    expect(revoked).toHaveLength(1);
+    expect(revoked[0]?.payload).toEqual({ userId: user.id });
+
+    await whenReady(cacheConnection(), 10_000); // redis-cache commands fail fast until connected
+    const published: UserEvent[] = [];
+    const res = await identity.disconnectRevokedSessions({ userId: user.id }, async (e) => void published.push(...e));
+    const agencyId = await withSystem('identity test: membership', async (tx) => {
+      const r = await tx.execute(sql`select agency_id from agency_members where user_id = ${user.id}`);
+      return (r.rows[0] as { agency_id: string }).agency_id;
+    });
+    expect(res).toEqual({ agencies: 1 });
+    expect(published).toEqual([
+      {
+        userId: user.id,
+        agencyId,
+        namespace: '/session',
+        event: 'revoked',
+        data: { sessionVersion: 2, deactivatedAt: null },
+      },
+    ]);
+    // stored for every realtime node first (a restarted node still refuses the old token)
+    expect(await sessionRevocation(agencyId, user.id)).toEqual({ deactivatedAt: null, sessionVersion: 2 });
+
+    // a deactivation closes every socket of the member in that agency issued before it (database time); an active
+    // member publishes nothing
+    published.length = 0;
+    const record = async (e: readonly UserEvent[]) => void published.push(...e);
+    expect(await identity.disconnectDeactivatedMember({ agencyId, userId: user.id }, record)).toEqual({
+      revoked: false,
+    });
+    const at = await withSystem('identity test: deactivate', async (tx) => {
+      const r = await tx.execute(sql`update agency_members set deactivated_at = now() where user_id = ${user.id}
+        returning deactivated_at`);
+      return new Date((r.rows[0] as { deactivated_at: string | Date }).deactivated_at);
+    });
+    expect(await identity.disconnectDeactivatedMember({ agencyId, userId: user.id }, record)).toEqual({
+      revoked: true,
+    });
+    expect(published).toEqual([
+      {
+        userId: user.id,
+        agencyId,
+        namespace: '/session',
+        event: 'revoked',
+        data: { sessionVersion: null, deactivatedAt: at.toISOString() },
+      },
+    ]);
+    expect(await sessionRevocation(agencyId, user.id)).toEqual({ deactivatedAt: at.getTime(), sessionVersion: 2 });
+    // an unknown user publishes nothing
+    expect(await identity.disconnectRevokedSessions({ userId: newId() }, async () => {})).toEqual({ agencies: 0 });
   });
 
   it('[S0-09] a password reset revokes existing sessions (no new access tokens for the old session)', async () => {

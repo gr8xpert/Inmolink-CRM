@@ -1,6 +1,6 @@
 import { closeDb, configureDb, loadStackEnv, pingDb, withMemberCtx } from '@inmolink/core';
 import * as chat from '@inmolink/core/modules/chat';
-import { configureCache, pubSubConnections, subscribeUserEvents } from '@inmolink/platform/cache';
+import { configureCache, pubSubConnections, sessionRevocation, subscribeUserEvents } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { createAccessTokenVerifier, parsePublicKeys } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
@@ -35,7 +35,8 @@ try {
     adapter: { pub, sub },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(config.AUTH_JWT_PUBLIC_KEYS) }),
     allowedOrigins: [new URL(config.WEB_URL).origin],
-    userEvents: (handler) => subscribeUserEvents(userEvents, handler, logger),
+    // S12-F4: events of members with no socket on this node are skipped before parsing
+    userEvents: (handler, isLocal) => subscribeUserEvents(userEvents, handler, logger, { isLocal }),
     // S11-03: a `/chat` join is the member's own request (app_user, RLS): an inactive member or a thread they are not
     // in answers no
     canJoinThread: (auth, threadId) =>
@@ -43,6 +44,8 @@ try {
         chat.canJoinThread(ctx, threadId),
       ).catch(() => false),
     limit: async (rule, identity) => (await rateLimiter().consume(rule, identity)).allowed,
+    // S12-F10: deactivations and revoked sessions every node must refuse (redis-cache, written by the worker)
+    revocation: sessionRevocation,
     checks: { db: () => pingDb('app_user'), redis: redisCheck(() => pub) },
   });
 

@@ -1,5 +1,13 @@
+import { EventEmitter } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import type { UserEvent } from '@inmolink/platform/cache';
+import {
+  encodeUserEvent,
+  type Redis,
+  type SessionRevocation,
+  subscribeUserEvents,
+  USER_EVENTS_CHANNEL,
+  type UserEvent,
+} from '@inmolink/platform/cache';
 import {
   createAccessTokenSigner,
   createAccessTokenVerifier,
@@ -30,6 +38,16 @@ const LIMITED = '0192a0b4-0000-7000-8000-000000000004';
 const limited: string[] = [];
 /** S12-F11: a user whose `/notifications` connects the fake limiter counts (one window, `rule.limit` per window). */
 const CONNECTOR = '0192a0b4-0000-7000-8000-000000000005';
+/** S12-F10: a member who gets deactivated, and one whose sessions are revoked. */
+const DEACTIVATED = '0192a0b4-0000-7000-8000-000000000006';
+const RESET = '0192a0b4-0000-7000-8000-000000000007';
+/** S12-F10: revocations in the shared store (`deps.revocation`), one member whose lookup fails, one held in `limit`. */
+const SHARED = '0192a0b4-0000-7000-8000-000000000008';
+const SHARED_DOWN = '0192a0b4-0000-7000-8000-000000000009';
+const RACER = '0192a0b4-0000-7000-8000-00000000000a';
+const sharedRevocations = new Map<string, SessionRevocation>();
+let releaseRacer: (() => void) | undefined;
+let racerWaiting: (() => void) | undefined;
 let connects = 0;
 const pair = generateAccessKeyPair();
 const signer = createAccessTokenSigner({ privateKey: privateKeyFromBase64(pair.privateKey), keyId: 'k1' });
@@ -58,11 +76,30 @@ beforeAll(async () => {
         connects += 1;
         return connects <= rule.limit;
       }
+      if (identity.endsWith(RACER)) {
+        // S12-F10: held until the test has published a revocation
+        await new Promise<void>((resolve) => {
+          releaseRacer = resolve;
+          racerWaiting?.();
+        });
+      }
       return !(rule.name === 'realtime.chat.join.user' && identity.endsWith(LIMITED));
     },
-    userEvents: async (handler) => {
-      publish = handler;
+    revocation: async (agencyId, userId) => {
+      if (userId === SHARED_DOWN) throw new Error('redis-cache down');
+      return sharedRevocations.get(`${agencyId}:${userId}`) ?? null;
+    },
+    // S12-F4: the real subscription on a stand-in connection: every publish is encoded with its prefix and skipped
+    // unparsed unless the member is local to this node (`isLocal`), as in production
+    userEvents: async (handler, isLocal) => {
+      const sub = Object.assign(new EventEmitter(), {
+        subscribe: async () => 1,
+        unsubscribe: async () => 0,
+      }) as unknown as Redis;
+      const stop = await subscribeUserEvents(sub, handler, createLogger({ level: 'silent' }), { isLocal });
+      publish = (e) => sub.emit('message', USER_EVENTS_CHANNEL, encodeUserEvent(e));
       return async () => {
+        await stop();
         unsubscribed = true;
       };
     },
@@ -365,5 +402,152 @@ describe('realtime app', () => {
     expect(await open('/notifications', CONNECTOR)).toBe('RATE_LIMITED');
     expect(connects).toBe(31);
     expect(limited).toContain(`realtime.notifications.connect.user:${AGENCY}:${CONNECTOR}`);
+  });
+
+  /** A socket on `namespace` with this exact token, or the connect_error message. */
+  const openWith = (namespace: string, token: string) =>
+    new Promise<Socket | string>((resolve) => {
+      const socket = connect(`${url}${namespace}`, {
+        transports: ['websocket'],
+        reconnection: false,
+        auth: { token },
+        extraHeaders: { origin: ORIGIN },
+      });
+      socket.on('connect', () => resolve(socket));
+      socket.on('connect_error', (err) => {
+        socket.close();
+        resolve(err.message);
+      });
+    });
+  /** Resolves with the ms until `socket` is disconnected by the server, or -1 after `ms`. */
+  const closedWithin = (socket: Socket, ms: number) =>
+    new Promise<number>((resolve) => {
+      const start = Date.now();
+      const timer = setTimeout(() => resolve(-1), ms);
+      socket.once('disconnect', (reason) => {
+        clearTimeout(timer);
+        resolve(reason === 'io server disconnect' ? Date.now() - start : -2);
+      });
+    });
+  const revoke = (
+    userId: string,
+    data: { sessionVersion: number | null; deactivatedAt: string | null },
+    agencyId = AGENCY,
+  ) => publish?.({ userId, agencyId, namespace: '/session', event: 'revoked', data });
+  const deactivated = () => ({ sessionVersion: null, deactivatedAt: new Date().toISOString() });
+
+  it('[S12-F10] a deactivated member’s open sockets close within 1 s on /chat and /notifications, they get no push, and their old token cannot reconnect', async () => {
+    const { token } = await signer.sign({ sub: DEACTIVATED, aud: 'realtime', sv: 1, agency: AGENCY });
+    const [chatTab, notifTab, colleague, sameUserOtherAgency] = connected(
+      await openWith('/chat', token),
+      await openWith('/notifications', token),
+      await open('/notifications', USER),
+      await open('/notifications', DEACTIVATED, { agency: OTHER_AGENCY }),
+    );
+    try {
+      const got = received(notifTab, 'notification', 1_200);
+      const closed = [closedWithin(chatTab, 1_000), closedWithin(notifTab, 1_000)];
+      revoke(DEACTIVATED, deactivated());
+      for (const ms of await Promise.all(closed)) {
+        expect(ms).toBeGreaterThanOrEqual(0);
+        expect(ms).toBeLessThan(1_000);
+      }
+      realtime.deliver({
+        userId: DEACTIVATED,
+        agencyId: AGENCY,
+        namespace: '/notifications',
+        event: 'notification',
+        data: push(AGENCY),
+      });
+      expect(await got).toEqual([]);
+      // a colleague, and the same user's socket in another agency, stay connected
+      expect(colleague.connected).toBe(true);
+      expect(sameUserOtherAgency.connected).toBe(true);
+      expect(await openWith('/chat', token)).toBe('NOT_AUTHENTICATED');
+      expect(await openWith('/notifications', token)).toBe('NOT_AUTHENTICATED');
+    } finally {
+      for (const s of [chatTab, notifTab, colleague, sameUserOtherAgency]) s.close();
+    }
+  });
+
+  it('[S12-F10] revoked sessions (session version moved on) close; a socket on a newer session stays; malformed revocations are dropped', async () => {
+    const old = (await signer.sign({ sub: RESET, aud: 'realtime', sv: 1, agency: AGENCY })).token;
+    const fresh = (await signer.sign({ sub: RESET, aud: 'realtime', sv: 2, agency: AGENCY })).token;
+    const [oldTab, freshTab] = connected(await openWith('/chat', old), await openWith('/notifications', fresh));
+    try {
+      // not a SessionRevokedPush, or another event name: nothing closes
+      publish?.({ userId: RESET, agencyId: AGENCY, namespace: '/session', event: 'revoked', data: { x: 1 } });
+      publish?.({
+        userId: RESET,
+        agencyId: AGENCY,
+        namespace: '/session',
+        event: 'other',
+        data: { sessionVersion: 9 },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(oldTab.connected).toBe(true);
+
+      const closed = closedWithin(oldTab, 1_000);
+      revoke(RESET, { sessionVersion: 2, deactivatedAt: null });
+      const ms = await closed;
+      expect(ms).toBeGreaterThanOrEqual(0);
+      expect(ms).toBeLessThan(1_000);
+      expect(freshTab.connected).toBe(true);
+      expect(await openWith('/notifications', old)).toBe('NOT_AUTHENTICATED');
+      const [again] = connected(await openWith('/chat', fresh));
+      again.close();
+    } finally {
+      for (const s of [oldTab, freshTab]) s.close();
+    }
+  });
+
+  it('[S12-F10] a node that never heard of a revocation refuses the old token from the shared store; a store error lets the socket in', async () => {
+    const old = (await signer.sign({ sub: SHARED, aud: 'realtime', sv: 1, agency: AGENCY })).token;
+    sharedRevocations.set(`${AGENCY}:${SHARED}`, { deactivatedAt: null, sessionVersion: 2 });
+    expect(await openWith('/chat', old)).toBe('NOT_AUTHENTICATED');
+    expect(await openWith('/notifications', old)).toBe('NOT_AUTHENTICATED');
+    const fresh = (await signer.sign({ sub: SHARED, aud: 'realtime', sv: 2, agency: AGENCY })).token;
+    const [ok] = connected(await openWith('/notifications', fresh));
+    ok.close();
+    // deactivated (database time) a moment ago: a token issued before it, or within the 1 s slack after, is refused
+    sharedRevocations.set(`${AGENCY}:${SHARED}`, { deactivatedAt: Date.now(), sessionVersion: null });
+    expect(await openWith('/chat', fresh)).toBe('NOT_AUTHENTICATED');
+    // fail open, like the limiter
+    const [down] = connected(await open('/chat', SHARED_DOWN));
+    down.close();
+  });
+
+  it('[S12-F10] [S12-F4] a revocation that arrives while the connect waits on Redis still closes the socket (not skipped as non-local)', async () => {
+    const waiting = new Promise<void>((resolve) => {
+      racerWaiting = resolve;
+    });
+    const opening = open('/notifications', RACER);
+    await waiting; // admit is inside `deps.limit`; the socket is not in its room yet
+    // S12-F4: a member waiting in admit counts as local, so the subscription does not skip the revocation
+    expect(realtime.isLocal(AGENCY, RACER)).toBe(true);
+    revoke(RACER, deactivated());
+    releaseRacer?.();
+    const socket = await opening;
+    if (typeof socket === 'string') {
+      expect(socket).toBe('NOT_AUTHENTICATED');
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(socket.connected).toBe(false);
+    socket.close();
+  });
+
+  it('[S12-F4] a member is local only while one of their sockets is on this node (/notifications or /chat)', async () => {
+    expect(realtime.isLocal(AGENCY, STRANGER)).toBe(false);
+    const [notif] = connected(await open('/notifications', STRANGER));
+    expect(realtime.isLocal(AGENCY, STRANGER)).toBe(true);
+    expect(realtime.isLocal(OTHER_AGENCY, STRANGER)).toBe(false);
+    const [chatTab] = connected(await open('/chat', STRANGER));
+    notif.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(realtime.isLocal(AGENCY, STRANGER)).toBe(true);
+    chatTab.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(realtime.isLocal(AGENCY, STRANGER)).toBe(false);
   });
 });

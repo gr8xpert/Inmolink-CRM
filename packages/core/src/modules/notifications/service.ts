@@ -420,13 +420,19 @@ export async function pushNotifications(
   p: PushTarget,
   publish: (events: readonly UserEvent[]) => Promise<void> = publishUserEvents,
 ): Promise<{ pushed: number }> {
-  const rows = await withSystem('notifications.pushRealtime', (tx) =>
-    repo.loadForPush(
+  const rows = await withSystem('notifications.pushRealtime', async (tx) => {
+    const loaded = await repo.loadForPush(
       tx,
       p.agencyId,
       p.items.map((i) => ({ id: i.id, at: new Date(i.at) })),
-    ),
-  );
+    );
+    // S12-F10: a member deactivated since the notification was raised gets no push (one statement)
+    const active = await identity.activeMembersAcross(
+      tx,
+      loaded.map((r) => ({ agencyId: p.agencyId, userId: r.userId })),
+    );
+    return loaded.filter((r) => active.has(`${p.agencyId}:${r.userId}`));
+  });
   const events: UserEvent[] = rows
     .filter((row) => KNOWN_TYPES.has(row.type))
     .map((row) => {

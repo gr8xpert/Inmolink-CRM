@@ -52,4 +52,6 @@ export const identityEvents = {
   ),
   /** The member can no longer log in or reach the agency. */
   memberDeactivated: defineEvent('identity.member.deactivated', 1, z.object({ agencyId: z.uuid(), userId: z.uuid() })),
+  /** The user's sessions were revoked (`session_version` moved on, e.g. a password reset): realtime closes them (S12-F10). */
+  sessionsRevoked: defineEvent('identity.sessions.revoked', 1, UserRef),
 };

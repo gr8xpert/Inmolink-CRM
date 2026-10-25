@@ -323,6 +323,8 @@ export async function resetPassword(ctx: AuthCtx, input: ResetPasswordInput): Pr
     const userId = await repo.consumeToken(tx, tokenHash, 'PASSWORD_RESET', now);
     // Throwing rolls the consumption back too; the link stays unusable only if the reset committed.
     if (!userId || !(await repo.setPassword(tx, userId, passwordHash, now))) throw new AppError('TOKEN_INVALID');
+    // S12-F10: open realtime sockets of the old sessions close too
+    await emit(tx, identityEvents.sessionsRevoked({ userId }), { agencyId: PLATFORM_AGENCY_ID });
     await setAuthScope(tx, { userId });
     const member = await repo.findMembership(tx, userId);
     await compliance.auditAuth(tx, {

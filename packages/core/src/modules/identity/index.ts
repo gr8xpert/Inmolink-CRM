@@ -76,6 +76,7 @@ export {
   verifyCredentials,
   verifyEmail,
 } from './service';
+export { activeMembersAcross, disconnectDeactivatedMember, disconnectRevokedSessions } from './sessions';
 export {
   activeClientMemberIds,
   activeClientMembersAcross,

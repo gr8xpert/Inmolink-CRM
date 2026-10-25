@@ -10,9 +10,12 @@ import {
   REALTIME_CHAT_NAMESPACE,
   REALTIME_NOTIFICATION_EVENT,
   REALTIME_NOTIFICATIONS_NAMESPACE,
+  REALTIME_SESSION_NAMESPACE,
+  REALTIME_SESSION_REVOKED_EVENT,
+  SessionRevokedPush,
 } from '@inmolink/contracts';
-import type { Redis, UserEvent } from '@inmolink/platform/cache';
-import type { AccessTokenVerifier } from '@inmolink/platform/jwt';
+import type { Redis, SessionRevocation, UserEvent } from '@inmolink/platform/cache';
+import { ACCESS_TOKEN_TTL_SECONDS, type AccessTokenVerifier } from '@inmolink/platform/jwt';
 import type { Logger } from '@inmolink/platform/logger';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
@@ -37,7 +40,11 @@ export interface RealtimeDeps {
    * S11-04: per-user events published by workers (redis-cache pub/sub, `subscribeUserEvents`); each goes to the
    * recipient's own sockets on this node. Returns the unsubscribe step. Omit to run without (tests use `deliver`).
    */
-  userEvents?: (handler: (e: UserEvent) => void) => Promise<() => Promise<void>>;
+  userEvents?: (
+    handler: (e: UserEvent) => void,
+    /** S12-F4: whether this node has a socket of that member: other members' events are skipped unparsed. */
+    isLocal: (agencyId: string, userId: string) => boolean,
+  ) => Promise<() => Promise<void>>;
   /**
    * S11-03: whether this member (the socket's user, in the token's agency) takes part in the thread — the database's
    * answer (`chat.canJoinThread` under RLS). Errors count as no. Omit to refuse every `/chat` join.
@@ -48,6 +55,12 @@ export interface RealtimeDeps {
    * Omit to count on this node only (tests).
    */
   limit?: (rule: RateLimitRule, identity: string) => Promise<boolean>;
+  /**
+   * S12-F10: the member's revocation shared by every node (redis-cache `markSessionRevoked`), checked on connect so a
+   * restarted node or one that missed the pub/sub message still refuses an old token. Errors let the socket in (like
+   * the limiter). Omit to rely on what this node heard (tests).
+   */
+  revocation?: (agencyId: string, userId: string) => Promise<SessionRevocation | null>;
 }
 
 type Schema = { safeParse(data: unknown): { success: boolean } };
@@ -96,11 +109,35 @@ export const NOTIFICATIONS_RATE_RULES = {
   connect: { name: 'realtime.notifications.connect.user', scope: 'user', limit: 30, windowSeconds: 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
+/**
+ * S12-F10: revocations this node heard of (per member), kept as long as a token minted before them can live; the
+ * oldest go first past this many (each entry is a few bytes; a burst of deactivations is far below it).
+ */
+const MAX_REVOCATIONS = 50_000;
+
+/** S12-F10: a token issued up to this long after a deactivation (database time, node clocks differ) is refused too. */
+const DEACTIVATION_SLACK_MS = 1_000;
+
+interface Revocation extends SessionRevocation {
+  /** Epoch ms after which a token issued before the revocation has expired anyway. */
+  until: number;
+}
+
+/** S12-F10: whether this socket's token predates `r` (issued before the deactivation, or an older session version). */
+function revokedBy(r: SessionRevocation, socket: Socket): boolean {
+  if (r.deactivatedAt !== null && Number(socket.data.issuedAt) * 1_000 <= r.deactivatedAt + DEACTIVATION_SLACK_MS) {
+    return true;
+  }
+  return r.sessionVersion !== null && Number(socket.data.sessionVersion) < r.sessionVersion;
+}
+
 export interface RealtimeApp {
   app: FastifyZod;
   io: Server;
   /** Emits a per-user event to that user's sockets on this node (what the pub/sub subscription calls). */
   deliver(e: UserEvent): void;
+  /** S12-F4: whether this node has a socket of that member (the subscription skips other members' events). */
+  isLocal(agencyId: string, userId: string): boolean;
   /**
    * Shutdown step: fail readiness, wait `delayMs` for the load balancer, disconnect sockets (clients
    * reconnect to another node), then drain HTTP.
@@ -141,6 +178,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
         socket.data.agencyId = claims.agency;
         socket.data.impersonated = claims.act !== undefined;
         socket.data.sessionVersion = claims.sv;
+        socket.data.issuedAt = claims.iat;
         // A socket outlives its token by at most this long: the client reconnects with a fresh one.
         const timer = setTimeout(() => socket.disconnect(true), Math.max(0, claims.exp * 1_000 - Date.now()));
         timer.unref();
@@ -152,21 +190,86 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   };
   io.use(authenticate);
 
+  // S12-F10: who was deactivated or had their sessions revoked (published by workers to every node): their open
+  // sockets close, and the tokens minted before it cannot open new ones while they live.
+  const revocations = new Map<string, Revocation>();
+  const isRevoked = (socket: Socket): boolean => {
+    const key = `${socket.data.agencyId}:${socket.data.userId}`;
+    const r = revocations.get(key);
+    if (!r) return false;
+    if (r.until <= Date.now()) {
+      revocations.delete(key);
+      return false;
+    }
+    return revokedBy(r, socket);
+  };
+  const maxOf = (a: number | null, b: number | null | undefined) => (a === null ? (b ?? null) : Math.max(a, b ?? a));
+  const revoke = (agencyId: string, userId: string, data: SessionRevokedPush) => {
+    const key = `${agencyId}:${userId}`;
+    const now = Date.now();
+    const prev = revocations.get(key);
+    const live = prev && prev.until > now ? prev : undefined;
+    revocations.delete(key); // re-insert: the map's order is oldest first
+    revocations.set(key, {
+      deactivatedAt: maxOf(data.deactivatedAt === null ? null : Date.parse(data.deactivatedAt), live?.deactivatedAt),
+      sessionVersion: maxOf(data.sessionVersion, live?.sessionVersion),
+      until: now + ACCESS_TOKEN_TTL_SECONDS * 1_000,
+    });
+    let evictedLive = 0;
+    while (revocations.size > MAX_REVOCATIONS) {
+      const oldest = revocations.keys().next().value;
+      if (oldest === undefined) break;
+      if ((revocations.get(oldest)?.until ?? 0) > now) evictedLive += 1;
+      revocations.delete(oldest);
+    }
+    // the shared copy in redis-cache (checked on connect) still holds them, unless evicted there too
+    if (evictedLive > 0) deps.logger.warn({ evicted: evictedLive }, 'unexpired session revocations evicted');
+    for (const nsp of [notifications, chat]) {
+      for (const id of [...(nsp.adapter.rooms.get(userRoom(agencyId, userId)) ?? [])]) {
+        const socket = nsp.sockets.get(id);
+        if (socket && isRevoked(socket)) socket.disconnect(true);
+      }
+    }
+  };
+
   /**
    * A user's sockets on a per-user namespace (`/notifications`, `/chat`): at most `socketsPerUser` tabs on this node
    * (sticky sessions keep a browser on one node), and `rule` counts connects per user across nodes (`deps.limit`;
    * a limiter error lets the socket in). Runs after `authenticate`, so the user and agency come from the token.
    */
+  /** S12-F4: members with a connect waiting in `admit` (count per member). */
+  const admitting = new Map<string, number>();
   const admit = (nsp: ReturnType<Server['of']>, rule: RateLimitRule, socket: Socket, next: (err?: Error) => void) => {
+    if (isRevoked(socket)) return next(new Error('NOT_AUTHENTICATED'));
     const agencyId = String(socket.data.agencyId);
     const userId = String(socket.data.userId);
     const open = nsp.adapter.rooms.get(userRoom(agencyId, userId))?.size ?? 0;
     if (open >= CHAT_SOCKET_LIMITS.socketsPerUser) return next(new Error('RATE_LIMITED'));
-    if (!deps.limit) return next();
-    deps.limit(rule, `${agencyId}:${userId}`).then(
-      (allowed) => next(allowed ? undefined : new Error('RATE_LIMITED')),
-      () => next(),
-    );
+    // S12-F4: while this connect waits on Redis the member counts as local, so a revocation published meanwhile is
+    // not skipped (the socket is not in its room yet; `closeIfRevoked` checks again after the join)
+    const member = `${agencyId}:${userId}`;
+    admitting.set(member, (admitting.get(member) ?? 0) + 1);
+    const admitted = (err?: Error) => {
+      const left = (admitting.get(member) ?? 1) - 1;
+      if (left > 0) admitting.set(member, left);
+      else admitting.delete(member);
+      next(err);
+    };
+    // both fail open: a Redis error lets the socket in
+    const limited = deps.limit ? deps.limit(rule, `${agencyId}:${userId}`).catch(() => true) : Promise.resolve(true);
+    // S12-F10: the revocation shared by every node (this node may have restarted or missed the message)
+    const shared = deps.revocation ? deps.revocation(agencyId, userId).catch(() => null) : Promise.resolve(null);
+    void Promise.all([limited, shared]).then(([allowed, r]) => {
+      if (r && revokedBy(r, socket)) return admitted(new Error('NOT_AUTHENTICATED'));
+      admitted(allowed ? undefined : new Error('RATE_LIMITED'));
+    });
+  };
+
+  /** S12-F10: a revocation may arrive while `admit` waits on Redis, before the socket is in its room: check again. */
+  const closeIfRevoked = (socket: Socket): boolean => {
+    if (!isRevoked(socket)) return false;
+    socket.disconnect(true);
+    return true;
   };
 
   // S11-04: `/notifications` — each socket joins its own user's room, nothing else; it sends nothing (reads and marks
@@ -182,6 +285,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
   });
   notifications.on('connection', (socket) => {
     void socket.join(userRoom(String(socket.data.agencyId), String(socket.data.userId)));
+    closeIfRevoked(socket);
   });
 
   // S11-03: `/chat` — like `/notifications`, each socket joins its own user's room (messages and read receipts are
@@ -199,6 +303,7 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
     const agencyId = String(socket.data.agencyId);
     const userId = String(socket.data.userId);
     void socket.join(userRoom(agencyId, userId));
+    if (closeIfRevoked(socket)) return;
     const joined = new Set<string>();
     const lastTyping = new Map<string, number>();
     let joinWindow = { start: Date.now(), count: 0 };
@@ -265,6 +370,15 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
 
   // Every node receives every publish (pub/sub): emit to this node's sockets only, so nothing is sent twice.
   const deliver = (e: UserEvent) => {
+    if (e.namespace === REALTIME_SESSION_NAMESPACE) {
+      const parsed = e.event === REALTIME_SESSION_REVOKED_EVENT ? SessionRevokedPush.safeParse(e.data) : undefined;
+      if (!parsed?.success) {
+        deps.logger.warn({ namespace: e.namespace, event: e.event }, 'user event dropped');
+        return;
+      }
+      revoke(e.agencyId, e.userId, parsed.data);
+      return;
+    }
     const schema = USER_NAMESPACES.get(e.namespace)?.get(e.event);
     if (!schema?.safeParse(e.data).success) {
       deps.logger.warn({ namespace: e.namespace, event: e.event }, 'user event dropped');
@@ -272,12 +386,21 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
     }
     io.of(e.namespace).local.to(userRoom(e.agencyId, e.userId)).emit(e.event, e.data);
   };
-  const stopUserEvents = deps.userEvents ? await deps.userEvents(deliver) : undefined;
+  // S12-F4: a member is local when one of their sockets is in their room on a per-user namespace of this node (a
+  // revocation for a member with no socket here is skipped too: connects check the shared copy in redis-cache)
+  const isLocal = (agencyId: string, userId: string) => {
+    const room = userRoom(agencyId, userId);
+    return (
+      notifications.adapter.rooms.has(room) || chat.adapter.rooms.has(room) || admitting.has(`${agencyId}:${userId}`)
+    );
+  };
+  const stopUserEvents = deps.userEvents ? await deps.userEvents(deliver, isLocal) : undefined;
 
   return {
     app,
     io,
     deliver,
+    isLocal, // S12-F4
     async drain(delayMs = 0) {
       app.lifecycle.draining = true;
       await stopUserEvents?.();

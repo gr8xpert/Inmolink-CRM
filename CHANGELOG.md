@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- perf(realtime): user events carry a recipient prefix and nodes skip non-local members unparsed (REALTIME_PREFIX_EVENTS rollout flag); pub/sub buffer limit set; user-event and subscriber-disconnect metrics; 10k-event 3-node load test [S12-F4]
+- feat(realtime): deactivated members get no pushes and their sockets close within 1 s; password reset closes older sessions; revocations shared via redis-cache [S12-F10]
 - feat(identity): Client Mode — server-side session flag and cm token claim, serializer stripping with a central fail-closed API net and a contract test over all routes, hashed/rate-limited/audited exit PIN, banner [S12-06]
 - feat(db): registry shape memberWrite ("agency reads, member writes") with isolation-suite support; notification_preferences writes limited to their member by RLS [S12-F14]
 - feat(web,i18n,contracts): network board, chat and notification pages with a live unread badge [S12-F1] — new dependency socket.io-client 4.8.4 (apps/web)

@@ -395,6 +395,37 @@ describe('delivery, read state and the digest', () => {
     expect(n3.notified).toBe(1); // b again (a2 still has the first one unread)
   });
 
+  it('[S12-F10] a deactivated participant gets no push, no read receipt and no notification', async () => {
+    const leaver = await agent(a.agencyId, 'Elena');
+    const thread = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId, leaver.userId] }));
+    await system((tx) =>
+      tx.execute(sql`update agency_members set deactivated_at = now()
+        where agency_id = ${leaver.agencyId} and user_id = ${leaver.userId}`),
+    );
+    const published: UserEvent[] = [];
+    const publish = async (e: readonly UserEvent[]) => void published.push(...e);
+    const sent = await as(a, (ctx) => chat.sendMessage(ctx, thread.id, { body: 'Still there?' }));
+    const [event] = (await events('chat.message.sent', thread.id)).filter(
+      (e) => e.payload.messageId === sent.message.id,
+    );
+    if (!event) throw new Error('no chat.message.sent event');
+    const res = await chat.deliverMessage(
+      { agencyId: event.agency_id, threadId: thread.id, messageId: sent.message.id },
+      { eventId: event.id, createdAt: new Date(event.created_at) },
+      publish,
+    );
+    expect(res).toEqual({ pushed: 2, notified: 1 });
+    expect(published.map((e) => e.userId).sort()).toEqual([a.userId, a2.userId].sort());
+    const notes = await rows<{ n: number }>(sql`select count(*)::int as n from notifications
+      where agency_id = ${leaver.agencyId} and user_id = ${leaver.userId} and type = 'CHAT_MESSAGE'`);
+    expect(notes[0]?.n).toBe(0);
+
+    published.length = 0;
+    await chat.pushRead({ agencyId: a.agencyId, threadId: thread.id, userId: a2.userId, at: Date.now() }, publish);
+    expect(published.some((e) => e.userId === leaver.userId)).toBe(false);
+    expect(published).toHaveLength(2);
+  });
+
   it('[S11-03] a retried send with the same clientKey answers the first message; lists stay within their query budgets', async () => {
     const thread = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId] }));
     const clientKey = newId();

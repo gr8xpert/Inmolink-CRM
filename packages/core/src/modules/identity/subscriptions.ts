@@ -7,6 +7,7 @@ import type { AuthEmailKind, TwoFactorNoticeKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
 import * as repo from './repo';
+import { disconnectDeactivatedMember, disconnectRevokedSessions } from './sessions';
 
 const EMAIL_FOR: [EventDef, AuthEmailKind][] = [
   [identityEvents.registered, 'VERIFY_EMAIL'],
@@ -104,6 +105,17 @@ export function registerIdentitySubscriptions(): void {
         identityJobs.syncApiKeyAgencyStatus.enqueue({ eventId: meta.eventId, agencyId: payload.agencyId }),
       { name: 'identity.apiKeys.agencyStatus' },
     ),
+    // S12-F10: a deactivated member's or a revoked session's realtime sockets close (one small pub/sub publish)
+    subscribe(
+      identityEvents.memberDeactivated,
+      (payload) => disconnectDeactivatedMember(payload).then(() => undefined),
+      {
+        name: 'identity.realtime.memberDeactivated',
+      },
+    ),
+    subscribe(identityEvents.sessionsRevoked, (payload) => disconnectRevokedSessions(payload).then(() => undefined), {
+      name: 'identity.realtime.sessionsRevoked',
+    }),
   ];
 }
 
