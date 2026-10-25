@@ -23,6 +23,7 @@
  *   data.
  */
 import type { WebsiteAiSearchFilters, WebsiteAiSearchPage, WebsiteAiSearchQuery } from '@inmolink/contracts';
+import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { type AiCtx, type AiSettings, ai, costMicroUsd, type PromptRef, untrustedBlock } from '@inmolink/platform/ai';
 import { cache, cacheConnection, cacheKey } from '@inmolink/platform/cache';
 import { AppError, isAppError } from '@inmolink/platform/errors';
@@ -278,6 +279,19 @@ async function understand(site: ApiSite, normalized: string, opts: UnderstandOpt
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Boot (feed-api): loads the taxonomy vocabulary of the content locales (default: all) into the process, so no request pays its
+ * first (cold) load — the requests' statements stay the search's alone. Later reloads (a taxonomy edit) answer from
+ * this copy while they run (`taxonomy.searchVocabulary`). Failures are logged; the first request retries.
+ */
+export async function warmAiSearch(locales: readonly string[] = CONTENT_LOCALES): Promise<void> {
+  for (const locale of locales) {
+    await taxonomy.searchVocabulary(locale).catch((err: unknown) => {
+      logger().warn({ err, locale }, 'ai search vocabulary not warmed');
+    });
   }
 }
 

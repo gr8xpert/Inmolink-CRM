@@ -45,8 +45,8 @@ const LISTINGS = 40;
 const REQUESTS = 40;
 const UNCACHED_BUDGET_MS = 600;
 const CACHED_BUDGET_MS = 150;
-/** Log-normal provider latency (ms): median and σ of its log. */
-const PROVIDER = { medianMs: 600, sigma: 0.5, maxMs: 2_800 };
+/** Log-normal provider latency (ms): median and σ of its log, capped below the gateway's 3 s timeout (a call past it fails and fills no cache). */
+const PROVIDER = { medianMs: 600, sigma: 0.5, maxMs: 2_500 };
 const MAX_LATE_CALLS = 32;
 const CONCURRENT = { sentences: 64, parallel: 16 };
 /** A standard normal draw (Box–Muller). */
@@ -242,11 +242,18 @@ afterAll(async () => {
   await closeDb();
 });
 
+/** Waits until no model call outlives its request (each ends within the gateway's 3 s timeout). */
+async function drainLateCalls(): Promise<void> {
+  for (let i = 0; i < 100 && websiteApi.aiSearchLateCalls() > 0; i++) await sleep(100);
+}
+
 const ask = (q: string) =>
   app.inject({ method: 'GET', url: `/v2/search/ai?${new URLSearchParams({ q })}`, headers: { 'x-api-key': key } });
 
 it('[S12-08] p95 < 600 ms uncached and < 150 ms cached, ≤ 3 queries', async () => {
-  // Warm the process (site, key, taxonomy and owner caches; the first server build) with one throwaway sentence.
+  // Warm the process as feed-api's boot does (the taxonomy vocabulary), then the site, key and owner caches and the
+  // first server build with one throwaway sentence.
+  await websiteApi.warmAiSearch(['en', 'es']);
   expect((await ask(`warm villa zeta ${RUN}`)).statusCode).toBe(200);
   const sentences = Array.from({ length: REQUESTS }, (_, i) => `${1 + (i % 5)} bed villa in zeta ${RUN} no ${i}`);
   const timed = async () => {
@@ -286,9 +293,11 @@ it('[S12-08] p95 < 600 ms uncached and < 150 ms cached, ≤ 3 queries', async ()
   }
   const callsBefore = provider.calls.length;
   const uncached = await timed();
+  // A timed-out request's late answer lands in the cache too: wait until every late call has finished (the fake
+  // provider counts a call when its latency has passed), then every sentence asked the model exactly once.
+  await drainLateCalls();
+  expect(websiteApi.aiSearchLateCalls()).toBe(0);
   expect(provider.calls.length - callsBefore).toBe(REQUESTS);
-  // A timed-out request's late answer lands in the cache too: wait for the last ones.
-  for (let i = 0; i < 60 && websiteApi.aiSearchLateCalls() > 0; i++) await sleep(100);
   const cached = await timed();
   expect(provider.calls.length - callsBefore).toBe(REQUESTS); // no provider call when cached
   log.info(
@@ -338,7 +347,7 @@ it('[S12-08] concurrent misses: late model calls stay within maxLateCalls, RSS b
         }),
       );
     }
-    for (let i = 0; i < 60 && websiteApi.aiSearchLateCalls() > 0; i++) await sleep(100);
+    await drainLateCalls();
   } finally {
     clearInterval(poll);
   }

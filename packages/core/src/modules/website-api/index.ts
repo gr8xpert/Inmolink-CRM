@@ -28,6 +28,7 @@ export {
   configureAiSearch,
   DEFAULT_AI_SEARCH_LIMITS,
   gatewayAiSearchParser,
+  warmAiSearch,
 } from './ai-search';
 export {
   AI_QUERY_MAX,

@@ -152,6 +152,8 @@ try {
       { name: 'telemetry', run: telemetry.shutdown },
     ],
   });
+  // S12-08: AI search's taxonomy vocabulary, loaded before traffic (no request pays the cold load).
+  await websiteApi.warmAiSearch();
   // S8-02: the v1 shim's legacy taxonomy maps, loaded before traffic (a failure is retried at first use).
   await migration
     .reloadLegacyTaxonomy()
