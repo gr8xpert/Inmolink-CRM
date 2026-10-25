@@ -1,4 +1,4 @@
-import { closeDb, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
+import { closeDb, configureAiRuntime, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
@@ -63,6 +63,8 @@ try {
   ) {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
   }
+  // S12-01: the AI gateway (ai pool) — tiers, prices and budgets from env; AI_PROVIDER=none keeps it switched off.
+  if (config.WORKER_POOLS.includes('ai')) await configureAiRuntime({ logger });
   // S10-08: data exports (exports pool) — the media manifest's image URLs under the media CDN; the admins' alert
   // (email pool) links to the dashboard.
   if (config.WORKER_POOLS.includes('exports')) {

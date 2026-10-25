@@ -14,6 +14,14 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./ai": {
+      "@inmolink/source": "./src/ai/index.ts",
+      "types": "./dist/ai/index.d.ts",
+      "default": "./dist/ai/index.js"
+    },
+    "./ai/testing": {
+      "@inmolink/source": "./src/ai/testing.ts"
+    },
     "./cache": {
       "@inmolink/source": "./src/cache/index.ts",
       "types": "./dist/cache/index.d.ts",
@@ -156,6 +164,7 @@
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@fastify/swagger": "9.9.2",
     "@fastify/swagger-ui": "6.1.2",
     "@fastify/type-provider-zod": "1.0.0",

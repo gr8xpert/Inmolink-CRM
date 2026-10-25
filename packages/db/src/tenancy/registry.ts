@@ -568,6 +568,22 @@ export const tenantTables: Record<string, TenantTable> = {
       insert: `actor_kind = 'staff' and actor_user_id = app_user_id() and impersonated_by is null and split_part(type, '.', 1) in ('staff', 'agencies')`,
     },
   },
+  // S12-01: AI gateway usage (ADR 0008). Calls and monthly spend are written by the gateway as app_system only (the
+  // budget check must not be forgeable by a request); members read their own agency's rows (usage page).
+  ai_jobs: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: {
+      feature: 'test.feature',
+      kind: 'GENERATE',
+      model: 'test-model',
+      input_hash: '0'.repeat(64),
+      status: 'SUCCEEDED',
+    },
+  },
+  ai_usage_monthly: { kind: 'STRICT', userReadOnly: true, base: { month: '2026-01-01' } },
+  // S12-01: thumbs up/down on AI outputs — members append and read their agency's; nobody edits or deletes them.
+  ai_feedback: { kind: 'STRICT', userAppendRead: true, base: { feature: 'test.feature', rating: 1 } },
   // S10-08: data export runs (contacts, leads, listings, the account ZIP) — the agency's own; counts and codes only,
   // the exported file lives in the private bucket. Admins create them, the worker runs them. S11-F3: rows are
   // worker-only once created — claimed, recorded and expired as `app_system` — so app_user (an admin's request) reads
@@ -1280,6 +1296,11 @@ export const globalTables: Record<string, GlobalTable> = {
   portal_channels: {
     reason: 'catalog of portals an agency can feed, written by staff / sync via withSystem()',
     staffWrite: true,
+  },
+  // S12-01: the prompt registry — every shipped prompt file version and its hash; the same for every agency.
+  prompt_versions: {
+    reason: 'AI prompt registry (platform data), written by the gateway sync via withSystem()',
+    base: { tier: 'FAST', content_hash: '0'.repeat(64) },
   },
   // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
   feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },

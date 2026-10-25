@@ -24,6 +24,7 @@ AI shows up in about 15 features (PLAN §8): translations, listing descriptions,
 5. **Prompt caching:** prompts keep their stable part (system prompt, schema, examples) first and the variable input last, so provider prefix caching applies. Prompts live as versioned files (`prompt_versions`), and an eval set per feature runs in CI before a prompt change ships.
 6. **Budgets:** per-tenant monthly soft and hard caps per plan. At the hard cap the gateway returns `AI_BUDGET_EXCEEDED` without calling the provider.
 7. **Embeddings** go through the same provider abstraction with a multilingual embedding provider, chosen in S12-01 and recorded here.
+   *S12-01 (2026-10-25):* the provider interface (`EmbeddingProvider`) is built, but no embedding provider is chosen yet — Anthropic has no embeddings endpoint, and a second vendor is a sub-processor decision. `AI_EMBED_PROVIDER=none` (the only value): `ai.embed` fails fast with `AI_UNAVAILABLE` and callers degrade to keyword/structured search. The vendor is picked with S12-08 (AI search), which needs it first.
 8. **Safety rules (PLAN §2 #6):** AI never writes prices, commission, legal text or facts. Those are injected from data. Outputs that reach clients are marked `AI_DRAFT` until reviewed and pass the white-label sanitizer. No client PII is sent unless the feature needs it, and AI providers are listed as sub-processors.
 9. **Degrade, don't fail:** AI calls run in worker jobs or behind timeouts with a "try later" response. Core flows never wait on AI.
 

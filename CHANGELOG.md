@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(platform): AI gateway — tiers from env, budgets/hard caps, input-hash cache, circuit breaker, ai_jobs/ai_usage_monthly/prompt_versions/ai_feedback (0139), prompt files, pnpm ai:eval [S12-01] — new dependency @anthropic-ai/sdk 0.133.0 (platform)
 - perf(crm): stage-count rollups by delta from the stage history with a watermark, nightly full rebuild (crm.sweepStageCounts), O(events) per pass [S12-F6]
 - feat(compliance): staff reads of registrations, introducer-side viewing requests and VIEWING/NETWORK chat messages are audited (mls/chat.clientData.read) through a shared helper [S12-F9]
 - feat(websites): minimum-commission edits limited per agency per day (WEBSITE_MIN_COMMISSION_EDITS_PER_DAY, default 5; RATE_LIMITED + Retry-After) and audited old → new bp [S12-F25]

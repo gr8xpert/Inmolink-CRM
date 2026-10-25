@@ -3,6 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
+    'ai/index': 'src/ai/index.ts',
     'cache/index': 'src/cache/index.ts',
     'cdn/index': 'src/cdn/index.ts',
     'clock/index': 'src/clock/index.ts',

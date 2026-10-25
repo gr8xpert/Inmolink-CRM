@@ -62,7 +62,7 @@
     "perf:lighthouse": "tsx --conditions=@inmolink/source scripts/perf/lighthouse.ts",
     "i18n:check": "tsx --conditions=@inmolink/source scripts/i18n/check.ts",
     "i18n:draft": "tsx --conditions=@inmolink/source scripts/i18n/draft.ts",
-    "ai:eval": "node scripts/stub.mjs ai:eval S12-01",
+    "ai:eval": "tsx --conditions=@inmolink/source scripts/ai/eval.ts",
     "sdk:generate": "tsx --conditions=@inmolink/source scripts/sdk/generate.ts"
   },
   "lint-staged": {

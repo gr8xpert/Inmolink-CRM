@@ -324,6 +324,15 @@ export const ErrorCodes = {
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,
+  // AI gateway (S12-01, ADR 0008). Features catch these and degrade (keep the owner text, "try later").
+  /** The agency's monthly AI hard cap is reached: nothing was sent to the provider. */
+  AI_BUDGET_EXCEEDED: 429,
+  /** The AI provider is down, slow or switched off (circuit breaker open, no provider configured): retry later. */
+  AI_UNAVAILABLE: 503,
+  /** The model's answer failed its schema twice (one repair retry). */
+  AI_OUTPUT_INVALID: 502,
+  /** The model declined the request (safety refusal), or the provider rejected it as invalid. */
+  AI_REFUSED: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

@@ -173,7 +173,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'network_post_authors', 'network_posts', 'network_subscriptions', 'notification_preferences', 'notifications', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'seller_prospects', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'media_objects', 'network_post_authors', 'network_posts', 'network_subscriptions', 'notification_preferences', 'notifications', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'search_index_queue', 'seller_prospects', 'staff_impersonations', 'staff_users', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -362,6 +362,33 @@ create policy staff_select on public."agency_verification_requests" for select t
 create policy staff_update on public."agency_verification_requests" for update to app_staff
   using ((select public.app_is_staff()) and (true)) with check ((select public.app_is_staff()) and (true));
 grant select, update on table public."agency_verification_requests" to app_staff;
+
+-- ai_feedback: STRICT
+alter table public."ai_feedback" enable row level security;
+alter table public."ai_feedback" force row level security;
+create policy own_rows on public."ai_feedback" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."ai_feedback" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert on table public."ai_feedback" to app_user;
+grant select, insert, update, delete on table public."ai_feedback" to app_system;
+
+-- ai_jobs: STRICT
+alter table public."ai_jobs" enable row level security;
+alter table public."ai_jobs" force row level security;
+create policy own_rows on public."ai_jobs" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."ai_jobs" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."ai_jobs" to app_user;
+grant select, insert, update, delete on table public."ai_jobs" to app_system;
+
+-- ai_usage_monthly: STRICT
+alter table public."ai_usage_monthly" enable row level security;
+alter table public."ai_usage_monthly" force row level security;
+create policy own_rows on public."ai_usage_monthly" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."ai_usage_monthly" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."ai_usage_monthly" to app_user;
+grant select, insert, update, delete on table public."ai_usage_monthly" to app_system;
 
 -- api_keys: PUBLIC_READ
 alter table public."api_keys" enable row level security;
@@ -1346,6 +1373,14 @@ create policy own_rows on public."price_lists" to app_user
 revoke all on table public."price_lists" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."price_lists" to app_user;
 grant select, insert, update, delete on table public."price_lists" to app_system;
+
+-- prompt_versions: GLOBAL
+alter table public."prompt_versions" enable row level security;
+alter table public."prompt_versions" force row level security;
+create policy global_read on public."prompt_versions" for select to app_user using (true);
+revoke all on table public."prompt_versions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."prompt_versions" to app_user;
+grant select, insert, update, delete on table public."prompt_versions" to app_system;
 
 -- properties: NETWORK_READ
 alter table public."properties" enable row level security;
