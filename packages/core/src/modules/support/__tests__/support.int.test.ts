@@ -334,10 +334,12 @@ describe('support tickets', () => {
   it('[S13-05] long threads page with a keyset cursor; staff see the notes of the same span', async () => {
     const f = await founder();
     const ticket = await open(f, 'Long thread');
-    // SUPPORT_THREAD_LIMIT + 4 more member messages, one millisecond apart (app_system: a fixture, not a request).
+    // SUPPORT_THREAD_LIMIT + 4 more member messages, one microsecond apart right after the opening message (app_system:
+    // a fixture, not a request) — between the opening message and the note posted next (future-dated rows were flaky).
     await admin.query(
       `insert into support_ticket_messages (id, agency_id, ticket_id, author_kind, author_user_id, author_name, body, created_at)
-       select gen_random_uuid(), $1, $2, 'AGENCY', $3, 'Ana', 'message ' || n, now() + n * interval '1 millisecond'
+       select gen_random_uuid(), $1, $2, 'AGENCY', $3, 'Ana', 'message ' || n,
+         (select min(created_at) from support_ticket_messages where ticket_id = $2) + n * interval '1 microsecond'
        from generate_series(1, $4::int) n`,
       [f.agencyId, ticket.id, f.userId, SUPPORT_THREAD_LIMIT + 4],
     );

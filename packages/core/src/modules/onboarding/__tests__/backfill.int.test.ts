@@ -186,8 +186,15 @@ describe('onboarding backfill', () => {
     expect(await steps(full.agencyId)).toEqual(before);
 
     // resumable: starting after an agency visits only the ones after it
+    // (other files keep creating agencies — newer ids — so count only the ones after the cursor at the start)
+    const afterCursor = await system(async (tx) =>
+      Number(
+        (await tx.execute(sql`select count(*) as n from agencies where agency_id > ${full.agencyId}::uuid`)).rows[0]?.n,
+      ),
+    );
     const resumed = await onboarding.backfillOnboarding({ after: full.agencyId, batch: 2 });
-    expect(resumed.agencies).toBeLessThan(all.agencies);
+    expect(resumed.agencies).toBeGreaterThanOrEqual(afterCursor);
+    expect(await steps(full.agencyId)).toEqual(before);
 
     // idempotent: a second full run changes nothing for agencies already backfilled
     const listingOnlyBefore = await steps(listingOnly.agencyId);
