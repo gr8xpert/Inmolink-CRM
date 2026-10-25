@@ -1885,6 +1885,11 @@ Ref §11 · Mod notifications, billing · Dep S13-02
 Ref §11 · Mod billing · Dep S13-02 · [H3]
 **Build:** the founding coupon is limited to the locked plan's product (done in S13-02), but a Customer Portal switch to another interval or currency of that plan keeps it (a yearly-sized amount off a monthly invoice). `billing.applyStripeEvent` removes a `founding_` discount from a subscription whose plan price no longer matches its lock (`DELETE /v1/subscriptions/:id/discount`, idempotent) and alerts; the portal configuration (H3) disables interval switching for locked agencies if Stripe allows it.
 **Done when:** a locked subscription switched to the monthly price loses the founding discount on its next event (test against the fake); the yearly one keeps it
+
+### S13-F24 · Chat send deadlock on network threads (CI e2e, 2026-10-25)
+Ref §7 M18 · Mod chat, db · Dep S11-05
+**Build:** two messages sent at once into the same cross-agency thread (each side's `chat_messages` insert + mirror trigger) deadlock (`40P01`, e2e `collaboration.spec.ts` → 500 on `POST /v1/chat/threads/:id/messages`, CI run on 2b4c41fc). Take the thread's locks in one fixed order (e.g. lock the thread row / both agencies' thread rows by id before inserting), or serialise per thread; a deadlock that still happens is retried once, never a 500.
+**Done when:** concurrent sends from both agencies into one network thread all succeed (int test with parallel sends); the S11 e2e flow passes repeatedly
 ---
 
 ## S14 — Migration tooling
