@@ -5,8 +5,8 @@ export default defineConfig({
   entry: [
     'src/index.ts',
     'src/modules/*/index.ts',
-    'src/modules/exports/worker.ts',
-    'src/modules/compliance/worker.ts',
+    // A module's worker-only entry (`@inmolink/core/modules/<module>/worker`): every one, so a new one ships too.
+    'src/modules/*/worker.ts',
   ],
   format: 'esm',
   fixedExtension: false,
