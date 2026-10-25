@@ -1,5 +1,6 @@
 import type { Tx } from '@inmolink/db';
 import { matchingListingStates, savedSearchAlerts, savedSearches } from '@inmolink/db/schema/matching';
+import { NIL_UUID as NIL } from '@inmolink/platform/tenancy';
 import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
 
 /**
@@ -255,8 +256,6 @@ export async function setMatchKeys(tx: Tx, rows: readonly { id: string; keys: st
      where s.id = x.id and s.match_keys is distinct from x.keys`);
   return res.rowCount ?? 0;
 }
-
-const NIL = '00000000-0000-0000-0000-000000000000';
 
 /** Agencies with saved searches after `after` (a loose scan of `saved_searches_user_idx`), at most `limit`. */
 export async function agenciesWithSearches(tx: Tx, after: string | null, limit: number): Promise<string[]> {

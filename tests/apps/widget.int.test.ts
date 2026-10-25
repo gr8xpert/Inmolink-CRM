@@ -558,11 +558,8 @@ describe('JS widget lead form and AI box (S8-F8)', () => {
     }
   }, 120_000);
 
-  it('[S8-F8] the AI box is absent while /v2/search/ai is missing', async () => {
-    const ai = await fetch(`${apiOrigin}/v2/search/ai?q=villa`, {
-      headers: { 'x-api-key': publishableKey, origin: allowed },
-    });
-    expect(ai.status).toBe(404);
+  // CI fix: /v2/search/ai exists since S12-08; the widget's AI box is a follow-up, so the form stays structured-only.
+  it('[S8-F8] the widget search form is structured only until its AI box lands', async () => {
     const page = await newWatchedPage();
     try {
       await page.open(allowed);

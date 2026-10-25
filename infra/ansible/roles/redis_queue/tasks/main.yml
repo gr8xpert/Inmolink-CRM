@@ -39,11 +39,10 @@
       user media on >{{ vault_redis_media_password }} {{ redis_media_acl }}
       # redis_exporter (S7-F7): server state only, no key.
       user exporter on >{{ vault_redis_exporter_password }} {{ redis_exporter_acl }}
-{% if vault_redis_feed_ai_password is defined %}
       # feed-api's AI search (S12-08, ADR 0018 — Proposed): produces `ai` pool jobs (usage records, spend refreshes)
-      # only. Created once the vault holds its password (openssl rand -hex 32).
-      user feed_ai on >{{ vault_redis_feed_ai_password }} {{ redis_feed_ai_acl }}
-{% endif %}
+      # only. Created once the vault holds its password (openssl rand -hex 32). One inline expression: a Jinja if-tag
+      # line at column 0 ends the YAML block scalar (CI fix).
+      {{ ('user feed_ai on >' ~ vault_redis_feed_ai_password ~ ' ' ~ redis_feed_ai_acl) if vault_redis_feed_ai_password is defined else '# feed_ai: no vault password yet' }}
       appendonly yes
       appendfsync everysec
       # A ceiling the memory alerts measure against (RedisMemoryHigh 80 %, RedisMemoryCritical 95 %; S7-F7): without

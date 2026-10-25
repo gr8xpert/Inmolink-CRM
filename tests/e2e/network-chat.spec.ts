@@ -125,6 +125,8 @@ test('[S12-F1] board post → reply → chat thread → message → notification
   await b.page.goto(threadUrl);
   await a.page.goto(threadUrl);
   await say(a.page, `Third message ${tag}`);
+  // CI fix: count on B's notifications page (B was left on the thread page, which lists no notifications)
+  await b.page.goto('/en/notifications');
   await expect
     .poll(async () => (await b.page.reload(), chatNotifications(b.page).count()), { timeout: 45_000 })
     .toBe(2);

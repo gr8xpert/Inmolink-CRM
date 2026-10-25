@@ -11,3 +11,10 @@
  * anywhere else, so `emit()` and the policies can never disagree on it.
  */
 export const PLATFORM_AGENCY_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * The nil UUID as a value, not a tenant: the lowest UUID, the start of a keyset scan (`id > coalesce($after, NIL_UUID)`)
+ * or a placeholder id. Same literal as `PLATFORM_AGENCY_ID`, kept apart so a keyset bound never reads as the platform
+ * tenant (CI fix: the literal is allowed in this file only).
+ */
+export const NIL_UUID: string = PLATFORM_AGENCY_ID;

@@ -39,8 +39,13 @@ const fanout = defineJob({
   async run() {},
 });
 
-async function emitBulk(count: number, offset: number): Promise<void> {
-  const agencyId = newId();
+// S12-F19 scope: the dispatcher claims only these agencies' events. The shared test database keeps other suites'
+// pending rows (types this process does not declare, so retried, never done): unscoped, they took fair-share slots of
+// every claim and the measured rate fell to ~900 events/s on CI.
+const THROUGHPUT_AGENCY = newId();
+const RESTART_AGENCY = newId();
+
+async function emitBulk(agencyId: string, count: number, offset: number): Promise<void> {
   for (let i = 0; i < count; i += 1_000) {
     const batch = Array.from({ length: Math.min(1_000, count - i) }, (_, j) =>
       changed({ agencyId, entityId: newId(), seq: offset + i + j }),
@@ -68,8 +73,14 @@ describe('outbox dispatcher throughput', () => {
     // 1) Throughput: a 30,000-event backlog through claim → enqueue (grouped, batched) → ack, timed per
     //    10,000-event window. On a shared dev machine one window can catch autovacuum, an AOF rewrite or
     //    desktop load, so the check is the best sustained window; all three and the overall rate are reported.
-    await emitBulk(TOTAL, 0);
-    const dispatcher = createDispatcher({ runSystem, logger: log, subscribers, pollMs: 50 });
+    await emitBulk(THROUGHPUT_AGENCY, TOTAL, 0);
+    const dispatcher = createDispatcher({
+      runSystem,
+      logger: log,
+      subscribers,
+      pollMs: 50,
+      agencyIds: [THROUGHPUT_AGENCY, RESTART_AGENCY],
+    });
     const t0 = performance.now();
     const marks: number[] = [];
     await dispatcher.start();
@@ -95,7 +106,7 @@ describe('outbox dispatcher throughput', () => {
 
     // 2) Zero loss: a 20,000-event backlog (several seconds of work) dispatched while redis-queue restarts.
     await dispatcher.stop();
-    await emitBulk(RESTART_BACKLOG, TOTAL);
+    await emitBulk(RESTART_AGENCY, RESTART_BACKLOG, TOTAL);
     await dispatcher.start();
     await restartRedisQueue();
     // The restart finished while dispatch was still running, so it hit enqueues in flight.
