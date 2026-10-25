@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import * as billingWorker from '@inmolink/core/modules/billing/worker';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import { isDeclaredEvent } from '@inmolink/platform/outbox';
 import { describe, expect, it } from 'vitest';
@@ -47,5 +48,6 @@ describe('worker subscriptions', () => {
     }
     // Worker-only entries (S9-03): their jobs too.
     for (const job of Object.values(exportsWorker.exportsJobs)) expect(pooled.has(job.name), job.name).toBe(true);
+    for (const job of Object.values(billingWorker.billingNoticeJobs)) expect(pooled.has(job.name), job.name).toBe(true);
   });
 });

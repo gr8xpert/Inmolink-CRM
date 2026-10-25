@@ -9,7 +9,10 @@
     "NETWORK_MATCH": "La solicitud de comprador «{subject}» coincide con {count, plural, one {# de tus inmuebles} other {# de tus inmuebles}}: {refs}",
     "IMPORT_PAUSED": "Importación pausada para revisión: {subject}",
     "SOCIAL_ACCOUNT_RECONNECT": "Vuelve a conectar {subject}: su acceso a Facebook o Instagram ha caducado",
-    "SAVED_SEARCH_ALERT": "{kind, select, NEW {Nuevo inmueble} PRICE_DROP {Bajada de precio} BACK_ON_MARKET {De nuevo en el mercado} other {{count, plural, one {# nueva coincidencia} other {# nuevas coincidencias}}}} en tu búsqueda guardada «{subject}»: {refs}"
+    "SAVED_SEARCH_ALERT": "{kind, select, NEW {Nuevo inmueble} PRICE_DROP {Bajada de precio} BACK_ON_MARKET {De nuevo en el mercado} other {{count, plural, one {# nueva coincidencia} other {# nuevas coincidencias}}}} en tu búsqueda guardada «{subject}»: {refs}",
+    "BILLING_PAYMENT_FAILED": "El pago ha fallado: tu plan sigue activo hasta el {date, date, medium}. Actualiza tu método de pago en la página de facturación.",
+    "BILLING_PLAN_ENDING": "Tu {kind, select, TRIAL {prueba} other {plan}} {subject} termina el {date, date, medium}. Suscríbete en la página de facturación para conservarlo.",
+    "BILLING_PLAN_FREE": "Tu agencia está ahora en el plan Free. Tus datos siguen intactos; suscríbete en la página de facturación para recuperar tu plan."
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads asignados a mí",
@@ -21,7 +24,10 @@
     "NETWORK_MATCH": "Solicitudes de compradores que coinciden con mis inmuebles",
     "IMPORT_PAUSED": "Importaciones pausadas para revisión",
     "SOCIAL_ACCOUNT_RECONNECT": "Cuentas sociales que reconectar",
-    "SAVED_SEARCH_ALERT": "Mis búsquedas guardadas"
+    "SAVED_SEARCH_ALERT": "Mis búsquedas guardadas",
+    "BILLING_PAYMENT_FAILED": "Fallos de pago",
+    "BILLING_PLAN_ENDING": "Prueba o plan a punto de terminar",
+    "BILLING_PLAN_FREE": "Cambio al plan Free"
   },
   "email": {
     "subject": "{count, plural, one {Tienes # notificación nueva} other {Tienes # notificaciones nuevas}}",

@@ -4,6 +4,7 @@ import { adminJobs } from '@inmolink/core/modules/admin';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { aiFeaturesJobs, whiteLabelJobs } from '@inmolink/core/modules/ai-features';
 import { billingJobs } from '@inmolink/core/modules/billing';
+import { billingNoticeJobs } from '@inmolink/core/modules/billing/worker';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
@@ -126,6 +127,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     importsJobs.notifyConnectionPaused,
     // S12-07: a social account to reconnect, announced to the agency's admins.
     socialJobs.notifyReconnect,
+    // S13-F22: billing notices to the agency's admins.
+    billingNoticeJobs.notifyAdmins,
   ],
   // S11 review: the 5-minute notification e-mail digests (S11-04), thousands at once after a broad network post.
   digest: [notificationsJobs.sendDigest],
@@ -145,6 +148,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     billingJobs.pruneStripeEvents,
     billingJobs.startTrial, // S13-02
     billingJobs.endPlanGrants, // S13-02
+    billingNoticeJobs.noticeEndingGrants, // S13-F22
     // S13-03: staff bulk operations (reindex, rebuild read models, re-import, replay outbox), step by step.
     adminJobs.runStaffOperation,
     adminJobs.sweepStaffOperations,

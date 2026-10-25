@@ -661,3 +661,53 @@ export async function listAgencyPriceLocks(tx: Tx, agencyId: string, limit: numb
     .orderBy(billingPriceLocks.planCode, billingPriceLocks.interval, billingPriceLocks.currency)
     .limit(limit);
 }
+
+export interface EndingGrantRow {
+  id: string;
+  agencyId: string;
+  kind: 'TRIAL' | 'STAFF';
+  planCode: string;
+  startsAt: Date;
+  endsAt: Date;
+}
+
+/**
+ * S13-F22 (`billing.noticeEndingGrants`): running grants (not revoked, not ended) that end within the window, whose
+ * agency has no live subscription (a subscribed agency loses nothing when its trial ends), after `afterId`, at most
+ * `limit`, by id.
+ */
+export async function grantsEndingBetween(
+  tx: Tx,
+  from: Date,
+  to: Date,
+  afterId: string | null,
+  limit: number,
+): Promise<EndingGrantRow[]> {
+  const rows = await tx.execute<{
+    id: string;
+    agency_id: string;
+    kind: 'TRIAL' | 'STAFF';
+    plan_code: string;
+    starts_at: Date | string;
+    ends_at: Date | string;
+  }>(sql`
+    select g.id, g.agency_id, g.kind, g.plan_code, g.starts_at, g.ends_at
+    from ${billingPlanGrants} g
+    where g.ended_at is null and g.revoked_at is null
+      and g.starts_at <= ${from.toISOString()}::timestamptz
+      and g.ends_at > ${from.toISOString()}::timestamptz and g.ends_at <= ${to.toISOString()}::timestamptz
+      and (${afterId}::uuid is null or g.id > ${afterId}::uuid)
+      and not exists (
+        select 1 from ${billingSubscriptions} s
+        where s.agency_id = g.agency_id and s.status in ('TRIALING', 'ACTIVE', 'PAST_DUE'))
+    order by g.id
+    limit ${limit}`);
+  return rows.rows.map((r) => ({
+    id: r.id,
+    agencyId: r.agency_id,
+    kind: r.kind,
+    planCode: r.plan_code,
+    startsAt: new Date(r.starts_at),
+    endsAt: new Date(r.ends_at),
+  }));
+}

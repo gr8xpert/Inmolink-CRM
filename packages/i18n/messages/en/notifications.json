@@ -9,7 +9,10 @@
     "NETWORK_MATCH": "Buyer request “{subject}” matches {count, plural, one {# of your listings} other {# of your listings}}: {refs}",
     "IMPORT_PAUSED": "Import paused for review: {subject}",
     "SOCIAL_ACCOUNT_RECONNECT": "Connect {subject} again: its access to Facebook or Instagram expired",
-    "SAVED_SEARCH_ALERT": "{kind, select, NEW {New listing} PRICE_DROP {Price drop} BACK_ON_MARKET {Back on the market} other {{count, plural, one {# new match} other {# new matches}}}} for your saved search “{subject}”: {refs}"
+    "SAVED_SEARCH_ALERT": "{kind, select, NEW {New listing} PRICE_DROP {Price drop} BACK_ON_MARKET {Back on the market} other {{count, plural, one {# new match} other {# new matches}}}} for your saved search “{subject}”: {refs}",
+    "BILLING_PAYMENT_FAILED": "Payment failed: your plan stays active until {date, date, medium}. Update your payment method on the billing page.",
+    "BILLING_PLAN_ENDING": "Your {subject} {kind, select, TRIAL {trial} other {plan}} ends on {date, date, medium}. Subscribe on the billing page to keep it.",
+    "BILLING_PLAN_FREE": "Your agency is on the Free plan now. Your data is untouched; subscribe on the billing page to get your plan back."
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads assigned to me",
@@ -21,7 +24,10 @@
     "NETWORK_MATCH": "Buyer requests matching my listings",
     "IMPORT_PAUSED": "Imports paused for review",
     "SOCIAL_ACCOUNT_RECONNECT": "Social accounts to reconnect",
-    "SAVED_SEARCH_ALERT": "My saved searches"
+    "SAVED_SEARCH_ALERT": "My saved searches",
+    "BILLING_PAYMENT_FAILED": "Payment failures",
+    "BILLING_PLAN_ENDING": "Trial or plan ending soon",
+    "BILLING_PLAN_FREE": "Plan changed to Free"
   },
   "email": {
     "subject": "{count, plural, one {You have # new notification} other {You have # new notifications}}",

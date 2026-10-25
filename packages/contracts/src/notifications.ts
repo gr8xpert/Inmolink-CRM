@@ -31,6 +31,11 @@ export const NOTIFICATION_TYPES = [
   'SOCIAL_ACCOUNT_RECONNECT',
   // S5-06: a saved search's alert (a new listing, a price drop, back on the market) or its daily digest.
   'SAVED_SEARCH_ALERT',
+  // S13-F22: billing notices to the agency's admins — a payment failed (grace end), a trial or staff grant ends in 3
+  // days, the agency is on Free.
+  'BILLING_PAYMENT_FAILED',
+  'BILLING_PLAN_ENDING',
+  'BILLING_PLAN_FREE',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 // S12-01 (ADR 0018)
 import { aiJobs } from '@inmolink/core';
 import { adminJobs } from '@inmolink/core/modules/admin';
+import { billingNoticeJobs } from '@inmolink/core/modules/billing/worker';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { crmJobs } from '@inmolink/core/modules/crm';
 import { importsJobs } from '@inmolink/core/modules/imports';
@@ -49,6 +50,8 @@ describe('worker pools (S11 review)', () => {
       importsJobs.notifyConnectionPaused,
       // S12-07: a social account to reconnect, announced to the admins.
       socialJobs.notifyReconnect,
+      // S13-F22: billing notices to the admins.
+      billingNoticeJobs.notifyAdmins,
     ];
     for (const job of live) {
       expect(job.pool, job.name).toBe('realtime');

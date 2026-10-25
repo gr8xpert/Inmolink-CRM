@@ -3,4 +3,5 @@
  * trials. They import `agencies`, which (through compliance and identity) imports billing's public `index.ts`, so they
  * live here rather than in it (no import cycle). Only `apps/worker`, tests and scripts import this file.
  */
+export { billingNoticeJobs, noticeEndingGrants, notifyAdmins } from './notices';
 export { registerBillingSubscriptions, unregisterBillingSubscriptions } from './subscriptions';
