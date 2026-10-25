@@ -30,6 +30,8 @@ export {
   repointRegistrations,
 } from './service';
 export { registerMlsSubscriptions, unregisterMlsSubscriptions } from './subscriptions';
+// S12-05: the terms with their PDF link (after the transaction).
+export { viewingTerms } from './terms-pdf';
 export {
   acceptViewing,
   cancelViewing,
@@ -43,5 +45,5 @@ export {
   recordViewingOutcome,
   requestViewing,
   rescheduleViewing,
-  viewingTerms,
+  viewingTermsDoc,
 } from './viewings';

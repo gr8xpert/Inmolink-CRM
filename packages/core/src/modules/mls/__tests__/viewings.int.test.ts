@@ -260,10 +260,9 @@ describe('request → accept → scheduled → outcome', () => {
       });
       expect(r?.owner_accepted_at).not.toBeNull();
     }
-    const doc = await as(a, (ctx) => mls.viewingTerms(ctx, id));
-    // S12-05: accepted by both sides — a signed link to the accepted-terms PDF.
-    expect(doc).toMatchObject({ requestId: id, ownerAgencyId: b.agencyId, terms: { accepted: true } });
-    expect(doc.pdfUrl).toEqual(expect.any(String));
+    const doc = await mls.viewingTerms((fn) => as(a, fn), id);
+    // S12-05: accepted by both sides — the PDF link once the file is rendered (not yet here: no pdf pool runs).
+    expect(doc).toMatchObject({ requestId: id, ownerAgencyId: b.agencyId, terms: { accepted: true }, pdfUrl: null });
 
     // the outcome only after the scheduled time
     expect(await refusal(as(a, (ctx) => mls.recordViewingOutcome(ctx, id, { outcome: 'ATTENDED' })))).toBe(
@@ -600,7 +599,7 @@ describe('accepted-terms PDF (S12-05)', () => {
   it("[S12-05] the owner's acceptance queues the viewing-terms PDF: both agencies and the snapshot terms, never the client", async () => {
     const r = await request(await registered(pctListing), 12);
     // Only the introducer accepted: no PDF yet.
-    expect((await as(a, (ctx) => mls.viewingTerms(ctx, r.request.id))).pdfUrl).toBeNull();
+    expect((await mls.viewingTerms((fn) => as(a, fn), r.request.id)).pdfUrl).toBeNull();
     const change = {
       agencyId: b.agencyId,
       requestId: r.request.id,
@@ -643,6 +642,6 @@ describe('accepted-terms PDF (S12-05)', () => {
     expect(renderer.documents[0]).toContain(payload.ownerName);
     expect(renderer.documents[0]).not.toMatch(/Mara|example\.com/);
     expect(await store.head('private', documents.viewingTermsKey(r.request.id))).not.toBeNull();
-    expect((await as(a, (ctx) => mls.viewingTerms(ctx, r.request.id))).pdfUrl).toEqual(expect.any(String));
+    expect((await mls.viewingTerms((fn) => as(a, fn), r.request.id)).pdfUrl).toEqual(expect.any(String));
   });
 });

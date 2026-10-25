@@ -197,7 +197,7 @@ function listingPage(
     mode === 'brochure' && d.kind === 'LISTING' && d.features.length > 0
       ? `<h2>${e(t('listing.features'))}</h2><ul class="features">${d.features.map((x) => `<li>${e(x.name)}</li>`).join('')}</ul>`
       : '';
-  return `<section class="page">${band(presenter)}${heading(d, t, f)}${img(d.kind === 'LISTING' ? src(d.cover, 'large') : null, mode === 'portfolio' ? 'hero small' : 'hero')}${facts(d, t, f)}${
+  return `<section class="page">${band(presenter)}${heading(d, t, f)}${img(d.kind === 'LISTING' ? src(d.cover, mode === 'portfolio' ? 'medium' : 'large') : null, mode === 'portfolio' ? 'hero small' : 'hero')}${facts(d, t, f)}${
     text ? `<h2>${e(t('listing.description'))}</h2><div class="text">${e(text)}</div>` : ''
   }${features}${photos(d, mode === 'portfolio' ? PORTFOLIO_PHOTOS : BROCHURE_PHOTOS)}${footer(presenter, t, f, asOf)}</section>`;
 }

@@ -180,7 +180,8 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    (req) => app.withCtx(req, (ctx) => mls.viewingTerms(ctx, req.params.id)),
+    // S12-05: the PDF link is checked after the transaction.
+    (req) => mls.viewingTerms((fn) => app.withCtx(req, fn), req.params.id),
   );
 
   app.post(

@@ -8,8 +8,11 @@ const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'documents.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
   { name: 'documents.read.user', scope: 'user', limit: 300, windowSeconds: 60 },
 ];
-/** Each request may start a render (a browser page for seconds): per user, and a ceiling per agency. */
-const RENDER_LIMITS: readonly RateLimitRule[] = [
+/**
+ * Each request may start a render (a browser page for seconds): per IP, per user, and a ceiling per agency. Shared by
+ * every route that renders (the selection PDF too): the same rule names, the same counters.
+ */
+export const DOCUMENT_RENDER_LIMITS: readonly RateLimitRule[] = [
   { name: 'documents.render.ip', scope: 'ip', limit: 60, windowSeconds: 60 },
   { name: 'documents.render.user', scope: 'user', limit: 30, windowSeconds: 60 },
   { name: 'documents.render.tenant', scope: 'tenant', limit: 600, windowSeconds: 3_600 },
@@ -38,10 +41,9 @@ export async function documentsRoutes(app: FastifyZod): Promise<void> {
         response: { 202: PdfDocumentDto },
       },
       onRequest: [app.requireSession],
-      config: { rateLimit: RENDER_LIMITS },
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
     },
-    async (req, reply) =>
-      reply.code(202).send(await app.withCtx(req, (ctx) => documents.requestBrochure(ctx, req.body))),
+    async (req, reply) => reply.code(202).send(await documents.requestBrochure((fn) => app.withCtx(req, fn), req.body)),
   );
 
   app.post(
@@ -55,10 +57,10 @@ export async function documentsRoutes(app: FastifyZod): Promise<void> {
         response: { 202: PdfDocumentDto },
       },
       onRequest: [app.requireSession],
-      config: { rateLimit: RENDER_LIMITS },
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
     },
     async (req, reply) =>
-      reply.code(202).send(await app.withCtx(req, (ctx) => documents.requestPortfolio(ctx, req.body))),
+      reply.code(202).send(await documents.requestPortfolio((fn) => app.withCtx(req, fn), req.body)),
   );
 
   app.get(
@@ -74,6 +76,6 @@ export async function documentsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req) => app.withCtx(req, (ctx) => documents.getDocument(ctx, req.params.documentId)),
+    async (req) => documents.getDocument((fn) => app.withCtx(req, fn), req.params.documentId),
   );
 }

@@ -9,16 +9,21 @@ import type { Logger } from '../logger';
  *
  * Rendered pages are untrusted-content sinks (listing texts, agency branding), so every render:
  * - gets its own browser context (no cookies, storage or cache shared with another render) and is closed after;
- * - runs with JavaScript off (templates are static HTML and CSS);
- * - may load nothing but `data:` URLs and our own asset origins (`allowedOrigins`, e.g. the media CDN): every other
- *   request, redirects included, is refused by request interception, and Chrome's host resolver maps every other
- *   host to nothing (`--host-resolver-rules`) as a second wall;
- * - runs in Chrome's sandbox (`noSandbox` only where the container cannot provide one — S12-05 deploy notes);
+ * - runs with JavaScript off (templates are static HTML and CSS), no remote fonts, no GPU;
+ * - may load nothing but `data:image/(png|jpeg|webp)` URLs and our own asset origins (`allowedOrigins`, e.g. the media
+ *   CDN). Three walls: request interception refuses every other URL (redirects included); every request goes to a
+ *   dead proxy (`--proxy-server=127.0.0.1:9`) except to the allowed hosts (`--proxy-bypass-list`, loopback not
+ *   implicitly bypassed: `<-loopback>`), which covers IP literals (`169.254.169.254`, `127.0.0.1:9222`) as well as
+ *   names; and Chrome's host resolver resolves no other name (`--host-resolver-rules`);
+ * - loads at most `maxAssets` requests and `maxAssetBytes` bytes over the network (past the bytes the render fails);
+ * - runs in Chrome's sandbox. `noSandbox` (`PDF_CHROME_NO_SANDBOX`) must never be set unless the container itself is
+ *   the sandbox (seccomp, no privileges, read-only root, egress to the CDN only) — S12-05 deploy notes;
  * - is bounded by `timeoutMs` (content load and print) and the caller's signal.
  *
  * Chrome comes from a configured executable (`PDF_CHROME_EXECUTABLE`) or an installed channel (`PDF_CHROME_CHANNEL`,
- * default `chrome`); `puppeteer-core` never downloads a browser. The browser is relaunched after `rendersPerBrowser`
- * renders (memory) and after a crash.
+ * default `chrome`); `puppeteer-core` never downloads a browser. After `rendersPerBrowser` renders the browser is
+ * retired (memory): new renders start on a fresh browser and the old one closes once its last page is done, so
+ * recycling happens under steady load too. A crashed browser is replaced on the next render.
  */
 
 export interface PdfRenderOptions {
@@ -44,18 +49,29 @@ export interface PuppeteerRendererOptions {
   /** Pages rendering at once in this process. */
   concurrency: number;
   timeoutMs: number;
-  /** Only where the container cannot run Chrome's sandbox (S12-05 deploy notes). Default false. */
+  /** Never without an outer sandbox (see above). Default false. */
   noSandbox?: boolean;
-  /** Relaunch the browser after this many renders. Default 200. */
+  /** Retire the browser after this many renders. Default 200. */
   rendersPerBrowser?: number;
+  /** Requests one render may make (more are refused). Default 600. */
+  maxAssets?: number;
+  /** Bytes one render may load over the network (past it the render fails). Default 80 MB. */
+  maxAssetBytes?: number;
+  /** Tests only: `false` turns request interception off, to prove the proxy and resolver walls on their own. */
+  requestInterception?: boolean;
   logger?: Logger;
 }
 
-const DATA_URL = /^data:/i;
+const DATA_IMAGE = /^data:image\/(png|jpeg|webp)[;,]/i;
+const OTHER_SCHEMES = /^(data|blob|file|filesystem|javascript|ftp|ws|wss):/i;
 
-/** Whether a rendered page may load `url`: `data:` and `about:blank`, or one of the allowed origins (exact origin). */
+/**
+ * Whether a rendered page may load `url`: `about:blank`, an image `data:` URL (PNG, JPEG, WebP), or one of the allowed
+ * origins (exact origin: scheme, host and port).
+ */
 export function pdfAssetAllowed(url: string, allowedOrigins: ReadonlySet<string>): boolean {
-  if (DATA_URL.test(url) || url === 'about:blank') return true;
+  if (url === 'about:blank' || DATA_IMAGE.test(url)) return true;
+  if (OTHER_SCHEMES.test(url)) return false;
   try {
     return allowedOrigins.has(new URL(url).origin);
   } catch {
@@ -74,12 +90,17 @@ function normalizedOrigins(origins: readonly string[]): Set<string> {
   return out;
 }
 
-/** Chrome flags: no extensions, no background traffic, nothing but our hosts resolvable. */
-function chromeArgs(origins: ReadonlySet<string>, noSandbox: boolean): string[] {
-  const hosts = [...origins].map((o) => new URL(o).hostname);
+/** Chrome flags: the three network walls, no extensions or background traffic, no GPU, no remote fonts. */
+export function chromeArgs(origins: ReadonlySet<string>, noSandbox: boolean): string[] {
+  const hosts = [...new Set([...origins].map((o) => new URL(o).hostname))];
   const resolver = ['MAP * ~NOTFOUND', ...hosts.map((h) => `EXCLUDE ${h}`)].join(', ');
   return [
+    // A dead proxy for everything but our hosts — IP literals included (the resolver rules see names only).
+    '--proxy-server=http://127.0.0.1:9',
+    `--proxy-bypass-list=${['<-loopback>', ...hosts].join(';')}`,
     `--host-resolver-rules=${resolver}`,
+    '--disable-gpu',
+    '--disable-remote-fonts',
     '--disable-extensions',
     '--disable-background-networking',
     '--disable-component-update',
@@ -90,7 +111,8 @@ function chromeArgs(origins: ReadonlySet<string>, noSandbox: boolean): string[] 
     '--no-default-browser-check',
     '--mute-audio',
     '--hide-scrollbars',
-    ...(noSandbox ? ['--no-sandbox'] : []),
+    // `--no-zygote` is only allowed without the sandbox.
+    ...(noSandbox ? ['--no-sandbox', '--no-zygote'] : []),
   ];
 }
 
@@ -124,103 +146,170 @@ class Slots {
   }
 }
 
-export function createPuppeteerRenderer(options: PuppeteerRendererOptions): PdfRenderer {
+/** One launched browser: its renders so far and pages in flight. */
+interface Generation {
+  browser: Promise<Browser>;
+  renders: number;
+  inFlight: number;
+  retired: boolean;
+}
+
+export function createPuppeteerRenderer(options: PuppeteerRendererOptions): PdfRenderer & {
+  /** Browsers launched by this renderer that are still open (tests: recycling). */
+  readonly browsers: number;
+  readonly launches: number;
+} {
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new TypeError('pdf: concurrency ≥ 1');
   const origins = normalizedOrigins(options.allowedOrigins);
   const args = chromeArgs(origins, options.noSandbox === true);
   const perBrowser = options.rendersPerBrowser ?? 200;
+  const maxAssets = options.maxAssets ?? 600;
+  const maxAssetBytes = options.maxAssetBytes ?? 80 * 1024 * 1024;
   const slots = new Slots(options.concurrency);
-  let browser: Promise<Browser> | null = null;
-  let renders = 0;
+  let current: Generation | null = null;
+  const all = new Set<Generation>();
+  let launches = 0;
   let closed = false;
 
-  const launch = (): Promise<Browser> => {
-    const started = puppeteer
+  const closeGeneration = (g: Generation) => {
+    all.delete(g);
+    void g.browser.then((b) => b.close()).catch(() => undefined);
+  };
+
+  const launch = (): Generation => {
+    launches++;
+    const g: Generation = {
+      browser: Promise.resolve(null as unknown as Browser),
+      renders: 0,
+      inFlight: 0,
+      retired: false,
+    };
+    g.browser = puppeteer
       .launch({
         headless: true,
         args,
         ...(options.executablePath
           ? { executablePath: options.executablePath }
           : { channel: options.channel ?? 'chrome' }),
-        // No proxy or extension can be configured from outside; the browser exits with the worker.
+        // The browser exits with the worker; its signals are the worker's.
         handleSIGINT: false,
         handleSIGTERM: false,
         handleSIGHUP: false,
       })
       .then((b) => {
         b.on('disconnected', () => {
-          if (browser === started) browser = null;
+          if (current === g) current = null;
+          all.delete(g);
         });
         return b;
       });
-    started.catch(() => {
-      if (browser === started) browser = null;
+    g.browser.catch(() => {
+      if (current === g) current = null;
+      all.delete(g);
     });
-    return started;
+    all.add(g);
+    return g;
   };
 
-  const current = async (): Promise<Browser> => {
+  /** The browser for the next render; a browser past `rendersPerBrowser` is retired (closed once drained). */
+  const take = (): Generation => {
     if (closed) throw new Error('pdf: renderer closed');
-    // Recycle between renders only: a browser with pages in flight finishes them.
-    if (browser && renders >= perBrowser && slots.active <= 1) {
-      const old = browser;
-      browser = null;
-      renders = 0;
-      void old.then((b) => b.close()).catch(() => undefined);
+    if (current && current.renders >= perBrowser) {
+      const old = current;
+      old.retired = true;
+      current = null;
+      if (old.inFlight === 0) closeGeneration(old);
     }
-    browser ??= launch();
-    return browser;
+    current ??= launch();
+    current.renders++;
+    current.inFlight++;
+    return current;
+  };
+
+  const give = (g: Generation) => {
+    g.inFlight--;
+    if (g.retired && g.inFlight === 0) closeGeneration(g);
   };
 
   return {
     get active() {
       return slots.active;
     },
+    get browsers() {
+      return all.size;
+    },
+    get launches() {
+      return launches;
+    },
 
     async render(html, renderOptions = {}) {
       const { signal } = renderOptions;
       await slots.acquire(signal);
+      let g: Generation | undefined;
       try {
-        const b = await current();
-        renders++;
+        g = take();
+        const b = await g.browser;
         const context = await b.createBrowserContext();
-        const onAbort = () => void context.close().catch(() => undefined);
+        let failure: Error | null = null;
+        const stop = (err: Error) => {
+          failure ??= err;
+          void context.close().catch(() => undefined);
+        };
+        const onAbort = () => stop(new Error('pdf: render aborted'));
         signal?.addEventListener('abort', onAbort, { once: true });
         try {
           const page = await context.newPage();
           await page.setJavaScriptEnabled(false);
-          await page.setRequestInterception(true);
+          // Bytes over the network, as they arrive (a response without Content-Length counts too).
+          let bytes = 0;
+          const cdp = await page.createCDPSession();
+          await cdp.send('Network.enable');
+          cdp.on('Network.dataReceived', (e: { encodedDataLength: number; dataLength: number }) => {
+            bytes += Math.max(e.encodedDataLength, e.dataLength);
+            if (bytes > maxAssetBytes) stop(new Error(`pdf: assets over ${maxAssetBytes} bytes`));
+          });
+          let requests = 0;
+          const intercept = options.requestInterception !== false;
+          if (intercept) await page.setRequestInterception(true);
           page.on('request', (req: HTTPRequest) => {
+            if (!intercept) return;
             if (req.isInterceptResolutionHandled()) return;
-            if (pdfAssetAllowed(req.url(), origins)) void req.continue();
+            const url = req.url();
+            if (!url.startsWith('data:') && url !== 'about:blank') requests++;
+            if (pdfAssetAllowed(url, origins) && requests <= maxAssets) void req.continue();
             else {
-              options.logger?.debug({ host: safeHost(req.url()) }, 'pdf: asset refused');
+              options.logger?.debug({ host: safeHost(url), requests }, 'pdf: asset refused');
               void req.abort('blockedbyclient');
             }
           });
           await page.setContent(html, { waitUntil: 'load', timeout: options.timeoutMs });
+          if (failure) throw failure;
           signal?.throwIfAborted();
-          const bytes = await page.pdf({
+          const pdfBytes = await page.pdf({
             format: 'A4',
             printBackground: true,
             preferCSSPageSize: true,
             timeout: options.timeoutMs,
           });
-          return new Uint8Array(bytes);
+          if (failure) throw failure;
+          return new Uint8Array(pdfBytes);
+        } catch (err) {
+          throw failure ?? err;
         } finally {
           signal?.removeEventListener('abort', onAbort);
           await context.close().catch(() => undefined);
         }
       } finally {
+        if (g) give(g);
         slots.release();
       }
     },
 
     async close() {
       closed = true;
-      const b = browser;
-      browser = null;
-      if (b) await b.then((x) => x.close()).catch(() => undefined);
+      current = null;
+      await Promise.all([...all].map((g) => g.browser.then((b) => b.close()).catch(() => undefined)));
+      all.clear();
     },
   };
 }
@@ -241,7 +330,10 @@ export const pdfEnv = {
   /** Pages rendering at once per worker process (each page holds a few hundred MB at worst). */
   PDF_RENDER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   PDF_RENDER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
-  /** Only for a container that cannot give Chrome its sandbox (S12-05 deploy notes): `true` drops it. */
+  /**
+   * `true` drops Chrome's sandbox. Never set it unless the container itself is the sandbox (seccomp, no privileges,
+   * read-only root, egress to the CDN only) — S12-05 deploy notes.
+   */
   PDF_CHROME_NO_SANDBOX: z.enum(['true', 'false']).default('false'),
 };
 

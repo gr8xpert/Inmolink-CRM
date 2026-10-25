@@ -27,7 +27,7 @@ import {
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
-import type { Ctx } from '../../context';
+import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as crm from '../crm';
 import * as documents from '../documents';
@@ -209,20 +209,25 @@ export async function getSelection(ctx: Ctx, id: string): Promise<SelectionDto> 
 
 /**
  * S12-05 `POST /v1/selections/:id/pdf`: the selection as a branded PDF portfolio — its items in order, in the client's
- * language, under its title — rendered by the pdf pool like any portfolio (`documents.requestPortfolio`: the public
- * read models, white-labelled for the agency). The agent's notes and title overrides stay on the live page.
+ * language, under its title — rendered by the pdf pool like any portfolio (`documents.preparePortfolio`: the public
+ * read models, white-labelled for the agency). Making one is a write (it spends the agency's render budget). Checked in
+ * the request's transaction, queued after it (`documents.startDocument`). The agent's notes and title overrides stay
+ * on the live page.
  */
-export async function selectionPdf(ctx: Ctx, id: string): Promise<PdfDocumentDto> {
-  assertCan(ctx, 'presentations.read');
-  const row = await repo.getSelection(ctx.tx, ctx.tenant.agencyId, id);
-  if (!row) throw new AppError('SELECTION_NOT_FOUND');
-  const items = await repo.itemsWithStats(ctx.tx, id);
-  if (items.length === 0) throw new AppError('SELECTION_ITEMS_INVALID');
-  return documents.requestPortfolio(ctx, {
-    listingIds: items.map((i) => i.targetId),
-    locale: row.locale,
-    title: row.title.trim().slice(0, 120) || undefined,
+export async function selectionPdf(run: CtxRunner, id: string): Promise<PdfDocumentDto> {
+  const prepared = await run(async (ctx) => {
+    assertCan(ctx, 'presentations.write');
+    const row = await repo.getSelection(ctx.tx, ctx.tenant.agencyId, id);
+    if (!row) throw new AppError('SELECTION_NOT_FOUND');
+    const items = await repo.itemsWithStats(ctx.tx, id);
+    if (items.length === 0) throw new AppError('SELECTION_ITEMS_INVALID');
+    return documents.preparePortfolio(ctx, {
+      listingIds: items.map((i) => i.targetId),
+      locale: row.locale,
+      title: row.title.trim().slice(0, 120) || undefined,
+    });
   });
+  return documents.startDocument(prepared);
 }
 
 /** `GET /v1/selections`: newest first, keyset (≤ 100 per page; two statements). */

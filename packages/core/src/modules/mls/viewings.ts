@@ -35,7 +35,7 @@ import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { type EventMeta, type EventPayload, emit } from '@inmolink/platform/outbox';
-import { type Ctx, memberUserId as userIdOf } from '../../context';
+import { type Ctx, type CtxRunner, memberUserId as userIdOf } from '../../context';
 import { advisoryLock, idempotencyOf, isUniqueViolation, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -431,29 +431,29 @@ export async function getViewingRequest(ctx: Ctx, id: string): Promise<ViewingRe
 }
 
 /**
- * `GET /v1/mls/viewing-requests/:id/terms`: the terms snapshot with its audit trail (who accepted, when), for either
- * side. `pdfUrl` is null: the accepted-terms PDF is rendered by the PDF service (S12-05) — stub until then.
+ * The terms snapshot with its audit trail (who accepted, when), for either side, read in the request's transaction;
+ * `viewingTerms` (`terms-pdf.ts`) adds the PDF link after it (S12-05).
  */
-export async function viewingTerms(ctx: Ctx, id: string): Promise<ViewingTermsDocumentDto> {
-  assertCan(ctx, 'mls.viewings.read');
-  const r = await repo.sideRow(ctx.tx, ctx.tenant.agencyId, id);
-  if (!r) throw new AppError('VIEWING_REQUEST_NOT_FOUND');
-  return {
-    requestId: r.id,
-    introducerAgencyId: r.introducerAgencyId,
-    ownerAgencyId: r.ownerAgencyId,
-    target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
-    terms: termsOf(r),
-    pdfUrl: await acceptedTermsPdfUrl(r),
-  };
-}
-
-/**
- * S12-05: the accepted-terms PDF's short signed link once both sides accepted (local signing, no network call). It is
- * rendered within seconds of the owner's acceptance (`prepareViewingTermsPdf`); until then the link answers 404.
- */
-function acceptedTermsPdfUrl(r: repo.ViewingRow): Promise<string | null> {
-  return r.ownerAcceptedAt ? documents.viewingTermsPdfUrl(r.id) : Promise.resolve(null);
+export async function viewingTermsDoc(
+  run: CtxRunner,
+  id: string,
+): Promise<{ doc: ViewingTermsDocumentDto; ownerAccepted: boolean }> {
+  return run(async (ctx) => {
+    assertCan(ctx, 'mls.viewings.read');
+    const r = await repo.sideRow(ctx.tx, ctx.tenant.agencyId, id);
+    if (!r) throw new AppError('VIEWING_REQUEST_NOT_FOUND');
+    return {
+      doc: {
+        requestId: r.id,
+        introducerAgencyId: r.introducerAgencyId,
+        ownerAgencyId: r.ownerAgencyId,
+        target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
+        terms: termsOf(r),
+        pdfUrl: null,
+      },
+      ownerAccepted: r.ownerAcceptedAt !== null,
+    };
+  });
 }
 
 /**

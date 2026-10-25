@@ -13,17 +13,26 @@ import { DEFAULT_UI_LOCALE, FALLBACK_CONTENT_LOCALE, isUiLocale } from '@inmolin
 import { translator } from '@inmolink/i18n/server';
 import { AppError } from '@inmolink/platform/errors';
 import { pdf } from '@inmolink/platform/pdf';
+import { UnrecoverableError } from '@inmolink/platform/queue';
 import { storage } from '@inmolink/platform/storage';
 import type { z } from 'zod';
 import * as agencies from '../agencies';
 import * as search from '../search';
 import * as websiteApi from '../website-api';
 import * as websites from '../websites';
-import { DOCUMENT_LINK_SECONDS, documentKey, viewingTermsKey } from './config';
+import { DOCUMENT_LINK_SECONDS, DOCUMENT_MAX_BYTES, documentKey, viewingTermsKey } from './config';
 import type { ListingsDocumentPayload, ViewingTermsPayload } from './payloads';
 import { brochureHtml, docFormat, portfolioHtml, viewingTermsHtml } from './templates';
 
 const PDF = { contentType: 'application/pdf' } as const;
+
+/** A PDF past `DOCUMENT_MAX_BYTES` is not stored: the render fails for good (a template or asset problem). */
+function checkedSize(bytes: Uint8Array): Uint8Array {
+  if (bytes.length > DOCUMENT_MAX_BYTES) {
+    throw new UnrecoverableError(`pdf: ${bytes.length} bytes over the ${DOCUMENT_MAX_BYTES}-byte limit`);
+  }
+  return bytes;
+}
 const uiLocale = (locale: string) => (isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE);
 
 /** The listings of a document as the agency presents them, in the requested order; unavailable ones are left out. */
@@ -72,7 +81,7 @@ export async function renderListingsDocument(
   const key = documentKey(p.agencyId, p.documentId);
   if (await storage().head('private', key)) return { rendered: false };
   const html = await listingsDocumentHtml(p, options.now ?? new Date());
-  const bytes = await pdf().render(html, { signal: options.signal });
+  const bytes = checkedSize(await pdf().render(html, { signal: options.signal }));
   await storage().put('private', key, bytes, PDF);
   return { rendered: true, bytes: bytes.length };
 }
@@ -100,9 +109,14 @@ export async function renderViewingTermsDocument(
     t: translator(uiLocale(p.locale), 'documents'),
     format: docFormat(p.locale),
   });
-  const bytes = await pdf().render(html, { signal: options.signal });
+  const bytes = checkedSize(await pdf().render(html, { signal: options.signal }));
   await storage().put('private', key, bytes, PDF);
   return { rendered: true, bytes: bytes.length };
+}
+
+/** Whether a viewing request's accepted-terms PDF has been rendered (a storage HEAD: never inside a transaction). */
+export async function viewingTermsPdfExists(requestId: string): Promise<boolean> {
+  return (await storage().head('private', viewingTermsKey(requestId))) !== null;
 }
 
 /**

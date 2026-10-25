@@ -8,6 +8,7 @@ export {
   configureDocuments,
   DOCUMENT_ID_WINDOW_MS,
   DOCUMENT_LINK_SECONDS,
+  DOCUMENT_MAX_BYTES,
   DOCUMENT_RENDERS_PER_AGENCY,
   DOCUMENT_TEMPLATE_VERSION,
   documentKey,
@@ -22,9 +23,21 @@ export {
   loadDocumentListings,
   renderListingsDocument,
   renderViewingTermsDocument,
+  viewingTermsPdfExists,
   viewingTermsPdfUrl,
 } from './render';
-export { documentIdOf, getDocument, queueViewingTermsPdf, requestBrochure, requestPortfolio } from './service';
+export {
+  documentIdOf,
+  enqueueAfresh,
+  getDocument,
+  type PreparedDocument,
+  prepareBrochure,
+  preparePortfolio,
+  queueViewingTermsPdf,
+  requestBrochure,
+  requestPortfolio,
+  startDocument,
+} from './service';
 export {
   brochureHtml,
   type DocFormat,

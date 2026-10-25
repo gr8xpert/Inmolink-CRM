@@ -14,6 +14,7 @@ import * as presentations from '@inmolink/core/modules/presentations';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
+import { DOCUMENT_RENDER_LIMITS } from '../documents/routes';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'presentations.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -121,11 +122,12 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
         response: { 202: PdfDocumentDto },
       },
       onRequest: [app.requireSession],
-      config: { rateLimit: WRITE_LIMITS },
+      // The documents' render budget (per IP, user and agency), shared with the documents routes.
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
     },
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
-      return reply.code(202).send(await app.withCtx(req, (ctx) => presentations.selectionPdf(ctx, req.params.id)));
+      return reply.code(202).send(await presentations.selectionPdf((fn) => app.withCtx(req, fn), req.params.id));
     },
   );
 
