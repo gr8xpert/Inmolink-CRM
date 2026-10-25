@@ -116,10 +116,17 @@ export function pubSubConnections(): { pub: Redis; sub: Redis } {
  * (one round trip for a fan-out of 100). Every event is encoded (and checked) before anything is sent. Fails fast like
  * every cache command (no offline queue): the caller — a worker job — retries.
  */
-export async function publishUserEvents(events: readonly UserEvent[]): Promise<void> {
+export async function publishUserEvents(
+  events: readonly UserEvent[],
+  /**
+   * S12-F10: `everyNode` events go out without the recipient prefix, so every realtime node parses them — even one
+   * with no socket of that member (a session revocation each node must remember, not only the one holding sockets).
+   */
+  options: { everyNode?: boolean } = {},
+): Promise<void> {
   if (events.length === 0) return;
-  const { prefixUserEvents } = current(); // S12-F4: the rollout flag
-  const encoded = events.map((e) => encodeUserEvent(e, { prefix: prefixUserEvents }));
+  const prefix = current().prefixUserEvents && !options.everyNode; // S12-F4: the rollout flag
+  const encoded = events.map((e) => encodeUserEvent(e, { prefix }));
   const pipeline = cacheConnection().pipeline();
   for (const text of encoded) pipeline.publish(USER_EVENTS_CHANNEL, text);
   const results = await pipeline.exec();

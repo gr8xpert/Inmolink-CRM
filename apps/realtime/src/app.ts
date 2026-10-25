@@ -386,8 +386,9 @@ export async function buildApp(deps: RealtimeDeps): Promise<RealtimeApp> {
     }
     io.of(e.namespace).local.to(userRoom(e.agencyId, e.userId)).emit(e.event, e.data);
   };
-  // S12-F4: a member is local when one of their sockets is in their room on a per-user namespace of this node (a
-  // revocation for a member with no socket here is skipped too: connects check the shared copy in redis-cache)
+  // S12-F4: a member is local when one of their sockets is in their room on a per-user namespace of this node, or a
+  // connect of theirs waits in `admit`. Revocations go to every node unprefixed (S12-F10, `everyNode`), so each node
+  // records them whether or not it holds a socket of the member; redis-cache's copy is the second layer.
   const isLocal = (agencyId: string, userId: string) => {
     const room = userRoom(agencyId, userId);
     return (

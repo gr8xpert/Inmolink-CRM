@@ -306,7 +306,13 @@ describe('identity password reset', () => {
 
     await whenReady(cacheConnection(), 10_000); // redis-cache commands fail fast until connected
     const published: UserEvent[] = [];
-    const res = await identity.disconnectRevokedSessions({ userId: user.id }, async (e) => void published.push(...e));
+    const options: unknown[] = [];
+    const res = await identity.disconnectRevokedSessions({ userId: user.id }, async (e, o) => {
+      published.push(...e);
+      options.push(o);
+    });
+    // S12-F10: unprefixed, so every realtime node records it
+    expect(options).toEqual([{ everyNode: true }]);
     const agencyId = await withSystem('identity test: membership', async (tx) => {
       const r = await tx.execute(sql`select agency_id from agency_members where user_id = ${user.id}`);
       return (r.rows[0] as { agency_id: string }).agency_id;

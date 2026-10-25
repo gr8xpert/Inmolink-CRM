@@ -45,6 +45,7 @@ const RESET = '0192a0b4-0000-7000-8000-000000000007';
 const SHARED = '0192a0b4-0000-7000-8000-000000000008';
 const SHARED_DOWN = '0192a0b4-0000-7000-8000-000000000009';
 const RACER = '0192a0b4-0000-7000-8000-00000000000a';
+const ELSEWHERE = '0192a0b4-0000-7000-8000-00000000000b';
 const sharedRevocations = new Map<string, SessionRevocation>();
 let releaseRacer: (() => void) | undefined;
 let racerWaiting: (() => void) | undefined;
@@ -56,6 +57,8 @@ let realtime: RealtimeApp;
 let url = '';
 /** The pub/sub subscription's handler (what `subscribeUserEvents` would call), and whether drain stopped it. */
 let publish: ((e: UserEvent) => void) | undefined;
+/** S12-F10: what `publishUserEvents(…, { everyNode: true })` sends (no recipient prefix: never skipped). */
+let publishEveryNode: ((e: UserEvent) => void) | undefined;
 let unsubscribed = false;
 
 beforeAll(async () => {
@@ -98,6 +101,7 @@ beforeAll(async () => {
       }) as unknown as Redis;
       const stop = await subscribeUserEvents(sub, handler, createLogger({ level: 'silent' }), { isLocal });
       publish = (e) => sub.emit('message', USER_EVENTS_CHANNEL, encodeUserEvent(e));
+      publishEveryNode = (e) => sub.emit('message', USER_EVENTS_CHANNEL, encodeUserEvent(e, { prefix: false }));
       return async () => {
         await stop();
         unsubscribed = true;
@@ -549,5 +553,26 @@ describe('realtime app', () => {
     chatTab.close();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(realtime.isLocal(AGENCY, STRANGER)).toBe(false);
+  });
+
+  it('[S12-F10] a node with no socket of the member still records a revocation and refuses a later connect, without the shared copy', async () => {
+    const { token } = await signer.sign({ sub: ELSEWHERE, aud: 'realtime', sv: 1, agency: AGENCY });
+    expect(realtime.isLocal(AGENCY, ELSEWHERE)).toBe(false);
+    const event = (deactivatedAt: string) => ({
+      userId: ELSEWHERE,
+      agencyId: AGENCY,
+      namespace: '/session',
+      event: 'revoked',
+      data: { sessionVersion: null, deactivatedAt },
+    });
+    // a prefixed revocation for a member with no socket here is skipped unparsed (why revocations go to every node)
+    publish?.(event(new Date().toISOString()));
+    const [before] = connected(await openWith('/notifications', token));
+    before.close();
+    // sent to every node: recorded here although the member has no socket, and redis-cache holds nothing for them
+    expect(sharedRevocations.has(`${AGENCY}:${ELSEWHERE}`)).toBe(false);
+    publishEveryNode?.(event(new Date().toISOString()));
+    expect(await openWith('/notifications', token)).toBe('NOT_AUTHENTICATED');
+    expect(await openWith('/chat', token)).toBe('NOT_AUTHENTICATED');
   });
 });

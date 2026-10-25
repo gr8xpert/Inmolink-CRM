@@ -16,7 +16,7 @@ import * as sessionsRepo from './sessions-repo';
  * namespace. Called by the outbox subscribers (outside any transaction); at least once — both steps are idempotent.
  */
 
-type Publish = (events: readonly UserEvent[]) => Promise<void>;
+type Publish = (events: readonly UserEvent[], options?: { everyNode?: boolean }) => Promise<void>;
 type Store = typeof markSessionRevoked;
 
 /** A user belongs to one agency (`agency_members_user_uq`); a few, should that ever change. */
@@ -52,7 +52,10 @@ export async function disconnectDeactivatedMember(
   );
   if (!at) return { revoked: false };
   await store(p.agencyId, p.userId, { deactivatedAt: at.getTime() }, ACCESS_TOKEN_TTL_SECONDS);
-  await publish([revoked(p.userId, p.agencyId, { sessionVersion: null, deactivatedAt: at.toISOString() })]);
+  // every node records it (not only those with a socket of the member): redis-cache's copy may be evicted
+  await publish([revoked(p.userId, p.agencyId, { sessionVersion: null, deactivatedAt: at.toISOString() })], {
+    everyNode: true,
+  });
   return { revoked: true };
 }
 
@@ -74,6 +77,7 @@ export async function disconnectRevokedSessions(
   }
   await publish(
     scope.agencyIds.map((a) => revoked(p.userId, a, { sessionVersion: scope.sessionVersion, deactivatedAt: null })),
+    { everyNode: true },
   );
   return { agencies: scope.agencyIds.length };
 }
