@@ -20,9 +20,9 @@ import {
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
-import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp, type RealtimeApp } from './app';
+import { buildApp, type RealtimeApp } from '../../apps/realtime/src/app';
+import { io as connect, type Socket } from '../../apps/realtime/src/testing/socket-client'; // S12-F19: moved from apps/realtime (perf project)
 
 /**
  * S11-03 load test: chat message fan-out with many connected sockets, on the production path — two realtime nodes
@@ -67,7 +67,7 @@ async function startNode(): Promise<Node> {
     adapter: { pub, sub },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`k1:${pair.publicKey}`) }),
     allowedOrigins: [ORIGIN],
-    userEvents: (handler) => subscribeUserEvents(events, handler, log),
+    userEvents: (handler, isLocal) => subscribeUserEvents(events, handler, log, { isLocal }), // S12-F4
   });
   await realtime.app.listen({ host: '127.0.0.1', port: 0 });
   return {

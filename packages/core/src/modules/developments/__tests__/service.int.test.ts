@@ -575,7 +575,8 @@ describe('development service', () => {
     expect(Buffer.byteLength(JSON.stringify(entry?.metadata))).toBeLessThanOrEqual(4096);
   });
 
-  it('[S5-F3] approving a 2,000-unit price list stays within the dashboard budget', async () => {
+  // S12-F19: the wall-clock guard (< 2 s) is timed in tests/perf/developments-price-list-approval.int.test.ts
+  it('[S5-F3] approving a 2,000-unit price list stays within the dashboard statement budget, with no per-unit events', async () => {
     const dev = await createDev();
     const ref = (i: number) => `R${String(i).padStart(4, '0')}`;
     for (let b = 0; b < 4; b++) {
@@ -599,19 +600,14 @@ describe('development service', () => {
       ),
     );
     let approved: { diff: { changed: unknown[] } } | undefined;
-    const started = performance.now();
     const queries = await as(owner, (ctx) =>
       countQueries(async () => {
         approved = await developments.approvePriceList(ctx, dev.id, list.version);
       }),
     );
-    const ms = performance.now() - started;
     expect(approved?.diff.changed).toHaveLength(2_000);
     // Dashboard budget: ≤ 10 statements whatever the size (no per-unit events; no statement near 65,535 parameters)
     expect(queries).toBeLessThanOrEqual(10);
-    // Budget p95 < 300 ms, measured on staging (H4): on the local Docker Desktop disk one approval takes 390–850 ms
-    // (the same statements vary 2–3× run to run). This guards the shape — the old path wrote 6,000 outbox rows.
-    expect(ms).toBeLessThan(2_000);
     const unitEvents = await rows<{ n: number }>(sql`select count(*)::int as n from outbox_events
       where payload->>'developmentId' = ${dev.id} and type in
         ('developments.unit.updated', 'developments.unit.priceChanged', 'developments.unit.statusChanged')`);

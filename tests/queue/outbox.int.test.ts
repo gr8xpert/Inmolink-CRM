@@ -91,6 +91,45 @@ describe('outbox', () => {
     expect(rows.map((r) => r.n)).toEqual(['2']);
   });
 
+  it('[S12-F19] a test-scoped dispatcher (agencyIds) claims only its agencies’ events and never prunes', async () => {
+    const mine = newId();
+    const theirs = newId();
+    for (const agencyId of [mine, theirs]) {
+      await withTenant({ agencyId }, (tx) => emit(tx, noted({ agencyId, n: 1 })));
+    }
+    const seen: string[] = [];
+    const subscribers = new SubscriberRegistry();
+    subscribers.add(noted, (p) => {
+      seen.push(p.agencyId);
+    });
+    const scoped = createDispatcher({ runSystem, logger: log, subscribers, agencyIds: [mine] });
+    const row = async (agencyId: string) => {
+      const { rows } = await withSystem('test.scope', (tx) =>
+        tx.execute(sql`select processed_at, attempts from outbox_events
+                        where agency_id = ${agencyId} and type = ${noted.type}`),
+      );
+      return rows[0] as { processed_at: Date | null; attempts: number };
+    };
+    await waitFor(async () => {
+      await scoped.runOnce();
+      return (await row(mine)).processed_at !== null;
+    });
+    // the other agency's event was never claimed (not leased, no attempt), and nothing outside the scope reached us
+    expect(seen).toEqual([mine]);
+    expect(await row(theirs)).toMatchObject({ processed_at: null, attempts: 0 });
+    expect(await scoped.prune()).toBe(0);
+    expect(() => createDispatcher({ runSystem, logger: log, agencyIds: [] })).toThrow(RangeError);
+    expect(() => createDispatcher({ runSystem, logger: log, agencyIds: ["x' or 1=1"] })).toThrow(RangeError);
+
+    // tidy up: the other agency's own scope takes it
+    const other = createDispatcher({ runSystem, logger: log, subscribers, agencyIds: [theirs] });
+    await waitFor(async () => {
+      await other.runOnce();
+      return (await row(theirs)).processed_at !== null;
+    });
+    expect(seen.sort()).toEqual([mine, theirs].sort());
+  });
+
   it('[S0-06] a tenant cannot emit events for another agency (RLS)', async () => {
     const a = newId();
     const b = newId();

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- test: outbox dispatcher test scope (agencyIds); wall-clock budgets (chat fan-out/e2e, crm timeline, speed-to-lead, lead→inbox, price-list approval) moved from the int run to the perf project [S12-F19]
 - perf(realtime): user events carry a recipient prefix and nodes skip non-local members unparsed (REALTIME_PREFIX_EVENTS rollout flag); pub/sub buffer limit set; user-event and subscriber-disconnect metrics; 10k-event 3-node load test [S12-F4]
 - feat(realtime): deactivated members get no pushes and their sockets close within 1 s; password reset closes older sessions; revocations shared via redis-cache [S12-F10]
 - feat(identity): Client Mode — server-side session flag and cm token claim, serializer stripping with a central fail-closed API net and a contract test over all routes, hashed/rate-limited/audited exit PIN, banner [S12-06]

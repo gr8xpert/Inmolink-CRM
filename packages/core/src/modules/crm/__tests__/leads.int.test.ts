@@ -246,7 +246,8 @@ describe('promotion of website leads', () => {
     });
   });
 
-  it('[S10-02] website lead lands in the right agency inbox in < 10 s p95 (event → outbox → promote job)', async () => {
+  // S12-F19: the < 10 s p95 budget is timed in tests/perf/crm-lead-latency.int.test.ts; here the path and the routing
+  it('[S10-02] a burst of website leads lands in the right agency inbox through event → outbox → promote job, assigned by its rule', async () => {
     const queuePrefix = `crmleads${RUN}`;
     await configureQueue({ prefix: queuePrefix, logger: log });
     crm.registerCrmSubscriptions();
@@ -303,11 +304,10 @@ describe('promotion of website leads', () => {
         ),
       );
       const deadline = Date.now() + 60_000;
-      let landed: { latency_ms: number; agency_id: string; assigned_user_id: string | null }[] = [];
+      let landed: { agency_id: string; assigned_user_id: string | null }[] = [];
       while (Date.now() < deadline) {
         landed = await rows(sql`
-          select l.agency_id, l.assigned_user_id,
-                 extract(epoch from (l.created_at - w.created_at)) * 1000 as latency_ms
+          select l.agency_id, l.assigned_user_id
             from leads l join website_leads w on w.id = l.inbound_lead_id
            where l.inbound_lead_id = any(${sql.param(inboundIds)}::uuid[])`);
         if (landed.length === LEADS_FOR_P95) break;
@@ -317,12 +317,6 @@ describe('promotion of website leads', () => {
       // the right inbox: the presenting agency's, also for the partner's listing (§3 #12), assigned by its rule
       expect(new Set(landed.map((l) => l.agency_id))).toEqual(new Set([a.agencyId]));
       expect(new Set(landed.map((l) => l.assigned_user_id))).toEqual(new Set([a.userId, agentId]));
-      const latencies = landed.map((l) => Number(l.latency_ms)).sort((x, y) => x - y);
-      const p95 = latencies[Math.ceil(0.95 * latencies.length) - 1] as number;
-      console.info(
-        `[S10-02] website lead → inbox: ${LEADS_FOR_P95} leads, p50 ${Math.round(latencies[Math.floor(latencies.length / 2)] as number)} ms, p95 ${Math.round(p95)} ms, max ${Math.round(latencies.at(-1) as number)} ms`,
-      );
-      expect(p95).toBeLessThan(10_000);
     } finally {
       dispatching = false;
       await dispatcher;

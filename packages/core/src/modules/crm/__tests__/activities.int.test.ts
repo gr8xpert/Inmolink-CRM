@@ -159,7 +159,8 @@ afterAll(async () => {
 });
 
 describe('timeline', () => {
-  it('[S10-04] timeline for a contact with 5,000 activities loads first page in < 300 ms (keyset)', async () => {
+  // S12-F19: the < 300 ms budget is timed in tests/perf/crm-activities-timeline.int.test.ts; here the keyset walk
+  it('[S10-04] timeline for a contact with 5,000 activities pages by keyset: newest first, no gaps, no repeats', async () => {
     const c = await contact(a, 'busy');
     // 5,000 activities over the last 25 days (two monthly partitions at most), every type a member logs
     await system(async (tx) => {
@@ -172,28 +173,16 @@ describe('timeline', () => {
       await tx.execute(sql`analyze activities`);
     });
 
-    // warm the connection and the plan cache once, then time the first page and a deep page (p95 of 10 each)
-    await timeline(a, { subject: 'CONTACT', subjectId: c.id, limit: 50 });
-    const firstTimes: number[] = [];
-    let first: Awaited<ReturnType<typeof timeline>> | undefined;
-    for (let i = 0; i < 10; i++) {
-      const t0 = performance.now();
-      first = await timeline(a, { subject: 'CONTACT', subjectId: c.id, limit: 50 });
-      firstTimes.push(performance.now() - t0);
-    }
-    firstTimes.sort((x, y) => x - y);
-    expect(firstTimes[9]).toBeLessThan(300);
-    expect(first?.items).toHaveLength(50);
-    const at = first?.items.map((i) => i.occurredAt) ?? [];
+    const first = await timeline(a, { subject: 'CONTACT', subjectId: c.id, limit: 50 });
+    expect(first.items).toHaveLength(50);
+    const at = first.items.map((i) => i.occurredAt);
     expect([...at].sort().reverse()).toEqual(at);
 
     // walk 40 pages down: each one continues exactly where the previous ended (no gaps, no repeats)
-    const seen = new Set<string>(first?.items.map((i) => i.id));
-    let cursor = first?.nextCursor ?? null;
+    const seen = new Set<string>(first.items.map((i) => i.id));
+    let cursor = first.nextCursor ?? null;
     for (let p = 0; p < 40 && cursor; p++) {
-      const t0 = performance.now();
       const page = await timeline(a, { subject: 'CONTACT', subjectId: c.id, limit: 50, cursor });
-      expect(performance.now() - t0).toBeLessThan(300);
       for (const item of page.items) {
         expect(seen.has(item.id)).toBe(false);
         seen.add(item.id);

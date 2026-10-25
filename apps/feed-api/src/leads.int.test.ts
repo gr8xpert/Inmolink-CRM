@@ -341,7 +341,8 @@ describe('website lead intake over HTTP (S7-05)', () => {
     expect((await post('/v2/leads', lead({ turnstileToken: good() }), { ip: '203.0.113.100' })).statusCode).toBe(201);
   });
 
-  it('[S7-05] auto-ack is sent in < 60 s p95 (POST → outbox → email queue → e-mail adapter) and uses the site branding', async () => {
+  // S12-F19: the < 60 s p95 budget is timed in tests/perf/website-lead-ack.int.test.ts; here the path and the branding
+  it('[S7-05] every lead of a burst is acknowledged (POST → outbox → email queue → e-mail adapter) with the site branding', async () => {
     websiteApi.registerWebsiteApiSubscriptions();
     // S10-02: the agency's notification follows the lead's promotion to the CRM inbox (`crm.lead.created`).
     crm.registerCrmSubscriptions();
@@ -412,15 +413,7 @@ describe('website lead intake over HTTP (S7-05)', () => {
       const acks = () => sent.filter((s) => s.message.tag === 'website.lead-ack' && postedAt.has(s.message.to));
       const deadline = Date.now() + 90_000;
       while (acks().length < LEADS_FOR_P95 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-      const latencies = acks()
-        .map((s) => s.at - (postedAt.get(s.message.to) as number))
-        .sort((x, y) => x - y);
-      expect(latencies).toHaveLength(LEADS_FOR_P95);
-      const p95 = latencies[Math.ceil(0.95 * latencies.length) - 1] as number;
-      console.info(
-        `[S7-05] speed-to-lead: ${LEADS_FOR_P95} leads, p50 ${Math.round(latencies[Math.floor(latencies.length / 2)] as number)} ms, p95 ${Math.round(p95)} ms, max ${Math.round(latencies.at(-1) as number)} ms`,
-      );
-      expect(p95).toBeLessThan(60_000);
+      expect(acks()).toHaveLength(LEADS_FOR_P95);
       // Branded as the site, in the visitor's language.
       const spanish = acks().find((s) => s.message.subject.startsWith('Hemos recibido'));
       expect(spanish?.message.subject).toBe('Hemos recibido su consulta – Lead Site Homes');

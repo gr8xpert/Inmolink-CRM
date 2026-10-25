@@ -55,7 +55,14 @@ export interface DispatcherOptions {
    * wall-clock latency; it must be cheap and must not throw (errors are ignored).
    */
   onClaim?: (round: { lane: number; startedAt: number; ids: readonly string[] }) => void;
+  /**
+   * S12-F19: test scope — claim only these agencies' events, and never prune (other suites' rows on the shared test
+   * database stay theirs). Production dispatchers leave it unset.
+   */
+  agencyIds?: readonly string[];
 }
+
+const SCOPE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface DispatchStats {
   claimed: number;
@@ -157,7 +164,14 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
     deadRetentionMs = 30 * 24 * 3_600_000,
     pruneEveryMs = 10 * 60_000,
     onClaim,
+    agencyIds,
   } = options;
+
+  // S12-F19: the test scope, one bound array literal (ids checked first); appended to every claim predicate
+  if (agencyIds && (agencyIds.length === 0 || !agencyIds.every((id) => SCOPE_UUID.test(id)))) {
+    throw new RangeError('createDispatcher: agencyIds must be a non-empty list of UUIDs');
+  }
+  const scoped = agencyIds ? sql` and agency_id = any(${`{${agencyIds.join(',')}}`}::uuid[])` : sql``;
 
   // A batch delivers in ceil(batch / concurrency) waves of at most deliveryTimeoutMs each; the lease
   // must outlast that, or another dispatcher re-claims rows still being delivered.
@@ -211,11 +225,11 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
       tx.execute(sql`
         with recursive after_cursor(agency_id, n) as (
           select (select agency_id from outbox_events
-                   where processed_at is null and available_at <= now() and agency_id > ${cursor}::uuid
+                   where processed_at is null and available_at <= now()${scoped} and agency_id > ${cursor}::uuid
                    order by agency_id limit 1), 1
           union all
           select (select agency_id from outbox_events
-                   where processed_at is null and available_at <= now() and agency_id > a.agency_id
+                   where processed_at is null and available_at <= now()${scoped} and agency_id > a.agency_id
                    order by agency_id limit 1), a.n + 1
             from after_cursor a
            where a.agency_id is not null and a.n < ${maxAgenciesPerClaim}::int
@@ -223,12 +237,12 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
         found_after as (select agency_id, n from after_cursor where agency_id is not null),
         up_to_cursor(agency_id, n) as (
           select (select agency_id from outbox_events
-                   where processed_at is null and available_at <= now() and agency_id <= ${cursor}::uuid
+                   where processed_at is null and available_at <= now()${scoped} and agency_id <= ${cursor}::uuid
                    order by agency_id limit 1), 1
            where (select count(*) from found_after) < ${maxAgenciesPerClaim}::int
           union all
           select (select agency_id from outbox_events
-                   where processed_at is null and available_at <= now()
+                   where processed_at is null and available_at <= now()${scoped}
                      and agency_id > a.agency_id and agency_id <= ${cursor}::uuid
                    order by agency_id limit 1), a.n + 1
             from up_to_cursor a
@@ -248,7 +262,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
           select a.agency_id, a.ord, s.rows as share,
                  (select count(*) from (
                     select 1 from outbox_events e
-                     where e.processed_at is null and e.available_at <= now() and e.agency_id = a.agency_id
+                     where e.processed_at is null and e.available_at <= now()${scoped} and e.agency_id = a.agency_id
                      limit s.rows) c) as due_count
             from agencies a, share s
         ),
@@ -262,7 +276,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
                  case when f.due_count >= f.share and r.probe > f.share
                       then (select count(*) from (
                              select 1 from outbox_events e
-                              where e.processed_at is null and e.available_at <= now() and e.agency_id = f.agency_id
+                              where e.processed_at is null and e.available_at <= now()${scoped} and e.agency_id = f.agency_id
                               limit r.probe) c)
                       else f.due_count end as due_count
             from first_count f, refine r
@@ -292,7 +306,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
             from quota q
            cross join lateral (
              select e.id, e.available_at from outbox_events e
-              where e.processed_at is null and e.available_at <= now() and e.agency_id = q.agency_id
+              where e.processed_at is null and e.available_at <= now()${scoped} and e.agency_id = q.agency_id
               order by e.available_at, e.id
               limit q.quota_rows
               for update skip locked) p
@@ -428,6 +442,7 @@ export function createDispatcher(options: DispatcherOptions): Dispatcher {
   }
 
   async function prune(): Promise<number> {
+    if (agencyIds) return 0; // S12-F19: a test-scoped dispatcher leaves the shared table alone
     let total = 0;
     for (;;) {
       const { rows } = await runSystem('outbox.prune', (tx) =>

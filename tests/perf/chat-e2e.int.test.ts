@@ -23,9 +23,9 @@ import {
 import { createLogger } from '@inmolink/platform/logger';
 import type { Dispatcher } from '@inmolink/platform/outbox';
 import { closeQueues, configureQueue, type PoolHandle, registerPool } from '@inmolink/platform/queue';
-import { io as connect, type Socket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp, type RealtimeApp } from './app';
+import { buildApp, type RealtimeApp } from '../../apps/realtime/src/app';
+import { io as connect, type Socket } from '../../apps/realtime/src/testing/socket-client'; // S12-F19: moved from apps/realtime (perf project)
 
 /**
  * S11-03 acceptance, end to end: `chat.sendMessage` (a member's request transaction, commit) → outbox → the dispatcher
@@ -67,7 +67,7 @@ async function startNode() {
     adapter: { pub, sub },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`k1:${pair.publicKey}`) }),
     allowedOrigins: [ORIGIN],
-    userEvents: (handler) => subscribeUserEvents(events, handler, log),
+    userEvents: (handler, isLocal) => subscribeUserEvents(events, handler, log, { isLocal }), // S12-F4
   });
   await realtime.app.listen({ host: '127.0.0.1', port: 0 });
   return {
@@ -158,7 +158,8 @@ beforeAll(async () => {
   // the worker side: the chat subscriptions, the outbox dispatcher and the delivery job's pool
   chat.registerChatSubscriptions();
   pool = registerPool('realtime', [chat.chatJobs.deliverMessage], { concurrency: 16 });
-  dispatcher = createOutboxDispatcher({ logger: log });
+  // S12-F19: scoped to this suite's agency — on the shared test database it never claims other suites' events
+  dispatcher = createOutboxDispatcher({ logger: log, agencyIds: [agencyId] });
   await dispatcher.start();
 
   nodes.push(await startNode(), await startNode());
@@ -170,7 +171,7 @@ beforeAll(async () => {
     );
     for (const s of opened) if (s) sockets.push(s);
   }
-  // warm-up: the first delivery waits for the dispatcher to work through other suites' due events
+  // warm-up: the first delivery (connections, the job pool's first claim)
   await send(threads[0] as (typeof threads)[number], `warm-${RUN}`);
   await until(() => pending.size === 0, 120_000);
   latencies.length = 0;
