@@ -1,4 +1,4 @@
-import type { AiUsage } from './types';
+import type { AiImage, AiUsage } from './types';
 
 /**
  * Provider abstraction (ADR 0008 #1): the gateway talks to providers only through these interfaces, so a second
@@ -11,6 +11,13 @@ export interface ProviderRequest {
   system: string;
   /** The variable part, last. */
   user: string;
+  /** Images, sent before `user` in the same turn. */
+  images?: readonly AiImage[];
+  /**
+   * The repair retry (S12-01 review): the rejected answer goes back as the assistant's turn, followed by a short
+   * correction as a new user turn — the original request stays unchanged (and prefix-cached).
+   */
+  repair?: { previous: string; correction: string };
   maxTokens: number;
   /** JSON schema the answer must follow (structured output), when the caller has one. */
   jsonSchema?: Record<string, unknown>;
@@ -35,14 +42,15 @@ export type ProviderBatchResult =
   | { customId: string; type: 'errored' | 'canceled' | 'expired' };
 
 /**
- * Why a provider call failed. `unavailable` (timeouts, 5xx, overloaded, rate limits, network) counts against the
- * circuit breaker and is retryable; `rejected` (4xx: invalid request, auth, permission) is our fault or config and
- * does not open the breaker.
+ * Why a provider call failed. `unavailable` (timeouts, 5xx, overloaded, network) counts against the circuit breaker
+ * and is retryable; `rate_limited` (429, after the SDK's own backoff) is retryable but says nothing about the
+ * provider's health, so it does not count (S12-01 review); `rejected` (4xx: invalid request, auth, permission) is our
+ * fault or config and does not open the breaker either.
  */
 export class AiProviderError extends Error {
   override readonly name = 'AiProviderError';
   constructor(
-    readonly kind: 'unavailable' | 'rejected',
+    readonly kind: 'unavailable' | 'rate_limited' | 'rejected',
     message: string,
     readonly status?: number,
   ) {

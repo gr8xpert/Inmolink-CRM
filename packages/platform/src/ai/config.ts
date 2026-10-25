@@ -68,6 +68,8 @@ export const aiEnv = {
   AI_BUDGET_HARD_USD_CENTS: z.coerce.number().int().min(0).default(5_000),
   /** Per plan key: `{"PRO": {"softUsdCents": 5000, "hardUsdCents": 10000}}`. Plans not listed use the default. */
   AI_BUDGETS_BY_PLAN: json(BudgetsByPlan).optional(),
+  /** Lifetime of the request path's month-spend mirror on redis-cache (S12-01 review); reseeded from the database. */
+  AI_SPEND_MIRROR_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
   AI_BREAKER_FAILURES: z.coerce.number().int().min(1).max(1_000).default(5),
   AI_BREAKER_OPEN_MS: z.coerce.number().int().min(1_000).max(600_000).default(30_000),
   /** Embedding provider (ADR 0008 #7). `none` until a multilingual embedding provider is chosen (S12-01 decision). */
@@ -92,6 +94,7 @@ export interface AiSettings {
   defaultBudget: AiBudget;
   budgetsByPlan: Record<string, AiBudget>;
   breaker: { failures: number; openMs: number };
+  spendMirrorTtlSeconds: number;
   embed: { provider: 'none'; model: string | undefined };
 }
 
@@ -141,6 +144,7 @@ export function loadAiSettings(env: NodeJS.ProcessEnv = process.env): AiSettings
     },
     budgetsByPlan,
     breaker: { failures: c.AI_BREAKER_FAILURES, openMs: c.AI_BREAKER_OPEN_MS },
+    spendMirrorTtlSeconds: c.AI_SPEND_MIRROR_TTL_SECONDS,
     embed: { provider: c.AI_EMBED_PROVIDER, model: c.AI_EMBED_MODEL },
   };
 }

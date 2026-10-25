@@ -93,8 +93,11 @@ function parseAnswer(text: string): unknown {
   return JSON.parse(fenced?.[1] ?? trimmed);
 }
 
-/** Runs one case's checks against an answer; returns the failures (empty = pass). */
-export function checkAnswer(c: EvalCase, answer: string): string[] {
+/**
+ * Runs one case's checks against an answer; returns the failures (empty = pass). With `schema` (structured features,
+ * `pnpm ai:eval <feature> --schema …`) the answer must also be JSON that the schema accepts.
+ */
+export function checkAnswer(c: EvalCase, answer: string, schema?: z.ZodType): string[] {
   const failures: string[] = [];
   const checks = c.checks;
   const lower = answer.toLowerCase();
@@ -103,13 +106,21 @@ export function checkAnswer(c: EvalCase, answer: string): string[] {
   if (checks.maxChars !== undefined && answer.length > checks.maxChars) {
     failures.push(`${answer.length} chars > ${checks.maxChars}`);
   }
-  const needsJson = checks.json || checks.sameKeys !== undefined || checks.keepsTokens !== undefined;
+  const needsJson =
+    checks.json || checks.sameKeys !== undefined || checks.keepsTokens !== undefined || schema !== undefined;
   if (!needsJson) return failures;
   let parsed: unknown;
   try {
     parsed = parseAnswer(answer);
   } catch {
     return [...failures, 'not JSON'];
+  }
+  if (schema) {
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      const first = result.error.issues[0];
+      failures.push(`schema: ${first ? `${first.path.join('.') || '(root)'} ${first.message}` : 'invalid'}`);
+    }
   }
   if (checks.sameKeys !== undefined) {
     const a = at(c.input, checks.sameKeys);
@@ -146,6 +157,8 @@ export interface RunEvalOptions {
   live?: (input: unknown) => Promise<string>;
   /** With `live`: write the answers back as recordings for this prompt version. */
   record?: boolean;
+  /** Structured feature: every answer must also match this schema. */
+  schema?: z.ZodType;
 }
 
 export async function runEval(options: RunEvalOptions): Promise<EvalOutcome[]> {
@@ -180,7 +193,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalOutcome[]> {
         });
         continue;
       }
-      const failures = checkAnswer(c, answer);
+      const failures = checkAnswer(c, answer, options.schema);
       outcomes.push({ name: c.name, file: f.file, passed: failures.length === 0, failures, answer });
     }
     if (changed) await writeFile(f.file, `${f.cases.map((c) => JSON.stringify(c)).join('\n')}\n`, 'utf8');

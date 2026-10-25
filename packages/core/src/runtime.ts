@@ -1,5 +1,3 @@
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   closeDb,
   configureDb as configureDbPools,
@@ -11,14 +9,6 @@ import {
   withGlobalRead,
   withSystem,
 } from '@inmolink/db';
-import {
-  configureAi,
-  createAiGatewayFromEnv,
-  createPgAiStore,
-  listPrompts,
-  type SystemRunner,
-  syncPromptVersions,
-} from '@inmolink/platform/ai';
 import { configureFlagReader } from '@inmolink/platform/flags';
 import type { Logger } from '@inmolink/platform/logger';
 import { createDispatcher, type Dispatcher, type SqlExecutor } from '@inmolink/platform/outbox';
@@ -51,34 +41,4 @@ export function createOutboxDispatcher(options: {
     logger: options.logger,
     ...(options.agencyIds ? { agencyIds: options.agencyIds } : {}),
   });
-}
-
-/**
- * The versioned prompt files (`prompts/<id>/v<N>.md`, ADR 0008 #5) — same path from `src/` and `dist/`. Resolved on
- * call, not as `new URL('../prompts', import.meta.url)`: bundlers (Turbopack in the Next apps) treat that literal as an
- * asset import and fail the build.
- */
-export function aiPromptsDir(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
-}
-
-const aiSystemRunner: SystemRunner = (reason, fn) => withSystem(reason, (tx: Tx) => fn(tx), { routine: true });
-
-/**
- * The AI gateway for a worker running the `ai` pool (S12-01): model tiers, prices and budgets from env (`aiEnv`),
- * usage recorded on short `withSystem` transactions, responses cached on redis-cache. Records the prompt files in
- * `prompt_versions` (a changed shipped version stops boot: add a new version instead). Not for request processes:
- * `withSystem` is refused there, and AI runs in jobs (ADR 0008 #9).
- */
-export async function configureAiRuntime(options: { logger: Logger }): Promise<void> {
-  configureAi(
-    createAiGatewayFromEnv({
-      promptsDir: aiPromptsDir(),
-      store: createPgAiStore(aiSystemRunner),
-      logger: options.logger,
-    }),
-  );
-  const prompts = await listPrompts(aiPromptsDir());
-  const added = await withSystem('ai.syncPrompts', (tx: Tx) => syncPromptVersions(tx, prompts));
-  if (added > 0) options.logger.info({ added }, 'ai prompt versions recorded');
 }

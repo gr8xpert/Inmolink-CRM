@@ -2,11 +2,16 @@ import { closeDb, type Tx, withSystem, withTenant } from '@inmolink/db';
 import { adminQuery, loadStackEnv, setupTestDb } from '@inmolink/db/testing';
 import {
   type AiGatewayOptions,
+  type AiJobRecord,
   aiOrFallback,
   createAiGateway,
   createPgAiStore,
+  createRequestAiStore,
+  createSpendMirror,
   parsePrompt,
   recordAiFeedback,
+  recordUsageRow,
+  refreshSpendMirror,
   staticPromptSource,
   syncPromptVersions,
   usageMonth,
@@ -63,7 +68,13 @@ const jobsOf = (agencyId: string) =>
     return rows;
   });
 
-const spendOf = (agencyId: string) => store.monthSpend(agencyId, month);
+const spendOf = (agencyId: string) =>
+  withSystem('test.ai.spend', async (tx: Tx) => {
+    const { rows } = await tx.execute(
+      sql`select cost_micro_usd from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
+    );
+    return rows[0] ? Number(rows[0].cost_micro_usd) : 0;
+  });
 
 beforeAll(async () => {
   await setupTestDb('worker');
@@ -197,5 +208,58 @@ describe('AI gateway — usage store and cache (Postgres + redis)', () => {
     await expect(withSystem('test.ai.sync', (tx: Tx) => syncPromptVersions(tx, [edited]))).rejects.toThrow(
       /changed after it shipped/,
     );
+  });
+});
+
+// S12-01 review: request-path metering (ADR 0008 #6a) — the redis spend mirror and the queued usage record.
+describe('AI gateway — request-path metering (redis mirror + queued usage)', () => {
+  it('[S12-01] request path: fails closed until the mirror is seeded, then reserves and queues the usage record', async () => {
+    const mirror = createSpendMirror({ redis, prefix: `${prefix}:spend`, ttlSeconds: 120 });
+    const queued: { job: AiJobRecord; releaseMicroUsd: number }[] = [];
+    const refreshes: { agencyId: string; month: string }[] = [];
+    const requestStore = createRequestAiStore({
+      mirror,
+      enqueueRecord: async (input) => queued.push(input),
+      enqueueRefresh: async (input) => refreshes.push(input),
+    });
+    const provider = new FakeProvider(() => 'Pisos con piscina.');
+    const g = gateway(provider, { store: requestStore });
+    await expect(g.generate(ctxOf(agencyA), call({ q: `nl-${run}` }))).rejects.toMatchObject({
+      code: 'AI_UNAVAILABLE',
+      details: { reason: 'BUDGET_UNKNOWN' },
+    });
+    expect(refreshes).toEqual([{ agencyId: agencyA, month }]);
+    expect(provider.calls).toHaveLength(0);
+
+    // The ai.refreshSpend job's body: the mirror starts at the database's spend.
+    const seeded = await withSystem('test.ai.refresh', (tx: Tx) => refreshSpendMirror(tx, mirror, agencyA, month));
+    expect(seeded).toBe(await spendOf(agencyA));
+    const res = await g.generate(ctxOf(agencyA), call({ q: `nl-${run}` }));
+    expect(Number(await redis.get(`${prefix}:spend:${agencyA}:${month}`))).toBe(seeded + 2_000);
+    expect(queued).toHaveLength(1);
+
+    // The ai.recordUsage job's body: appends once (idempotent by the job id) and counts it in the month.
+    const job = queued[0]?.job as AiJobRecord;
+    expect(job.id).toBe(res.meta.jobId);
+    expect(await withSystem('test.ai.record', (tx: Tx) => recordUsageRow(tx, job, 0))).toBe(true);
+    expect(await withSystem('test.ai.record', (tx: Tx) => recordUsageRow(tx, job, 0))).toBe(false);
+    expect(await spendOf(agencyA)).toBe(seeded + 2_000);
+  });
+
+  it('[S12-01] request path: hard cap on the mirror → AI_BUDGET_EXCEEDED without calling the provider', async () => {
+    const mirror = createSpendMirror({ redis, prefix: `${prefix}:spend2`, ttlSeconds: 120 });
+    await mirror.seed(agencyA, month, 100_000);
+    const provider = new FakeProvider();
+    const g = gateway(provider, {
+      store: createRequestAiStore({
+        mirror,
+        enqueueRecord: async () => undefined,
+        enqueueRefresh: async () => undefined,
+      }),
+    });
+    await expect(g.generate(ctxOf(agencyA), call({ capped: run }))).rejects.toMatchObject({
+      code: 'AI_BUDGET_EXCEEDED',
+    });
+    expect(provider.calls).toHaveLength(0);
   });
 });

@@ -1,5 +1,6 @@
 import type { CacheKey } from '../cache/key';
 import type { AiCache } from './gateway';
+import type { SpendMirror } from './mirror';
 import {
   type AiProvider,
   AiProviderError,
@@ -107,37 +108,94 @@ export function memoryAiCache(): AiCache & { entries: Map<string, unknown> } {
   };
 }
 
-/** In-memory usage store (unit tests); the Postgres one is `createPgAiStore`. */
+/**
+ * In-memory usage store (unit tests) with the same reservation semantics as `createPgAiStore`: `spend` is the settled
+ * cost per `agency:month`, `reserved` the open reservations.
+ */
 export function memoryAiStore(initialSpend: Record<string, number> = {}): AiStore & {
-  jobs: AiJobRecord[];
+  jobs: (AiJobRecord & { reservedMicroUsd: number })[];
   spend: Map<string, number>;
+  reserved: Map<string, number>;
+  monthSpend(agencyId: string, month: string): Promise<number>;
 } {
   const spend = new Map(Object.entries(initialSpend));
-  const jobs: AiJobRecord[] = [];
+  const reserved = new Map<string, number>();
+  const jobs: (AiJobRecord & { reservedMicroUsd: number })[] = [];
   const key = (agencyId: string, month: string) => `${agencyId}:${month}`;
+  const add = (m: Map<string, number>, k: string, v: number) => m.set(k, Math.max(0, (m.get(k) ?? 0) + v));
   return {
     jobs,
     spend,
+    reserved,
     async monthSpend(agencyId, month) {
-      return spend.get(key(agencyId, month)) ?? spend.get(agencyId) ?? 0;
+      return spend.get(key(agencyId, month)) ?? 0;
     },
-    async record(job) {
-      jobs.push(job);
-      if (job.status !== 'PENDING') {
-        spend.set(key(job.agencyId, job.month), (spend.get(key(job.agencyId, job.month)) ?? 0) + job.costMicroUsd);
+    async reserve({ agencyId, month, estimateMicroUsd, hardMicroUsd }) {
+      const k = key(agencyId, month);
+      const spent = spend.get(k) ?? 0;
+      const estimate = Math.ceil(estimateMicroUsd);
+      if (spent + (reserved.get(k) ?? 0) + estimate > hardMicroUsd) return { ok: false, reason: 'HARD_CAP' };
+      add(reserved, k, estimate);
+      return { ok: true, spentMicroUsd: spent };
+    },
+    async settle(job, reservedMicroUsd) {
+      if (jobs.some((j) => j.id === job.id)) return;
+      const k = key(job.agencyId, job.month);
+      if (job.status === 'PENDING') {
+        jobs.push({ ...job, reservedMicroUsd });
+        return;
       }
+      jobs.push({ ...job, reservedMicroUsd: 0 });
+      add(spend, k, job.costMicroUsd);
+      add(reserved, k, -reservedMicroUsd);
+    },
+    async release(agencyId, month, reservedMicroUsd) {
+      add(reserved, key(agencyId, month), -reservedMicroUsd);
+    },
+    async batchJob(agencyId, providerBatchId) {
+      const job = jobs.find((j) => j.agencyId === agencyId && j.providerBatchId === providerBatchId);
+      return job ? { status: job.status, inputHash: job.inputHash } : null;
     },
     async settleBatch(input) {
       const job = jobs.find(
         (j) => j.agencyId === input.agencyId && j.providerBatchId === input.providerBatchId && j.status === 'PENDING',
       );
       if (!job) return false;
+      const k = key(input.agencyId, job.month);
       job.status = 'SUCCEEDED';
       job.costMicroUsd = input.costMicroUsd;
       job.usage = input.usage;
-      const k = key(input.agencyId, input.month);
-      spend.set(k, (spend.get(k) ?? 0) + input.costMicroUsd);
+      add(spend, k, input.costMicroUsd);
+      add(reserved, k, -job.reservedMicroUsd);
+      job.reservedMicroUsd = 0;
       return true;
+    },
+  };
+}
+
+/** In-memory stand-in for the redis spend mirror (same contract as `createSpendMirror`). */
+export function memorySpendMirror(): SpendMirror & { values: Map<string, number> } {
+  const values = new Map<string, number>();
+  const key = (agencyId: string, month: string) => `${agencyId}:${month}`;
+  return {
+    values,
+    async reserve(agencyId, month, estimateMicroUsd, hardMicroUsd) {
+      const k = key(agencyId, month);
+      const v = values.get(k);
+      if (v === undefined) return { ok: false, reason: 'UNKNOWN' };
+      const estimate = Math.ceil(estimateMicroUsd);
+      if (v + estimate > hardMicroUsd) return { ok: false, reason: 'HARD_CAP' };
+      values.set(k, v + estimate);
+      return { ok: true, spentMicroUsd: v };
+    },
+    async adjust(agencyId, month, delta) {
+      const k = key(agencyId, month);
+      const v = values.get(k);
+      if (v !== undefined) values.set(k, v + Math.round(delta));
+    },
+    async seed(agencyId, month, spent) {
+      const k = key(agencyId, month);
+      if (!values.has(k)) values.set(k, spent);
     },
   };
 }

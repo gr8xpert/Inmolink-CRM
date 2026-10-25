@@ -1,3 +1,5 @@
+// S12-01: the AI gateway's usage and spend-mirror jobs.
+import { aiJobs } from '@inmolink/core';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
@@ -157,7 +159,11 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.expireViewingRequests,
     mlsJobs.notifyViewing,
   ],
-  ai: [],
+  ai: [
+    // S12-01: AI usage records (request path, failed writes) and the request path's spend mirror (ADR 0008 #6a).
+    aiJobs.recordUsage,
+    aiJobs.refreshSpend,
+  ],
   social: [],
   pdf: [],
 };

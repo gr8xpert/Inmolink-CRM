@@ -54,6 +54,33 @@ describe('Anthropic provider adapter', () => {
     });
   });
 
+  it('[S12-01] images go before the text; a repair is the rejected answer as an assistant turn plus a correction', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = [];
+    await provider(fakeFetch(200, recordedMessage(), seen)).complete(
+      {
+        ...request,
+        images: [
+          { type: 'url', url: 'https://cdn.example.test/a.jpg' },
+          { type: 'base64', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
+        ],
+        repair: { previous: '{"title":1}', correction: 'Fix the title.' },
+      },
+      { signal: signal() },
+    );
+    expect(seen[0]?.body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url: 'https://cdn.example.test/a.jpg' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+          { type: 'text', text: '{"beds":3}' },
+        ],
+      },
+      { role: 'assistant', content: '{"title":1}' },
+      { role: 'user', content: 'Fix the title.' },
+    ]);
+  });
+
   it('[S12-01] a refusal is reported, not thrown', async () => {
     const res = await provider(fakeFetch(200, recordedMessage({ content: [], stop_reason: 'refusal' }))).complete(
       request,
@@ -62,12 +89,12 @@ describe('Anthropic provider adapter', () => {
     expect(res.refused).toBe(true);
   });
 
-  it('[S12-01] overloaded / 5xx / 429 are "unavailable" (breaker); 400 / 401 are "rejected"', async () => {
+  it('[S12-01] overloaded / 5xx are "unavailable" (breaker), 429 "rate_limited"; 400 / 401 are "rejected"', async () => {
     const err = (status: number) => ({ type: 'error', error: { type: 'x', message: 'x' }, status });
     for (const [status, kind] of [
       [529, 'unavailable'],
       [500, 'unavailable'],
-      [429, 'unavailable'],
+      [429, 'rate_limited'],
       [400, 'rejected'],
       [401, 'rejected'],
     ] as const) {

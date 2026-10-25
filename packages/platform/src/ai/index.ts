@@ -7,7 +7,7 @@ import { type AiSettings, loadAiSettings } from './config';
 import { embeddingProviderFor } from './embeddings';
 import { type AiCache, type AiGateway, createAiGateway } from './gateway';
 import { filePromptSource } from './prompts';
-import type { AiStore } from './store';
+import type { AiJobRecord, AiStore } from './store';
 import type { AiBatchRequest, AiCtx, AiEmbedRequest, AiGenerateRequest, AiStructuredRequest } from './types';
 
 /**
@@ -31,6 +31,8 @@ export {
   createAiGateway,
   stableJson,
 } from './gateway';
+export { checkImages, MAX_IMAGE_BYTES, MAX_IMAGES } from './images';
+export { createSpendMirror, type MirrorRedis, type MirrorReserve, type SpendMirror } from './mirror';
 export {
   filePromptSource,
   listPrompts,
@@ -49,16 +51,24 @@ export {
   type ProviderResponse,
 } from './provider';
 export {
+  AI_FEATURE_RE,
   type AiFeedbackInput,
   type AiJobRecord,
   type AiStore,
   createPgAiStore,
+  createRequestAiStore,
+  type PgAiStoreOptions,
+  type RequestAiStoreOptions,
+  type ReserveResult,
   recordAiFeedback,
+  recordUsageRow,
+  refreshSpendMirror,
   type SystemRunner,
   syncPromptVersions,
   usageMonth,
 } from './store';
 export * from './types';
+export { UNTRUSTED_TEXT_RULE, untrustedBlock } from './untrusted';
 
 /** Builds the gateway from `aiEnv` (model tiers, prices, budgets, breaker) — never from hard-coded values. */
 export function createAiGatewayFromEnv(options: {
@@ -70,11 +80,18 @@ export function createAiGatewayFromEnv(options: {
   cache?: AiCache | null;
   logger?: Logger;
   settings?: AiSettings;
+  /** A usage record whose write failed: retried through the queue (`ai.recordUsage`). */
+  onRecordFailure?: (input: { job: AiJobRecord; releaseMicroUsd: number }) => Promise<unknown>;
 }): AiGateway {
   const s = options.settings ?? loadAiSettings();
   const provider =
     s.provider === 'anthropic' && s.apiKey
-      ? createAnthropicProvider({ apiKey: s.apiKey, maxRetries: s.maxRetries, timeoutMs: s.timeoutMs })
+      ? createAnthropicProvider({
+          apiKey: s.apiKey,
+          maxRetries: s.maxRetries,
+          // Per attempt, so the SDK's retries fit inside the gateway's whole-call timeout (S12-01 review).
+          timeoutMs: Math.max(1_000, Math.floor(s.timeoutMs / (s.maxRetries + 1))),
+        })
       : null;
   return createAiGateway({
     provider,
@@ -90,6 +107,7 @@ export function createAiGatewayFromEnv(options: {
     timeoutMs: s.timeoutMs,
     breaker: s.breaker,
     logger: options.logger ?? createLogger({ service: 'ai', level: process.env.LOG_LEVEL }),
+    ...(options.onRecordFailure ? { onRecordFailure: options.onRecordFailure } : {}),
   });
 }
 

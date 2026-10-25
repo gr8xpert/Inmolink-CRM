@@ -26,7 +26,7 @@ export interface AnthropicProviderOptions {
 
 /** Status codes that say "the provider is unwell, try later" — they count against the circuit breaker. */
 function isTransient(status: number | undefined): boolean {
-  return status === undefined || status === 408 || status === 409 || status === 429 || status >= 500;
+  return status === undefined || status === 408 || status === 409 || status >= 500;
 }
 
 export function mapProviderError(err: unknown): AiProviderError {
@@ -37,6 +37,8 @@ export function mapProviderError(err: unknown): AiProviderError {
   }
   if (err instanceof Anthropic.APIError) {
     const status = err.status;
+    // 429 after the SDK's backoff: retry later, but not a sign of an outage (no breaker count) — S12-01 review.
+    if (status === 429) return new AiProviderError('rate_limited', 'provider rate limit', status);
     return new AiProviderError(
       isTransient(status) ? 'unavailable' : 'rejected',
       `provider error ${status ?? ''}`.trim(),
@@ -49,12 +51,32 @@ export function mapProviderError(err: unknown): AiProviderError {
   return new AiProviderError('unavailable', 'provider call failed');
 }
 
+function messagesOf(request: ProviderRequest): Anthropic.MessageParam[] {
+  const images: Anthropic.ImageBlockParam[] = (request.images ?? []).map((image) => ({
+    type: 'image',
+    source:
+      image.type === 'url'
+        ? { type: 'url', url: image.url }
+        : { type: 'base64', media_type: image.mediaType, data: image.data },
+  }));
+  const first: Anthropic.MessageParam = {
+    role: 'user',
+    content: images.length > 0 ? [...images, { type: 'text', text: request.user }] : request.user,
+  };
+  if (!request.repair) return [first];
+  return [
+    first,
+    { role: 'assistant', content: request.repair.previous || '(empty answer)' },
+    { role: 'user', content: request.repair.correction },
+  ];
+}
+
 function toParams(request: ProviderRequest): Anthropic.MessageCreateParamsNonStreaming {
   return {
     model: request.model,
     max_tokens: request.maxTokens,
     system: request.system,
-    messages: [{ role: 'user', content: request.user }],
+    messages: messagesOf(request),
     ...(request.jsonSchema ? { output_config: { format: { type: 'json_schema', schema: request.jsonSchema } } } : {}),
   };
 }

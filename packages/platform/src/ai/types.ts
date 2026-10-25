@@ -15,7 +15,20 @@ export const AI_TIERS: readonly AiTier[] = ['FAST', 'SMART'];
 export interface AiCtx {
   tenant?: { agencyId: string; plan?: string | null } | null;
   requestId?: string;
+  /**
+   * S12-01 review: a call without a tenant is refused unless it names why it is not metered — platform scripts only
+   * (`'i18n.draft'`, `'ai.eval'`). Never set with a tenant: tenant calls are always metered.
+   */
+  unmetered?: string;
 }
+
+/**
+ * An image sent with the input (S12-01 review; vision for Listing Studio and the sanitizer). `url`: https only, fetched
+ * by the provider (our media CDN). `base64`: JPEG, PNG, GIF or WebP, ≤ 5 MB decoded, checked by magic bytes.
+ */
+export type AiImage =
+  | { type: 'url'; url: string }
+  | { type: 'base64'; mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string };
 
 /** A versioned prompt file: `<promptsDir>/<id>/v<version>.md` (ADR 0008 #5). */
 export interface PromptRef {
@@ -35,11 +48,14 @@ export interface AiCallBase {
    * sent as is, anything else as JSON. Send no client PII unless the feature needs it (PLAN §8 data minimization).
    */
   input: unknown;
+  /** Images sent before the input (at most 20). Part of the input hash. */
+  images?: readonly AiImage[];
   /** Overrides the prompt file's `maxTokens`. */
   maxTokens?: number;
   /**
    * Extra material for the response cache key (e.g. the listing's facts hash). The key is always the hash of the
-   * model, prompt version, input and schema; this only adds to it. `false` skips the cache for this call.
+   * model, prompt version, input and schema; this only adds to it. `false` skips the cache for this call — use it for
+   * input that carries client PII (the cache would keep it for `AI_CACHE_TTL_SECONDS`).
    */
   cacheKey?: string | false;
 }
@@ -98,7 +114,7 @@ export interface AiBatchRequest extends Omit<AiCallBase, 'input' | 'cacheKey'> {
 
 export type AiBatchItemResult =
   | { customId: string; ok: true; text: string; cached: boolean }
-  | { customId: string; ok: false; error: 'REFUSED' | 'FAILED' | 'EXPIRED' };
+  | { customId: string; ok: false; error: 'REFUSED' | 'FAILED' | 'EXPIRED' | 'TRUNCATED' };
 
 export interface AiBatchHandle {
   /** Provider batch id, or null when every item came from the cache. */

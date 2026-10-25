@@ -1,6 +1,7 @@
 /** @inmolink/core — All business logic, one folder per module. */
 export const PACKAGE_NAME = '@inmolink/core';
 
+export * from './ai-runtime';
 export * from './context';
 export { requestDataExport } from './data-export-request';
 export * from './impersonation';
