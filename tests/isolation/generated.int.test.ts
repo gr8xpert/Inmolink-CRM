@@ -381,6 +381,22 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
     }
 
+    if (def.userNoDelete) {
+      it(`[S13-05] ${table}: userNoDelete — tenants cannot delete any rows, even their own`, async () => {
+        for (const agencyId of [a, b]) {
+          await expectSqlState(
+            () =>
+              withTenant(as(b), (tx) =>
+                tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${agencyId}`),
+              ),
+            DENIED,
+          );
+        }
+        expect(await adminCount(a)).toBe(visible.length + hidden.length);
+        expect(await adminCount(b)).toBe(1);
+      });
+    }
+
     if (def.immutable) {
       // Append-only history (S1-08): no UPDATE or DELETE grant at all, so every attempt is refused.
       it(`[S1-08] ${table}: immutable — tenants cannot update or delete any rows, even their own`, async () => {
@@ -440,7 +456,8 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       });
 
       it(`[S0-05] ${table}: tenant B cannot delete tenant A's rows`, async () => {
-        await changes(() =>
+        // S13-05: a `userNoDelete` table has no DELETE grant at all
+        await (def.userNoDelete ? (run: () => Promise<unknown>) => expectSqlState(run, DENIED) : changes)(() =>
           withTenant(as(b), (tx) => tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${a}`)),
         );
         expect(await adminCount(a)).toBe(visible.length + hidden.length);
@@ -1026,7 +1043,7 @@ describe.each(globalNames)('global table %s', (table) => {
         );
         expect(up.rowCount).toBe(1);
       });
-      if (def.staffWrite !== true && def.staffWrite.noDelete) {
+      if (typeof def.staffWrite === 'object' && def.staffWrite.noDelete) {
         // S13-03: rows staff end but never remove — no DELETE grant.
         await expectSqlState(
           () => asStaff((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where ctid = ${ctid}::tid`)),
