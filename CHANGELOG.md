@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(db): registry shape memberWrite ("agency reads, member writes") with isolation-suite support; notification_preferences writes limited to their member by RLS [S12-F14]
 - feat(web,i18n,contracts): network board, chat and notification pages with a live unread badge [S12-F1] — new dependency socket.io-client 4.8.4 (apps/web)
 - feat(network,chat,db): NETWORK reply threads close with their post or an unlisted agency (migration 0140) [S12-F12]
 - feat(platform): AI gateway — tiers from env, budgets/hard caps, input-hash cache, circuit breaker, ai_jobs/ai_usage_monthly/prompt_versions/ai_feedback (0139), prompt files, pnpm ai:eval [S12-01] — new dependency @anthropic-ai/sdk 0.133.0 (platform)

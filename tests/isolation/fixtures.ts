@@ -47,6 +47,16 @@ export const fixtureRegistry: TenantRegistry = {
         samples: { visible: [{ owner_user_id: SAMPLE_USER }], hidden: [{}] },
       },
     },
+    // S12-F14: "agency reads, member writes" — every member reads the agency's rows, writes only their own.
+    iso_fx_member_write: {
+      kind: 'STRICT',
+      memberWrite: {
+        insert: 'user_id = app_user_id()',
+        update: 'user_id = app_user_id()',
+        delete: 'user_id = app_user_id()',
+        own: { user_id: SAMPLE_USER },
+      },
+    },
     iso_fx_public: {
       kind: 'PUBLIC_READ',
       publicReadSql: 'published',
@@ -72,6 +82,7 @@ create table iso_fx_network (
 create table iso_fx_preferred (id uuid primary key, agency_id uuid not null, share_scope text not null);
 create table iso_fx_user_read (
   id uuid primary key, agency_id uuid not null, owner_user_id uuid not null, secret text not null default 'x');
+create table iso_fx_member_write (id uuid primary key, agency_id uuid not null, user_id uuid not null);
 create table iso_fx_public (id uuid primary key, agency_id uuid not null, published boolean not null);
 create table iso_fx_global (id uuid primary key, code text not null unique);
 create table iso_fx_global_public (id uuid primary key, code text not null unique);

@@ -79,6 +79,25 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         throw new Error(`${name}: userSelect is not valid for appendOnly or immutable tables`);
       }
     }
+    if (def.memberWrite) {
+      if (def.kind !== 'STRICT') throw new Error(`${name}: memberWrite is only valid for STRICT tables`);
+      if (
+        def.appendOnly ||
+        def.immutable ||
+        def.userSelect ||
+        def.userReadOnly ||
+        def.userAppendRead ||
+        def.userInsert !== undefined
+      ) {
+        throw new Error(
+          `${name}: memberWrite is not valid with appendOnly, immutable, userSelect, userReadOnly, userAppendRead or userInsert`,
+        );
+      }
+      const { insert, update, delete: del } = def.memberWrite;
+      if (insert === undefined && update === undefined && del === undefined) {
+        throw new Error(`${name}: memberWrite needs at least one write predicate`);
+      }
+    }
     for (const c of hiddenColumnsOf(def)) {
       if (!IDENT.test(c) || c === 'agency_id') throw new Error(`${name}: "${c}" cannot be a hidden column`);
     }
@@ -296,14 +315,21 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
       { name: 'staff_delete', cmd: 'DELETE', roles: ['app_staff'] },
     ];
   }
-  const out: PolicySpec[] = def.userSelect
-    ? [
-        { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
-        { name: 'own_update', cmd: 'UPDATE', roles: ['app_user'] },
-        { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
-        { name: 'user_select', cmd: 'SELECT', roles: ['app_user'] },
-      ]
-    : [{ name: 'own_rows', cmd: def.appendOnly ? 'INSERT' : def.userReadOnly ? 'SELECT' : 'ALL', roles: ['app_user'] }];
+  const out: PolicySpec[] =
+    def.userSelect || def.memberWrite
+      ? [
+          { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
+          { name: 'own_update', cmd: 'UPDATE', roles: ['app_user'] },
+          { name: 'own_delete', cmd: 'DELETE', roles: ['app_user'] },
+          { name: def.userSelect ? 'user_select' : 'own_select', cmd: 'SELECT', roles: ['app_user'] },
+        ]
+      : [
+          {
+            name: 'own_rows',
+            cmd: def.appendOnly ? 'INSERT' : def.userReadOnly ? 'SELECT' : 'ALL',
+            roles: ['app_user'],
+          },
+        ];
   if (def.authAppend) out.push({ name: 'auth_append', cmd: 'INSERT', roles: ['app_auth'] });
   if (def.mediaRead) out.push({ name: 'media_read', cmd: 'SELECT', roles: ['app_media'] });
   if (def.intake) {
@@ -340,9 +366,9 @@ function globalReaders(def: GlobalTable): ('app_public' | 'app_user')[] {
   return [...(def.noUserRead ? [] : (['app_user'] as const)), ...(def.publicRead ? (['app_public'] as const) : [])];
 }
 
-/** ` and (<predicate>)` for a `userSelect.write` command, or nothing. */
+/** ` and (<predicate>)` for a `userSelect.write` or `memberWrite` (S12-F14) command, or nothing. */
 function userWrite(table: string, def: TenantTable, cmd: 'insert' | 'update' | 'delete'): string {
-  const sql = def.userSelect?.write?.[cmd];
+  const sql = def.userSelect?.write?.[cmd] ?? def.memberWrite?.[cmd];
   return sql === undefined ? '' : ` and (${predicate(table, sql)})`;
 }
 
@@ -676,18 +702,22 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
   const t = ident(name);
   assertValid(name, def);
   const out = [
-    ...(def.userSelect
+    ...(def.userSelect || def.memberWrite
       ? [
           // S1-F10: writes stay on the agency's rows; reads are narrowed to what the reading user may see.
           // S11-04: `userSelect.write` narrows each write to rows of the writing user too.
+          // S12-F14: `memberWrite` — the same write policies, and every row of the agency is read.
           `create policy own_insert on ${t} for insert to app_user
   with check (agency_id = app_agency()${userWrite(name, def, 'insert')});`,
           `create policy own_update on ${t} for update to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'update')}) with check (agency_id = app_agency()${userWrite(name, def, 'update')});`,
           `create policy own_delete on ${t} for delete to app_user
   using (agency_id = app_agency()${userWrite(name, def, 'delete')});`,
-          `create policy user_select on ${t} for select to app_user
-  using (agency_id = app_agency() and (${predicate(name, def.userSelect.sql)}));`,
+          def.userSelect
+            ? `create policy user_select on ${t} for select to app_user
+  using (agency_id = app_agency() and (${predicate(name, def.userSelect.sql)}));`
+            : `create policy own_select on ${t} for select to app_user
+  using (agency_id = app_agency());`,
         ]
       : [
           def.appendOnly

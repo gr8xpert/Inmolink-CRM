@@ -360,6 +360,48 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S12-F14] memberWrite: app_user reads every row of its agency and writes only the rows the predicates allow', () => {
+    const def = {
+      kind: 'STRICT',
+      memberWrite: { insert: 'user_id = app_user_id()', update: 'user_id = app_user_id()', own: {} },
+    } as const;
+    const sql = tablesSql({ tenant: { prefs: def }, global: {} });
+    expect(sql).toContain(`create policy own_select on public."prefs" for select to app_user
+  using (agency_id = app_agency());`);
+    expect(sql).toContain(`create policy own_insert on public."prefs" for insert to app_user
+  with check (agency_id = app_agency() and (user_id = app_user_id()));`);
+    expect(sql).toContain(`create policy own_update on public."prefs" for update to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id())) with check (agency_id = app_agency() and (user_id = app_user_id()));`);
+    // No delete predicate: the agency's rows, as before.
+    expect(sql).toContain(`create policy own_delete on public."prefs" for delete to app_user
+  using (agency_id = app_agency());`);
+    expect(sql).not.toContain('create policy own_rows');
+    expect(sql).toContain('grant select, insert, update, delete on table public."prefs" to app_user;');
+    expect(expectedPolicies(def).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_insert:INSERT',
+      'own_update:UPDATE',
+      'own_delete:DELETE',
+      'own_select:SELECT',
+    ]);
+  });
+
+  it('[S12-F14] memberWrite is refused without a predicate, on non-STRICT tables and with other app_user shapes', () => {
+    const memberWrite = { update: 'user_id = app_user_id()', own: {} };
+    const bad = (tenant: TenantRegistry['tenant'][string]) => () => tablesSql({ tenant: { t: tenant }, global: {} });
+    expect(bad({ kind: 'STRICT', memberWrite: { own: {} } })).toThrow(/at least one write predicate/);
+    expect(
+      bad({ kind: 'PUBLIC_READ', publicReadSql: 'true', samples: { visible: [], hidden: [] }, memberWrite }),
+    ).toThrow(/memberWrite/);
+    expect(bad({ kind: 'STRICT', appendOnly: true, memberWrite })).toThrow(/memberWrite/);
+    expect(bad({ kind: 'STRICT', userReadOnly: true, memberWrite })).toThrow(/memberWrite/);
+    expect(
+      bad({ kind: 'STRICT', memberWrite, userSelect: { sql: 'true', samples: { visible: [], hidden: [] } } }),
+    ).toThrow(/memberWrite/);
+    expect(bad({ kind: 'STRICT', memberWrite: { update: 'true; drop table x', own: {} } })).toThrow(
+      /single expression/,
+    );
+  });
+
   it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
     const def = {
       kind: 'STRICT',

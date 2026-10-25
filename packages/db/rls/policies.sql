@@ -1241,8 +1241,14 @@ grant select, insert, update, delete on table public."network_subscriptions" to 
 -- notification_preferences: STRICT
 alter table public."notification_preferences" enable row level security;
 alter table public."notification_preferences" force row level security;
-create policy own_rows on public."notification_preferences" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_insert on public."notification_preferences" for insert to app_user
+  with check (agency_id = app_agency() and (user_id = app_user_id()));
+create policy own_update on public."notification_preferences" for update to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id())) with check (agency_id = app_agency() and (user_id = app_user_id()));
+create policy own_delete on public."notification_preferences" for delete to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
+create policy own_select on public."notification_preferences" for select to app_user
+  using (agency_id = app_agency());
 revoke all on table public."notification_preferences" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."notification_preferences" to app_user;
 grant select, insert, update, delete on table public."notification_preferences" to app_system;

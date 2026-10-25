@@ -85,6 +85,15 @@ interface TenantBase {
     write?: { insert?: string; update?: string; delete?: string };
   };
   /**
+   * S12-F14, STRICT only: "agency reads, member writes". `app_user` reads every row of its agency (`own_select`) but
+   * INSERTs, UPDATEs and DELETEs only rows that also satisfy that command's predicate (ANDed with
+   * `agency_id = app_agency()` in `own_insert` / `own_update` / `own_delete`), such as `user_id = app_user_id()` — for
+   * per-member rows colleagues' requests must read (a notification raised for a colleague reads their preferences).
+   * One SQL predicate per command, reviewed like `networkReadSql`. `own` is a sample row of the writing member
+   * (`SAMPLE_USER` values): the isolation suite writes it as that member and gets 42501 writing it for a colleague.
+   */
+  memberWrite?: { insert?: string; update?: string; delete?: string; own: SampleRow };
+  /**
    * Range-partitioned parent (pg_partman, PLAN §4.1). The guard checks the table is partitioned and that
    * no partition is reachable directly (partitions skip their parent's policies).
    */
@@ -1038,10 +1047,18 @@ export const tenantTables: Record<string, TenantTable> = {
     },
   },
   // S11-04: members' choices per notification type and channel — own agency only. Readable by colleagues' requests on
-  // purpose (raising a notification for a colleague reads their choice in the same transaction). The service writes
-  // only the caller's own rows; RLS does not narrow writes to the member: the registry has no "agency reads, member
-  // writes" shape the isolation suite can check (`userSelect` must hide rows from other members) — follow-up.
-  notification_preferences: { kind: 'STRICT', base: { type: 'ISOLATION' } },
+  // purpose (raising a notification for a colleague reads their choice in the same transaction). S12-F14: written only
+  // by the member they belong to (`memberWrite`), by RLS as well as by the service.
+  notification_preferences: {
+    kind: 'STRICT',
+    base: { type: 'ISOLATION' },
+    memberWrite: {
+      insert: 'user_id = app_user_id()',
+      update: 'user_id = app_user_id()',
+      delete: 'user_id = app_user_id()',
+      own: { user_id: SAMPLE_USER },
+    },
+  },
   // S11-01: client registrations (PLAN §3 #8) — one table per reader, each under one policy (perf review: two ORed
   // policies left no list index-ordered). The introducer's registration (the client's details encrypted, its contact,
   // target, validity): app_user changes only `contact_id` (a merge re-points it) and never deletes one

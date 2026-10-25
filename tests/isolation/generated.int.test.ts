@@ -122,7 +122,12 @@ async function seedNetworkMember(agencyId: string): Promise<void> {
 }
 
 function samplesOf(def: TenantTable): { visible: Row[]; hidden: Row[] } {
-  if (def.kind === 'STRICT') return def.userSelect ? def.userSelect.samples : { visible: [], hidden: [{}] };
+  if (def.kind === 'STRICT') {
+    if (def.userSelect) return def.userSelect.samples;
+    // S12-F14: the writing member's row and a colleague's — both readable by every member of the agency.
+    if (def.memberWrite) return { visible: [def.memberWrite.own, {}], hidden: [] };
+    return { visible: [], hidden: [{}] };
+  }
   return def.samples;
 }
 
@@ -136,11 +141,17 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   const b = newId();
   let build: (overrides: Row) => Row;
 
-  /** `userSelect` tables (S1-F10): tenants read as a member, the user the samples name (`SAMPLE_USER`). */
+  /**
+   * `userSelect` (S1-F10) and `memberWrite` (S12-F14) tables: tenants act as a member, the user the samples name
+   * (`SAMPLE_USER`).
+   */
   const reader = newId();
-  const as = (agencyId: string) => ({ agencyId, userId: def.userSelect ? reader : undefined });
+  const asMember = def.userSelect !== undefined || def.memberWrite !== undefined;
+  const as = (agencyId: string) => ({ agencyId, userId: asMember ? reader : undefined });
   const rb = (agencyId: string, fn: (tx: Tx) => Promise<void>) =>
-    rolledBack(agencyId, fn, def.userSelect ? reader : undefined);
+    rolledBack(agencyId, fn, asMember ? reader : undefined);
+  /** The row tenant B's member owns (and may write): the first visible sample of a member table. */
+  const ownSample: Row = asMember ? (visible[0] ?? {}) : {};
 
   /** Sample values naming the reader (`SAMPLE_READER`) become tenant B, which reads the network below. */
   const forReader = (sample: Row): Row =>
@@ -155,8 +166,8 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       for (const sample of [...visible, ...hidden]) {
         await seed(admin, table, build({ ...forReader(sample), agency_id: a }));
       }
-      // A `userSelect` table's own row is one its reader may read, so the positive controls can update it.
-      await seed(admin, table, build({ ...forReader(def.userSelect ? (visible[0] ?? {}) : {}), agency_id: b }));
+      // A member table's own row is one its reader may read and write, so the positive controls can update it.
+      await seed(admin, table, build({ ...forReader(ownSample), agency_id: b }));
       // Only verified agencies read the network (the generator's `app_agency_verified()`, S1-07), and
       // rows of an owner that left the directory may be hidden: both tenants are network members.
       if (def.kind === 'NETWORK_READ') for (const id of [a, b]) await seedNetworkMember(id);
@@ -252,6 +263,81 @@ describe.each(tenantNames)('tenant table %s', (table) => {
           }
         }
       });
+    }
+
+    const memberWrite = def.memberWrite;
+    if (memberWrite) {
+      // S12-F14: "agency reads, member writes". Tenant A holds the reader's row and a colleague's (`samplesOf`).
+      const colleague = newId();
+      /** The writing member's sample row, as `colleague`'s (its `SAMPLE_USER` values name the colleague). */
+      const colleagueRow = Object.fromEntries(
+        Object.entries(memberWrite.own).map(([k, v]) => [k, v === SAMPLE_USER ? colleague : v]),
+      );
+      const asColleague = (fn: (tx: Tx) => Promise<void>) => rolledBack(a, fn, colleague);
+      const t = sql.identifier(table);
+
+      it(`[S12-F14] ${table}: memberWrite — every member of the agency reads every row, a colleague's included`, async () => {
+        expect(await withTenant({ agencyId: a, userId: colleague }, (tx) => count(tx, table, a))).toBe(visible.length);
+        expect(await withTenant({ agencyId: a, userId: newId() }, (tx) => count(tx, table, a))).toBe(visible.length);
+      });
+
+      if (memberWrite.insert !== undefined) {
+        it(`[S12-F14] ${table}: memberWrite — a member inserting a colleague's row gets 42501; their own passes RLS`, async () => {
+          await expectSqlState(
+            () => rb(a, (tx) => tx.execute(insertSql(table, build({ ...colleagueRow, agency_id: a }))).then(() => {})),
+            DENIED,
+          );
+          // Their own row (a fresh one) gets through RLS: the refusal above is the predicate, not a missing grant.
+          await rb(a, async (tx) => {
+            const own = build({ ...forReader(memberWrite.own), agency_id: a });
+            const inserted = await tx
+              .transaction(async (sp) => (await sp.execute(insertSql(table, own))).rowCount)
+              .catch((err: unknown) => {
+                if (PASSED_RLS.includes(sqlState(err) ?? '')) return 1;
+                throw err;
+              });
+            expect(inserted).toBe(1);
+          });
+        });
+      }
+
+      if (memberWrite.update !== undefined) {
+        it(`[S12-F14] ${table}: memberWrite — a member updates only their own rows; handing one to a colleague gets 42501`, async () => {
+          await rb(a, async (tx) => {
+            expect((await tx.execute(sql`update ${t} set agency_id = agency_id where agency_id = ${a}`)).rowCount).toBe(
+              1,
+            );
+          });
+          await asColleague(async (tx) => {
+            expect((await tx.execute(sql`update ${t} set agency_id = agency_id where agency_id = ${a}`)).rowCount).toBe(
+              0,
+            );
+          });
+          const handOver = sql.join(
+            Object.entries(memberWrite.own)
+              .filter(([, v]) => v === SAMPLE_USER)
+              .map(([k]) => sql`${sql.identifier(k)} = ${colleague}`),
+            sql`, `,
+          );
+          await expectSqlState(
+            () => rb(a, (tx) => tx.execute(sql`update ${t} set ${handOver} where agency_id = ${a}`).then(() => {})),
+            DENIED,
+          );
+          expect(await adminCount(a)).toBe(visible.length);
+        });
+      }
+
+      if (memberWrite.delete !== undefined) {
+        it(`[S12-F14] ${table}: memberWrite — a member deletes only their own rows, never a colleague's`, async () => {
+          await asColleague(async (tx) => {
+            expect((await tx.execute(sql`delete from ${t} where agency_id = ${a}`)).rowCount).toBe(0);
+          });
+          await rb(a, async (tx) => {
+            expect((await tx.execute(sql`delete from ${t} where agency_id = ${a}`)).rowCount).toBe(1);
+          });
+          expect(await adminCount(a)).toBe(visible.length);
+        });
+      }
     }
 
     if (def.hiddenColumns?.length) {
@@ -496,7 +582,7 @@ describe.each(tenantNames)('tenant table %s', (table) => {
   } else if (!def.appendOnly) {
     it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
       // Proves the cross-tenant denials above come from the policies, not from a missing grant.
-      const ownReadable = build({ ...forReader(def.userSelect ? (visible[0] ?? {}) : {}), agency_id: b });
+      const ownReadable = build({ ...forReader(ownSample), agency_id: b });
       await rb(b, async (tx) => {
         // In a savepoint: a table whose parents the suite does not create (FK to agencies, users)
         // fails the insert with 23503 — which the FK trigger raises only after RLS let the row through —
