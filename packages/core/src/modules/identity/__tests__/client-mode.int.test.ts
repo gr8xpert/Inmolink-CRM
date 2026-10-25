@@ -139,8 +139,21 @@ describe('Client Mode (S12-06)', () => {
     // The cookie says nothing (a copy from before Client Mode): the session's server-side state decides.
     expect(claimsOf((await mint(m, sessionId)).token).cm).toBe(true);
     expect(await refusal(mint(m, sessionId, 'realtime'))).toBe('FORBIDDEN');
-    // Another session of the member is not forced; a new login is (it resumes the member's Client Mode).
-    expect(claimsOf((await mint(m, sid())).token).cm).toBeUndefined();
+    // Any other session of the member mints with cm too — one without an id (a cookie from before S12-06) included.
+    expect(claimsOf((await mint(m, sid())).token).cm).toBe(true);
+    expect(
+      claimsOf(
+        (
+          await identity.issueAccessToken(auth(), {
+            userId: m.userId,
+            sessionVersion: 1,
+            mfaVerified: true,
+            audience: 'api',
+          })
+        ).token,
+      ).cm,
+    ).toBe(true);
+    // A new login resumes the member's Client Mode.
     const login = sid();
     expect(await identity.clientModeAtLogin({ userId: m.userId, sessionId: login })).toEqual(state);
     expect(claimsOf((await mint(m, login)).token).cm).toBe(true);

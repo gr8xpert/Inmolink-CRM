@@ -131,10 +131,11 @@ export const {
           if (resumed) token.cm = resumed;
           return token;
         }
-        // Sessions from before S12-06 get their id on their next update.
-        if (typeof token.sid !== 'string') token.sid = randomBytes(18).toString('base64url');
         // The browser can send any data with an update: only a valid identity proof upgrades the session.
         if (trigger === 'update') {
+          // Sessions from before S12-06 get their id on an update (a write of the cookie), never on a read: a read's
+          // fresh id would be lost with the response and match no server-side state.
+          if (typeof token.sid !== 'string') token.sid = randomBytes(18).toString('base64url');
           const proof = (session as { mfaProof?: unknown } | undefined)?.mfaProof;
           if (identity.checkMfaProof({ userId: String(token.sub), sessionVersion: Number(token.sv), proof })) {
             token.mfa = true;

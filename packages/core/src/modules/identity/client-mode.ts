@@ -203,20 +203,25 @@ export async function clientModeAtLogin(input: { userId: string; sessionId: stri
 
 /**
  * Whether a mint must carry `cm` (`issueAccessToken`): the web session's own Client Mode, server-side — whatever its
- * cookie says. A session without an id (from before S12-06) follows the member's active Client Mode.
+ * cookie says — or the member's active one (any session of a member in Client Mode mints with `cm`).
  */
 export async function activeClientModeOf(input: {
   userId: string;
   sessionId?: string | null;
 }): Promise<ClientModeState | null> {
   const redis = await limits();
-  const n =
-    input.sessionId && SID_RE.test(input.sessionId)
-      ? await redis.get(kSession(input.sessionId))
-      : await redis.get(kUser(input.userId));
-  if (!n) return null;
-  const state = await readNonce(n);
-  return state?.active === true && state.u === input.userId ? { n } : null;
+  // The session's own Client Mode, else the member's (S12-06 review: a session without an id, or another session of
+  // the member, is in it too while it lasts — the PIN ends both).
+  const candidates = [
+    input.sessionId && SID_RE.test(input.sessionId) ? await redis.get(kSession(input.sessionId)) : null,
+    await redis.get(kUser(input.userId)),
+  ];
+  for (const n of new Set(candidates)) {
+    if (!n) continue;
+    const state = await readNonce(n);
+    if (state?.active === true && state.u === input.userId) return { n };
+  }
+  return null;
 }
 
 /** A well-formed state from the session cookie. */
