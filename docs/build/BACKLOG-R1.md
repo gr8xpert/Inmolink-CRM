@@ -1880,6 +1880,11 @@ Ref §11 · Mod billing, websites, social, crm, matching, developments, ai-featu
 Ref §11 · Mod notifications, billing · Dep S13-02
 **Build:** the agency's admins get an in-app notification and an email (EN/ES) on `billing.dunning.started` (grace end date, link to the billing page) and 3 days before a trial or staff grant ends (a daily sweep), and when `billing.plan.changed` lands on Free.
 **Done when:** each notice reaches the admins once per event (test); members who are not admins get none
+
+### S13-F23 · Founding coupon follows the locked price only (S13-02 security review)
+Ref §11 · Mod billing · Dep S13-02 · [H3]
+**Build:** the founding coupon is limited to the locked plan's product (done in S13-02), but a Customer Portal switch to another interval or currency of that plan keeps it (a yearly-sized amount off a monthly invoice). `billing.applyStripeEvent` removes a `founding_` discount from a subscription whose plan price no longer matches its lock (`DELETE /v1/subscriptions/:id/discount`, idempotent) and alerts; the portal configuration (H3) disables interval switching for locked agencies if Stripe allows it.
+**Done when:** a locked subscription switched to the monthly price loses the founding discount on its next event (test against the fake); the yearly one keeps it
 ---
 
 ## S14 — Migration tooling

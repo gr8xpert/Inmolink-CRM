@@ -210,7 +210,14 @@ export class StripeClient {
    * S13-02: a coupon with our id (a price lock's: `founding_<lock>_<amount>_<months>`), created once — Stripe refuses a
    * second create with the same id, so it is looked up first; the idempotency key covers a retried create.
    */
-  async ensureCoupon(p: { id: string; amountOffCents: number; currency: string; months: number }): Promise<string> {
+  async ensureCoupon(p: {
+    id: string;
+    amountOffCents: number;
+    currency: string;
+    months: number;
+    /** The only product it discounts (the locked plan's): never add-ons or another plan. */
+    productId: string;
+  }): Promise<string> {
     const found = await this.#find(`/v1/coupons/${encodeURIComponent(p.id)}`);
     if (found) return str(found.id);
     const res = await this.#request('POST', '/v1/coupons', {
@@ -220,6 +227,7 @@ export class StripeClient {
         currency: p.currency.toLowerCase(),
         duration: 'repeating',
         duration_in_months: p.months,
+        applies_to: { products: [p.productId] },
         name: 'Founding price',
       },
       idempotencyKey: `coupon:${p.id}`,

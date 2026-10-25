@@ -173,8 +173,11 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
     // S13-02: a founding price lock discounts the plan's current price down to the locked amount until it ends.
     const now = clock.now();
     const lock = await repo.priceLockFor(ctx.tx, agencyId, input, now);
-    const amount = rowOf(input.planCode, 'PLAN')?.amountCents ?? 0;
-    const coupon = lock && lock.amountCents < amount ? lockCoupon(lock, amount, input.currency, now) : null;
+    const planRow = rowOf(input.planCode, 'PLAN');
+    const amount = planRow?.amountCents ?? 0;
+    const product = planRow?.stripeProductId ?? null;
+    const coupon =
+      lock && product && lock.amountCents < amount ? lockCoupon(lock, amount, input.currency, product, now) : null;
     const lineItems = [{ price: planPrice, quantity: 1 }];
     const seen = new Set<string>();
     for (const a of input.addons) {
@@ -223,16 +226,19 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
 /**
  * The coupon of a price lock: the difference off every invoice until the lock ends (whole months, at least one). Its
  * id names the lock, the amount and the months, so a changed lock is a new coupon and a repeated checkout reuses it.
+ * Security review: it applies to the locked plan's Stripe product only — never to add-ons or another plan. (A switch to
+ * another interval of the same plan in the Customer Portal is S13-F23.)
  */
 function lockCoupon(
   lock: { id: string; amountCents: number; endsAt: Date },
   priceCents: number,
   currency: string,
+  productId: string,
   now: Date,
 ) {
   const amountOffCents = priceCents - lock.amountCents;
   const months = Math.max(1, Math.ceil((lock.endsAt.getTime() - now.getTime()) / MONTH_MS));
-  return { id: `founding_${lock.id}_${amountOffCents}_${months}`, amountOffCents, currency, months };
+  return { id: `founding_${lock.id}_${amountOffCents}_${months}`, amountOffCents, currency, months, productId };
 }
 
 /** An average calendar month (365.25 / 12 days). */

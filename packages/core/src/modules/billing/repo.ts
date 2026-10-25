@@ -30,6 +30,8 @@ export interface CatalogPriceRow {
   currency: string | null;
   amountCents: number | null;
   stripePriceId: string | null;
+  /** S13-02: the item's Stripe product (a founding coupon applies to it only). */
+  stripeProductId: string | null;
 }
 
 /** Active catalog items with their active prices that Stripe knows (synced): what members may buy. ≤ a few dozen rows. */
@@ -47,6 +49,7 @@ export async function offeredCatalog(tx: Tx): Promise<CatalogPriceRow[]> {
       currency: billingPrices.currency,
       amountCents: billingPrices.amountCents,
       stripePriceId: billingPrices.stripePriceId,
+      stripeProductId: billingCatalogItems.stripeProductId,
     })
     .from(billingCatalogItems)
     .leftJoin(

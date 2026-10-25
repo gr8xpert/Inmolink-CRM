@@ -519,6 +519,11 @@ describe('billing', () => {
       duration: 'repeating',
       duration_in_months: '36',
     });
+    // Only the locked plan's product: never the add-ons on the same invoice, nor another plan.
+    const product = stripe.prices.get((await stripePriceOf(PRO, 'YEAR', 'EUR')) as string)?.product;
+    expect(stripe.calls.find((x) => x.path === '/v1/coupons' && x.method === 'POST')?.fields).toMatchObject({
+      'applies_to[products][0]': product,
+    });
     // A second visit reuses the coupon.
     await billing.startCheckout(run(c), { planCode: PRO, interval: 'YEAR', currency: 'EUR', addons: [] });
     expect(lastCheckout()?.fields['discounts[0][coupon]']).toBe(couponId);
