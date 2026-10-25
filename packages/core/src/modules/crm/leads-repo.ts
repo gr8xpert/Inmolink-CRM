@@ -190,7 +190,22 @@ export function leadsPageQuery(
 ) {
   const where: (SQL | undefined)[] = [eq(leads.agencyId, agencyId), rowAfter(leads.createdMs, leads.id, page.cursor)];
   if (filter.status) where.push(eq(leads.status, filter.status));
-  if (filter.stageId) where.push(eq(leads.stageId, filter.stageId));
+  if (filter.stageId) {
+    // S12-F7: a lead's status is its stage's (`leads_stage_guard`), so a stage page reads the status index's range in
+    // page order (`leads_agency_status_created_idx`) with the stage a filter on it — the stage's status one subquery,
+    // evaluated once (an init plan). The stage test is written `is true` on purpose: not an index condition, so the
+    // planner never takes the board's rank index (`leads_agency_stage_rank_idx`: the whole column, then a sort).
+    where.push(sql`(${leads.stageId} = ${filter.stageId}::uuid) is true`);
+    if (!filter.status) {
+      where.push(
+        eq(
+          leads.status,
+          sql`(select ${pipelineStages.status} from ${pipelineStages}
+                where ${pipelineStages.agencyId} = ${agencyId} and ${pipelineStages.id} = ${filter.stageId})`,
+        ),
+      );
+    }
+  }
   if (filter.source) where.push(eq(leads.source, filter.source));
   if (filter.assignedUserId !== undefined) {
     where.push(

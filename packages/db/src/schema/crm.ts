@@ -455,17 +455,16 @@ export const leads = pgTable(
   (t) => [
     // inbox: where agency_id = ? and (created_ms, id) < (?, ?) order by created_ms desc, id desc (keyset)
     index('leads_agency_created_idx').on(t.agencyId, t.createdMs, t.id),
-    // my / unassigned leads: … and assigned_user_id = ? (or is null), same keyset
+    // my / unassigned leads: … and assigned_user_id = ? (or is null), same keyset; S12-F7: also "my open leads" (… and
+    // status = ?, filtered) when the member's leads are the rarer side, and the assignee FK
     index('leads_agency_assigned_created_idx').on(t.agencyId, t.assignedUserId, t.createdMs, t.id),
-    // "my open leads" (S11-F6): … and assigned_user_id = ? and status = ?, same keyset
-    index('leads_agency_assigned_status_created_idx').on(t.agencyId, t.assignedUserId, t.status, t.createdMs, t.id),
-    // status filter: … and status = ?, same keyset
+    // status filter: … and status = ?, same keyset; S12-F7: also a stage page (… and status = <the stage's> and stage_id
+    // = ?, filtered: a lead's status is its stage's) and a rare status with an assignee or a source
     index('leads_agency_status_created_idx').on(t.agencyId, t.status, t.createdMs, t.id),
     // source filter: … and source = ?, same keyset
     index('leads_agency_source_created_idx').on(t.agencyId, t.source, t.createdMs, t.id),
-    // the list view of one stage (S10-03): … and stage_id = ?, same keyset; also the FK to pipeline_stages
-    index('leads_agency_stage_created_idx').on(t.agencyId, t.stageId, t.createdMs, t.id),
     // a board column: where agency_id = ? and stage_id = ? and (stage_rank, id) > (?, ?) order by stage_rank, id;
+    // S12-F7: also the FK to pipeline_stages (its prefix);
     // the counts per stage (index-only) and a drag's neighbour (… and (stage_rank, id) > (?, ?) order by … limit 1);
     // `stage_entered_at` last (no INCLUDE in drizzle): the report's leads per stage and their age, index-only
     index('leads_agency_stage_rank_idx').on(t.agencyId, t.stageId, t.stageRank, t.id, t.stageEnteredAt),

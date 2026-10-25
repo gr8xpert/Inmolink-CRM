@@ -112,13 +112,6 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "agency_portal_connections" USING btree (hashtext("agency_id"::text),"agency_id","nightly_at") WHERE "agency_portal_connections"."enabled" and "agency_portal_connections"."revoked_at" is null`,
     declaredBy: '0122_s10_f4_portal_secrets',
   },
-  {
-    // "my open leads" (S11-F6): built by 0134 while `leads` is small; from then on a rebuild runs concurrently
-    name: 'leads_agency_assigned_status_created_idx',
-    table: 'leads',
-    definition: `ON "leads" USING btree ("agency_id","assigned_user_id","status","created_ms","id")`,
-    declaredBy: '0134_s11_f6_f11_leads_index_time_zone',
-  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */
