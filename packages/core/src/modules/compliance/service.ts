@@ -111,6 +111,10 @@ export const AUDIT_TYPES = [
   // S11-F2: client data (contacts, leads, activities, calendar, prospects, tasks, pipeline) read by staff
   // impersonating a member — one row per list / get call; never written for the member's own reads.
   'crm.clientData.read',
+  // S12-F9: registrations (decrypted client details), introducer-side viewing requests (list, get) and VIEWING /
+  // NETWORK chat messages read by staff impersonating a member — one row per list / get call.
+  'mls.clientData.read',
+  'chat.clientData.read',
   // S12-F13: a network board post published / closed (target: the post; metadata: its kind — never title or body).
   'network.post.published',
   'network.post.closed',

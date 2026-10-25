@@ -423,6 +423,12 @@ export async function getViewingRequest(ctx: Ctx, id: string): Promise<ViewingRe
   const r = await repo.sideRow(ctx.tx, ctx.tenant.agencyId, id);
   if (!r) throw new AppError('VIEWING_REQUEST_NOT_FOUND');
   const dto = toDto(r, await lookupsFor(ctx, [r]));
+  // S12-F9: the introducer's copy is about its client (the owner's never is).
+  if (r.side === 'INTRODUCER') {
+    await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'viewingRequests', {
+      target: { type: 'viewingRequest', id: r.id },
+    });
+  }
   return dto;
 }
 
@@ -471,6 +477,11 @@ export async function listViewingRequests(ctx: Ctx, query: ListViewingRequestsQu
     (r) => ({ at: r.createdMs, id: r.id }),
     (r) => toDto(r, lookups),
   );
+  // S12-F9: introducer-side requests are about the agency's clients.
+  await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'viewingRequests', {
+    count: page.items.length,
+    filter: { status: query.status, kind: query.kind },
+  });
   return page;
 }
 

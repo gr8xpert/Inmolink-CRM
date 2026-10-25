@@ -1,4 +1,11 @@
 /** compliance — public API (PATTERNS §1). The only import path for other modules and apps. */
+
+export {
+  auditImpersonatedRead,
+  type ClientDataFilterKey,
+  type ClientDataRead,
+  type ClientDataReadType,
+} from './client-data';
 export {
   createDataExport,
   DATA_EXPORT_LINK_SECONDS,

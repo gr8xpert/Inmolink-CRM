@@ -481,3 +481,51 @@ describe('closed viewing threads', () => {
     );
   });
 });
+
+describe('staff reads (S12-F9)', () => {
+  it('[S12-F9] an impersonated read of VIEWING or NETWORK messages writes one chat.clientData.read row, a member’s own read none', async () => {
+    const staffUserId = newId();
+    // A NETWORK thread of its own: a's reply to an open board post of b's (written directly: posts are the network
+    // module's).
+    const postId = newId();
+    await system((tx) =>
+      tx.execute(sql`insert into network_posts (agency_id, id, kind, title, body, expires_at)
+        values (${b.agencyId}, ${postId}, 'BUYER_REQUEST', ${`F9 ${RUN}`}, 'Looking', now() + interval '1 day')`),
+    );
+    const network = await as(a, (ctx) =>
+      chat.replyInNetworkThread(ctx, {
+        postId,
+        posterAgencyId: b.agencyId,
+        message: { body: 'Is the client still looking?' },
+      }),
+    );
+    const threads: [string, Founder, string][] = [
+      ['VIEWING', b, viewingId],
+      ['NETWORK', a, network.thread.id],
+    ];
+    for (const [kind, m, threadId] of threads) {
+      const read = async (impersonated: boolean) => {
+        const requestId = newId();
+        const page = await withMemberCtx(
+          { userId: m.userId, agencyId: m.agencyId, requestId, locale: 'en' },
+          async (ctx) =>
+            chat.listMessages(impersonated ? await impersonatedCtx(ctx, staffUserId) : ctx, threadId, { limit: 25 }),
+        );
+        const audit = await rows<{ type: string; impersonated_by: string | null; metadata: Record<string, unknown> }>(
+          sql`select type, impersonated_by, metadata from audit_logs where agency_id = ${m.agencyId} and request_id = ${requestId}`,
+        );
+        return { page, audit };
+      };
+      const staff = await read(true);
+      expect(staff.page.items.length, kind).toBeGreaterThan(0);
+      expect(staff.audit, kind).toEqual([
+        {
+          type: 'chat.clientData.read',
+          impersonated_by: staffUserId,
+          metadata: { resource: 'messages', view: 'list', count: staff.page.items.length, parentId: threadId, kind },
+        },
+      ]);
+      expect((await read(false)).audit, `${kind} (own)`).toEqual([]);
+    }
+  });
+});

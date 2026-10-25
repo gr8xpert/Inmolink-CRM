@@ -237,6 +237,11 @@ export async function listRegistrations(ctx: Ctx, query: ListRegistrationsQuery)
     (r) => ({ at: r.registeredMs, id: r.id }),
     (r) => toDto(ctx, r, labels),
   );
+  // S12-F9: the page holds decrypted client details — staff impersonating a member leave an audit row.
+  await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'registrations', {
+    count: page.items.length,
+    filter: { state: query.state, kind: query.kind },
+  });
   return page;
 }
 

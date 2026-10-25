@@ -1,5 +1,4 @@
 import type { Ctx } from '../../context';
-import { impersonatorOf } from '../../impersonation';
 import * as compliance from '../compliance';
 
 /**
@@ -31,7 +30,7 @@ export type ClientDataResource =
   | 'pipeline'
   | 'stageHistory';
 
-/** Records a read of client data when `ctx` is impersonated; a no-op otherwise. Call it after the read succeeded. */
+/** Records a read of client data when `ctx` is impersonated; a no-op otherwise (`compliance.auditImpersonatedRead`). */
 export async function auditImpersonatedRead(
   ctx: Ctx,
   resource: ClientDataResource,
@@ -43,13 +42,5 @@ export async function auditImpersonatedRead(
     filter?: { assigned?: string | undefined; stage?: string | undefined };
   },
 ): Promise<void> {
-  if (impersonatorOf(ctx) === null) return;
-  await compliance.audit(ctx, 'crm.clientData.read', read.target ?? null, {
-    resource,
-    view: read.target ? 'get' : 'list',
-    ...(read.count !== undefined ? { count: read.count } : {}),
-    ...(read.parentId ? { parentId: read.parentId } : {}),
-    ...(read.filter?.assigned ? { assigned: read.filter.assigned } : {}),
-    ...(read.filter?.stage ? { stage: read.filter.stage } : {}),
-  });
+  await compliance.auditImpersonatedRead(ctx, 'crm.clientData.read', resource, read);
 }

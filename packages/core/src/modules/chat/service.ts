@@ -22,6 +22,7 @@ import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as compliance from '../compliance';
 import * as identity from '../identity';
 import * as mls from '../mls';
 import * as notifications from '../notifications';
@@ -147,12 +148,19 @@ export async function listMessages(ctx: Ctx, threadId: string, query: ListChatMe
     limit: query.limit,
     cursor: decodeCursor(query.cursor),
   });
-  return toPage(
+  const page = toPage(
     rows,
     query.limit,
     (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }),
     (r) => toMessageDto(r, ctx.tenant.agencyId),
   );
+  // S12-F9: VIEWING / NETWORK messages talk about clients — staff impersonating a member leave an audit row.
+  await compliance.auditImpersonatedRead(ctx, 'chat.clientData.read', 'messages', {
+    count: page.items.length,
+    parentId: threadId,
+    filter: { kind: t.kind },
+  });
+  return page;
 }
 
 /**

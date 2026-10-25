@@ -11,7 +11,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as crm from '../../crm';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
@@ -529,5 +529,59 @@ describe('expiry', () => {
       ].sort(),
     );
     expect(JSON.stringify(notified)).not.toMatch(/Mara|example\.com/);
+  });
+});
+
+describe('staff reads (S12-F9)', () => {
+  it('[S12-F9] impersonated reads of registrations and introducer-side viewing requests write one mls.clientData.read row each; own reads none', async () => {
+    const { request: r } = await request(await registered(pctListing));
+    const staffUserId = newId();
+    /** Runs `fn` as `m` (impersonated by `staffUserId` when asked) and answers the audit rows the request wrote. */
+    const auditOf = async (m: Founder, impersonated: boolean, fn: (ctx: Ctx) => Promise<unknown>) => {
+      const requestId = newId();
+      await withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId, locale: 'en' }, async (ctx) =>
+        fn(impersonated ? await impersonatedCtx(ctx, staffUserId) : ctx),
+      );
+      return rows<{
+        type: string;
+        impersonated_by: string | null;
+        target_type: string | null;
+        target_id: string | null;
+        metadata: Record<string, unknown>;
+      }>(sql`select type, impersonated_by, target_type, target_id, metadata from audit_logs
+              where agency_id = ${m.agencyId} and request_id = ${requestId}`);
+    };
+    const reads: [string, Founder, (ctx: Ctx) => Promise<unknown>, Record<string, unknown>][] = [
+      [
+        'registrations list',
+        a,
+        (ctx) => mls.listRegistrations(ctx, { limit: 1, state: 'ACTIVE', kind: 'LISTING' }),
+        {
+          target_type: null,
+          metadata: { resource: 'registrations', view: 'list', count: 1, state: 'ACTIVE', kind: 'LISTING' },
+        },
+      ],
+      [
+        'viewing requests list',
+        a,
+        (ctx) => mls.listViewingRequests(ctx, { limit: 1, kind: 'LISTING' }),
+        { target_type: null, metadata: { resource: 'viewingRequests', view: 'list', count: 1, kind: 'LISTING' } },
+      ],
+      [
+        'viewing request get',
+        a,
+        (ctx) => mls.getViewingRequest(ctx, r.id),
+        { target_type: 'viewingRequest', target_id: r.id, metadata: { resource: 'viewingRequests', view: 'get' } },
+      ],
+    ];
+    for (const [name, m, fn, expected] of reads) {
+      expect(await auditOf(m, true, fn), name).toEqual([
+        expect.objectContaining({ type: 'mls.clientData.read', impersonated_by: staffUserId, ...expected }),
+      ]);
+      expect(await auditOf(m, false, fn), `${name} (own)`).toEqual([]);
+    }
+    // The owner's side never holds the client: no row, impersonated or not.
+    expect(await auditOf(b, true, (ctx) => mls.getViewingRequest(ctx, r.id))).toEqual([]);
+    expect(await auditOf(b, true, (ctx) => mls.listReceivedViewingRequests(ctx, { limit: 5 }))).toEqual([]);
   });
 });
