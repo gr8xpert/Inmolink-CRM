@@ -256,7 +256,7 @@ describe('plan gates (S13-02)', () => {
 
     const grant = await asStaff(superAdmin, (ctx) => billing.grantPlan(ctx, body));
     expect(grant).toMatchObject({ kind: 'STAFF', planCode: 'business', revokedAt: null });
-    expect(await as(m, async (ctx) => ctx.tenant.plan)).toBe('business');
+    expect(await as(m, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code)).toBe('business');
     const stored = await system(async (tx) => {
       const r = await tx.execute<{ granted_by: string; reason: string }>(
         sql`select granted_by, reason from billing_plan_grants where id = ${grant.id}::uuid`,
@@ -267,7 +267,7 @@ describe('plan gates (S13-02)', () => {
 
     const revoked = await asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id));
     expect(revoked.revokedAt).not.toBeNull();
-    expect(await as(m, async (ctx) => ctx.tenant.plan)).toBe('free');
+    expect(await as(m, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code)).toBe('free');
     expect((await refusal(asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id)))).code).toBe(
       'BILLING_GRANT_NOT_FOUND',
     );

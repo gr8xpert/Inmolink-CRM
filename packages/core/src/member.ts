@@ -3,7 +3,6 @@ import { DEFAULT_UI_LOCALE } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from './context';
 import * as agencies from './modules/agencies';
-import * as billing from './modules/billing';
 import * as identity from './modules/identity';
 
 /** What an app knows about a signed-in caller from their access token. */
@@ -30,7 +29,7 @@ export interface MemberInit {
  * member, or whose agency is suspended, gets `FORBIDDEN`. An impersonated call (S1-09) also needs its
  * session to be live (checked in the same statement as the role) and its staff member to still be
  * impersonating staff with a current login (one `app_auth` read first): ended, expired, revoked,
- * downgraded or signed out → `IMPERSONATION_ENDED`. Four statements before the handler (S2-F1; S13-02: the plan).
+ * downgraded or signed out → `IMPERSONATION_ENDED`. Three statements before the handler (S2-F1).
  */
 export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
   const imp = init.impersonation;
@@ -55,8 +54,9 @@ export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promi
         tenant: {
           agencyId: init.agencyId,
           verified: tenant.status === 'VERIFIED',
-          // S13-02: the plan in force (subscription, trial or staff grant; one statement), read per request.
-          plan: (await billing.planOf(tx, init.agencyId)).code,
+          // S13-02: not read per request (it would cost every endpoint a statement): plan gates and seat checks read
+          // the plan in force themselves (`billing.planOf`), only when they run.
+          plan: 'none',
           locales: tenant.locales,
         },
         actor: { kind: 'user', userId: init.userId, role, ...(imp ? { impersonatedBy: imp.staffUserId } : {}) },

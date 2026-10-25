@@ -574,6 +574,6 @@ describe('billing', () => {
     const lapsed = await as(c, (ctx) => billing.getBillingOverview(ctx));
     expect(lapsed.plan).toBe('free');
     expect(lapsed.subscription).toMatchObject({ planCode: PRO, status: 'PAST_DUE' });
-    expect(await as(c, async (ctx) => ctx.tenant.plan)).toBe('free');
+    expect(await as(c, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code)).toBe('free');
   });
 });

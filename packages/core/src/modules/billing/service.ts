@@ -38,7 +38,8 @@ const graceStart = (now: Date) => new Date(now.getTime() - dunningGraceMs());
 
 /**
  * S13-02: the agency's plan in force (one statement) — the highest of its live subscription's (past due: within the
- * dunning grace) and its running grants' (trial, staff), else Free. `withMemberCtx` puts its code in `ctx.tenant.plan`.
+ * dunning grace) and its running grants' (trial, staff), else Free. Read by gates and seat checks when they run, never
+ * per request (`ctx.tenant.plan` stays unset: a statement on every endpoint would break the query budgets).
  */
 export async function planOf(tx: Tx, agencyId: string): Promise<repo.PlanInForce> {
   const now = clock.now();
@@ -52,10 +53,9 @@ export async function planOf(tx: Tx, agencyId: string): Promise<repo.PlanInForce
  */
 export async function requirePlan(ctx: Ctx, feature: PlanFeature): Promise<void> {
   if (!billingConfig().enforcePlans) return;
-  const gate = planGate(await repo.planMatrix(ctx.tx), ctx.tenant.plan, feature);
-  if (!gate.allowed) {
-    throw new AppError('PLAN_REQUIRED', { feature, plan: ctx.tenant.plan, requiredPlan: gate.requiredPlan });
-  }
+  const plan = (await planOf(ctx.tx, ctx.tenant.agencyId)).code;
+  const gate = planGate(await repo.planMatrix(ctx.tx), plan, feature);
+  if (!gate.allowed) throw new AppError('PLAN_REQUIRED', { feature, plan, requiredPlan: gate.requiredPlan });
 }
 
 /**

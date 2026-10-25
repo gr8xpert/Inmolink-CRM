@@ -4,7 +4,10 @@ import { AppError } from '@inmolink/platform/errors';
 
 /** A UI locale code from `packages/i18n` (`locales.json`); validate input with `isUiLocale`. */
 export type Locale = UiLocale;
-/** Plan key from the plan catalog — plans are data, not constants (STATUS decision). */
+/**
+ * Plan key from the plan catalog — plans are data, not constants (STATUS decision). S13-02: request paths leave it
+ * `'none'`; `billing.planOf` / `requirePlan` read the plan in force where it matters.
+ */
 export type PlanTier = string;
 /** Role key; the identity module (S1) defines the set. */
 export type Role = string;
