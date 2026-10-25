@@ -12,8 +12,8 @@ import { publishPost, sweepDuePosts } from './publish';
  *   once): publishes the post at Meta, once (`publish.ts`).
  * - `social.checkAccounts` (pool `social`, every 6 hours): refreshes tokens before they expire; marks the ones Meta
  *   refuses as needing reconnection (`accounts.ts`).
- * - `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event): revokes the app's permissions
- *   at Meta and deletes the account (`accounts.ts`).
+ * - `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event): deletes the disconnected
+ *   account, its posts and tokens (`accounts.ts`; revoking at Meta is a follow-up).
  * - `social.notifyReconnect` (pool `realtime`, one per `social.account.needsReconnect` event, job ID = the event's id):
  *   the admins' `SOCIAL_ACCOUNT_RECONNECT` notification.
  * - `social.generateCaptions` (pool `ai`, one per `social.captions.requested` event, job ID = the request's id): AI

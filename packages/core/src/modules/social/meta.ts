@@ -204,8 +204,8 @@ export class MetaGraphClient {
   }
 
   /**
-   * S12-07 review: removes the app's permissions for the user of `userToken` (after the agency disconnected the last
-   * account connected with it): the app can post nothing for that user any more.
+   * Removes the app's permissions for the user of `userToken`: the app can post nothing for that user any more. Not
+   * called yet — the user may have connected Pages in other agencies (TODO in `accounts.ts`, `revokeAccount`).
    */
   async revokePermissions(userToken: string): Promise<void> {
     const u = new URL(this.#url('/me/permissions'));

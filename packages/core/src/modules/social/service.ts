@@ -267,9 +267,8 @@ export async function completeSocialConnect(
 }
 
 /**
- * `DELETE /v1/social/accounts/:accountId`: the account is hidden at once and stops publishing; a worker job revokes the
- * app's permissions at Meta (when no other account of the agency uses the same login) and deletes it with its posts.
- * Audited.
+ * `DELETE /v1/social/accounts/:accountId`: the account is hidden at once and stops publishing; a worker job deletes it
+ * with its posts and tokens (`social.revokeAccount`; revoking at Meta is a follow-up). Audited.
  */
 export async function disconnectSocialAccount(ctx: Ctx, accountId: string): Promise<void> {
   assertCan(ctx, 'social.manage');

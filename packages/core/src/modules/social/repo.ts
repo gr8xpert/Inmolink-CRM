@@ -154,19 +154,6 @@ export async function deleteDisconnected(tx: Tx, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** The user tokens of the agency's other accounts (worker: is a disconnected account's user token still in use?). */
-export async function otherUserTokens(
-  tx: Tx,
-  agencyId: string,
-  exceptId: string,
-): Promise<{ id: string; userTokenEnc: string | null }[]> {
-  return tx
-    .select({ id: socialAccounts.id, userTokenEnc: socialAccounts.userTokenEnc })
-    .from(socialAccounts)
-    .where(and(eq(socialAccounts.agencyId, agencyId), sql`${socialAccounts.id} <> ${exceptId}::uuid`, notDisconnected))
-    .limit(100);
-}
-
 // ── Worker (app_system) ──────────────────────────────────────────────────────────────────────────────
 
 export interface AccountSecrets extends AccountRow {

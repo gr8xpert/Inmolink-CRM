@@ -30,7 +30,7 @@ export const socialEvents = {
         .max(5),
     }),
   ),
-  /** S12-07 review: an admin disconnected an account; the worker revokes the app's permissions, then deletes it. */
+  /** S12-07 review: an admin disconnected an account; the worker deletes it with its posts and tokens. */
   accountDisconnected: defineEvent(
     'social.account.disconnected',
     1,

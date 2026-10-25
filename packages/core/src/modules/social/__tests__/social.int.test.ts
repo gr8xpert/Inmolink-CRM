@@ -516,7 +516,7 @@ describe('S12-07 review', () => {
     expect(graph.publishes()).toHaveLength(0);
   });
 
-  it('[S12-07] scheduling and cancelling are audited; disconnecting revokes Meta’s permissions once the login is unused', async () => {
+  it('[S12-07] scheduling and cancelling are audited; a disconnected account is hidden, then deleted, never revoked at Meta', async () => {
     const accounts = (await connect(a)).items;
     const page = accounts.find((i) => i.platform === 'FACEBOOK_PAGE') as (typeof accounts)[number];
     const ig = accounts.find((i) => i.platform === 'INSTAGRAM_BUSINESS') as (typeof accounts)[number];
@@ -543,26 +543,22 @@ describe('S12-07 review', () => {
       { type: 'social.post.cancelled', metadata: {} },
     ]);
 
-    // The Page goes: hidden at once; Meta's permissions stay (the Instagram account uses the same login).
+    // Disconnected: hidden at once, then deleted with its posts by the job. Meta is not called (the login may serve
+    // other agencies' connections: revoking there is a follow-up).
     graph.calls.length = 0;
     await as(a, (ctx) => social.disconnectSocialAccount(ctx, page.id));
     expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).not.toContain(page.id);
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({
-      revoked: false,
-      deleted: true,
-    });
-    // The Instagram account goes too: now the login is unused — revoked at Meta, then deleted.
+    expect(await countEvents('social.account.disconnected', 'accountId', page.id)).toBe(1);
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({ deleted: true });
+    expect(await postRow(post.id)).toBeUndefined();
+    // Run again (a redelivered event): nothing more. The Instagram account is untouched.
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({ deleted: false });
+    expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).toContain(ig.id);
+    // Connected again before the job ran: kept.
     await as(a, (ctx) => social.disconnectSocialAccount(ctx, ig.id));
-    expect(await countEvents('social.account.disconnected', 'accountId', ig.id)).toBe(1);
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({
-      revoked: true,
-      deleted: true,
-    });
-    expect(graph.calls.filter((c) => c.method === 'DELETE' && c.path === '/me/permissions')).toHaveLength(1);
-    // Run again (a redelivered event): nothing more.
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({
-      revoked: false,
-      deleted: false,
-    });
+    await connect(a);
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({ deleted: false });
+    expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).toContain(ig.id);
+    expect(graph.calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
   });
 });
