@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- perf(search): selection page, search-ai and 10k-import fan-out perf tests and smoke scenarios; read-model batch 200 so change events fill their chunks of 100 [S13-F10]
 - feat(admin): staff console operations — audited, cancellable, paced bulk-op jobs (replay allowlist + cap, bounded steps, lost-job sweep), plan grants/price locks, feature flags, queue health, AI spend per tenant; migration 0155 [S13-03]
 - feat(billing): Stripe webhook rate limit after the signature (separate signed/unsigned per-address buckets, pre-body backstop); TRUST_PROXY pinned per destination [S13-F20]
 - fix(chat): per-thread send lock and one deadlock retry for cross-agency threads [S13-F24]

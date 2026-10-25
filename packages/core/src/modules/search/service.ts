@@ -576,8 +576,12 @@ function add(total: Omit<RebuildResult, 'pendingMedia'> & { pendingMedia?: strin
   total.pendingMedia?.push(...r.pendingMedia);
 }
 
-/** Targets per rebuild transaction: ~10 statements and ≤ this many advisory locks each. */
-export const READ_MODEL_BATCH = 250;
+/**
+ * Targets per rebuild transaction: ~10 statements and ≤ this many advisory locks each. A multiple of
+ * `PUBLIC_DOCS_EVENT_TARGETS` (S13-F10): a batch's change events then fill their chunks of 100 (250 left a chunk of 50,
+ * 3 events per 250 listings instead of 2).
+ */
+export const READ_MODEL_BATCH = 200;
 /** Most stale read-model rows the full rebuild's sweep deletes in one statement (and one transaction). */
 export const READ_MODEL_SWEEP_MAX = 5_000;
 
