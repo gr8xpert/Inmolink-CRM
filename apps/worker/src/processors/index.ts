@@ -199,7 +199,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   // feed-api's `feed_ai` Redis user can write; the worker validates every record.
   'ai-usage': [aiJobs.recordUsage, aiJobs.refreshSpend],
   // S12-07: scheduled posts' claim and publish (once), and the connected accounts' token upkeep.
-  social: [socialJobs.sweepDuePosts, socialJobs.publishPost, socialJobs.checkAccounts],
+  social: [socialJobs.sweepDuePosts, socialJobs.publishPost, socialJobs.checkAccounts, socialJobs.revokeAccount],
   // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
   pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms],
 };

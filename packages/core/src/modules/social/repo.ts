@@ -43,11 +43,15 @@ export type AccountRow = {
 };
 
 /** The agency's accounts, oldest first (at most `MAX_ACCOUNTS`: never paginated). */
+/** `status_reason` of an account an admin disconnected: hidden, its permissions revoked and its row deleted by the worker. */
+export const DISCONNECTED = 'DISCONNECTED';
+const notDisconnected = sql`${socialAccounts.statusReason} is distinct from ${DISCONNECTED}`;
+
 export async function listAccounts(tx: Tx, agencyId: string, limit: number): Promise<AccountRow[]> {
   return tx
     .select(accountColumns)
     .from(socialAccounts)
-    .where(eq(socialAccounts.agencyId, agencyId))
+    .where(and(eq(socialAccounts.agencyId, agencyId), notDisconnected))
     .orderBy(asc(socialAccounts.createdAt), asc(socialAccounts.id))
     .limit(limit);
 }
@@ -56,7 +60,7 @@ export async function getAccount(tx: Tx, agencyId: string, id: string): Promise<
   const [row] = await tx
     .select(accountColumns)
     .from(socialAccounts)
-    .where(and(eq(socialAccounts.agencyId, agencyId), eq(socialAccounts.id, id)));
+    .where(and(eq(socialAccounts.agencyId, agencyId), eq(socialAccounts.id, id), notDisconnected));
   return row ?? null;
 }
 
@@ -126,12 +130,41 @@ export async function upsertAccount(tx: Tx, row: AccountWrite, now: Date): Promi
     });
 }
 
-export async function deleteAccount(tx: Tx, agencyId: string, id: string): Promise<boolean> {
+/** Hides a disconnected account (the worker revokes and deletes it); false when there is none to disconnect. */
+export async function markDisconnected(tx: Tx, agencyId: string, id: string, now: Date): Promise<boolean> {
   const rows = await tx
-    .delete(socialAccounts)
-    .where(and(eq(socialAccounts.agencyId, agencyId), eq(socialAccounts.id, id)))
+    .update(socialAccounts)
+    .set({
+      status: 'NEEDS_RECONNECT',
+      statusReason: DISCONNECTED,
+      version: sql`${socialAccounts.version} + 1`,
+      updatedAt: now,
+    })
+    .where(and(eq(socialAccounts.agencyId, agencyId), eq(socialAccounts.id, id), notDisconnected))
     .returning({ id: socialAccounts.id });
   return rows.length > 0;
+}
+
+/** The disconnected account's row goes, unless it was connected again meanwhile (worker). */
+export async function deleteDisconnected(tx: Tx, id: string): Promise<boolean> {
+  const rows = await tx
+    .delete(socialAccounts)
+    .where(and(eq(socialAccounts.id, id), eq(socialAccounts.statusReason, DISCONNECTED)))
+    .returning({ id: socialAccounts.id });
+  return rows.length > 0;
+}
+
+/** The user tokens of the agency's other accounts (worker: is a disconnected account's user token still in use?). */
+export async function otherUserTokens(
+  tx: Tx,
+  agencyId: string,
+  exceptId: string,
+): Promise<{ id: string; userTokenEnc: string | null }[]> {
+  return tx
+    .select({ id: socialAccounts.id, userTokenEnc: socialAccounts.userTokenEnc })
+    .from(socialAccounts)
+    .where(and(eq(socialAccounts.agencyId, agencyId), sql`${socialAccounts.id} <> ${exceptId}::uuid`, notDisconnected))
+    .limit(100);
 }
 
 // ── Worker (app_system) ──────────────────────────────────────────────────────────────────────────────

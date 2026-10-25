@@ -9,6 +9,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
@@ -16,6 +17,7 @@ import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
 import * as media from '../../media';
 import * as properties from '../../properties';
+import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as social from '../index';
 import { EXPIRED_TOKEN, type FakeGraph, startFakeGraph } from './fake-graph';
@@ -63,7 +65,11 @@ async function enable(m: Founder, on: boolean) {
 }
 
 /** A PUBLIC, ACTIVE listing of `m` with `images` processed images (the og variant ready). */
-async function listing(m: Founder, images = 2): Promise<{ id: string; mediaIds: string[] }> {
+async function listing(
+  m: Founder,
+  images = 2,
+  shareScope?: 'ALL' | 'PREFERRED',
+): Promise<{ id: string; mediaIds: string[] }> {
   const id = await as(m, async (ctx) => {
     const created = await properties.createListing(
       ctx,
@@ -72,7 +78,12 @@ async function listing(m: Founder, images = 2): Promise<{ id: string; mediaIds: 
     const live = await properties.updateListing(
       ctx,
       created.id,
-      UpdateListingBody.parse({ status: 'ACTIVE', visibility: 'PUBLIC', version: created.version }),
+      UpdateListingBody.parse({
+        status: 'ACTIVE',
+        visibility: 'PUBLIC',
+        ...(shareScope ? { shareScope } : {}),
+        version: created.version,
+      }),
     );
     return live.id;
   });
@@ -87,7 +98,7 @@ async function listing(m: Founder, images = 2): Promise<{ id: string; mediaIds: 
       await tx.execute(sql`insert into property_media (id, property_id, agency_id, sha256, kind, position, is_cover)
         values (${mediaId}, ${id}, ${m.agencyId}, ${sha}, 'IMAGE', ${i}, ${i === 0})`);
     }
-    await properties.listingsForReadModels(tx, [id]);
+    await search.rebuildReadModels(tx, 'LISTING', [id]);
   });
   return { id, mediaIds };
 }
@@ -133,6 +144,7 @@ beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
   media.configureMedia({ urlKey: `social-test-key-${RUN}-0123456789abcdef` });
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   graph = await startFakeGraph();
   social.configureSocial({
     keyring: createKeyring({ keys: { k1: generateKey() }, activeKeyId: 'k1' }),
@@ -181,6 +193,7 @@ beforeEach(() => {
 afterAll(async () => {
   configureAi(undefined);
   await graph?.close();
+  await closeRateLimit();
   await closeDb();
 });
 
@@ -211,6 +224,14 @@ describe('social accounts (S12-07)', () => {
     const { url } = await as(a, (ctx) => social.startSocialConnect(ctx));
     const state = new URL(url).searchParams.get('state') as string;
     expect(await refusal(social.completeSocialConnect(run(other), { code: 'x', state }))).toBe('SOCIAL_CONNECT_FAILED');
+    // S12-07 review: a state works once — the callback replayed connects nothing.
+    const once = new URL((await as(a, (ctx) => social.startSocialConnect(ctx))).url).searchParams.get(
+      'state',
+    ) as string;
+    await social.completeSocialConnect(run(a), { code: 'first', state: once });
+    expect(await refusal(social.completeSocialConnect(run(a), { code: 'again', state: once }))).toBe(
+      'SOCIAL_CONNECT_FAILED',
+    );
     expect(await refusal(social.completeSocialConnect(run(a), { code: 'x', state: `${state}x` }))).toBe(
       'SOCIAL_CONNECT_FAILED',
     );
@@ -289,7 +310,7 @@ describe('scheduled posts (S12-07)', () => {
       ),
     );
     expect((await social.publishPost(crashed.job)).outcome).toBe('OUTCOME_UNKNOWN');
-    expect(graph.calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    expect(graph.calls.filter((c) => c.method === 'POST' && !c.path.startsWith('/oauth/'))).toHaveLength(0);
     expect(graph.publishes()).toHaveLength(0);
     expect((await postRow(crashed.post.id))?.error_code).toBe('OUTCOME_UNKNOWN');
     // A claim whose job never ran (or died) is settled by a later sweep: unknown if it had started, due again if not.
@@ -451,5 +472,97 @@ describe('AI captions (S12-07)', () => {
       (await social.generateCaptions({ postId: post.id, agencyId: a.agencyId, requestId: newId(), locales: ['en'] }))
         .status,
     ).toBe('STALE');
+  });
+});
+
+describe('S12-07 review', () => {
+  it('[S12-07] another agency’s listing publishes only while it is still shared with the posting agency', async () => {
+    const b = await createFounder();
+    await setAgencyStatus(b.agencyId, 'VERIFIED');
+    const accounts = (await connect(a)).items;
+    const page = accounts.find((i) => i.platform === 'FACEBOOK_PAGE') as (typeof accounts)[number];
+    const l = await listing(b, 1, 'ALL');
+    const schedule = async () => {
+      const at = new Date(Date.now() + 60_000);
+      const post = await as(a, (ctx) =>
+        social.createSocialPost(ctx, {
+          accountId: page.id,
+          listingId: l.id,
+          locale: 'en',
+          caption: 'Shared villa',
+          scheduledAt: at.toISOString(),
+        }),
+      );
+      await social.sweepDuePosts({ now: new Date(at.getTime() + 1_000) });
+      const due = await latestEvent('social.post.due', 'postId', post.id);
+      return { postId: post.id, agencyId: a.agencyId, claimedAtMs: Number(due?.payload.claimedAtMs) };
+    };
+    const shared = await schedule();
+    const narrowed = await schedule();
+    // Shared with everyone: it publishes.
+    expect((await social.publishPost(shared)).outcome).toBe('PUBLISHED');
+    // The owner narrows it to its preferred agencies (a is not one): the next one does not.
+    await as(b, async (ctx) =>
+      properties.updateListing(
+        ctx,
+        l.id,
+        UpdateListingBody.parse({ shareScope: 'PREFERRED', version: (await properties.getListing(ctx, l.id)).version }),
+      ),
+    );
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [l.id]));
+    graph.calls.length = 0;
+    expect((await social.publishPost(narrowed)).outcome).toBe('FAILED');
+    expect((await postRow(narrowed.postId))?.error_code).toBe('LISTING_UNAVAILABLE');
+    expect(graph.publishes()).toHaveLength(0);
+  });
+
+  it('[S12-07] scheduling and cancelling are audited; disconnecting revokes Meta’s permissions once the login is unused', async () => {
+    const accounts = (await connect(a)).items;
+    const page = accounts.find((i) => i.platform === 'FACEBOOK_PAGE') as (typeof accounts)[number];
+    const ig = accounts.find((i) => i.platform === 'INSTAGRAM_BUSINESS') as (typeof accounts)[number];
+    const l = await listing(a, 1);
+    const post = await as(a, (ctx) =>
+      social.createSocialPost(ctx, {
+        accountId: page.id,
+        listingId: l.id,
+        locale: 'en',
+        scheduledAt: new Date(Date.now() + 3_600_000).toISOString(),
+      }),
+    );
+    await as(a, (ctx) => social.cancelSocialPost(ctx, post.id, { version: post.version }));
+    const audits = await system(
+      async (tx) =>
+        (
+          await tx.execute<{ type: string; metadata: Record<string, unknown> }>(
+            sql`select type, metadata from audit_logs where target_id = ${post.id}::uuid order by occurred_at, id`,
+          )
+        ).rows,
+    );
+    expect(audits).toEqual([
+      { type: 'social.post.scheduled', metadata: {} },
+      { type: 'social.post.cancelled', metadata: {} },
+    ]);
+
+    // The Page goes: hidden at once; Meta's permissions stay (the Instagram account uses the same login).
+    graph.calls.length = 0;
+    await as(a, (ctx) => social.disconnectSocialAccount(ctx, page.id));
+    expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).not.toContain(page.id);
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({
+      revoked: false,
+      deleted: true,
+    });
+    // The Instagram account goes too: now the login is unused — revoked at Meta, then deleted.
+    await as(a, (ctx) => social.disconnectSocialAccount(ctx, ig.id));
+    expect(await countEvents('social.account.disconnected', 'accountId', ig.id)).toBe(1);
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({
+      revoked: true,
+      deleted: true,
+    });
+    expect(graph.calls.filter((c) => c.method === 'DELETE' && c.path === '/me/permissions')).toHaveLength(1);
+    // Run again (a redelivered event): nothing more.
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({
+      revoked: false,
+      deleted: false,
+    });
   });
 });

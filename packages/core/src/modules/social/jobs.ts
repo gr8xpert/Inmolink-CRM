@@ -1,6 +1,6 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { checkAccounts, notifyReconnect } from './accounts';
+import { checkAccounts, notifyReconnect, revokeAccount } from './accounts';
 import { generateCaptions } from './captions';
 import { publishPost, sweepDuePosts } from './publish';
 
@@ -12,6 +12,8 @@ import { publishPost, sweepDuePosts } from './publish';
  *   once): publishes the post at Meta, once (`publish.ts`).
  * - `social.checkAccounts` (pool `social`, every 6 hours): refreshes tokens before they expire; marks the ones Meta
  *   refuses as needing reconnection (`accounts.ts`).
+ * - `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event): revokes the app's permissions
+ *   at Meta and deletes the account (`accounts.ts`).
  * - `social.notifyReconnect` (pool `realtime`, one per `social.account.needsReconnect` event, job ID = the event's id):
  *   the admins' `SOCIAL_ACCOUNT_RECONNECT` notification.
  * - `social.generateCaptions` (pool `ai`, one per `social.captions.requested` event, job ID = the request's id): AI
@@ -61,6 +63,20 @@ export const socialJobs = {
       const res = await checkAccounts();
       if (res.checked > 0) log.info(res, 'social account tokens checked');
       return res;
+    },
+  }),
+
+  revokeAccount: defineJob({
+    name: 'social.revokeAccount',
+    pool: 'social',
+    payload: z.object({ agencyId: z.uuid(), accountId: z.uuid() }),
+    jobId: (p) => `social.revokeAccount:${p.accountId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 10_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return revokeAccount(p);
     },
   }),
 

@@ -107,3 +107,44 @@ export async function notifyReconnect(p: {
     return { notified: res.notified.length };
   });
 }
+
+/**
+ * `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event, S12-07 review): the app's
+ * permissions at Meta are revoked for the account's login — unless another account of the agency was connected with
+ * the same login (revoking would cut that one off too) — then the account and its posts are deleted. An account
+ * connected again before the job ran is left as it is. Meta refusing the token (already revoked or expired) is fine; an
+ * outage retries the job.
+ */
+export async function revokeAccount(p: {
+  agencyId: string;
+  accountId: string;
+}): Promise<{ revoked: boolean; deleted: boolean }> {
+  const found = await withSystem(`social.revokeAccount: ${p.accountId}`, async (tx) => {
+    const account = await repo.accountWithTokens(tx, p.accountId);
+    if (!account || account.agencyId !== p.agencyId || account.statusReason !== repo.DISCONNECTED) return null;
+    const others = await repo.otherUserTokens(tx, account.agencyId, account.id);
+    return { account, others };
+  });
+  if (!found) return { revoked: false, deleted: false };
+  const { account, others } = found;
+  let revoked = false;
+  const app = metaApp();
+  if (app && account.userTokenEnc) {
+    const token = userTokenCipher.decrypt(account.agencyId, account.id, account.userTokenEnc);
+    const shared = others.some(
+      (o) => o.userTokenEnc !== null && userTokenCipher.decrypt(account.agencyId, o.id, o.userTokenEnc) === token,
+    );
+    if (!shared) {
+      try {
+        await new MetaGraphClient(app, socialConfig().fetchOptions).revokePermissions(token);
+        revoked = true;
+      } catch (err) {
+        if (!(err instanceof MetaError) || err.retryable) throw err;
+      }
+    }
+  }
+  const deleted = await withSystem(`social.revokeAccount: delete ${p.accountId}`, (tx) =>
+    repo.deleteDisconnected(tx, account.id),
+  );
+  return { revoked, deleted };
+}

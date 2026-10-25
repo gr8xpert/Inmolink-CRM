@@ -68,6 +68,14 @@ describe('Meta Graph client (S12-07)', () => {
     expect(accounts?.fields.appsecret_proof).toBe(
       createHmac('sha256', graph.app.appSecret).update(user.accessToken).digest('hex'),
     );
+    // S12-07 review: no secret or token in any URL — exchanges are form POSTs, reads carry a bearer header.
+    for (const c of graph.calls) expect(c.fields.__secretInUrl, c.path).toBeUndefined();
+    expect(graph.calls.filter((c) => c.path === '/oauth/access_token').map((c) => c.method)).toEqual(['POST', 'POST']);
+    expect(accounts?.fields.access_token).toBe(user.accessToken);
+    // Revoking the app's permissions for that login.
+    await client.revokePermissions(user.accessToken);
+    expect(graph.calls.at(-1)).toMatchObject({ method: 'DELETE', path: '/me/permissions' });
+    expect(graph.calls.at(-1)?.fields.__secretInUrl).toBeUndefined();
   });
 
   it('[S12-07] Facebook: one image is a photo post; several are unpublished photos attached to one feed post', async () => {

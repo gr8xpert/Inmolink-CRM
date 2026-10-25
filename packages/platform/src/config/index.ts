@@ -627,6 +627,14 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   ) {
     problems.push({ key: 'MEDIA_CDN_URL', message: 'must be the public https media host in production' });
   }
+  // S12-07 review: Meta's OAuth redirect (the code travels in it) is https in production.
+  if (
+    production &&
+    typeof cfg.SOCIAL_OAUTH_REDIRECT_URL === 'string' &&
+    !/^https:\/\/(?!localhost|127\.)/.test(cfg.SOCIAL_OAUTH_REDIRECT_URL)
+  ) {
+    problems.push({ key: 'SOCIAL_OAUTH_REDIRECT_URL', message: 'must be an https URL of the web app in production' });
+  }
   // Read from the raw env: request apps do not declare the variable, so it would never reach `cfg`.
   if (production && cfg.APP_ROLE === 'http' && (env.MEILI_MASTER_KEY ?? '').trim() !== '') {
     problems.push({

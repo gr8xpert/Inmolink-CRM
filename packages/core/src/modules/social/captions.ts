@@ -7,7 +7,7 @@ import { cutAtWord, plainText } from '../../white-label';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { allowedNumbers, CAPTIONS_PROMPT, CaptionsAnswer, type Facts, numbersMatchFacts } from './caption-facts';
-import { whiteLabelled } from './publish';
+import { networkPostable, whiteLabelled } from './publish';
 import * as repo from './repo';
 
 /**
@@ -32,7 +32,10 @@ export async function generateCaptions(p: {
     if (post.status !== 'DRAFT' && post.status !== 'SCHEDULED') return null;
     const account = await repo.accountWithTokens(tx, post.accountId);
     const [listing] = await properties.listingsForReadModels(tx, [post.listingId]);
-    if (!account || !listing) return { post, account: null, listing: null, facts: null, description: '' };
+    // S12-07 review: another agency's listing only while it is still shared with the posting agency.
+    if (!account || !listing || !(await networkPostable(tx, post.agencyId, listing))) {
+      return { post, account: null, listing: null, facts: null, description: '' };
+    }
     const tax = await taxonomy.taxonomyForReadModels(
       tx,
       { locations: [listing.locationId], propertyTypes: [listing.propertyTypeId], features: [] },

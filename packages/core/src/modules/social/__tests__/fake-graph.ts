@@ -54,6 +54,10 @@ export async function startFakeGraph(): Promise<FakeGraph> {
       const fields: Record<string, string> = Object.fromEntries(url.searchParams);
       if (req.method === 'POST')
         Object.assign(fields, Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString())));
+      const bearer = /^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1];
+      if (bearer) fields.access_token = bearer;
+      // Secrets never travel in a URL (S12-07 review): recorded so tests can check.
+      if (url.searchParams.has('access_token') || url.searchParams.has('client_secret')) fields.__secretInUrl = 'yes';
       const path = url.pathname.replace(`/${VERSION}`, '');
       const call: GraphCall = { method: req.method ?? 'GET', path, fields };
       calls.push(call);
@@ -74,6 +78,7 @@ export async function startFakeGraph(): Promise<FakeGraph> {
         }
       }
       if (path === '/me/accounts') return answer(res, 200, { data: fake.pages });
+      if (path === '/me/permissions' && req.method === 'DELETE') return answer(res, 200, { success: true });
       const m = /^\/(\d+)\/(photos|feed|media|media_publish)$/.exec(path);
       if (m && req.method === 'POST') {
         const id = String(seq++);

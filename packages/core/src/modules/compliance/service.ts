@@ -55,6 +55,9 @@ export const AUDIT_TYPES = [
   // S12-07: a member connected Facebook Pages / Instagram accounts (counts and platforms only) or disconnected one.
   'social.account.connected',
   'social.account.disconnected',
+  // S12-07 review: a post scheduled (or rescheduled) / cancelled (ids only).
+  'social.post.scheduled',
+  'social.post.cancelled',
   'agencies.verification.decided',
   'agencies.profile.updated',
   'agencies.giveToGet.changed',
@@ -156,7 +159,8 @@ export interface AuditTarget {
     | 'task'
     | 'networkPost'
     // S12-07
-    | 'socialAccount';
+    | 'socialAccount'
+    | 'socialPost';
   id: string;
 }
 

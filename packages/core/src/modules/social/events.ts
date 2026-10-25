@@ -30,6 +30,12 @@ export const socialEvents = {
         .max(5),
     }),
   ),
+  /** S12-07 review: an admin disconnected an account; the worker revokes the app's permissions, then deletes it. */
+  accountDisconnected: defineEvent(
+    'social.account.disconnected',
+    1,
+    z.object({ accountId: z.uuid(), agencyId: z.uuid() }),
+  ),
   accountNeedsReconnect: defineEvent(
     'social.account.needsReconnect',
     1,

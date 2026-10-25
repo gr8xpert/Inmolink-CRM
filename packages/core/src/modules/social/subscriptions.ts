@@ -33,6 +33,11 @@ export function registerSocialSubscriptions(): void {
       { name: 'social.captions.generate' },
     ),
     subscribe(
+      socialEvents.accountDisconnected,
+      (payload, meta) => socialJobs.revokeAccount.enqueue({ agencyId: meta.agencyId, accountId: payload.accountId }),
+      { name: 'social.account.revoke' },
+    ),
+    subscribe(
       socialEvents.accountNeedsReconnect,
       (payload, meta) =>
         socialJobs.notifyReconnect.enqueue({

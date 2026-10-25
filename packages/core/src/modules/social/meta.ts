@@ -81,35 +81,42 @@ export class MetaGraphClient {
 
   /** The OAuth code → a short-lived user token → a long-lived one (about 60 days). */
   async userTokenFromCode(code: string): Promise<MetaToken> {
-    const short = await this.#get('/oauth/access_token', {
-      client_id: this.app.appId,
-      client_secret: this.app.appSecret,
-      redirect_uri: this.app.redirectUri,
-      code,
-    });
+    // S12-07 review: the app secret and the code go in the form body, never in a URL (logs, proxies).
+    const short = await this.#post(
+      '/oauth/access_token',
+      { client_id: this.app.appId, client_secret: this.app.appSecret, redirect_uri: this.app.redirectUri, code },
+      false,
+    );
     return this.longLivedUserToken(tokenOf(short));
   }
 
   /** A long-lived user token for `userToken` (also refreshes a long-lived one before it expires). */
   async longLivedUserToken(userToken: string): Promise<MetaToken> {
-    const res = await this.#get('/oauth/access_token', {
-      grant_type: 'fb_exchange_token',
-      client_id: this.app.appId,
-      client_secret: this.app.appSecret,
-      fb_exchange_token: userToken,
-    });
+    const res = await this.#post(
+      '/oauth/access_token',
+      {
+        grant_type: 'fb_exchange_token',
+        client_id: this.app.appId,
+        client_secret: this.app.appSecret,
+        fb_exchange_token: userToken,
+      },
+      false,
+    );
     const expiresIn = typeof res.expires_in === 'number' && res.expires_in > 0 ? res.expires_in : null;
     return { accessToken: tokenOf(res), expiresIn };
   }
 
   /** The Pages the user manages, with their Page tokens and the Instagram Business account of each (at most 100). */
   async pages(userToken: string): Promise<MetaPage[]> {
-    const res = await this.#get('/me/accounts', {
-      fields: 'id,name,access_token,instagram_business_account{id,username}',
-      limit: '100',
-      access_token: userToken,
-      appsecret_proof: this.#proof(userToken),
-    });
+    const res = await this.#get(
+      '/me/accounts',
+      {
+        fields: 'id,name,access_token,instagram_business_account{id,username}',
+        limit: '100',
+        appsecret_proof: this.#proof(userToken),
+      },
+      userToken,
+    );
     const data = Array.isArray(res.data) ? res.data : [];
     const pages: MetaPage[] = [];
     for (const raw of data as Record<string, unknown>[]) {
@@ -196,6 +203,16 @@ export class MetaGraphClient {
     return { externalId: idOf(published.id, true) };
   }
 
+  /**
+   * S12-07 review: removes the app's permissions for the user of `userToken` (after the agency disconnected the last
+   * account connected with it): the app can post nothing for that user any more.
+   */
+  async revokePermissions(userToken: string): Promise<void> {
+    const u = new URL(this.#url('/me/permissions'));
+    u.searchParams.set('appsecret_proof', this.#proof(userToken));
+    checked(await this.#send('DELETE', u.toString(), undefined, false, userToken), false);
+  }
+
   #proof(token: string): string {
     return createHmac('sha256', this.app.appSecret).update(token).digest('hex');
   }
@@ -204,10 +221,11 @@ export class MetaGraphClient {
     return `${this.app.graphUrl.replace(/\/+$/, '')}/${this.app.graphVersion}${path}`;
   }
 
-  async #get(path: string, query: Record<string, string>): Promise<Record<string, unknown>> {
+  /** A read; the token goes in the `authorization` header, never in the query string. */
+  async #get(path: string, query: Record<string, string>, token: string): Promise<Record<string, unknown>> {
     const u = new URL(this.#url(path));
     for (const [k, v] of Object.entries(query)) u.searchParams.set(k, v);
-    return checked(await this.#send('GET', u.toString(), undefined, false), false);
+    return checked(await this.#send('GET', u.toString(), undefined, false, token), false);
   }
 
   async #post(path: string, fields: Record<string, string>, publishing: boolean): Promise<Record<string, unknown>> {
@@ -215,12 +233,19 @@ export class MetaGraphClient {
     return checked(await this.#send('POST', this.#url(path), body, publishing), publishing);
   }
 
-  async #send(method: 'GET' | 'POST', url: string, body: string | undefined, publishing: boolean): Promise<Exchange> {
+  async #send(
+    method: 'GET' | 'POST' | 'DELETE',
+    url: string,
+    body: string | undefined,
+    publishing: boolean,
+    bearer?: string,
+  ): Promise<Exchange> {
     try {
       const res = await safeFetch(url, {
         method,
         headers: {
           accept: 'application/json',
+          ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
           ...(body === undefined ? {} : { 'content-type': 'application/x-www-form-urlencoded' }),
         },
         ...(body === undefined ? {} : { body }),

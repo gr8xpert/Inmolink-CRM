@@ -31,11 +31,6 @@ const CONNECT_LIMITS: readonly RateLimitRule[] = [
   { name: 'social.connect.user', scope: 'user', limit: 10, windowSeconds: 600 },
   { name: 'social.connect.tenant', scope: 'tenant', limit: 30, windowSeconds: 3_600 },
 ];
-// Each caption request is a model call (the AI gateway also caps the agency's spend).
-const CAPTION_LIMITS: readonly RateLimitRule[] = [
-  ...WRITE_LIMITS,
-  { name: 'social.captions.tenant', scope: 'tenant', limit: 200, windowSeconds: 86_400 },
-];
 
 const NO_STORE = 'no-store';
 
@@ -198,7 +193,8 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
         response: { 200: SocialPostDto },
       },
       onRequest: [app.requireSession],
-      config: { rateLimit: CAPTION_LIMITS },
+      // The agency's daily caption cap is the service's (`CAPTION_REQUESTS`): it covers new posts' captions too.
+      config: { rateLimit: WRITE_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => social.requestSocialCaptions(ctx, req.params.postId, req.body)),
   );

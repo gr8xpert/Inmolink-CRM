@@ -21,12 +21,14 @@ import type {
   UpdateSocialPostBody,
 } from '@inmolink/contracts';
 import { SOCIAL_LIMITS } from '@inmolink/contracts';
+import { whenReady } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import { safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { type FlagCtx, flag } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
+import { type RateLimitRule, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as compliance from '../compliance';
@@ -118,6 +120,32 @@ function signState(p: StatePayload): string {
   return `${encoded}.${stateMac(encoded)}`;
 }
 
+/**
+ * S12-07 review: a connect state works once — its nonce is taken on the limits Redis (never evicting) for as long as the
+ * state lives; a replayed callback is refused.
+ */
+async function takeStateNonce(nonce: string): Promise<boolean> {
+  const redis = rateLimitConnection();
+  await whenReady(redis);
+  return (await redis.set(`inl:social:state:${nonce}`, '1', 'PX', CONNECT_STATE_TTL_MS, 'NX')) === 'OK';
+}
+
+/**
+ * S12-07 review: AI caption requests per agency and day (each a model call; the AI gateway caps the spend too) — for
+ * a new post's `captionLocales` and for `requestSocialCaptions` alike.
+ */
+export const CAPTION_REQUESTS = {
+  name: 'social.captions.tenant',
+  scope: 'tenant',
+  limit: 200,
+  windowSeconds: 86_400,
+} as const satisfies RateLimitRule;
+
+async function consumeCaptionRequest(ctx: Ctx): Promise<void> {
+  const res = await rateLimiter().consume(CAPTION_REQUESTS, ctx.tenant.agencyId);
+  if (!res.allowed) throw new AppError('RATE_LIMITED', { retryAfterSeconds: res.retryAfterSeconds });
+}
+
 /** The state's payload when it is genuine, unexpired and this member's of this agency; null otherwise. */
 function openState(ctx: Ctx, state: string): StatePayload | null {
   const [encoded, mac, extra] = state.split('.');
@@ -172,7 +200,8 @@ export async function completeSocialConnect(
   const client = await run(async (ctx) => {
     assertCan(ctx, 'social.manage');
     await assertEnabled(ctx);
-    if (!openState(ctx, input.state)) throw new AppError('SOCIAL_CONNECT_FAILED', { reason: 'state' });
+    const state = openState(ctx, input.state);
+    if (!state || !(await takeStateNonce(state.n))) throw new AppError('SOCIAL_CONNECT_FAILED', { reason: 'state' });
     return meta();
   });
   let userToken: { accessToken: string; expiresIn: number | null };
@@ -237,13 +266,19 @@ export async function completeSocialConnect(
   });
 }
 
-/** `DELETE /v1/social/accounts/:accountId`: the account and its posts go (its tokens with it). Audited. */
+/**
+ * `DELETE /v1/social/accounts/:accountId`: the account is hidden at once and stops publishing; a worker job revokes the
+ * app's permissions at Meta (when no other account of the agency uses the same login) and deletes it with its posts.
+ * Audited.
+ */
 export async function disconnectSocialAccount(ctx: Ctx, accountId: string): Promise<void> {
   assertCan(ctx, 'social.manage');
   await assertEnabled(ctx);
-  if (!(await repo.deleteAccount(ctx.tx, ctx.tenant.agencyId, accountId))) {
+  const { agencyId } = ctx.tenant;
+  if (!(await repo.markDisconnected(ctx.tx, agencyId, accountId, clock.now()))) {
     throw new AppError('SOCIAL_ACCOUNT_NOT_FOUND');
   }
+  await emit(ctx.tx, socialEvents.accountDisconnected({ accountId, agencyId }));
   await compliance.audit(ctx, 'social.account.disconnected', { type: 'socialAccount', id: accountId });
 }
 
@@ -302,6 +337,7 @@ async function activeAccount(ctx: Ctx, accountId: string): Promise<repo.AccountR
 }
 
 async function requestCaptionsFor(ctx: Ctx, postId: string, locales: readonly string[]): Promise<string> {
+  await consumeCaptionRequest(ctx);
   const requestId = newId();
   await emit(
     ctx.tx,
@@ -324,6 +360,7 @@ export async function createSocialPost(ctx: Ctx, input: CreateSocialPostBody): P
   const listing = await postableListing(ctx, input.listingId);
   const mediaIds = await imagesFor(ctx, listing, input.mediaIds);
   const scheduledAt = scheduleOf(input.scheduledAt);
+  if (input.captionLocales) await consumeCaptionRequest(ctx);
   const id = newId();
   const now = clock.now();
   const requestId = input.captionLocales ? newId() : null;
@@ -344,6 +381,7 @@ export async function createSocialPost(ctx: Ctx, input: CreateSocialPostBody): P
     createdAt: now,
     updatedAt: now,
   });
+  if (scheduledAt) await auditPost(ctx, 'social.post.scheduled', id);
   if (requestId && input.captionLocales) {
     await emit(
       ctx.tx,
@@ -356,6 +394,11 @@ export async function createSocialPost(ctx: Ctx, input: CreateSocialPostBody): P
     );
   }
   return toPostDto(row, account.platform);
+}
+
+/** S12-07 review: scheduling and cancelling are audited (ids only). */
+function auditPost(ctx: Ctx, type: 'social.post.scheduled' | 'social.post.cancelled', postId: string) {
+  return compliance.audit(ctx, type, { type: 'socialPost', id: postId });
 }
 
 async function editablePost(ctx: Ctx, postId: string, version: number): Promise<repo.PostRow> {
@@ -400,6 +443,9 @@ export async function updateSocialPost(ctx: Ctx, postId: string, input: UpdateSo
     clock.now(),
   );
   if (!row) throw new AppError('VERSION_CONFLICT');
+  if (scheduledAt && scheduledAt.getTime() !== post.scheduledAt?.getTime()) {
+    await auditPost(ctx, 'social.post.scheduled', row.id);
+  }
   return toPostDto(row, await platformOf(ctx, row.accountId));
 }
 
@@ -431,6 +477,7 @@ export async function cancelSocialPost(ctx: Ctx, postId: string, input: { versio
   const post = await editablePost(ctx, postId, input.version);
   const row = await repo.updatePost(ctx.tx, post.id, post.version, { status: 'CANCELLED' }, clock.now());
   if (!row) throw new AppError('VERSION_CONFLICT');
+  await auditPost(ctx, 'social.post.cancelled', row.id);
   return toPostDto(row, await platformOf(ctx, row.accountId));
 }
 

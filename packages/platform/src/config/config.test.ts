@@ -16,6 +16,7 @@ import {
   loadConfigOrExit,
   redisEnv,
   searchEnv,
+  socialEnv,
   telemetryEnv,
   turnstileEnv,
   websiteSearchEnv,
@@ -88,6 +89,20 @@ describe('loadConfig', () => {
     }
     throw new Error('expected a ConfigError');
   }
+
+  it('[S12-07] the Meta OAuth redirect must be https in production', () => {
+    const social = { ...shape, ...socialEnv };
+    const prod = { ...validEnv, NODE_ENV: 'production', APP_ROLE: 'worker' };
+    const bad = problemsOf(() =>
+      loadConfig(social, { ...prod, SOCIAL_OAUTH_REDIRECT_URL: 'http://web.example/social/callback' }),
+    );
+    expect(bad.problems.map((p) => p.key)).toContain('SOCIAL_OAUTH_REDIRECT_URL');
+    const ok = () => loadConfig(social, { ...prod, SOCIAL_OAUTH_REDIRECT_URL: 'https://app.example/social/callback' });
+    expect(() => ok()).not.toThrow();
+    expect(() =>
+      loadConfig(social, { ...validEnv, SOCIAL_OAUTH_REDIRECT_URL: 'http://localhost:3000/social/callback' }),
+    ).not.toThrow();
+  });
 
   it('[S0-03] never echoes secret values in the error', () => {
     const env = {

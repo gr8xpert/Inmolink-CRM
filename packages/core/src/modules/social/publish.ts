@@ -5,6 +5,7 @@ import { compileOwner, NO_OWNER, plainText } from '../../white-label';
 import * as agencies from '../agencies';
 import * as media from '../media';
 import * as properties from '../properties';
+import * as search from '../search';
 import { metaApp, pageTokenCipher, socialConfig } from './config';
 import { socialEvents } from './events';
 import { MetaError, MetaGraphClient } from './meta';
@@ -146,6 +147,7 @@ async function prepare(tx: Tx, input: { postId: string; agencyId: string; claime
   }
   const [listing] = await properties.listingsForReadModels(tx, [post.listingId]);
   if (listing?.visibility !== 'PUBLIC' || listing.status !== 'ACTIVE') return fail('LISTING_UNAVAILABLE');
+  if (!(await networkPostable(tx, post.agencyId, listing))) return fail('LISTING_UNAVAILABLE');
   const base = socialConfig().mediaBaseUrl;
   if (!base) return fail('NOT_CONFIGURED');
   const keys = new Map(
@@ -171,6 +173,24 @@ async function prepare(tx: Tx, input: { postId: string; agencyId: string; claime
       attempts,
     },
   };
+}
+
+/**
+ * S12-07 review: whether the agency may still post this listing — its own, or another agency's that is still shared
+ * with it on the network now: not hidden from the network, shared with everyone or this agency preferred
+ * (`search.networkSharedTargets`, the rule selections re-check at every view), the owner listed and the posting
+ * agency taking part in the network (listed). Checked at publish time and before captions are drafted.
+ */
+export async function networkPostable(
+  tx: Tx,
+  postingAgencyId: string,
+  listing: { id: string; agencyId: string; networkHidden: boolean },
+): Promise<boolean> {
+  if (listing.agencyId === postingAgencyId) return true;
+  if (listing.networkHidden) return false;
+  const listed = await agencies.listedAgencyNamesOf(tx, [postingAgencyId, listing.agencyId]);
+  if (!listed.has(postingAgencyId) || !listed.has(listing.agencyId)) return false;
+  return (await search.networkSharedTargets(tx, postingAgencyId, [listing.id])).has(listing.id);
 }
 
 /**
