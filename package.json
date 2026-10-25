@@ -38,6 +38,7 @@
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
     "exports:sync-channels": "tsx --conditions=@inmolink/source scripts/ops/sync-portal-channels.ts",
+    "billing:catalog": "tsx --conditions=@inmolink/source scripts/ops/sync-billing-catalog.ts",
     "ops:cdn-rules": "tsx scripts/ops/cdn-rules.ts",
     "ops:widget-publish": "tsx --conditions=@inmolink/source scripts/ops/widget-publish.ts",
     "ops:wp-plugin-release": "tsx --conditions=@inmolink/source scripts/ops/wp-plugin-release.ts",

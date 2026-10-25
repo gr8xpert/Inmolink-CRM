@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(billing): Stripe billing core — plan catalog (data) synced to Stripe, Checkout (annual default; card + SEPA DD; Stripe Tax; VAT ID), Customer Portal, signed idempotent out-of-order-safe webhooks, invoices, dashboard billing page; migration 0153; no new dependency (REST over safe-fetch); real Stripe E2E BLOCKED-HUMAN H3 [S13-01]
 - chore(deps): Next.js 16.4.0 → 16.4.3 in apps/web and apps/public (security patch; 16.4.0 is flagged by Next.js itself) [S12 review]
 - perf(properties,imports,developments,agencies,identity,compliance): raw keyset on 16 new (…, created_at, id) indexes — a list next-page cursor is an index condition under RLS; migration 0152 (11 built concurrently) [S12-F20]
 - fix(db): one pinned search_path (pg_catalog, pg_temp) for every SECURITY DEFINER function (0151); definerSync names only the owner operations used; network-closed chat refusal is P0001/network_closed [S12-F16]

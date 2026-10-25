@@ -43,6 +43,7 @@ const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
   ['verification', '/verification'],
   ['apiKeys', '/api-keys'],
   ['dataExport', '/data-export'],
+  ['billing', '/billing'],
   ['staffAccess', '/staff-access'],
 ];
 

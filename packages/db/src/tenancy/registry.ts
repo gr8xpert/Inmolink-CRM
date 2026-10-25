@@ -500,6 +500,11 @@ export const tenantTables: Record<string, TenantTable> = {
     hiddenColumns: ['token_enc', 'user_token_enc'],
   },
   social_posts: { kind: 'STRICT', base: { locale: 'en', media_ids: '{01900000-0000-7000-8000-000000000001}' } },
+  // S13-01: billing. The Stripe customer is written by the member starting a checkout; the subscription and invoices
+  // mirror Stripe and are written by the webhook job alone (members read them).
+  billing_customers: { kind: 'STRICT', userAppendRead: true },
+  billing_subscriptions: { kind: 'STRICT', userReadOnly: true },
+  billing_invoices: { kind: 'STRICT', userReadOnly: true },
   // Listings a connection's last run left out and why (S9-02).
   portal_connection_issues: { kind: 'STRICT', base: { errors: '[]', checked_at: '2026-01-01T00:00:00Z' } },
   // A connection's feed runs (S9-03): written by the generator, read by the dashboard (S10-F4: SELECT only for app_user).
@@ -1461,6 +1466,20 @@ export const tenantTables: Record<string, TenantTable> = {
  */
 export const globalTables: Record<string, GlobalTable> = {
   // Portal catalog (S9-01): Kyero, thinkSPAIN, A Place in the Sun, generic XML (idealista and Fotocasa planned).
+  // S13-01: the plan catalog (plans, add-ons, prices) — the same for every agency; seeded / staff-edited, synced to
+  // Stripe by billing.syncCatalog via withSystem(). Members read it to choose a plan.
+  billing_catalog_items: {
+    reason: 'plan and add-on catalog (platform data), synced to Stripe',
+    staffWrite: true,
+    base: { code: 'iso_item' },
+  },
+  billing_prices: {
+    reason: 'catalog prices (platform data), synced to Stripe',
+    staffWrite: true,
+    base: { currency: 'EUR' },
+  },
+  // S13-01: Stripe webhook events already applied (idempotency); webhook job only.
+  billing_stripe_events: { reason: 'Stripe webhook event ids (platform idempotency log)', noUserRead: true },
   portal_channels: {
     reason: 'catalog of portals an agency can feed, written by staff / sync via withSystem()',
     staffWrite: true,

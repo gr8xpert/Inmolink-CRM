@@ -1,0 +1,86 @@
+{
+  "title": "Plan & billing",
+  "next": "Older invoices",
+  "notices": {
+    "checkoutSuccess": "Thank you! Your plan updates here as soon as Stripe confirms the subscription. SEPA Direct Debit payments can take a few business days to clear.",
+    "checkoutCancelled": "Checkout was cancelled. Nothing was charged."
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "BILLING_NOT_ENABLED": "Online subscriptions are not available yet. Please contact us to change your plan.",
+    "BILLING_PRICE_UNAVAILABLE": "That plan is not available with this billing period or currency.",
+    "BILLING_ALREADY_SUBSCRIBED": "Your agency already has a subscription. Use “Manage subscription” to change it.",
+    "BILLING_NO_CUSTOMER": "There is no subscription to manage yet.",
+    "BILLING_PROVIDER_UNAVAILABLE": "Our payment provider did not answer. Please try again in a moment.",
+    "FORBIDDEN": "Only your agency's administrators can change the plan."
+  },
+  "current": {
+    "title": "Current plan",
+    "manage": "Manage subscription",
+    "status": "Status",
+    "interval": "Billing period",
+    "paymentMethod": "Payment method",
+    "renewsOn": "Renews on",
+    "endsOn": "Ends on",
+    "endsNote": "{date} — you then move to Free and keep all your data",
+    "free": "You are on the Free plan. Your listings and data are always kept, whatever the plan."
+  },
+  "planNames": {
+    "free": "Free",
+    "pro": "Pro",
+    "business": "Business",
+    "enterprise": "Enterprise"
+  },
+  "plans": {
+    "title": "Choose a plan",
+    "vatNote": "Prices exclude VAT. VAT is added at checkout, or reverse-charged when you enter a valid EU VAT number.",
+    "empty": "No plans are on offer right now.",
+    "seats": "{count, plural, one {# user included} other {# users included}}",
+    "interval": "Billing period",
+    "subscribe": "Subscribe",
+    "paymentNote": "Pay by card or SEPA Direct Debit (euro prices). Invoices are available here and in the subscription portal."
+  },
+  "per": {
+    "YEAR": "per year",
+    "MONTH": "per month"
+  },
+  "intervals": {
+    "YEAR": "Annual",
+    "MONTH": "Monthly"
+  },
+  "paymentMethods": {
+    "card": "Card",
+    "sepa_debit": "SEPA Direct Debit"
+  },
+  "statuses": {
+    "INCOMPLETE": "Awaiting payment",
+    "INCOMPLETE_EXPIRED": "Payment not completed",
+    "TRIALING": "Trial",
+    "ACTIVE": "Active",
+    "PAST_DUE": "Payment overdue",
+    "UNPAID": "Unpaid",
+    "CANCELED": "Ended",
+    "PAUSED": "Paused"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "empty": "No invoices yet.",
+    "view": "View",
+    "pdf": "PDF",
+    "tax": "incl. {amount} VAT",
+    "columns": {
+      "number": "Number",
+      "date": "Date",
+      "status": "Status",
+      "total": "Total",
+      "links": "Links"
+    }
+  },
+  "invoiceStatuses": {
+    "DRAFT": "Draft",
+    "OPEN": "Due",
+    "PAID": "Paid",
+    "VOID": "Void",
+    "UNCOLLECTIBLE": "Uncollectible"
+  }
+}

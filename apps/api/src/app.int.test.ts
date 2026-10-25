@@ -149,6 +149,7 @@ describe('api against the test stack', () => {
           'verification',
           'preferredAgencies',
           'dataExport',
+          'billing',
           'staffAccess',
         ],
       });

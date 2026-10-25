@@ -1,4 +1,5 @@
 import { closeDb, configureAiRuntime, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
+import * as billing from '@inmolink/core/modules/billing';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as documents from '@inmolink/core/modules/documents';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
@@ -102,6 +103,16 @@ try {
         : {}),
       ...(config.MEDIA_CDN_URL ? { mediaBaseUrl: config.MEDIA_CDN_URL } : {}),
     });
+  }
+  // S13-01: Stripe (H3) — the maintenance pool syncs the catalog and applies webhook events; unset, both idle.
+  if (config.WORKER_POOLS.includes('maintenance')) {
+    billing.configureBilling(
+      billing.billingFromEnv({
+        STRIPE_SECRET_KEY: config.STRIPE_SECRET_KEY,
+        STRIPE_API_URL: config.STRIPE_API_URL as string,
+        STRIPE_API_VERSION: config.STRIPE_API_VERSION,
+      }),
+    );
   }
   // S10-08: data exports (exports pool) — the media manifest's image URLs under the media CDN; the admins' alert
   // (email pool) links to the dashboard.

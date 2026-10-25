@@ -1,0 +1,24 @@
+{
+  "$comment": "S13-01: the plan catalog (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). Add-on prices are set by staff before they are offered.",
+  "items": [
+    {
+      "code": "pro",
+      "kind": "PLAN",
+      "seatsIncluded": 4,
+      "rank": 10,
+      "prices": [
+        { "interval": "YEAR", "currency": "EUR", "amountCents": 80000 },
+        { "interval": "MONTH", "currency": "EUR", "amountCents": 7900 }
+      ]
+    },
+    {
+      "code": "business",
+      "kind": "PLAN",
+      "seatsIncluded": 10,
+      "rank": 20,
+      "prices": [{ "interval": "YEAR", "currency": "EUR", "amountCents": 150000 }]
+    },
+    { "code": "extra_user", "kind": "ADDON", "seatsIncluded": null, "rank": 100, "prices": [] },
+    { "code": "extra_website", "kind": "ADDON", "seatsIncluded": null, "rank": 110, "prices": [] }
+  ]
+}

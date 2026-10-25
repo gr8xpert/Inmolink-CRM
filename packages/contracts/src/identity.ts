@@ -159,6 +159,8 @@ export const DashboardSection = z.enum([
   'networkBoard',
   /** The chat inbox and threads (S12-F1). */
   'chat',
+  /** The plan, Checkout, the Customer Portal and invoices (S13-01); admins manage, members read. */
+  'billing',
 ]);
 export type DashboardSection = z.infer<typeof DashboardSection>;
 

@@ -21,8 +21,9 @@ export function can(ctx: Ctx, action: BillingAction, resource?: { agencyId: stri
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'billing.read':
-      // S12-06 review: the plan and its prices are internal — never shown to a client at the screen.
-      return sameAgency && !ctx.clientMode;
+      // S12-06 review: the plan and its prices are internal — never shown to a client at the screen. S13-01: nor to
+      // partners (outside the agency's staff).
+      return sameAgency && !ctx.clientMode && ctx.actor.role !== 'PARTNER';
     case 'billing.manage':
       // Plans, payment methods and invoices (S13): the agency's own admins, never in Client Mode. Every
       // billing write must check this action.

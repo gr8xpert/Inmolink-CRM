@@ -34,7 +34,8 @@
     "acquisition": "Acquisition",
     "contacts": "Contacts",
     "inbox": "Lead inbox",
-    "dataExport": "Data export"
+    "dataExport": "Data export",
+    "billing": "Plan & billing"
   },
   "account": {
     "label": "Your account",

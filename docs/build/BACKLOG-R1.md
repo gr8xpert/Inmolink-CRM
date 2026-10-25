@@ -1855,6 +1855,21 @@ Ref §8 · Mod agencies, ai-features, website-api, social, web · Dep S12-01 S12
 **Build:** per-agency settings, one toggle per AI feature, each default **off** (admin-only, every change audited): **website AI search** (off → `/v2/search/ai` answers the keyword search), **white-label model pass** (off → deterministic pass only), **Listing Studio** (off → panel hidden, API `AI_NOT_ENABLED`), **social captions** (off → caption request refused, manual captions only), **translation drafts**. Each call site checks its own toggle before any model call (one cached read). Every feature stays on the FAST tier (the cheapest configured model); no SMART-tier use without a recorded decision. Settings page with the toggles, EN + ES.
 **Done when:** per feature: toggle off → zero provider calls for that agency, toggle on → calls happen, other features unaffected (test per feature); each change has one audit row
 
+
+### S13-F18 · Retire catalog prices in Stripe (S13-01 review)
+Ref §3 #28 · Mod billing · Dep S13-01
+**Build:** `upsertCatalog` deactivates active prices missing from the input; a retired price that has a Stripe id is deactivated in Stripe by `billing.syncCatalog` (`POST /v1/prices/:id active=false`, tracked by a `stripe_retired_at` column) so no new Checkout or portal switch can use it; existing subscriptions keep it.
+**Done when:** a changed or removed catalog price can no longer be bought in Checkout or the portal; subscribers on it are unaffected (test)
+
+### S13-F19 · Product tax codes in the catalog (S13-01 review)
+Ref §3 #28 · Mod billing · Dep S13-01 · [H3]
+**Build:** a `taxCode` per catalog item (data, `billing-catalog.json`; SaaS default `txcd_10103001`), sent when the product is created and updated on change.
+**Done when:** Stripe Tax computes IVA on a Checkout without relying on the account's preset tax code (test against the fake; real check with H3)
+
+### S13-F20 · Stripe webhook rate limit after the signature (S13-01 security review)
+Ref §12 · Mod billing, api · Dep S13-01
+**Build:** confirm `TRUST_PROXY` in the production deploy; give signed webhook deliveries their own bucket (unsigned requests counted separately), so junk from one address cannot push Stripe's deliveries into 429.
+**Done when:** a flood of unsigned requests from Stripe's egress range leaves signed deliveries accepted (test)
 ---
 
 ## S14 — Migration tooling

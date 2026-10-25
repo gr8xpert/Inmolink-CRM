@@ -25,6 +25,13 @@ describe('billing policy', () => {
     expect(can(user, 'billing.read', { agencyId: AGENCY })).toBe(true);
   });
 
+  it('[S13-01] the plan is internal: never in Client Mode, never for partners', () => {
+    expect(can({ ...user, clientMode: true }, 'billing.read')).toBe(false);
+    expect(
+      can(ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000bb', role: 'PARTNER' }), 'billing.read'),
+    ).toBe(false);
+  });
+
   it('denies other agencies and non-user actors', () => {
     expect(can(user, 'billing.read', { agencyId: OTHER_AGENCY })).toBe(false);
     expect(can(ctxAs({ kind: 'system', reason: 'test' }), 'billing.read')).toBe(false);

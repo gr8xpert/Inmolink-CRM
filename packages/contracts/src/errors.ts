@@ -334,6 +334,19 @@ export const ErrorCodes = {
   SOCIAL_CONNECT_FAILED: 422,
   /** Meta did not answer (timeout, outage): try again. */
   SOCIAL_PROVIDER_UNAVAILABLE: 503,
+  // S13-01: billing.
+  /** Stripe is not configured on this deployment (H3): nothing to subscribe to yet. */
+  BILLING_NOT_ENABLED: 403,
+  /** The plan, add-on or price (interval, currency) is not in the catalog, or not synced to Stripe yet. */
+  BILLING_PRICE_UNAVAILABLE: 422,
+  /** The agency already has a live subscription: change it in the Customer Portal. */
+  BILLING_ALREADY_SUBSCRIBED: 409,
+  /** No Stripe customer yet (the agency never started a checkout): nothing to manage in the portal. */
+  BILLING_NO_CUSTOMER: 409,
+  /** Stripe did not answer, or refused the call: try again. */
+  BILLING_PROVIDER_UNAVAILABLE: 503,
+  /** A webhook whose `Stripe-Signature` is missing, wrong or too old. */
+  BILLING_WEBHOOK_INVALID: 400,
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,

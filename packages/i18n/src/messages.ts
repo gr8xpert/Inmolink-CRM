@@ -2,6 +2,7 @@ import type acquisition from '../messages/en/acquisition.json';
 import type agency from '../messages/en/agency.json';
 import type apiKeys from '../messages/en/api-keys.json';
 import type auth from '../messages/en/auth.json';
+import type billing from '../messages/en/billing.json'; // S13-01
 import type calendar from '../messages/en/calendar.json';
 import type chat from '../messages/en/chat.json';
 import type contacts from '../messages/en/contacts.json';
@@ -37,6 +38,7 @@ export interface Messages {
   agency: typeof agency;
   'api-keys': typeof apiKeys;
   auth: typeof auth;
+  billing: typeof billing; // S13-01
   calendar: typeof calendar;
   chat: typeof chat;
   contacts: typeof contacts;

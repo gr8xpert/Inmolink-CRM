@@ -2,6 +2,7 @@
 import { aiJobs } from '@inmolink/core';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { aiFeaturesJobs, whiteLabelJobs } from '@inmolink/core/modules/ai-features';
+import { billingJobs } from '@inmolink/core/modules/billing';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
@@ -137,6 +138,10 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     identityJobs.syncApiKeyAgencyStatus,
     agenciesJobs.pruneOrphanVerificationDocuments,
     complianceJobs.maintainPartitions,
+    // S13-01: Stripe webhook events (re-read from Stripe), the catalog's Stripe sync, the event-id log's pruning.
+    billingJobs.applyStripeEvent,
+    billingJobs.syncCatalog,
+    billingJobs.pruneStripeEvents,
     // S10-08: expired data export files are deleted daily.
     dataExportJobs.sweepDataExports,
     propertiesJobs.failStaleBulkActions,

@@ -1,5 +1,6 @@
 import {
   authVerifyEnv,
+  billingEnv,
   type Config,
   coreEnv,
   cryptoEnv,
@@ -53,6 +54,8 @@ export const apiEnv = {
   ...websitesEnv,
   // S12-07: the Meta app (connecting social accounts; H3).
   ...socialEnv,
+  // S13-01: Stripe (H3).
+  ...billingEnv,
   ...cryptoEnv,
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */

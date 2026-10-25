@@ -34,7 +34,8 @@
     "acquisition": "Captación",
     "contacts": "Contactos",
     "inbox": "Bandeja de leads",
-    "dataExport": "Exportación de datos"
+    "dataExport": "Exportación de datos",
+    "billing": "Plan y facturación"
   },
   "account": {
     "label": "Tu cuenta",

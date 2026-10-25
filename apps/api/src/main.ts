@@ -1,4 +1,5 @@
 import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import * as billing from '@inmolink/core/modules/billing';
 import * as crm from '@inmolink/core/modules/crm';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
@@ -85,6 +86,11 @@ try {
     stateKey: config.HMAC_KEY,
     meta: social.metaAppFromEnv(config),
   });
+  // S13-01: Stripe (H3) — Checkout, the Customer Portal and webhook signatures. Unset: billing answers BILLING_NOT_ENABLED.
+  billing.configureBilling(billing.billingFromEnv(config));
+  if (config.STRIPE_SECRET_KEY && !(config.STRIPE_WEBHOOK_SECRET && config.BILLING_RETURN_URL)) {
+    logger.warn('STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET and BILLING_RETURN_URL: billing stays off');
+  }
 
   const app = await buildApp({
     logger,

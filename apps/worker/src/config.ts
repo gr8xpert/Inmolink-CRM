@@ -1,4 +1,5 @@
 import {
+  billingEnv,
   type Config,
   cdnPurgeEnv,
   coreEnv,
@@ -120,6 +121,13 @@ const leadEmailEnv = {
  */
 const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv, ...portalPushEnv };
 
+/** S13-01: the `maintenance` pool syncs the plan catalog to Stripe and applies its webhook events (no webhook secret). */
+const billingPoolEnv = {
+  STRIPE_SECRET_KEY: billingEnv.STRIPE_SECRET_KEY,
+  STRIPE_API_URL: billingEnv.STRIPE_API_URL,
+  STRIPE_API_VERSION: billingEnv.STRIPE_API_VERSION,
+};
+
 /** S12-07: the `social` pool publishes to Meta (the app, image URLs under the media CDN). */
 const socialPoolEnv = { ...socialEnv, ...mediaCdnEnv };
 
@@ -153,6 +161,7 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(pools.includes('indexing') ? indexingEnv : {}),
     ...(pools.includes('social') ? socialPoolEnv : {}),
     ...(pools.includes('pdf') ? pdfPoolEnv : {}), // S12-05
+    ...(pools.includes('maintenance') ? billingPoolEnv : {}), // S13-01
   };
 }
 
@@ -167,6 +176,7 @@ export const workerEnv = {
   ...indexingEnv,
   ...socialPoolEnv,
   ...pdfPoolEnv, // S12-05
+  ...billingPoolEnv, // S13-01
 };
 type Full = Config<typeof workerEnv>;
 /** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */

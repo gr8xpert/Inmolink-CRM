@@ -1,0 +1,86 @@
+{
+  "title": "Plan y facturación",
+  "next": "Facturas anteriores",
+  "notices": {
+    "checkoutSuccess": "¡Gracias! Tu plan se actualizará aquí en cuanto Stripe confirme la suscripción. Los cobros por domiciliación SEPA pueden tardar unos días hábiles.",
+    "checkoutCancelled": "Se canceló el pago. No se ha cobrado nada."
+  },
+  "errors": {
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "BILLING_NOT_ENABLED": "Las suscripciones en línea aún no están disponibles. Contáctanos para cambiar de plan.",
+    "BILLING_PRICE_UNAVAILABLE": "Ese plan no está disponible con este periodo de facturación o moneda.",
+    "BILLING_ALREADY_SUBSCRIBED": "Tu agencia ya tiene una suscripción. Usa «Gestionar suscripción» para cambiarla.",
+    "BILLING_NO_CUSTOMER": "Todavía no hay ninguna suscripción que gestionar.",
+    "BILLING_PROVIDER_UNAVAILABLE": "Nuestro proveedor de pagos no ha respondido. Inténtalo de nuevo en un momento.",
+    "FORBIDDEN": "Solo los administradores de tu agencia pueden cambiar el plan."
+  },
+  "current": {
+    "title": "Plan actual",
+    "manage": "Gestionar suscripción",
+    "status": "Estado",
+    "interval": "Periodo de facturación",
+    "paymentMethod": "Método de pago",
+    "renewsOn": "Se renueva el",
+    "endsOn": "Termina el",
+    "endsNote": "{date}: después pasas al plan Free y conservas todos tus datos",
+    "free": "Estás en el plan Free. Tus inmuebles y datos se conservan siempre, sea cual sea el plan."
+  },
+  "planNames": {
+    "free": "Free",
+    "pro": "Pro",
+    "business": "Business",
+    "enterprise": "Enterprise"
+  },
+  "plans": {
+    "title": "Elige un plan",
+    "vatNote": "Precios sin IVA. El IVA se añade al pagar, o se aplica la inversión del sujeto pasivo si introduces un NIF-IVA europeo válido.",
+    "empty": "No hay planes disponibles en este momento.",
+    "seats": "{count, plural, one {# usuario incluido} other {# usuarios incluidos}}",
+    "interval": "Periodo de facturación",
+    "subscribe": "Suscribirse",
+    "paymentNote": "Paga con tarjeta o domiciliación bancaria SEPA (precios en euros). Las facturas están aquí y en el portal de suscripción."
+  },
+  "per": {
+    "YEAR": "al año",
+    "MONTH": "al mes"
+  },
+  "intervals": {
+    "YEAR": "Anual",
+    "MONTH": "Mensual"
+  },
+  "paymentMethods": {
+    "card": "Tarjeta",
+    "sepa_debit": "Domiciliación SEPA"
+  },
+  "statuses": {
+    "INCOMPLETE": "Pendiente de pago",
+    "INCOMPLETE_EXPIRED": "Pago no completado",
+    "TRIALING": "Prueba",
+    "ACTIVE": "Activa",
+    "PAST_DUE": "Pago vencido",
+    "UNPAID": "Impagada",
+    "CANCELED": "Finalizada",
+    "PAUSED": "En pausa"
+  },
+  "invoices": {
+    "title": "Facturas",
+    "empty": "Aún no hay facturas.",
+    "view": "Ver",
+    "pdf": "PDF",
+    "tax": "IVA incl. {amount}",
+    "columns": {
+      "number": "Número",
+      "date": "Fecha",
+      "status": "Estado",
+      "total": "Total",
+      "links": "Enlaces"
+    }
+  },
+  "invoiceStatuses": {
+    "DRAFT": "Borrador",
+    "OPEN": "Pendiente",
+    "PAID": "Pagada",
+    "VOID": "Anulada",
+    "UNCOLLECTIBLE": "Incobrable"
+  }
+}

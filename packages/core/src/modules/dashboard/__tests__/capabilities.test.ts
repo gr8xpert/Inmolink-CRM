@@ -48,6 +48,7 @@ describe('getMyCapabilities', () => {
       'verification',
       'preferredAgencies',
       'dataExport',
+      'billing',
       'staffAccess',
     ];
     for (const role of ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']) {
@@ -74,6 +75,8 @@ describe('getMyCapabilities', () => {
         'portals',
         'settings',
         'preferredAgencies',
+        // S13-01: members see the plan and invoices; only admins check out or open the portal.
+        'billing',
       ]);
     }
   });
@@ -123,6 +126,8 @@ describe('getMyCapabilities', () => {
       'settings',
       'verification',
       'preferredAgencies',
+      // S13-01: staff impersonating may see the plan (billing.read), never change it.
+      'billing',
     ]);
   });
 

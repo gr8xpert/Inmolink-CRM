@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import { impersonatorOf } from '../../impersonation';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as chat from '../chat';
 import * as compliance from '../compliance';
 import * as crm from '../crm';
@@ -57,6 +58,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['preferredAgencies', (ctx) => agencies.can(ctx, 'agencies.preferred.read')],
   // Data export (S11-F14): the agency's admins, never in Client Mode.
   ['dataExport', (ctx) => compliance.can(ctx, 'compliance.dataExport.create')],
+  // Billing (S13-01): the plan and invoices for members, Checkout and the portal for admins; never Client Mode.
+  ['billing', (ctx) => billing.can(ctx, 'billing.read')],
   ['staffAccess', (ctx) => identity.can(ctx, 'identity.staffAccess.read')],
 ];
 

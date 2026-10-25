@@ -318,6 +318,34 @@ export const socialEnv = {
 };
 
 /**
+ * Billing (S13-01, PLAN §3 #28): the Stripe account (H3). The api starts Checkout and Customer Portal sessions and checks
+ * webhook signatures; the worker's `maintenance` pool syncs the catalog and applies webhook events. Unset: billing is
+ * switched off (`BILLING_NOT_ENABLED`) and every agency stays on Free.
+ */
+export const billingEnv = {
+  /** A secret or restricted key (`sk_test_…`, `rk_live_…`). */
+  STRIPE_SECRET_KEY: z
+    .string()
+    .trim()
+    .regex(/^(sk|rk)_(test|live)_[A-Za-z0-9]{10,}$/, 'must be a Stripe secret or restricted key')
+    .optional(),
+  /** The webhook endpoint's signing secret (`whsec_…`) — api only. */
+  STRIPE_WEBHOOK_SECRET: z
+    .string()
+    .trim()
+    .regex(/^whsec_[A-Za-z0-9+/=]{10,}$/, 'must be a Stripe webhook signing secret')
+    .optional(),
+  STRIPE_API_URL: url(['https']).default('https://api.stripe.com'),
+  /** `Stripe-Version` sent with every call (`2025-…`): pins the response shapes billing reads. Set it in production. */
+  STRIPE_API_VERSION: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(\.[a-z]+)?$/, 'must be a Stripe API version (2025-09-30.clover)')
+    .optional(),
+  /** The dashboard's billing page (`<WEB_URL>/billing`): Checkout and the Customer Portal send the member back there — api only. */
+  BILLING_RETURN_URL: url(['http', 'https']).optional(),
+};
+
+/**
  * Dashboard sites (S12-F25, S7-F10 security review): how many times per sliding day an agency may set or change a
  * CUSTOM site's minimum commission (each edit tells it whether other agencies' listings pay at least that much).
  */
@@ -572,6 +600,10 @@ function crossChecks(cfg: Record<string, unknown>, env: Env): { key: string; mes
   }
   if (production && typeof cfg.SENTRY_DSN === 'string' && !cfg.SENTRY_DSN.startsWith('https://')) {
     problems.push({ key: 'SENTRY_DSN', message: 'must use https in production' });
+  }
+  // S13-01 security review: Checkout and the portal send admins back here.
+  if (production && typeof cfg.BILLING_RETURN_URL === 'string' && !cfg.BILLING_RETURN_URL.startsWith('https://')) {
+    problems.push({ key: 'BILLING_RETURN_URL', message: 'must use https in production' });
   }
   if (production && cfg.RELEASE === 'dev') {
     problems.push({ key: 'RELEASE', message: 'must be the build id (git SHA) in production' });
