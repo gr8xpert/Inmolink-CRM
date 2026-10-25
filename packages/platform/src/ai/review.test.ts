@@ -310,6 +310,27 @@ describe('AI gateway — request-path metering (ADR 0008 #6a)', () => {
     expect(mirror.queued.get(KEY)).toBe(2_000);
   });
 
+  it('[S12-01] request path: recording a queued cost keeps the total (moved into the base); a reseed never under-counts', async () => {
+    const { gateway, mirror } = requestSetup();
+    await mirror.seed(AGENCY, MONTH, 1_000);
+    const total = () => (mirror.values.get(KEY) ?? 0) + (mirror.held.get(KEY) ?? 0) + (mirror.queued.get(KEY) ?? 0);
+    await gateway.generate(ctx, call); // reserve → settle: 2 000 queued
+    expect(total()).toBe(3_000);
+    await mirror.recorded(AGENCY, MONTH, 2_000); // the ai.recordUsage job wrote the row
+    expect(mirror.queued.get(KEY)).toBe(0);
+    expect(total()).toBe(3_000);
+    // The base expires and is reseeded from the database (which now holds the cost): same total, nothing doubled.
+    mirror.expire(AGENCY, MONTH);
+    await mirror.seed(AGENCY, MONTH, 3_000);
+    expect(total()).toBe(3_000);
+    // Recorded while the base was gone: dropped from `queued` only — the reseed reads it from the database.
+    await gateway.generate(ctx, { ...call, input: { beds: 4 } });
+    mirror.expire(AGENCY, MONTH);
+    await mirror.recorded(AGENCY, MONTH, 2_000);
+    await mirror.seed(AGENCY, MONTH, 5_000);
+    expect(total()).toBe(5_000);
+  });
+
   it('[S12-01] request path: batches are worker-only', async () => {
     const { gateway, mirror } = requestSetup();
     await mirror.seed(AGENCY, MONTH, 0);

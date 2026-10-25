@@ -8,8 +8,8 @@
  *   path refuses (fails closed: `AI_UNAVAILABLE`).
  * - `held` — the request path's open reservations. Never reseeded, so a reseed between a reservation and its settle
  *   cannot lose or double-count it (security review): the settle takes back exactly what it reserved.
- * - `queued` — request-path costs settled but not yet in the database (the `ai.recordUsage` job takes them off once its
- *   row is in). A reseed reads the database, so these would otherwise be missed until recorded.
+ * - `queued` — request-path costs settled but not yet in the database (the `ai.recordUsage` job moves them into the
+ *   base once its row is in). A reseed reads the database, so these would otherwise be missed until recorded.
  *
  * The hard cap is checked against `base + held + queued`. Races only ever over-count (a cost both in a fresh seed and
  * in `queued` for the moment between the job's insert and its decrement), which refuses early rather than overspends.
@@ -49,6 +49,17 @@ end
 return take`;
 
 // Adds ARGV[1] to the base only while it exists: a missing base is reseeded from the database instead.
+// KEYS: queued, base. Moves min(queued, ARGV[1]) from `queued` into the base — only while the base exists: an expired
+// base is reseeded from the database, which now holds the cost (security review: never drop it from both).
+const RECORDED = `
+local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
+local take = math.min(cur, tonumber(ARGV[1]))
+if take > 0 then
+  redis.call('DECRBY', KEYS[1], take)
+  if redis.call('EXISTS', KEYS[2]) == 1 then redis.call('INCRBY', KEYS[2], take) end
+end
+return take`;
+
 const ADJUST = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('INCRBY', KEYS[1], ARGV[1]) end
 return false`;
@@ -62,7 +73,7 @@ export interface SpendMirror {
   settle(agencyId: string, month: string, reservedMicroUsd: number, costMicroUsd: number): Promise<void>;
   /** A request-path hold no call will settle (the provider was never reached). */
   release(agencyId: string, month: string, reservedMicroUsd: number): Promise<void>;
-  /** The `ai.recordUsage` job wrote a queued cost to the database: it leaves `queued`. */
+  /** The `ai.recordUsage` job wrote a queued cost to the database: it moves from `queued` into the base. */
   recorded(agencyId: string, month: string, costMicroUsd: number): Promise<void>;
   /** A worker-path cost settled in the database: added to the base while it exists. */
   adjust(agencyId: string, month: string, deltaMicroUsd: number): Promise<void>;
@@ -114,7 +125,7 @@ export function createSpendMirror(options: { redis: MirrorRedis; prefix?: string
     },
     async recorded(agencyId, month, costMicroUsd) {
       const k = keys(agencyId, month);
-      await options.redis.eval(MOVE, 2, k.queued, k.held, whole(costMicroUsd), 0, LONG_TTL_SECONDS);
+      await options.redis.eval(RECORDED, 2, k.queued, k.base, whole(costMicroUsd));
     },
     async adjust(agencyId, month, deltaMicroUsd) {
       const delta = Math.round(deltaMicroUsd);

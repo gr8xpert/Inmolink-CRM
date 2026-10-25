@@ -250,6 +250,8 @@ describe('AI gateway — request-path metering (redis mirror + queued usage)', (
     expect(await spendOf(agencyA)).toBe(seeded + 2_000);
     await mirror.recorded(agencyA, month, job.costMicroUsd);
     expect(Number(await redis.get(`${key}:queued`))).toBe(0);
+    // Moved into the base, not dropped: the mirror's total is unchanged once the record lands (security review).
+    expect(Number(await redis.get(key))).toBe(seeded + 2_000);
     // A reseed now (key expired) starts from the database, which has the cost: nothing lost, nothing counted twice.
     await redis.del(key);
     await withSystem('test.ai.refresh', (tx: Tx) => refreshSpendMirror(tx, mirror, agencyA, month));

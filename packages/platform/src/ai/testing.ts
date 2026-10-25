@@ -213,7 +213,11 @@ export function memorySpendMirror(): SpendMirror & {
       take(held, key(agencyId, month), reserved);
     },
     async recorded(agencyId, month, cost) {
-      take(queued, key(agencyId, month), cost);
+      const k = key(agencyId, month);
+      const moved = Math.min(queued.get(k) ?? 0, Math.round(cost));
+      take(queued, k, moved);
+      const base = values.get(k);
+      if (base !== undefined && moved > 0) values.set(k, base + moved);
     },
     async adjust(agencyId, month, delta) {
       const k = key(agencyId, month);
