@@ -179,11 +179,19 @@ export const aiFeaturesJobs = {
   }),
 };
 
+/** S13-F6: the white-label sanitizer's fair-share group, apart from the agency's interactive `ai` jobs. */
+export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
+
 /**
  * The white-label sanitizer's model pass as a job (S12-03, PATTERNS §12, pool `ai`): one owner agency's changed
  * documents (≤ `search.PUBLIC_DOCS_EVENT_TARGETS` targets, every locale), queued by `search.publicDocs.changed`.
  * Idempotent (job ID = the event's id, so a redelivered event is one job; answered texts are skipped; the gateway
  * caches by input hash), per-tenant fair share, one at a time per agency so a bulk import cannot take the pool.
+ *
+ * S13-F6: its fair-share group is `wl:<agency>` (`whiteLabelGroup`), not the agency's own group. Fair share is per
+ * (pool, group) backlog depth, so ~50 sanitize jobs queued by an import used to put the agency's next interactive `ai`
+ * job (Listing Studio, captions) at priority 51 behind all of them, and took one of its `concurrencyPerGroup` slots.
+ * In its own group the bulk backlog no longer counts: an interactive job keeps the agency group at priority 1.
  */
 export const whiteLabelJobs = {
   sanitizeTexts: defineJob({
@@ -196,7 +204,7 @@ export const whiteLabelJobs = {
       targetIds: z.array(z.uuid()).min(1).max(100),
     }),
     jobId: (p) => p.eventId,
-    group: (p) => p.agencyId,
+    group: (p) => whiteLabelGroup(p.agencyId),
     concurrencyPerGroup: 1,
     attempts: 3,
     backoff: { type: 'exponential', delay: 30_000 },
