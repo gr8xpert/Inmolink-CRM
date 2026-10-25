@@ -13,6 +13,7 @@ import {
   type CreateSelectionBody,
   type ListSelectionInteractionsQuery,
   type ListSelectionsQuery,
+  type PdfDocumentDto,
   SELECTION_LIMITS,
   type SelectionCreatedDto,
   type SelectionDto,
@@ -29,6 +30,7 @@ import { newId } from '@inmolink/platform/ids';
 import type { Ctx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
 import * as crm from '../crm';
+import * as documents from '../documents';
 import * as properties from '../properties';
 import * as search from '../search';
 import { publicBaseUrl, selectionPath, selectionTokenHash } from './config';
@@ -203,6 +205,24 @@ export async function getSelection(ctx: Ctx, id: string): Promise<SelectionDto> 
   const items = await repo.itemsWithStats(ctx.tx, id);
   const stats = (await repo.viewStats(ctx.tx, [id])).get(id) ?? { views: 0, lastViewedAt: null };
   return toDto(row, items, stats);
+}
+
+/**
+ * S12-05 `POST /v1/selections/:id/pdf`: the selection as a branded PDF portfolio — its items in order, in the client's
+ * language, under its title — rendered by the pdf pool like any portfolio (`documents.requestPortfolio`: the public
+ * read models, white-labelled for the agency). The agent's notes and title overrides stay on the live page.
+ */
+export async function selectionPdf(ctx: Ctx, id: string): Promise<PdfDocumentDto> {
+  assertCan(ctx, 'presentations.read');
+  const row = await repo.getSelection(ctx.tx, ctx.tenant.agencyId, id);
+  if (!row) throw new AppError('SELECTION_NOT_FOUND');
+  const items = await repo.itemsWithStats(ctx.tx, id);
+  if (items.length === 0) throw new AppError('SELECTION_ITEMS_INVALID');
+  return documents.requestPortfolio(ctx, {
+    listingIds: items.map((i) => i.targetId),
+    locale: row.locale,
+    title: row.title.trim().slice(0, 120) || undefined,
+  });
 }
 
 /** `GET /v1/selections`: newest first, keyset (≤ 100 per page; two statements). */

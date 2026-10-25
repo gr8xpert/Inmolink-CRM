@@ -117,6 +117,14 @@
       "types": "./dist/server/index.d.ts",
       "default": "./dist/server/index.js"
     },
+    "./pdf": {
+      "@inmolink/source": "./src/pdf/index.ts",
+      "types": "./dist/pdf/index.d.ts",
+      "default": "./dist/pdf/index.js"
+    },
+    "./pdf/testing": {
+      "@inmolink/source": "./src/pdf/testing.ts"
+    },
     "./storage": {
       "@inmolink/source": "./src/storage/index.ts",
       "types": "./dist/storage/index.d.ts",
@@ -193,6 +201,7 @@
     "jose": "6.2.12",
     "nodemailer": "10.1.0",
     "pino": "10.4.0",
+    "puppeteer-core": "25.13.0",
     "saxes": "6.0.0",
     "zod": "4.6.5"
   },

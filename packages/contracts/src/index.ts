@@ -20,6 +20,7 @@ export * from './crm-prospects';
 export * from './crm-tasks';
 export * from './developments';
 export * from './developments-csv';
+export * from './documents'; // S12-05
 export * from './errors';
 export * from './exports';
 export * from './http';

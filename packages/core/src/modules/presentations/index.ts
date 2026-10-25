@@ -36,6 +36,7 @@ export {
   listSelectionInteractions,
   listSelections,
   rotateSelectionLink,
+  selectionPdf, // S12-05
   shareLinks,
   statusOf,
   updateSelection,

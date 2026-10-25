@@ -708,6 +708,9 @@ importers:
       pino:
         specifier: 10.4.0
         version: 10.4.0
+      puppeteer-core:
+        specifier: 25.13.0
+        version: 25.13.0
       saxes:
         specifier: 6.0.0
         version: 6.0.0

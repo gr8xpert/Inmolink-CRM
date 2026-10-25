@@ -39,6 +39,7 @@ export {
   listReceivedViewingRequests,
   listViewingRequests,
   notifyViewingChange,
+  prepareViewingTermsPdf, // S12-05
   recordViewingOutcome,
   requestViewing,
   rescheduleViewing,

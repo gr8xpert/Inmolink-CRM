@@ -348,6 +348,10 @@ export const ErrorCodes = {
   SELECTION_GONE: 410,
   /** None of the chosen listings or units can be shown (no public document), or more than `SELECTION_LIMITS.items`. */
   SELECTION_ITEMS_INVALID: 422,
+  // S12-05: PDF brochures and portfolios.
+  DOCUMENT_NOT_FOUND: 404,
+  /** None of the chosen listings has a public document (only public listings go into a brochure), or too many. */
+  DOCUMENT_LISTINGS_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

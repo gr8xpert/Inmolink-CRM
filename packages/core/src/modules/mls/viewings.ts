@@ -15,8 +15,9 @@
  *   every transition takes the request's advisory lock, then reads its own row.
  * - **Expiry.** An unanswered proposal lapses after the configured days (`viewingRequestExpiryDays`), or at the proposed
  *   time if sooner; the expiry job closes it and both sides are notified.
- * - **PDF.** The accepted-terms PDF is the PDF service's (S12-05): `viewingTerms` answers the terms and their audit trail
- *   with `pdfUrl: null` until then — a stub, on purpose.
+ * - **PDF.** The accepted-terms PDF is the PDF service's (S12-05): when the owner accepts, `prepareViewingTermsPdf` (a job
+ *   on `mls.viewing.changed` with `termsAccepted`) reads the terms as accepted and queues the render; `viewingTerms`
+ *   answers the terms, their audit trail and, once both sides accepted, a short signed link to the PDF.
  */
 import type {
   CreateViewingRequestBody,
@@ -40,9 +41,11 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
 import * as developments from '../developments';
+import * as documents from '../documents';
 import * as identity from '../identity';
 import * as notifications from '../notifications';
 import * as properties from '../properties';
+import * as search from '../search';
 import { viewingRequestExpiryDays } from './config';
 import { mlsEvents } from './events';
 import { type TargetLabels, targetLabels } from './labels';
@@ -441,13 +444,58 @@ export async function viewingTerms(ctx: Ctx, id: string): Promise<ViewingTermsDo
     ownerAgencyId: r.ownerAgencyId,
     target: { kind: r.targetKind as RegistrationTargetKind, id: r.targetId },
     terms: termsOf(r),
-    pdfUrl: acceptedTermsPdfUrl(r),
+    pdfUrl: await acceptedTermsPdfUrl(r),
   };
 }
 
-/** STUB (S12-05): the accepted-terms PDF's signed link once the PDF service renders it; nothing renders it yet. */
-function acceptedTermsPdfUrl(_r: repo.ViewingRow): string | null {
-  return null;
+/**
+ * S12-05: the accepted-terms PDF's short signed link once both sides accepted (local signing, no network call). It is
+ * rendered within seconds of the owner's acceptance (`prepareViewingTermsPdf`); until then the link answers 404.
+ */
+function acceptedTermsPdfUrl(r: repo.ViewingRow): Promise<string | null> {
+  return r.ownerAcceptedAt ? documents.viewingTermsPdfUrl(r.id) : Promise.resolve(null);
+}
+
+/**
+ * S12-05: the accepted-terms PDF of a request whose terms the owner just accepted — read as accepted (one row, both
+ * agencies' directory names, the listing's label) in the job's own `withSystem` transaction, then queued for the `pdf`
+ * pool (`documents.queueViewingTermsPdf`, idempotent per request). The event's agency must be a party to the request.
+ * In the owner's first language. Nothing of the client (the PDF is between the agencies).
+ */
+export async function prepareViewingTermsPdf(
+  p: EventPayload<typeof mlsEvents.viewingChanged>,
+  meta: Pick<EventMeta, 'agencyId'>,
+): Promise<{ queued: boolean }> {
+  const payload = await withSystem(`mls.viewingTermsPdf: request ${p.requestId}`, async (tx) => {
+    const r = await repo.sideRow(tx, p.ownerAgencyId, p.requestId);
+    if (!r?.ownerAcceptedAt) return null;
+    if (meta.agencyId !== r.introducerAgencyId && meta.agencyId !== r.ownerAgencyId) return null;
+    const names = await agencies.directoryNamesOf(tx, [r.introducerAgencyId, r.ownerAgencyId]);
+    const locale = (await agencies.loadTenant(tx, r.ownerAgencyId))?.locales[0] ?? 'es';
+    const label =
+      r.targetKind === 'LISTING' ? (await search.listingLabels(tx, [r.targetId], locale)).get(r.targetId) : undefined;
+    const terms = termsOf(r);
+    return {
+      requestId: r.id,
+      ownerAgencyId: r.ownerAgencyId,
+      locale,
+      target: { ref: label?.reference ?? null, title: label?.title ?? null },
+      introducerName: names.get(r.introducerAgencyId) ?? '',
+      ownerName: names.get(r.ownerAgencyId) ?? '',
+      commissionBp: terms.commissionBp,
+      commissionFixed: terms.commissionFixed,
+      splitBp: terms.splitBp,
+      includesVat: terms.includesVat,
+      validUntil: terms.validUntil,
+      snapshotAt: terms.snapshotAt,
+      introducerAcceptedAt: terms.introducerAcceptedAt,
+      ownerAcceptedAt: r.ownerAcceptedAt.toISOString(),
+      scheduledAt: iso(r.scheduledAt),
+    };
+  });
+  if (!payload) return { queued: false };
+  await documents.queueViewingTermsPdf(payload);
+  return { queued: true };
 }
 
 /** The filters, with the agency's time zone when a day range needs it (one more query, only then). */

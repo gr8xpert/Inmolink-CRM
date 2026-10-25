@@ -5,14 +5,18 @@ import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
-import { closeQueues, configureQueue } from '@inmolink/platform/queue';
+import { configurePdf } from '@inmolink/platform/pdf';
+import { fakePdfRenderer } from '@inmolink/platform/pdf/testing';
+import { closeQueues, configureQueue, queueFor, stableJobId } from '@inmolink/platform/queue';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
+import { configureStorage, createMemoryStore, type MemoryStore } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as crm from '../../crm';
+import * as documents from '../../documents';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as mls from '../index';
@@ -40,6 +44,8 @@ let ids: { city: string; villa: string };
 let pctListing: string;
 let fixedListing: string;
 let seq = 0;
+/** S12-05: the accepted-terms PDFs land here (signed links are signed locally). */
+let store: MemoryStore;
 
 const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -156,6 +162,8 @@ beforeAll(async () => {
   await setupTestDb('worker');
   loadStackEnv('test');
   await configureQueue({ prefix: `test-mls-viewings-${RUN}`, logger: log });
+  store = createMemoryStore();
+  configureStorage(store);
   await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
   mls.configureMls({
     keyring,
@@ -253,7 +261,9 @@ describe('request → accept → scheduled → outcome', () => {
       expect(r?.owner_accepted_at).not.toBeNull();
     }
     const doc = await as(a, (ctx) => mls.viewingTerms(ctx, id));
-    expect(doc).toMatchObject({ requestId: id, ownerAgencyId: b.agencyId, pdfUrl: null, terms: { accepted: true } });
+    // S12-05: accepted by both sides — a signed link to the accepted-terms PDF.
+    expect(doc).toMatchObject({ requestId: id, ownerAgencyId: b.agencyId, terms: { accepted: true } });
+    expect(doc.pdfUrl).toEqual(expect.any(String));
 
     // the outcome only after the scheduled time
     expect(await refusal(as(a, (ctx) => mls.recordViewingOutcome(ctx, id, { outcome: 'ATTENDED' })))).toBe(
@@ -583,5 +593,56 @@ describe('staff reads (S12-F9)', () => {
     // The owner's side never holds the client: no row, impersonated or not.
     expect(await auditOf(b, true, (ctx) => mls.getViewingRequest(ctx, r.id))).toEqual([]);
     expect(await auditOf(b, true, (ctx) => mls.listReceivedViewingRequests(ctx, { limit: 5 }))).toEqual([]);
+  });
+});
+
+describe('accepted-terms PDF (S12-05)', () => {
+  it("[S12-05] the owner's acceptance queues the viewing-terms PDF: both agencies and the snapshot terms, never the client", async () => {
+    const r = await request(await registered(pctListing), 12);
+    // Only the introducer accepted: no PDF yet.
+    expect((await as(a, (ctx) => mls.viewingTerms(ctx, r.request.id))).pdfUrl).toBeNull();
+    const change = {
+      agencyId: b.agencyId,
+      requestId: r.request.id,
+      introducerAgencyId: a.agencyId,
+      ownerAgencyId: b.agencyId,
+      action: 'ACCEPTED' as const,
+      by: 'OWNER' as const,
+      userId: b.userId,
+      termsAccepted: true,
+    };
+    // Before the owner accepted, nothing is queued.
+    expect(await mls.prepareViewingTermsPdf(change, { agencyId: b.agencyId })).toEqual({ queued: false });
+    await as(b, (ctx) => mls.acceptViewing(ctx, r.request.id));
+    // A stranger's event names no party: nothing.
+    expect(await mls.prepareViewingTermsPdf(change, { agencyId: c.agencyId })).toEqual({ queued: false });
+    expect(await mls.prepareViewingTermsPdf(change, { agencyId: b.agencyId })).toEqual({ queued: true });
+    const job = await queueFor('pdf').getJob(stableJobId('documents.renderViewingTerms', r.request.id));
+    expect(job).toBeDefined();
+    const payload = (job?.data as { p: documents.ViewingTermsPayload } | undefined)?.p as documents.ViewingTermsPayload;
+    expect(payload).toMatchObject({
+      requestId: r.request.id,
+      ownerAgencyId: b.agencyId,
+      // The snapshot the request carries (an earlier test changes the listing's own terms).
+      commissionBp: r.request.terms.commissionBp,
+      splitBp: r.request.terms.splitBp,
+      includesVat: r.request.terms.includesVat,
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/Mara|example\.com/);
+    // The pdf pool renders it once (a second run finds it stored).
+    const renderer = fakePdfRenderer();
+    configurePdf(renderer);
+    try {
+      expect(await documents.renderViewingTermsDocument(payload)).toMatchObject({ rendered: true });
+      expect(await documents.renderViewingTermsDocument(payload)).toEqual({ rendered: false });
+    } finally {
+      configurePdf(undefined);
+    }
+    expect(renderer.documents).toHaveLength(1);
+    expect(renderer.documents[0]).toContain(payload.introducerName);
+    expect(renderer.documents[0]).toContain(payload.ownerName);
+    expect(renderer.documents[0]).not.toMatch(/Mara|example\.com/);
+    expect(await store.head('private', documents.viewingTermsKey(r.request.id))).not.toBeNull();
+    expect((await as(a, (ctx) => mls.viewingTerms(ctx, r.request.id))).pdfUrl).toEqual(expect.any(String));
   });
 });

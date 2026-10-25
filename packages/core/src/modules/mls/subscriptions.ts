@@ -37,6 +37,15 @@ export function registerMlsSubscriptions(): void {
         }),
       { name: 'mls.viewings.notify' },
     ),
+    // S12-05: terms both sides accepted get their PDF (the owner's acceptance carries `termsAccepted`).
+    subscribe(
+      mlsEvents.viewingChanged,
+      async (payload, meta) => {
+        if (!payload.termsAccepted) return;
+        await mlsJobs.queueViewingTermsPdf.enqueue({ eventId: meta.eventId, agencyId: meta.agencyId, change: payload });
+      },
+      { name: 'mls.viewings.termsPdf' },
+    ),
   ];
 }
 

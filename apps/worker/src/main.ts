@@ -1,5 +1,6 @@
 import { closeDb, configureAiRuntime, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
+import * as documents from '@inmolink/core/modules/documents';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
@@ -12,6 +13,7 @@ import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
 import { hmacRotationFromEnv, keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
+import { closePdf, configurePdf, createPdfRendererFromEnv } from '@inmolink/platform/pdf';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { configureSearch, searchConfigFromEnv } from '@inmolink/platform/search';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
@@ -62,6 +64,14 @@ try {
     config.MEDIA_CDN_URL
   ) {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  }
+  // S12-05: the pdf pool — listings presented like the website API (media CDN, white-label), rendered by Chrome whose
+  // pages may load only the media CDN's assets.
+  if (config.WORKER_POOLS.includes('pdf')) {
+    if (!config.MEDIA_CDN_URL || !config.HMAC_KEY) throw new Error('the pdf pool needs MEDIA_CDN_URL and HMAC_KEY');
+    websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+    configurePdf(createPdfRendererFromEnv({ allowedOrigins: [config.MEDIA_CDN_URL], logger }));
+    documents.configureDocuments({ renderConcurrency: config.PDF_RENDER_CONCURRENCY ?? 2 });
   }
   // S12-01: the AI gateway (ai pool) — tiers, prices and budgets from env; AI_PROVIDER=none keeps it switched off.
   if (config.WORKER_POOLS.includes('ai')) await configureAiRuntime({ logger });
@@ -171,6 +181,7 @@ try {
     steps: [
       { name: 'pools', run: worker.drain },
       { name: 'queue', run: closeQueues },
+      { name: 'pdf', run: closePdf }, // S12-05: the pdf pool's browser
       { name: 'cache', run: closeCache },
       { name: 'email', run: closeEmail },
       { name: 'db', run: closeDb },

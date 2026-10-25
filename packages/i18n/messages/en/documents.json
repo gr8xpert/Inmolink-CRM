@@ -1,0 +1,70 @@
+{
+  "listing": {
+    "reference": "Ref. {ref}",
+    "price": "Price",
+    "priceOnRequest": "Price on request",
+    "priceFrom": "From {price}",
+    "perPeriod": {
+      "MONTH": "{price} / month",
+      "WEEK": "{price} / week",
+      "NIGHT": "{price} / night"
+    },
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "builtArea": "Built area",
+    "internalArea": "Interior",
+    "plot": "Plot",
+    "terrace": "Terrace",
+    "yearBuilt": "Year built",
+    "energyRating": "Energy rating",
+    "features": "Features",
+    "description": "Description",
+    "communityFee": "Community fees",
+    "ibi": "IBI (property tax)",
+    "perMonth": "{amount} / month",
+    "perYear": "{amount} / year",
+    "development": "Development: {name}",
+    "transaction": {
+      "SALE": "For sale",
+      "RENT_LONG_TERM": "For rent",
+      "RENT_SHORT_TERM": "Holiday rental"
+    },
+    "status": {
+      "UNDER_OFFER": "Under offer",
+      "RESERVED": "Reserved",
+      "SOLD": "Sold",
+      "RENTED": "Rented"
+    },
+    "unavailable": "This property is no longer available."
+  },
+  "portfolio": {
+    "defaultTitle": "A selection of properties for you",
+    "count": "{count, plural, one {# property} other {# properties}}"
+  },
+  "footer": {
+    "contact": "Contact",
+    "asOf": "Prices and availability as of {date}. Subject to change without notice; not a contractual offer.",
+    "page": "Page"
+  },
+  "viewingTerms": {
+    "title": "Viewing terms",
+    "subtitle": "Agreement between the introducing and the listing agency for a viewing",
+    "request": "Viewing request",
+    "property": "Property",
+    "introducer": "Introducing agency",
+    "owner": "Listing agency",
+    "commission": "Commission",
+    "commissionPercent": "{percent} of the price",
+    "commissionFixed": "{amount}",
+    "split": "Introducer's share",
+    "vat": "VAT",
+    "vatIncluded": "Included",
+    "vatExcluded": "Not included",
+    "validUntil": "Terms valid until",
+    "snapshotAt": "Terms recorded",
+    "acceptedByIntroducer": "Accepted by the introducing agency",
+    "acceptedByOwner": "Accepted by the listing agency",
+    "scheduledAt": "Viewing",
+    "auditNote": "These terms were recorded when the viewing was requested and cannot be changed. Both agencies accepted them at the times shown."
+  }
+}

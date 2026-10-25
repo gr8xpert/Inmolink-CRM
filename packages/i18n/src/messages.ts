@@ -7,6 +7,7 @@ import type chat from '../messages/en/chat.json';
 import type contacts from '../messages/en/contacts.json';
 import type dataExport from '../messages/en/data-export.json';
 import type developments from '../messages/en/developments.json';
+import type documents from '../messages/en/documents.json'; // S12-05
 import type embed from '../messages/en/embed.json';
 import type imports from '../messages/en/imports.json';
 import type leads from '../messages/en/leads.json';
@@ -40,6 +41,7 @@ export interface Messages {
   contacts: typeof contacts;
   'data-export': typeof dataExport;
   developments: typeof developments;
+  documents: typeof documents; // S12-05
   embed: typeof embed;
   imports: typeof imports;
   leads: typeof leads;

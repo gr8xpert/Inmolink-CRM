@@ -7,6 +7,7 @@ import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
 import { crmJobs } from '@inmolink/core/modules/crm';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
+import { documentsJobs } from '@inmolink/core/modules/documents';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
@@ -176,6 +177,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S11-02: unanswered viewing proposals expire; each viewing request change notifies the other side.
     mlsJobs.expireViewingRequests,
     mlsJobs.notifyViewing,
+    // S12-05: a viewing request's accepted terms are queued for their PDF.
+    mlsJobs.queueViewingTermsPdf,
   ],
   ai: [
     // S12-01: worker-path AI usage records whose first write failed (ADR 0008 #6a).
@@ -188,7 +191,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiFeaturesJobs.collectListingStudioBatch,
   ],
   social: [],
-  pdf: [],
+  // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
+  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms],
   // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds, on their own queue — the only one
   // feed-api's `feed_ai` Redis user can write; the worker validates every record.
   'ai-usage': [aiJobs.recordUsage, aiJobs.refreshSpend],

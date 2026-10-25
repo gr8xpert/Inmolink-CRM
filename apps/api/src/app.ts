@@ -12,6 +12,7 @@ import { chatRoutes } from './routes/chat/routes';
 import { complianceRoutes } from './routes/compliance/routes';
 import { crmRoutes } from './routes/crm/routes';
 import { developmentsRoutes } from './routes/developments/routes';
+import { documentsRoutes } from './routes/documents/routes'; // S12-05
 import { exportsRoutes } from './routes/exports/routes';
 import { identityRoutes } from './routes/identity/routes';
 import { importsRoutes } from './routes/imports/routes';
@@ -90,6 +91,7 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(websitesRoutes);
   await app.register(exportsRoutes);
   await app.register(crmRoutes);
+  await app.register(documentsRoutes); // S12-05
   await app.register(mlsRoutes);
   await app.register(notificationsRoutes);
   await app.register(chatRoutes);

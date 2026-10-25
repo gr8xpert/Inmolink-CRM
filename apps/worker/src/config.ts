@@ -21,6 +21,7 @@ import {
   webUrlEnv,
 } from '@inmolink/platform/config';
 import type { EmailConfig } from '@inmolink/platform/email';
+import { pdfEnv } from '@inmolink/platform/pdf';
 import { z } from 'zod';
 
 /** Worker pools (workers.md); each can run on its own node via `WORKER_POOLS`. */
@@ -118,6 +119,9 @@ const leadEmailEnv = {
  */
 const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv, ...portalPushEnv };
 
+/** S12-05: the `pdf` pool renders brochures with Chrome (its binary, page pool, sandbox) and listing images from the media CDN. */
+const pdfPoolEnv = { ...pdfEnv, ...mediaCdnEnv };
+
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
  * the narrow `app_media` role — no `app_system`, no SMTP, no encryption keys, no cache (S3-F7).
@@ -143,6 +147,7 @@ export function workerEnvFor(pools: readonly Pool[]) {
     ...(pools.includes('digest') ? emailEnv : {}),
     ...(pools.includes('exports') ? siteFeedEnv : {}),
     ...(pools.includes('indexing') ? indexingEnv : {}),
+    ...(pools.includes('pdf') ? pdfPoolEnv : {}), // S12-05
   };
 }
 
@@ -155,6 +160,7 @@ export const workerEnv = {
   ...leadEmailEnv,
   ...siteFeedEnv,
   ...indexingEnv,
+  ...pdfPoolEnv, // S12-05
 };
 type Full = Config<typeof workerEnv>;
 /** Pool-dependent variables are absent when no pool of this process needs them (`workerEnvFor`). */

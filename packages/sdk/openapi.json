@@ -1316,7 +1316,9 @@
                             "LISTING_STUDIO_BATCH_LIMIT",
                             "SELECTION_NOT_FOUND",
                             "SELECTION_GONE",
-                            "SELECTION_ITEMS_INVALID"
+                            "SELECTION_ITEMS_INVALID",
+                            "DOCUMENT_NOT_FOUND",
+                            "DOCUMENT_LISTINGS_INVALID"
                           ],
                           "type": "string"
                         },
@@ -3552,7 +3554,9 @@
                             "LISTING_STUDIO_BATCH_LIMIT",
                             "SELECTION_NOT_FOUND",
                             "SELECTION_GONE",
-                            "SELECTION_ITEMS_INVALID"
+                            "SELECTION_ITEMS_INVALID",
+                            "DOCUMENT_NOT_FOUND",
+                            "DOCUMENT_LISTINGS_INVALID"
                           ],
                           "type": "string"
                         },

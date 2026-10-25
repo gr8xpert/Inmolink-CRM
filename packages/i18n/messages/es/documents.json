@@ -1,0 +1,70 @@
+{
+  "listing": {
+    "reference": "Ref. {ref}",
+    "price": "Precio",
+    "priceOnRequest": "Precio a consultar",
+    "priceFrom": "Desde {price}",
+    "perPeriod": {
+      "MONTH": "{price} / mes",
+      "WEEK": "{price} / semana",
+      "NIGHT": "{price} / noche"
+    },
+    "bedrooms": "Dormitorios",
+    "bathrooms": "Baños",
+    "builtArea": "Superficie construida",
+    "internalArea": "Superficie interior",
+    "plot": "Parcela",
+    "terrace": "Terraza",
+    "yearBuilt": "Año de construcción",
+    "energyRating": "Calificación energética",
+    "features": "Características",
+    "description": "Descripción",
+    "communityFee": "Gastos de comunidad",
+    "ibi": "IBI",
+    "perMonth": "{amount} / mes",
+    "perYear": "{amount} / año",
+    "development": "Promoción: {name}",
+    "transaction": {
+      "SALE": "En venta",
+      "RENT_LONG_TERM": "En alquiler",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    },
+    "status": {
+      "UNDER_OFFER": "Oferta en curso",
+      "RESERVED": "Reservado",
+      "SOLD": "Vendido",
+      "RENTED": "Alquilado"
+    },
+    "unavailable": "Este inmueble ya no está disponible."
+  },
+  "portfolio": {
+    "defaultTitle": "Una selección de inmuebles para usted",
+    "count": "{count, plural, one {# inmueble} other {# inmuebles}}"
+  },
+  "footer": {
+    "contact": "Contacto",
+    "asOf": "Precios y disponibilidad a {date}. Sujetos a cambios sin previo aviso; no constituye una oferta contractual.",
+    "page": "Página"
+  },
+  "viewingTerms": {
+    "title": "Condiciones de visita",
+    "subtitle": "Acuerdo entre la agencia colaboradora y la agencia captadora para una visita",
+    "request": "Solicitud de visita",
+    "property": "Inmueble",
+    "introducer": "Agencia colaboradora",
+    "owner": "Agencia captadora",
+    "commission": "Comisión",
+    "commissionPercent": "{percent} del precio",
+    "commissionFixed": "{amount}",
+    "split": "Parte de la colaboradora",
+    "vat": "IVA",
+    "vatIncluded": "Incluido",
+    "vatExcluded": "No incluido",
+    "validUntil": "Condiciones válidas hasta",
+    "snapshotAt": "Condiciones registradas",
+    "acceptedByIntroducer": "Aceptadas por la agencia colaboradora",
+    "acceptedByOwner": "Aceptadas por la agencia captadora",
+    "scheduledAt": "Visita",
+    "auditNote": "Estas condiciones se registraron al solicitar la visita y no pueden modificarse. Ambas agencias las aceptaron en los momentos indicados."
+  }
+}

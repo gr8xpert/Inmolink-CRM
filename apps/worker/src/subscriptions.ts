@@ -7,6 +7,7 @@ import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as crm from '@inmolink/core/modules/crm';
 import * as dashboard from '@inmolink/core/modules/dashboard';
 import * as developments from '@inmolink/core/modules/developments';
+import * as documents from '@inmolink/core/modules/documents'; // S12-05
 import * as exports from '@inmolink/core/modules/exports';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
@@ -43,6 +44,7 @@ export const MODULES = {
   media,
   quality,
   developments,
+  documents, // S12-05
   search,
   imports,
   websites,

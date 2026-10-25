@@ -9,7 +9,7 @@ import {
   rehashAgencyFingerprints,
 } from './maintenance';
 import { repointRegistrations } from './service';
-import { expireViewingRequests, notifyViewingChange } from './viewings';
+import { expireViewingRequests, notifyViewingChange, prepareViewingTermsPdf } from './viewings';
 
 const HOUR_MS = 3_600_000;
 
@@ -123,6 +123,21 @@ export const mlsJobs = {
         agencyId: p.agencyId,
         createdAt: new Date(p.createdMs),
       });
+    },
+  }),
+
+  // S12-05: the accepted-terms PDF of a viewing request whose terms the owner accepted (queued for the pdf pool).
+  queueViewingTermsPdf: defineJob({
+    name: 'mls.queueViewingTermsPdf',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), change: mlsEvents.viewingChanged.schema }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return prepareViewingTermsPdf(p.change, { agencyId: p.agencyId });
     },
   }),
 

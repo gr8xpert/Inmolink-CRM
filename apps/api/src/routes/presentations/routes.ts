@@ -2,6 +2,7 @@ import {
   CreateSelectionBody,
   ListSelectionInteractionsQuery,
   ListSelectionsQuery,
+  PdfDocumentDto,
   SelectionCreatedDto,
   SelectionDto,
   SelectionInteractionPage,
@@ -105,6 +106,26 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => presentations.updateSelection(ctx, req.params.id, req.body));
+    },
+  );
+
+  // S12-05: the selection as a PDF portfolio (rendered by the pdf pool; poll `GET /v1/documents/:documentId`).
+  app.post(
+    '/v1/selections/:id/pdf',
+    {
+      schema: {
+        tags: ['presentations'],
+        operationId: 'presentations.createSelectionPdf',
+        summary: "The selection as a branded PDF portfolio in the client's language (202; poll the document)",
+        params: SelectionParams,
+        response: { 202: PdfDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return reply.code(202).send(await app.withCtx(req, (ctx) => presentations.selectionPdf(ctx, req.params.id)));
     },
   );
 
