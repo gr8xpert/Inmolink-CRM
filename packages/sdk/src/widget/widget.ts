@@ -115,8 +115,9 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
   adoptStyles(root);
   root.append(container);
 
-  // --- search form: structured only. The natural-language box comes with `/v2/search/ai` (S12-08): until the SDK has
-  // that operation there is no AI box (a test checks), so no text is ever turned into prices or facts here.
+  // --- search forms. The natural-language box (S13-F16) sends the visitor's sentence to `/v2/search/ai` as-is: the API
+  // turns it into filters and the widget shows only what comes back, so no text is turned into prices or facts here.
+  // The structured form below it stays as it was.
   const text = (name: string, label: MessageKey, attrs: Record<string, string>) => {
     const field = el('input', { name, ...attrs });
     return { field, label: el('label', {}, t(label), field) };
@@ -140,6 +141,9 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
   const transaction = choice('transaction', 'transaction', TRANSACTIONS, 'anyTransaction');
   const sort = choice('sort', 'sort', SORTS);
   const submit = el('button', { type: 'submit' }, t('submit'));
+  const aiField = el('input', { name: 'ai', type: 'search', maxlength: '300', autocomplete: 'off' });
+  const aiSubmit = el('button', { type: 'submit' }, t('aiSubmit'));
+  const aiForm = el('form', { class: 'ai', 'aria-label': t('aiLabel') }, el('label', {}, t('aiQ'), aiField), aiSubmit);
   const form = el(
     'form',
     { role: 'search', 'aria-label': t('label') },
@@ -154,13 +158,15 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
   const status = el('p', { class: 'muted', role: 'status', 'aria-live': 'polite' });
   const list = el('ul', { class: 'list' });
   const more = el('button', { type: 'button', class: 'more', hidden: '' }, t('more'));
-  container.append(form, status, list, more);
+  container.append(aiForm, form, status, list, more);
 
   // --- results
   let cursor: string | null = null;
   let generation = 0;
   let destroyed = false;
   let uid = 0;
+  /** The sentence of the AI search being paged through (`null`: the structured form is in charge). */
+  let aiQuery: string | null = null;
 
   const query = (): ListListingsQuery => {
     const keyword = q.field.value.trim();
@@ -216,11 +222,16 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
   async function load(append: boolean): Promise<void> {
     const mine = ++generation;
     submit.disabled = true;
+    aiSubmit.disabled = true;
     more.disabled = true;
     status.className = 'muted';
     status.textContent = t('loading');
     try {
-      const res = await client.listListings({ ...query(), ...(append && cursor ? { cursor } : {}) });
+      const next = append && cursor ? { cursor } : {};
+      const res =
+        aiQuery !== null
+          ? await client.searchAi({ q: aiQuery, lang, limit: pageSize, ...next })
+          : await client.listListings({ ...query(), ...next });
       if (destroyed || mine !== generation) return;
       if (!append) list.replaceChildren();
       for (const item of res.items) list.append(card(item));
@@ -241,13 +252,24 @@ export function mountWidget(host: HTMLElement, options: WidgetOptions): WidgetHa
     } finally {
       if (!destroyed && mine === generation) {
         submit.disabled = false;
+        aiSubmit.disabled = false;
         more.disabled = false;
       }
     }
   }
 
+  aiForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const sentence = aiField.value.trim();
+    if (!sentence) return;
+    aiQuery = sentence;
+    cursor = null;
+    more.hidden = true;
+    void load(false);
+  });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
+    aiQuery = null;
     cursor = null;
     more.hidden = true;
     void load(false);

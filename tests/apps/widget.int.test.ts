@@ -558,18 +558,29 @@ describe('JS widget lead form and AI box (S8-F8)', () => {
     }
   }, 120_000);
 
-  // CI fix: /v2/search/ai exists since S12-08; the widget's AI box is a follow-up, so the form stays structured-only.
-  it('[S8-F8] the widget search form is structured only until its AI box lands', async () => {
+  it('[S13-F16] the widget searches by sentence on /v2/search/ai, next to the structured form', async () => {
     const page = await newWatchedPage();
     try {
       await page.open(allowed);
-      const search = page.locator('[data-inmolink-widget] form[role=search]');
+      const widget = page.locator('[data-inmolink-widget]');
+      const search = widget.locator('form[role=search]');
       await search.waitFor({ timeout: 20_000 });
-      // Structured search only: the keyword box, sale/rent, price, bedrooms, sort — no free-text AI field.
+      // The structured form is unchanged: keyword box, sale/rent, price, bedrooms, sort.
       const names = await search
         .locator('input, select, textarea')
         .evaluateAll((nodes) => nodes.map((n) => (n as HTMLInputElement).name));
       expect(names).toEqual(['q', 'transaction', 'priceMin', 'priceMax', 'bedsMin', 'sort']);
+
+      const aiRequests: string[] = [];
+      page.on('request', (r) => {
+        if (r.url().includes('/v2/search/ai')) aiRequests.push(r.url());
+      });
+      const card = widget.locator('.card', { hasText: `Ref. ${ref}` });
+      await widget.locator('form.ai input[name=ai]').fill(ref);
+      await widget.locator('form.ai button[type=submit]').click();
+      await card.waitFor({ timeout: 20_000 });
+      expect(aiRequests.length).toBeGreaterThan(0);
+      expect(new URL(aiRequests[0] as string).searchParams.get('q')).toBe(ref);
     } finally {
       await page.close();
     }

@@ -4,6 +4,7 @@ export const WIDGET_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 :focus-visible{outline:3px solid var(--il-accent);outline-offset:2px}
 form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem;align-items:end;margin:0 0 1rem}
+form.ai{grid-template-columns:minmax(0,1fr) auto}
 label{display:flex;flex-direction:column;gap:.25rem;font-size:.875rem}
 input,select,textarea{border:1px solid #6b7280;border-radius:6px;padding:.5rem;font:inherit;background:#fff;color:inherit;min-width:0}
 button{background:var(--il-primary);color:#fff;border:0;border-radius:6px;padding:.6rem 1rem;font:inherit;font-weight:600;cursor:pointer}

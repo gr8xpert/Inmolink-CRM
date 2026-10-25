@@ -1,4 +1,7 @@
 {
+  "aiLabel": "Describe lo que buscas",
+  "aiQ": "Describe tu propiedad ideal, en cualquier idioma",
+  "aiSubmit": "Buscar con una frase",
   "label": "Búsqueda de propiedades",
   "q": "Palabra clave o referencia",
   "transaction": "Para",

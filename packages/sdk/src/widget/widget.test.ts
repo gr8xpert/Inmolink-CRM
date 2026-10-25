@@ -81,9 +81,11 @@ describe('JS widget lead form and AI box (S8-F8)', () => {
     expect(connection({ turnstileSiteKey: 'other', privacyUrl: 'https://evil.example' }, script)).toEqual(script);
   });
 
-  it('[S8-F8] the SDK has the /v2/search/ai operation the widget AI box will use (S12-08)', () => {
-    // CI fix: S12-08 added the endpoint, so the old "absent" tripwire fired. The widget's AI box is a follow-up task;
-    // until it lands the widget stays structured-only (tests/apps/widget.int.test.ts).
+  it('[S13-F16] the SDK has the /v2/search/ai operation the widget AI box uses, and the box is bundled in both languages', () => {
     expect(Object.values(OPERATIONS).map((op): string => op.path)).toContain('/v2/search/ai');
+    for (const lang of WIDGET_LANGS) {
+      for (const key of ['aiLabel', 'aiQ', 'aiSubmit'] as const) expect(translate(lang, key)).not.toBe('');
+    }
+    expect(translate('es', 'aiSubmit')).toBe('Buscar con una frase');
   });
 });
