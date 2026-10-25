@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
 import { expectImpersonationRules } from '../../../testing/impersonation-rules';
 import { CLIENT_MODE_ALLOWED, can, PRESENTATIONS_ACTIONS, PRESENTATIONS_IMPERSONATION } from '../policy';
 
@@ -52,6 +53,16 @@ describe('presentations policy', () => {
       can,
       admin: ctxAs('AGENCY_ADMIN'),
       staffUserId: STAFF,
+    });
+  });
+
+  it('[S13-F4] Client Mode allow-list pinned: nothing', () => {
+    expectClientModePinned({
+      actions: PRESENTATIONS_ACTIONS,
+      allowed: CLIENT_MODE_ALLOWED,
+      pinned: [],
+      can,
+      admin: ctxAs('AGENCY_ADMIN'),
     });
   });
 });

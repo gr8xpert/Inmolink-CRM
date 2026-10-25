@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
 import { expectImpersonationRules } from '../../../testing/impersonation-rules';
 import { CLIENT_MODE_ALLOWED, can, SOCIAL_ACTIONS, SOCIAL_IMPERSONATION } from '../policy';
 
@@ -41,5 +42,9 @@ describe('social policy (S12-07)', () => {
       admin,
       staffUserId: '01900000-0000-7000-8000-0000000000ff',
     });
+  });
+
+  it('[S13-F4] Client Mode allow-list pinned: nothing', () => {
+    expectClientModePinned({ actions: SOCIAL_ACTIONS, allowed: CLIENT_MODE_ALLOWED, pinned: [], can, admin });
   });
 });

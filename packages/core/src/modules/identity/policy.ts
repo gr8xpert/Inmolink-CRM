@@ -69,6 +69,12 @@ export const IDENTITY_ACTIONS = [
 export type IdentityAction = (typeof IDENTITY_ACTIONS)[number];
 
 /**
+ * Client Mode (PATTERNS §6, S13-F4): nothing in identity — the roster, the keys and the record of staff access are
+ * internal, and a session already in Client Mode cannot start it again. Pinned by the policy test.
+ */
+export const CLIENT_MODE_ALLOWED: ReadonlySet<IdentityAction> = new Set<IdentityAction>();
+
+/**
  * Staff impersonating a member (S1-09) see the team and the keys, never change who has access: no
  * invites, role changes, deactivations or invite revocations (an invite to their own email would outlive
  * the session), and no key create, rotate or revoke (keys are credentials).
@@ -102,6 +108,7 @@ export function can(
   resource: { agencyId?: string; userId?: string; role?: string } = {},
 ): boolean {
   if (ctx.actor.kind !== 'user') return false;
+  if (ctx.clientMode && !CLIENT_MODE_ALLOWED.has(action)) return false;
   if (deniedByImpersonation(ctx, IDENTITY_IMPERSONATION, action)) return false;
   const sameAgency = resource.agencyId === undefined || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {

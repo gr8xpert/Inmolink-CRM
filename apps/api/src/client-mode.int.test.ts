@@ -271,3 +271,71 @@ describe('Client Mode over every route (S12-06)', () => {
     expect(again.statusCode).toBe(403);
   });
 });
+
+/**
+ * S13-F4: the S12 dashboards a client must never see. Each route gets a body its schema accepts, so the refusal is
+ * the policy's (403), not validation's. A new route under these prefixes fails the first check until it is listed.
+ */
+const CLIENT_MODE_REFUSED: Record<string, (() => unknown) | null> = {
+  'GET /v1/social/accounts': null,
+  'POST /v1/social/connect': null,
+  'POST /v1/social/connect/callback': () => ({ code: 'meta-code', state: 'meta-state' }),
+  'DELETE /v1/social/accounts/:accountId': null,
+  'GET /v1/social/posts': null,
+  'POST /v1/social/posts': () => ({ accountId: newId(), listingId: ids.ownListing, locale: 'en', caption: 'Hi' }),
+  'GET /v1/social/posts/:postId': null,
+  'PATCH /v1/social/posts/:postId': () => ({ version: 1, caption: 'Hi' }),
+  'POST /v1/social/posts/:postId/captions': () => ({ version: 1, locales: ['en'] }),
+  'POST /v1/social/posts/:postId/cancel': () => ({ version: 1 }),
+  'GET /v1/selections': null,
+  'POST /v1/selections': () => ({ title: 'For you', locale: 'en', items: [{ targetId: ids.ownListing }] }),
+  'GET /v1/selections/:id': null,
+  'PATCH /v1/selections/:id': () => ({ version: 1, title: 'For you' }),
+  'POST /v1/selections/:id/pdf': null,
+  'POST /v1/selections/:id/link': () => ({ version: 1 }),
+  'GET /v1/selections/:id/interactions': null,
+  'GET /v1/saved-searches': null,
+  'POST /v1/saved-searches': () => ({ name: 'Sea views' }),
+  'PUT /v1/saved-searches/:id': () => ({ name: 'Sea views' }),
+  'DELETE /v1/saved-searches/:id': null,
+  'POST /v1/listings/:id/studio': () => ({}),
+};
+
+describe('Client Mode refusals (S13-F4)', () => {
+  it('[S13-F4] a Client Mode token gets 403 on /v1/social/*, /v1/selections*, /v1/saved-searches* and the Listing Studio', async () => {
+    const covered = app.registeredRoutes
+      .filter((r) => !['HEAD', 'OPTIONS'].includes(r.method))
+      .filter((r) => /^\/v1\/(social\/|selections|saved-searches)/.test(r.url) || r.url === '/v1/listings/:id/studio')
+      .map((r) => `${r.method} ${r.url}`)
+      .sort();
+    expect(covered).toEqual(Object.keys(CLIENT_MODE_REFUSED).sort());
+
+    const cm = await bearer(a, true);
+    const plain = await bearer(a, false);
+    const answers: string[] = [];
+    const notRefused: string[] = [];
+    for (const [route, body] of Object.entries(CLIENT_MODE_REFUSED)) {
+      const [method, pattern] = route.split(' ') as [string, string];
+      const url = urlFor(pattern, ids.ownListing);
+      const call = (headers: Record<string, string>) =>
+        app.inject({ method: method as 'GET', url, headers, ...(body ? { payload: body() as object } : {}) });
+      const res = await call(cm);
+      if (res.statusCode !== 403 || res.json().error?.code !== 'FORBIDDEN') {
+        notRefused.push(`${route}: ${res.statusCode} ${res.body.slice(0, 200)}`);
+      }
+      // The same lists outside Client Mode: they answer, or social's flag (off by default, H3) refuses with its own
+      // code — so the FORBIDDEN above is the Client Mode policy's, checked before the flag.
+      if (method === 'GET' && !pattern.includes(':')) {
+        const out = await call(plain);
+        answers.push(`${route}: ${out.statusCode === 200 ? 200 : out.json().error?.code}`);
+      }
+    }
+    expect(notRefused).toEqual([]);
+    expect(answers).toEqual([
+      'GET /v1/social/accounts: SOCIAL_NOT_ENABLED',
+      'GET /v1/social/posts: SOCIAL_NOT_ENABLED',
+      'GET /v1/selections: 200',
+      'GET /v1/saved-searches: 200',
+    ]);
+  });
+});

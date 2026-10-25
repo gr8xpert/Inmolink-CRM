@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- test(core): Client Mode allow-lists pinned for identity, social, matching, presentations, documents, ai-features; 403 contract test for the S12 routes [S13-F4]
 - feat(sdk): widget natural-language search box on /v2/search/ai, EN/ES strings [S13-F16]
 - fix(platform): redact selection token paths (/s/<token>) in logs and error text [S13-F2]
 - feat(billing): plan gates (`requirePlan`, PLAN §11 matrix as catalog data), seat limits with a seat lock, 14-day Pro trial for new agencies, staff plan grants with expiry, founding price-lock coupons, dunning grace with notice; all enforced only with `BILLING_ENFORCE_PLANS=true`; migration 0154; no new dependency [S13-02]

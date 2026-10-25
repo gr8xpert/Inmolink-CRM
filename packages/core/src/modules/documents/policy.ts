@@ -6,7 +6,8 @@ import type { Ctx } from '../../context';
  * portfolios are client-facing and white-labelled (no commission, owner or internal note in them), so any member makes
  * them — in Client Mode too (an agent hands the client a brochure from the screen they are showing).
  */
-export type DocumentsAction = 'documents.create' | 'documents.read';
+export const DOCUMENTS_ACTIONS = ['documents.create', 'documents.read'] as const;
+export type DocumentsAction = (typeof DOCUMENTS_ACTIONS)[number];
 
 /** Client Mode (PATTERNS §6): the documents carry nothing Client Mode hides. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<DocumentsAction> = new Set<DocumentsAction>([

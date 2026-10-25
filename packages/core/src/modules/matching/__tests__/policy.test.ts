@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
 import { CLIENT_MODE_ALLOWED, can, MATCHING_ACTIONS, MATCHING_IMPERSONATION } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
@@ -33,5 +34,10 @@ describe('matching policy', () => {
       expect(can({ ...agent, clientMode: true }, action)).toBe(false);
       expect(can(ctxAs({ kind: 'user', userId: ME, role: 'AGENT', impersonatedBy: 'x' }), action)).toBe(false);
     }
+  });
+
+  it('[S13-F4] Client Mode allow-list pinned: nothing', () => {
+    const admin = ctxAs({ kind: 'user', userId: ME, role: 'AGENCY_ADMIN' });
+    expectClientModePinned({ actions: MATCHING_ACTIONS, allowed: CLIENT_MODE_ALLOWED, pinned: [], can, admin });
   });
 });

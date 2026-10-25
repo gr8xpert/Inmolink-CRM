@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx, StaffRole } from '../../../context';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
 import { expectImpersonationRules } from '../../../testing/impersonation-rules';
 import {
+  CLIENT_MODE_ALLOWED,
   can,
   canIssueAccessToken,
   canStaff,
@@ -132,5 +134,17 @@ describe('identity policy', () => {
     });
     expect(IDENTITY_IMPERSONATION['identity.members.manage']).toBe('forbidden');
     expect(IDENTITY_IMPERSONATION['identity.apiKeys.manage']).toBe('forbidden');
+  });
+
+  it('[S13-F4] Client Mode allow-list pinned: nothing (roster, keys, staff access, starting it again)', () => {
+    for (const role of ['AGENCY_ADMIN', 'DEVELOPER_ADMIN']) {
+      expectClientModePinned({
+        actions: IDENTITY_ACTIONS,
+        allowed: CLIENT_MODE_ALLOWED,
+        pinned: [],
+        can: (ctx, action) => can(ctx, action),
+        admin: ctxAs(role),
+      });
+    }
   });
 });
