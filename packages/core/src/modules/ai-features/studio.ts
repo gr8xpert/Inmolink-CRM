@@ -17,11 +17,12 @@
  * minus texts a person wrote or reviewed. The write re-checks both in its statement (`properties.saveListingAiDrafts`)
  * and drops a draft when the listing's facts changed since it was generated (facts hash).
  */
-import type {
-  ListingStudioAcceptedDto,
-  ListingStudioBody,
-  ListingStudioBulkBody,
-  ListingStudioTone,
+import {
+  LISTING_STUDIO_RUNNING_MAX,
+  type ListingStudioAcceptedDto,
+  type ListingStudioBody,
+  type ListingStudioBulkBody,
+  type ListingStudioTone,
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
@@ -43,6 +44,8 @@ import {
   copyViolations,
   factsHash,
   ListingCopy,
+  moneyFigures,
+  moneyLeaks,
   pickSource,
   type StudioInput,
   studioFacts,
@@ -55,6 +58,8 @@ const FEATURE_BULK = 'listing-studio.bulk';
 const FEATURE_REPAIR = 'listing-studio.repair';
 /** A write that loses to a concurrent edit re-reads the facts this many times before giving up. */
 const WRITE_ATTEMPTS = 3;
+/** Repair calls one bulk apply may make (bad batch answers beyond it are dropped: REPAIR_CAP). */
+export const STUDIO_REPAIRS_PER_APPLY = 20;
 
 export interface StudioRequest {
   requestId: string;
@@ -126,6 +131,9 @@ export async function requestListingStudioBulk(
   body: ListingStudioBulkBody,
 ): Promise<ListingStudioAcceptedDto> {
   assertCan(ctx, 'aiFeatures.listingStudio');
+  if ((await repo.countRunningStudioBatches(ctx.tx, ctx.tenant.agencyId)) >= LISTING_STUDIO_RUNNING_MAX) {
+    throw new AppError('LISTING_STUDIO_BATCH_LIMIT', { max: LISTING_STUDIO_RUNNING_MAX });
+  }
   const editable = await properties.studioEditableIds(ctx, body.listingIds);
   if (editable.length === 0) throw new AppError('FORBIDDEN', { reason: 'no_editable_listing' });
   // keep the caller's order (the batch's custom ids are positions in this list)
@@ -143,6 +151,8 @@ interface ListingWork {
   targets: string[];
   /** The model input per requested locale. */
   inputs: Map<string, StudioInput>;
+  /** The listing's money figures (`moneyFigures`): checked on the server, never in an input. */
+  money: Set<number>;
 }
 
 /** Reads the listings' facts, names and photo tags as the member, and builds each locale's model input. */
@@ -169,6 +179,7 @@ async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[])
     const source = pickSource(l.translations, req.locales);
     const lineage = tax.lineage.get(l.locationId) ?? [];
     const inputs = new Map<string, StudioInput>();
+    let money: Set<number> | undefined;
     for (const locale of req.locales) {
       const name = (id: string) => taxonomy.taxonName(tax, id, locale)?.name ?? null;
       const facts = studioFacts(
@@ -183,6 +194,7 @@ async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[])
         },
         rooms,
       );
+      money ??= moneyFigures(l.money, facts);
       // the agency's own text may come from a feed: data, never instructions (S12-01 review, `untrustedBlock`)
       const useSource =
         source && source.locale !== locale
@@ -202,7 +214,14 @@ async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[])
       return t.origin === 'AI_DRAFT' || req.replaceReviewed;
     });
     const { version: _v, agencyId: _a, translations: _t, ...facts } = l;
-    return { listingId: l.id, version: l.version, hash: factsHash({ facts, rooms, source }), targets, inputs };
+    return {
+      listingId: l.id,
+      version: l.version,
+      hash: factsHash({ facts, rooms, source }),
+      targets,
+      inputs,
+      money: money ?? new Set<number>(),
+    };
   });
 }
 
@@ -222,11 +241,25 @@ const aiCtxOf = (req: StudioRequest): AiCtx => ({
 
 type Checked = { ok: true; copy: ListingCopy } | { ok: false; reason: string };
 
-/** The fact check, with one repair call naming what was rejected (`FACTS` when the repair fails it too). */
-async function checkOrRepair(aiCtx: AiCtx, input: StudioInput, copy: ListingCopy): Promise<Checked> {
-  const allowed = allowedFigures(input.facts, input.source);
-  const bad = copyViolations(copy, allowed);
+/**
+ * The fact check (`money`: the listing's price and commission figures, which the copy must not quote), with one
+ * repair call naming what was rejected (`FACTS` when the repair fails it too). `repairs` caps the repair calls of one
+ * bulk apply. The budget's hard cap stops the job (`AI_BUDGET_EXCEEDED` is rethrown); other AI failures drop the copy.
+ */
+async function checkOrRepair(
+  aiCtx: AiCtx,
+  input: StudioInput,
+  copy: ListingCopy,
+  money: ReadonlySet<number> = new Set(),
+  repairs?: { left: number },
+): Promise<Checked> {
+  const allowed = allowedFigures(input.facts, input.source, money);
+  const bad = copyViolations(copy, allowed, input.locale);
   if (bad.length === 0) return { ok: true, copy };
+  if (repairs) {
+    if (repairs.left <= 0) return { ok: false, reason: 'REPAIR_CAP' };
+    repairs.left -= 1;
+  }
   return aiOrFallback(
     async (): Promise<Checked> => {
       const repaired = await ai.structured(aiCtx, {
@@ -235,11 +268,14 @@ async function checkOrRepair(aiCtx: AiCtx, input: StudioInput, copy: ListingCopy
         input: { ...input, rejected: bad },
         schema: ListingCopy,
       });
-      return copyViolations(repaired.data, allowed).length === 0
+      return copyViolations(repaired.data, allowed, input.locale).length === 0
         ? { ok: true, copy: repaired.data }
         : { ok: false, reason: 'FACTS' };
     },
-    (code): Checked => ({ ok: false, reason: code }),
+    (code): Checked => {
+      if (code === 'AI_BUDGET_EXCEEDED') rethrowUnlessDegraded(code);
+      return { ok: false, reason: code };
+    },
   );
 }
 
@@ -268,6 +304,12 @@ async function writeDrafts(
         const [now] = await collectWork(ctx, req, [listingId]);
         if (!now || now.hash !== hash) return null;
         const drafts = [...copies]
+          .filter(([locale, c]) => {
+            // a copy quoting the price or the commission is never stored (checked here, on current figures)
+            if (moneyLeaks(c, now.money).length === 0) return true;
+            outcome.dropped[`${listingId}:${locale}`] = 'MONEY';
+            return false;
+          })
           .filter(([locale]) => now.targets.includes(locale))
           .map(([locale, c]) => ({ locale, ...c }));
         if (drafts.length === 0) return [];
@@ -308,7 +350,7 @@ export async function generateListingStudio(req: StudioRequest, log?: Logger): P
           input,
           schema: ListingCopy,
         });
-        return checkOrRepair(aiCtx, input, res.data);
+        return checkOrRepair(aiCtx, input, res.data, work.money);
       },
       (code): Checked => ({ ok: false, reason: rethrowUnlessDegraded(code) }),
     );
@@ -369,6 +411,7 @@ async function applyResults(
   outcome: StudioOutcome,
 ): Promise<void> {
   const aiCtx = aiCtxOf(req);
+  const repairs = { left: STUDIO_REPAIRS_PER_APPLY };
   const inputOf = new Map(items.map((i) => [i.customId, i.input]));
   const byListing = new Map<string, Map<string, ListingCopy>>();
   for (const r of results) {
@@ -381,19 +424,25 @@ async function applyResults(
     }
     const parsed = ListingCopy.safeParse(parseJson(r.text));
     const checked: Checked = parsed.success
-      ? await checkOrRepair(aiCtx, input, parsed.data)
-      : await aiOrFallback(
-          async (): Promise<Checked> => {
-            const res = await ai.structured(aiCtx, {
-              feature: FEATURE_REPAIR,
-              prompt: LISTING_STUDIO_PROMPT,
-              input,
-              schema: ListingCopy,
-            });
-            return checkOrRepair(aiCtx, input, res.data);
-          },
-          (code): Checked => ({ ok: false, reason: code }),
-        );
+      ? await checkOrRepair(aiCtx, input, parsed.data, undefined, repairs)
+      : repairs.left <= 0
+        ? { ok: false, reason: 'REPAIR_CAP' }
+        : await aiOrFallback(
+            async (): Promise<Checked> => {
+              const res = await ai.structured(aiCtx, {
+                feature: FEATURE_REPAIR,
+                prompt: LISTING_STUDIO_PROMPT,
+                input,
+                schema: ListingCopy,
+              });
+              repairs.left -= 1;
+              return checkOrRepair(aiCtx, input, res.data, undefined, repairs);
+            },
+            (code): Checked => {
+              if (code === 'AI_BUDGET_EXCEEDED') rethrowUnlessDegraded(code);
+              return { ok: false, reason: code };
+            },
+          );
     if (!checked.ok) {
       outcome.dropped[`${key.listingId}:${key.locale}`] = checked.reason;
       continue;
@@ -510,6 +559,14 @@ export async function collectListingStudioBulk(
   await applyResults(req, items, row.factsHashes, res.results, outcome);
   await finish(req, 'DONE', outcome);
   return { status: 'DONE', outcome };
+}
+
+/**
+ * A batch whose member lost access (left the agency, agency suspended) can no longer be collected as them: the job
+ * marks it GAVE_UP on a system transaction (`withSystem`, worker only).
+ */
+export async function abandonListingStudioBatch(tx: Tx, agencyId: string, id: string): Promise<boolean> {
+  return repo.finishStudioBatch(tx, agencyId, id, { state: 'GAVE_UP', written: 0, dropped: 0 });
 }
 
 /** Job `aiFeatures.pruneListingStudioBatches` (all agencies, `withSystem`): records older than `before`. */

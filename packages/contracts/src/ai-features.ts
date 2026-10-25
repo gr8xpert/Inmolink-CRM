@@ -11,6 +11,8 @@ export type ListingStudioTone = z.infer<typeof ListingStudioTone>;
 
 /** Listings per bulk request (one batch job; its payload stays under the 10 KB job cap). */
 export const LISTING_STUDIO_BULK_MAX = 100;
+/** Bulk batches one agency may have running at once (`LISTING_STUDIO_BATCH_LIMIT`). */
+export const LISTING_STUDIO_RUNNING_MAX = 3;
 
 const studioOptions = {
   tone: ListingStudioTone.default('PROFESSIONAL'),

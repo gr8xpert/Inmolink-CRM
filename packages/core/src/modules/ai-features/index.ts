@@ -5,12 +5,14 @@ export { aiFeaturesEvents } from './events';
 export { aiFeaturesJobs, STUDIO_BATCH_RETENTION_DAYS, STUDIO_MAX_POLLS, STUDIO_POLL_MS } from './jobs';
 export { AI_FEATURES_ACTIONS, AI_FEATURES_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from './policy';
 export {
+  abandonListingStudioBatch,
   collectListingStudioBulk,
   generateListingStudio,
   LISTING_STUDIO_PROMPT,
   pruneListingStudioBatches,
   requestListingStudio,
   requestListingStudioBulk,
+  STUDIO_REPAIRS_PER_APPLY,
   type StudioOutcome,
   type StudioRequest,
   submitListingStudioBulk,
@@ -19,6 +21,9 @@ export {
   allowedFigures,
   copyViolations,
   ListingCopy,
+  moneyFigures,
+  moneyLeaks,
+  numberWordsIn,
   readingsOf,
   type StudioFacts,
   type StudioInput,

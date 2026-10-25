@@ -337,6 +337,9 @@ export const ErrorCodes = {
   AI_OUTPUT_INVALID: 502,
   /** The model declined the request (safety refusal), or the provider rejected it as invalid. */
   AI_REFUSED: 422,
+  // S12-02: AI Listing Studio.
+  /** The agency already has `LISTING_STUDIO_RUNNING_MAX` bulk studio batches running: wait until one ends. */
+  LISTING_STUDIO_BATCH_LIMIT: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

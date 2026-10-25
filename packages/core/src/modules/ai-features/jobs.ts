@@ -5,6 +5,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import {
+  abandonListingStudioBatch,
   collectListingStudioBulk,
   generateListingStudio,
   pruneListingStudioBatches,
@@ -29,12 +30,26 @@ const studioRequest = {
   replaceReviewed: z.boolean(),
 };
 
+const isPermanent = (err: unknown) =>
+  isAppError(err) && (err.code === 'FORBIDDEN' || err.code === 'AI_BUDGET_EXCEEDED');
+
 /** A member who left, an agency suspended, the budget's hard cap: retrying cannot help. */
 function stopIfPermanent(err: unknown): never {
-  if (isAppError(err) && (err.code === 'FORBIDDEN' || err.code === 'AI_BUDGET_EXCEEDED')) {
-    throw new UnrecoverableError(err.code);
-  }
+  if (isPermanent(err)) throw new UnrecoverableError((err as { code: string }).code);
   throw err;
+}
+
+/**
+ * A bulk job that stops for good marks its batch record GAVE_UP on a system transaction (the member may have lost
+ * access, so their own context is refused), so it no longer counts against the agency's running batches.
+ */
+async function abandonIfPermanent(err: unknown, p: { agencyId: string; requestId: string }): Promise<never> {
+  if (isPermanent(err)) {
+    await withSystem('aiFeatures.abandonListingStudioBatch', (tx) =>
+      abandonListingStudioBatch(tx, p.agencyId, p.requestId),
+    );
+  }
+  stopIfPermanent(err);
 }
 
 const asRequest = (p: z.output<z.ZodObject<typeof studioRequest>>): StudioRequest => ({
@@ -106,7 +121,7 @@ export const aiFeaturesJobs = {
         job.log.info({ requestId: p.requestId, status: res.status }, 'listing studio batch submitted');
         return { status: res.status };
       } catch (err) {
-        stopIfPermanent(err);
+        return await abandonIfPermanent(err, p);
       }
     },
   }),
@@ -138,7 +153,7 @@ export const aiFeaturesJobs = {
         );
         return { status: 'DONE' };
       } catch (err) {
-        stopIfPermanent(err);
+        return await abandonIfPermanent(err, p);
       }
     },
   }),

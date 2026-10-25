@@ -1508,7 +1508,10 @@ export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
 
 // ---- AI Listing Studio (S12-02): the facts a draft is written from, and the drafts' writes ---------------------
 
-/** The facts the studio sends (no price, commission, owner, address or private field: PLAN §8, CLAUDE.md "Never"). */
+/**
+ * The facts the studio sends (no price, commission, owner, address or private field: PLAN §8, CLAUDE.md "Never"),
+ * plus the money columns the studio compares its copy against server-side (S12-02 review) and never sends.
+ */
 const studioColumns = {
   id: properties.id,
   agencyId: properties.agencyId,
@@ -1524,6 +1527,13 @@ const studioColumns = {
   terraceM2: properties.terraceM2,
   yearBuilt: properties.yearBuilt,
   energyRating: properties.energyRating,
+  priceCents: properties.priceCents,
+  priceToCents: properties.priceToCents,
+  communityFeeMonthCents: properties.communityFeeMonthCents,
+  ibiYearCents: properties.ibiYearCents,
+  garbageTaxYearCents: properties.garbageTaxYearCents,
+  commissionBp: properties.commissionBp,
+  commissionFixedCents: properties.commissionFixedCents,
 };
 export type StudioRow = { [K in keyof typeof studioColumns]: ListingRow[K] };
 

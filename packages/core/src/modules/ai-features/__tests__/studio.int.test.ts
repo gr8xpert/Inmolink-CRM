@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import {
   CreateListingBody,
+  LISTING_STUDIO_RUNNING_MAX,
   ListingStudioBody,
   ListingStudioBulkBody,
   PutListingTranslationBody,
@@ -54,7 +55,7 @@ const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('ai-fe
 const rows = <T>(q: ReturnType<typeof sql>) => system(async (tx) => (await tx.execute(q)).rows as T[]);
 
 /** Behaviour of the fake model per call. */
-type Mode = 'good' | 'invents' | 'always-invents';
+type Mode = 'good' | 'invents' | 'always-invents' | 'quotes-price';
 let mode: Mode = 'good';
 
 function inputOf(user: string): StudioInput & { rejected?: string[] } {
@@ -69,7 +70,11 @@ function copyFor(input: StudioInput & { rejected?: string[] }): string {
   const description = [
     `[${input.locale}/${input.tone}] ${f.propertyType} in ${place} with ${f.bedrooms} bedrooms and ${f.bathrooms} bathrooms.`,
     `It offers ${f.builtM2} m² built and a bright layout, with ${f.features.join(', ') || 'good finishes'}.`,
-    invent ? 'Only 10 minutes from the beach.' : 'A home to enjoy all year round in a sought-after area.',
+    mode === 'quotes-price'
+      ? 'Yours for 450.000.'
+      : invent
+        ? 'Only 10 minutes from the beach.'
+        : 'A home to enjoy all year round in a sought-after area.',
   ].join('\n\n');
   return JSON.stringify({
     title: `${f.propertyType} in ${place}`,
@@ -366,6 +371,82 @@ describe('AI Listing Studio (S12-02)', () => {
     const l = await create(owner);
     expect(await refusal(aiFeatures.generateListingStudio(await single(owner, l.id)))).toBe('AI_UNAVAILABLE');
     expect((await content(owner, l.id)).translations).toEqual([]);
+  });
+
+  it('[S12-02] a copy quoting the price or a large source figure is never stored', async () => {
+    useGateway();
+    const l = await create(owner, { priceCents: 450_000_00, bedrooms: 7 });
+    // the agency's own Spanish text names the price: it may be translated, the figure may not
+    await translate(owner, l.id, 'es', {
+      version: l.version,
+      title: 'Villa',
+      description: 'Precio 450.000. Muy luminosa.',
+    });
+    mode = 'quotes-price';
+    const out = await aiFeatures.generateListingStudio(await single(owner, l.id, { locales: ['en'] }));
+    expect(out.written).toEqual({});
+    expect(out.dropped).toEqual({ [`${l.id}:en`]: 'FACTS' });
+    // the price itself never reached the model
+    expect(provider.calls.map((c) => c.user).join(' ')).not.toMatch(/450000|45000000/);
+    expect((await texts(owner, l.id)).en).toBeUndefined();
+  });
+
+  it('[S12-02] a replayed job writes nothing: no version bump, no event for the same drafts', async () => {
+    useGateway();
+    const l = await create(owner, { bedrooms: 8 });
+    const req = await single(owner, l.id, { locales: ['en', 'es'] });
+    expect((await aiFeatures.generateListingStudio(req)).written[l.id]?.sort()).toEqual(['en', 'es']);
+    const before = await content(owner, l.id);
+    const again = await aiFeatures.generateListingStudio(req);
+    expect(again.written).toEqual({});
+    expect((await content(owner, l.id)).version).toBe(before.version);
+    const events = await rows<{ n: number }>(
+      sql`select count(*)::int as n from outbox_events
+          where type = 'properties.listing.updated' and payload->>'listingId' = ${l.id}`,
+    );
+    expect(events[0]?.n).toBe(1);
+  });
+
+  it('[S12-02] an agency has at most LISTING_STUDIO_RUNNING_MAX bulk batches running', async () => {
+    const other = await createFounder();
+    await setAgencyStatus(other.agencyId, 'VERIFIED');
+    const l = await create(other);
+    for (let i = 0; i < LISTING_STUDIO_RUNNING_MAX; i++) {
+      await rows(sql`insert into listing_studio_batches
+        (id, agency_id, created_by_user_id, listing_ids, locales, tone, facts_hashes, items)
+        values (${newId()}, ${other.agencyId}, ${other.userId}, ${`{${l.id}}`}::uuid[], '{es}', 'WARM', '{x}', '[]')`);
+    }
+    expect(await refusal(bulk(other, [l.id]))).toBe('LISTING_STUDIO_BATCH_LIMIT');
+    await rows(sql`update listing_studio_batches set state = 'DONE' where agency_id = ${other.agencyId}`);
+    expect((await bulk(other, [l.id])).mode).toBe('BULK');
+  });
+
+  it('[S12-02] a batch whose member lost access is marked GAVE_UP from a system transaction', async () => {
+    useGateway();
+    const helperId = newId();
+    await system(async (tx) => {
+      await tx.execute(sql`insert into users (id, email, password_hash, name, locale, status)
+        values (${helperId}, ${`helper-${helperId}@example.com`}, 'x', 'Helper', 'es', 'ACTIVE')`);
+      await tx.execute(sql`insert into agency_members (agency_id, user_id, role, name, email)
+        values (${owner.agencyId}, ${helperId}, 'AGENCY_ADMIN', 'Helper', ${`helper-${helperId}@example.com`})`);
+    });
+    const helper = { userId: helperId, agencyId: owner.agencyId };
+    const l = await create(owner, { bedrooms: 9 }); // an admin may run the studio on it
+    const req = await bulk(helper, [l.id], { locales: ['en'] });
+    const submitted = await aiFeatures.submitListingStudioBulk(req);
+    expect(submitted.status).toBe('SUBMITTED');
+    await rows(sql`delete from agency_members where agency_id = ${owner.agencyId} and user_id = ${helperId}`);
+    const job = aiFeatures.aiFeaturesJobs.collectListingStudioBatch;
+    await expect(
+      job.spec.run(
+        { requestId: req.requestId, agencyId: req.agencyId, userId: helperId, poll: 1 },
+        { log, jobId: 'test', attempt: 1, progress: async () => {}, signal: new AbortController().signal },
+      ),
+    ).rejects.toThrow('FORBIDDEN');
+    const [record] = await rows<{ state: string }>(
+      sql`select state from listing_studio_batches where id = ${req.requestId}`,
+    );
+    expect(record?.state).toBe('GAVE_UP');
   });
 });
 

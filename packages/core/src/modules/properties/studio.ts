@@ -48,6 +48,21 @@ export interface StudioListing {
   energyRating: string | null;
   featureIds: string[];
   translations: StudioTranslation[];
+  /**
+   * S12-02 review: the money figures the copy is checked against on the server (a draft quoting one is dropped).
+   * Never part of a model input.
+   */
+  money: StudioMoney;
+}
+
+export interface StudioMoney {
+  priceCents: number | null;
+  priceToCents: number | null;
+  communityFeeMonthCents: number | null;
+  ibiYearCents: number | null;
+  garbageTaxYearCents: number | null;
+  commissionBp: number | null;
+  commissionFixedCents: number | null;
 }
 
 export interface StudioDraft {
@@ -121,12 +136,22 @@ export async function studioListings(ctx: Ctx, ids: readonly string[]): Promise<
     energyRating: r.energyRating,
     featureIds: (featuresOf.get(r.id) ?? []).sort(),
     translations: textsOf.get(r.id) ?? [],
+    money: {
+      priceCents: r.priceCents,
+      priceToCents: r.priceToCents,
+      communityFeeMonthCents: r.communityFeeMonthCents,
+      ibiYearCents: r.ibiYearCents,
+      garbageTaxYearCents: r.garbageTaxYearCents,
+      commissionBp: r.commissionBp,
+      commissionFixedCents: r.commissionFixedCents,
+    },
   }));
 }
 
 /**
  * Writes the drafts of one listing at `version` (stale → `VERSION_CONFLICT`: the studio re-reads the facts). Returns
- * the locales written; the others were locked, or a person's text without `replaceReviewed`, or not enabled.
+ * the locales written; the others were locked, a person's text without `replaceReviewed`, not enabled, or the same
+ * AI draft already stored.
  */
 export async function saveListingAiDrafts(
   ctx: Ctx,
@@ -141,6 +166,16 @@ export async function saveListingAiDrafts(
   for (const d of input.drafts) {
     if (!(CONTENT_LOCALES as readonly string[]).includes(d.locale) || !ctx.tenant.locales.includes(d.locale)) continue;
     const before = existing.get(d.locale);
+    // the same text again (a replayed job): nothing to write, no version bump, no event (S12-02 review)
+    if (
+      before?.origin === 'AI_DRAFT' &&
+      before.title === d.title &&
+      before.description === d.description &&
+      before.metaTitle === d.metaTitle &&
+      before.metaDescription === d.metaDescription
+    ) {
+      continue;
+    }
     const ok = await repo.upsertAiDraft(
       ctx.tx,
       {

@@ -56,6 +56,22 @@ export async function finishStudioBatch(
   return rows.length > 0;
 }
 
+/** The agency's running bulk batches of the last 2 days (S12-02 review cap): `listing_studio_batches_agency_created_idx`. */
+export async function countRunningStudioBatches(tx: Tx, agencyId: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(listingStudioBatches)
+    .where(
+      and(
+        eq(listingStudioBatches.agencyId, agencyId),
+        eq(listingStudioBatches.state, 'RUNNING'),
+        // a batch ends within a day: an older RUNNING row is a lost job, not a running batch
+        sql`${listingStudioBatches.createdAt} > now() - interval '2 days'`,
+      ),
+    );
+  return row?.n ?? 0;
+}
+
 /** Deletes up to `limit` batches created before `before` (all agencies, `withSystem`), oldest first. */
 export async function pruneStudioBatches(tx: Tx, before: Date, limit: number): Promise<number> {
   const due = tx
