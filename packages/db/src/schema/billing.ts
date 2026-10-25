@@ -201,6 +201,8 @@ export const billingPlanGrants = pgTable(
     grantedBy: uuid('granted_by'),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     revokedBy: uuid('revoked_by'),
+    /** S13-03: why staff revoked it (support ticket) — kept for staff here, never in the agency's audit log. */
+    revokeReason: text('revoke_reason'),
     /** Set by `billing.endPlanGrants` once the end (or revocation) was announced (`billing.plan.changed`). */
     endedAt: timestamp('ended_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

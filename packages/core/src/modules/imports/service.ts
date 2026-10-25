@@ -24,6 +24,7 @@ import {
   type ResumeFeedConnectionBody,
   type UpdateFeedConnectionBody,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
@@ -404,4 +405,21 @@ export async function listFeedItemErrors(
   const page = await repo.listItemErrors(ctx.tx, runId, { limit: q.limit, after: decodeErrorCursor(q.cursor) });
   const last = page.items.at(-1);
   return { items: page.items, nextCursor: page.hasMore && last ? encodeErrorCursor(last.position, last.id) : null };
+}
+
+/** S13-03: most connections one agency re-import queues runs for (an agency has a handful). */
+export const REIMPORT_MAX_CONNECTIONS = 200;
+
+/**
+ * S13-03 (staff bulk re-import, a worker step in `withSystem`): queues a run of each enabled, unpaused feed connection
+ * of `agencyId` (a connection with an active run keeps it) and announces them (`imports.run.requested`) in the same
+ * transaction, like the scheduler. The staff operation that asked is audited by the admin module. Answers the runs queued.
+ */
+export async function queueAgencyReimport(tx: Tx, agencyId: string): Promise<number> {
+  const runs = await repo.queueAgencyRuns(tx, agencyId, REIMPORT_MAX_CONNECTIONS, newId);
+  await emit(
+    tx,
+    runs.map((r) => importsEvents.runRequested({ runId: r.id, connectionId: r.connectionId, agencyId })),
+  );
+  return runs.length;
 }

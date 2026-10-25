@@ -10,7 +10,7 @@ import {
   billingStripeEvents,
   billingSubscriptions,
 } from '@inmolink/db/schema/billing';
-import { and, asc, eq, exists, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
 /**
@@ -529,10 +529,10 @@ export async function grantById(tx: Tx, id: string): Promise<GrantRow | null> {
 }
 
 /** Revokes a grant not revoked yet (staff) and marks it ended (the revoke announces it); null when there is none. */
-export async function revokeGrant(tx: Tx, id: string, by: string, at: Date): Promise<GrantRow | null> {
+export async function revokeGrant(tx: Tx, id: string, by: string, at: Date, reason: string): Promise<GrantRow | null> {
   const [row] = await tx
     .update(billingPlanGrants)
-    .set({ revokedAt: at, revokedBy: by, endedAt: at })
+    .set({ revokedAt: at, revokedBy: by, revokeReason: reason, endedAt: at })
     .where(and(eq(billingPlanGrants.id, id), isNull(billingPlanGrants.revokedAt)))
     .returning(grantColumns);
   return row ?? null;
@@ -607,4 +607,57 @@ export async function priceLockFor(
       ),
     );
   return row ?? null;
+}
+
+// ---- staff console: an agency's grants and price locks (S13-03) ----
+
+export interface StaffGrantRow extends GrantRow {
+  reason: string;
+  grantedBy: string | null;
+  revokedBy: string | null;
+  revokeReason: string | null;
+}
+
+/** The agency's grants, latest end first (`billing_plan_grants_agency_idx`), at most `limit`. */
+export async function listAgencyGrants(tx: Tx, agencyId: string, limit: number): Promise<StaffGrantRow[]> {
+  return tx
+    .select({
+      ...grantColumns,
+      reason: billingPlanGrants.reason,
+      grantedBy: billingPlanGrants.grantedBy,
+      revokedBy: billingPlanGrants.revokedBy,
+      revokeReason: billingPlanGrants.revokeReason,
+    })
+    .from(billingPlanGrants)
+    .where(eq(billingPlanGrants.agencyId, agencyId))
+    .orderBy(desc(billingPlanGrants.endsAt), desc(billingPlanGrants.id))
+    .limit(limit);
+}
+
+export interface PriceLockRow {
+  id: string;
+  planCode: string;
+  interval: string;
+  currency: string;
+  amountCents: number;
+  endsAt: Date;
+  reason: string;
+}
+
+/** The agency's price locks (`billing_price_locks_uq` prefix), at most `limit`. */
+export async function listAgencyPriceLocks(tx: Tx, agencyId: string, limit: number): Promise<PriceLockRow[]> {
+  return tx
+    .select({
+      id: billingPriceLocks.id,
+      planCode: billingPriceLocks.planCode,
+      interval: billingPriceLocks.interval,
+      currency: billingPriceLocks.currency,
+      amountCents: billingPriceLocks.amountCents,
+      endsAt: billingPriceLocks.endsAt,
+      reason: billingPriceLocks.reason,
+    })
+    .from(billingPriceLocks)
+    .where(eq(billingPriceLocks.agencyId, agencyId))
+    .orderBy(billingPriceLocks.planCode, billingPriceLocks.interval, billingPriceLocks.currency)
+    .limit(limit);
 }

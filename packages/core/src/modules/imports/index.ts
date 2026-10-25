@@ -84,6 +84,8 @@ export {
   listFeedConnections,
   listFeedItemErrors,
   listFeedRuns,
+  queueAgencyReimport,
+  REIMPORT_MAX_CONNECTIONS,
   requestFeedRun,
   resumeFeedConnection,
   updateFeedConnection,

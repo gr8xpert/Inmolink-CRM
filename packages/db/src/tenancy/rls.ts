@@ -1,6 +1,14 @@
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 import type pg from 'pg';
-import type { AuthAccess, DefinerOp, GlobalTable, StaffAccess, TenantRegistry, TenantTable } from './registry';
+import type {
+  AuthAccess,
+  DefinerOp,
+  GlobalTable,
+  StaffAccess,
+  StaffWriteRule,
+  TenantRegistry,
+  TenantTable,
+} from './registry';
 
 /**
  * RLS generator (PATTERNS §2). Turns the tenant registry into idempotent SQL: helper functions,
@@ -271,7 +279,7 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_system: DML,
       app_public: def.publicRead ? ['SELECT'] : [],
       app_auth: [],
-      app_staff: def.staffWrite ? DML : [],
+      app_staff: def.staffWrite ? (staffWriteRule(def)?.noDelete ? ['SELECT', 'INSERT', 'UPDATE'] : DML) : [],
       app_media: def.mediaWrite ? DML : [],
       app_intake: [],
     };
@@ -349,7 +357,9 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
       { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] },
       { name: 'staff_insert', cmd: 'INSERT', roles: ['app_staff'] },
       { name: 'staff_update', cmd: 'UPDATE', roles: ['app_staff'] },
-      { name: 'staff_delete', cmd: 'DELETE', roles: ['app_staff'] },
+      ...(staffWriteRule(def)?.noDelete
+        ? []
+        : [{ name: 'staff_delete', cmd: 'DELETE' as const, roles: ['app_staff' as const] }]),
     ];
   }
   const out: PolicySpec[] =
@@ -407,6 +417,11 @@ function globalReaders(def: GlobalTable): ('app_public' | 'app_user')[] {
 function userWrite(table: string, def: TenantTable, cmd: 'insert' | 'update' | 'delete'): string {
   const sql = def.userSelect?.write?.[cmd] ?? def.memberWrite?.[cmd];
   return sql === undefined ? '' : ` and (${predicate(table, sql)})`;
+}
+
+/** S13-03: a global table's narrowed `staffWrite` rule, or null for `staffWrite: true` (any active staff). */
+function staffWriteRule(def: GlobalTable): StaffWriteRule | null {
+  return def.staffWrite && def.staffWrite !== true ? def.staffWrite : null;
 }
 
 function predicate(table: string, sql: string): string {
@@ -917,15 +932,22 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
     ];
   }
   const readers = globalReaders(def).join(', ');
+  const rule = staffWriteRule(def);
+  // S13-03: a narrowed `staffWrite` ANDs its predicate into every write policy (reads stay with the staff gate).
+  const write = rule ? `${STAFF_GATE} and (${predicate(name, rule.sql)})` : STAFF_GATE;
   const staffWrite = def.staffWrite
     ? [
         // Reference data edited by the staff console (S2-04): any active staff member at the database level;
         // which staff role may write is the service's policy (`staff.taxonomy.write`).
         `create policy staff_select on ${t} for select to app_staff using (${STAFF_GATE});`,
-        `create policy staff_insert on ${t} for insert to app_staff with check (${STAFF_GATE});`,
-        `create policy staff_update on ${t} for update to app_staff using (${STAFF_GATE}) with check (${STAFF_GATE});`,
-        `create policy staff_delete on ${t} for delete to app_staff using (${STAFF_GATE});`,
-        `grant select, insert, update, delete on table ${t} to app_staff;`,
+        `create policy staff_insert on ${t} for insert to app_staff with check (${write});`,
+        `create policy staff_update on ${t} for update to app_staff using (${write}) with check (${write});`,
+        ...(rule?.noDelete
+          ? [`grant select, insert, update on table ${t} to app_staff;`]
+          : [
+              `create policy staff_delete on ${t} for delete to app_staff using (${write});`,
+              `grant select, insert, update, delete on table ${t} to app_staff;`,
+            ]),
       ]
     : [];
   // noUserRead (S3-F1): no app_user policy or grant; app_system bypasses RLS, staff have their own policies. With

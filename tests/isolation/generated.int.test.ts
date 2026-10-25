@@ -1026,10 +1026,18 @@ describe.each(globalNames)('global table %s', (table) => {
         );
         expect(up.rowCount).toBe(1);
       });
-      await rolledBackStaff(async (tx) => {
-        const del = await tx.execute(sql`delete from ${sql.identifier(table)} where ctid = ${ctid}::tid`);
-        expect(del.rowCount).toBe(1);
-      });
+      if (def.staffWrite !== true && def.staffWrite.noDelete) {
+        // S13-03: rows staff end but never remove — no DELETE grant.
+        await expectSqlState(
+          () => asStaff((tx) => tx.execute(sql`delete from ${sql.identifier(table)} where ctid = ${ctid}::tid`)),
+          DENIED,
+        );
+      } else {
+        await rolledBackStaff(async (tx) => {
+          const del = await tx.execute(sql`delete from ${sql.identifier(table)} where ctid = ${ctid}::tid`);
+          expect(del.rowCount).toBe(1);
+        });
+      }
       // `app_is_staff()` is false: no row is visible or changeable, and inserts fail the policy.
       expect(await asNotStaff(seen)).toBe(0);
       const none = await asNotStaff((tx) =>

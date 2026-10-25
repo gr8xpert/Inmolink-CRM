@@ -8,7 +8,10 @@
     "audit": "Audit log",
     "sessions": "Live sessions",
     "taxonomy": "Taxonomy",
-    "imports": "Import health"
+    "imports": "Import health",
+    "operations": "Operations",
+    "flags": "Feature flags",
+    "system": "Queues & AI"
   },
   "taxonomy": {
     "title": "Taxonomy",
@@ -268,6 +271,152 @@
       "FORBIDDEN": "Only data ops and super admins can resume a feed.",
       "FEED_CONNECTION_NOT_FOUND": "This feed no longer exists.",
       "VALIDATION_FAILED": "The request was not valid."
+    }
+  },
+  "ops": {
+    "operations": {
+      "title": "Bulk operations",
+      "intro": "Each operation runs as a background job, a step at a time: progress updates as it goes, and you can cancel it. Starting and cancelling are audited.",
+      "startTitle": "Start an operation",
+      "kind": "Operation",
+      "kinds": {
+        "REINDEX": "Re-index search",
+        "REBUILD_READ_MODELS": "Rebuild read models",
+        "REIMPORT": "Re-import feeds",
+        "REPLAY_OUTBOX": "Replay outbox events"
+      },
+      "agencyId": "Agency ID",
+      "agencyIdHint": "Leave empty to run it for every agency.",
+      "reason": "Reason",
+      "reasonHint": "The ticket or what broke (10–500 characters). Kept with the operation, not in the audit log.",
+      "replayTitle": "Outbox replay window (replay only)",
+      "since": "From (UTC)",
+      "until": "Until (UTC)",
+      "eventType": "Event type",
+      "deadOnly": "Only dead-lettered events",
+      "start": "Start",
+      "listTitle": "Recent operations",
+      "empty": "No operations yet.",
+      "allAgencies": "All agencies",
+      "states": {
+        "QUEUED": "Queued",
+        "RUNNING": "Running",
+        "SUCCEEDED": "Done",
+        "FAILED": "Failed",
+        "CANCELLED": "Cancelled"
+      },
+      "progress": "{done} of {total}",
+      "progressOpen": "{done} so far",
+      "cancelRequested": "Stopping…",
+      "cancel": "Cancel",
+      "created": "Started {date}",
+      "refresh": "Refresh",
+      "notices": {
+        "started": "Operation queued.",
+        "cancelled": "Cancellation requested."
+      },
+      "errors": {
+        "FORBIDDEN": "Only data ops and super admins run bulk operations.",
+        "STAFF_OPERATION_ACTIVE": "An operation of this kind and scope is already queued or running. Cancel it or wait for it to finish.",
+        "STAFF_OPERATION_NOT_FOUND": "That operation no longer exists.",
+        "NOT_FOUND": "No agency has that ID.",
+        "VALIDATION_FAILED": "Check the fields: a reason of 10–500 characters, and a replay window of at most 7 days.",
+        "OUTBOX_REPLAY_TYPE_REFUSED": "This event type cannot be replayed: its subscribers send e-mail, notify, bill, call AI or start work — or your role may replay only projection events (read models, search index, caches)."
+      }
+    },
+    "flags": {
+      "title": "Feature flags",
+      "intro": "Risky features ship dark, then to pilot agencies, then to everyone. Changes reach every server within 60 seconds and are audited.",
+      "empty": "No flags defined.",
+      "key": "Flag",
+      "default": "Default",
+      "on": "On",
+      "off": "Off",
+      "enabledFor": "On for {count, plural, one {# agency} other {# agencies}}",
+      "disabledFor": "Off for {count, plural, one {# agency} other {# agencies}}",
+      "turnOn": "Turn on for everyone",
+      "turnOff": "Turn off for everyone",
+      "overrideTitle": "Agency override",
+      "agencyId": "Agency ID",
+      "override": "Override",
+      "overrideOn": "On",
+      "overrideOff": "Off",
+      "overrideClear": "Clear (use the default)",
+      "apply": "Apply",
+      "readOnly": "Only super admins change flags.",
+      "notices": {
+        "saved": "Flag saved."
+      },
+      "errors": {
+        "FORBIDDEN": "Only super admins change flags.",
+        "NOT_FOUND": "No such flag or agency.",
+        "VALIDATION_FAILED": "Enter a valid agency ID."
+      }
+    },
+    "system": {
+      "title": "Queues and AI spend",
+      "feedHealth": "Feed health is on the import health page.",
+      "queuesTitle": "Worker queues",
+      "pool": "Pool",
+      "waiting": "Waiting",
+      "active": "Active",
+      "delayed": "Delayed",
+      "failed": "Failed",
+      "dead": "Dead-lettered",
+      "unreachable": "The job queue could not be reached.",
+      "aiTitle": "AI spend per agency",
+      "month": "Month",
+      "show": "Show",
+      "agency": "Agency",
+      "cost": "Spend (USD)",
+      "reserved": "Reserved (USD)",
+      "calls": "Calls",
+      "tokens": "Tokens in / out",
+      "total": "Total this month: {amount}",
+      "noSpend": "No AI spend this month.",
+      "unknownAgency": "Unknown agency"
+    },
+    "billing": {
+      "title": "Plan grants and price locks",
+      "grants": "Plan grants",
+      "noGrants": "No plan grants.",
+      "kinds": {
+        "TRIAL": "Trial",
+        "STAFF": "Staff grant"
+      },
+      "period": "{start} – {end}",
+      "revokedOn": "Revoked {date}",
+      "revoke": "Revoke",
+      "revokeReason": "Why revoke it",
+      "grantTitle": "Grant a plan",
+      "planCode": "Plan code",
+      "endsAt": "Until",
+      "reason": "Reason",
+      "grant": "Grant",
+      "locks": "Price locks",
+      "noLocks": "No price locks.",
+      "lockTitle": "Set a founding price",
+      "interval": "Billing period",
+      "intervals": {
+        "MONTH": "Monthly",
+        "YEAR": "Yearly"
+      },
+      "currency": "Currency",
+      "amount": "Price (excl. VAT)",
+      "setLock": "Set price lock",
+      "superAdminOnly": "Only super admins grant plans or set price locks.",
+      "notices": {
+        "granted": "Plan granted.",
+        "revoked": "Grant revoked.",
+        "locked": "Price lock saved."
+      },
+      "errors": {
+        "FORBIDDEN": "Only super admins grant plans or set price locks.",
+        "BILLING_PRICE_UNAVAILABLE": "That plan is not in the catalog.",
+        "BILLING_GRANT_NOT_FOUND": "That grant does not exist or was already revoked.",
+        "VALIDATION_FAILED": "Check the fields: a future end date and a reason (10–500 characters to revoke)."
+      },
+      "revokeReasonShown": "Revoke reason: {reason}"
     }
   }
 }

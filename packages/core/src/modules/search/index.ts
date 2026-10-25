@@ -81,6 +81,7 @@ export {
   publicCodeInUse,
   publicCodes,
   queueAgencyReadModelChanges,
+  queueAgencyTargetsPage,
   READ_MODEL_BATCH,
   type ReadModelKind,
   type RebuildResult,

@@ -8,6 +8,7 @@
 export { readCheckpoint, writeCheckpoint } from './checkpoint';
 export { closeQueues, configureQueue, producerConnection, type QueueConfig, queueFor } from './connection';
 export { type BacklogEntry, Fairness, MAX_PRIORITY } from './fairness';
+export { POOLS, type Pool, type PoolHealth, queueHealth } from './health';
 export {
   defineJob,
   type EnqueueOptions,

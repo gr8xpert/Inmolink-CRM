@@ -100,6 +100,8 @@ export const aiUsageMonthly = pgTable(
   (t) => [
     // budget check: where agency_id = ? and month = ?
     primaryKey({ columns: [t.agencyId, t.month] }),
+    // S13-03, the staff console's AI spend per tenant: where month = ? order by cost_micro_usd desc limit 100
+    index('ai_usage_monthly_month_idx').on(t.month),
     check('ai_usage_monthly_month_ck', sql`extract(day from ${t.month}) = 1`),
     check('ai_usage_monthly_reserved_ck', sql`${t.reservedMicroUsd} >= 0`),
   ],

@@ -10,6 +10,8 @@ import {
   PlanFeature as PlanFeatureSchema,
   type PlanGrantDto,
   type PriceLockBody,
+  STAFF_BILLING_LIST_LIMIT,
+  type StaffAgencyBillingDto,
   type StartCheckoutBody,
   type SubscriptionDto,
 } from '@inmolink/contracts';
@@ -377,12 +379,13 @@ export async function grantPlan(ctx: StaffCtx, input: GrantPlanBody): Promise<Pl
 
 /**
  * Ends a grant now (super admins) and announces the plan in force (`billing.plan.changed`). The plan falls back on the
- * agency's next request; the row stays, revoked.
+ * agency's next request; the row stays, revoked, with who revoked it and why (S13-03: the reason stays on the row, for
+ * staff — never in the agency's audit log).
  */
-export async function revokePlanGrant(ctx: StaffCtx, grantId: string): Promise<PlanGrantDto> {
+export async function revokePlanGrant(ctx: StaffCtx, grantId: string, reason: string): Promise<PlanGrantDto> {
   assertStaffCan(ctx, 'staff.billing.grant');
   const now = clock.now();
-  const row = await repo.revokeGrant(ctx.tx, grantId, ctx.actor.userId, now);
+  const row = await repo.revokeGrant(ctx.tx, grantId, ctx.actor.userId, now, reason);
   if (!row) throw new AppError('BILLING_GRANT_NOT_FOUND');
   const plan = await repo.planInForce(ctx.tx, row.agencyId, now, graceStart(now));
   await emit(ctx.tx, billingEvents.planChanged({ agencyId: row.agencyId, plan: plan.code, reason: 'GRANT_ENDED' }));
@@ -412,6 +415,26 @@ export async function setPriceLock(ctx: StaffCtx, input: PriceLockBody): Promise
     grantedBy: ctx.actor.userId,
   });
   return { id };
+}
+
+/**
+ * S13-03, the staff console: an agency's plan grants (trials and staff grants, revoked ones too) and price locks, at
+ * most `STAFF_BILLING_LIST_LIMIT` of each (an agency has a handful). Every staff role reads them. Two statements.
+ */
+export async function listAgencyBillingForStaff(ctx: StaffCtx, agencyId: string): Promise<StaffAgencyBillingDto> {
+  assertStaffCan(ctx, 'staff.billing.read');
+  const grants = await repo.listAgencyGrants(ctx.tx, agencyId, STAFF_BILLING_LIST_LIMIT);
+  const locks = await repo.listAgencyPriceLocks(ctx.tx, agencyId, STAFF_BILLING_LIST_LIMIT);
+  return {
+    grants: grants.map((g) => ({
+      ...toGrantDto(g),
+      reason: g.reason,
+      grantedBy: g.grantedBy,
+      revokedBy: g.revokedBy,
+      revokeReason: g.revokeReason,
+    })),
+    priceLocks: locks.map((l) => ({ ...l, endsAt: l.endsAt.toISOString() })),
+  };
 }
 
 function toGrantDto(g: repo.GrantRow): PlanGrantDto {

@@ -16,6 +16,10 @@ const SUPER_ADMIN_OR_OWN_SESSION =
 const SUPER_ADMIN =
   "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
 
+/** S13-03: the session is an active super admin or data ops member (staff bulk operations). */
+const STAFF_OPERATOR =
+  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)";
+
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 
 /** S12-F16: what a `definerSync` function does to a table — each gets its own `app_owner` policy, and nothing else. */
@@ -258,6 +262,16 @@ export type TenantTable = TenantBase &
       }
   );
 
+/**
+ * S13-03: `staffWrite` narrowed — INSERT and UPDATE (and DELETE unless `noDelete`) also need `sql` (ANDed with the
+ * active-staff gate), e.g. an active super admin. Reads stay open to every active staff member.
+ */
+export interface StaffWriteRule {
+  sql: string;
+  /** No DELETE grant or policy for `app_staff` (rows staff end, never remove). */
+  noDelete?: true;
+}
+
 export interface GlobalTable {
   /** Why this table has no `agency_id` (reviewed like an exception). */
   reason: string;
@@ -277,7 +291,7 @@ export interface GlobalTable {
    * UPDATE and DELETE every row, gated by `app_is_staff()` (an active staff member). Which staff role may
    * write is the module's policy; `app_system` and the readers are unchanged. Not for `access` tables.
    */
-  staffWrite?: true;
+  staffWrite?: true | StaffWriteRule;
   /**
    * `access: 'auth'` only: `app_auth` reaches only the rows of the user its flow is scoped to
    * (`user_id = app_user_id()`, set by `setAuthScope`) — for per-user secrets such as 2FA (S1-04), so
@@ -332,8 +346,9 @@ export const tenantTables: Record<string, TenantTable> = {
     // S12-04: a client's view, like or enquiry on a selection page, appended with its interaction.
     intakeAppend: { column: 'type', values: ['websites.lead.received', 'presentations.selection.interacted'] },
     staff: {
-      // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`).
-      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
+      // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
+      // asks for its job (`admin.operation.requested`, a platform event).
+      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR})`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -522,7 +537,7 @@ export const tenantTables: Record<string, TenantTable> = {
       select: 'true',
       insert: `kind = 'STAFF' and ${SUPER_ADMIN}`,
       update: SUPER_ADMIN,
-      updateColumns: ['revoked_at', 'revoked_by', 'ended_at'],
+      updateColumns: ['revoked_at', 'revoked_by', 'revoke_reason', 'ended_at'],
     },
   },
   billing_price_locks: {
@@ -647,7 +662,8 @@ export const tenantTables: Record<string, TenantTable> = {
       status: 'SUCCEEDED',
     },
   },
-  ai_usage_monthly: { kind: 'STRICT', userReadOnly: true, base: { month: '2026-01-01' } },
+  // S13-03: staff read every agency's spend (the console's AI spend per tenant).
+  ai_usage_monthly: { kind: 'STRICT', userReadOnly: true, staff: { select: 'true' }, base: { month: '2026-01-01' } },
   // S12-01: thumbs up/down on AI outputs — members append rows that name themselves (S12-01 review: `user_id` is the
   // session's user, so nobody files feedback as a colleague) and read their agency's; immutable — nobody edits or
   // deletes them, workers included.
@@ -1521,7 +1537,19 @@ export const globalTables: Record<string, GlobalTable> = {
     base: { tier: 'FAST', content_hash: '0'.repeat(64) },
   },
   // Staff-managed flags; per-agency overrides are ID lists, so agencies cannot enable their own (S0-07).
-  feature_flags: { reason: 'platform feature flags, written by staff via withSystem()' },
+  // S13-03: the staff console switches flags and per-agency overrides (super admins; the admin policy decides).
+  feature_flags: {
+    reason: 'platform feature flags, written by staff in the console',
+    staffWrite: { sql: SUPER_ADMIN },
+  },
+  // S13-03: staff bulk operations (reindex, rebuild read models, re-import, replay outbox), advanced by a worker job.
+  staff_operations: {
+    reason: 'staff bulk operations across agencies (platform ops)',
+    // S13-03 security review: data ops and super admins start and cancel them; never deleted by staff.
+    staffWrite: { sql: STAFF_OPERATOR, noDelete: true },
+    noUserRead: true,
+    base: { kind: 'REINDEX', reason: 'isolation', requested_by: '01900000-0000-7000-8000-0000000000aa' },
+  },
   // Login identity: looked up by email before any tenant is known; staff users have no agency (S0-09).
   // S10-06: `definerRead` — the calendar feed's definer lookup checks the feed member's login is ACTIVE (its status
   // only). Like every definer read, the function names the row it needs (here the feed's user id), never a scan.

@@ -5,6 +5,7 @@ import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@
 import { clientModePlugin } from './plugins/client-mode';
 import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
+import { adminRoutes } from './routes/admin/routes';
 import { agenciesRoutes } from './routes/agencies/routes';
 import { aiFeaturesRoutes } from './routes/ai-features/routes';
 import { billingRoutes } from './routes/billing/routes';
@@ -101,5 +102,6 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(matchingRoutes);
   await app.register(socialRoutes);
   await app.register(presentationsRoutes);
+  await app.register(adminRoutes);
   return app;
 }

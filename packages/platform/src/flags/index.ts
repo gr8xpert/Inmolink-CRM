@@ -160,3 +160,34 @@ export async function setFlagOverride(tx: SqlExecutor, key: string, agencyId: st
     returning key`);
   if (rows.length === 0) throw new AppError('NOT_FOUND', { flag: key });
 }
+
+export interface FlagListRow {
+  key: string;
+  description: string;
+  enabled: boolean;
+  enabledFor: string[];
+  disabledFor: string[];
+  updatedAt: Date;
+}
+
+/** Every flag in key order, at most `limit` (the staff console, S13-03). Staff (`app_staff`) or `withSystem()` `tx`. */
+export async function listFlags(tx: SqlExecutor, limit: number): Promise<FlagListRow[]> {
+  const { rows } = await tx.execute(sql`
+    select key, description, enabled, enabled_for, disabled_for, updated_at
+    from feature_flags order by key limit ${limit}`);
+  return rows.map((r) => ({
+    key: String(r.key),
+    description: String(r.description ?? ''),
+    enabled: r.enabled === true,
+    enabledFor: Array.isArray(r.enabled_for) ? r.enabled_for.map(String) : [],
+    disabledFor: Array.isArray(r.disabled_for) ? r.disabled_for.map(String) : [],
+    updatedAt: new Date(String(r.updated_at)),
+  }));
+}
+
+/** Whether a flag exists (staff console, S13-03: setting the default of an unknown key is refused, not created). */
+export async function flagExists(tx: SqlExecutor, key: string): Promise<boolean> {
+  assertKey(key);
+  const { rows } = await tx.execute(sql`select 1 from feature_flags where key = ${key}`);
+  return rows.length > 0;
+}

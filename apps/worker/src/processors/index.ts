@@ -1,5 +1,6 @@
 // S12-01: the AI gateway's usage and spend-mirror jobs.
 import { aiJobs } from '@inmolink/core';
+import { adminJobs } from '@inmolink/core/modules/admin';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
 import { aiFeaturesJobs, whiteLabelJobs } from '@inmolink/core/modules/ai-features';
 import { billingJobs } from '@inmolink/core/modules/billing';
@@ -144,6 +145,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     billingJobs.pruneStripeEvents,
     billingJobs.startTrial, // S13-02
     billingJobs.endPlanGrants, // S13-02
+    // S13-03: staff bulk operations (reindex, rebuild read models, re-import, replay outbox), step by step.
+    adminJobs.runStaffOperation,
+    adminJobs.sweepStaffOperations,
     // S10-08: expired data export files are deleted daily.
     dataExportJobs.sweepDataExports,
     propertiesJobs.failStaleBulkActions,

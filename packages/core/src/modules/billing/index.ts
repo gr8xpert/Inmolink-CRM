@@ -10,6 +10,7 @@ export {
   assertSeat,
   getBillingOverview,
   grantPlan,
+  listAgencyBillingForStaff,
   listInvoices,
   lockSeats,
   openCustomerPortal,

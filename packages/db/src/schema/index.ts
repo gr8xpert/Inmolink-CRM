@@ -3,6 +3,7 @@
  * the client gets typed relational queries. drizzle-kit reads `src/schema/*.ts` directly.
  */
 
+export * from './admin';
 export * from './agencies';
 export * from './ai';
 export * from './ai-features';

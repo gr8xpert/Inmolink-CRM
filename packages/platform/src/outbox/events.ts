@@ -92,6 +92,17 @@ export class SubscriberRegistry {
     return this.byKey.get(key(type, version)) ?? [];
   }
 
+  /** S13-03: every event (type, version) with its subscribers' names — the outbox replay allowlist test reads it. */
+  entries(): { type: string; version: number; names: string[] }[] {
+    return [...this.byKey.values()]
+      .filter((list) => list.length > 0)
+      .map((list) => ({
+        type: (list[0] as Subscriber).def.type,
+        version: (list[0] as Subscriber).def.version,
+        names: list.map((s) => s.name),
+      }));
+  }
+
   clear(): void {
     this.byKey.clear();
   }

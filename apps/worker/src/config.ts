@@ -25,29 +25,11 @@ import {
 } from '@inmolink/platform/config';
 import type { EmailConfig } from '@inmolink/platform/email';
 import { pdfEnv } from '@inmolink/platform/pdf';
+import { POOLS, type Pool } from '@inmolink/platform/queue';
 import { z } from 'zod';
 
-/** Worker pools (workers.md); each can run on its own node via `WORKER_POOLS`. */
-export const POOLS = [
-  'outbox',
-  'imports',
-  'media',
-  'indexing',
-  'matching',
-  'exports',
-  'email',
-  // S11 review: live socket pushes (chat messages, read receipts, in-app notifications) — no mail, no digests.
-  'realtime',
-  // S11 review: notification e-mail digests, bursty (a broad network post), in their own queue and slots.
-  'digest',
-  'ai',
-  // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds — the only queue feed-api can write.
-  'ai-usage',
-  'social',
-  'pdf',
-  'maintenance',
-] as const;
-export type Pool = (typeof POOLS)[number];
+/** Worker pools (workers.md): the list lives in `@inmolink/platform/queue` (S13-03: the staff queue health reads it). */
+export { POOLS, type Pool };
 
 const poolsVar = z
   .string()

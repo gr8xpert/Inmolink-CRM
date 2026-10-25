@@ -32,10 +32,22 @@ function assertNarrowed(filter: ReplayFilter): void {
   }
 }
 
-/** Counts events a replay would reset. */
-export async function countReplayable(tx: SqlExecutor, filter: ReplayFilter): Promise<number> {
+/**
+ * Counts events a replay would reset. With `cap` (S13-03), stops counting past it: the answer is at most `cap + 1`, so a
+ * huge window costs no more than `cap` index entries.
+ */
+export async function countReplayable(
+  tx: SqlExecutor,
+  filter: ReplayFilter,
+  options: { cap?: number } = {},
+): Promise<number> {
   assertNarrowed(filter);
-  const { rows } = await tx.execute(sql`select count(*)::int as n from outbox_events where ${where(filter)}`);
+  const { rows } =
+    options.cap === undefined
+      ? await tx.execute(sql`select count(*)::int as n from outbox_events where ${where(filter)}`)
+      : await tx.execute(
+          sql`select count(*)::int as n from (select 1 from outbox_events where ${where(filter)} limit ${options.cap + 1}) c`,
+        );
   return Number(rows[0]?.n ?? 0);
 }
 

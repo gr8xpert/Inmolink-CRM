@@ -919,3 +919,18 @@ export function ensureListingsIndex(
 export function listingAlertStatesPage(tx: Tx, after: string | null, limit: number) {
   return repo.alertStatesPage(tx, after, limit);
 }
+
+/**
+ * S13-03 (a staff bulk operation's step): queues one page (≤ `limit` targets of `kind`, after `after`) of an agency's
+ * read-model rebuild — or, `index`, of its index pushes — in a transaction of its own. `last` is null once the kind is
+ * done (`delayMs`: when the queued rebuilds are due). The caller asks for the build / sync run (`requestReadModelBuild`, `requestIndexSync`) after it.
+ */
+export function queueAgencyTargetsPage(
+  what: 'readModel' | 'index',
+  page: { agencyId: string; kind: ReadModelKind; after: string | null; limit: number },
+  delayMs = 0,
+): Promise<{ queued: number; last: string | null }> {
+  return withSystem(`search.queueAgencyTargetsPage ${what}`, (tx) =>
+    what === 'readModel' ? repo.queueAgencyReadModels(tx, page, delayMs) : repo.queueAgencyIndexSync(tx, page),
+  );
+}

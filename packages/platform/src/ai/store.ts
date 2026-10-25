@@ -374,3 +374,44 @@ export async function syncPromptVersions(tx: SqlExecutor, prompts: readonly Prom
   }
   return added;
 }
+
+export interface AiSpendRow {
+  agencyId: string;
+  costMicroUsd: number;
+  reservedMicroUsd: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * The month's AI spend per agency, highest first, at most `limit`, and the month's total (S13-03, the staff console).
+ * `month` is the first day (`usageMonth`). Reads `ai_usage_monthly` off `ai_usage_monthly_month_idx` (one month's rows:
+ * at most one per agency); `tx` is a staff (`app_staff`) or `withSystem()` transaction.
+ */
+export async function aiSpendByAgency(
+  tx: SqlExecutor,
+  month: string,
+  limit: number,
+): Promise<{ totalMicroUsd: number; rows: AiSpendRow[] }> {
+  const { rows } = await tx.execute(sql`
+    select agency_id, cost_micro_usd, reserved_micro_usd, calls, input_tokens, output_tokens,
+           sum(cost_micro_usd) over () as total
+    from ai_usage_monthly
+    where month = ${month}::date
+    order by cost_micro_usd desc, agency_id
+    limit ${limit}`);
+  let totalMicroUsd = 0;
+  if (rows.length > 0) totalMicroUsd = Number(rows[0]?.total ?? 0);
+  return {
+    totalMicroUsd,
+    rows: rows.map((r) => ({
+      agencyId: String(r.agency_id),
+      costMicroUsd: Number(r.cost_micro_usd),
+      reservedMicroUsd: Number(r.reserved_micro_usd),
+      calls: Number(r.calls),
+      inputTokens: Number(r.input_tokens),
+      outputTokens: Number(r.output_tokens),
+    })),
+  };
+}

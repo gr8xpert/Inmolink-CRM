@@ -349,6 +349,15 @@ export const ErrorCodes = {
   BILLING_WEBHOOK_INVALID: 400,
   /** S13-02: no such plan grant, or it was already revoked. */
   BILLING_GRANT_NOT_FOUND: 404,
+  /** S13-03: no such staff bulk operation. */
+  STAFF_OPERATION_NOT_FOUND: 404,
+  /** S13-03: an operation of this kind and scope is already queued or running (one at a time): cancel it first. */
+  STAFF_OPERATION_ACTIVE: 409,
+  /**
+   * S13-03: this event type is never replayed (its subscribers mail, notify, bill, call AI or start work), or the caller's
+   * staff role may not replay it (data ops replay projection-only events; super admins others, by type).
+   */
+  OUTBOX_REPLAY_TYPE_REFUSED: 422,
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,

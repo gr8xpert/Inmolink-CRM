@@ -61,7 +61,14 @@ export {
   uploadAgencyLogo,
 } from './settings';
 export { registerAgenciesSubscriptions, unregisterAgenciesSubscriptions } from './subscriptions';
-export { agencyNames, getTenant, getTenantSummary, listTenants } from './tenants';
+export {
+  agencyIdsPage,
+  agencyNames,
+  countAgencies,
+  getTenant,
+  getTenantSummary,
+  listTenants,
+} from './tenants';
 export {
   DOCUMENT_URL_TTL_SECONDS,
   decideVerification,

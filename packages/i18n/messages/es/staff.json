@@ -8,7 +8,10 @@
     "audit": "Registro de auditoría",
     "sessions": "Sesiones activas",
     "taxonomy": "Taxonomía",
-    "imports": "Estado de importaciones"
+    "imports": "Estado de importaciones",
+    "operations": "Operaciones",
+    "flags": "Feature flags",
+    "system": "Colas e IA"
   },
   "taxonomy": {
     "title": "Taxonomía",
@@ -268,6 +271,152 @@
       "FORBIDDEN": "Solo data ops y los superadministradores pueden reanudar un feed.",
       "FEED_CONNECTION_NOT_FOUND": "Este feed ya no existe.",
       "VALIDATION_FAILED": "La solicitud no es válida."
+    }
+  },
+  "ops": {
+    "operations": {
+      "title": "Operaciones masivas",
+      "intro": "Cada operación se ejecuta como tarea en segundo plano, paso a paso: el progreso se actualiza sobre la marcha y puedes cancelarla. Iniciarla y cancelarla queda auditado.",
+      "startTitle": "Iniciar una operación",
+      "kind": "Operación",
+      "kinds": {
+        "REINDEX": "Reindexar la búsqueda",
+        "REBUILD_READ_MODELS": "Reconstruir modelos de lectura",
+        "REIMPORT": "Reimportar feeds",
+        "REPLAY_OUTBOX": "Reenviar eventos del outbox"
+      },
+      "agencyId": "ID de la agencia",
+      "agencyIdHint": "Déjalo vacío para ejecutarla en todas las agencias.",
+      "reason": "Motivo",
+      "reasonHint": "El ticket o lo que falló (10–500 caracteres). Se guarda con la operación, no en el registro de auditoría.",
+      "replayTitle": "Ventana de reenvío del outbox (solo reenvío)",
+      "since": "Desde (UTC)",
+      "until": "Hasta (UTC)",
+      "eventType": "Tipo de evento",
+      "deadOnly": "Solo eventos en dead-letter",
+      "start": "Iniciar",
+      "listTitle": "Operaciones recientes",
+      "empty": "Todavía no hay operaciones.",
+      "allAgencies": "Todas las agencias",
+      "states": {
+        "QUEUED": "En cola",
+        "RUNNING": "En curso",
+        "SUCCEEDED": "Hecha",
+        "FAILED": "Fallida",
+        "CANCELLED": "Cancelada"
+      },
+      "progress": "{done} de {total}",
+      "progressOpen": "{done} hasta ahora",
+      "cancelRequested": "Deteniendo…",
+      "cancel": "Cancelar",
+      "created": "Iniciada {date}",
+      "refresh": "Actualizar",
+      "notices": {
+        "started": "Operación en cola.",
+        "cancelled": "Cancelación solicitada."
+      },
+      "errors": {
+        "FORBIDDEN": "Solo data ops y superadministradores ejecutan operaciones masivas.",
+        "STAFF_OPERATION_ACTIVE": "Ya hay una operación de este tipo y alcance en cola o en curso. Cancélala o espera a que termine.",
+        "STAFF_OPERATION_NOT_FOUND": "Esa operación ya no existe.",
+        "NOT_FOUND": "Ninguna agencia tiene ese ID.",
+        "VALIDATION_FAILED": "Revisa los campos: un motivo de 10–500 caracteres y una ventana de reenvío de 7 días como máximo.",
+        "OUTBOX_REPLAY_TYPE_REFUSED": "Este tipo de evento no se puede reenviar: sus suscriptores envían e-mails, notifican, facturan, llaman a la IA o inician trabajos — o tu rol solo puede reenviar eventos de proyección (modelos de lectura, índice de búsqueda, cachés)."
+      }
+    },
+    "flags": {
+      "title": "Feature flags",
+      "intro": "Las funciones arriesgadas salen ocultas, luego a agencias piloto y después a todas. Los cambios llegan a todos los servidores en 60 segundos y quedan auditados.",
+      "empty": "No hay flags definidos.",
+      "key": "Flag",
+      "default": "Por defecto",
+      "on": "Activado",
+      "off": "Desactivado",
+      "enabledFor": "Activado para {count, plural, one {# agencia} other {# agencias}}",
+      "disabledFor": "Desactivado para {count, plural, one {# agencia} other {# agencias}}",
+      "turnOn": "Activar para todas",
+      "turnOff": "Desactivar para todas",
+      "overrideTitle": "Excepción por agencia",
+      "agencyId": "ID de la agencia",
+      "override": "Excepción",
+      "overrideOn": "Activado",
+      "overrideOff": "Desactivado",
+      "overrideClear": "Quitar (usar el valor por defecto)",
+      "apply": "Aplicar",
+      "readOnly": "Solo los superadministradores cambian flags.",
+      "notices": {
+        "saved": "Flag guardado."
+      },
+      "errors": {
+        "FORBIDDEN": "Solo los superadministradores cambian flags.",
+        "NOT_FOUND": "No existe ese flag o esa agencia.",
+        "VALIDATION_FAILED": "Introduce un ID de agencia válido."
+      }
+    },
+    "system": {
+      "title": "Colas y gasto de IA",
+      "feedHealth": "El estado de los feeds está en la página de salud de importaciones.",
+      "queuesTitle": "Colas de trabajo",
+      "pool": "Pool",
+      "waiting": "En espera",
+      "active": "Activas",
+      "delayed": "Diferidas",
+      "failed": "Fallidas",
+      "dead": "En dead-letter",
+      "unreachable": "No se pudo acceder a la cola de trabajos.",
+      "aiTitle": "Gasto de IA por agencia",
+      "month": "Mes",
+      "show": "Mostrar",
+      "agency": "Agencia",
+      "cost": "Gasto (USD)",
+      "reserved": "Reservado (USD)",
+      "calls": "Llamadas",
+      "tokens": "Tokens entrada / salida",
+      "total": "Total del mes: {amount}",
+      "noSpend": "Sin gasto de IA este mes.",
+      "unknownAgency": "Agencia desconocida"
+    },
+    "billing": {
+      "title": "Planes concedidos y precios bloqueados",
+      "grants": "Planes concedidos",
+      "noGrants": "Sin planes concedidos.",
+      "kinds": {
+        "TRIAL": "Prueba",
+        "STAFF": "Concesión del staff"
+      },
+      "period": "{start} – {end}",
+      "revokedOn": "Revocado el {date}",
+      "revoke": "Revocar",
+      "revokeReason": "Por qué se revoca",
+      "grantTitle": "Conceder un plan",
+      "planCode": "Código del plan",
+      "endsAt": "Hasta",
+      "reason": "Motivo",
+      "grant": "Conceder",
+      "locks": "Precios bloqueados",
+      "noLocks": "Sin precios bloqueados.",
+      "lockTitle": "Fijar un precio fundador",
+      "interval": "Periodo de facturación",
+      "intervals": {
+        "MONTH": "Mensual",
+        "YEAR": "Anual"
+      },
+      "currency": "Moneda",
+      "amount": "Precio (sin IVA)",
+      "setLock": "Fijar precio",
+      "superAdminOnly": "Solo los superadministradores conceden planes o fijan precios.",
+      "notices": {
+        "granted": "Plan concedido.",
+        "revoked": "Concesión revocada.",
+        "locked": "Precio bloqueado guardado."
+      },
+      "errors": {
+        "FORBIDDEN": "Solo los superadministradores conceden planes o fijan precios.",
+        "BILLING_PRICE_UNAVAILABLE": "Ese plan no está en el catálogo.",
+        "BILLING_GRANT_NOT_FOUND": "Esa concesión no existe o ya se revocó.",
+        "VALIDATION_FAILED": "Revisa los campos: una fecha de fin futura y un motivo (10–500 caracteres para revocar)."
+      },
+      "revokeReasonShown": "Motivo de la revocación: {reason}"
     }
   }
 }

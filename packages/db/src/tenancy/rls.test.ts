@@ -642,6 +642,21 @@ describe('RLS generator', () => {
     ).toThrow(/noUserRead/);
   });
 
+  it('[S13-03] a narrowed staffWrite: writes need its predicate too; noDelete drops the DELETE policy and grant', () => {
+    const def = { reason: 'ops', noUserRead: true, staffWrite: { sql: 'role_ok', noDelete: true } } as const;
+    const sql = generateRlsSql({ tenant: {}, global: { ops: def } });
+    expect(sql).toContain(
+      'create policy staff_select on public."ops" for select to app_staff using ((select public.app_is_staff()));',
+    );
+    expect(sql).toContain(
+      'create policy staff_insert on public."ops" for insert to app_staff with check ((select public.app_is_staff()) and (role_ok));',
+    );
+    expect(sql).toContain('grant select, insert, update on table public."ops" to app_staff;');
+    expect(sql).not.toContain('staff_delete on public."ops"');
+    expect(expectedPrivileges(def).app_staff).toEqual(['SELECT', 'INSERT', 'UPDATE']);
+    expect(expectedPolicies(def).map((p) => p.name)).not.toContain('staff_delete');
+  });
+
   it('[S6-F1] noUserRead with publicRead: app_public alone reads the global table', () => {
     const def = { reason: 'fallback rows', publicRead: true, noUserRead: true } as const;
     const sql = generateRlsSql({ tenant: {}, global: { docs: def } });

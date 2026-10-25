@@ -5,7 +5,9 @@ import { getFormatter, getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { requireStaff } from '@/server/staff';
 import { fetchStaffAuditLog, fetchTenant, fetchTenantMembers } from '@/server/staff-api';
+import { fetchAgencyBilling } from '@/server/staff-ops-api';
 import { setGiveToGetExemptionAction, startImpersonationAction } from '../../actions';
+import { PlanGrants } from './plan-grants';
 
 const ERRORS = ['FORBIDDEN', 'NOT_FOUND', 'IMPERSONATION_TARGET_INVALID', 'VALIDATION_FAILED', 'generic'] as const;
 const MINUTES = [15, IMPERSONATION_DEFAULT_MINUTES, IMPERSONATION_MAX_MINUTES];
@@ -26,12 +28,15 @@ export default async function TenantPage({
   if (!parsed.success) notFound();
   const { agencyId } = parsed.data;
   const canImpersonate = me.role !== 'STAFF_DATA_OPS';
-  const [tenant, members, audit] = await Promise.all([
+  const [tenant, members, audit, billing] = await Promise.all([
     fetchTenant(session, agencyId),
     canImpersonate ? fetchTenantMembers(session, agencyId) : Promise.resolve(null),
     canImpersonate ? fetchStaffAuditLog(session, { agencyId, limit: 20 }) : Promise.resolve(null),
+    fetchAgencyBilling(session, agencyId),
   ]);
-  if (tenant === 'revoked' || members === 'revoked' || audit === 'revoked') redirect('/session/expired');
+  if (tenant === 'revoked' || members === 'revoked' || audit === 'revoked' || billing === 'revoked') {
+    redirect('/session/expired');
+  }
   if (!tenant.ok && tenant.status === 404) notFound();
   const t = await getTranslations('staff');
   const format = await getFormatter();
@@ -133,6 +138,15 @@ export default async function TenantPage({
           </dd>
         </dl>
       </section>
+
+      {/* S13-03: plan grants and founding price locks (super admins change them). */}
+      <PlanGrants
+        agencyId={a.id}
+        data={billing.ok ? billing.data : null}
+        canGrant={me.role === 'SUPER_ADMIN'}
+        notice={query.billingNotice}
+        error={query.billingError}
+      />
 
       {members ? (
         <section aria-labelledby="members-heading" className="flex flex-col gap-2">

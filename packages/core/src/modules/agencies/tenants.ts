@@ -1,4 +1,5 @@
 import type { TenantDetailDto, TenantListQuery, TenantPage } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { AppError } from '@inmolink/platform/errors';
 import type { StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
@@ -73,4 +74,17 @@ export async function agencyNames(ctx: StaffCtx, ids: readonly string[]): Promis
   assertStaffCan(ctx, 'staff.tenants.read');
   const rows = await tenantsRepo.agencyNames(ctx.tx, [...new Set(ids)]);
   return new Map(rows.map((r) => [r.id, r.name]));
+}
+
+/**
+ * S13-03: a page of every agency's id in id order (`withSystem`, a staff bulk operation's worker step). Ids only; the
+ * caller's transaction decides what it may see.
+ */
+export function agencyIdsPage(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  return tenantsRepo.agencyIdsPage(tx, after, limit);
+}
+
+/** S13-03: the number of agencies (a bulk operation's total). */
+export function countAgencies(tx: Tx): Promise<number> {
+  return tenantsRepo.countAgencies(tx);
 }

@@ -30,6 +30,15 @@ export default async function StaffLayout({ children }: { children: ReactNode })
           <Link href="/staff/imports" className="font-medium underline-offset-4 hover:underline">
             {t('console.imports')}
           </Link>
+          <Link href="/staff/operations" className="font-medium underline-offset-4 hover:underline">
+            {t('console.operations')}
+          </Link>
+          <Link href="/staff/flags" className="font-medium underline-offset-4 hover:underline">
+            {t('console.flags')}
+          </Link>
+          <Link href="/staff/system" className="font-medium underline-offset-4 hover:underline">
+            {t('console.system')}
+          </Link>
           {me.role === 'SUPER_ADMIN' ? (
             <Link href="/staff/sessions" className="font-medium underline-offset-4 hover:underline">
               {t('console.sessions')}

@@ -110,3 +110,20 @@ export async function agencyNames(tx: Tx, ids: readonly string[]): Promise<{ id:
     .from(agencies)
     .where(inArray(agencies.id, [...ids]));
 }
+
+/** S13-03: a page of agency ids in id order after `after` (staff bulk operations walk every agency). Primary key walk. */
+export async function agencyIdsPage(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  const rows = await tx
+    .select({ id: agencies.id })
+    .from(agencies)
+    .where(after ? sql`${agencies.id} > ${after}::uuid` : undefined)
+    .orderBy(agencies.id)
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/** S13-03: how many agencies there are (a bulk operation's total). */
+export async function countAgencies(tx: Tx): Promise<number> {
+  const [row] = await tx.select({ n: sql<number>`count(*)::int` }).from(agencies);
+  return row?.n ?? 0;
+}

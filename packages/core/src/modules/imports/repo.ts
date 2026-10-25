@@ -1143,3 +1143,30 @@ export async function agencyImportActive(tx: Tx, agencyId: string): Promise<bool
     .limit(1);
   return rows.length > 0;
 }
+
+/**
+ * S13-03 (staff re-import): queues a MANUAL run for each enabled, unpaused connection of one agency (at most `limit`),
+ * unless one is already active (the per-connection mutex makes that a no-op). One statement; answers the runs queued.
+ */
+export async function queueAgencyRuns(
+  tx: Tx,
+  agencyId: string,
+  limit: number,
+  newIds: () => string,
+): Promise<{ id: string; connectionId: string }[]> {
+  const conns = await tx.execute<{ id: string }>(sql`
+    select id from feed_connections
+    where agency_id = ${agencyId}::uuid and enabled and paused_at is null
+    order by id
+    limit ${limit}`);
+  if (conns.rows.length === 0) return [];
+  const ids = conns.rows.map((r) => r.id);
+  const runIds = ids.map(() => newIds());
+  const r = await tx.execute<{ id: string; connection_id: string }>(sql`
+    insert into feed_runs (id, agency_id, connection_id, trigger)
+    select run_id, ${agencyId}::uuid, connection_id, 'MANUAL'::feed_run_trigger
+    from unnest(${uuidArray(runIds)}, ${uuidArray(ids)}) as t(run_id, connection_id)
+    on conflict (connection_id) where state in ('QUEUED', 'RUNNING') do nothing
+    returning id, connection_id`);
+  return r.rows.map((x) => ({ id: x.id, connectionId: x.connection_id }));
+}

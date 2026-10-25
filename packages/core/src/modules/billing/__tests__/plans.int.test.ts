@@ -265,12 +265,13 @@ describe('plan gates (S13-02)', () => {
     });
     expect(stored).toEqual({ granted_by: superAdmin, reason: body.reason });
 
-    const revoked = await asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id));
+    const revoked = await asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id, 'Ticket 9: pilot ended'));
     expect(revoked.revokedAt).not.toBeNull();
     expect(await as(m, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code)).toBe('free');
-    expect((await refusal(asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id)))).code).toBe(
-      'BILLING_GRANT_NOT_FOUND',
-    );
+    expect(
+      (await refusal(asStaff(superAdmin, (ctx) => billing.revokePlanGrant(ctx, grant.id, 'Ticket 9: pilot ended'))))
+        .code,
+    ).toBe('BILLING_GRANT_NOT_FOUND');
     expect(await planEvents(m.agencyId)).toEqual([
       { plan: 'business', reason: 'GRANT_STARTED' },
       { plan: 'free', reason: 'GRANT_ENDED' },

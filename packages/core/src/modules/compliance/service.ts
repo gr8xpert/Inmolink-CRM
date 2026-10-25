@@ -100,6 +100,19 @@ export const AUDIT_TYPES = [
   'staff.members.read',
   'staff.taxonomy.changed',
   'staff.imports.resumed',
+  // S13-03: staff console operations. A bulk operation started / cancelled by staff (target: the operation; metadata:
+  // kind, scope — never the reason text) and its end (actor: system; metadata: state, done, total).
+  'staff.operation.started',
+  'staff.operation.cancelled',
+  'staff.operation.finished',
+  // S13-03: a feature flag's default or one agency's override changed (metadata: key, value, agencyId).
+  'staff.featureFlag.changed',
+  // S13-03: a plan granted / a grant revoked (metadata: plan, end — the reasons stay on the grant row, for staff) and a
+  // founding price lock set (metadata: plan, interval, currency, amount, end). `staff.*`: app_staff
+  // appends only `staff.*` and `agencies.*` rows (registry `audit_logs`).
+  'staff.billing.planGranted',
+  'staff.billing.grantRevoked',
+  'staff.billing.priceLockSet',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
   // S11-01: a client registration refused because another agency registered the client first (probe budget).
@@ -160,7 +173,11 @@ export interface AuditTarget {
     | 'networkPost'
     // S12-07
     | 'socialAccount'
-    | 'socialPost';
+    | 'socialPost'
+    // S13-03
+    | 'staffOperation'
+    | 'planGrant'
+    | 'priceLock';
   id: string;
 }
 
