@@ -297,27 +297,37 @@ it("[S12-F20] EXPLAIN on scale: the listings list's second page has its cursor i
   const firstIds = new Set(first.items.map((i) => i.id));
   expect(second.items.some((i) => firstIds.has(i.id))).toBe(false);
 
-  // the statement `repo.listOwn` builds for that page (newest; and one filter's index), EXPLAINed as `app_user`
-  const [last] = await rows<{ id: string; at_us: string }>(sql`
-    select id, to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at_us from properties
-     where agency_id = ${big.agencyId} and deleted_at is null order by created_at desc, id desc offset 49 limit 1`);
-  if (!last) throw new Error('no 50th listing');
-  const after = `(created_at, id) < ('${last.at_us}'::timestamptz, '${last.id}'::uuid)`;
+  // The statements `repo.listOwn` builds for a next page, EXPLAINed as `app_user` under RLS (`withTenant`), both index
+  // sets present (S12-F20 is the expand step; S12-F20b drops the `date_trunc` ones). What is checked is that the raw
+  // cursor CAN be an index condition under RLS (leakproof `timestamptz`/`uuid` row comparison) — the `date_trunc`
+  // form never could. Which plan the cost model picks is not: `properties`' NETWORK_READ policy is an `or`, and on a
+  // fresh database (CI) ANALYZE's sample flips the cheapest page-2 plan between the ordered index walk and a
+  // BitmapOr over both policy branches plus a top-N sort (a few rows either way). So, like the other scale plans that
+  // pin a plan family, the EXPLAIN steers to ordered index paths (no sort, no bitmap) for its own transaction.
+  await system((tx) => tx.execute(sql`analyze properties`));
+  const cursorAt = async (offset: number) => {
+    const [row] = await rows<{ id: string; at_us: string }>(sql`
+      select id, to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at_us from properties
+       where agency_id = ${big.agencyId} and deleted_at is null
+       order by created_at desc, id desc offset ${offset} limit 1`);
+    if (!row) throw new Error(`no listing ${offset + 1}`);
+    return `(created_at, id) < ('${row.at_us}'::timestamptz, '${row.id}'::uuid)`;
+  };
   const live = `agency_id = '${big.agencyId}' and deleted_at is null`;
-  const statements: [string, string, string][] = [
-    [
-      'newest, page 2',
-      `select id, ref from properties where ${live} and ${after} order by created_at desc, id desc limit 51`,
-      'properties_agency_created_raw_idx',
-    ],
-    [
-      'status, newest, page 2',
-      `select id, ref from properties where ${live} and status_code = 4 and ${after} order by created_at desc, id desc limit 51`,
-      '',
-    ],
+  const newest = (after: string, extra = '') =>
+    `select id, ref from properties where ${live} ${extra} and ${after} order by created_at desc, id desc limit 51`;
+  const page2 = await cursorAt(49);
+  const deep = await cursorAt(2_499);
+  const statements: [name: string, statement: string, index: string][] = [
+    ['newest, page 2', newest(page2), 'properties_agency_created_raw_idx'],
+    ['status, newest, page 2', newest(page2, 'and status_code = 4'), 'properties_agency_status_raw_idx'],
+    ['newest, page 50', newest(deep), 'properties_agency_created_raw_idx'],
   ];
   for (const [name, statement, index] of statements) {
     const plan = await withTenant({ agencyId: big.agencyId, userId: big.userId }, async (tx) => {
+      await tx.execute(sql`set local enable_sort = off`);
+      await tx.execute(sql`set local enable_incremental_sort = off`);
+      await tx.execute(sql`set local enable_bitmapscan = off`);
       await tx.execute(sql.raw(statement)); // warm
       const res = await tx.execute<{ 'QUERY PLAN': unknown }>(
         sql.raw(`explain (analyze, buffers, format json) ${statement}`),
@@ -327,12 +337,12 @@ it("[S12-F20] EXPLAIN on scale: the listings list's second page has its cursor i
     const text = JSON.stringify(plan[0].Plan);
     log.info(
       { list: name, index: /"Index Name":"([a-z_]+)"/.exec(text)?.[1], ms: plan[0]['Execution Time'] },
-      'S12-F20 second page',
+      'S12-F20 next page',
     );
-    if (index) expect(text, name).toContain(`"Index Name":"${index}"`);
+    expect(text, name).toContain(`"Index Name":"${index}"`);
     // the cursor is part of the index condition (a row comparison), never a filter over the agency's range
     expect(/"Index Cond":"[^"]*ROW\(created_at, id\) < ROW\(/.test(text), name).toBe(true);
-    expect(/"Filter":"[^"]*created_at/.test(text), name).toBe(false);
+    expect(/"Filter":"[^"]*ROW\(created_at, id\)/.test(text), name).toBe(false);
     expect(seqScansOn(plan[0].Plan, 'properties'), name).toEqual([]);
     expect(plan[0]['Execution Time'], name).toBeLessThan(20);
   }
