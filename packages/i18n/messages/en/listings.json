@@ -164,6 +164,24 @@
         "HUMAN": "Written",
         "AI_DRAFT": "AI draft",
         "REVIEWED": "Reviewed"
+      },
+      "studio": {
+        "title": "Write with AI",
+        "hint": "Drafts a title, description and SEO text in every enabled language from the listing's facts and photos. Locked languages are never overwritten, and drafts stay marked until you review them.",
+        "tone": "Tone",
+        "tones": {
+          "PROFESSIONAL": "Professional",
+          "WARM": "Warm",
+          "LUXURY": "Luxury",
+          "CONCISE": "Concise",
+          "INVESTOR": "Investor"
+        },
+        "replaceReviewed": "Also rewrite texts a person wrote or reviewed (locked ones never)",
+        "run": "Write drafts",
+        "queued": "The drafts are being written. Reload in a minute to see them.",
+        "reload": "Reload",
+        "approve": "Mark as reviewed",
+        "draftNotice": "This text is an AI draft: check every fact before you publish it."
       }
     },
     "freshness": {

@@ -100,6 +100,16 @@ export {
   restoreListing,
   updateListing,
 } from './service';
+// S12-02: the AI Listing Studio's facts and drafts.
+export {
+  assertStudioEditable,
+  type StudioDraft,
+  type StudioListing,
+  type StudioTranslation,
+  saveListingAiDrafts,
+  studioEditableIds,
+  studioListings,
+} from './studio';
 export { registerPropertiesSubscriptions, unregisterPropertiesSubscriptions } from './subscriptions';
 export { createListingView, deleteListingView, listListingViews, updateListingView } from './views';
 // Never export repo or schema.

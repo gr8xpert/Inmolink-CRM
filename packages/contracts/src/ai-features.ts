@@ -1,0 +1,58 @@
+/** ai-features DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
+import { z } from 'zod';
+import { ContentLocaleCode } from './properties';
+
+// ---- Listing Studio (S12-02, PLAN §8 #1, §3 #15) ----------------------------------------------------------------
+
+/** Tone presets the agent picks; the prompt file says what each one means. */
+export const LISTING_STUDIO_TONES = ['PROFESSIONAL', 'WARM', 'LUXURY', 'CONCISE', 'INVESTOR'] as const;
+export const ListingStudioTone = z.enum(LISTING_STUDIO_TONES);
+export type ListingStudioTone = z.infer<typeof ListingStudioTone>;
+
+/** Listings per bulk request (one batch job; its payload stays under the 10 KB job cap). */
+export const LISTING_STUDIO_BULK_MAX = 100;
+
+const studioOptions = {
+  tone: ListingStudioTone.default('PROFESSIONAL'),
+  /** Content locales to write; default: every locale the agency has enabled. Each must be enabled. */
+  locales: z
+    .array(ContentLocaleCode)
+    .min(1)
+    .max(20)
+    .refine((l) => new Set(l).size === l.length, 'duplicate locale')
+    .optional(),
+  /**
+   * Also regenerate texts a person wrote or reviewed (HUMAN, REVIEWED) when they are not locked. Default: only
+   * missing locales and earlier AI drafts. A locked locale is never overwritten.
+   */
+  replaceReviewed: z.boolean().default(false),
+};
+
+/** `POST /v1/listings/:id/studio`: AI drafts of title, description and SEO text for one listing (a worker job). */
+export const ListingStudioBody = z.object(studioOptions).strict();
+export type ListingStudioBody = z.infer<typeof ListingStudioBody>;
+
+/** `POST /v1/listings/studio/bulk`: the same for many listings, as one discounted batch job. */
+export const ListingStudioBulkBody = z
+  .object({
+    ...studioOptions,
+    listingIds: z
+      .array(z.uuid())
+      .min(1)
+      .max(LISTING_STUDIO_BULK_MAX)
+      .refine((l) => new Set(l).size === l.length, 'duplicate listing'),
+  })
+  .strict();
+export type ListingStudioBulkBody = z.infer<typeof ListingStudioBulkBody>;
+
+/**
+ * 202 of both: the job is queued. Drafts arrive as `AI_DRAFT` translations (the editor reloads the listing's
+ * content); `skipped` are listings the caller may not edit (bulk only).
+ */
+export const ListingStudioAcceptedDto = z.object({
+  requestId: z.uuid(),
+  listings: z.number().int(),
+  skipped: z.number().int(),
+  locales: z.array(z.string()),
+});
+export type ListingStudioAcceptedDto = z.infer<typeof ListingStudioAcceptedDto>;

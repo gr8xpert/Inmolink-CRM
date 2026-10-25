@@ -5,6 +5,7 @@
 
 export * from './agencies';
 export * from './ai';
+export * from './ai-features';
 export * from './billing';
 export * from './chat';
 export * from './compliance';

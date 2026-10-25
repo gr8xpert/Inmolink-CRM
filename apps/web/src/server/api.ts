@@ -55,6 +55,8 @@ import {
   ListingPage,
   ListingQualityDto,
   type ListingSort,
+  ListingStudioAcceptedDto,
+  type ListingStudioBody,
   type ListingViewBody,
   ListingViewDto,
   ListingViewList,
@@ -763,6 +765,18 @@ export function putListingTranslation(
     ListingContentDto,
     { method: 'PUT', body },
   );
+}
+
+/** S12-02: queues AI drafts of the listing's texts (a worker writes them as AI_DRAFT). */
+export function requestListingStudio(
+  session: SessionRef,
+  id: string,
+  body: ListingStudioBody,
+): Promise<ApiResult<ListingStudioAcceptedDto>> {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/studio`, ListingStudioAcceptedDto, {
+    method: 'POST',
+    body,
+  });
 }
 
 export function deleteListingTranslation(

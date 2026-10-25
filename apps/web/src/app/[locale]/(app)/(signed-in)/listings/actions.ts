@@ -19,6 +19,8 @@ import {
   type ListingOverrideList,
   ListingOverrideTarget,
   type ListingQualityDto,
+  type ListingStudioAcceptedDto,
+  ListingStudioBody,
   ListingViewBody,
   type ListingViewDto,
   MediaCheckBody,
@@ -67,6 +69,7 @@ import {
   registerMedia,
   renameBookmarkFolder,
   reorderListingMedia,
+  requestListingStudio,
   type SessionRef,
   sessionRef,
   setListingFeatures,
@@ -120,6 +123,13 @@ export async function saveTranslationAction(
   const parsed = PutListingTranslationBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => putListingTranslation(s, id, locale, parsed.data));
+}
+
+/** S12-02: "Write with AI" — queues drafts of the listing's texts in a tone (a worker writes them as AI_DRAFT). */
+export async function requestStudioAction(id: string, body: unknown): Promise<EditorResult<ListingStudioAcceptedDto>> {
+  const parsed = ListingStudioBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => requestListingStudio(s, id, parsed.data));
 }
 
 export async function deleteTranslationAction(

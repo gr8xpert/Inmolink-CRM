@@ -1505,3 +1505,64 @@ export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
     .from(properties)
     .where(inArray(properties.id, [...ids]));
 }
+
+// ---- AI Listing Studio (S12-02): the facts a draft is written from, and the drafts' writes ---------------------
+
+/** The facts the studio sends (no price, commission, owner, address or private field: PLAN §8, CLAUDE.md "Never"). */
+const studioColumns = {
+  id: properties.id,
+  agencyId: properties.agencyId,
+  ownerUserId: properties.ownerUserId,
+  version: properties.version,
+  transactionType: properties.transactionType,
+  propertyTypeId: properties.propertyTypeId,
+  locationId: properties.locationId,
+  bedrooms: properties.bedrooms,
+  bathrooms: properties.bathrooms,
+  builtM2: properties.builtM2,
+  plotM2: properties.plotM2,
+  terraceM2: properties.terraceM2,
+  yearBuilt: properties.yearBuilt,
+  energyRating: properties.energyRating,
+};
+export type StudioRow = { [K in keyof typeof studioColumns]: ListingRow[K] };
+
+/** These live listings of the agency (primary key probes, `agency_id` explicit). */
+export async function studioRows(tx: Tx, agencyId: string, ids: readonly string[]): Promise<StudioRow[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select(studioColumns)
+    .from(properties)
+    .where(and(inArray(properties.id, [...ids]), eq(properties.agencyId, agencyId), isNull(properties.deletedAt)));
+}
+
+/** Every translation of these listings with its origin and lock (`property_translations` PK). */
+export async function studioTranslations(tx: Tx, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ propertyId: propertyTranslations.propertyId, ...translationColumns })
+    .from(propertyTranslations)
+    .where(inArray(propertyTranslations.propertyId, [...ids]))
+    .orderBy(asc(propertyTranslations.propertyId), asc(propertyTranslations.locale));
+}
+
+/**
+ * Writes an AI draft unless the row is locked — or, without `replaceReviewed`, unless a person wrote or reviewed
+ * it. The guard is part of the statement (`on conflict … where`), so a lock set while the draft was generated holds.
+ * True when the row was written.
+ */
+export async function upsertAiDraft(tx: Tx, row: TranslationInsert, replaceReviewed: boolean): Promise<boolean> {
+  const { propertyId: _p, agencyId: _a, locale: _l, ...changes } = row;
+  const saved = await tx
+    .insert(propertyTranslations)
+    .values({ ...row, origin: 'AI_DRAFT', locked: false })
+    .onConflictDoUpdate({
+      target: [propertyTranslations.propertyId, propertyTranslations.locale],
+      set: { ...changes, origin: 'AI_DRAFT', updatedAt: sql`now()` },
+      setWhere: replaceReviewed
+        ? sql`not ${propertyTranslations.locked}`
+        : sql`not ${propertyTranslations.locked} and ${propertyTranslations.origin} = 'AI_DRAFT'`,
+    })
+    .returning({ locale: propertyTranslations.locale });
+  return saved.length > 0;
+}

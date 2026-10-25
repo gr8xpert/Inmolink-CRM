@@ -1,4 +1,30 @@
 /** ai-features — public API (PATTERNS §1). The only import path for other modules and apps. */
+// S12-02: errors, events, jobs, policy and the AI Listing Studio.
+export { aiFeaturesErrors } from './errors';
+export { aiFeaturesEvents } from './events';
+export { aiFeaturesJobs, STUDIO_BATCH_RETENTION_DAYS, STUDIO_MAX_POLLS, STUDIO_POLL_MS } from './jobs';
+export { AI_FEATURES_ACTIONS, AI_FEATURES_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from './policy';
+export {
+  collectListingStudioBulk,
+  generateListingStudio,
+  LISTING_STUDIO_PROMPT,
+  pruneListingStudioBatches,
+  requestListingStudio,
+  requestListingStudioBulk,
+  type StudioOutcome,
+  type StudioRequest,
+  submitListingStudioBulk,
+} from './studio';
+export {
+  allowedFigures,
+  copyViolations,
+  ListingCopy,
+  readingsOf,
+  type StudioFacts,
+  type StudioInput,
+  studioFacts,
+} from './studio-facts';
+export { registerAiFeaturesSubscriptions, unregisterAiFeaturesSubscriptions } from './subscriptions';
 // S12-03: the white-label sanitizer's jobs and subscriptions (owned by the S12-03 lane).
 export {
   docTexts,

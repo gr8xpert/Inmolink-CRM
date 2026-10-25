@@ -1,0 +1,518 @@
+/**
+ * AI Listing Studio (S12-02, PLAN §8 #1, §3 #15, PATTERNS §17): a listing's title, description and SEO meta in every
+ * enabled content locale, written from its facts and photo room tags, in a tone preset, stored as `AI_DRAFT` until a
+ * person saves (reviews) it. Generation never runs in a request:
+ *
+ * - `requestListingStudio` / `requestListingStudioBulk` (request path): authorize, resolve the locales, emit
+ *   `aiFeatures.listingStudio.requested` in the transaction; the worker turns it into a job (`subscriptions.ts`).
+ * - `generateListingStudio` (job `aiFeatures.generateListingCopy`, one listing): one FAST structured call per target
+ *   locale, then the deterministic fact check (`studio-facts.ts`): a copy with a figure that is not a fact, a price,
+ *   a percentage or a currency is asked again once with the rejected figures named, then dropped.
+ * - `submitListingStudioBulk` / `collectListingStudioBulk` (jobs `aiFeatures.submitListingStudioBatch` /
+ *   `aiFeatures.collectListingStudioBatch`): the same through the discounted batch API; the collect job polls until
+ *   the batch ends. Cached answers are applied at submit time. The submitted items and each listing's facts hash are
+ *   kept in `listing_studio_batches` (the gateway collects a batch only with the very items it submitted).
+ *
+ * Targets: the requested locales (default: every enabled one) minus locked locales — and, without `replaceReviewed`,
+ * minus texts a person wrote or reviewed. The write re-checks both in its statement (`properties.saveListingAiDrafts`)
+ * and drops a draft when the listing's facts changed since it was generated (facts hash).
+ */
+import type {
+  ListingStudioAcceptedDto,
+  ListingStudioBody,
+  ListingStudioBulkBody,
+  ListingStudioTone,
+} from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
+import { CONTENT_LOCALES } from '@inmolink/i18n';
+import { type AiBatchItemResult, type AiCtx, ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
+import { AppError, isAppError } from '@inmolink/platform/errors';
+import { newId } from '@inmolink/platform/ids';
+import type { Logger } from '@inmolink/platform/logger';
+import { emit } from '@inmolink/platform/outbox';
+import type { Ctx } from '../../context';
+import { withMemberCtx } from '../../member';
+import * as media from '../media';
+import * as properties from '../properties';
+import * as taxonomy from '../taxonomy';
+import { aiFeaturesEvents } from './events';
+import { assertCan } from './policy';
+import * as repo from './repo';
+import {
+  allowedFigures,
+  copyViolations,
+  factsHash,
+  ListingCopy,
+  pickSource,
+  type StudioInput,
+  studioFacts,
+} from './studio-facts';
+
+/** The prompt file (`prompts/listing-studio/v1.md`); bump the version for any change (ADR 0008 #5). */
+export const LISTING_STUDIO_PROMPT = { id: 'listing-studio', version: 1 } as const;
+const FEATURE_SINGLE = 'listing-studio.describe';
+const FEATURE_BULK = 'listing-studio.bulk';
+const FEATURE_REPAIR = 'listing-studio.repair';
+/** A write that loses to a concurrent edit re-reads the facts this many times before giving up. */
+const WRITE_ATTEMPTS = 3;
+
+export interface StudioRequest {
+  requestId: string;
+  agencyId: string;
+  userId: string;
+  listingIds: string[];
+  tone: ListingStudioTone;
+  locales: string[];
+  replaceReviewed: boolean;
+}
+
+export interface StudioOutcome {
+  /** Locales written per listing id. */
+  written: Record<string, string[]>;
+  /** `<listingId>:<locale>` → why no draft was stored (FACTS, AI code, STALE). */
+  dropped: Record<string, string>;
+}
+
+// ---- request path -----------------------------------------------------------------------------------------------
+
+function resolveLocales(ctx: Ctx, requested: readonly string[] | undefined): string[] {
+  const enabled = ctx.tenant.locales.filter((l) => (CONTENT_LOCALES as readonly string[]).includes(l));
+  if (!requested) return enabled;
+  if (requested.some((l) => !enabled.includes(l))) {
+    throw new AppError('VALIDATION_FAILED', { field: 'locales', reason: 'not_enabled' });
+  }
+  return enabled.filter((l) => requested.includes(l));
+}
+
+async function emitRequest(
+  ctx: Ctx,
+  ids: string[],
+  body: ListingStudioBody,
+  mode: 'SINGLE' | 'BULK',
+  skipped: number,
+): Promise<ListingStudioAcceptedDto> {
+  const locales = resolveLocales(ctx, body.locales);
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  const requestId = newId();
+  await emit(
+    ctx.tx,
+    aiFeaturesEvents.listingStudioRequested({
+      requestId,
+      userId: ctx.actor.userId,
+      listingIds: ids,
+      tone: body.tone,
+      locales,
+      replaceReviewed: body.replaceReviewed,
+      mode,
+    }),
+  );
+  return { requestId, listings: ids.length, skipped, locales };
+}
+
+/** `POST /v1/listings/:id/studio`: queues AI drafts for one listing the caller may edit. */
+export async function requestListingStudio(
+  ctx: Ctx,
+  listingId: string,
+  body: ListingStudioBody,
+): Promise<ListingStudioAcceptedDto> {
+  assertCan(ctx, 'aiFeatures.listingStudio');
+  await properties.assertStudioEditable(ctx, listingId);
+  return emitRequest(ctx, [listingId], body, 'SINGLE', 0);
+}
+
+/** `POST /v1/listing-studio-batches`: queues AI drafts for many listings (the ones the caller may edit). */
+export async function requestListingStudioBulk(
+  ctx: Ctx,
+  body: ListingStudioBulkBody,
+): Promise<ListingStudioAcceptedDto> {
+  assertCan(ctx, 'aiFeatures.listingStudio');
+  const editable = await properties.studioEditableIds(ctx, body.listingIds);
+  if (editable.length === 0) throw new AppError('FORBIDDEN', { reason: 'no_editable_listing' });
+  // keep the caller's order (the batch's custom ids are positions in this list)
+  const ids = body.listingIds.filter((id) => editable.includes(id));
+  return emitRequest(ctx, ids, body, 'BULK', body.listingIds.length - ids.length);
+}
+
+// ---- worker: inputs ---------------------------------------------------------------------------------------------
+
+interface ListingWork {
+  listingId: string;
+  version: number;
+  hash: string;
+  /** Locales to write now (locks and reviewed texts left out). */
+  targets: string[];
+  /** The model input per requested locale. */
+  inputs: Map<string, StudioInput>;
+}
+
+/** Reads the listings' facts, names and photo tags as the member, and builds each locale's model input. */
+async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[]): Promise<ListingWork[]> {
+  const listings = await properties.studioListings(ctx, ids);
+  if (listings.length === 0) return [];
+  // one after the other: a transaction is one connection
+  const mediaOf = await media.mediaForReadModels(
+    ctx.tx,
+    listings.map((l) => l.id),
+    { agencyId: ctx.tenant.agencyId },
+  );
+  const tax = await taxonomy.taxonomyForReadModels(
+    ctx.tx,
+    {
+      locations: listings.map((l) => l.locationId),
+      propertyTypes: listings.map((l) => l.propertyTypeId),
+      features: listings.flatMap((l) => l.featureIds),
+    },
+    req.locales,
+  );
+  return listings.map((l) => {
+    const rooms = (mediaOf.get(l.id)?.items ?? []).map((m) => (m.kind === 'IMAGE' ? m.room : null));
+    const source = pickSource(l.translations, req.locales);
+    const lineage = tax.lineage.get(l.locationId) ?? [];
+    const inputs = new Map<string, StudioInput>();
+    for (const locale of req.locales) {
+      const name = (id: string) => taxonomy.taxonName(tax, id, locale)?.name ?? null;
+      const facts = studioFacts(
+        l,
+        {
+          propertyType: name(l.propertyTypeId),
+          location: lineage
+            .map((p) => name(p.id))
+            .filter((n): n is string => n !== null)
+            .slice(0, 3),
+          features: l.featureIds.map(name).filter((n): n is string => n !== null),
+        },
+        rooms,
+      );
+      // the agency's own text may come from a feed: data, never instructions (S12-01 review, `untrustedBlock`)
+      const useSource =
+        source && source.locale !== locale
+          ? {
+              locale: source.locale,
+              title: untrustedBlock('source_title', source.title),
+              description: untrustedBlock('source_text', source.description ?? ''),
+            }
+          : undefined;
+      inputs.set(locale, { locale, tone: req.tone, facts, ...(useSource ? { source: useSource } : {}) });
+    }
+    const byLocale = new Map(l.translations.map((t) => [t.locale, t]));
+    const targets = req.locales.filter((locale) => {
+      const t = byLocale.get(locale);
+      if (!t) return true;
+      if (t.locked) return false;
+      return t.origin === 'AI_DRAFT' || req.replaceReviewed;
+    });
+    const { version: _v, agencyId: _a, translations: _t, ...facts } = l;
+    return { listingId: l.id, version: l.version, hash: factsHash({ facts, rooms, source }), targets, inputs };
+  });
+}
+
+const member = (req: StudioRequest) => ({ userId: req.userId, agencyId: req.agencyId, requestId: req.requestId });
+
+async function readWork(req: StudioRequest, ids: readonly string[]): Promise<ListingWork[]> {
+  return withMemberCtx(member(req), (ctx) => collectWork(ctx, req, ids));
+}
+
+const aiCtxOf = (req: StudioRequest): AiCtx => ({
+  // Plans arrive with billing (S13): the gateway's default budget applies until then (as in `withMemberCtx`).
+  tenant: { agencyId: req.agencyId, plan: null },
+  requestId: req.requestId,
+});
+
+// ---- worker: generation and the fact check ----------------------------------------------------------------------
+
+type Checked = { ok: true; copy: ListingCopy } | { ok: false; reason: string };
+
+/** The fact check, with one repair call naming what was rejected (`FACTS` when the repair fails it too). */
+async function checkOrRepair(aiCtx: AiCtx, input: StudioInput, copy: ListingCopy): Promise<Checked> {
+  const allowed = allowedFigures(input.facts, input.source);
+  const bad = copyViolations(copy, allowed);
+  if (bad.length === 0) return { ok: true, copy };
+  return aiOrFallback(
+    async (): Promise<Checked> => {
+      const repaired = await ai.structured(aiCtx, {
+        feature: FEATURE_REPAIR,
+        prompt: LISTING_STUDIO_PROMPT,
+        input: { ...input, rejected: bad },
+        schema: ListingCopy,
+      });
+      return copyViolations(repaired.data, allowed).length === 0
+        ? { ok: true, copy: repaired.data }
+        : { ok: false, reason: 'FACTS' };
+    },
+    (code): Checked => ({ ok: false, reason: code }),
+  );
+}
+
+/** Stops a job for good on the budget's hard cap; an outage (or anything else) is retried by the queue. */
+function rethrowUnlessDegraded(code: string): string {
+  if (code === 'AI_BUDGET_EXCEEDED') throw new AppError('AI_BUDGET_EXCEEDED', { feature: FEATURE_SINGLE });
+  if (code === 'AI_UNAVAILABLE') throw new AppError('AI_UNAVAILABLE', { feature: FEATURE_SINGLE });
+  return code;
+}
+
+/**
+ * Writes the checked copies of one listing as the member: re-reads the listing, drops the drafts when its facts
+ * changed since `hash`, and retries a lost race (VERSION_CONFLICT) with the fresh version.
+ */
+async function writeDrafts(
+  req: StudioRequest,
+  listingId: string,
+  hash: string,
+  copies: Map<string, ListingCopy>,
+  outcome: StudioOutcome,
+): Promise<void> {
+  if (copies.size === 0) return;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const written = await withMemberCtx(member(req), async (ctx) => {
+        const [now] = await collectWork(ctx, req, [listingId]);
+        if (!now || now.hash !== hash) return null;
+        const drafts = [...copies]
+          .filter(([locale]) => now.targets.includes(locale))
+          .map(([locale, c]) => ({ locale, ...c }));
+        if (drafts.length === 0) return [];
+        return (
+          await properties.saveListingAiDrafts(ctx, listingId, {
+            version: now.version,
+            drafts,
+            replaceReviewed: req.replaceReviewed,
+          })
+        ).written;
+      });
+      if (written === null) for (const l of copies.keys()) outcome.dropped[`${listingId}:${l}`] = 'STALE';
+      else if (written.length > 0) outcome.written[listingId] = written;
+      return;
+    } catch (err) {
+      if (isAppError(err) && err.code === 'VERSION_CONFLICT' && attempt < WRITE_ATTEMPTS) continue;
+      if (isAppError(err) && (err.code === 'LISTING_NOT_FOUND' || err.code === 'FORBIDDEN')) return;
+      throw err;
+    }
+  }
+}
+
+/** Job `aiFeatures.generateListingCopy`: one listing, one structured call per target locale. */
+export async function generateListingStudio(req: StudioRequest, log?: Logger): Promise<StudioOutcome> {
+  const outcome: StudioOutcome = { written: {}, dropped: {} };
+  const [work] = await readWork(req, req.listingIds.slice(0, 1));
+  if (!work) return outcome;
+  const aiCtx = aiCtxOf(req);
+  const copies = new Map<string, ListingCopy>();
+  for (const locale of work.targets) {
+    const input = work.inputs.get(locale);
+    if (!input) continue;
+    const checked = await aiOrFallback(
+      async (): Promise<Checked> => {
+        const res = await ai.structured(aiCtx, {
+          feature: FEATURE_SINGLE,
+          prompt: LISTING_STUDIO_PROMPT,
+          input,
+          schema: ListingCopy,
+        });
+        return checkOrRepair(aiCtx, input, res.data);
+      },
+      (code): Checked => ({ ok: false, reason: rethrowUnlessDegraded(code) }),
+    );
+    if (checked.ok) copies.set(locale, checked.copy);
+    else outcome.dropped[`${work.listingId}:${locale}`] = checked.reason;
+  }
+  await writeDrafts(req, work.listingId, work.hash, copies, outcome);
+  log?.info(
+    { requestId: req.requestId, written: outcome.written[work.listingId] ?? [], dropped: outcome.dropped },
+    'listing studio drafts',
+  );
+  return outcome;
+}
+
+// ---- worker: bulk (batch API) ------------------------------------------------------------------------------------
+
+/** A submitted batch item as stored in `listing_studio_batches.items`. */
+interface StoredItem {
+  customId: string;
+  input: StudioInput;
+}
+
+/** `l<position>_<locale>`: the position in `req.listingIds` (custom ids are ≤ 64 characters). */
+const customIdOf = (index: number, locale: string) => `l${index}_${locale}`;
+
+function parseCustomId(req: StudioRequest, customId: string): { listingId: string; locale: string } | null {
+  const m = /^l(\d+)_(.+)$/.exec(customId);
+  const listingId = m ? req.listingIds[Number(m[1])] : undefined;
+  return m && listingId ? { listingId, locale: m[2] as string } : null;
+}
+
+/** One item per (listing, target locale). */
+function batchItems(req: StudioRequest, work: ListingWork[]): StoredItem[] {
+  const items: StoredItem[] = [];
+  for (const w of work) {
+    const index = req.listingIds.indexOf(w.listingId);
+    if (index === -1) continue;
+    for (const locale of w.targets) {
+      const input = w.inputs.get(locale);
+      if (input) items.push({ customId: customIdOf(index, locale), input });
+    }
+  }
+  return items;
+}
+
+const batchRequest = (items: readonly StoredItem[]) => ({
+  feature: FEATURE_BULK,
+  prompt: LISTING_STUDIO_PROMPT,
+  items: items.map((i) => ({ customId: i.customId, input: i.input })),
+});
+
+/** Parses, checks (one repair) and writes batch answers, listing by listing (one transaction each). */
+async function applyResults(
+  req: StudioRequest,
+  items: readonly StoredItem[],
+  hashes: readonly string[],
+  results: readonly AiBatchItemResult[],
+  outcome: StudioOutcome,
+): Promise<void> {
+  const aiCtx = aiCtxOf(req);
+  const inputOf = new Map(items.map((i) => [i.customId, i.input]));
+  const byListing = new Map<string, Map<string, ListingCopy>>();
+  for (const r of results) {
+    const key = parseCustomId(req, r.customId);
+    const input = inputOf.get(r.customId);
+    if (!key || !input) continue;
+    if (!r.ok) {
+      outcome.dropped[`${key.listingId}:${key.locale}`] = r.error;
+      continue;
+    }
+    const parsed = ListingCopy.safeParse(parseJson(r.text));
+    const checked: Checked = parsed.success
+      ? await checkOrRepair(aiCtx, input, parsed.data)
+      : await aiOrFallback(
+          async (): Promise<Checked> => {
+            const res = await ai.structured(aiCtx, {
+              feature: FEATURE_REPAIR,
+              prompt: LISTING_STUDIO_PROMPT,
+              input,
+              schema: ListingCopy,
+            });
+            return checkOrRepair(aiCtx, input, res.data);
+          },
+          (code): Checked => ({ ok: false, reason: code }),
+        );
+    if (!checked.ok) {
+      outcome.dropped[`${key.listingId}:${key.locale}`] = checked.reason;
+      continue;
+    }
+    const copies = byListing.get(key.listingId) ?? new Map<string, ListingCopy>();
+    copies.set(key.locale, checked.copy);
+    byListing.set(key.listingId, copies);
+  }
+  for (const [listingId, copies] of byListing) {
+    const index = req.listingIds.indexOf(listingId);
+    await writeDrafts(req, listingId, hashes[index] ?? '', copies, outcome);
+  }
+}
+
+function parseJson(text: string): unknown {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*\n([\s\S]*?)\n```$/i.exec(trimmed);
+  try {
+    return JSON.parse(fenced?.[1] ?? trimmed);
+  } catch {
+    return null;
+  }
+}
+
+const countOf = (outcome: StudioOutcome) => ({
+  written: Object.values(outcome.written).reduce((n, l) => n + l.length, 0),
+  dropped: Object.keys(outcome.dropped).length,
+});
+
+async function finish(req: StudioRequest, state: 'DONE' | 'GAVE_UP', outcome: StudioOutcome): Promise<void> {
+  await withMemberCtx(member(req), (ctx) =>
+    repo.finishStudioBatch(ctx.tx, req.agencyId, req.requestId, { state, ...countOf(outcome) }),
+  );
+}
+
+export type BulkSubmit =
+  | { status: 'DONE'; outcome: StudioOutcome }
+  | { status: 'SUBMITTED'; batchId: string; outcome: StudioOutcome };
+
+/**
+ * Job `aiFeatures.submitListingStudioBatch`: builds one item per (listing, target locale), records them with each
+ * listing's facts hash (`listing_studio_batches`, id = request id), submits the batch and applies the answers the
+ * cache already had. A retried job finds the record: submitted → nothing to do; not yet → the same items again.
+ */
+export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkSubmit> {
+  const outcome: StudioOutcome = { written: {}, dropped: {} };
+  const existing = await withMemberCtx(member(req), (ctx) => repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId));
+  if (existing?.providerBatchId) return { status: 'SUBMITTED', batchId: existing.providerBatchId, outcome };
+  if (existing && existing.state !== 'RUNNING') return { status: 'DONE', outcome };
+  let items: StoredItem[];
+  let hashes: string[];
+  if (existing) {
+    items = existing.items as StoredItem[];
+    hashes = existing.factsHashes;
+  } else {
+    const work = await readWork(req, req.listingIds);
+    hashes = req.listingIds.map((id) => work.find((w) => w.listingId === id)?.hash ?? '');
+    items = batchItems(req, work);
+    if (items.length === 0) return { status: 'DONE', outcome };
+    const row = {
+      id: req.requestId,
+      agencyId: req.agencyId,
+      createdByUserId: req.userId,
+      listingIds: req.listingIds,
+      locales: req.locales,
+      tone: req.tone,
+      replaceReviewed: req.replaceReviewed,
+      factsHashes: hashes,
+      items,
+    };
+    await withMemberCtx(member(req), (ctx) => repo.insertStudioBatch(ctx.tx, row));
+  }
+  const handle = await ai.batch(aiCtxOf(req), batchRequest(items));
+  await applyResults(req, items, hashes, handle.cached, outcome);
+  if (handle.batchId === null) {
+    await finish(req, 'DONE', outcome);
+    return { status: 'DONE', outcome };
+  }
+  const batchId = handle.batchId;
+  await withMemberCtx(member(req), (ctx) => repo.setStudioBatchProvider(ctx.tx, req.agencyId, req.requestId, batchId));
+  return { status: 'SUBMITTED', batchId, outcome };
+}
+
+/**
+ * Job `aiFeatures.collectListingStudioBatch`: `IN_PROGRESS` until the provider's batch ends, then checks and writes
+ * the answers (drafts for listings whose facts changed since submit are dropped: STALE) and marks the record DONE.
+ * `giveUp` marks it GAVE_UP instead (the batch never ended).
+ */
+export async function collectListingStudioBulk(
+  who: { requestId: string; agencyId: string; userId: string },
+  options: { giveUp?: boolean } = {},
+): Promise<{ status: 'IN_PROGRESS' } | { status: 'DONE'; outcome: StudioOutcome }> {
+  const outcome: StudioOutcome = { written: {}, dropped: {} };
+  const row = await withMemberCtx({ userId: who.userId, agencyId: who.agencyId, requestId: who.requestId }, (ctx) =>
+    repo.getStudioBatch(ctx.tx, who.agencyId, who.requestId),
+  );
+  if (row?.state !== 'RUNNING' || !row.providerBatchId) return { status: 'DONE', outcome };
+  const req: StudioRequest = {
+    requestId: who.requestId,
+    agencyId: who.agencyId,
+    userId: who.userId,
+    listingIds: row.listingIds,
+    locales: row.locales,
+    tone: row.tone as ListingStudioTone,
+    replaceReviewed: row.replaceReviewed,
+  };
+  if (options.giveUp) {
+    await finish(req, 'GAVE_UP', outcome);
+    return { status: 'DONE', outcome };
+  }
+  const items = row.items as StoredItem[];
+  const res = await ai.collectBatch(aiCtxOf(req), { batchId: row.providerBatchId, request: batchRequest(items) });
+  if (res.status === 'IN_PROGRESS') return res;
+  await applyResults(req, items, row.factsHashes, res.results, outcome);
+  await finish(req, 'DONE', outcome);
+  return { status: 'DONE', outcome };
+}
+
+/** Job `aiFeatures.pruneListingStudioBatches` (all agencies, `withSystem`): records older than `before`. */
+export async function pruneListingStudioBatches(tx: Tx, before: Date, limit: number): Promise<number> {
+  return repo.pruneStudioBatches(tx, before, limit);
+}

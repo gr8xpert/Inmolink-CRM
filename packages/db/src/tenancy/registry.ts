@@ -738,6 +738,17 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
+  // S12-02: bulk Listing Studio batches (the submitted model inputs, kept for the collect job): the agency's own only
+  listing_studio_batches: {
+    kind: 'STRICT',
+    base: {
+      listing_ids: '{00000000-0000-0000-0000-000000000000}',
+      locales: '{en}',
+      tone: 'PROFESSIONAL',
+      facts_hashes: '{""}',
+      items: '[]',
+    },
+  },
   // S3-10: an agency's own text for listings it presents — used only in its own channels. S7-02: its websites read
   // them as `app_public` (feed-api, `properties.siteOverrides`, always filtered by the site's agency): only overrides
   // of targets public paths may show (a public read model of the listing or unit, or of a unit of the development).

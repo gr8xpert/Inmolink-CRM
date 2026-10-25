@@ -1,7 +1,7 @@
 // S12-01: the AI gateway's usage and spend-mirror jobs.
 import { aiJobs } from '@inmolink/core';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
-import { whiteLabelJobs } from '@inmolink/core/modules/ai-features';
+import { aiFeaturesJobs, whiteLabelJobs } from '@inmolink/core/modules/ai-features';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
@@ -119,6 +119,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   // S11 review: the 5-minute notification e-mail digests (S11-04), thousands at once after a broad network post.
   digest: [notificationsJobs.sendDigest],
   maintenance: [
+    // S12-02: Listing Studio batch records past their retention are deleted daily.
+    aiFeaturesJobs.pruneListingStudioBatches,
     identityJobs.pruneAuthTokens,
     // S11-05: network board posts past their expiry are closed every 15 minutes.
     networkJobs.closeExpiredPosts,
@@ -174,6 +176,10 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiJobs.refreshSpend,
     // S12-03: the white-label sanitizer's model pass over changed public documents.
     whiteLabelJobs.sanitizeTexts,
+    // S12-02: the AI Listing Studio — one listing's drafts, and bulk drafts through the batch API.
+    aiFeaturesJobs.generateListingCopy,
+    aiFeaturesJobs.submitListingStudioBatch,
+    aiFeaturesJobs.collectListingStudioBatch,
   ],
   social: [],
   pdf: [],

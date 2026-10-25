@@ -1,6 +1,12 @@
 'use client';
 
-import type { ListingContentDto, ListingDto, LockableListingField, TranslationOrigin } from '@inmolink/contracts';
+import type {
+  ListingContentDto,
+  ListingDto,
+  ListingStudioTone,
+  LockableListingField,
+  TranslationOrigin,
+} from '@inmolink/contracts';
 import { formatter } from '@inmolink/i18n';
 import { Button, Input, Label } from '@inmolink/ui';
 import dynamic from 'next/dynamic';
@@ -9,6 +15,7 @@ import {
   confirmListingAction,
   deleteTranslationAction,
   type EditorResult,
+  requestStudioAction,
   saveFeaturesAction,
   saveListingAction,
   saveTranslationAction,
@@ -47,6 +54,14 @@ const CEE = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'EXEMPT', 'PENDING'] as const;
 const STATUSES = ['DRAFT', 'ACTIVE', 'UNDER_OFFER', 'SOLD', 'RENTED', 'WITHDRAWN'] as const;
 const VISIBILITIES = ['PRIVATE', 'SHARED', 'PUBLIC'] as const;
 const SCOPES = ['ALL', 'PREFERRED'] as const;
+/** S12-02: the studio's tone presets (contracts `LISTING_STUDIO_TONES`; a type import keeps zod out of the bundle). */
+const STUDIO_TONES = [
+  'PROFESSIONAL',
+  'WARM',
+  'LUXURY',
+  'CONCISE',
+  'INVESTOR',
+] as const satisfies readonly ListingStudioTone[];
 const SELECT = 'h-9 w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60';
 const TEXTAREA = 'min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-60';
 
@@ -220,6 +235,37 @@ export function ListingEditor(props: ListingEditorProps) {
       const { [locale]: _gone, ...rest } = d;
       return rest;
     });
+    setState({ kind: 'saved' });
+    notifyListingChanged(id);
+  };
+
+  // S12-02: AI Listing Studio — queue drafts (a worker writes them), and approve one (AI_DRAFT → REVIEWED).
+  const [tone, setTone] = useState<ListingStudioTone>('PROFESSIONAL');
+  const [replaceReviewed, setReplaceReviewed] = useState(false);
+  const [studioQueued, setStudioQueued] = useState(false);
+  const runStudio = async () => {
+    const r = await requestStudioAction(id, { tone, replaceReviewed });
+    if (!r.ok) {
+      if (r.revoked) window.location.reload();
+      setState({ kind: 'error', code: r.code });
+      return;
+    }
+    setStudioQueued(true);
+  };
+  /** Saving the draft as it stands marks it reviewed (the server turns AI_DRAFT into REVIEWED on any save). */
+  const approveDraft = async (locale: string) => {
+    const draft = latest.current.drafts[locale];
+    if (busy.current || !draft) return;
+    busy.current = true;
+    setState({ kind: 'saving' });
+    const r = await saveTranslationAction(id, locale, { ...translationBody(draft), version: version.current });
+    busy.current = false;
+    if (!r.ok) {
+      if (r.revoked) window.location.reload();
+      setState({ kind: 'error', code: r.code });
+      return;
+    }
+    applyContent(r.data);
     setState({ kind: 'saved' });
     notifyListingChanged(id);
   };
@@ -555,6 +601,48 @@ export function ListingEditor(props: ListingEditorProps) {
           'translations',
           [],
           <>
+            {disabled ? null : (
+              <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3" data-testid="listing-studio">
+                <p className="font-medium text-sm">{t('editor.translations.studio.title')}</p>
+                <p className="text-muted-foreground text-sm">{t('editor.translations.studio.hint')}</p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="studio-tone">{t('editor.translations.studio.tone')}</Label>
+                    <select
+                      id="studio-tone"
+                      className={SELECT}
+                      value={tone}
+                      onChange={(e) => setTone(e.target.value as ListingStudioTone)}
+                    >
+                      {STUDIO_TONES.map((o) => (
+                        <option key={o} value={o}>
+                          {t(`editor.translations.studio.tones.${o}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={replaceReviewed}
+                      onChange={(e) => setReplaceReviewed(e.target.checked)}
+                    />
+                    {t('editor.translations.studio.replaceReviewed')}
+                  </label>
+                  <Button type="button" onClick={() => void runStudio()} disabled={studioQueued}>
+                    {t('editor.translations.studio.run')}
+                  </Button>
+                </div>
+                {studioQueued ? (
+                  <p role="status" className="flex items-center gap-3 text-sm">
+                    {t('editor.translations.studio.queued')}
+                    <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+                      {t('editor.translations.studio.reload')}
+                    </Button>
+                  </p>
+                ) : null}
+              </div>
+            )}
             <div role="tablist" className="flex flex-wrap gap-1 border-b">
               {props.contentLocales.map((l) => {
                 const origin = origins[l.code];
@@ -589,6 +677,16 @@ export function ListingEditor(props: ListingEditorProps) {
               })}
             </div>
             <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="flex flex-col gap-3">
+              {origins[tab] === 'AI_DRAFT' ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-md bg-amber-50 p-2 text-amber-900 text-sm">
+                  {t('editor.translations.studio.draftNotice')}
+                  {disabled ? null : (
+                    <Button type="button" variant="outline" onClick={() => void approveDraft(tab)}>
+                      {t('editor.translations.studio.approve')}
+                    </Button>
+                  )}
+                </div>
+              ) : null}
               {field(tf('title'), t('editor.translations.titleField'), (aria) => (
                 <Input
                   {...aria}

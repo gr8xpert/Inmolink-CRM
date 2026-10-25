@@ -6,6 +6,7 @@ import { clientModePlugin } from './plugins/client-mode';
 import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
 import { agenciesRoutes } from './routes/agencies/routes';
+import { aiFeaturesRoutes } from './routes/ai-features/routes';
 import { billingRoutes } from './routes/billing/routes';
 import { chatRoutes } from './routes/chat/routes';
 import { complianceRoutes } from './routes/compliance/routes';
@@ -92,6 +93,7 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(notificationsRoutes);
   await app.register(chatRoutes);
   await app.register(networkRoutes);
+  await app.register(aiFeaturesRoutes);
   await app.register(matchingRoutes);
   return app;
 }

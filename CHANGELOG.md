@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(ai-features): AI Listing Studio — AI_DRAFT copy and SEO meta per enabled locale from listing facts, tone presets, fact validator with repair, locked locales protected, bulk batch jobs, eval listing-studio, migration 0142 listing_studio_batches [S12-02]
 - perf(network,search): cap buyer-request matching pool-wide (4), record engine time per round [S12-F5] (acceptance pending H4)
 - feat(ai-features): white-label sanitizer model pass — deterministic handles/spelled e-mails (SANITIZER_VERSION 2, ReDoS-bounded), FAST-model removals with a fact-safe acceptor cached per target on redis-cache, cache.peekMany, prompt white-label/v1 + evals [S12-03]
 - feat(matching): saved searches and alerts — new listing / price drop / back on market from read-model changes, GIN reverse-lookup matching, instant or daily-digest notifications, migration 0141 [S5-06]

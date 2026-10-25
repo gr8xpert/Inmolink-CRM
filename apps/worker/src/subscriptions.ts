@@ -88,4 +88,6 @@ export function registerSubscriptions(): void {
   matching.registerMatchingSubscriptions();
   // S12-03: changed public documents queue the white-label sanitizer's model pass.
   aiFeatures.registerWhiteLabelSubscriptions();
+  // S12-02: Listing Studio requests become generation / batch jobs in the `ai` pool.
+  aiFeatures.registerAiFeaturesSubscriptions();
 }

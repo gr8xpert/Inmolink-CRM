@@ -1,0 +1,164 @@
+import { ListingStudioTone } from '@inmolink/contracts';
+import { withSystem } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
+import { isAppError } from '@inmolink/platform/errors';
+import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
+import { z } from 'zod';
+import {
+  collectListingStudioBulk,
+  generateListingStudio,
+  pruneListingStudioBatches,
+  type StudioRequest,
+  submitListingStudioBulk,
+} from './studio';
+
+/** The provider's batch answers within 24 h; polled every 2 minutes, given up after a day. */
+export const STUDIO_POLL_MS = 2 * 60_000;
+export const STUDIO_MAX_POLLS = 720;
+/** Batch records are kept this long after they were created (a batch ends within a day). */
+export const STUDIO_BATCH_RETENTION_DAYS = 14;
+const PRUNE_BATCH = 1_000;
+
+const studioRequest = {
+  requestId: z.uuid(),
+  agencyId: z.uuid(),
+  userId: z.uuid(),
+  listingIds: z.array(z.uuid()).min(1).max(100),
+  tone: ListingStudioTone,
+  locales: z.array(z.string()).min(1).max(20),
+  replaceReviewed: z.boolean(),
+};
+
+/** A member who left, an agency suspended, the budget's hard cap: retrying cannot help. */
+function stopIfPermanent(err: unknown): never {
+  if (isAppError(err) && (err.code === 'FORBIDDEN' || err.code === 'AI_BUDGET_EXCEEDED')) {
+    throw new UnrecoverableError(err.code);
+  }
+  throw err;
+}
+
+const asRequest = (p: z.output<z.ZodObject<typeof studioRequest>>): StudioRequest => ({
+  requestId: p.requestId,
+  agencyId: p.agencyId,
+  userId: p.userId,
+  listingIds: p.listingIds,
+  tone: p.tone,
+  locales: p.locales,
+  replaceReviewed: p.replaceReviewed,
+});
+
+/**
+ * ai-features worker jobs (PATTERNS §12). Idempotent: a re-run gets the same answers from the AI cache (no second
+ * provider call) and rewrites only the unlocked targets; fair share per agency.
+ *
+ * - `aiFeatures.generateListingCopy` (S12-02, pool `ai`; one per `aiFeatures.listingStudio.requested` SINGLE event,
+ *   job ID = the request id): one listing's drafts, one structured FAST call per target locale (`studio.ts`). An AI
+ *   outage is retried with backoff; the budget's hard cap or a member who lost access stops it.
+ * - `aiFeatures.submitListingStudioBatch` (S12-02, pool `ai`; BULK events): one batch for up to 100 listings × the
+ *   requested locales, recorded in `listing_studio_batches`; answers the cache had are written at once; then the
+ *   first `collectListingStudioBatch` is queued.
+ * - `aiFeatures.collectListingStudioBatch` (pool `ai`): polls the provider's batch every `STUDIO_POLL_MS` (a new
+ *   delayed job per poll, job ID = request id + poll number) up to `STUDIO_MAX_POLLS`, then writes the checked
+ *   drafts (or marks the record GAVE_UP).
+ * - `aiFeatures.pruneListingStudioBatches` (daily, pool `maintenance`, all agencies via `withSystem`): deletes batch
+ *   records older than `STUDIO_BATCH_RETENTION_DAYS`, `PRUNE_BATCH` per statement until a short one.
+ */
+export const aiFeaturesJobs = {
+  generateListingCopy: defineJob({
+    name: 'aiFeatures.generateListingCopy',
+    pool: 'ai',
+    payload: z.object(studioRequest),
+    jobId: (p) => p.requestId,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 2,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 10_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p, job) {
+      try {
+        const outcome = await generateListingStudio(asRequest(p), job.log);
+        return { written: Object.keys(outcome.written).length, dropped: Object.keys(outcome.dropped).length };
+      } catch (err) {
+        stopIfPermanent(err);
+      }
+    },
+  }),
+
+  submitListingStudioBatch: defineJob({
+    name: 'aiFeatures.submitListingStudioBatch',
+    pool: 'ai',
+    payload: z.object(studioRequest),
+    jobId: (p) => p.requestId,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, job) {
+      try {
+        const res = await submitListingStudioBulk(asRequest(p));
+        if (res.status === 'SUBMITTED') {
+          await aiFeaturesJobs.collectListingStudioBatch.enqueue(
+            { requestId: p.requestId, agencyId: p.agencyId, userId: p.userId, poll: 1 },
+            { delayMs: STUDIO_POLL_MS },
+          );
+        }
+        job.log.info({ requestId: p.requestId, status: res.status }, 'listing studio batch submitted');
+        return { status: res.status };
+      } catch (err) {
+        stopIfPermanent(err);
+      }
+    },
+  }),
+
+  collectListingStudioBatch: defineJob({
+    name: 'aiFeatures.collectListingStudioBatch',
+    pool: 'ai',
+    payload: z.object({ requestId: z.uuid(), agencyId: z.uuid(), userId: z.uuid(), poll: z.number().int().min(1) }),
+    jobId: (p) => `${p.requestId}.${p.poll}`,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, job) {
+      try {
+        const who = { requestId: p.requestId, agencyId: p.agencyId, userId: p.userId };
+        const res = await collectListingStudioBulk(who, { giveUp: p.poll > STUDIO_MAX_POLLS });
+        if (res.status === 'IN_PROGRESS') {
+          await aiFeaturesJobs.collectListingStudioBatch.enqueue(
+            { ...p, poll: p.poll + 1 },
+            { delayMs: STUDIO_POLL_MS },
+          );
+          return { status: 'IN_PROGRESS' };
+        }
+        job.log.info(
+          { requestId: p.requestId, written: Object.keys(res.outcome.written).length },
+          'listing studio batch applied',
+        );
+        return { status: 'DONE' };
+      } catch (err) {
+        stopIfPermanent(err);
+      }
+    },
+  }),
+
+  pruneListingStudioBatches: defineJob({
+    name: 'aiFeatures.pruneListingStudioBatches',
+    pool: 'maintenance',
+    payload: z.object({}),
+    every: 24 * 3_600_000,
+    async run(_p, job) {
+      const before = new Date(clock.now().getTime() - STUDIO_BATCH_RETENTION_DAYS * 86_400_000);
+      let deleted = 0;
+      for (;;) {
+        const n = await withSystem('aiFeatures.pruneListingStudioBatches', (tx) =>
+          pruneListingStudioBatches(tx, before, PRUNE_BATCH),
+        );
+        deleted += n;
+        if (n < PRUNE_BATCH || job.signal.aborted) break;
+      }
+      return { deleted };
+    },
+  }),
+};

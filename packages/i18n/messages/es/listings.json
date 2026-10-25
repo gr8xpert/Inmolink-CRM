@@ -164,6 +164,24 @@
         "HUMAN": "Escrito",
         "AI_DRAFT": "Borrador IA",
         "REVIEWED": "Revisado"
+      },
+      "studio": {
+        "title": "Redactar con IA",
+        "hint": "Redacta un título, una descripción y los textos SEO en todos los idiomas activos a partir de los datos y las fotos del inmueble. Los idiomas bloqueados nunca se sobrescriben y los borradores quedan marcados hasta que los revises.",
+        "tone": "Tono",
+        "tones": {
+          "PROFESSIONAL": "Profesional",
+          "WARM": "Cercano",
+          "LUXURY": "Lujo",
+          "CONCISE": "Breve",
+          "INVESTOR": "Inversor"
+        },
+        "replaceReviewed": "Reescribir también los textos escritos o revisados por una persona (nunca los bloqueados)",
+        "run": "Redactar borradores",
+        "queued": "Se están redactando los borradores. Recarga en un minuto para verlos.",
+        "reload": "Recargar",
+        "approve": "Marcar como revisado",
+        "draftNotice": "Este texto es un borrador de IA: comprueba cada dato antes de publicarlo."
       }
     },
     "freshness": {
