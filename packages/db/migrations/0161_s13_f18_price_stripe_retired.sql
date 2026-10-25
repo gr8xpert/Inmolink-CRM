@@ -1,0 +1,1 @@
+ALTER TABLE "billing_prices" ADD COLUMN "stripe_retired_at" timestamp with time zone;

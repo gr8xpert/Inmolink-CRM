@@ -268,14 +268,17 @@ export interface CatalogInput {
 
 /**
  * Upserts catalog items and their offered prices (seed and scripts, `withSystem`). A changed amount retires the old
- * price and adds a new one (Stripe prices are immutable; subscriptions on the old one keep it).
+ * price and adds a new one (Stripe prices are immutable; subscriptions on the old one keep it). S13-F18: an item's
+ * active price its input no longer lists is retired too; `billing.syncCatalog` then deactivates both kinds in Stripe.
+ * Items absent from the input are left as they are (a partial file never retires another item's prices).
  */
 export async function upsertCatalog(
   tx: Tx,
   items: CatalogInput[],
   newId: () => string,
-): Promise<{ items: number; prices: number }> {
+): Promise<{ items: number; prices: number; retired: number }> {
   let prices = 0;
+  let retired = 0;
   for (const item of items) {
     const [row] = await tx
       .insert(billingCatalogItems)
@@ -308,15 +311,30 @@ export async function upsertCatalog(
       })
       .from(billingPrices)
       .where(and(eq(billingPrices.itemId, itemId), eq(billingPrices.active, true)));
+    const kept = new Set<string>();
+    const retire: string[] = [];
     for (const p of item.prices) {
       const same = current.find((c) => c.interval === p.interval && c.currency === p.currency);
-      if (same?.amountCents === p.amountCents) continue;
-      if (same) await tx.update(billingPrices).set({ active: false }).where(eq(billingPrices.id, same.id));
+      if (same?.amountCents === p.amountCents) {
+        kept.add(same.id);
+        continue;
+      }
+      if (same) {
+        // before the insert: one active price per item, interval and currency (partial unique index)
+        await tx.update(billingPrices).set({ active: false }).where(eq(billingPrices.id, same.id));
+        kept.add(same.id);
+        retired++;
+      }
       await tx.insert(billingPrices).values({ id: newId(), itemId, ...p });
       prices++;
     }
+    for (const c of current) if (!kept.has(c.id)) retire.push(c.id);
+    if (retire.length) {
+      await tx.update(billingPrices).set({ active: false }).where(inArray(billingPrices.id, retire));
+      retired += retire.length;
+    }
   }
-  return { items: items.length, prices };
+  return { items: items.length, prices, retired };
 }
 
 /** Catalog items without a Stripe product yet that have a price to sell (Free and Enterprise have none: S13-02). */
@@ -374,6 +392,33 @@ export async function setStripePriceId(tx: Tx, priceId: string, stripePriceId: s
     .update(billingPrices)
     .set({ stripePriceId })
     .where(and(eq(billingPrices.id, priceId), isNull(billingPrices.stripePriceId)));
+}
+
+/**
+ * S13-F18: retired (inactive) prices Stripe still sells — created there, not yet deactivated (sync). The catalog is a
+ * few dozen rows; the predicate needs no index.
+ */
+export async function pricesToRetire(tx: Tx, limit: number) {
+  return tx
+    .select({ id: billingPrices.id, stripePriceId: billingPrices.stripePriceId })
+    .from(billingPrices)
+    .where(
+      and(
+        eq(billingPrices.active, false),
+        isNotNull(billingPrices.stripePriceId),
+        isNull(billingPrices.stripeRetiredAt),
+      ),
+    )
+    .orderBy(asc(billingPrices.id))
+    .limit(limit);
+}
+
+/** S13-F18: the price is deactivated in Stripe (still inactive here: a re-offered amount is a new row). */
+export async function setPriceRetired(tx: Tx, priceId: string): Promise<void> {
+  await tx
+    .update(billingPrices)
+    .set({ stripeRetiredAt: sql`now()` })
+    .where(and(eq(billingPrices.id, priceId), eq(billingPrices.active, false), isNull(billingPrices.stripeRetiredAt)));
 }
 
 // ---- plans in force, grants and price locks (S13-02) ----

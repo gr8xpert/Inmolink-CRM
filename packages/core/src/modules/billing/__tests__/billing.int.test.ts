@@ -635,4 +635,139 @@ describe('billing', () => {
     await deliver('customer.subscription.updated', { id: subId, object: 'subscription', customer: sub.customer });
     expect(removals()).toHaveLength(1);
   });
+
+  it('[S13-F18] a changed or removed catalog price can no longer be bought in Checkout or the portal; subscribers on it are unaffected', async () => {
+    // Its own plan: retiring Pro's prices would change the tests above.
+    const LITE = `lite_${RUN}`;
+    const liteItem = (prices: { interval: 'YEAR' | 'MONTH'; currency: 'EUR' | 'GBP'; amountCents: number }[]) => [
+      { code: LITE, kind: 'PLAN' as const, seatsIncluded: 2, rank: 5, prices },
+    ];
+    expect(
+      await system((tx) =>
+        billing.upsertCatalog(
+          tx,
+          liteItem([
+            { interval: 'YEAR', currency: 'EUR', amountCents: 30_000 },
+            { interval: 'MONTH', currency: 'EUR', amountCents: 3_000 },
+            { interval: 'YEAR', currency: 'GBP', amountCents: 26_000 },
+          ]),
+          newId,
+        ),
+      ),
+    ).toEqual({ items: 1, prices: 3, retired: 0 });
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    const oldYearly = (await stripePriceOf(LITE, 'YEAR', 'EUR')) as string;
+    const oldMonthly = (await stripePriceOf(LITE, 'MONTH', 'EUR')) as string;
+    const gbp = (await stripePriceOf(LITE, 'YEAR', 'GBP')) as string;
+    expect(oldYearly).toMatch(/^price_/);
+
+    // A founding subscriber on the yearly price (with its price lock's coupon).
+    const e = await createFounder();
+    const f = await createFounder();
+    const staff = (await createStaffUser('SUPER_ADMIN')).userId;
+    const lock = (agencyId: string) =>
+      withStaffCtx({ userId: staff, requestId: newId(), reason: 'billing test' }, (ctx) =>
+        billing.setPriceLock(ctx, {
+          agencyId,
+          planCode: LITE,
+          interval: 'YEAR',
+          currency: 'EUR',
+          amountCents: 20_000,
+          endsAt: new Date(Date.now() + 3 * 365 * 86_400_000).toISOString(),
+          reason: 'founding offer: migrated agency',
+        }),
+      );
+    await lock(e.agencyId);
+    await billing.startCheckout(run(e), { planCode: LITE, interval: 'YEAR', currency: 'EUR', addons: [] });
+    expect(lastCheckout()?.fields['line_items[0][price]']).toBe(oldYearly);
+    const couponId = lastCheckout()?.fields['discounts[0][coupon]'] as string;
+    expect(couponId).toMatch(/^founding_/);
+    const sessionId = [...stripe.sessions.keys()].at(-1) as string;
+    const sub = stripe.completeCheckout(sessionId, { paymentMethod: 'card', periodEnd });
+    const subId = sub.id as string;
+    await deliver('checkout.session.completed', { id: sessionId, object: 'checkout.session', customer: sub.customer });
+
+    // The yearly amount changes and the monthly price leaves the catalog file; GBP stays as it is.
+    const changed = liteItem([
+      { interval: 'YEAR', currency: 'EUR', amountCents: 35_000 },
+      { interval: 'YEAR', currency: 'GBP', amountCents: 26_000 },
+    ]);
+    expect(await system((tx) => billing.upsertCatalog(tx, changed, newId))).toEqual({
+      items: 1,
+      prices: 1,
+      retired: 2,
+    });
+    // Idempotent: the same file again changes nothing.
+    expect(await system((tx) => billing.upsertCatalog(tx, changed, newId))).toEqual({
+      items: 1,
+      prices: 0,
+      retired: 0,
+    });
+    // Off our offer at once, before Stripe hears of it.
+    expect(
+      await refusal(billing.startCheckout(run(f), { planCode: LITE, interval: 'MONTH', currency: 'EUR', addons: [] })),
+    ).toBe('BILLING_PRICE_UNAVAILABLE');
+
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    // Retired in Stripe, idempotently: neither Checkout nor a portal switch can pick them; GBP is untouched.
+    for (const old of [oldYearly, oldMonthly]) {
+      expect(stripe.prices.get(old)?.active).toBe(false);
+      const retire = stripe.calls.filter((x) => x.method === 'POST' && x.path === `/v1/prices/${old}`);
+      expect(retire).toHaveLength(1);
+      expect(retire[0]).toMatchObject({ fields: { active: 'false' }, idempotencyKey: `price-retire:${old}` });
+    }
+    expect(stripe.prices.get(gbp)?.active).toBe(true);
+    const retiredRows = await system(async (tx) => {
+      const r = await tx.execute<{ id: string; retired: boolean }>(sql`select stripe_price_id as id,
+        stripe_retired_at is not null as retired from billing_prices
+        where stripe_price_id in (${oldYearly}, ${oldMonthly}, ${gbp})`);
+      return Object.fromEntries(r.rows.map((x) => [x.id, x.retired]));
+    });
+    expect(retiredRows).toEqual({ [oldYearly]: true, [oldMonthly]: true, [gbp]: false });
+    const before = stripe.calls.length;
+    await billing.billingJobs.syncCatalog.spec.run({}, jobCtx());
+    expect(stripe.calls.slice(before).filter((x) => x.path.startsWith('/v1/prices'))).toEqual([]);
+
+    // Checkout offers only the new yearly price; the founding lock (per plan, interval, currency) still applies.
+    const newYearly = (await stripePriceOf(LITE, 'YEAR', 'EUR')) as string;
+    expect(newYearly).toMatch(/^price_/);
+    expect(newYearly).not.toBe(oldYearly);
+    const offered = (await as(f, (ctx) => billing.getBillingOverview(ctx))).catalog.find((i) => i.code === LITE);
+    expect(offered?.prices).toHaveLength(2);
+    expect(offered?.prices).toEqual(
+      expect.arrayContaining([
+        { interval: 'YEAR', currency: 'EUR', amountCents: 35_000 },
+        { interval: 'YEAR', currency: 'GBP', amountCents: 26_000 },
+      ]),
+    );
+    expect(
+      await refusal(billing.startCheckout(run(f), { planCode: LITE, interval: 'MONTH', currency: 'EUR', addons: [] })),
+    ).toBe('BILLING_PRICE_UNAVAILABLE');
+    await lock(f.agencyId);
+    await billing.startCheckout(run(f), { planCode: LITE, interval: 'YEAR', currency: 'EUR', addons: [] });
+    expect(lastCheckout()?.fields['line_items[0][price]']).toBe(newYearly);
+    expect(stripe.coupons.get(lastCheckout()?.fields['discounts[0][coupon]'] as string)).toMatchObject({
+      amount_off: 15_000,
+    });
+
+    // The subscriber on the retired price keeps it: still on the plan, founding discount kept.
+    const kept = await deliver('customer.subscription.updated', {
+      id: subId,
+      object: 'subscription',
+      customer: sub.customer,
+    });
+    expect(kept.result).toMatchObject({ applied: 'subscription', plan: LITE, status: 'ACTIVE' });
+    expect(
+      stripe.calls.filter((x) => x.method === 'DELETE' && x.path === `/v1/subscriptions/${subId}/discount`),
+    ).toEqual([]);
+    expect(
+      ((stripe.subscriptions.get(subId)?.discounts ?? []) as { source: { coupon: string } }[]).map(
+        (x) => x.source.coupon,
+      ),
+    ).toEqual([couponId]);
+    expect(await as(e, (ctx) => billing.getBillingOverview(ctx))).toMatchObject({
+      plan: LITE,
+      subscription: { planCode: LITE, interval: 'YEAR', currency: 'EUR', status: 'ACTIVE' },
+    });
+  });
 });

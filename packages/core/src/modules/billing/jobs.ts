@@ -18,7 +18,8 @@ import { type StripeClient, StripeError, type StripeInvoice, type StripeSubscrip
  * - `billing.applyStripeEvent` — one per Stripe event id (the webhook route queues it). Out-of-order safe by
  *   construction: it never applies the event's payload, it re-reads the object's current state from Stripe and writes
  *   that, one job at a time per Stripe customer. Idempotent: the event id is recorded in the transaction that applies it.
- * - `billing.syncCatalog` — every 15 minutes: Stripe products and prices for catalog rows that have none yet.
+ * - `billing.syncCatalog` — every 15 minutes: Stripe products and prices for catalog rows that have none yet, then
+ *   retired catalog prices deactivated in Stripe (S13-F18) — after the new ones exist, so a plan is never unbuyable.
  * - `billing.pruneStripeEvents` — daily: applied event ids after `STRIPE_EVENT_RETENTION_DAYS`.
  * - `billing.startTrial` (S13-02) — once per new agency (onboarding finished): its trial grant.
  * - `billing.endPlanGrants` (S13-02) — every 15 minutes: ended or revoked grants announced (`billing.plan.changed`).
@@ -103,8 +104,17 @@ export const billingJobs = {
         await withSystem('billing.syncCatalog', (tx) => repo.setStripePriceId(tx, price.id, created.id));
         prices++;
       }
-      if (products || prices) log.info({ products, prices }, 'billing catalog synced to Stripe');
-      return { products, prices };
+      // S13-F18: retired prices leave Checkout and the portal; subscriptions on them keep them (Stripe's rule).
+      let retired = 0;
+      const stale = await withSystem('billing.syncCatalog', (tx) => repo.pricesToRetire(tx, SYNC_BATCH));
+      for (const price of stale) {
+        const known = await failFast(() => stripe.deactivatePrice(price.stripePriceId as string));
+        if (!known) log.warn({ priceId: price.id }, 'billing: retired price unknown to Stripe — marked retired');
+        await withSystem('billing.syncCatalog', (tx) => repo.setPriceRetired(tx, price.id));
+        retired++;
+      }
+      if (products || prices || retired) log.info({ products, prices, retired }, 'billing catalog synced to Stripe');
+      return { products, prices, retired };
     },
   }),
 

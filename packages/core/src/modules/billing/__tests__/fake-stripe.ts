@@ -7,7 +7,7 @@ import { signStripePayload } from '../stripe';
 
 /**
  * A fake Stripe API (S13-01 tests; the real test-mode account waits on H3): customers, Checkout and portal sessions,
- * products and prices, subscriptions (with discounts: `DELETE …/discount`) and invoices — enough state for the webhook job to re-read. Every call is recorded
+ * products and prices (`POST /v1/prices/:id` retires one: S13-F18), subscriptions (with discounts: `DELETE …/discount`) and invoices — enough state for the webhook job to re-read. Every call is recorded
  * (method, path, decoded form fields, idempotency key). Idempotency keys replay the first answer, like Stripe.
  * `completeCheckout`, `updateSubscription` and `upsertInvoice` play Stripe's side; `event` signs a webhook body.
  */
@@ -129,6 +129,13 @@ export async function startFakeStripe(): Promise<FakeStripe> {
       }
       if (req.method === 'POST' && p === '/v1/checkout/sessions') {
         if (!customers.has(String(params.customer))) return missing(res);
+        // S13-F18: like Stripe, an inactive (retired) price cannot start a new Checkout.
+        const lineItems = (params.line_items ?? []) as { price?: string }[];
+        if (lineItems.some((li) => prices.get(String(li.price))?.active === false)) {
+          return answer(res, 400, {
+            error: { type: 'invalid_request_error', code: 'price_inactive', message: 'The price is not active' },
+          });
+        }
         const s = { id: id('cs'), object: 'checkout.session', ...params, status: 'open', subscription: null };
         (s as Obj).url = `https://checkout.stripe.test/c/pay/${s.id}`;
         sessions.set(s.id, s);
@@ -162,8 +169,17 @@ export async function startFakeStripe(): Promise<FakeStripe> {
           recurring: params.recurring,
           tax_behavior: params.tax_behavior,
           metadata: params.metadata,
+          active: true,
         };
         prices.set(price.id, price);
+        return send(200, price);
+      }
+      // S13-F18: updates a price; billing only ever sends `active=false` (retiring it).
+      const updatePrice = req.method === 'POST' ? /^\/v1\/prices\/([^/]+)$/.exec(p) : null;
+      if (updatePrice) {
+        const price = prices.get(decodeURIComponent(updatePrice[1] as string));
+        if (!price) return missing(res);
+        if (params.active !== undefined) price.active = params.active === 'true';
         return send(200, price);
       }
       if (req.method === 'GET' && p === '/v1/subscriptions') {

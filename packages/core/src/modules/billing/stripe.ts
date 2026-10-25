@@ -285,6 +285,20 @@ export class StripeClient {
     return { id: str(res.id) };
   }
 
+  /**
+   * S13-F18: deactivates a price (`POST /v1/prices/:id active=false`): no new Checkout or portal switch can pick it;
+   * subscriptions already on it keep it. Idempotent: repeating it changes nothing, and a price Stripe no longer knows
+   * (deleted, another account's) answers false.
+   */
+  async deactivatePrice(stripePriceId: string): Promise<boolean> {
+    const res = await this.#send('POST', `/v1/prices/${encodeURIComponent(stripePriceId)}`, {
+      params: { active: false },
+      idempotencyKey: `price-retire:${stripePriceId}`,
+      missingIsNull: true,
+    });
+    return res !== null;
+  }
+
   async #request(
     method: 'GET' | 'POST',
     path: string,

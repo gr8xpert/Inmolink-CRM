@@ -81,7 +81,8 @@ export const billingCatalogItems = pgTable(
 
 /**
  * A catalog item's price for one interval and currency, excluding VAT. Stripe prices are immutable: a new amount is a
- * new row (the old one deactivated); subscriptions on the old price keep it (legacy price locks, S13-02).
+ * new row (the old one deactivated); subscriptions on the old price keep it (legacy price locks, S13-02). A price the
+ * catalog file no longer lists is deactivated too, and `billing.syncCatalog` retires it in Stripe (S13-F18).
  */
 export const billingPrices = pgTable(
   'billing_prices',
@@ -96,6 +97,11 @@ export const billingPrices = pgTable(
     active: boolean('active').notNull().default(true),
     /** The Stripe price, once `billing.syncCatalog` created it. */
     stripePriceId: text('stripe_price_id'),
+    /**
+     * S13-F18: when `billing.syncCatalog` deactivated the retired (inactive) price in Stripe, so no new Checkout or
+     * portal switch can use it; subscriptions already on it keep it. Null while active or not yet retired in Stripe.
+     */
+    stripeRetiredAt: timestamp('stripe_retired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
