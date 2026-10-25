@@ -1,3 +1,4 @@
+import { metrics } from '@opentelemetry/api';
 import { sql } from 'drizzle-orm';
 import { newId } from '../ids';
 import type { Logger } from '../logger';
@@ -18,6 +19,12 @@ import type { AiTier, AiUsage } from './types';
  * Two implementations: `createPgAiStore` (workers, `withSystem`) and `createRequestAiStore` (request processes: a
  * redis mirror of the month's spend + usage recorded through a queued job) — ADR 0008 #6a.
  */
+const enqueueFailures = metrics
+  .getMeter('@inmolink/platform')
+  .createCounter('inmolink.ai.usage_record_enqueue_failures', {
+    description: 'Request-path AI usage records that could not be queued after retries (replay from the error log)',
+  });
+
 export type AiJobKind = 'GENERATE' | 'STRUCTURED' | 'BATCH' | 'EMBED';
 export type AiJobStatus = 'SUCCEEDED' | 'FAILED' | 'PENDING';
 
@@ -259,12 +266,33 @@ export interface RequestAiStoreOptions {
 
 /**
  * Request-path usage store (S12-01 review, ADR 0008 #6a) — for processes without `withSystem` (feed-api's NL search,
- * S12-08). Reserves on the redis mirror (atomic Lua; fails closed while the mirror is not seeded), settles by adjusting
- * the mirror to the real cost and enqueueing the usage record for a worker. Batches are worker-only.
+ * S12-08). Reserves on the redis mirror (atomic Lua; fails closed while the mirror is not seeded), settles by giving the
+ * hold back and queueing the real cost in the mirror, and enqueues the usage record for a worker. Batches are
+ * worker-only.
  */
 export function createRequestAiStore(options: RequestAiStoreOptions): AiStore {
   const workersOnly = (): never => {
     throw new Error('AI batches run in workers (createPgAiStore), not on the request path');
+  };
+  /**
+   * The usage record must reach the queue: three tries, then the failure is counted (`inmolink.ai.usage_record_enqueue_
+   * failures`, alert) and thrown to the gateway, which logs and counts it too. Its cost stays in the mirror's `queued`
+   * (the budget keeps counting it) until that key expires; the job record is logged for a manual replay.
+   */
+  const enqueueWithRetry = async (input: { job: AiJobRecord; releaseMicroUsd: number }) => {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await options.enqueueRecord(input);
+        return;
+      } catch (err) {
+        last = err;
+        await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+      }
+    }
+    enqueueFailures.add(1, { feature: input.job.feature });
+    options.logger?.error({ err: last, job: input.job }, 'ai usage record could not be queued (replay it by hand)');
+    throw last;
   };
   return {
     batches: false,
@@ -285,12 +313,17 @@ export function createRequestAiStore(options: RequestAiStoreOptions): AiStore {
     },
     async settle(job, reservedMicroUsd) {
       if (job.status === 'PENDING') workersOnly();
-      await options.mirror.adjust(job.agencyId, job.month, job.costMicroUsd - reservedMicroUsd).catch(() => undefined);
+      // The hold goes back exactly as reserved; the real cost stays counted (`queued`) until the row is recorded.
+      await options.mirror
+        .settle(job.agencyId, job.month, reservedMicroUsd, job.costMicroUsd)
+        .catch((err: unknown) => options.logger?.warn({ err }, 'ai spend mirror settle failed'));
       // The reservation lived in the mirror only: the database has nothing to release.
-      await options.enqueueRecord({ job, releaseMicroUsd: 0 });
+      await enqueueWithRetry({ job, releaseMicroUsd: 0 });
     },
     async release(agencyId, month, reservedMicroUsd) {
-      await options.mirror.adjust(agencyId, month, -reservedMicroUsd).catch(() => undefined);
+      await options.mirror
+        .release(agencyId, month, reservedMicroUsd)
+        .catch((err: unknown) => options.logger?.warn({ err }, 'ai spend mirror release failed'));
     },
     batchJob: async () => workersOnly(),
     settleBatch: async () => workersOnly(),
@@ -304,10 +337,12 @@ export async function refreshSpendMirror(
   agencyId: string,
   month: string,
 ): Promise<number> {
+  // Settled cost plus the worker path's open reservations (the request path's own live in the mirror's `held`).
+  const reserved = (await hasReservations(tx)) ? sql`cost_micro_usd + reserved_micro_usd` : sql`cost_micro_usd`;
   const { rows } = await tx.execute(
-    sql`select cost_micro_usd from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
+    sql`select ${reserved} as spent from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
   );
-  const spent = rows[0] ? Number(rows[0].cost_micro_usd) : 0;
+  const spent = rows[0] ? Number(rows[0].spent) : 0;
   await mirror.seed(agencyId, month, spent);
   return spent;
 }

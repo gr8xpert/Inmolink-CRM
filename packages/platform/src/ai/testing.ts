@@ -173,20 +173,47 @@ export function memoryAiStore(initialSpend: Record<string, number> = {}): AiStor
   };
 }
 
-/** In-memory stand-in for the redis spend mirror (same contract as `createSpendMirror`). */
-export function memorySpendMirror(): SpendMirror & { values: Map<string, number> } {
+/** In-memory stand-in for the redis spend mirror (same contract as `createSpendMirror`: base, held, queued). */
+export function memorySpendMirror(): SpendMirror & {
+  values: Map<string, number>;
+  held: Map<string, number>;
+  queued: Map<string, number>;
+  /** Drops the base, as an expiry or eviction would. */
+  expire(agencyId: string, month: string): void;
+} {
   const values = new Map<string, number>();
+  const held = new Map<string, number>();
+  const queued = new Map<string, number>();
   const key = (agencyId: string, month: string) => `${agencyId}:${month}`;
+  const take = (m: Map<string, number>, k: string, n: number) => m.set(k, Math.max(0, (m.get(k) ?? 0) - Math.round(n)));
+  const put = (m: Map<string, number>, k: string, n: number) => m.set(k, (m.get(k) ?? 0) + Math.round(n));
   return {
     values,
+    held,
+    queued,
+    expire(agencyId, month) {
+      values.delete(key(agencyId, month));
+    },
     async reserve(agencyId, month, estimateMicroUsd, hardMicroUsd) {
       const k = key(agencyId, month);
-      const v = values.get(k);
-      if (v === undefined) return { ok: false, reason: 'UNKNOWN' };
+      const base = values.get(k);
+      if (base === undefined) return { ok: false, reason: 'UNKNOWN' };
+      const spent = base + (queued.get(k) ?? 0);
       const estimate = Math.ceil(estimateMicroUsd);
-      if (v + estimate > hardMicroUsd) return { ok: false, reason: 'HARD_CAP' };
-      values.set(k, v + estimate);
-      return { ok: true, spentMicroUsd: v };
+      if (spent + (held.get(k) ?? 0) + estimate > hardMicroUsd) return { ok: false, reason: 'HARD_CAP' };
+      put(held, k, estimate);
+      return { ok: true, spentMicroUsd: spent };
+    },
+    async settle(agencyId, month, reserved, cost) {
+      const k = key(agencyId, month);
+      take(held, k, reserved);
+      if (cost > 0) put(queued, k, cost);
+    },
+    async release(agencyId, month, reserved) {
+      take(held, key(agencyId, month), reserved);
+    },
+    async recorded(agencyId, month, cost) {
+      take(queued, key(agencyId, month), cost);
     },
     async adjust(agencyId, month, delta) {
       const k = key(agencyId, month);

@@ -235,7 +235,11 @@ describe('AI gateway — request-path metering (redis mirror + queued usage)', (
     const seeded = await withSystem('test.ai.refresh', (tx: Tx) => refreshSpendMirror(tx, mirror, agencyA, month));
     expect(seeded).toBe(await spendOf(agencyA));
     const res = await g.generate(ctxOf(agencyA), call({ q: `nl-${run}` }));
-    expect(Number(await redis.get(`${prefix}:spend:${agencyA}:${month}`))).toBe(seeded + 2_000);
+    const key = `${prefix}:spend:${agencyA}:${month}`;
+    // The hold went back; the real cost waits in `queued` until its usage row is in.
+    expect(Number(await redis.get(key))).toBe(seeded);
+    expect(Number(await redis.get(`${key}:held`))).toBe(0);
+    expect(Number(await redis.get(`${key}:queued`))).toBe(2_000);
     expect(queued).toHaveLength(1);
 
     // The ai.recordUsage job's body: appends once (idempotent by the job id) and counts it in the month.
@@ -244,6 +248,12 @@ describe('AI gateway — request-path metering (redis mirror + queued usage)', (
     expect(await withSystem('test.ai.record', (tx: Tx) => recordUsageRow(tx, job, 0))).toBe(true);
     expect(await withSystem('test.ai.record', (tx: Tx) => recordUsageRow(tx, job, 0))).toBe(false);
     expect(await spendOf(agencyA)).toBe(seeded + 2_000);
+    await mirror.recorded(agencyA, month, job.costMicroUsd);
+    expect(Number(await redis.get(`${key}:queued`))).toBe(0);
+    // A reseed now (key expired) starts from the database, which has the cost: nothing lost, nothing counted twice.
+    await redis.del(key);
+    await withSystem('test.ai.refresh', (tx: Tx) => refreshSpendMirror(tx, mirror, agencyA, month));
+    expect(Number(await redis.get(key))).toBe(seeded + 2_000);
   });
 
   it('[S12-01] request path: hard cap on the mirror → AI_BUDGET_EXCEEDED without calling the provider', async () => {

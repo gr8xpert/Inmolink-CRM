@@ -90,8 +90,11 @@ export const aiJobs = {
     async run(p) {
       const job = p.job as AiJobRecord;
       const inserted = await withSystem('ai.recordUsage', (tx: Tx) => recordUsageRow(tx, job, p.releaseMicroUsd));
-      if (inserted && !p.mirrored && job.status !== 'PENDING')
-        await spendMirror().adjust(job.agencyId, job.month, job.costMicroUsd);
+      if (!inserted || job.status === 'PENDING') return;
+      // Request path: the cost was queued on the mirror — it leaves `queued` now that the row is in (S12-01 security
+      // review). Worker retry: the cost reaches the mirror's base only now.
+      if (p.mirrored) await spendMirror().recorded(job.agencyId, job.month, job.costMicroUsd);
+      else await spendMirror().adjust(job.agencyId, job.month, job.costMicroUsd);
     },
   }),
 
