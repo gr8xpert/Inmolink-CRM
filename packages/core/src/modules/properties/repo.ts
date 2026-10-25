@@ -1263,7 +1263,7 @@ export async function translationsFor(
 
 /**
  * Up to `limit` listings soft-deleted before `before` (all agencies, `withSystem`), longest deleted first, rows
- * locked (skipping those another purge holds). The partial `properties_agency_deleted_idx` holds exactly the
+ * locked (skipping those another purge holds). The partial `properties_agency_deleted_raw_idx` holds exactly the
  * soft-deleted rows, few next to the table.
  */
 export async function dueForPurge(tx: Tx, before: Date, limit: number): Promise<{ id: string; agencyId: string }[]> {
@@ -1406,7 +1406,7 @@ export async function readModelFeatures(tx: Tx, ids: readonly string[]) {
 
 /**
  * A page of ids of listings that have a read model (`where`), after `after` in id order (`withSystem`, the
- * full rebuild): the primary key walked with a filter, or one agency's rows (`properties_agency_created_idx`).
+ * full rebuild): the primary key walked with a filter, or one agency's rows (`properties_agency_created_raw_idx`).
  */
 export async function readModelIdsPage(
   tx: Tx,

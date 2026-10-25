@@ -31,9 +31,8 @@ import * as repo from './data-export-repo';
  *
  * Reads: contacts and leads as the agency (`withTenant`, RLS: crm's keyset is a stored column, an index condition
  * under RLS). Listings and their media as `app_system` with the agency's id as an explicit predicate (`withSystem`,
- * PATTERNS §12): the listing keyset is `date_trunc('milliseconds', created_at)` — not leakproof, so under RLS it is
- * only a filter (EXPLAIN under `withTenant`: every page read and sorted all of the agency's listings); without RLS the
- * row comparison is an index condition on `properties_agency_created_idx`.
+ * PATTERNS §12): the listing keyset is the raw `(created_at, id)` with a microsecond cursor, an index condition on
+ * `properties_agency_created_raw_idx` (S13-F8).
  *
  * Outcomes are written only by the attempt holding the claim (`finishExport`: `RUNNING` and this attempt); a stale
  * attempt's uploaded file is deleted. A permanent error or the last attempt fails the export at once (expiring now,
@@ -76,6 +75,7 @@ async function* pages<R extends { id: string }>(
   as: 'tenant' | 'system',
   read: (tx: ReadTx, after: KeysetCursor | null) => Promise<R[]>,
   keyOf: (row: R) => Date,
+  stampOf?: (row: R) => string,
 ): AsyncGenerator<R[]> {
   let after: KeysetCursor | null = null;
   for (;;) {
@@ -87,7 +87,8 @@ async function* pages<R extends { id: string }>(
     if (page.length > 0) yield page;
     if (page.length < EXPORT_PAGE_ROWS) return;
     const last = page[page.length - 1] as R;
-    after = { at: keyOf(last), id: last.id };
+    const atUs = stampOf?.(last);
+    after = atUs === undefined ? { at: keyOf(last), id: last.id } : { at: keyOf(last), id: last.id, atUs };
   }
 }
 
@@ -204,7 +205,8 @@ const listingPages = (agencyId: string) =>
     agencyId,
     'system',
     (tx, after) => properties.listingsForExport(tx, agencyId, { after, limit: EXPORT_PAGE_ROWS }),
-    (r) => r.keyAt,
+    (r) => r.createdAt,
+    (r) => r.keyAtUs,
   );
 
 const LISTINGS: Table = {

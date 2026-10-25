@@ -205,4 +205,26 @@ describe('buildConcurrentIndexes', () => {
       .join(' ');
     for (const ix of DROPPED_INDEXES) expect(all).toContain(`DROP INDEX IF EXISTS "${ix.name}";`);
   });
+
+  it('[S13-F8] the 16 date_trunc keyset indexes are gone, properties keeps at most 21 non-unique indexes, the raw ones remain', async () => {
+    const dropped = DROPPED_INDEXES.filter((i) => i.after === '0152_s12_f20_raw_keyset').map((i) => i.name);
+    expect(dropped).toHaveLength(16);
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL_ADMIN });
+    await client.connect();
+    try {
+      const names = (await client.query<{ indexname: string }>('select indexname from pg_indexes')).rows.map(
+        (r) => r.indexname,
+      );
+      for (const n of dropped) {
+        expect(names).not.toContain(n);
+        expect(names).toContain(n.replace(/_idx$/, '_raw_idx'));
+      }
+      const { rows } = await client.query<{ n: number }>(
+        `select count(*)::int as n from pg_indexes where tablename = 'properties' and indexdef not like 'CREATE UNIQUE%'`,
+      );
+      expect(rows[0]?.n).toBeLessThanOrEqual(21);
+    } finally {
+      await client.end();
+    }
+  });
 });

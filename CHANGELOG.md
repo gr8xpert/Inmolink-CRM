@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(db): drop the 16 date_trunc keyset indexes concurrently (migration 0160); crm notes/imports and the listing export on raw keyset [S13-F8]
 - feat(social): revoke the Meta grant only with the Meta user's last connected account (meta_user_id, migration 0159) [S13-F5]
 - feat(db): worker-written tables refuse member writes — alerts read+delete, listing states and selection interactions read-only (userNoInsert registry option) [S13-F3]
 - feat(presentations): selection reads locked to the link token — selection_by_token SECURITY DEFINER lookup (live selections of non-suspended agencies only); app_public loses SELECT on selections and selection_items [S13-F1]

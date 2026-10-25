@@ -115,12 +115,7 @@ export const dataExportJobs = pgTable(
   },
   (t) => [
     // the agency's exports, newest first: where agency_id = ? order by date_trunc(created_at) desc, id desc (keyset)
-    index('data_export_jobs_agency_created_idx').on(
-      t.agencyId,
-      sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
-      t.id,
-    ),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('data_export_jobs_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // one export at a time per agency: where agency_id = ? and status in ('QUEUED', 'RUNNING')
     uniqueIndex('data_export_jobs_active_uq').on(t.agencyId).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),

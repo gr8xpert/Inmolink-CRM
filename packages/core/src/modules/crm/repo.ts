@@ -15,7 +15,7 @@ import {
 } from '@inmolink/db/schema/crm';
 import { newId } from '@inmolink/platform/ids';
 import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
-import { type KeysetCursor, keysetAfter, keysetOrder, rowAfter, rowOrder } from '../../pagination';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp, rowAfter, rowOrder } from '../../pagination';
 
 /**
  * crm queries (PATTERNS §5). Takes `tx`, selects only the columns it needs, paginates by cursor.
@@ -615,24 +615,24 @@ export async function insertNotes(
     .returning(noteColumns);
 }
 
-/** A contact's notes, newest first (keyset on `contact_notes_contact_created_idx`). */
+/** A contact's notes, newest first (raw keyset on `contact_notes_contact_created_raw_idx`). */
 export async function listNotes(
   tx: Tx,
   agencyId: string,
   contactId: string,
   page: { limit: number; cursor?: KeysetCursor },
-): Promise<NoteRow[]> {
+): Promise<(NoteRow & { atUs: string })[]> {
   return tx
-    .select(noteColumns)
+    .select({ ...noteColumns, atUs: keysetStamp(contactNotes.createdAt) })
     .from(contactNotes)
     .where(
       and(
         eq(contactNotes.agencyId, agencyId),
         eq(contactNotes.contactId, contactId),
-        keysetAfter(contactNotes.createdAt, contactNotes.id, page.cursor, 'desc'),
+        keysetAfterRaw(contactNotes.createdAt, contactNotes.id, page.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(contactNotes.createdAt, contactNotes.id, 'desc'))
+    .orderBy(...keysetOrderRaw(contactNotes.createdAt, contactNotes.id, 'desc'))
     .limit(page.limit + 1);
 }
 
@@ -675,17 +675,17 @@ export async function listImports(
   tx: Tx,
   agencyId: string,
   page: { limit: number; cursor?: KeysetCursor },
-): Promise<ImportRow[]> {
+): Promise<(ImportRow & { atUs: string })[]> {
   return tx
-    .select(importColumns)
+    .select({ ...importColumns, atUs: keysetStamp(contactImports.createdAt) })
     .from(contactImports)
     .where(
       and(
         eq(contactImports.agencyId, agencyId),
-        keysetAfter(contactImports.createdAt, contactImports.id, page.cursor, 'desc'),
+        keysetAfterRaw(contactImports.createdAt, contactImports.id, page.cursor, 'desc'),
       ),
     )
-    .orderBy(...keysetOrder(contactImports.createdAt, contactImports.id, 'desc'))
+    .orderBy(...keysetOrderRaw(contactImports.createdAt, contactImports.id, 'desc'))
     .limit(page.limit + 1);
 }
 

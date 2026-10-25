@@ -498,7 +498,7 @@ export async function listContactNotes(ctx: Ctx, contactId: string, query: PageQ
     contactId,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toNoteDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toNoteDto);
   await auditImpersonatedRead(ctx, 'contactNotes', { count: page.items.length, parentId: contactId });
   return page;
 }

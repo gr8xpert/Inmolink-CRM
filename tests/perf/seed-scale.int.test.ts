@@ -17,7 +17,7 @@ const USERS_SEED = 916;
 const USERS_BUDGET_SECONDS = 15.2 / 5;
 /**
  * Seeded users, and first the listings they own (S3-F6: a listing's owner must stay a member). The listings are found
- * through the members' `(agency_id, owner_user_id)` (index `properties_agency_owner_idx`, not a scan of every listing)
+ * through the members' `(agency_id, owner_user_id)` (index `properties_agency_owner_raw_idx`, not a scan of every listing)
  * and deleted in batches, each in its own transaction under the worker statement timeout (S10-F10: one statement
  * over the whole table timed out in CI after the 1,000-agency delete left it bloated).
  */

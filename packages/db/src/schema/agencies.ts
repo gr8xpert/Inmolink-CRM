@@ -67,8 +67,7 @@ export const agencies = pgTable(
     // staff tenants list (S1-09, S2-F1): [where status = ?] order by the keyset time desc, agency_id desc
     // (`keysetOrder`), no sort. No (status, …) index: under app_staff RLS the enum `=` is not leakproof, so a
     // status filter is never an index condition; it filters this ordered scan (5,000 agencies at most).
-    index('agencies_created_idx').on(sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`, t.id),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('agencies_created_raw_idx').on(t.createdAt, t.id),
     // staff tenant search (S1-F9): `name ilike '%q%'` — a leading wildcard cannot use a btree; trigram GIN (pg_trgm, initdb)
     index('agencies_name_trgm_idx').using('gin', sql`${t.name} gin_trgm_ops`),

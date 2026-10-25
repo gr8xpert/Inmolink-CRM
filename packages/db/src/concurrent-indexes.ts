@@ -178,6 +178,17 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'feed_runs',
     definition: `ON "feed_runs" USING btree ("connection_id","created_at","id")`,
   },
+  {
+    // S13-F8: contact imports and notes, raw keyset
+    name: 'contact_imports_agency_created_raw_idx',
+    table: 'contact_imports',
+    definition: `ON "contact_imports" USING btree ("agency_id","created_at","id")`,
+  },
+  {
+    name: 'contact_notes_contact_created_raw_idx',
+    table: 'contact_notes',
+    definition: `ON "contact_notes" USING btree ("agency_id","contact_id","created_at","id")`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */
@@ -240,6 +251,23 @@ export interface DroppedIndex {
 export const DROPPED_INDEXES: readonly DroppedIndex[] = [
   // the pre-S7-F11 area index on the `numeric` column; every app version runs the float8 one (area_f8_idx) now
   { name: 'listing_search_docs_area_idx', after: '0104_s7_f11_area_statistics' },
+  // S13-F8 (S12-F20b): the 16 date_trunc keyset indexes; every app version runs the raw ones (0152) now
+  { name: 'agencies_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'data_export_jobs_agency_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'developments_agency_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'staff_impersonations_agency_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'feed_connections_agency_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'feed_runs_connection_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'listing_bookmarks_folder_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_created_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_region_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_city_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_location_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_status_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_country_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_owner_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_updated_idx', after: '0152_s12_f20_raw_keyset' },
+  { name: 'properties_agency_deleted_idx', after: '0152_s12_f20_raw_keyset' },
 ];
 
 /** Drops each listed index that exists and whose `after` migration is applied, concurrently (autocommit `client`). */

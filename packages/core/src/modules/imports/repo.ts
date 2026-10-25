@@ -518,15 +518,14 @@ export async function finishRun(
 
 /**
  * Item counts of the connection's last `n` successful runs, newest first (the anomaly guard's baseline, S6-08).
- * `feed_runs_connection_created_idx` (its leading column; the order by is the index's expression, so it reads
- * backwards); a connection keeps ≤ 90 days of runs.
+ * `feed_runs_connection_created_raw_idx` (read backwards); a connection keeps ≤ 90 days of runs.
  */
 export async function recentSucceededTotals(tx: Tx, connectionId: string, n: number): Promise<number[]> {
   const rows = await tx
     .select({ total: feedRuns.itemsTotal })
     .from(feedRuns)
     .where(and(eq(feedRuns.connectionId, connectionId), eq(feedRuns.state, 'SUCCEEDED')))
-    .orderBy(desc(sql`date_trunc('milliseconds', ${feedRuns.createdAt}, 'UTC')`), desc(feedRuns.id))
+    .orderBy(...keysetOrderRaw(feedRuns.createdAt, feedRuns.id, 'desc'))
     .limit(n);
   return rows.map((r) => r.total);
 }

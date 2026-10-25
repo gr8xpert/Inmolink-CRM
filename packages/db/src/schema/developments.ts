@@ -61,9 +61,6 @@ export const developmentDocumentKindEnum = pgEnum('development_document_kind', [
   'OTHER',
 ]);
 
-/** `date_trunc('milliseconds', col, 'UTC')`: the keyset sort key (`keysetOrder`, S2-F1), indexable. */
-const keysetTime = (col: unknown) => sql`date_trunc('milliseconds', ${col}, 'UTC')`;
-
 export const developments = pgTable(
   'developments',
   {
@@ -110,8 +107,7 @@ export const developments = pgTable(
     unique('developments_id_agency_uq').on(t.id, t.agencyId),
     uniqueIndex('developments_agency_ref_uq').on(t.agencyId, t.ref),
     // the agency's developments, newest first (keyset)
-    index('developments_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('developments_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // FK + network browse by location
     index('developments_location_idx').on(t.locationId),

@@ -2,31 +2,26 @@
  * The listing side of the data export (S10-08, PATTERNS §12 "Cross-module functions for workers"): raw `tx` — the
  * compliance worker reads as `app_system` (`withSystem`), `agency_id` an explicit predicate — no authorization
  * (compliance authorizes the export), never called from request code. The agency's own listings that are not deleted,
- * newest first in keyset pages on `properties_agency_created_idx` (`date_trunc('milliseconds', created_at, 'UTC')`,
- * id): one statement per page. Not under RLS on purpose: `date_trunc` is not leakproof, so under RLS the cursor's row
- * comparison is only a filter (each page would read and sort all of the agency's listings); without RLS it is an index
- * condition.
+ * newest first in keyset pages on `properties_agency_created_raw_idx` (`created_at`, id; the cursor carries the
+ * microsecond stamp, S13-F8): one statement per page, the cursor an index condition.
  * Everything the agency entered, commission terms included — the export is the agency's own data, for its admins.
  */
 import type { Tx } from '@inmolink/db';
 import { properties } from '@inmolink/db/schema/properties';
-import { and, desc, eq, isNull, type SQL, sql } from 'drizzle-orm';
-import type { KeysetCursor } from '../../pagination';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /** Most rows one page may ask for. */
 export const LISTING_EXPORT_PAGE_MAX = 2_000;
 
-const keyTime = sql`date_trunc('milliseconds', ${properties.createdAt}, 'UTC')`;
-
 export async function listingsForExport(tx: Tx, agencyId: string, q: { after: KeysetCursor | null; limit: number }) {
   const where: (SQL | undefined)[] = [eq(properties.agencyId, agencyId), isNull(properties.deletedAt)];
-  if (q.after)
-    where.push(sql`(${keyTime}, ${properties.id}) < (${q.after.at.toISOString()}::timestamptz, ${q.after.id}::uuid)`);
+  where.push(keysetAfterRaw(properties.createdAt, properties.id, q.after ?? undefined, 'desc'));
   return tx
     .select({
       id: properties.id,
-      /** The keyset key (the creation time to the millisecond). */
-      keyAt: sql<Date>`${keyTime}`.mapWith((v: string | Date) => new Date(v)),
+      /** The keyset key: the creation time, and its microsecond stamp for the cursor. */
+      keyAtUs: keysetStamp(properties.createdAt),
       ref: properties.ref,
       source: properties.source,
       status: properties.status,
@@ -66,7 +61,7 @@ export async function listingsForExport(tx: Tx, agencyId: string, q: { after: Ke
     })
     .from(properties)
     .where(and(...where))
-    .orderBy(desc(keyTime), desc(properties.id))
+    .orderBy(...keysetOrderRaw(properties.createdAt, properties.id, 'desc'))
     .limit(Math.max(1, Math.min(q.limit, LISTING_EXPORT_PAGE_MAX)));
 }
 

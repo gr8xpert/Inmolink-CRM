@@ -119,12 +119,7 @@ export const feedConnections = pgTable(
   (t) => [
     unique('feed_connections_id_agency_uq').on(t.id, t.agencyId),
     // the agency's connections list: where agency_id = ? order by created_at desc, id desc
-    index('feed_connections_agency_created_idx').on(
-      t.agencyId,
-      sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
-      t.id,
-    ),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('feed_connections_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // scheduler: enabled connections due now, oldest first
     index('feed_connections_due_idx').on(t.nextRunAt).where(sql`${t.enabled} and ${t.nextRunAt} is not null`),
@@ -224,12 +219,7 @@ export const feedRuns = pgTable(
     // the per-connection mutex: one waiting or running run per connection
     uniqueIndex('feed_runs_connection_active_uq').on(t.connectionId).where(sql`${t.state} in ('QUEUED', 'RUNNING')`),
     // FK + a connection's run history: where connection_id = ? order by created_at desc, id desc
-    index('feed_runs_connection_created_idx').on(
-      t.connectionId,
-      sql`date_trunc('milliseconds', ${t.createdAt}, 'UTC')`,
-      t.id,
-    ),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('feed_runs_connection_created_raw_idx').on(t.connectionId, t.createdAt, t.id),
     // FK (agency_id)
     index('feed_runs_agency_created_idx').on(t.agencyId, t.createdAt),

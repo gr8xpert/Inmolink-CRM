@@ -1121,6 +1121,13 @@
       "when": 1792963295205,
       "tag": "0159_s13_f5_social_meta_user",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1792964010604,
+      "tag": "0160_s13_f8_drop_date_trunc_indexes",
+      "breakpoints": true
     }
   ]
 }

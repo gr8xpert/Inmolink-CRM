@@ -216,12 +216,7 @@ export const staffImpersonations = pgTable(
     uniqueIndex('staff_impersonations_open_uq').on(t.staffUserId).where(sql`ended_at is null`),
     // FK + the agency's staff access list (S2-F1): where agency_id = ? order by the keyset time desc, id desc
     // (`keysetOrder`: `date_trunc('milliseconds', started_at, 'UTC')`); scanned backwards, no sort
-    index('staff_impersonations_agency_idx').on(
-      t.agencyId,
-      sql`date_trunc('milliseconds', ${t.startedAt}, 'UTC')`,
-      t.id,
-    ),
-    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS; replaces the one above
+    // S12-F20: raw keyset (`keysetAfterRaw`): the cursor is an index condition under RLS
     index('staff_impersonations_agency_raw_idx').on(t.agencyId, t.startedAt, t.id),
     // FK + the staff member's history: where staff_user_id = ? order by started_at
     index('staff_impersonations_staff_idx').on(t.staffUserId, t.startedAt),

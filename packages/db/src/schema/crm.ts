@@ -35,9 +35,6 @@ import { agencyMembers } from './identity';
  */
 const textC = customType<{ data: string }>({ dataType: () => 'text COLLATE "C"' });
 
-/** `date_trunc('milliseconds', col, 'UTC')`: the keyset sort key (`keysetOrder`, S2-F1), indexable. */
-const keysetTime = (col: unknown) => sql`date_trunc('milliseconds', ${col}, 'UTC')`;
-
 /**
  * A contact (S10-01, PLAN §6 CRM): a person the agency deals with — buyer, seller, tenant, landlord (any mix).
  * E-mails and phones are rows of their own (`contact_emails`, `contact_phones`), unique per agency, so the database
@@ -215,7 +212,7 @@ export const contactNotes = pgTable(
   },
   (t) => [
     // FK + a contact's notes, newest first: where agency_id = ? and contact_id = ? order by created_at desc, id desc
-    index('contact_notes_contact_created_idx').on(t.agencyId, t.contactId, keysetTime(t.createdAt), t.id),
+    index('contact_notes_contact_created_raw_idx').on(t.agencyId, t.contactId, t.createdAt, t.id),
     check('contact_notes_body_ck', sql`length(${t.body}) between 1 and 10000`),
     foreignKey({
       name: 'contact_notes_contact_fk',
@@ -269,7 +266,7 @@ export const contactImports = pgTable(
   },
   (t) => [
     // the agency's imports, newest first: where agency_id = ? order by created_at desc, id desc
-    index('contact_imports_agency_created_idx').on(t.agencyId, keysetTime(t.createdAt), t.id),
+    index('contact_imports_agency_created_raw_idx').on(t.agencyId, t.createdAt, t.id),
     // daily sweep of files left in storage (uploads never started, runs whose delete failed):
     // where file_deleted_at is null and created_at < ? order by created_at
     index('contact_imports_file_idx').on(t.createdAt).where(sql`${t.fileDeletedAt} is null`),

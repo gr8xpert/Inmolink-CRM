@@ -216,7 +216,7 @@ export async function listContactImports(ctx: Ctx, query: PageQuery): Promise<Co
     ctx.tenant.agencyId,
     cursor ? { limit: query.limit, cursor } : { limit: query.limit },
   );
-  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id }), toImportDto);
+  const page = toPage(rows, query.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toImportDto);
   await auditImpersonatedRead(ctx, 'contactImports', { count: page.items.length });
   return page;
 }
