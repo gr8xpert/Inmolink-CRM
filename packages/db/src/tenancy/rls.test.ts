@@ -282,7 +282,7 @@ describe('RLS generator', () => {
     }
   });
 
-  it('[S12-F22] calendar_feed_tag reads the feed row and the login only: its id and content version, app_public', () => {
+  it('[S12-F22] calendar_feed_tag reads the feed row and its access joins: its id and content version, app_public', () => {
     const sig = 'calendar_feed_tag(text)';
     expect(HELPER_FUNCTIONS as readonly string[]).toContain('calendar_feed_tag');
     expect(out).toContain(
@@ -293,6 +293,10 @@ describe('RLS generator', () => {
     expect(tag).toContain('security definer set search_path = pg_catalog, pg_temp');
     expect(tag).toContain('f.token_hash = hash and f.revoked_at is null and f.live');
     expect(tag).toContain("u.status = 'ACTIVE'");
+    // the access joins themselves (fail closed), `live` only a hint
+    expect(tag).toContain('m.deactivated_at is null');
+    expect(tag).toContain("m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')");
+    expect(tag).toContain("g.status <> 'SUSPENDED'");
     expect(tag).toContain('returns table(feed_id uuid, feed_version bigint)');
     // nothing per event, no texts, names, e-mails or phones
     expect(tag).not.toMatch(/calendar_event|title|description|location|name|email|phone/);

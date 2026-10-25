@@ -111,7 +111,7 @@ describe('ICS feed at 2,000 events', () => {
     expect(p95(ms)).toBeLessThan(20);
   }, 120_000);
 
-  it('[S12-F22] a 304 at 2,000 events reads ≤ 10 buffers: the feed row and the login, nothing per event', async () => {
+  it('[S12-F22] a 304 at 2,000 events reads ≤ 15 buffers: the feed row and its access joins, nothing per event', async () => {
     const hash = (
       await adminQuery<{ token_hash: string }>(
         `select token_hash from calendar_feeds where agency_id = $1 and revoked_at is null`,
@@ -119,9 +119,10 @@ describe('ICS feed at 2,000 events', () => {
       )
     )[0]?.token_hash as string;
     // the statement on the server (EXPLAIN ANALYZE as the owner) in a warm session, as feed-api's pooled connections
-    // are: the first call of a session also reads the catalog to plan the function's body
+    // are: the first calls of a session also plan the function's statement (catalog and index metapages)
     const out = await withAdminRollback([], async (q) => {
-      await q('select * from calendar_feed_tag($1)', [hash]);
+      // a pooled connection has run it before: past plpgsql's first custom plans, the cached one
+      for (let i = 0; i < 6; i++) await q('select * from calendar_feed_tag($1)', [hash]);
       return q<Record<string, unknown>>('explain (analyze, buffers, format json) select * from calendar_feed_tag($1)', [
         hash,
       ]);
@@ -130,6 +131,8 @@ describe('ICS feed at 2,000 events', () => {
     const buffers = Number(top['Shared Hit Blocks'] ?? 0) + Number(top['Shared Read Blocks'] ?? 0);
     console.info(`calendarFeedTag at 2,000 events: ${buffers} buffers`);
     expect(buffers).toBeGreaterThan(0);
-    expect(buffers).toBeLessThanOrEqual(10);
+    // constant per feed (S11-F7 read ~5 per event): the feed row and four primary-key probes — membership, login,
+    // agency (the security review: authoritative joins, `live` only a hint)
+    expect(buffers).toBeLessThanOrEqual(15);
   }, 60_000);
 });

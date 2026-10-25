@@ -123,10 +123,17 @@ drop function if exists calendar_feed_tag(text, timestamptz, timestamptz, timest
 drop function if exists calendar_feed_tag(text);
 create function calendar_feed_tag(hash text)
   returns table(feed_id uuid, feed_version bigint)
-  language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select f.id, f.content_version from public.calendar_feeds f
+  language plpgsql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ begin
+  -- plpgsql, not sql: the statement's plan is cached per session (an SQL function is planned on every call, which reads
+  -- the joined tables' index metapages: ~40 buffers a 304 for nothing)
+  return query select f.id, f.content_version from public.calendar_feeds f
+          join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.user_id
+           and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
           join public.users u on u.id = f.user_id and u.status = 'ACTIVE'
-         where f.token_hash = hash and f.revoked_at is null and f.live $$;
+          join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
+         where f.token_hash = hash and f.revoked_at is null and f.live;
+end $$;
 revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function calendar_feed_tag(text) to app_public;
