@@ -22,10 +22,8 @@ import * as repo from './repo';
  * (what its agency published) goes into a notification.
  */
 
-/** Agencies whose subscribers are notified per transaction. */
-export const SUBSCRIBER_AGENCY_BATCH = 100;
-/** Members read per batch at most (≤ 20 subscriptions each: a bound, not a page). */
-export const SUBSCRIBER_ROWS_MAX = 50_000;
+/** Members notified per transaction (S12-F3: a page of the walk over `network_subscription_terms`, by member). */
+export const SUBSCRIBER_BATCH = 500;
 /** Matched agencies notified per transaction. */
 export const MATCH_AGENCY_BATCH = 100;
 /** Expired posts closed per statement, and statements per sweep run. */
@@ -66,54 +64,55 @@ async function livePost(postId: string, reason: string) {
  * `network.notifySubscribers` (one per published post; for a buyer request, after its matching): every member of
  * another agency with a subscription matching the post gets one `NETWORK_POST` notification (several matching
  * subscriptions: still one) — unless the buyer request's `NETWORK_MATCH` told them already. One transaction per
- * `SUBSCRIBER_AGENCY_BATCH` agencies: their members (one statement), the listed agencies among them, the members told
- * of a match, and one batched raise for all of them (`raiseNotificationsAcross`).
+ * `SUBSCRIBER_BATCH` members (the walk's page in agency and member order, S12-F3; an agency may span two pages): the
+ * members (one statement), the listed agencies among them, the members told of a match, and one batched raise for all
+ * of them (`raiseNotificationsAcross`).
  */
 export async function notifySubscribers(postId: string): Promise<{ notified: number }> {
   const live = await livePost(postId, `network.notifySubscribers: post ${postId}`);
   if (!live) return { notified: 0 };
   const { post, poster } = live;
-  let after: string | null = null;
+  let after: repo.SubscriberRow | null = null;
   let notified = 0;
   for (;;) {
-    const lastAgency: string | null = await withSystem(`network.notifySubscribers: post ${postId}`, async (tx) => {
-      const rows = await repo.matchingSubscribers(tx, post, after, SUBSCRIBER_AGENCY_BATCH, SUBSCRIBER_ROWS_MAX);
-      if (rows.length === SUBSCRIBER_ROWS_MAX) {
-        logger().warn({ postId, rows: rows.length }, 'network subscribers: batch at its row bound');
-      }
-      const byAgency = new Map<string, string[]>();
-      for (const r of rows) byAgency.set(r.agencyId, [...(byAgency.get(r.agencyId) ?? []), r.userId]);
-      const agencyIds = [...byAgency.keys()];
-      const listed = await agencies.listedAgencyNamesOf(tx, agencyIds);
-      const matched =
-        post.kind === 'BUYER_REQUEST'
-          ? await notifications.recipientsOfSource(tx, {
-              agencyIds,
-              type: 'NETWORK_MATCH',
-              sourceKey: matchSourceKey(post.id),
-              at: post.createdAt,
-            })
-          : new Set<string>();
-      const items = [...byAgency].flatMap(([agencyId, users]) =>
-        listed.has(agencyId)
-          ? chunks(
-              users.filter((u) => !matched.has(`${agencyId}:${u}`)),
-              NOTIFICATION_LIMITS.recipients,
-            ).map((userIds) => ({
-              agencyId,
-              userIds,
-              params: { actor: poster, subject: post.title, kind: post.kind },
-              link: postLink(post.id),
-              sourceKey: `network.post:${post.id}`,
-              at: post.createdAt,
-            }))
-          : [],
-      );
-      notified += (await notifications.raiseNotificationsAcross(tx, 'NETWORK_POST', items)).notified.length;
-      return agencyIds.length < SUBSCRIBER_AGENCY_BATCH ? null : (agencyIds.at(-1) ?? null);
-    });
-    if (lastAgency === null) break;
-    after = lastAgency;
+    const last: repo.SubscriberRow | null = await withSystem(
+      `network.notifySubscribers: post ${postId}`,
+      async (tx) => {
+        const rows = await repo.matchingSubscribers(tx, post, after, SUBSCRIBER_BATCH);
+        const byAgency = new Map<string, string[]>();
+        for (const r of rows) byAgency.set(r.agencyId, [...(byAgency.get(r.agencyId) ?? []), r.userId]);
+        const agencyIds = [...byAgency.keys()];
+        const listed = await agencies.listedAgencyNamesOf(tx, agencyIds);
+        const matched =
+          post.kind === 'BUYER_REQUEST'
+            ? await notifications.recipientsOfSource(tx, {
+                agencyIds,
+                type: 'NETWORK_MATCH',
+                sourceKey: matchSourceKey(post.id),
+                at: post.createdAt,
+              })
+            : new Set<string>();
+        const items = [...byAgency].flatMap(([agencyId, users]) =>
+          listed.has(agencyId)
+            ? chunks(
+                users.filter((u) => !matched.has(`${agencyId}:${u}`)),
+                NOTIFICATION_LIMITS.recipients,
+              ).map((userIds) => ({
+                agencyId,
+                userIds,
+                params: { actor: poster, subject: post.title, kind: post.kind },
+                link: postLink(post.id),
+                sourceKey: `network.post:${post.id}`,
+                at: post.createdAt,
+              }))
+            : [],
+        );
+        notified += (await notifications.raiseNotificationsAcross(tx, 'NETWORK_POST', items)).notified.length;
+        return rows.length < SUBSCRIBER_BATCH ? null : (rows.at(-1) ?? null);
+      },
+    );
+    if (last === null) break;
+    after = last;
   }
   return { notified };
 }

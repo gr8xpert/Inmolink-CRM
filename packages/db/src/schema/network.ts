@@ -27,6 +27,7 @@ import { agencies } from './agencies';
  *   no commission, only what the poster chose to publish.
  * - `network_post_authors` — the post's private side (STRICT): who posted it and its `Idempotency-Key`.
  * - `network_subscriptions` — a member's filters: posts of other agencies that match them notify the member.
+ * - `network_subscription_terms` (S12-F3) — the subscriptions' inverted index for the subscriber walk (trigger-kept).
  */
 
 export const networkPosts = pgTable(
@@ -172,6 +173,67 @@ export const networkSubscriptions = pgTable(
     check(
       'network_subscriptions_price_ck',
       sql`${t.priceMinCents} is null or ${t.priceMaxCents} is null or ${t.priceMinCents} <= ${t.priceMaxCents}`,
+    ),
+  ],
+);
+
+/** A term's "any" value: a subscription without kinds (every kind) or without a transaction type (any). */
+export const NETWORK_TERM_ANY = '*';
+/** A term's location when the subscription sets none (anywhere): the nil uuid. */
+export const NETWORK_TERM_ANYWHERE = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * S12-F3, the subscriber walk's inverted index: one row per subscription × location (`NETWORK_TERM_ANYWHERE`: none
+ * set) × kind (`NETWORK_TERM_ANY`: every kind), with its transaction type (`NETWORK_TERM_ANY`: any) and the residual
+ * filters. Kept by `network_subscriptions_terms_sync` (AFTER INSERT OR UPDATE on `network_subscriptions`, SECURITY
+ * INVOKER: the member's own rows) and deleted with its subscription (cascade). A post reads, per term of its location
+ * scope (and anywhere) × its kind and any × its transaction type and any, an ordered index-only range of members —
+ * merged, so a batch reads only as far as its last member (`network_subscription_terms_walk_idx`).
+ */
+export const networkSubscriptionTerms = pgTable(
+  'network_subscription_terms',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    subscriptionId: uuid('subscription_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    locationId: uuid('location_id').notNull(),
+    kind: text('kind').notNull(),
+    transactionType: text('transaction_type').notNull(),
+    propertyTypeIds: uuid('property_type_ids').array(),
+    priceMinCents: bigint('price_min_cents', { mode: 'number' }),
+    priceMaxCents: bigint('price_max_cents', { mode: 'number' }),
+  },
+  (t) => [
+    primaryKey({
+      name: 'network_subscription_terms_pk',
+      columns: [t.agencyId, t.subscriptionId, t.locationId, t.kind],
+    }),
+    foreignKey({
+      name: 'network_subscription_terms_subscription_fk',
+      columns: [t.agencyId, t.subscriptionId],
+      foreignColumns: [networkSubscriptions.agencyId, networkSubscriptions.id],
+    }).onDelete('cascade'),
+    // the walk: where location_id = ? and kind = ? and transaction_type = ? and (agency_id, user_id) > (?, ?)
+    // order by agency_id, user_id — the residual filters ride along for an index-only scan (no INCLUDE in drizzle)
+    index('network_subscription_terms_walk_idx').on(
+      t.locationId,
+      t.kind,
+      t.transactionType,
+      t.agencyId,
+      t.userId,
+      t.priceMinCents,
+      t.priceMaxCents,
+      t.propertyTypeIds,
+    ),
+    check(
+      'network_subscription_terms_kind_ck',
+      sql`${t.kind} in ('*', 'BUYER_REQUEST', 'PROPERTY_OFFER', 'DISTRESSED', 'DEVELOPER_ANNOUNCEMENT')`,
+    ),
+    check(
+      'network_subscription_terms_transaction_ck',
+      sql`${t.transactionType} in ('*', 'SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM')`,
     ),
   ],
 );

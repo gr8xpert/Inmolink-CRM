@@ -10,7 +10,12 @@ import { createLogger } from '@inmolink/platform/logger';
 import { configureSearch, createMeiliEngine, type SearchEngine } from '@inmolink/platform/search';
 import { type SQL, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { boardQuery, matchingSubscribersQuery, postById } from '../../packages/core/src/modules/network/repo';
+import {
+  boardQuery,
+  matchingSubscribersQuery,
+  postById,
+  withWalkPlan,
+} from '../../packages/core/src/modules/network/repo';
 
 /**
  * Network board at scale (S11-05): 250 verified agencies × 160 listings (40,000 rows, four in five of them on the network and in
@@ -285,20 +290,20 @@ describe('network board at scale', () => {
     expect(job.ms).toBeLessThan(MATCH_BUDGET_MS);
   });
 
-  it('[S11-05] subscriber fan-out over 12,000 subscriptions < 3 s; its batch of 100 agencies < 20 ms', async () => {
+  it('[S11-05] subscriber fan-out over 12,000 subscriptions < 3 s; its batch of members < 20 ms', async () => {
     const { post } = await as(poster, (ctx) => network.createPost(ctx, buyerRequest()));
     const job = await timed(() => network.notifySubscribers(post.id));
     log.info({ fanoutMs: Math.round(job.ms), notified: job.result.notified }, 'subscriber fan-out');
     expect(job.result.notified).toBeGreaterThanOrEqual(AGENCIES - 10);
     expect(job.ms).toBeLessThan(FANOUT_BUDGET_MS);
     const row = await system((tx) => postById(tx, post.id));
-    const best = await explain(rolledBack(system), () =>
-      matchingSubscribersQuery(row as NonNullable<typeof row>, null, network.SUBSCRIBER_AGENCY_BATCH, 50_000),
+    // S12-F3: the walk's statement runs with its planner settings (`withWalkPlan`), as the worker runs it
+    const walk = rolledBack(<T>(fn: (tx: Tx) => Promise<T>) => system((tx) => withWalkPlan(tx, () => fn(tx))));
+    const best = await explain(walk, () =>
+      matchingSubscribersQuery(row as NonNullable<typeof row>, null, network.SUBSCRIBER_BATCH),
     );
     log.info({ ms: best.ms }, `subscriptions page plan:\n${best.plan}`);
-    // The walk reads every subscription once per post by design (S11-05 decision: an unset filter matches everything,
-    // so no index can narrow it); on a fresh CI database the planner reads the 12k rows with a Seq Scan (CI 860eb87,
-    // 4.4 ms), elsewhere by the primary key. The budget is the time, not the plan; revisit past ~100k subscriptions.
+    // S12-F3: index-only ranges of `network_subscription_terms` (the 1M-subscription check: network-subscribers)
     expect(best.ms).toBeLessThan(SQL_BUDGET_MS);
   });
 

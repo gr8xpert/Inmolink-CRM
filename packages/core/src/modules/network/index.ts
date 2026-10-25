@@ -19,7 +19,7 @@ export {
   matchSourceKey,
   notifySubscribers,
   postLink,
-  SUBSCRIBER_AGENCY_BATCH,
+  SUBSCRIBER_BATCH,
 } from './matching';
 export { CLIENT_MODE_ALLOWED, can, NETWORK_ACTIONS, NETWORK_IMPERSONATION, type NetworkAction } from './policy';
 export {

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- perf(network,db): subscriber walk over an inverted subscription index — index-only, < 20 ms at 1M subscriptions (migration 0148) [S12-F3]
 - feat(social): Facebook/Instagram posting from listings — Meta OAuth with encrypted tokens, AI captions per language, scheduled publish-once, reconnect notices, history (migration 0147) [S12-07]
 - feat(documents): PDF brochures, portfolios, selection PDFs and accepted viewing terms via platform/pdf [S12-05] — new dependency puppeteer-core 25.13.0 (platform)
 - feat(mls): fingerprints labelled with their HMAC key; fingerprintsPending + HmacRotationRehashPending alert near the end of a rotation window; runbook step 10 (migration 0145) [S12-F8]

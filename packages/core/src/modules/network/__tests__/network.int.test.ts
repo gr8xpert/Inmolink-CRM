@@ -15,6 +15,7 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as network from '../index';
+import * as repo from '../repo';
 
 /**
  * Network board (S11-05) on the real test database and Meilisearch: who reads a post (RLS), subscriptions notify only
@@ -684,5 +685,62 @@ describe('reply threads close with their post or an unlisted agency (S12-F12)', 
     const colleague = await agent(q.agencyId, 'Quinn');
     const direct = await as(q, (ctx) => chat.createDirectThread(ctx, { userIds: [colleague.userId] }));
     expect(await sqlState(rawSend(q, direct.id))).toBe(undefined);
+  });
+});
+
+describe('subscription terms (S12-F3)', () => {
+  const termsOf = (subscriptionId: string) =>
+    rows<{ location_id: string; kind: string; transaction_type: string; user_id: string }>(sql`
+      select location_id, kind, transaction_type, user_id from network_subscription_terms
+       where subscription_id = ${subscriptionId} order by location_id, kind`);
+  const NIL = '00000000-0000-0000-0000-000000000000';
+
+  it('[S12-F3] a subscription keeps its terms: one per location × kind, replaced on change, gone with it', async () => {
+    const sub = await as(s, (ctx) =>
+      network.createSubscription(ctx, {
+        name: `Terms ${RUN}`,
+        kinds: ['BUYER_REQUEST', 'DISTRESSED'],
+        transactionType: 'SALE',
+        locationIds: [ids.city, ids.area],
+      }),
+    );
+    const first = await termsOf(sub.id);
+    expect(first).toHaveLength(4);
+    expect(new Set(first.map((t) => `${t.location_id}:${t.kind}`))).toEqual(
+      new Set([ids.city, ids.area].flatMap((l) => ['BUYER_REQUEST', 'DISTRESSED'].map((k) => `${l}:${k}`))),
+    );
+    expect(first.every((t) => t.transaction_type === 'SALE' && t.user_id === s.userId)).toBe(true);
+    // every filter unset: one term, anywhere and any kind / transaction type
+    await as(s, (ctx) => network.updateSubscription(ctx, sub.id, { name: `Terms ${RUN}` }));
+    expect(await termsOf(sub.id)).toEqual([{ location_id: NIL, kind: '*', transaction_type: '*', user_id: s.userId }]);
+    await as(s, (ctx) => network.deleteSubscription(ctx, sub.id));
+    expect(await termsOf(sub.id)).toEqual([]);
+    // a member writes no terms for a colleague (the table's policies, as the subscriptions')
+    expect(
+      await sqlState(
+        asUser(
+          s,
+          sql`insert into network_subscription_terms (agency_id, subscription_id, user_id, location_id, kind, transaction_type)
+            values (${s.agencyId}, ${newId()}, ${s2.userId}, ${NIL}, '*', '*')`,
+        ),
+      ),
+    ).toBe('42501');
+  });
+
+  it('[S12-F3] the walk pages by member: batches of one find what one batch finds', async () => {
+    const { post } = await as(p, (ctx) => network.createPost(ctx, buyerRequest({ title: `Walk ${RUN}` })));
+    const row = (await system((tx) => repo.postById(tx, post.id))) as repo.PostRow;
+    const all = await system((tx) => repo.matchingSubscribers(tx, row, null, 100_000));
+    const paged: repo.SubscriberRow[] = [];
+    let after: repo.SubscriberRow | null = null;
+    for (let i = 0; i < 10_000; i++) {
+      const page: repo.SubscriberRow[] = await system((tx) => repo.matchingSubscribers(tx, row, after, 1));
+      if (page.length === 0) break;
+      paged.push(...page);
+      after = page[0] as repo.SubscriberRow;
+    }
+    expect(paged).toEqual(all);
+    // the poster's own agency is never among them
+    expect(all.some((r) => r.agencyId === p.agencyId)).toBe(false);
   });
 });

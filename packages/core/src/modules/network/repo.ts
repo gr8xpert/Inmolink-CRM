@@ -1,5 +1,12 @@
 import type { Tx } from '@inmolink/db';
-import { networkPostAuthors, networkPosts, networkSubscriptions } from '@inmolink/db/schema/network';
+import {
+  NETWORK_TERM_ANY,
+  NETWORK_TERM_ANYWHERE,
+  networkPostAuthors,
+  networkPosts,
+  networkSubscriptions,
+  networkSubscriptionTerms,
+} from '@inmolink/db/schema/network';
 import { and, asc, eq, gt, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
@@ -318,70 +325,85 @@ export interface SubscriberRow {
 }
 
 /**
- * What a subscription must satisfy to match the post (every filter it sets holds; a filter the post leaves empty does
- * not match): the post's kind among its kinds, the same transaction type, a property type in common, a location of
- * the subscription among the post's locations or their ancestors, overlapping price ranges.
+ * What a subscription term must satisfy beyond its index range (S12-F3): another agency's, after the walk's last
+ * member, a property type in common (or none set), overlapping price ranges (a post without a price: subscriptions
+ * without one). Kind, transaction type and location are the index's equalities (one branch each).
  */
-function subscriptionMatches(post: PostRow): SQL {
-  const s = networkSubscriptions;
+function termResidual(post: PostRow, after: SubscriberRow | null): SQL {
+  const t = networkSubscriptionTerms;
   const types = post.propertyTypeIds ?? [];
-  const places = post.locationScopeIds ?? [];
   return and(
-    sql`${s.agencyId} <> ${post.agencyId}`,
-    sql`(${s.kinds} is null or ${post.kind} = any(${s.kinds}))`,
-    post.transactionType
-      ? sql`(${s.transactionType} is null or ${s.transactionType} = ${post.transactionType})`
-      : sql`${s.transactionType} is null`,
+    sql`${t.agencyId} <> ${post.agencyId}::uuid`,
+    after ? sql`(${t.agencyId}, ${t.userId}) > (${after.agencyId}::uuid, ${after.userId}::uuid)` : undefined,
     types.length > 0
-      ? sql`(${s.propertyTypeIds} is null or ${s.propertyTypeIds} && ${pgArray(types, 'uuid')})`
-      : sql`${s.propertyTypeIds} is null`,
-    places.length > 0
-      ? sql`(${s.locationIds} is null or ${s.locationIds} && ${pgArray(places, 'uuid')})`
-      : sql`${s.locationIds} is null`,
-    // a post without a price matches only subscriptions without one
+      ? sql`(${t.propertyTypeIds} is null or ${t.propertyTypeIds} && ${pgArray(types, 'uuid')})`
+      : sql`${t.propertyTypeIds} is null`,
     post.priceMinCents === null && post.priceMaxCents === null
-      ? sql`${s.priceMinCents} is null and ${s.priceMaxCents} is null`
+      ? sql`${t.priceMinCents} is null and ${t.priceMaxCents} is null`
       : undefined,
     post.priceMinCents !== null
-      ? sql`(${s.priceMaxCents} is null or ${s.priceMaxCents} >= ${post.priceMinCents}::bigint)`
+      ? sql`(${t.priceMaxCents} is null or ${t.priceMaxCents} >= ${post.priceMinCents}::bigint)`
       : undefined,
     post.priceMaxCents !== null
-      ? sql`(${s.priceMinCents} is null or ${s.priceMinCents} <= ${post.priceMaxCents}::bigint)`
+      ? sql`(${t.priceMinCents} is null or ${t.priceMinCents} <= ${post.priceMaxCents}::bigint)`
       : undefined,
   ) as SQL;
 }
 
 /**
- * The members subscribed to the post in the next `agencies` agencies with a matching subscription, after `afterAgency`
- * in agency order — one statement: the agencies by a walk of `network_subscriptions_pk`, then their matching
- * subscriptions' distinct members (by the same index), at most `maxRows`.
+ * The next `limit` members (after `after`, in (agency, member) order) with a subscription matching the post — one
+ * statement over `network_subscription_terms` (S12-F3): a branch per index range the post can match — each location
+ * of its scope and anywhere × its kind and any kind × its transaction type and any (none: any only) — each an ordered
+ * index-only scan; merged and grouped, so the statement reads each range only as far as the batch's last member.
+ * A subscription matches when every filter it sets holds and a filter the post leaves empty is unset (S11-05).
  */
-export function matchingSubscribersQuery(post: PostRow, afterAgency: string | null, agencies: number, maxRows: number) {
-  const s = networkSubscriptions;
-  const match = subscriptionMatches(post);
-  const after = afterAgency ? sql`and ${s.agencyId} > ${afterAgency}::uuid` : sql``;
-  return sql`
-    with page as (
-      select distinct ${s.agencyId} as agency_id from ${s}
-       where ${match} ${after}
-       order by 1
-       limit ${agencies}
-    )
-    select distinct ${s.agencyId} as "agencyId", ${s.userId} as "userId" from ${s}
-     where ${s.agencyId} in (select agency_id from page) and ${match}
-     order by 1, 2
-     limit ${maxRows}`;
+export function matchingSubscribersQuery(post: PostRow, after: SubscriberRow | null, limit: number) {
+  const t = networkSubscriptionTerms;
+  const places = [...new Set(post.locationScopeIds ?? [])];
+  const kinds = [post.kind, NETWORK_TERM_ANY];
+  const transactions = post.transactionType ? [post.transactionType, NETWORK_TERM_ANY] : [NETWORK_TERM_ANY];
+  const residual = termResidual(post, after);
+  const branches = [NETWORK_TERM_ANYWHERE, ...places].flatMap((place) =>
+    kinds.flatMap((kind) =>
+      transactions.map(
+        (transaction) => sql`(select ${t.agencyId} as agency_id, ${t.userId} as user_id from ${t}
+          where ${t.locationId} = ${place}::uuid and ${t.kind} = ${kind} and ${t.transactionType} = ${transaction}
+            and ${residual}
+          order by ${t.agencyId}, ${t.userId})`,
+      ),
+    ),
+  );
+  return sql`select agency_id as "agencyId", user_id as "userId" from (${sql.join(branches, sql` union all `)}) x
+    group by 1, 2 order by 1, 2 limit ${limit}`;
+}
+
+/**
+ * The walk's planner settings, for its statement only (S12-F3, measured on 1M subscriptions): estimates of the
+ * branches swing with the cursor, and a hash aggregate or a parallel plan reads every range to its end (≥ 100 ms)
+ * where the ordered merge stops at the batch's last member (< 15 ms).
+ */
+const WALK_PLAN = sql.raw('set local enable_hashagg = off; set local max_parallel_workers_per_gather = 0');
+const WALK_PLAN_RESET = sql.raw(
+  'set local enable_hashagg to default; set local max_parallel_workers_per_gather to default',
+);
+
+/** Runs `fn` with the walk's planner settings (the EXPLAIN check runs its plan the same way). */
+export async function withWalkPlan<T>(tx: Tx, fn: () => Promise<T>): Promise<T> {
+  await tx.execute(WALK_PLAN);
+  // reset after success only: an error aborts the transaction (a reset would hide it)
+  const result = await fn();
+  await tx.execute(WALK_PLAN_RESET);
+  return result;
 }
 
 export async function matchingSubscribers(
   tx: Tx,
   post: PostRow,
-  afterAgency: string | null,
-  agencies: number,
-  maxRows: number,
+  after: SubscriberRow | null,
+  limit: number,
 ): Promise<SubscriberRow[]> {
-  const result = await tx.execute<{ agencyId: string; userId: string }>(
-    matchingSubscribersQuery(post, afterAgency, agencies, maxRows),
+  const result = await withWalkPlan(tx, () =>
+    tx.execute<{ agencyId: string; userId: string }>(matchingSubscribersQuery(post, after, limit)),
   );
   return result.rows;
 }

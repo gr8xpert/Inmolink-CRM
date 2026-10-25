@@ -1347,6 +1347,8 @@ export const tenantTables: Record<string, TenantTable> = {
   // A member's board subscriptions (filters): the member's own only — colleagues neither read nor change them.
   network_subscriptions: {
     kind: 'STRICT',
+    // S12-F3: keeps the subscription's terms (`network_subscription_terms`) in step
+    triggers: ['network_subscriptions_terms_sync'],
     userSelect: {
       sql: 'user_id = app_user_id()',
       write: {
@@ -1357,6 +1359,17 @@ export const tenantTables: Record<string, TenantTable> = {
       samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
     },
     base: { name: 'Marbella villas' },
+  },
+  // S12-F3: the subscriptions' inverted index for the subscriber walk — written by the subscription's trigger as the
+  // member (their own rows, like the subscriptions'); the worker reads every agency's (`app_system`).
+  network_subscription_terms: {
+    kind: 'STRICT',
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: { insert: 'user_id = app_user_id()', delete: 'user_id = app_user_id()' },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+    base: { location_id: '00000000-0000-0000-0000-000000000000', kind: '*', transaction_type: '*' },
   },
   // S5-06: an agent's saved searches — the member's own only (colleagues neither read nor change them). The matching
   // worker (app_system) reads every agency's candidates through the GIN `match_keys` index.

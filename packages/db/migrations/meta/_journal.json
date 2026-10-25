@@ -1037,6 +1037,13 @@
       "when": 1792901463673,
       "tag": "0147_s12_07_social",
       "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1792902510501,
+      "tag": "0148_s12_f3_network_subscription_terms",
+      "breakpoints": true
     }
   ]
 }
