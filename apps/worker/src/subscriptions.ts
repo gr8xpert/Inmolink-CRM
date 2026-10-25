@@ -1,4 +1,5 @@
 import * as agencies from '@inmolink/core/modules/agencies';
+import * as aiFeatures from '@inmolink/core/modules/ai-features';
 import * as billing from '@inmolink/core/modules/billing';
 import * as chat from '@inmolink/core/modules/chat';
 import * as compliance from '@inmolink/core/modules/compliance';
@@ -53,6 +54,7 @@ export const MODULES = {
   chat,
   network,
   matching,
+  'ai-features': aiFeatures,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -84,4 +86,6 @@ export function registerSubscriptions(): void {
   network.registerNetworkSubscriptions();
   // S5-06: listings whose read models changed are matched against the saved searches.
   matching.registerMatchingSubscriptions();
+  // S12-03: changed public documents queue the white-label sanitizer's model pass.
+  aiFeatures.registerWhiteLabelSubscriptions();
 }

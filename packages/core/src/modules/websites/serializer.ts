@@ -5,7 +5,7 @@
  * - **Network documents** (another agency owns them) carry `<site prefix>-<public code>` as their reference (an opaque
  *   code per target, `listing_public_codes` — never the owner's own reference; the form website search matches,
  *   `networkRefPrefix`), the presenting agency's contacts (`agency`), owner text passed through the white-label
- *   sanitizer (S12-03 hook; a deterministic pass until then, told the owner's identity), a slug made from the shown
+ *   sanitizer (the deterministic pass told the owner's identity, then the model pass's cached removals, S12-03), a slug made from the shown
  *   title, and no videos (a video may show its owner). Read models hold no owner, contact or commission field
  *   (strict shapes), so nothing else can name the owner.
  * - **Text precedence** (PLAN §9.6): the site agency's override (S3-10) > the site's own content (R2 unique site
@@ -39,13 +39,17 @@ import type {
   WebsiteUnitDetail,
 } from '@inmolink/contracts';
 import {
+  type AiRemovals,
+  applyRemovals,
   deterministicSanitizer,
   NO_OWNER,
   type OwnerIdentity,
   type OwnerMatcher,
+  ownerRefsOf,
   plainText,
   type SanitizeContext,
   type TextSanitizer,
+  textKey,
 } from '../../white-label';
 
 /**
@@ -91,6 +95,12 @@ export interface SiteView {
    */
   matchers?: ReadonlyMap<string, OwnerMatcher>;
   sanitize?: TextSanitizer;
+  /**
+   * S12-03: the model pass's cached removals of the network documents' texts (`readAiRemovals`: by target id, then
+   * `textKey` of each source text), applied after the deterministic pass. Absent or no entry: the deterministic pass
+   * alone.
+   */
+  aiRemovals?: AiRemovals;
   /** R2 duplicate clusters: a target's canonical target, or null when it is its own (no-op until R2 dedupe). */
   canonicalOf?: (targetId: string) => string | null;
 }
@@ -154,7 +164,7 @@ interface TextRules {
 
 function rulesFor(
   view: SiteView,
-  item: Pick<Owned<{ ref: string }>, 'ownerAgencyId' | 'doc' | 'developmentOwnRef'>,
+  item: Pick<Owned<{ id: string; ref: string }>, 'ownerAgencyId' | 'doc' | 'developmentOwnRef'>,
 ): TextRules {
   const network = item.ownerAgencyId !== view.site.agencyId;
   const matcher = view.sanitize ? undefined : view.matchers?.get(item.ownerAgencyId);
@@ -164,9 +174,18 @@ function rulesFor(
   // The owner's own references: the document's, and its development's (S7-F6) — never left in owner text.
   const context: SanitizeContext = {
     ...(matcher?.identity ?? view.owners?.get(item.ownerAgencyId) ?? NO_OWNER),
-    ownerRefs: item.developmentOwnRef ? [item.doc.ref, item.developmentOwnRef] : [item.doc.ref],
+    ownerRefs: ownerRefsOf({ ref: item.doc.ref, developmentOwnRef: item.developmentOwnRef }),
   };
-  const clean = (text: string) => (network ? sanitize(plainText(text), context) : plainText(text));
+  // S12-03: this target's own cached removals only (by target id, then text key).
+  const removals = view.aiRemovals?.get(item.doc.id);
+  const clean = (text: string) => {
+    const plain = plainText(text);
+    if (!network) return plain;
+    const out = sanitize(plain, context);
+    // S12-03: the model pass's removals of this source text, when the worker has cached them.
+    const spans = removals?.get(textKey(plain));
+    return spans ? applyRemovals(out, spans) : out;
+  };
   return {
     network,
     owner: (text) => (text === null ? null : clean(text)),

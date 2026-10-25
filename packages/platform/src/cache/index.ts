@@ -147,6 +147,8 @@ export const cache = {
   set: (key: CacheKey, value: unknown, opts: Omit<CacheGetOptions, 'local'>): Promise<void> =>
     instance().set(key, value, opts),
   delete: (key: CacheKey): Promise<void> => instance().delete(key),
+  // S12-03: one MGET of worker-written values (misses and outages read as undefined).
+  peekMany: (keys: readonly CacheKey[]): Promise<unknown[]> => instance().peekMany(keys),
   invalidateTag: (tag: string): Promise<void> => instance().invalidateTag(tag),
   invalidateTags: (tags: readonly string[]): Promise<void> => instance().invalidateTags(tags),
   clearLocal: (): void => instance().clearLocal(),

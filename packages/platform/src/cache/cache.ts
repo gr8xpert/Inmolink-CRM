@@ -203,6 +203,27 @@ export class Cache {
     this.local.delete(key);
   }
 
+  /**
+   * S12-03: the stored values of many keys in one MGET, without a loader — for values a worker writes (`set`) and a
+   * request only reads (the white-label sanitizer's cached model removals). Untagged entries only (a tagged one reads
+   * as a miss). A miss, a corrupt entry or redis-cache being down is `undefined`: the caller falls back.
+   */
+  async peekMany(keys: readonly CacheKey[]): Promise<unknown[]> {
+    for (const key of keys) assertCacheKey(key);
+    if (keys.length === 0) return [];
+    try {
+      await whenReady(this.redis);
+      const raw = await this.redis.mget(...keys.map((k) => this.entryKey(k)));
+      return raw.map((r) => {
+        const stored = parseStored(r ?? null);
+        return stored && Object.keys(stored.t).length === 0 ? stored.v : undefined;
+      });
+    } catch (err) {
+      this.logger.warn({ err, keys: keys.length }, 'cache peek failed; reading as misses');
+      return keys.map(() => undefined);
+    }
+  }
+
   async delete(key: CacheKey): Promise<void> {
     assertCacheKey(key);
     this.local.delete(key);

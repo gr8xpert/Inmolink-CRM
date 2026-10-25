@@ -1,6 +1,7 @@
 // S12-01: the AI gateway's usage and spend-mirror jobs.
 import { aiJobs } from '@inmolink/core';
 import { agenciesJobs } from '@inmolink/core/modules/agencies';
+import { whiteLabelJobs } from '@inmolink/core/modules/ai-features';
 import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
@@ -171,6 +172,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S12-01: AI usage records (request path, failed writes) and the request path's spend mirror (ADR 0008 #6a).
     aiJobs.recordUsage,
     aiJobs.refreshSpend,
+    // S12-03: the white-label sanitizer's model pass over changed public documents.
+    whiteLabelJobs.sanitizeTexts,
   ],
   social: [],
   pdf: [],

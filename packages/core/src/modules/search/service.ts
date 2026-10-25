@@ -762,7 +762,11 @@ export async function listingLabels(
   return new Map([...best].map(([id, r]) => [id, { reference: r.reference, title: r.title || null }]));
 }
 
-/** Tests and ops checks: these targets' stored documents. */
+/**
+ * These targets' stored documents, every locale (or one), with their audience flags (`public`, `status`,
+ * `networkHidden`) and the development's own reference: workers (raw `tx` under `withSystem`, e.g. the S12-03
+ * white-label model pass), tests and ops checks. Never a request path (public paths read `publicDocs`).
+ */
 export function readModelDocs(tx: Tx, ids: readonly string[], locale?: string) {
   return repo.readDocs(tx, ids, locale);
 }

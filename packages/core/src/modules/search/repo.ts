@@ -297,7 +297,7 @@ export async function ownListingDetails(tx: Tx, agencyId: string, ids: readonly 
     );
 }
 
-/** These targets' documents (tests and ops checks). */
+/** These targets' documents (`readModelDocs`: workers, tests and ops checks). */
 export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) {
   if (ids.length === 0) return [];
   return tx
@@ -308,6 +308,11 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
       agencyId: listingReadModels.agencyId,
       public: listingReadModels.public,
       status: listingReadModels.status,
+      // S12-03: who network sites show it to (the white-label model pass asks only for those) and the development's
+      // own reference (removed from the text like the website serializer does).
+      networkHidden: listingReadModels.networkHidden,
+      developmentOwnRef: sql<string | null>`(select g.ref from ${listingSearchDevelopments} g
+        where g.development_id = listing_read_models.development_id)`,
       version: listingReadModels.version,
       card: listingReadModels.card,
       detail: listingReadModels.detail,

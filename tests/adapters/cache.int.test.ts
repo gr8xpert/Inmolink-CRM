@@ -158,3 +158,14 @@ describe('seen times', () => {
     expect((await seen.drain('apikeys')).size).toBe(0);
   });
 });
+
+// S12-03: worker-written values read by requests in one MGET.
+describe('peekMany', () => {
+  it('[S12-03] returns stored untagged values in key order, misses and tagged entries as undefined', async () => {
+    await cache.set(k('peek:a'), { spans: ['x'] }, { ttlSeconds: 60 });
+    await cache.set(k('peek:tagged'), 1, { ttlSeconds: 60, tags: ['peek-tag'] });
+    const got = await cache.peekMany([k('peek:a'), k('peek:missing'), k('peek:tagged')]);
+    expect(got).toEqual([{ spans: ['x'] }, undefined, undefined]);
+    expect(await cache.peekMany([])).toEqual([]);
+  });
+});

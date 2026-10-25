@@ -15,7 +15,8 @@ import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
-import { compileOwner, NO_OWNER, plainText } from '../../white-label';
+import { compileOwner, NO_OWNER, ownerRefsOf, whiteLabelText } from '../../white-label';
+import { readAiRemovals } from '../../white-label-store';
 import * as agencies from '../agencies';
 import { propertiesEvents } from './events';
 import { assertCan } from './policy';
@@ -92,8 +93,10 @@ async function whiteLabelled(
 ): Promise<repo.TranslationView[]> {
   const owner = (await agencies.ownerIdentities(ctx.tx, [row.agencyId])).get(row.agencyId) ?? NO_OWNER;
   const matcher = compileOwner(owner);
-  const refs = [row.ref];
-  const clean = (text: string | null) => (text === null ? null : matcher.clean(plainText(text), refs));
+  const refs = ownerRefsOf({ ref: row.ref });
+  // S12-03: then the model pass's cached removals of these texts (deterministic-only without them).
+  const removals = (await readAiRemovals([{ agencyId: row.agencyId, targetId: row.id }])).get(row.id);
+  const clean = (text: string | null) => (text === null ? null : whiteLabelText(text, matcher, refs, removals));
   return translations.map((t) => ({
     ...t,
     title: clean(t.title) ?? '',

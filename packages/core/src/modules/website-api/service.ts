@@ -42,6 +42,7 @@ import { hmacSha256, safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
 import { type SQL, sql } from 'drizzle-orm';
 import { compileOwner, NO_OWNER, type OwnerIdentity, type OwnerMatcher } from '../../white-label';
+import { readAiRemovals } from '../../white-label-store';
 import * as agencies from '../agencies';
 import * as properties from '../properties';
 import * as search from '../search';
@@ -189,16 +190,20 @@ export async function viewWith(
   });
   const overrides = properties.siteOverridesQuery(site.scope.agencyId, targets, lang);
   const owners = agencies.ownerIdentitiesQuery(network.map((r) => r.ownerAgencyId));
-  const res = await tx.execute(
-    sql`select ${overrides.sql} as overrides, ${owners.sql} as owners${extra === undefined ? sql`` : sql`, ${extra} as extra`}`,
-  );
+  // S12-03: the model pass's cached removals of the network texts (one MGET on redis-cache, alongside the statement).
+  const [res, aiRemovals] = await Promise.all([
+    tx.execute(
+      sql`select ${overrides.sql} as overrides, ${owners.sql} as owners${extra === undefined ? sql`` : sql`, ${extra} as extra`}`,
+    ),
+    readAiRemovals(network.map((r) => ({ agencyId: r.ownerAgencyId, targetId: r.targetId }))),
+  ]);
   const row = res.rows[0] as { overrides: unknown; owners: unknown; extra?: unknown };
   const identities = owners.read(row.owners);
   const matchers = new Map<string, OwnerMatcher>();
   for (const id of new Set(network.map((r) => r.ownerAgencyId))) {
     matchers.set(id, matcherOf(identities.get(id) ?? NO_OWNER));
   }
-  return { view: { ...view, overrides: overrides.read(row.overrides), matchers }, extra: row.extra };
+  return { view: { ...view, overrides: overrides.read(row.overrides), matchers, aiRemovals }, extra: row.extra };
 }
 
 export const owned = <D>(r: search.PublicDocRow) => ({
