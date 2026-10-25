@@ -129,6 +129,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.sweepOrphanDocuments,
     developmentsJobs.purgeDeletedDevelopments,
     importsJobs.pruneRuns,
+    // S12-F6: the nightly full rebuild of the CRM stage counts (the day's deltas checked against `leads`).
+    crmJobs.sweepStageCounts,
     // S7-F1: uploaded sheets — a released file is deleted, idle (30 days) and orphaned files are swept daily.
     importsJobs.deleteSheet,
     importsJobs.sweepSheets,

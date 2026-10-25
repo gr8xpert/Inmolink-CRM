@@ -70,6 +70,9 @@ const rollupRows = (day: string) =>
     [f.agencyId, day],
   );
 
+/** S12-F6: stage counts brought up to now (the pass's cutoff is `STAGE_COUNTS_LAG_MS` behind its `now`). */
+const upToNow = () => ({ now: new Date(Date.now() + crm.STAGE_COUNTS_LAG_MS) });
+
 beforeAll(async () => {
   await setupTestDb('worker');
   f = await createFounder();
@@ -198,7 +201,7 @@ describe('leads-per-stage rollup', () => {
     await adminQuery(`update leads set stage_entered_at = now() - interval '1 hour' where agency_id = $1`, [
       r.agencyId,
     ]);
-    await crm.refreshStageCounts({ agencyId: r.agencyId });
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
     const range = { from: new Date(Date.now() - DAY).toISOString(), to: new Date(Date.now() + 60_000).toISOString() };
     const report = () => asR((ctx) => crm.getPipelineReport(ctx, range));
     const row = async (id: string) => (await report()).stages.find((s) => s.stage.id === id);
@@ -210,7 +213,7 @@ describe('leads-per-stage rollup', () => {
       await asR((ctx) => crm.moveLead(ctx, l.id, MoveLeadBody.parse({ version: l.version, stageId: won.id })));
     // not rebuilt yet: the rollup's numbers stand
     expect(await row(won.id)).toMatchObject({ current: 0 });
-    await crm.refreshStageCounts({ agencyId: r.agencyId });
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
     const rows = () =>
       adminQuery<{ stage_id: string; leads: number }>(
         'select stage_id, leads from crm_stage_counts where agency_id = $1 order by stage_id',
@@ -218,7 +221,7 @@ describe('leads-per-stage rollup', () => {
       );
     const once = await rows();
     expect(once).toEqual([{ stage_id: won.id, leads: 2 }]);
-    await crm.refreshStageCounts({ agencyId: r.agencyId });
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
     expect(await rows()).toEqual(once);
     expect(await row(won.id)).toMatchObject({ current: 2, entered: 2 });
     expect(await row(entry.id)).toMatchObject({ current: 0, currentAvgSeconds: null, exited: 2 });

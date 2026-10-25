@@ -79,7 +79,13 @@ export {
   repointSellerListings,
   updateProspect,
 } from './prospects';
-export { rebuildReportRollups, refreshReportDay, refreshStageCounts } from './report-rollups';
+export {
+  rebuildReportRollups,
+  refreshReportDay,
+  refreshStageCounts,
+  STAGE_COUNTS_LAG_MS,
+  type StageCountsResult,
+} from './report-rollups';
 export { getResponseTimeKpi, recordAutoAck } from './response';
 export { type Route, type RouteInput, routeLead } from './routing';
 export {

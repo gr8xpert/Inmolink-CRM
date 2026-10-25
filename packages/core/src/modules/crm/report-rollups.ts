@@ -1,4 +1,5 @@
 import { withSystem } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
 import * as repo from './report-rollups-repo';
 
 /**
@@ -6,8 +7,9 @@ import * as repo from './report-rollups-repo';
  * worker keeps from `leads` instead of aggregating the agency's leads per request (O(agency leads): 26.8 ms and
  * 22–150 ms at 60k leads, over the 20 ms SQL budget):
  *
- * - `crm_stage_counts` — per stage, the leads in it and Σ of their entry times; rebuilt for the agency by
- *   `crm.refreshStageCounts` from `crm.lead.created` and `crm.lead.stageChanged` (throttled per agency).
+ * - `crm_stage_counts` — per stage, the leads in it and Σ of their entry times; kept by `crm.refreshStageCounts` from
+ *   `crm.lead.created` and `crm.lead.stageChanged` (throttled per agency) — S12-F6: by deltas from the stage history
+ *   (`refreshStageCounts`), rebuilt from `leads` nightly (`crm.sweepStageCounts`).
  * - `crm_stage_move_rollups` — per UTC day of the move and stage, entries, exits and every stay that ended (the exact
  *   histogram of the median time in stage); the report reads its range's whole days from it, the partial days at the
  *   ends from `lead_stage_history`.
@@ -20,12 +22,62 @@ import * as repo from './report-rollups-repo';
  *
  * Both rebuild from the source (idempotent: a redelivery or a rerun writes the same rows) as `app_system` — the tables
  * are worker-written (`userReadOnly`), so no request can plant numbers in a report. Eventually consistent: the counts
- * follow a change within the throttle window.
+ * follow a change within the throttle window (S12-F6: the stage counts within `STAGE_COUNTS_LAG_MS` + the window).
  */
 
-/** Rebuilds the agency's leads-per-stage rollup (one statement). */
-export function refreshStageCounts(p: { agencyId: string }): Promise<void> {
-  return withSystem('crm.refreshStageCounts', (tx) => repo.refreshStageCounts(tx, p.agencyId));
+/**
+ * S12-F6: how far behind the clock the stage counts are brought up to date (the cutoff): a transaction that wrote a
+ * stage move (its `changed_at`, the writer's clock) has committed by then, so a pass never steps over a move it cannot
+ * see yet. Covers commit delay and clock skew between app nodes.
+ */
+export const STAGE_COUNTS_LAG_MS = 30_000;
+
+export interface StageCountsResult {
+  /** `delta`: the moves since the watermark applied; `rebuild`: rebuilt from `leads` (first time, drift, nightly). */
+  mode: 'delta' | 'rebuild';
+  /** Stage moves applied (delta). */
+  moves: number;
+  /** Rollup rows written or removed (delta). */
+  written: number;
+  /** Moves after the cutoff wait for a later pass (the job queues one). */
+  pending: boolean;
+}
+
+/**
+ * Brings the agency's leads-per-stage rollup up to `now − STAGE_COUNTS_LAG_MS` (S12-F6). By default a delta pass: the
+ * stage moves since the last pass, ±1 per stage touched (O(events), not O(agency leads) — S11 review: the full
+ * re-aggregate was 30–80 ms for a 200k-lead agency every throttle window, in the pool search indexing shares). A full
+ * rebuild from `leads` when asked (`full`: the nightly pass, a repair), the first time (no rows) or when the deltas
+ * drifted (a stage would go below 0: a direct or backdated write). One system transaction, serialized per agency
+ * (advisory lock); 2 statements for a delta (lock, pass), 3–4 with a rebuild.
+ *
+ * Writers that backdate `stage_entered_at` (a seed, a legacy import) or write `leads` around the history trigger
+ * (replica mode) rebuild afterwards (`rebuildReportRollups`); the nightly rebuild repairs any drift left.
+ */
+export function refreshStageCounts(
+  p: { agencyId: string; full?: boolean },
+  opts: { now?: Date } = {},
+): Promise<StageCountsResult> {
+  const cutoff = new Date((opts.now ?? clock.now()).getTime() - STAGE_COUNTS_LAG_MS);
+  return withSystem('crm.refreshStageCounts', async (tx) => {
+    await repo.lockStageCounts(tx, p.agencyId);
+    if (!p.full) {
+      const delta = await repo.applyStageCountsDelta(tx, p.agencyId, cutoff);
+      if (delta.watermark && !delta.negative) {
+        return { mode: 'delta', moves: delta.moves, written: delta.written, pending: delta.pending };
+      }
+    }
+    await repo.rebuildStageCounts(tx, p.agencyId, cutoff);
+    return { mode: 'rebuild', moves: 0, written: 0, pending: await repo.movesAfter(tx, p.agencyId, cutoff) };
+  });
+}
+
+/** S12-F6: agencies per page of the nightly rebuild's sweep. */
+export const STAGE_COUNTS_SWEEP_PAGE = 500;
+
+/** S12-F6: the agencies with stage counts, a keyset page at a time (the nightly sweep queues a rebuild for each). */
+export function stageCountAgencies(after: string | null): Promise<string[]> {
+  return withSystem('crm.sweepStageCounts', (tx) => repo.stageCountAgencies(tx, after, STAGE_COUNTS_SWEEP_PAGE));
 }
 
 /** Rebuilds the agency's per-day rollup rows (response KPI, moves) of one UTC day (`YYYY-MM-DD`, two statements). */
@@ -40,8 +92,11 @@ const REBUILD_DAYS_PER_CHUNK = 31;
  * Rebuilds both rollups of an agency from its whole history (a backfill, a repair, a test that wrote `leads`
  * directly): the stage counts, then every UTC day from its first to its last measured lead, 31 days per transaction.
  */
-export async function rebuildReportRollups(p: { agencyId: string }): Promise<{ days: number }> {
-  await refreshStageCounts(p);
+export async function rebuildReportRollups(
+  p: { agencyId: string },
+  opts: { now?: Date } = {},
+): Promise<{ days: number }> {
+  await refreshStageCounts({ ...p, full: true }, opts);
   const range = await withSystem('crm.rebuildReportRollups', (tx) => repo.measuredDayRange(tx, p.agencyId));
   if (!range) return { days: 0 };
   const days = repo.utcDays(range.from, range.to);

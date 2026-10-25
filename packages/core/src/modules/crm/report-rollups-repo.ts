@@ -10,8 +10,9 @@ import { type SQL, sql } from 'drizzle-orm';
 
 /**
  * Report rollups (S11-F10): the statements that rebuild `crm_stage_counts` and `crm_response_rollups` from `leads`,
- * and the KPI's read over them. Rebuilt from the source each time (never incremented), so a rerun, a redelivered
- * event or two refreshes in a row leave the same rows. Queries only `@inmolink/db/schema/crm`.
+ * and the KPI's read over them. Rebuilt from the source each time, so a rerun, a redelivered event or two refreshes in
+ * a row leave the same rows — S12-F6: `crm_stage_counts` follows the stage history by deltas between rebuilds, from a
+ * watermark (a rerun finds its window applied). Queries only `@inmolink/db/schema/crm`.
  */
 
 /** A UTC day (`YYYY-MM-DD`) of an instant. */
@@ -29,28 +30,148 @@ export function utcDays(from: string, to: string): string[] {
 }
 
 /**
- * The agency's leads per stage now — count and Σ entry times — as its `crm_stage_counts` rows, a stage that emptied
- * losing its row. One statement: the aggregate index-only on `leads_agency_stage_rank_idx` (agency, stage, …,
- * stage_entered_at), the upsert and the delete in data-modifying CTEs (disjoint rows).
+ * S12-F6: one agency's stage-count work at a time (a delta pass and a rebuild never interleave their reads and
+ * writes, also outside the job's group lease — a repair script, a test). Transaction-scoped advisory lock.
  */
-export function stageCountsRefresh(agencyId: string): SQL {
+export async function lockStageCounts(tx: Tx, agencyId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`crm_stage_counts:${agencyId}`}, 0))`);
+}
+
+/**
+ * The full rebuild (S11-F10; S12-F6: as of `cutoff`): the agency's leads per stage now — count and Σ entry times,
+ * index-only on `leads_agency_stage_rank_idx` (agency, stage, …, stage_entered_at) — with every stage move after
+ * `cutoff` undone from `lead_stage_history` (`lead_stage_history_agency_changed_idx`, index-only), so the rows are
+ * the counts as of `cutoff` and `refreshed_at = cutoff` is where the next delta pass starts. A stage left empty loses
+ * its row. One statement (the upsert and the delete in data-modifying CTEs, disjoint rows).
+ */
+export function stageCountsRebuild(agencyId: string, cutoff: Date): SQL {
+  const at = sql`${cutoff.toISOString()}::timestamptz`;
   return sql`
-    with agg as (
+    with parts as (
       select stage_id, count(*)::int as n, sum(extract(epoch from stage_entered_at))::float8 as s
         from ${leads} where agency_id = ${agencyId} group by stage_id
+      union all
+      select h.to_stage_id, -count(*)::int, -sum(extract(epoch from h.changed_at))::float8
+        from ${leadStageHistory} h where h.agency_id = ${agencyId} and h.changed_at > ${at} group by h.to_stage_id
+      union all
+      select h.from_stage_id, count(*)::int, sum(extract(epoch from h.from_entered_at))::float8
+        from ${leadStageHistory} h
+       where h.agency_id = ${agencyId} and h.changed_at > ${at} and h.from_stage_id is not null
+       group by h.from_stage_id
+    ),
+    agg as (
+      select stage_id, sum(n)::int as n, sum(s)::float8 as s from parts group by stage_id having sum(n) > 0
     ),
     gone as (
       delete from ${crmStageCounts} c
        where c.agency_id = ${agencyId} and not exists (select 1 from agg where agg.stage_id = c.stage_id)
     )
     insert into ${crmStageCounts} (agency_id, stage_id, leads, entered_epoch_sum, refreshed_at)
-    select ${agencyId}::uuid, stage_id, n, s, now() from agg
+    select ${agencyId}::uuid, stage_id, n, s, ${at} from agg
     on conflict (agency_id, stage_id) do update
        set leads = excluded.leads, entered_epoch_sum = excluded.entered_epoch_sum, refreshed_at = excluded.refreshed_at`;
 }
 
-export async function refreshStageCounts(tx: Tx, agencyId: string): Promise<void> {
-  await tx.execute(stageCountsRefresh(agencyId));
+export async function rebuildStageCounts(tx: Tx, agencyId: string, cutoff: Date): Promise<void> {
+  await tx.execute(stageCountsRebuild(agencyId, cutoff));
+}
+
+/**
+ * S12-F6, the delta pass: the stage moves (`lead_stage_history`: a lead's entry — `from_stage_id` null — or a move)
+ * after the agency's watermark (the latest `refreshed_at` of its rows) up to `cutoff`, applied as ±1 and ± entry time
+ * to the stages they touch — one history row read per event (a range on `lead_stage_history_agency_changed_idx`,
+ * index-only), one rollup row written per stage touched (`refreshed_at = cutoff`: the new watermark); `leads` is never
+ * read. A stage brought to 0 loses its row. Nothing is written when a stage would go below 0 (the rollup drifted: a
+ * direct or backdated write — `negative`: the caller rebuilds). One statement; it also says whether the agency has rows
+ * at all (`watermark`) and whether moves after `cutoff` wait for a later pass (`pending`).
+ */
+export function stageCountsDelta(agencyId: string, cutoff: Date): SQL {
+  const at = sql`${cutoff.toISOString()}::timestamptz`;
+  const window = sql`h.agency_id = ${agencyId} and h.changed_at > (select w from wm) and h.changed_at <= ${at}`;
+  return sql`
+    with wm as (select max(refreshed_at) as w from ${crmStageCounts} where agency_id = ${agencyId}),
+    raw as (
+      select h.to_stage_id as stage_id, 1 as n, extract(epoch from h.changed_at)::float8 as s
+        from ${leadStageHistory} h where ${window}
+      union all
+      select h.from_stage_id, -1, -extract(epoch from h.from_entered_at)::float8
+        from ${leadStageHistory} h where ${window} and h.from_stage_id is not null
+    ),
+    d as (
+      select stage_id, sum(n)::int as n, sum(s)::float8 as s, (count(*) filter (where n = 1))::int as moves
+        from raw group by stage_id
+    ),
+    nxt as (
+      select d.stage_id, coalesce(c.leads, 0) + d.n as n, coalesce(c.entered_epoch_sum, 0) + d.s as s
+        from d left join ${crmStageCounts} c on c.agency_id = ${agencyId} and c.stage_id = d.stage_id
+    ),
+    ok as (select not exists (select 1 from nxt where n < 0) as ok),
+    gone as (
+      delete from ${crmStageCounts} c using nxt
+       where c.agency_id = ${agencyId} and c.stage_id = nxt.stage_id and nxt.n = 0 and (select ok from ok)
+      returning 1
+    ),
+    up as (
+      insert into ${crmStageCounts} (agency_id, stage_id, leads, entered_epoch_sum, refreshed_at)
+      select ${agencyId}::uuid, stage_id, n, s, ${at} from nxt where n > 0 and (select ok from ok)
+      on conflict (agency_id, stage_id) do update
+         set leads = excluded.leads, entered_epoch_sum = excluded.entered_epoch_sum, refreshed_at = excluded.refreshed_at
+      returning 1
+    )
+    select (select w from wm) is not null as watermark,
+           not (select ok from ok) as negative,
+           coalesce((select sum(moves) from d), 0)::int as moves,
+           ((select count(*) from up) + (select count(*) from gone))::int as written,
+           exists (select 1 from ${leadStageHistory} h
+                    where h.agency_id = ${agencyId} and h.changed_at > ${at}) as pending`;
+}
+
+export interface StageCountsDelta {
+  /** The agency has rollup rows (false: never built — the caller rebuilds). */
+  watermark: boolean;
+  /** A stage would go below 0: nothing was written (the caller rebuilds). */
+  negative: boolean;
+  /** Stage moves (history rows) applied. */
+  moves: number;
+  /** Rollup rows written or removed. */
+  written: number;
+  /** Moves after the cutoff, for a later pass. */
+  pending: boolean;
+}
+
+export async function applyStageCountsDelta(tx: Tx, agencyId: string, cutoff: Date): Promise<StageCountsDelta> {
+  const res = await tx.execute<{
+    watermark: boolean;
+    negative: boolean;
+    moves: number;
+    written: number;
+    pending: boolean;
+  }>(stageCountsDelta(agencyId, cutoff));
+  const r = res.rows[0];
+  return {
+    watermark: Boolean(r?.watermark),
+    negative: Boolean(r?.negative),
+    moves: Number(r?.moves ?? 0),
+    written: Number(r?.written ?? 0),
+    pending: Boolean(r?.pending),
+  };
+}
+
+/** S12-F6: whether the agency has stage moves after `cutoff` (after a rebuild: a later delta pass applies them). */
+export async function movesAfter(tx: Tx, agencyId: string, cutoff: Date): Promise<boolean> {
+  const res = await tx.execute<{ pending: boolean }>(sql`
+    select exists (select 1 from ${leadStageHistory} h
+                    where h.agency_id = ${agencyId} and h.changed_at > ${cutoff.toISOString()}::timestamptz) as pending`);
+  return Boolean(res.rows[0]?.pending);
+}
+
+/** S12-F6: the agencies with stage-count rows after `after` in id order (the nightly rebuild's keyset pages). */
+export async function stageCountAgencies(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  const res = await tx.execute<{ agency_id: string }>(sql`
+    select distinct agency_id from ${crmStageCounts}
+     where ${after ? sql`agency_id > ${after}::uuid` : sql`true`}
+     order by agency_id limit ${limit}`);
+  return res.rows.map((r) => String(r.agency_id));
 }
 
 /**

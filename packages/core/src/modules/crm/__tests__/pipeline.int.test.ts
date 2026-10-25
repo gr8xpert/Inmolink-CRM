@@ -73,6 +73,9 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
   return 'accepted';
 }
 
+/** S12-F6: stage counts brought up to now (the pass's cutoff is `STAGE_COUNTS_LAG_MS` behind its `now`). */
+const upToNow = () => ({ now: new Date(Date.now() + crm.STAGE_COUNTS_LAG_MS) });
+
 beforeAll(async () => {
   await setupTestDb('worker');
   [a, b] = await Promise.all([createFounder(), createFounder()]);
@@ -548,7 +551,7 @@ describe('history and reports', () => {
     await move(r, leads[0]?.id ?? '', { version: leads[0]?.version ?? 0, stageId: won.id });
     await move(r, leads[1]?.id ?? '', { version: leads[1]?.version ?? 0, stageId: lost.id });
     // S11-F10: the leads per stage now come from the worker's rollup (queued by the moves' events)
-    await crm.refreshStageCounts({ agencyId: r.agencyId });
+    await crm.refreshStageCounts({ agencyId: r.agencyId }, upToNow());
 
     const from = new Date(Date.now() - 86_400_000).toISOString();
     const to = new Date(Date.now() + 60_000).toISOString();

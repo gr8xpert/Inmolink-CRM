@@ -8,7 +8,7 @@ import { runContactImport, sweepContactImports } from './import';
 import { notifyLeadAssigned } from './lead-notices';
 import { promoteInboundLead } from './leads';
 import { forgetListingProspects, repointSellerListings } from './prospects';
-import { refreshReportDay, refreshStageCounts } from './report-rollups';
+import { refreshReportDay, refreshStageCounts, STAGE_COUNTS_LAG_MS, stageCountAgencies } from './report-rollups';
 import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
 
 const IMPORT_ATTEMPTS = 3;
@@ -41,6 +41,10 @@ const IMPORT_ATTEMPTS = 3;
  *   came from (websites, 500 at a time), then the agency's listings whose seller it (or a contact merged into it) was
  *   name none (`property_privates`, through properties); audits `crm.contact.erasureCompleted` with the counts.
  *   Idempotent: a rerun finds nothing left.
+ * - `crm.refreshStageCounts` (S12-F6): the agency's leads per stage by deltas — the stage moves since its last pass,
+ *   up to `STAGE_COUNTS_LAG_MS` ago, one history row read per move, one rollup row written per stage touched; queues
+ *   one more pass while newer moves wait. `crm.sweepStageCounts` (pool `maintenance`, daily) queues a full rebuild
+ *   (`full`) of every agency with counts, 500 agencies per page, so any drift lasts a day at most.
  * - `crm.refreshStageCounts` / `crm.refreshReportDay` (pool `indexing` — projections; S11-F10): rebuild the agency's
  *   leads-per-stage rollup, and its per-day rollups of one UTC day (response KPI, moves), from `leads` and
  *   `lead_stage_history` (`report-rollups.ts`). Queued from
@@ -132,9 +136,9 @@ export const crmJobs = {
       userId: z.uuid(),
       assignedBy: z.uuid().nullable(),
       inbound: z.boolean(),
-      occurredAt: z.iso.datetime(),
       /** The lead's version the event left (S12-F2 review). */
       version: z.number().int(),
+      occurredAt: z.iso.datetime(),
     }),
     jobId: (p) => `crm.notifyLeadAssigned:${p.eventId}`,
     group: (p) => p.agencyId,
@@ -266,16 +270,43 @@ export const crmJobs = {
   refreshStageCounts: defineJob({
     name: 'crm.refreshStageCounts',
     pool: 'indexing',
-    payload: z.object({ agencyId: z.uuid() }),
+    // S12-F6: `full` — the nightly rebuild from `leads`; otherwise the delta pass (the stage moves since the last one)
+    payload: z.object({ agencyId: z.uuid(), full: z.boolean().optional() }),
     group: (p) => p.agencyId,
-    // one rebuild of an agency's rollups at a time: two never interleave their delete and upsert
+    // one pass over an agency's rollup at a time (the service also holds an advisory lock)
     concurrencyPerGroup: 1,
     attempts: 5,
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: 60_000,
     async run(p) {
-      await refreshStageCounts(p);
-      return { agencyId: p.agencyId };
+      const result = await refreshStageCounts(p);
+      // moves newer than the cutoff (their own enqueues fell inside this run's throttle window): one more pass
+      if (result.pending) await queueStageCounts(p.agencyId);
+      return { agencyId: p.agencyId, ...result };
+    },
+  }),
+
+  sweepStageCounts: defineJob({
+    name: 'crm.sweepStageCounts',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 24 * 3_600_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      let after: string | null = null;
+      let queued = 0;
+      while (!signal.aborted) {
+        const agencies = await stageCountAgencies(after);
+        if (agencies.length === 0) break;
+        await crmJobs.refreshStageCounts.enqueueMany(
+          agencies.map((agencyId) => ({ payload: { agencyId, full: true } })),
+        );
+        queued += agencies.length;
+        after = agencies.at(-1) ?? null;
+      }
+      log.info({ queued }, 'nightly stage-count rebuilds queued');
+      return { queued };
     },
   }),
 
@@ -295,8 +326,11 @@ export const crmJobs = {
   }),
 };
 
-/** S11-F10: a burst of one agency's lead changes rebuilds its rollups once per window (`throttleMs`). */
-export const STAGE_COUNTS_THROTTLE_MS = 5_000;
+/**
+ * S11-F10: a burst of one agency's lead changes rebuilds its rollups once per window (`throttleMs`). S12-F6: the stage
+ * counts' window outlasts the pass's lag, so the pass that a move queues reaches that move.
+ */
+export const STAGE_COUNTS_THROTTLE_MS = STAGE_COUNTS_LAG_MS + 5_000;
 export const REPORT_DAY_THROTTLE_MS = 10_000;
 
 /** Queues the agency's leads-per-stage rebuild (throttled: enqueues inside the window join the queued run). */
