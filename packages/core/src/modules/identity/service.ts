@@ -32,6 +32,7 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as billing from '../billing';
 import * as compliance from '../compliance';
+import { activeClientModeOf } from './client-mode';
 import { identityConfig, TOKEN_TTL_MS, UNVERIFIED_SEAT_CAP } from './config';
 import { identityEvents } from './events';
 import * as impRepo from './impersonation-repo';
@@ -383,12 +384,25 @@ export async function issueAccessToken(
     mfaVerified: boolean;
     /** The staff member's open impersonation session (S1-09): mint a token that acts as its member. */
     impersonationId?: string;
+    /**
+     * S12-06: the web session is in Client Mode — the token carries `cm` (members only). No realtime token then:
+     * sockets push notifications and chat, which a client at the screen never sees.
+     */
+    clientMode?: boolean;
+    /** S12-06 review: the web session's id — its server-side Client Mode decides `cm`, whatever the cookie says. */
+    sessionId?: string;
   },
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
+  // S12-06 review: a session in Client Mode never impersonates (staff cannot start it; refused clearly all the same).
+  if (input.impersonationId !== undefined && input.clientMode) {
+    throw new AppError('FORBIDDEN', { reason: 'client_mode' });
+  }
   if (input.impersonationId !== undefined)
     return issueImpersonationToken(ctx, { ...input, impersonationId: input.impersonationId });
+  const clientMode = input.clientMode === true || (await serverClientMode(input.userId, input.sessionId));
+  if (clientMode && input.audience !== 'api') throw new AppError('FORBIDDEN', { reason: 'client_mode' });
   const found = await ctx.transaction(async (tx) => {
     const subject = await loadSessionSubject(tx, input.userId);
     if (!subject || !canIssueAccessToken(subject.user, input.sessionVersion, subject.member)) return null;
@@ -404,8 +418,23 @@ export async function issueAccessToken(
     sv: found.user.sessionVersion,
     // The tenant; the role is read per request, so a role change applies at once (S1-02).
     ...(found.member ? { agency: found.member.agencyId } : {}),
+    // S12-06: Client Mode is a member's: a session without an agency has nothing to hide.
+    ...(found.member && clientMode ? { cm: true } : {}),
   });
   return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * S12-06 review: the session's Client Mode as the server keeps it. The limits Redis being down fails open here (the
+ * cookie's flag still applies): every dashboard request mints, and PIN checks fail closed on their own.
+ */
+async function serverClientMode(userId: string, sessionId: string | undefined): Promise<boolean> {
+  try {
+    return (await activeClientModeOf({ userId, sessionId: sessionId ?? null })) !== null;
+  } catch (err) {
+    identityLog().warn({ err, userId }, 'identity.clientMode: server-side state unavailable at mint');
+    return false;
+  }
 }
 
 /**

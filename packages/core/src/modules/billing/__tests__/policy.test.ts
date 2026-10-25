@@ -44,6 +44,11 @@ describe('billing policy', () => {
     expect(can(impersonated, 'billing.read')).toBe(true);
   });
 
+  it('[S12-06] the plan is never shown in Client Mode', () => {
+    expect(can({ ...user, clientMode: true }, 'billing.read')).toBe(false);
+    expect(can(user, 'billing.read')).toBe(true);
+  });
+
   it('[S1-09] every billing action declares whether staff impersonating an admin may do it; changes are refused', () => {
     expectImpersonationRules({
       actions: BILLING_ACTIONS,

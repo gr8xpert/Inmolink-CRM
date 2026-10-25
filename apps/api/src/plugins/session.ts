@@ -32,6 +32,8 @@ export function sessionPlugin(app: FastifyZod, options: { verifier: AccessTokenV
         tokenExpiresAt: new Date(claims.exp * 1_000),
         agencyId: claims.agency ?? null,
         impersonation: claims.act && claims.imp ? { id: claims.imp, staffUserId: claims.act } : null,
+        // S12-06: the session is in Client Mode (the web session's flag, signed into the token).
+        clientMode: claims.cm === true,
       };
     } catch (err) {
       reply.header('www-authenticate', 'Bearer error="invalid_token"');

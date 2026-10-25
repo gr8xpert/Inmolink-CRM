@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import * as identity from '@inmolink/core/modules/identity';
 import { createLogger } from '@inmolink/platform/logger';
 import NextAuth, { CredentialsSignin } from 'next-auth';
@@ -26,9 +27,26 @@ class LoginError extends CredentialsSignin {
 
 declare module 'next-auth' {
   interface Session {
-    user: { id: string; email: string; name: string; locale: string; sessionVersion: number; mfaVerified: boolean };
+    user: {
+      id: string;
+      email: string;
+      name: string;
+      locale: string;
+      sessionVersion: number;
+      mfaVerified: boolean;
+      /** S12-06: the session is in Client Mode (its PIN hash stays in the token, never in the session). */
+      clientMode: boolean;
+      /** S12-06: why the last exit PIN did not end Client Mode. */
+      clientModeError?: 'wrong' | 'rate_limited';
+      /** S12-06 review: this web session's id (server-side Client Mode state is kept per session). */
+      sessionId?: string;
+    };
     /** Only in `unstable_update` calls: proof that this session passed 2FA (checked by identity). */
     mfaProof?: string;
+    /** S12-06, only in `unstable_update` calls: identity's signed hand-over that starts Client Mode. */
+    clientModeProof?: string;
+    /** S12-06, only in `unstable_update` calls: the PIN that ends Client Mode (checked by identity). */
+    clientModePin?: string;
   }
   interface User {
     locale?: string;
@@ -103,13 +121,52 @@ export const {
           token.sv = user.sessionVersion;
           token.mfa = user.mfaVerified === true;
           token.checkedAt = now;
+          // S12-06 review: the session's id (server-side Client Mode is kept per session), and a member whose Client
+          // Mode is still on starts this new session in it (signing out and back in does not leave it).
+          token.sid = randomBytes(18).toString('base64url');
+          const resumed = await identity.clientModeAtLogin({
+            userId: user.id as string,
+            sessionId: token.sid as string,
+          });
+          if (resumed) token.cm = resumed;
           return token;
         }
+        // Sessions from before S12-06 get their id on their next update.
+        if (typeof token.sid !== 'string') token.sid = randomBytes(18).toString('base64url');
         // The browser can send any data with an update: only a valid identity proof upgrades the session.
         if (trigger === 'update') {
           const proof = (session as { mfaProof?: unknown } | undefined)?.mfaProof;
           if (identity.checkMfaProof({ userId: String(token.sub), sessionVersion: Number(token.sv), proof })) {
             token.mfa = true;
+          }
+          // S12-06: Client Mode starts only from identity's signed proof (once: a session in it ignores new ones) and
+          // ends only with its PIN — rate-limited and audited by identity; too many wrong PINs end the session.
+          const update = session as { clientModeProof?: unknown; clientModePin?: unknown } | undefined;
+          const userId = String(token.sub);
+          const sessionId = String(token.sid);
+          // The server's state decides (S12-06 review): an older copy of this cookie may not say Client Mode.
+          if (update?.clientModeProof !== undefined || update?.clientModePin !== undefined) {
+            const active = await identity.activeClientModeOf({ userId, sessionId });
+            if (active) token.cm = active;
+          }
+          if (!token.cm && update?.clientModeProof !== undefined) {
+            const state = await identity.activateClientMode({ userId, sessionId, proof: update.clientModeProof });
+            if (state) {
+              token.cm = state;
+              delete token.cmError;
+            }
+          } else if (identity.isClientModeState(token.cm) && update?.clientModePin !== undefined) {
+            const result = await identity.checkClientModePin(await requestAuthCtx(), {
+              userId,
+              sessionId,
+              state: token.cm,
+              pin: update.clientModePin,
+            });
+            if (result === 'locked') return null;
+            if (result === 'ok') {
+              delete token.cm;
+              delete token.cmError;
+            } else token.cmError = result;
           }
         }
         // Every few minutes, end sessions revoked by a password reset or deactivation.
@@ -131,6 +188,10 @@ export const {
           locale: String(token.locale ?? ''),
           sessionVersion: Number(token.sv),
           mfaVerified: token.mfa === true,
+          // S12-06: the flag only. Mints also follow the server-side state of `sessionId`, whatever this says.
+          clientMode: token.cm !== undefined && token.cm !== null,
+          sessionId: typeof token.sid === 'string' ? token.sid : undefined,
+          ...(token.cmError === 'wrong' || token.cmError === 'rate_limited' ? { clientModeError: token.cmError } : {}),
         });
         return session;
       },

@@ -16,6 +16,8 @@ export interface RequestAuth {
    * `withCtx` checks the session per request; staff routes refuse these tokens.
    */
   impersonation: { id: string; staffUserId: string } | null;
+  /** S12-06: the token's `cm` claim — `ctx.clientMode`, and the Client Mode response net (`clientModePlugin`). */
+  clientMode: boolean;
 }
 
 declare module 'fastify' {
@@ -74,6 +76,7 @@ export function ctxPlugin(app: FastifyZod): void {
         ...(auth.impersonation
           ? { impersonation: { ...auth.impersonation, sessionVersion: auth.sessionVersion } }
           : {}),
+        clientMode: auth.clientMode,
       },
       fn,
     );

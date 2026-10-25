@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(identity): Client Mode — server-side session flag and cm token claim, serializer stripping with a central fail-closed API net and a contract test over all routes, hashed/rate-limited/audited exit PIN, banner [S12-06]
 - feat(db): registry shape memberWrite ("agency reads, member writes") with isolation-suite support; notification_preferences writes limited to their member by RLS [S12-F14]
 - feat(web,i18n,contracts): network board, chat and notification pages with a live unread badge [S12-F1] — new dependency socket.io-client 4.8.4 (apps/web)
 - feat(network,chat,db): NETWORK reply threads close with their post or an unlisted agency (migration 0140) [S12-F12]

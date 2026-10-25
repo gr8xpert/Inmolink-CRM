@@ -59,6 +59,25 @@
     "unread": "{count} unread"
   },
   "clientMode": "Client Mode is on: internal information is hidden on every page.",
+  "clientModeControl": {
+    "start": "Show to a client",
+    "intro": "Client Mode hides commission, the owner agency, internal notes and private details on every page. Choose a PIN: you need it to leave Client Mode.",
+    "pin": "PIN (digits)",
+    "confirm": "Repeat the PIN",
+    "submit": "Start Client Mode",
+    "cancel": "Cancel",
+    "exitPin": "PIN to leave",
+    "exit": "Leave Client Mode",
+    "errors": {
+      "pin_invalid": "Use 4 to 12 digits.",
+      "pin_mismatch": "The two PINs are not the same.",
+      "pin_short": "Your agency requires a longer PIN.",
+      "wrong": "Wrong PIN.",
+      "rate_limited": "Too many attempts. Wait a few minutes and try again.",
+      "forbidden": "Client Mode is not available for this session.",
+      "generic": "Something went wrong. Try again."
+    }
+  },
   "loading": "Loading…",
   "error": {
     "title": "Something went wrong",

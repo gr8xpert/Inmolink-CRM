@@ -147,10 +147,26 @@ export interface SessionRef {
   sessionVersion: number;
   /** The session passed the second factor (S1-04). */
   mfaVerified: boolean;
+  /** S12-06: the session is in Client Mode — its tokens carry `cm`, and the API strips what a client must not see. */
+  clientMode?: boolean;
+  /** S12-06 review: the web session's id — mints follow its server-side Client Mode. */
+  sessionId?: string;
 }
 
-export function sessionRef(user: { id: string; sessionVersion: number; mfaVerified: boolean }): SessionRef {
-  return { userId: user.id, sessionVersion: user.sessionVersion, mfaVerified: user.mfaVerified };
+export function sessionRef(user: {
+  id: string;
+  sessionVersion: number;
+  mfaVerified: boolean;
+  clientMode?: boolean;
+  sessionId?: string;
+}): SessionRef {
+  return {
+    userId: user.id,
+    sessionVersion: user.sessionVersion,
+    mfaVerified: user.mfaVerified,
+    clientMode: user.clientMode === true,
+    ...(user.sessionId ? { sessionId: user.sessionId } : {}),
+  };
 }
 
 /**
@@ -175,7 +191,14 @@ function toImpersonationEnded(): never {
  * open (the mint and the API both check it is theirs and live).
  */
 function mintFor(session: SessionRef, path: string): Promise<string> {
-  return mintCached(session.userId, session.sessionVersion, session.mfaVerified, path.startsWith('/v1/staff/'));
+  return mintCached(
+    session.userId,
+    session.sessionVersion,
+    session.mfaVerified,
+    path.startsWith('/v1/staff/'),
+    session.clientMode === true,
+    session.sessionId ?? '',
+  );
 }
 
 /**
@@ -184,7 +207,14 @@ function mintFor(session: SessionRef, path: string): Promise<string> {
  * failed mint (revoked session, second factor owed) is thrown again to each of them.
  */
 const mintCached = cache(
-  async (userId: string, sessionVersion: number, mfaVerified: boolean, staffPath: boolean): Promise<string> => {
+  async (
+    userId: string,
+    sessionVersion: number,
+    mfaVerified: boolean,
+    staffPath: boolean,
+    clientMode: boolean,
+    sessionId: string,
+  ): Promise<string> => {
     const impersonation = staffPath ? null : await readImpersonation(userId);
     const { token } = await identity.issueAccessToken(await requestAuthCtx(), {
       userId,
@@ -192,6 +222,9 @@ const mintCached = cache(
       mfaVerified,
       audience: 'api',
       ...(impersonation ? { impersonationId: impersonation.id } : {}),
+      // S12-06
+      ...(clientMode ? { clientMode: true } : {}),
+      ...(sessionId ? { sessionId } : {}),
     });
     return token;
   },
@@ -272,6 +305,10 @@ async function apiCall<S extends z.ZodType>(
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();
     if (isAppError(err) && err.code === 'IMPERSONATION_ENDED') {
+      return { ok: false, status: 403, error: { code: err.code, message: err.code } };
+    }
+    // S12-06 review: a session in Client Mode cannot impersonate (nor get a realtime token): a clear refusal.
+    if (isAppError(err) && err.code === 'FORBIDDEN') {
       return { ok: false, status: 403, error: { code: err.code, message: err.code } };
     }
     logger.error({ err, path }, 'api call failed');

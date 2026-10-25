@@ -2,6 +2,7 @@ import type { AccessTokenVerifier } from '@inmolink/platform/jwt';
 import type { Logger } from '@inmolink/platform/logger';
 import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from '@inmolink/platform/rate-limit';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
+import { clientModePlugin } from './plugins/client-mode';
 import { ctxPlugin } from './plugins/ctx';
 import { sessionPlugin } from './plugins/session';
 import { agenciesRoutes } from './routes/agencies/routes';
@@ -54,6 +55,8 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
     openapi: { title: 'Inmolink dashboard API', version: '2.0.0' },
     docsUi: deps.docsUi,
   });
+  // S12-06: first, so its route list and its Client Mode response net cover every route.
+  clientModePlugin(app);
   ctxPlugin(app);
   sessionPlugin(app, { verifier: deps.verifier });
   await app.register(rateLimitPlugin, {

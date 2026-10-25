@@ -34,6 +34,11 @@ export interface AccessClaims {
    */
   act?: string;
   imp?: string;
+  /**
+   * Client Mode (S12-06): the session is being shown to a buyer — the API strips commission, owner agency, internal
+   * notes and private fields. `true` or absent; only with `agency`, never with an impersonation.
+   */
+  cm?: true;
   exp: number;
   iat: number;
 }
@@ -46,7 +51,14 @@ export interface AccessTokenSigner {
     agency?: string;
     act?: string;
     imp?: string;
+    cm?: boolean;
   }): Promise<{ token: string; expiresAt: Date }>;
+}
+
+/** S12-06: `cm` is `true` or absent, and only on a member's own (not impersonated) token. */
+function validClientMode(c: { agency?: unknown; act?: unknown; cm?: unknown }): boolean {
+  if (c.cm === undefined) return true;
+  return c.cm === true && typeof c.agency === 'string' && c.act === undefined;
 }
 
 /** `act`/`imp` together, as UUIDs, with an agency, and the staff member is not the subject. */
@@ -117,14 +129,23 @@ export function createAccessTokenSigner(options: {
   const clock = options.clock ?? processClock;
   const ttl = options.ttlSeconds ?? ACCESS_TOKEN_TTL_SECONDS;
   return {
-    async sign({ sub, aud, sv, agency, act, imp }) {
+    async sign({ sub, aud, sv, agency, act, imp, cm }) {
       if (!UUID.test(sub)) throw new TypeError('access token subject must be a user id');
       if (!validImpersonation({ sub, agency, act, imp })) {
         throw new TypeError('access token: act and imp go together, as ids, with an agency');
       }
+      const clientMode = cm === true ? true : undefined;
+      if (!validClientMode({ agency, act, cm: clientMode })) {
+        throw new TypeError('access token: cm needs an agency and no impersonation');
+      }
       const iat = Math.floor(clock.nowMs() / 1_000);
       const exp = iat + ttl;
-      const token = await new SignJWT({ sv, ...(agency ? { agency } : {}), ...(act && imp ? { act, imp } : {}) })
+      const token = await new SignJWT({
+        sv,
+        ...(agency ? { agency } : {}),
+        ...(act && imp ? { act, imp } : {}),
+        ...(clientMode ? { cm: true } : {}),
+      })
         .setProtectedHeader({ alg: ALG, kid: options.keyId, typ: 'at+jwt' })
         .setIssuer(ACCESS_TOKEN_ISSUER)
         .setSubject(sub)
@@ -166,19 +187,21 @@ export function createAccessTokenVerifier(options: {
             currentDate: new Date(clock.nowMs()),
           },
         );
-        const { sub, sv, agency, act, imp, exp, iat } = payload as Record<string, unknown>;
+        const { sub, sv, agency, act, imp, cm, exp, iat } = payload as Record<string, unknown>;
         if (typeof sub !== 'string' || !UUID.test(sub)) throw notAuthenticated('bad_subject');
         if (typeof sv !== 'number' || !Number.isInteger(sv)) throw notAuthenticated('bad_claims');
         if (agency !== undefined && (typeof agency !== 'string' || !UUID.test(agency))) {
           throw notAuthenticated('bad_claims');
         }
         if (!validImpersonation({ sub, agency, act, imp })) throw notAuthenticated('bad_claims');
+        if (!validClientMode({ agency, act, cm })) throw notAuthenticated('bad_claims');
         return {
           sub,
           aud: audience,
           sv,
           ...(agency ? { agency } : {}),
           ...(typeof act === 'string' && typeof imp === 'string' ? { act, imp } : {}),
+          ...(cm === true ? { cm: true as const } : {}),
           exp: exp as number,
           iat: iat as number,
         };

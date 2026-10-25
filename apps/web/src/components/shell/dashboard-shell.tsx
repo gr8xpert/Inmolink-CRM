@@ -1,11 +1,14 @@
 import { Button } from '@inmolink/ui';
 import { getLocale, getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
+import { enterClientModeAction, exitClientModeAction } from '@/app/[locale]/(app)/(signed-in)/client-mode/actions';
+import { CLIENT_MODE_ERRORS } from '@/app/[locale]/(app)/(signed-in)/client-mode/state';
 import { logoutAction } from '@/app/[locale]/(auth)/actions';
 import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { webConfig } from '@/server/env';
 import type { Shell } from '@/server/shell';
+import { ClientModeBanner, type ClientModeLabels, ClientModeStart } from './client-mode-control';
 import { LocaleSwitcher } from './locale-switcher';
 import { NotificationsBell } from './notifications-bell';
 import { PrimaryNav } from './primary-nav';
@@ -28,6 +31,20 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
   const realtimeUrl = shell.unread ? (await webConfig()).REALTIME_PUBLIC_URL : null;
   const caps = shell.identity.kind === 'member' ? shell.identity.caps : null;
   const locales = routing.locales.map((code) => ({ code, name: nativeName(code) }));
+  // S12-06: Client Mode — start it from the account panel, end it from the banner (with the PIN).
+  const cm = await getTranslations('shell.clientModeControl');
+  const clientModeLabels: ClientModeLabels = {
+    start: cm('start'),
+    intro: cm('intro'),
+    pin: cm('pin'),
+    confirm: cm('confirm'),
+    submit: cm('submit'),
+    cancel: cm('cancel'),
+    banner: t('clientMode'),
+    exitPin: cm('exitPin'),
+    exit: cm('exit'),
+    errors: Object.fromEntries(CLIENT_MODE_ERRORS.map((e) => [e, cm(`errors.${e}`)])) as ClientModeLabels['errors'],
+  };
   const roleLabel =
     shell.identity.kind === 'member'
       ? (await getTranslations('team'))(`roles.${shell.identity.caps.role}`)
@@ -68,9 +85,7 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
           </div>
         </div>
       </header>
-      {caps?.clientMode ? (
-        <p className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-sm text-amber-950">{t('clientMode')}</p>
-      ) : null}
+      {caps?.clientMode ? <ClientModeBanner action={exitClientModeAction} labels={clientModeLabels} /> : null}
       <div className="flex flex-1 flex-col md:flex-row">
         <div className="flex flex-col md:w-60 md:shrink-0 md:border-r">
           <PrimaryNav
@@ -91,11 +106,17 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
             <div className="sm:hidden">
               <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />
             </div>
-            <form action={logoutAction}>
-              <Button type="submit" variant="outline" size="sm" className="w-full">
-                {t('account.logout')}
-              </Button>
-            </form>
+            {caps && !caps.clientMode ? (
+              <ClientModeStart action={enterClientModeAction} labels={clientModeLabels} />
+            ) : null}
+            {/* S12-06 review: no sign-out in Client Mode — the PIN ends it (and a new login resumes it anyway). */}
+            {caps?.clientMode ? null : (
+              <form action={logoutAction}>
+                <Button type="submit" variant="outline" size="sm" className="w-full">
+                  {t('account.logout')}
+                </Button>
+              </form>
+            )}
           </section>
         </div>
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">

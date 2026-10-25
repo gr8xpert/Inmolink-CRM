@@ -6,6 +6,7 @@ import { cookies, headers } from 'next/headers';
 import { getLocale } from 'next-intl/server';
 import { auth, updateSession } from '@/auth';
 import { redirect } from '@/i18n/navigation';
+import { inClientMode } from '@/server/client-mode';
 import { webConfig } from '@/server/env';
 import { readImpersonation } from '@/server/impersonation';
 import { requestAuthCtx } from '@/server/request-id';
@@ -39,6 +40,17 @@ async function signedIn() {
   const session = await auth();
   if (!session?.user?.id) return redirect({ href: '/login', locale: await getLocale() });
   return session.user;
+}
+
+/**
+ * S12-06 review: changes to a second factor that already exists (forget browsers, new recovery codes, turn off) are
+ * never made from a session in Client Mode. The login challenge and a required enrolment still work there: a login
+ * that resumes Client Mode must be able to pass its second factor.
+ */
+async function signedInOutsideClientMode() {
+  const user = await signedIn();
+  if (await inClientMode(user)) return redirect({ href: '/', locale: await getLocale() });
+  return user;
 }
 
 async function forwardedFor(): Promise<string | null> {
@@ -87,7 +99,7 @@ export async function startEnrolmentAction(_prev: TwoFactorFormState, form: Form
 /** Security page: forgets every remembered browser (S1-F8); each asks for a code again at its next login. */
 export async function forgetBrowsersAction(): Promise<void> {
   await webConfig();
-  const user = await signedIn();
+  const user = await signedInOutsideClientMode();
   const locale = await getLocale();
   if (await readImpersonation(user.id)) return redirect({ href: '/', locale });
   await identity.forgetRememberedBrowsers(await requestAuthCtx(), { userId: user.id });
@@ -124,7 +136,7 @@ export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Pr
 /** Security page: a new set of recovery codes (needs a current code). */
 export async function regenerateCodesAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   await webConfig();
-  const user = await signedIn();
+  const user = await signedInOutsideClientMode();
   // S1-09: no 2FA changes while acting as someone else (it would be the staff member's own, but never mid-impersonation).
   if (await readImpersonation(user.id)) return { error: 'forbidden' };
   const result = await withCodeCheck(
@@ -138,7 +150,7 @@ export async function regenerateCodesAction(_prev: TwoFactorFormState, form: For
 /** Security page: turns 2FA off — refused for staff and admins. */
 export async function disableAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   await webConfig();
-  const user = await signedIn();
+  const user = await signedInOutsideClientMode();
   if (await readImpersonation(user.id)) return { error: 'forbidden' };
   try {
     const result = await withCodeCheck(

@@ -24,12 +24,16 @@ export async function GET(request: Request): Promise<Response> {
       sessionVersion: session.user.sessionVersion,
       mfaVerified: session.user.mfaVerified,
       audience: audience.data,
+      // S12-06: a Client Mode session's tokens carry `cm` (and it gets no realtime token).
+      ...(session.user.clientMode ? { clientMode: true } : {}),
+      ...(session.user.sessionId ? { sessionId: session.user.sessionId } : {}),
     });
     return Response.json(dto, { headers: NO_STORE });
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return error(401, 'SESSION_REVOKED');
     // The session still owes its second factor (S1-04): the client sends the user to /two-factor.
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return error(403, 'MFA_REQUIRED');
+    if (isAppError(err) && err.code === 'FORBIDDEN') return error(403, 'FORBIDDEN');
     throw err;
   }
 }

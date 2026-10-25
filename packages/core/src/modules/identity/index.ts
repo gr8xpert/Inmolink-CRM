@@ -16,6 +16,22 @@ export {
   setApiKeyRateTier,
   setLegacyQueryKey,
 } from './api-keys';
+// S12-06: Client Mode — enter (tenant ctx), the session callback's proof check and the exit PIN (app_auth).
+export {
+  activateClientMode,
+  activeClientModeOf,
+  CLIENT_MODE_ATTEMPTS_WINDOW_SECONDS,
+  CLIENT_MODE_PIN_LIMITS,
+  CLIENT_MODE_PROOF_TTL_MS,
+  CLIENT_MODE_TTL_SECONDS,
+  type ClientModePinResult,
+  type ClientModeState,
+  checkClientModePin,
+  clientModeAtLogin,
+  isClientModeState,
+  openClientModeProof,
+  startClientMode,
+} from './client-mode';
 export {
   API_KEYS,
   type ApiKeyEnv,

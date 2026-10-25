@@ -5,6 +5,7 @@ import { disableAction, forgetBrowsersAction, regenerateCodesAction } from '@/ap
 import { CodeForm } from '@/app/[locale]/(auth)/two-factor/code-form';
 import { auth } from '@/auth';
 import { getPathname, Link, redirect } from '@/i18n/navigation';
+import { inClientMode } from '@/server/client-mode';
 import { webConfig } from '@/server/env';
 import { twoFactorErrors } from '@/server/form-errors';
 import { readImpersonation } from '@/server/impersonation';
@@ -21,6 +22,8 @@ export default async function SecurityPage({ searchParams }: { searchParams: Pro
   if (!session?.user?.id) return redirect({ href: '/login', locale });
   await webConfig();
   if (await readImpersonation(session.user.id)) return redirect({ href: '/', locale });
+  // S12-06 review: never in Client Mode (a client at the screen must not change the member's second factor).
+  if (await inClientMode(session.user)) return redirect({ href: '/', locale });
   const forgotten = (await searchParams).forgotten === '1';
   const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId: session.user.id });
   if ((status.enabled || status.required) && !session.user.mfaVerified)

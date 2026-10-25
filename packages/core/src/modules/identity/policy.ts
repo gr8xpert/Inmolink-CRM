@@ -63,6 +63,8 @@ export const IDENTITY_ACTIONS = [
   'identity.apiKeys.read',
   'identity.apiKeys.manage',
   'identity.staffAccess.read',
+  // S12-06: start Client Mode for one's own session.
+  'identity.clientMode.enter',
 ] as const;
 export type IdentityAction = (typeof IDENTITY_ACTIONS)[number];
 
@@ -78,6 +80,8 @@ export const IDENTITY_IMPERSONATION: ImpersonationRules<IdentityAction> = {
   'identity.apiKeys.manage': 'forbidden',
   // The agency's record of staff access (S1-F9): not for the staff member acting as an admin to read.
   'identity.staffAccess.read': 'forbidden',
+  // S12-06: Client Mode is the member's own session (an impersonation token never carries it).
+  'identity.clientMode.enter': 'forbidden',
 };
 
 /** Roles that manage the agency's website API keys (S1-05): the admin of either family. */
@@ -114,6 +118,9 @@ export function can(
     case 'identity.staffAccess.read':
       // Transparency for the agency: its admins see when staff acted as a member, and the stated reason.
       return sameAgency && !ctx.clientMode && API_KEY_ROLES.includes(ctx.actor.role);
+    case 'identity.clientMode.enter':
+      // S12-06: any member, once (a session in Client Mode cannot start it again with another PIN).
+      return sameAgency && !ctx.clientMode;
     case 'identity.apiKeys.read':
     case 'identity.apiKeys.manage':
       // Keys expose the agency's inventory to websites: admins only, never in Client Mode.

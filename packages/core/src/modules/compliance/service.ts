@@ -48,6 +48,10 @@ export const AUDIT_TYPES = [
   'identity.apiKey.revoked',
   'identity.apiKey.tierChanged',
   'identity.apiKey.legacyQueryKeyChanged',
+  // S12-06: Client Mode started (tenant ctx), ended with the PIN, a wrong or throttled PIN (never the PIN itself).
+  'identity.clientMode.started',
+  'identity.clientMode.ended',
+  'identity.clientMode.pinFailed',
   'agencies.verification.decided',
   'agencies.profile.updated',
   'agencies.giveToGet.changed',

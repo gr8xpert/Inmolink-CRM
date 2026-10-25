@@ -18,6 +18,8 @@ export interface MemberInit {
    * session is checked in this request's transaction; every write then names the staff member too.
    */
   impersonation?: { id: string; staffUserId: string; sessionVersion: number };
+  /** S12-06: the token's `cm` claim — the session is in Client Mode (never with an impersonation). */
+  clientMode?: boolean;
 }
 
 /**
@@ -59,7 +61,8 @@ export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promi
         actor: { kind: 'user', userId: init.userId, role, ...(imp ? { impersonatedBy: imp.staffUserId } : {}) },
         locale: init.locale ?? tenant.locales[0] ?? DEFAULT_UI_LOCALE,
         requestId: init.requestId,
-        clientMode: false,
+        // S12-06: from the access token; an impersonation token never carries it (platform/jwt refuses both).
+        clientMode: init.clientMode === true && !imp,
       });
     },
   );

@@ -59,6 +59,25 @@
     "unread": "{count} sin leer"
   },
   "clientMode": "El Modo Cliente está activado: la información interna se oculta en todas las páginas.",
+  "clientModeControl": {
+    "start": "Mostrar a un cliente",
+    "intro": "El Modo Cliente oculta la comisión, la agencia propietaria, las notas internas y los datos privados en todas las páginas. Elige un PIN: lo necesitarás para salir del Modo Cliente.",
+    "pin": "PIN (dígitos)",
+    "confirm": "Repite el PIN",
+    "submit": "Activar el Modo Cliente",
+    "cancel": "Cancelar",
+    "exitPin": "PIN para salir",
+    "exit": "Salir del Modo Cliente",
+    "errors": {
+      "pin_invalid": "Usa de 4 a 12 dígitos.",
+      "pin_mismatch": "Los dos PIN no coinciden.",
+      "pin_short": "Tu agencia exige un PIN más largo.",
+      "wrong": "PIN incorrecto.",
+      "rate_limited": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+      "forbidden": "El Modo Cliente no está disponible en esta sesión.",
+      "generic": "Algo ha fallado. Inténtalo de nuevo."
+    }
+  },
   "loading": "Cargando…",
   "error": {
     "title": "Algo ha salido mal",
