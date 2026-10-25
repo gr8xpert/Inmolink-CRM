@@ -35,7 +35,7 @@ import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
 import * as identity from '../identity';
 import * as taxonomy from '../taxonomy';
-import { propertiesEvents } from './events';
+import { COPY_FACT_FIELDS, propertiesEvents } from './events';
 import { assertCan, type PropertiesAction } from './policy';
 import * as repo from './repo';
 
@@ -350,7 +350,9 @@ export async function createListing(
       changedByUserId: userId,
     });
   }
-  await emit(ctx.tx, propertiesEvents.created({ listingId: id, agencyId, version: row.version }));
+  const base = { listingId: id, agencyId, version: row.version };
+  // one statement for both (S13-F14: `factsChanged` feeds the studio's auto-drafts)
+  await emit(ctx.tx, [propertiesEvents.created(base), propertiesEvents.factsChanged({ ...base, created: true })]);
   return toDto(ctx, row, privates);
 }
 
@@ -663,6 +665,9 @@ export async function updateListing(ctx: Ctx, id: string, input: UpdateListingBo
     );
   }
   events.push(propertiesEvents.updated({ ...base, changed: [...changed].sort() }));
+  if ([...changed].some((f) => COPY_FACT_FIELDS.has(f))) {
+    events.push(propertiesEvents.factsChanged({ ...base, created: false }));
+  }
   await emit(ctx.tx, events); // one statement for all of them
   return toDto(ctx, updated, savedPrivates);
 }

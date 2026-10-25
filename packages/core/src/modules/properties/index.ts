@@ -22,7 +22,7 @@ export {
 } from './content';
 export { type ExportListingRow, listingsForExport } from './data-export';
 export { propertiesErrors } from './errors';
-export { IMPORTED_PER_EVENT, propertiesEvents } from './events';
+export { COPY_FACT_FIELDS, IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {
   exportableListingIds,
   exportableListingPage,
@@ -110,6 +110,7 @@ export {
   type StudioTranslation,
   saveListingAiDrafts,
   studioEditableIds,
+  studioListingOwner,
   studioListings,
 } from './studio';
 export { registerPropertiesSubscriptions, unregisterPropertiesSubscriptions } from './subscriptions';

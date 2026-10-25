@@ -16,7 +16,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { whiteLabelListingText } from '../../white-label-listing';
-import { propertiesEvents } from './events';
+import { COPY_FACT_FIELDS, propertiesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
 import { ownForChange } from './service';
@@ -58,9 +58,12 @@ async function ownLiveForChange(ctx: Ctx, id: string, version: number): Promise<
 async function bumpAndEmit(ctx: Ctx, current: repo.ListingRow, changed: string): Promise<number> {
   const version = await repo.bumpVersion(ctx.tx, current.id, current.version);
   if (version === null) throw new AppError('VERSION_CONFLICT');
+  const base = { listingId: current.id, agencyId: current.agencyId, version };
+  const updated = propertiesEvents.updated({ ...base, changed: [changed] });
+  // S13-F14: a features change feeds the studio's auto-drafts (one statement for both events)
   await emit(
     ctx.tx,
-    propertiesEvents.updated({ listingId: current.id, agencyId: current.agencyId, version, changed: [changed] }),
+    COPY_FACT_FIELDS.has(changed) ? [updated, propertiesEvents.factsChanged({ ...base, created: false })] : updated,
   );
   return version;
 }

@@ -19,11 +19,12 @@ import {
   type ProviderResponse,
   ZERO_USAGE,
 } from './provider';
-import { AI_FEATURE_RE, type AiJobKind, type AiJobRecord, type AiStore, usageMonth } from './store';
+import { AI_FEATURE_RE, type AiBatchClaim, type AiJobKind, type AiJobRecord, type AiStore, usageMonth } from './store';
 import type {
   AiBatchCollect,
   AiBatchHandle,
   AiBatchItemResult,
+  AiBatchRef,
   AiBatchRequest,
   AiBudgetState,
   AiCallBase,
@@ -100,13 +101,33 @@ export interface AiGateway {
    * Polls a batch of the caller's agency (verified against its job row and items); once ended, returns every item's
    * result (caching the successes) and settles its cost once.
    */
-  collectBatch(ctx: AiCtx, input: { batchId: string; request: AiBatchRequest }): Promise<AiBatchCollect>;
+  collectBatch(ctx: AiCtx, input: AiBatchRef & { request: AiBatchRequest }): Promise<AiBatchCollect>;
   embed(ctx: AiCtx, request: AiEmbedRequest): Promise<AiEmbedResult>;
   /** The breaker's state (health checks, tests). */
   readonly breakerState: 'closed' | 'open' | 'half-open';
 }
 
 const CUSTOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** S13-F14: an idempotency key's tag in front of each provider custom id (`k` + 11 hex + `_`). */
+const KEY_TAG_LENGTH = 13;
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+/**
+ * S13-F14: how long after a claim its submit may still be in flight beyond the call timeout (clock skew between us and
+ * the provider included); a claimed batch without an id is looked up only after this.
+ */
+const RECONCILE_SLACK_MS = 5 * 60_000;
+
+/** The tag of an agency's idempotency key: provider custom ids start with it, so a lost batch can be found again. */
+export function batchKeyTag(agencyId: string, idempotencyKey: string): string {
+  return `k${sha256(`${agencyId}:${idempotencyKey}`).slice(0, KEY_TAG_LENGTH - 2)}_`;
+}
+
+/**
+ * S13-F14: a provider error after which the batch was certainly not accepted (refused before or by the provider) —
+ * its claim is dropped. Timeouts, 5xx and network errors are ambiguous: the claim stays and is reconciled.
+ */
+const notSubmitted = (err: unknown) =>
+  isAppError(err) || (err instanceof AiProviderError && (err.kind === 'rejected' || err.kind === 'rate_limited'));
 const UNMETERED_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 const MAX_BATCH_ITEMS = 10_000;
 const MAX_EMBED_TEXTS = 256;
@@ -548,6 +569,12 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
     if (request.items.length === 0 || request.items.length > MAX_BATCH_ITEMS) {
       throw new AppError('VALIDATION_FAILED', { reason: 'AI_BATCH_SIZE', max: MAX_BATCH_ITEMS });
     }
+    if (request.idempotencyKey !== undefined) {
+      const tooLong = request.items.some((i) => i.customId.length > 64 - KEY_TAG_LENGTH);
+      if (!IDEMPOTENCY_KEY_RE.test(request.idempotencyKey) || tooLong) {
+        throw new AppError('VALIDATION_FAILED', { reason: 'AI_BATCH_IDEMPOTENCY_KEY' });
+      }
+    }
     const maxTokens = request.maxTokens ?? r.prompt.maxTokens;
     const images = checkImages(request.images);
     const seen = new Set<string>();
@@ -619,6 +646,25 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
         if (hit !== undefined) cached.push({ customId: p.item.customId, ok: true, text: hit, cached: true });
         else pending.push(p);
       }
+      // S13-F14: under an idempotency key (metered worker calls), a key claimed before is never submitted again.
+      const key =
+        request.idempotencyKey !== undefined && r.agencyId && options.store && options.store.batches !== false
+          ? request.idempotencyKey
+          : null;
+      const store = options.store as AiStore;
+      const fromClaim = (claim: AiBatchClaim): AiBatchHandle => {
+        if (claim.inputHash !== batchHash) {
+          throw new AppError('VALIDATION_FAILED', { reason: 'AI_BATCH_IDEMPOTENCY_KEY_REUSED' });
+        }
+        return claim.providerBatchId
+          ? { batchId: claim.providerBatchId, cached, submitted: claim.itemCount }
+          : { batchId: null, cached, submitted: claim.itemCount, unconfirmed: true };
+      };
+      if (key) {
+        // a retry: the batch claimed before (cached answers are returned again; applying them is idempotent)
+        const claim = await store.batchClaim(r.agencyId as string, key);
+        if (claim) return fromClaim(claim);
+      }
       if (pending.length === 0) return { batchId: null, cached, submitted: 0 };
       if (r.agencyId && options.store?.batches === false) {
         throw new Error('AI batches run in workers (createPgAiStore), not on the request path');
@@ -635,12 +681,48 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
         );
       }
       const reservation = await reserve(r, request.feature, estimate);
+      const job = {
+        agencyId: r.agencyId as string,
+        feature: request.feature,
+        kind: 'BATCH' as const,
+        tier: r.tier,
+        model: r.model,
+        promptId: r.prompt.id,
+        promptVersion: r.prompt.version,
+        inputHash: batchHash,
+        status: 'PENDING' as const,
+        errorCode: null,
+        usage: ZERO_USAGE,
+        costMicroUsd: 0,
+        latencyMs: 0,
+        itemCount: pending.length,
+        requestId: ctx.requestId ?? null,
+        month: reservation.month,
+      };
+      const claimId = newId();
+      if (key) {
+        const claimed = await store
+          .claimBatch(
+            { ...job, id: claimId, providerBatchId: null, idempotencyKey: key, createdAt: time.now() },
+            reservation.reservedMicroUsd,
+          )
+          .catch(async (err: unknown) => {
+            await release(r.agencyId, reservation);
+            throw err;
+          });
+        if (!claimed.claimed) {
+          // a concurrent run claimed it between the read and the insert
+          await release(r.agencyId, reservation);
+          return fromClaim(claimed.existing);
+        }
+      }
+      const tag = key ? batchKeyTag(r.agencyId as string, key) : '';
       let batchId: string;
       try {
         ({ batchId } = await callProvider(() =>
           (options.provider as AiProvider).submitBatch(
             pending.map((p) => ({
-              customId: p.item.customId,
+              customId: `${tag}${p.item.customId}`,
               request: {
                 model: r.model,
                 system: r.prompt.system,
@@ -652,51 +734,87 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
           ),
         ));
       } catch (err) {
-        await release(r.agencyId, reservation);
+        if (!key) await release(r.agencyId, reservation);
+        else if (notSubmitted(err)) {
+          // certainly not accepted: the claim goes (with its reservation) and a retry submits afresh
+          await store
+            .dropBatchClaim(r.agencyId as string, claimId)
+            .catch((e: unknown) => log.warn({ err: e }, 'ai batch claim drop failed'));
+        }
+        // else: ambiguous (timeout, 5xx) — the claim stays; a retry gets `unconfirmed` and `collectBatch` reconciles
         throw providerFailure(err);
       }
-      if (r.agencyId) {
+      if (key) {
+        // A crash before this line leaves the claim without an id: `collectBatch` finds the batch by the key's tag.
+        await store.attachBatch(r.agencyId as string, claimId, batchId);
+      } else if (r.agencyId) {
         // PENDING: the reservation stays on the job row until the batch is collected.
-        await record(
-          {
-            agencyId: r.agencyId,
-            feature: request.feature,
-            kind: 'BATCH',
-            tier: r.tier,
-            model: r.model,
-            promptId: r.prompt.id,
-            promptVersion: r.prompt.version,
-            inputHash: batchHash,
-            status: 'PENDING',
-            errorCode: null,
-            usage: ZERO_USAGE,
-            costMicroUsd: 0,
-            latencyMs: 0,
-            itemCount: pending.length,
-            providerBatchId: batchId,
-            requestId: ctx.requestId ?? null,
-            month: reservation.month,
-          },
-          reservation.reservedMicroUsd,
-        );
+        await record({ ...job, providerBatchId: batchId }, reservation.reservedMicroUsd);
       }
       return { batchId, cached, submitted: pending.length };
     },
 
-    async collectBatch(ctx, { batchId, request }) {
+    /**
+     * S13-F14: a claim without a provider batch id (the submit crashed or failed ambiguously). After the window in
+     * which that submit could still be in flight, the provider is asked for a batch carrying the key's tag: found →
+     * its id is saved and it is collected; a candidate still running → `IN_PROGRESS`; none → the claim and its
+     * reservation are dropped (`NOT_SUBMITTED`: the caller submits again under the same key).
+     */
+    async collectBatch(ctx, { request, ...ref }) {
       const r = await resolve(ctx, request);
       const { items, batchHash } = batchItems(r, request);
+      let batchId = ref.batchId ?? null;
+      let tag = '';
       if (r.agencyId && options.store) {
-        // Only this agency's batch, with the very items it submitted: nothing else is returned or cached.
-        const owned = await options.store.batchJob(r.agencyId, batchId);
-        if (!owned || owned.inputHash !== batchHash) {
-          throw new AppError('NOT_FOUND', { reason: 'AI_BATCH_UNKNOWN' });
+        const store = options.store;
+        if (ref.idempotencyKey !== undefined) {
+          // Only this agency's claim, with the very items it submitted.
+          const claim = await store.batchClaim(r.agencyId, ref.idempotencyKey);
+          if (!claim || claim.inputHash !== batchHash || (batchId && claim.providerBatchId !== batchId)) {
+            throw new AppError('NOT_FOUND', { reason: 'AI_BATCH_UNKNOWN' });
+          }
+          tag = batchKeyTag(r.agencyId, ref.idempotencyKey);
+          batchId = claim.providerBatchId;
+          if (!batchId) {
+            const windowEnd = claim.createdAt.getTime() + options.timeoutMs + RECONCILE_SLACK_MS;
+            if (time.nowMs() < windowEnd) return { status: 'IN_PROGRESS' };
+            const prefix = tag;
+            let found: Awaited<ReturnType<AiProvider['findBatch']>>;
+            try {
+              found = await callProvider(() =>
+                (options.provider as AiProvider).findBatch({
+                  customIdPrefix: prefix,
+                  createdAfter: new Date(claim.createdAt.getTime() - RECONCILE_SLACK_MS),
+                  createdBefore: new Date(windowEnd),
+                }),
+              );
+            } catch (err) {
+              throw providerFailure(err);
+            }
+            if (found.status === 'UNKNOWN') return { status: 'IN_PROGRESS' };
+            if (found.status === 'NONE') {
+              await store.dropBatchClaim(r.agencyId, claim.id);
+              return { status: 'NOT_SUBMITTED' };
+            }
+            await store.attachBatch(r.agencyId, claim.id, found.batchId);
+            batchId = found.batchId;
+          }
+        } else {
+          if (!batchId) throw new AppError('VALIDATION_FAILED', { reason: 'AI_BATCH_REF' });
+          // Only this agency's batch, with the very items it submitted: nothing else is returned or cached.
+          const owned = await store.batchJob(r.agencyId, batchId);
+          if (!owned || owned.inputHash !== batchHash) {
+            throw new AppError('NOT_FOUND', { reason: 'AI_BATCH_UNKNOWN' });
+          }
+          if (owned.idempotencyKey) tag = batchKeyTag(r.agencyId, owned.idempotencyKey);
         }
       }
+      if (!batchId) throw new AppError('VALIDATION_FAILED', { reason: 'AI_BATCH_REF' });
+      const providerBatchId = batchId;
       const prepared = new Map(items.map((p) => [p.item.customId, p]));
       let raw: Awaited<ReturnType<AiProvider['batchResults']>>;
       try {
-        raw = await callProvider(() => (options.provider as AiProvider).batchResults(batchId));
+        raw = await callProvider(() => (options.provider as AiProvider).batchResults(providerBatchId));
       } catch (err) {
         throw providerFailure(err);
       }
@@ -705,24 +823,22 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
       let failed = 0;
       const results: AiBatchItemResult[] = [];
       for (const entry of raw) {
-        const p = prepared.get(entry.customId);
+        // a keyed batch's provider custom ids carry the key's tag (S13-F14)
+        const customId = entry.customId.startsWith(tag) ? entry.customId.slice(tag.length) : '';
+        const p = prepared.get(customId);
         if (!p) continue; // not one of the caller's items: ignore
         if (entry.type !== 'succeeded') {
           failed++;
-          results.push({ customId: entry.customId, ok: false, error: entry.type === 'expired' ? 'EXPIRED' : 'FAILED' });
+          results.push({ customId, ok: false, error: entry.type === 'expired' ? 'EXPIRED' : 'FAILED' });
           continue;
         }
         usage = addUsage(usage, entry.response.usage);
         if (entry.response.refused || entry.response.truncated) {
           failed++;
-          results.push({
-            customId: entry.customId,
-            ok: false,
-            error: entry.response.refused ? 'REFUSED' : 'TRUNCATED',
-          });
+          results.push({ customId, ok: false, error: entry.response.refused ? 'REFUSED' : 'TRUNCATED' });
           continue;
         }
-        results.push({ customId: entry.customId, ok: true, text: entry.response.text, cached: false });
+        results.push({ customId, ok: true, text: entry.response.text, cached: false });
         if (options.cache && options.cacheTtlSeconds > 0 && p.item.cacheKey !== false) {
           await options.cache
             .set(p.key, { v: entry.response.text }, { ttlSeconds: options.cacheTtlSeconds })
@@ -733,7 +849,7 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
       if (r.agencyId && options.store) {
         const first = await options.store.settleBatch({
           agencyId: r.agencyId,
-          providerBatchId: batchId,
+          providerBatchId,
           usage,
           costMicroUsd: cost,
           failedItems: failed,

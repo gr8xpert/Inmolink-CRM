@@ -218,7 +218,10 @@
     "INTERNAL": "Algo ha fallado. Inténtalo de nuevo.",
     "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión.",
     "VIDEO_URL_NOT_ALLOWED": "Solo se pueden añadir como vídeo enlaces de YouTube, Vimeo y Matterport.",
-    "VIDEO_ALREADY_ADDED": "Este vídeo ya está en el inmueble."
+    "VIDEO_ALREADY_ADDED": "Este vídeo ya está en el inmueble.",
+    "AI_NOT_ENABLED": "Los borradores con IA están desactivados en tu agencia.",
+    "LISTING_STUDIO_BATCH_LIMIT": "Tu agencia ya tiene el máximo de lotes de borradores con IA en curso. Vuelve a intentarlo cuando termine uno.",
+    "PLAN_REQUIRED": "Has alcanzado el límite de tu plan. Mejora tu plan para continuar."
   },
   "media": {
     "title": "Fotos y planos",
@@ -358,7 +361,13 @@
       "ASSIGN": "Agente",
       "ADD_TAG": "Etiqueta"
     },
-    "stillRunning": "Sigue en curso ({processed} de {total}). Recarga la página más tarde para ver el resultado."
+    "stillRunning": "Sigue en curso ({processed} de {total}). Recarga la página más tarde para ver el resultado.",
+    "studio": {
+      "run": "Redactar con IA",
+      "hint": "Borradores con IA del título, la descripción y el texto SEO en cada idioma activo, para hasta {max} inmuebles seleccionados. Los textos bloqueados y los escritos por una persona se mantienen; los borradores quedan marcados hasta revisarlos.",
+      "queued": "Se están redactando borradores con IA para {count} inmueble(s). Llegarán como borradores en unas horas.",
+      "skipped": "Se omitieron {count} inmueble(s) que no puedes editar."
+    }
   },
   "units": {
     "m2": "{value} m²"

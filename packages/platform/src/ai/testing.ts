@@ -5,11 +5,12 @@ import {
   type AiProvider,
   AiProviderError,
   type ProviderBatchItem,
+  type ProviderBatchLookup,
   type ProviderBatchResult,
   type ProviderRequest,
   type ProviderResponse,
 } from './provider';
-import type { AiJobRecord, AiStore } from './store';
+import type { AiBatchClaim, AiJobRecord, AiStore } from './store';
 
 /**
  * Test doubles for the AI gateway (`@inmolink/platform/ai/testing`). Unit and integration tests never call the real
@@ -69,6 +70,17 @@ export class FakeProvider implements AiProvider {
     return { batchId };
   }
 
+  /** S13-F14: like the real lookup — a running batch cannot be identified until it ends. */
+  async findBatch({ customIdPrefix }: { customIdPrefix: string }): Promise<ProviderBatchLookup> {
+    let running = false;
+    for (const [batchId, b] of this.batches) {
+      if (!b.items.some((i) => i.customId.startsWith(customIdPrefix))) continue;
+      if (b.ended) return { status: 'FOUND', batchId };
+      running = true;
+    }
+    return running ? { status: 'UNKNOWN' } : { status: 'NONE' };
+  }
+
   /** Marks a submitted batch as ended (the next `batchResults` returns its answers). */
   endBatch(batchId: string): void {
     const b = this.batches.get(batchId);
@@ -112,15 +124,25 @@ export function memoryAiCache(): AiCache & { entries: Map<string, unknown> } {
  * In-memory usage store (unit tests) with the same reservation semantics as `createPgAiStore`: `spend` is the settled
  * cost per `agency:month`, `reserved` the open reservations.
  */
+type MemoryJob = AiJobRecord & { reservedMicroUsd: number; idempotencyKey?: string | null; createdAt?: Date };
+
 export function memoryAiStore(initialSpend: Record<string, number> = {}): AiStore & {
-  jobs: (AiJobRecord & { reservedMicroUsd: number })[];
+  jobs: MemoryJob[];
   spend: Map<string, number>;
   reserved: Map<string, number>;
   monthSpend(agencyId: string, month: string): Promise<number>;
 } {
   const spend = new Map(Object.entries(initialSpend));
   const reserved = new Map<string, number>();
-  const jobs: (AiJobRecord & { reservedMicroUsd: number })[] = [];
+  const jobs: MemoryJob[] = [];
+  const claimOf = (j: MemoryJob): AiBatchClaim => ({
+    id: j.id,
+    status: j.status,
+    inputHash: j.inputHash,
+    itemCount: j.itemCount,
+    providerBatchId: j.providerBatchId,
+    createdAt: j.createdAt ?? new Date(0),
+  });
   const key = (agencyId: string, month: string) => `${agencyId}:${month}`;
   const add = (m: Map<string, number>, k: string, v: number) => m.set(k, Math.max(0, (m.get(k) ?? 0) + v));
   return {
@@ -154,7 +176,30 @@ export function memoryAiStore(initialSpend: Record<string, number> = {}): AiStor
     },
     async batchJob(agencyId, providerBatchId) {
       const job = jobs.find((j) => j.agencyId === agencyId && j.providerBatchId === providerBatchId);
-      return job ? { status: job.status, inputHash: job.inputHash } : null;
+      return job ? { status: job.status, inputHash: job.inputHash, idempotencyKey: job.idempotencyKey ?? null } : null;
+    },
+    async claimBatch(job, reservedMicroUsd) {
+      const existing = jobs.find((j) => j.agencyId === job.agencyId && j.idempotencyKey === job.idempotencyKey);
+      if (existing) return { claimed: false, existing: claimOf(existing) };
+      jobs.push({ ...job, status: 'PENDING', providerBatchId: null, reservedMicroUsd });
+      return { claimed: true };
+    },
+    async batchClaim(agencyId, idempotencyKey) {
+      const job = jobs.find((j) => j.agencyId === agencyId && j.idempotencyKey === idempotencyKey);
+      return job ? claimOf(job) : null;
+    },
+    async attachBatch(agencyId, jobId, providerBatchId) {
+      const job = jobs.find((j) => j.agencyId === agencyId && j.id === jobId);
+      if (job && job.providerBatchId === null) job.providerBatchId = providerBatchId;
+    },
+    async dropBatchClaim(agencyId, jobId) {
+      const i = jobs.findIndex(
+        (j) => j.agencyId === agencyId && j.id === jobId && j.providerBatchId === null && j.status === 'PENDING',
+      );
+      const job = jobs[i];
+      if (!job) return;
+      jobs.splice(i, 1);
+      add(reserved, key(agencyId, job.month), -job.reservedMicroUsd);
     },
     async settleBatch(input) {
       const job = jobs.find(

@@ -343,6 +343,8 @@ describe('listing service', () => {
     await as(owner, (ctx) => properties.restoreListing(ctx, v2.id));
     expect(await eventsOf(l.id)).toEqual([
       'properties.listing.created',
+      // S13-F14: a new listing's facts (the studio's auto-drafts); the status/visibility/price update has none
+      'properties.listing.factsChanged',
       'properties.listing.statusChanged',
       'properties.listing.visibilityChanged',
       'properties.listing.updated',

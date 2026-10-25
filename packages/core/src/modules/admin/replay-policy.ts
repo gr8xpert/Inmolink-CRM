@@ -70,6 +70,7 @@ export const REPLAY_REFUSED_TYPES: ReadonlySet<string> = new Set([
   'imports.connection.paused', // pause notice
   'imports.run.requested', // starts a feed run
   'properties.bulkAction.requested', // runs a bulk action
+  'properties.listing.factsChanged', // S13-F14: Listing Studio auto-drafts (AI calls)
   'properties.listing.purged', // CRM timeline entry
   'properties.listing.statusChanged', // CRM timeline entry
   'presentations.selection.interacted', // CRM timeline entry

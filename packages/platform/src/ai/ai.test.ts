@@ -337,6 +337,100 @@ describe('AI gateway — batch and embeddings', () => {
     expect(provider.calls).toHaveLength(calls);
   });
 
+  describe('[S13-F14] idempotent submit', () => {
+    const KEY = '0192f3a4-0000-7000-8000-0000000000aa';
+    const keyed = { ...call, items, idempotencyKey: KEY };
+    const reservedOf = (store: ReturnType<typeof setup>['store']) => store.reserved.get(`${AGENCY}:${MONTH}`) ?? 0;
+
+    it('[S13-F14] a crash after the provider accepted the batch (its id never saved) submits once; collect finds it', async () => {
+      const { gateway, provider, store, clock } = setup();
+      const attach = store.attachBatch.bind(store);
+      store.attachBatch = async () => {
+        throw new Error('process died');
+      };
+      await expect(gateway.batch(ctx, keyed)).rejects.toThrow('process died');
+      expect(provider.batches.size).toBe(1);
+      store.attachBatch = attach;
+
+      // the retried job: nothing is sent again
+      const retry = await gateway.batch(ctx, keyed);
+      expect(retry).toMatchObject({ batchId: null, submitted: 2, unconfirmed: true });
+      expect(provider.batches.size).toBe(1);
+
+      // collect by the key: inside the in-flight window it waits, then a running candidate keeps it waiting
+      expect(await gateway.collectBatch(ctx, { idempotencyKey: KEY, request: keyed })).toEqual({
+        status: 'IN_PROGRESS',
+      });
+      clock.advance(5_000 + 5 * 60_000);
+      expect(await gateway.collectBatch(ctx, { idempotencyKey: KEY, request: keyed })).toEqual({
+        status: 'IN_PROGRESS',
+      });
+      const [batchId] = [...provider.batches.keys()] as [string];
+      provider.endBatch(batchId);
+      const done = await gateway.collectBatch(ctx, { idempotencyKey: KEY, request: keyed });
+      expect(done).toMatchObject({ status: 'ENDED', costMicroUsd: 2_000 });
+      // the provider's custom ids carry the key's tag; the caller gets its own back
+      expect(done.status === 'ENDED' && done.results.map((r) => r.customId).sort()).toEqual(['de', 'es']);
+      expect(store.jobs.filter((j) => j.kind === 'BATCH')).toHaveLength(1);
+      expect(store.jobs.at(-1)).toMatchObject({ providerBatchId: batchId, status: 'SUCCEEDED' });
+      expect(reservedOf(store)).toBe(0);
+      // later submits under the key return the same batch
+      expect(await gateway.batch(ctx, keyed)).toMatchObject({ batchId, submitted: 2 });
+      expect(provider.batches.size).toBe(1);
+    });
+
+    it('[S13-F14] a crash after the id was saved (the caller never stored it) returns the same batch', async () => {
+      const { gateway, provider } = setup();
+      const first = await gateway.batch(ctx, keyed);
+      const again = await gateway.batch(ctx, keyed);
+      expect(again).toMatchObject({ batchId: first.batchId, submitted: 2 });
+      expect(again.unconfirmed).toBeUndefined();
+      expect(provider.batches.size).toBe(1);
+      provider.endBatch(first.batchId as string);
+      expect(await gateway.collectBatch(ctx, { batchId: first.batchId as string, request: keyed })).toMatchObject({
+        status: 'ENDED',
+      });
+    });
+
+    it('[S13-F14] an ambiguous failure the provider never saw: NOT_SUBMITTED after the window, then a fresh submit', async () => {
+      const { gateway, provider, store, clock } = setup();
+      const submit = provider.submitBatch.bind(provider);
+      provider.submitBatch = async () => {
+        throw new AiProviderError('unavailable', 'timeout');
+      };
+      await expect(gateway.batch(ctx, keyed)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' });
+      provider.submitBatch = submit;
+      expect(await gateway.batch(ctx, keyed)).toMatchObject({ unconfirmed: true });
+      expect(reservedOf(store)).toBeGreaterThan(0);
+      clock.advance(5_000 + 5 * 60_000);
+      expect(await gateway.collectBatch(ctx, { idempotencyKey: KEY, request: keyed })).toEqual({
+        status: 'NOT_SUBMITTED',
+      });
+      expect(reservedOf(store)).toBe(0);
+      const fresh = await gateway.batch(ctx, keyed);
+      expect(fresh.batchId).toEqual(expect.any(String));
+      expect(provider.batches.size).toBe(1);
+    });
+
+    it('[S13-F14] a refused submit drops the claim (a retry submits); a key reused for other items is refused', async () => {
+      const { gateway, provider, store } = setup();
+      const submit = provider.submitBatch.bind(provider);
+      provider.submitBatch = async () => {
+        throw new AiProviderError('rejected', 'bad request', 400);
+      };
+      await expect(gateway.batch(ctx, keyed)).rejects.toMatchObject({ code: 'AI_REFUSED' });
+      expect(store.jobs).toHaveLength(0);
+      expect(reservedOf(store)).toBe(0);
+      provider.submitBatch = submit;
+      expect((await gateway.batch(ctx, keyed)).batchId).toEqual(expect.any(String));
+      await expect(gateway.batch(ctx, { ...keyed, items: items.slice(0, 1) })).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+        details: { reason: 'AI_BATCH_IDEMPOTENCY_KEY_REUSED' },
+      });
+      expect(provider.batches.size).toBe(1);
+    });
+  });
+
   it('[S12-01] ai.embed fails fast with AI_UNAVAILABLE while no embedding provider is configured', async () => {
     const { gateway } = setup();
     await expect(gateway.embed(ctx, { feature: 'search.semantic', texts: ['villa'] })).rejects.toMatchObject({

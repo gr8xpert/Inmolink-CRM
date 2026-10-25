@@ -110,6 +110,13 @@ export interface AiBatchItem {
 
 export interface AiBatchRequest extends Omit<AiCallBase, 'input' | 'cacheKey'> {
   items: readonly AiBatchItem[];
+  /**
+   * S13-F14: one of the caller's ids (≤ 128 characters, e.g. its job or request id). The gateway claims it before the
+   * submit, so a retry after a crash never submits the same work twice: it gets the batch already submitted (or, when
+   * the crash came between the submit and saving its id, `unconfirmed` — `collectBatch` with the key reconciles).
+   * Item custom ids are then at most 51 characters (the provider's custom ids carry a tag of the key).
+   */
+  idempotencyKey?: string;
 }
 
 export type AiBatchItemResult =
@@ -123,11 +130,22 @@ export interface AiBatchHandle {
   cached: AiBatchItemResult[];
   /** Items sent to the provider. */
   submitted: number;
+  /**
+   * S13-F14 (with `idempotencyKey`): an earlier run claimed the key but its batch id was never saved (a crash or an
+   * ambiguous provider error during the submit). Nothing is sent again; `collectBatch` with the key finds the batch,
+   * or answers `NOT_SUBMITTED` once it is sure there is none.
+   */
+  unconfirmed?: true;
 }
 
 export type AiBatchCollect =
   | { status: 'IN_PROGRESS' }
-  | { status: 'ENDED'; results: AiBatchItemResult[]; costMicroUsd: number };
+  | { status: 'ENDED'; results: AiBatchItemResult[]; costMicroUsd: number }
+  /** S13-F14: the claimed submit never reached the provider (claim and reservation dropped) — submit again. */
+  | { status: 'NOT_SUBMITTED' };
+
+/** S13-F14: which batch `collectBatch` polls — its provider id, or the caller's idempotency key (or both). */
+export type AiBatchRef = { batchId: string; idempotencyKey?: string } | { batchId?: string; idempotencyKey: string };
 
 export interface AiEmbedRequest {
   feature: string;

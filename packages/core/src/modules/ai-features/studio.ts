@@ -30,11 +30,12 @@ import {
   type ListingStudioBulkBody,
   type ListingStudioTone,
 } from '@inmolink/contracts';
-import type { Tx } from '@inmolink/db';
+import { type Tx, withSystem } from '@inmolink/db';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { type AiBatchItemResult, type AiCtx, ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
 import { AppError, isAppError } from '@inmolink/platform/errors';
+import { flag } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
@@ -217,6 +218,75 @@ export async function requestListingStudioBulk(
     items: [],
   });
   return dto;
+}
+
+// ---- auto-drafts (S13-F14, PLAN §3 #15) ----------------------------------------------------------------------------
+
+/** Platform flag (`feature_flags`, off unless switched on — for everyone or per agency): Studio drafts by itself. */
+export const STUDIO_AUTO_DRAFTS_FLAG = 'ai.listing-studio.auto-drafts';
+/** The tone of auto-drafts (the request's default). */
+const AUTO_DRAFT_TONE: ListingStudioTone = 'PROFESSIONAL';
+
+export type AutoDraftResult =
+  | { status: 'QUEUED'; requestId: string; locales: string[] }
+  | { status: 'SKIPPED'; reason: 'FLAG_OFF' | 'NO_OWNER' | 'NOT_ENABLED' | 'NOTHING_TO_DRAFT' | 'QUOTA' };
+
+/**
+ * S13-F14: after a listing is created or its facts change (`properties.listing.factsChanged`, worker), queues Studio
+ * drafts for its enabled languages as its owner — behind `STUDIO_AUTO_DRAFTS_FLAG`, and only within the agency's toggles (`LISTING_STUDIO`;
+ * other languages only with `TRANSLATION_DRAFTS`) and its plan's monthly Studio quota (a listing past it is skipped,
+ * never refused to anyone). Only locales with no text or an earlier AI draft are targeted: a person's text is never
+ * replaced (`replaceReviewed: false`). The drafts stay `AI_DRAFT` until a person saves them; nothing is published.
+ * The studio's own draft writes, price or status changes emit no `factsChanged`: no loop, no cost.
+ */
+export async function autoDraftListing(input: { agencyId: string; listingId: string }): Promise<AutoDraftResult> {
+  // worker only (the outbox subscription): the flag and the listing's owner, one short system transaction
+  const owner = await withSystem('aiFeatures.autoDraftListing', async (tx) =>
+    (await flag({ tx, tenant: { agencyId: input.agencyId } }, STUDIO_AUTO_DRAFTS_FLAG))
+      ? { on: true, userId: await properties.studioListingOwner(tx, input.agencyId, input.listingId) }
+      : { on: false, userId: null },
+  );
+  if (!owner.on) return { status: 'SKIPPED', reason: 'FLAG_OFF' };
+  if (!owner.userId) return { status: 'SKIPPED', reason: 'NO_OWNER' };
+  const userId = owner.userId;
+  try {
+    return await withMemberCtx({ userId, agencyId: input.agencyId, requestId: newId() }, async (ctx) => {
+      const gate = await studioGate(ctx);
+      if (!gate.studio) return { status: 'SKIPPED', reason: 'NOT_ENABLED' } as const;
+      const [listing] = await properties.studioListings(ctx, [input.listingId]);
+      if (!listing) return { status: 'SKIPPED', reason: 'NO_OWNER' } as const;
+      const byLocale = new Map(listing.translations.map((t) => [t.locale, t]));
+      const locales = contentLocalesOf(ctx).filter((l) => {
+        const t = byLocale.get(l);
+        return studioAllows(gate, l) && (!t || (!t.locked && t.origin === 'AI_DRAFT'));
+      });
+      if (locales.length === 0) return { status: 'SKIPPED', reason: 'NOTHING_TO_DRAFT' } as const;
+      try {
+        await countStudioListings(ctx, 1, 'SINGLE');
+      } catch (err) {
+        if (isAppError(err) && err.code === 'PLAN_REQUIRED') return { status: 'SKIPPED', reason: 'QUOTA' } as const;
+        throw err;
+      }
+      const requestId = newId();
+      await emit(
+        ctx.tx,
+        aiFeaturesEvents.listingStudioRequested({
+          requestId,
+          userId,
+          listingIds: [input.listingId],
+          tone: AUTO_DRAFT_TONE,
+          locales,
+          replaceReviewed: false,
+          mode: 'SINGLE',
+        }),
+      );
+      return { status: 'QUEUED', requestId, locales } as const;
+    });
+  } catch (err) {
+    // the owner left the agency, or the agency is suspended: nobody to draft as
+    if (isAppError(err) && err.code === 'FORBIDDEN') return { status: 'SKIPPED', reason: 'NO_OWNER' };
+    throw err;
+  }
 }
 
 // ---- worker: inputs ---------------------------------------------------------------------------------------------
@@ -487,10 +557,15 @@ function batchItems(req: StudioRequest, work: ListingWork[]): StoredItem[] {
   return items;
 }
 
-const batchRequest = (items: readonly StoredItem[]) => ({
+/**
+ * S13-F14: the request id is the batch's idempotency key — the gateway claims it before calling the provider, so a
+ * submit job that crashed after the provider accepted the batch never submits it a second time when retried.
+ */
+const batchRequest = (req: StudioRequest, items: readonly StoredItem[]) => ({
   feature: FEATURE_BULK,
   prompt: LISTING_STUDIO_PROMPT,
   items: items.map((i) => ({ customId: i.customId, input: i.input })),
+  idempotencyKey: req.requestId,
 });
 
 /** Parses, checks (one repair) and writes batch answers, listing by listing (one transaction each). */
@@ -578,7 +653,8 @@ async function finish(req: StudioRequest, state: 'DONE' | 'GAVE_UP', outcome: St
 
 export type BulkSubmit =
   | { status: 'DONE'; outcome: StudioOutcome }
-  | { status: 'SUBMITTED'; batchId: string; outcome: StudioOutcome };
+  /** `batchId` null: submitted by an earlier run whose id was never saved — the collect job reconciles it (S13-F14). */
+  | { status: 'SUBMITTED'; batchId: string | null; outcome: StudioOutcome };
 
 /**
  * Job `aiFeatures.submitListingStudioBatch`: builds one item per (listing, target locale), records them with each
@@ -652,15 +728,41 @@ export async function submitListingStudioBulk(input: StudioRequest): Promise<Bul
     };
     await withMemberCtx(member(req), (ctx) => repo.insertStudioBatch(ctx.tx, row));
   }
-  const handle = await ai.batch(aiCtxOf(req), batchRequest(items));
+  const sent = await sendBatch(req, items, hashes, outcome, gate);
+  if (sent === 'DONE') return { status: 'DONE', outcome };
+  return { status: 'SUBMITTED', batchId: sent.batchId, outcome };
+}
+
+/**
+ * `ai.batch` under the request's idempotency key, then the answers the cache had. `DONE`: everything came from the
+ * cache (the record is finished); otherwise the provider's batch id is saved — or null when an earlier run submitted
+ * it but crashed before its id was saved (`unconfirmed`: nothing is sent again; the collect job reconciles).
+ */
+async function sendBatch(
+  req: StudioRequest,
+  items: readonly StoredItem[],
+  hashes: readonly string[],
+  outcome: StudioOutcome,
+  gate: StudioGate,
+): Promise<'DONE' | { batchId: string | null }> {
+  let handle: Awaited<ReturnType<typeof ai.batch>>;
+  try {
+    handle = await ai.batch(aiCtxOf(req), batchRequest(req, items));
+  } catch (err) {
+    // An earlier run claimed the key with the full recorded items (a toggle switched off since narrowed this run's):
+    // that submit stands — the collect job polls it by the key and drops the locales no longer allowed.
+    if (isAppError(err) && err.details?.reason === 'AI_BATCH_IDEMPOTENCY_KEY_REUSED') return { batchId: null };
+    throw err;
+  }
   await applyResults(req, items, hashes, handle.cached, outcome, gate);
   if (handle.batchId === null) {
+    if (handle.unconfirmed) return { batchId: null };
     await finish(req, 'DONE', outcome);
-    return { status: 'DONE', outcome };
+    return 'DONE';
   }
   const batchId = handle.batchId;
   await withMemberCtx(member(req), (ctx) => repo.setStudioBatchProvider(ctx.tx, req.agencyId, req.requestId, batchId));
-  return { status: 'SUBMITTED', batchId, outcome };
+  return { batchId };
 }
 
 /**
@@ -676,7 +778,10 @@ export async function collectListingStudioBulk(
   const row = await withMemberCtx({ userId: who.userId, agencyId: who.agencyId, requestId: who.requestId }, (ctx) =>
     repo.getStudioBatch(ctx.tx, who.agencyId, who.requestId),
   );
-  if (row?.state !== 'RUNNING' || !row.providerBatchId) return { status: 'DONE', outcome };
+  // S13-F14: a record whose batch id was never saved (`items` recorded, submitted under the request's key) is collected
+  // by the key; one with nothing recorded was never submitted.
+  if (row?.state !== 'RUNNING' || (!row.providerBatchId && (row.items as StoredItem[]).length === 0))
+    return { status: 'DONE', outcome };
   const req: StudioRequest = {
     requestId: who.requestId,
     agencyId: who.agencyId,
@@ -697,8 +802,15 @@ export async function collectListingStudioBulk(
     return { status: 'DONE', outcome };
   }
   const items = row.items as StoredItem[];
-  const res = await ai.collectBatch(aiCtxOf(req), { batchId: row.providerBatchId, request: batchRequest(items) });
+  // a saved id (also batches submitted before S13-F14, without a key); else the request's key
+  const ref = row.providerBatchId ? { batchId: row.providerBatchId } : { idempotencyKey: req.requestId };
+  const res = await ai.collectBatch(aiCtxOf(req), { ...ref, request: batchRequest(req, items) });
   if (res.status === 'IN_PROGRESS') return res;
+  if (res.status === 'NOT_SUBMITTED') {
+    // S13-F14: the crashed submit never reached the provider (its claim is gone): submitted now, polled from here
+    const sent = await sendBatch(req, items, row.factsHashes, outcome, gate);
+    return sent === 'DONE' ? { status: 'DONE', outcome } : { status: 'IN_PROGRESS' };
+  }
   await applyResults(req, items, row.factsHashes, res.results, outcome, gate);
   await finish(req, 'DONE', outcome);
   return { status: 'DONE', outcome };

@@ -18,6 +18,7 @@ import {
 } from '@inmolink/platform/ai';
 import { FakeProvider } from '@inmolink/platform/ai/testing';
 import { Cache } from '@inmolink/platform/cache';
+import { createFakeClock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { sql } from 'drizzle-orm';
@@ -294,6 +295,16 @@ describe('AI gateway — budget reservations in Postgres (0146)', () => {
     ]);
   });
 
+  /** S13-F14: an agency of its own (fake batch ids restart at 1 per provider; the batch id is unique per agency). */
+  const newAgency = async (name: string) => {
+    const id = newId();
+    await adminQuery(`insert into agencies (agency_id, kind, name) values ($1, 'AGENCY', $2)`, [
+      id,
+      `AI ${name} ${run}`,
+    ]);
+    return id;
+  };
+
   it('[S12-01] concurrent calls cannot pass the hard cap together (atomic reservation, Postgres)', async () => {
     // One call reserves ≈ 1 500 micro-USD (300 max tokens at 5 USD/Mtok + its input); the cap fits two.
     const provider = new FakeProvider(() => ({
@@ -355,6 +366,70 @@ describe('AI gateway — budget reservations in Postgres (0146)', () => {
     await g.collectBatch(ctxOf(agencyC), { batchId, request });
     expect(await spendOf(agencyC)).toBe(before + 1_000);
     expect(await reservedOf(agencyC)).toBe(0);
+  });
+
+  it('[S13-F14] a crash after the submit never submits twice: the claim (Postgres) is reconciled and settled once', async () => {
+    const agency = await newAgency('crash');
+    const provider = new FakeProvider(() => 'Una vez.');
+    const clock = createFakeClock(new Date().toISOString());
+    let crash = true;
+    const crashing = {
+      ...store,
+      attachBatch: async (...args: Parameters<typeof store.attachBatch>) => {
+        if (crash) throw new Error('process died');
+        return store.attachBatch(...args);
+      },
+    };
+    const g = gateway(provider, { store: crashing, clock });
+    const key = newId();
+    const request = { ...call(null), idempotencyKey: key, items: [{ customId: 'c1', input: { c: `crash-${run}` } }] };
+    await expect(g.batch(ctxOf(agency), request)).rejects.toThrow('process died');
+    crash = false;
+    expect(await g.batch(ctxOf(agency), request)).toMatchObject({ batchId: null, unconfirmed: true });
+    expect(provider.batches.size).toBe(1);
+    const claim = await withSystem('test.ai.claim', async (tx: Tx) => {
+      const { rows } = await tx.execute(
+        sql`select status, provider_batch_id, reserved_micro_usd from ai_jobs where agency_id = ${agency} and idempotency_key = ${key}`,
+      );
+      return rows;
+    });
+    expect(claim).toEqual([expect.objectContaining({ status: 'PENDING', provider_batch_id: null })]);
+    const [batchId] = [...provider.batches.keys()] as [string];
+    provider.endBatch(batchId);
+    clock.advance(5_000 + 5 * 60_000);
+    const before = await spendOf(agency);
+    expect(await g.collectBatch(ctxOf(agency), { idempotencyKey: key, request })).toMatchObject({
+      status: 'ENDED',
+      results: [{ customId: 'c1', ok: true }],
+      costMicroUsd: 1_000,
+    });
+    expect(await spendOf(agency)).toBe(before + 1_000);
+    expect(await reservedOf(agency)).toBe(0);
+    expect(await g.batch(ctxOf(agency), request)).toMatchObject({ batchId });
+    expect(provider.batches.size).toBe(1);
+  });
+
+  it('[S13-F14] a claim the provider never saw is dropped after the window (reservation released); a retry submits', async () => {
+    const agency = await newAgency('none');
+    const provider = new FakeProvider(() => 'Otra.');
+    const clock = createFakeClock(new Date().toISOString());
+    const g = gateway(provider, { clock });
+    const submit = provider.submitBatch.bind(provider);
+    provider.submitBatch = async () => {
+      throw new Error('socket hang up');
+    };
+    const key = newId();
+    const request = { ...call(null), idempotencyKey: key, items: [{ customId: 'n1', input: { n: `none-${run}` } }] };
+    await expect(g.batch(ctxOf(agency), request)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' });
+    expect(await reservedOf(agency)).toBeGreaterThan(0);
+    provider.submitBatch = submit;
+    clock.advance(5_000 + 5 * 60_000);
+    expect(await g.collectBatch(ctxOf(agency), { idempotencyKey: key, request })).toEqual({
+      status: 'NOT_SUBMITTED',
+    });
+    expect(await reservedOf(agency)).toBe(0);
+    expect((await g.batch(ctxOf(agency), request)).batchId).toEqual(expect.any(String));
+    expect(provider.batches.size).toBe(1);
   });
 
   it('[S12-01] a member files feedback only as themselves; nobody edits or deletes it', async () => {

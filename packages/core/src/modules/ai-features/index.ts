@@ -13,13 +13,16 @@ export {
 } from './jobs';
 export { AI_FEATURES_ACTIONS, AI_FEATURES_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from './policy';
 export {
+  type AutoDraftResult,
   abandonListingStudioBatch,
+  autoDraftListing,
   collectListingStudioBulk,
   generateListingStudio,
   LISTING_STUDIO_PROMPT,
   pruneListingStudioBatches,
   requestListingStudio,
   requestListingStudioBulk,
+  STUDIO_AUTO_DRAFTS_FLAG,
   STUDIO_REPAIRS_PER_APPLY,
   type StudioOutcome,
   type StudioRequest,

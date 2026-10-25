@@ -12,6 +12,8 @@ import { closeDb, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { configureAi, createAiGateway, filePromptSource } from '@inmolink/platform/ai';
 import { FakeProvider, memoryAiCache, memoryAiStore } from '@inmolink/platform/ai/testing';
+import { createFakeClock, type FakeClock } from '@inmolink/platform/clock';
+import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { sql } from 'drizzle-orm';
@@ -266,10 +268,16 @@ describe('AI Listing Studio (S12-02)', () => {
     const req = await bulk(owner, [a.id, b.id], { replaceReviewed: true });
     expect(req).toMatchObject({ mode: 'BULK', listingIds: [a.id, b.id] });
     const submitted = await aiFeatures.submitListingStudioBulk(req);
-    if (submitted.status !== 'SUBMITTED') throw new Error('expected a provider batch');
+    if (submitted.status !== 'SUBMITTED' || !submitted.batchId) throw new Error('expected a provider batch');
     const batch = provider.batches.get(submitted.batchId);
     // a's locked es is not even asked for
-    expect(batch?.items.map((i) => i.customId).sort()).toEqual(['l0_de', 'l0_en', 'l1_de', 'l1_en', 'l1_es']);
+    expect(batch?.items.map((i) => i.customId.replace(/^k[0-9a-f]{11}_/, '')).sort()).toEqual([
+      'l0_de',
+      'l0_en',
+      'l1_de',
+      'l1_en',
+      'l1_es',
+    ]);
 
     // b's de gets a person's locked text while the batch runs
     v = (await content(owner, b.id)).version;
@@ -343,7 +351,7 @@ describe('AI Listing Studio (S12-02)', () => {
     const l = await create(owner);
     const req = await bulk(owner, [l.id], { locales: ['en'] });
     const submitted = await aiFeatures.submitListingStudioBulk(req);
-    if (submitted.status !== 'SUBMITTED') throw new Error('expected a provider batch');
+    if (submitted.status !== 'SUBMITTED' || !submitted.batchId) throw new Error('expected a provider batch');
     await as(owner, (ctx) =>
       properties.updateListing(ctx, l.id, UpdateListingBody.parse({ version: l.version, bedrooms: 5 })),
     );
@@ -543,7 +551,7 @@ describe('AI Listing Studio and translation drafts toggles (S13-F17)', () => {
     const l = await create(f);
     const req = await bulk(f, [l.id]);
     const submitted = await aiFeatures.submitListingStudioBulk(req);
-    if (submitted.status !== 'SUBMITTED') throw new Error('expected a submitted batch');
+    if (submitted.status !== 'SUBMITTED' || !submitted.batchId) throw new Error('expected a submitted batch');
     provider.endBatch(submitted.batchId);
     await setAiFeatures(f, ['LISTING_STUDIO'], false);
     const results = provider.batchResults.bind(provider);
@@ -687,5 +695,209 @@ describe('plans (S13-F21)', () => {
     } finally {
       billing.configureBilling({});
     }
+  });
+});
+
+describe('Listing Studio batch submit idempotent; auto-drafts (S13-F14)', () => {
+  let clock: FakeClock;
+  let crashAttach = false;
+  /** The gateway with a usage store whose `attachBatch` can "crash" (the process dies right after the submit). */
+  function useCrashingGateway(): void {
+    provider = new FakeProvider((request) => copyFor(inputOf(request.user)));
+    clock = createFakeClock(new Date().toISOString());
+    const store = memoryAiStore();
+    const attach = store.attachBatch.bind(store);
+    store.attachBatch = async (...args) => {
+      if (crashAttach) throw new Error('process died after the submit');
+      return attach(...args);
+    };
+    configureAi(
+      createAiGateway({
+        provider,
+        models: { FAST: 'fast-model', SMART: 'smart-model' },
+        pricing: { 'fast-model': { input: 1, output: 5 }, 'smart-model': { input: 5, output: 25 } },
+        batchDiscountBp: 5_000,
+        prompts: filePromptSource(PROMPTS_DIR),
+        cache: memoryAiCache(),
+        cacheTtlSeconds: 3_600,
+        store,
+        budgetFor: () => ({ softMicroUsd: 1e12, hardMicroUsd: 2e12 }),
+        timeoutMs: 5_000,
+        breaker: { failures: 1_000, openMs: 1_000 },
+        logger: log,
+        clock,
+      }),
+    );
+  }
+  const recordOf = (requestId: string) =>
+    rows<{ provider_batch_id: string | null; state: string }>(
+      sql`select provider_batch_id, state from listing_studio_batches where id = ${requestId}`,
+    ).then((r) => r[0]);
+
+  it('[S13-F14] a crash after the provider accepted the batch submits once; the collect job finds and applies it', async () => {
+    useCrashingGateway();
+    const a = await create(owner, { bedrooms: 5 });
+    const req = await bulk(owner, [a.id], { locales: ['en'], replaceReviewed: true });
+    crashAttach = true;
+    try {
+      await expect(aiFeatures.submitListingStudioBulk(req)).rejects.toThrow('process died');
+    } finally {
+      crashAttach = false;
+    }
+    expect(provider.batches.size).toBe(1);
+    // the queue retries the submit job: nothing is sent again
+    const retried = await aiFeatures.submitListingStudioBulk(req);
+    expect(retried).toMatchObject({ status: 'SUBMITTED', batchId: null });
+    expect(provider.batches.size).toBe(1);
+    expect(await recordOf(req.requestId)).toEqual({ provider_batch_id: null, state: 'RUNNING' });
+
+    expect(await aiFeatures.collectListingStudioBulk(req)).toEqual({ status: 'IN_PROGRESS' });
+    const [batchId] = [...provider.batches.keys()] as [string];
+    provider.endBatch(batchId);
+    clock.advance(5_000 + 5 * 60_000);
+    const done = await aiFeatures.collectListingStudioBulk(req);
+    if (done.status !== 'DONE') throw new Error('expected the batch applied');
+    expect(done.outcome.written[a.id]).toEqual(['en']);
+    expect((await texts(owner, a.id)).en).toMatchObject({ origin: 'AI_DRAFT' });
+    expect(provider.batches.size).toBe(1);
+  });
+
+  it('[S13-F14] a crash before the record saved the batch id: the retried submit gets the same batch', async () => {
+    useCrashingGateway();
+    const a = await create(owner, { bedrooms: 6 });
+    const req = await bulk(owner, [a.id], { locales: ['en'], replaceReviewed: true });
+    const first = await aiFeatures.submitListingStudioBulk(req);
+    if (first.status !== 'SUBMITTED' || !first.batchId) throw new Error('expected a provider batch');
+    // as if the job died before `setStudioBatchProvider` committed
+    await rows(sql`update listing_studio_batches set provider_batch_id = null where id = ${req.requestId}`);
+    const again = await aiFeatures.submitListingStudioBulk(req);
+    expect(again).toMatchObject({ status: 'SUBMITTED', batchId: first.batchId });
+    expect(provider.batches.size).toBe(1);
+    expect(await recordOf(req.requestId)).toMatchObject({ provider_batch_id: first.batchId });
+  });
+
+  describe('auto-drafts', () => {
+    const FLAG = aiFeatures.STUDIO_AUTO_DRAFTS_FLAG;
+    async function flagFor(agencyId: string, on: boolean | null): Promise<void> {
+      await system(async (tx) => {
+        await setFlag(tx, FLAG, { enabled: false, description: 'S13-F14 Listing Studio auto-drafts' });
+        await setFlagOverride(tx, FLAG, agencyId, on);
+      });
+      invalidateFlags();
+    }
+    async function agencyWith(features: Parameters<typeof setAiFeatures>[1]): Promise<Founder> {
+      const f = await createFounder();
+      await setAgencyStatus(f.agencyId, 'VERIFIED');
+      await rows(sql`update agency_settings set enabled_locales = '{en,es}' where agency_id = ${f.agencyId}`);
+      await setAiFeatures(f, features);
+      return f;
+    }
+    const requested = (listingId: string) =>
+      rows<{ payload: { requestId: string; locales: string[]; replaceReviewed: boolean; mode: string } }>(
+        sql`select payload from outbox_events
+            where type = 'aiFeatures.listingStudio.requested' and payload->'listingIds' ? ${listingId}`,
+      );
+
+    it('[S13-F14] the auto-draft flag is off by default: a created listing queues nothing', async () => {
+      const f = await agencyWith(['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+      const l = await create(f);
+      expect(await aiFeatures.autoDraftListing({ agencyId: f.agencyId, listingId: l.id })).toEqual({
+        status: 'SKIPPED',
+        reason: 'FLAG_OFF',
+      });
+      expect(await requested(l.id)).toEqual([]);
+    });
+
+    it('[S13-F14] flag on: create and a facts change queue drafts (AI_DRAFT, never published); other changes do not', async () => {
+      useGateway();
+      const f = await agencyWith(['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+      await flagFor(f.agencyId, true);
+      try {
+        const l = await create(f);
+        const queued = await aiFeatures.autoDraftListing({ agencyId: f.agencyId, listingId: l.id });
+        expect(queued).toMatchObject({ status: 'QUEUED', locales: ['en', 'es'] });
+        const [event] = await requested(l.id);
+        expect(event?.payload).toMatchObject({ mode: 'SINGLE', replaceReviewed: false, locales: ['en', 'es'] });
+        const outcome = await aiFeatures.generateListingStudio(await requestOf(event?.payload.requestId as string));
+        expect(outcome.written[l.id]?.sort()).toEqual(['en', 'es']);
+        const after = await content(f, l.id);
+        expect(after.translations.map((t) => t.origin)).toEqual(['AI_DRAFT', 'AI_DRAFT']);
+        const [row] = await rows<{ status: string }>(sql`select status from properties where id = ${l.id}`);
+        expect(row?.status).toBe(l.status);
+
+        // the studio's own write (translations), a price change, a person's text: no `factsChanged` (no loop, no cost)
+        const factsEvents = () =>
+          rows<{ created: boolean }>(
+            sql`select (payload->>'created')::boolean as created from outbox_events
+                where type = 'properties.listing.factsChanged' and payload->>'listingId' = ${l.id}`,
+          );
+        expect(await factsEvents()).toEqual([{ created: true }]);
+        const priced = await as(f, (ctx) =>
+          properties.updateListing(
+            ctx,
+            l.id,
+            UpdateListingBody.parse({ version: after.version, priceCents: 45_000_000 }),
+          ),
+        );
+        const reviewed = await translate(f, l.id, 'es', { version: priced.version, title: 'Villa revisada' });
+        expect(await factsEvents()).toEqual([{ created: true }]);
+        // a facts change emits it; a person's reviewed text is never targeted, the AI draft is drafted again
+        await as(f, (ctx) =>
+          properties.updateListing(ctx, l.id, UpdateListingBody.parse({ version: reviewed.version, bedrooms: 4 })),
+        );
+        expect(await factsEvents()).toEqual([{ created: true }, { created: false }]);
+        expect(await aiFeatures.autoDraftListing({ agencyId: f.agencyId, listingId: l.id })).toMatchObject({
+          status: 'QUEUED',
+          locales: ['en'],
+        });
+      } finally {
+        await flagFor(f.agencyId, null);
+      }
+    });
+
+    it('[S13-F14] auto-drafts respect the toggles: Studio off → nothing; translations off → the main language only', async () => {
+      const off = await agencyWith([]);
+      const main = await agencyWith(['LISTING_STUDIO']);
+      await flagFor(off.agencyId, true);
+      await flagFor(main.agencyId, true);
+      try {
+        const a = await create(off);
+        expect(await aiFeatures.autoDraftListing({ agencyId: off.agencyId, listingId: a.id })).toEqual({
+          status: 'SKIPPED',
+          reason: 'NOT_ENABLED',
+        });
+        const b = await create(main);
+        expect(await aiFeatures.autoDraftListing({ agencyId: main.agencyId, listingId: b.id })).toMatchObject({
+          status: 'QUEUED',
+          locales: ['en'],
+        });
+      } finally {
+        await flagFor(off.agencyId, null);
+        await flagFor(main.agencyId, null);
+      }
+    });
+
+    it('[S13-F14] auto-drafts count against the Studio quota and stop (skipped, no event) past it', async () => {
+      const f = await agencyWith(['LISTING_STUDIO']);
+      await flagFor(f.agencyId, true);
+      billing.configureBilling({ enforcePlans: true });
+      try {
+        const a = await create(f);
+        const b = await create(f);
+        // nine of the Free plan's ten a month used
+        for (let i = 0; i < 9; i++) await single(f, a.id);
+        expect(await aiFeatures.autoDraftListing({ agencyId: f.agencyId, listingId: a.id })).toMatchObject({
+          status: 'QUEUED',
+        });
+        expect(await aiFeatures.autoDraftListing({ agencyId: f.agencyId, listingId: b.id })).toEqual({
+          status: 'SKIPPED',
+          reason: 'QUOTA',
+        });
+        expect(await requested(b.id)).toEqual([]);
+      } finally {
+        billing.configureBilling({});
+        await flagFor(f.agencyId, null);
+      }
+    });
   });
 });

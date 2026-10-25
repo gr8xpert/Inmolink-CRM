@@ -3,6 +3,7 @@ import {
   type AiProvider,
   AiProviderError,
   type ProviderBatchItem,
+  type ProviderBatchLookup,
   type ProviderBatchResult,
   type ProviderRequest,
   type ProviderResponse,
@@ -144,6 +145,30 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): AiPr
           }
         }
         return out;
+      } catch (err) {
+        throw mapProviderError(err);
+      }
+    },
+
+    async findBatch({ customIdPrefix, createdAfter, createdBefore }): Promise<ProviderBatchLookup> {
+      try {
+        let running = false;
+        // Newest first: stop at the first batch older than the window. A batch has no metadata of ours, so an ended
+        // candidate is identified by its first result's custom id; a running one cannot be read yet.
+        for await (const batch of client.messages.batches.list({ limit: 100 })) {
+          const at = Date.parse(batch.created_at);
+          if (at < createdAfter.getTime()) break;
+          if (at > createdBefore.getTime()) continue;
+          if (batch.processing_status !== 'ended') {
+            running = true;
+            continue;
+          }
+          for await (const entry of await client.messages.batches.results(batch.id)) {
+            if (entry.custom_id.startsWith(customIdPrefix)) return { status: 'FOUND', batchId: batch.id };
+            break;
+          }
+        }
+        return running ? { status: 'UNKNOWN' } : { status: 'NONE' };
       } catch (err) {
         throw mapProviderError(err);
       }

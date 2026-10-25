@@ -21,6 +21,7 @@ import {
   type ListingQualityDto,
   type ListingStudioAcceptedDto,
   ListingStudioBody,
+  ListingStudioBulkBody,
   ListingViewBody,
   type ListingViewDto,
   MediaCheckBody,
@@ -70,6 +71,7 @@ import {
   renameBookmarkFolder,
   reorderListingMedia,
   requestListingStudio,
+  requestListingStudioBulk,
   type SessionRef,
   sessionRef,
   setListingFeatures,
@@ -130,6 +132,13 @@ export async function requestStudioAction(id: string, body: unknown): Promise<Ed
   const parsed = ListingStudioBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => requestListingStudio(s, id, parsed.data));
+}
+
+/** S13-F14: the bulk bar's "Write with AI" — drafts for the selected listings (up to 100) through the batch API. */
+export async function requestStudioBulkAction(body: unknown): Promise<EditorResult<ListingStudioAcceptedDto>> {
+  const parsed = ListingStudioBulkBody.safeParse(body);
+  if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
+  return withSession((s) => requestListingStudioBulk(s, parsed.data));
 }
 
 export async function deleteTranslationAction(

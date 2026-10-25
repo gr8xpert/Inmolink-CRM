@@ -12,6 +12,7 @@
  *   ['translations']`) in the same transaction when anything was written. A person's later save of the draft makes
  *   it REVIEWED (`saveListingTranslation`).
  */
+import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
@@ -89,6 +90,14 @@ export async function assertStudioEditable(ctx: Ctx, id: string): Promise<void> 
   const row = await ownForChange(ctx, id, 'listing.update');
   if (row.deletedAt) throw new AppError('LISTING_NOT_FOUND');
   assertCan(ctx, 'listing.update', row);
+}
+
+/**
+ * S13-F14: who the studio's auto-drafts of a listing run as — its owner (null: deleted or gone). `tx` is a worker's
+ * system transaction (`withSystem`); `agency_id` is an explicit predicate.
+ */
+export async function studioListingOwner(tx: Tx, agencyId: string, listingId: string): Promise<string | null> {
+  return repo.studioOwner(tx, agencyId, listingId);
 }
 
 /** The ids among `ids` the caller may edit (live listings of their agency; agents: their own). */

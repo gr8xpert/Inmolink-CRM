@@ -50,6 +50,17 @@ export interface AiJobRecord {
   month: string;
 }
 
+/** S13-F14: a batch submit claimed under an idempotency key (`ai_jobs` row, kind BATCH). */
+export interface AiBatchClaim {
+  id: string;
+  status: AiJobStatus;
+  inputHash: string;
+  itemCount: number;
+  /** Null: claimed, but the provider's batch id was never saved (reconciled by `collectBatch`). */
+  providerBatchId: string | null;
+  createdAt: Date;
+}
+
 export type ReserveResult = { ok: true; spentMicroUsd: number } | { ok: false; reason: 'HARD_CAP' | 'UNKNOWN' };
 
 export interface AiStore {
@@ -73,7 +84,25 @@ export interface AiStore {
   /** Gives a reservation back when no job will settle it (the provider was never reached). */
   release(agencyId: string, month: string, reservedMicroUsd: number): Promise<void>;
   /** The batch job of this agency (null: none — not this agency's batch). */
-  batchJob(agencyId: string, providerBatchId: string): Promise<{ status: AiJobStatus; inputHash: string } | null>;
+  batchJob(
+    agencyId: string,
+    providerBatchId: string,
+  ): Promise<{ status: AiJobStatus; inputHash: string; idempotencyKey: string | null } | null>;
+  /**
+   * S13-F14: claims a batch submit under the caller's idempotency key before the provider is called — appends the
+   * PENDING job (no provider batch id yet) with the reservation kept on its row. When the key was claimed before,
+   * nothing is written and the earlier claim is returned.
+   */
+  claimBatch(
+    job: AiJobRecord & { idempotencyKey: string; createdAt: Date },
+    reservedMicroUsd: number,
+  ): Promise<{ claimed: true } | { claimed: false; existing: AiBatchClaim }>;
+  /** S13-F14: the claim of this agency's key (null: none). */
+  batchClaim(agencyId: string, idempotencyKey: string): Promise<AiBatchClaim | null>;
+  /** S13-F14: saves the provider's batch id on a claim (once: a claim that has one keeps it). */
+  attachBatch(agencyId: string, jobId: string, providerBatchId: string): Promise<void>;
+  /** S13-F14: a claim whose submit never reached the provider: deleted, its reservation released (one transaction). */
+  dropBatchClaim(agencyId: string, jobId: string): Promise<void>;
   /**
    * Settles a PENDING batch job once, into the month and against the reservation stored on its row. False when it was
    * settled already (a second collect costs nothing twice).
@@ -157,6 +186,24 @@ export async function recordUsageRow(tx: SqlExecutor, job: AiJobRecord, releaseM
   return true;
 }
 
+/** S13-F14: the claim of an idempotency key (`ai_jobs_idempotency_uq`). */
+async function claimOf(tx: SqlExecutor, agencyId: string, idempotencyKey: string): Promise<AiBatchClaim | null> {
+  const { rows } = await tx.execute(sql`
+    select id, status, input_hash, item_count, provider_batch_id, created_at from ai_jobs
+    where agency_id = ${agencyId} and idempotency_key = ${idempotencyKey}`);
+  const r = rows[0];
+  return r
+    ? {
+        id: String(r.id),
+        status: String(r.status) as AiJobStatus,
+        inputHash: String(r.input_hash),
+        itemCount: Number(r.item_count),
+        providerBatchId: r.provider_batch_id == null ? null : String(r.provider_batch_id),
+        createdAt: new Date(r.created_at as string | Date),
+      }
+    : null;
+}
+
 export interface PgAiStoreOptions {
   /** Kept in step with every settled cost, so the request path sees worker spend (best effort). */
   mirror?: SpendMirror | null;
@@ -207,10 +254,62 @@ export function createPgAiStore(runSystem: SystemRunner, options: PgAiStoreOptio
     async batchJob(agencyId, providerBatchId) {
       return runSystem('ai.batchJob', async (tx) => {
         const { rows } = await tx.execute(sql`
-          select status, input_hash from ai_jobs
+          select status, input_hash, idempotency_key from ai_jobs
           where agency_id = ${agencyId} and provider_batch_id = ${providerBatchId} and kind = 'BATCH'`);
         const r = rows[0];
-        return r ? { status: String(r.status) as AiJobStatus, inputHash: String(r.input_hash) } : null;
+        return r
+          ? {
+              status: String(r.status) as AiJobStatus,
+              inputHash: String(r.input_hash),
+              idempotencyKey: r.idempotency_key == null ? null : String(r.idempotency_key),
+            }
+          : null;
+      });
+    },
+
+    async claimBatch(job, reservedMicroUsd) {
+      return runSystem('ai.claimBatch', async (tx) => {
+        // `ai_jobs_idempotency_uq` (agency_id, idempotency_key): a second claim of the key inserts nothing.
+        const { rows } = await tx.execute(sql`
+          insert into ai_jobs (id, agency_id, feature, kind, tier, model, prompt_id, prompt_version, input_hash, status,
+            item_count, request_id, usage_month, reserved_micro_usd, idempotency_key, created_at)
+          values (${job.id}, ${job.agencyId}, ${job.feature}, 'BATCH', ${job.tier}, ${job.model}, ${job.promptId},
+            ${job.promptVersion}, ${job.inputHash}, 'PENDING', ${job.itemCount}, ${job.requestId}, ${job.month}::date,
+            ${reservedMicroUsd}, ${job.idempotencyKey}, ${job.createdAt.toISOString()}::timestamptz)
+          on conflict do nothing
+          returning id`);
+        if (rows.length > 0) return { claimed: true } as const;
+        const existing = await claimOf(tx, job.agencyId, job.idempotencyKey);
+        if (!existing) throw new Error('ai batch claim conflicted but no claim was found');
+        return { claimed: false, existing } as const;
+      });
+    },
+
+    async batchClaim(agencyId, idempotencyKey) {
+      return runSystem('ai.batchClaim', (tx) => claimOf(tx, agencyId, idempotencyKey));
+    },
+
+    async attachBatch(agencyId, jobId, providerBatchId) {
+      await runSystem('ai.attachBatch', async (tx) => {
+        await tx.execute(sql`
+          update ai_jobs set provider_batch_id = ${providerBatchId}
+          where id = ${jobId} and agency_id = ${agencyId} and provider_batch_id is null`);
+      });
+    },
+
+    async dropBatchClaim(agencyId, jobId) {
+      await runSystem('ai.dropBatchClaim', async (tx) => {
+        const { rows } = await tx.execute(sql`
+          delete from ai_jobs
+          where id = ${jobId} and agency_id = ${agencyId} and provider_batch_id is null and status = 'PENDING'
+          returning reserved_micro_usd, to_char(usage_month, 'YYYY-MM-DD') as month`);
+        const row = rows[0];
+        if (!row || Number(row.reserved_micro_usd) <= 0) return;
+        await tx.execute(sql`
+          update ai_usage_monthly
+             set reserved_micro_usd = greatest(reserved_micro_usd - ${Number(row.reserved_micro_usd)}, 0),
+                 updated_at = now()
+           where agency_id = ${agencyId} and month = ${String(row.month)}::date`);
       });
     },
 
@@ -316,6 +415,10 @@ export function createRequestAiStore(options: RequestAiStoreOptions): AiStore {
     },
     batchJob: async () => workersOnly(),
     settleBatch: async () => workersOnly(),
+    claimBatch: async () => workersOnly(),
+    batchClaim: async () => workersOnly(),
+    attachBatch: async () => workersOnly(),
+    dropBatchClaim: async () => workersOnly(),
   };
 }
 

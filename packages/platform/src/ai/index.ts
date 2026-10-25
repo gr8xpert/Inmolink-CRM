@@ -8,7 +8,14 @@ import { embeddingProviderFor } from './embeddings';
 import { type AiCache, type AiGateway, createAiGateway } from './gateway';
 import { filePromptSource } from './prompts';
 import type { AiJobRecord, AiStore } from './store';
-import type { AiBatchRequest, AiCtx, AiEmbedRequest, AiGenerateRequest, AiStructuredRequest } from './types';
+import type {
+  AiBatchRef,
+  AiBatchRequest,
+  AiCtx,
+  AiEmbedRequest,
+  AiGenerateRequest,
+  AiStructuredRequest,
+} from './types';
 
 /**
  * `@inmolink/platform/ai` — the AI gateway (S12-01, PLAN §8, ADR 0008, PATTERNS §17). Features call `ai.generate`,
@@ -134,7 +141,7 @@ export const ai = {
   structured: async <S extends z.ZodType>(ctx: AiCtx, request: AiStructuredRequest<S>) =>
     gateway().structured(ctx, request),
   batch: async (ctx: AiCtx, request: AiBatchRequest) => gateway().batch(ctx, request),
-  collectBatch: async (ctx: AiCtx, input: { batchId: string; request: AiBatchRequest }) =>
+  collectBatch: async (ctx: AiCtx, input: AiBatchRef & { request: AiBatchRequest }) =>
     gateway().collectBatch(ctx, input),
   embed: async (ctx: AiCtx, request: AiEmbedRequest) => gateway().embed(ctx, request),
 };

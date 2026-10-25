@@ -61,6 +61,11 @@ export const aiJobs = pgTable(
     usageMonth: date('usage_month'),
     /** S12-01 review: a PENDING batch's budget reservation, released when it is collected. */
     reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
+    /**
+     * S13-F14: the caller's idempotency key of a batch submit (`ai.batch` claims it before calling the provider, so a
+     * retry after a crash never submits twice); null for every other job.
+     */
+    idempotencyKey: text('idempotency_key'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
@@ -69,6 +74,8 @@ export const aiJobs = pgTable(
     index('ai_jobs_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
     // settling a collected batch: where agency_id = ? and provider_batch_id = ? and status = 'PENDING'
     uniqueIndex('ai_jobs_batch_uq').on(t.agencyId, t.providerBatchId).where(sql`${t.providerBatchId} is not null`),
+    // S13-F14, a batch submit's claim: where agency_id = ? and idempotency_key = ?
+    uniqueIndex('ai_jobs_idempotency_uq').on(t.agencyId, t.idempotencyKey).where(sql`${t.idempotencyKey} is not null`),
     // S13-F9, the retention prune: where created_at < ? and status <> 'PENDING' limit ?
     index('ai_jobs_prune_idx').on(t.createdAt).where(sql`${t.status} <> 'PENDING'`),
     check('ai_jobs_kind_ck', sql`${t.kind} in ('GENERATE', 'STRUCTURED', 'BATCH', 'EMBED')`),

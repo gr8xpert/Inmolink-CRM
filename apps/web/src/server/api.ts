@@ -59,6 +59,7 @@ import {
   type ListingSort,
   ListingStudioAcceptedDto,
   type ListingStudioBody,
+  type ListingStudioBulkBody,
   type ListingViewBody,
   ListingViewDto,
   ListingViewList,
@@ -784,6 +785,14 @@ export function putListingTranslation(
     ListingContentDto,
     { method: 'PUT', body },
   );
+}
+
+/** S13-F14: queues AI drafts for many listings at once (the batch API; drafts arrive as AI_DRAFT). */
+export function requestListingStudioBulk(
+  session: SessionRef,
+  body: ListingStudioBulkBody,
+): Promise<ApiResult<ListingStudioAcceptedDto>> {
+  return apiRequest(session, '/v1/listing-studio-batches', ListingStudioAcceptedDto, { method: 'POST', body });
 }
 
 /** S12-02: queues AI drafts of the listing's texts (a worker writes them as AI_DRAFT). */

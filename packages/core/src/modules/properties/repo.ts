@@ -1568,6 +1568,15 @@ const studioColumns = {
 };
 export type StudioRow = { [K in keyof typeof studioColumns]: ListingRow[K] };
 
+/** S13-F14: the owner of a live listing of the agency (primary key probe), for the studio's auto-drafts. */
+export async function studioOwner(tx: Tx, agencyId: string, id: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ ownerUserId: properties.ownerUserId })
+    .from(properties)
+    .where(and(eq(properties.id, id), eq(properties.agencyId, agencyId), isNull(properties.deletedAt)));
+  return row?.ownerUserId ?? null;
+}
+
 /** These live listings of the agency (primary key probes, `agency_id` explicit). */
 export async function studioRows(tx: Tx, agencyId: string, ids: readonly string[]): Promise<StudioRow[]> {
   if (ids.length === 0) return [];

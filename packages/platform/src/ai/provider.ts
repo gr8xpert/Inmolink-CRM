@@ -65,7 +65,15 @@ export interface AiProvider {
   submitBatch(items: readonly ProviderBatchItem[]): Promise<{ batchId: string }>;
   /** Null while the batch is still running. */
   batchResults(batchId: string): Promise<ProviderBatchResult[] | null>;
+  /**
+   * S13-F14: finds a batch submitted in `[createdAfter, createdBefore]` whose custom ids start with `customIdPrefix`
+   * (a crash between the submit and saving its id). `UNKNOWN`: a candidate is still running (its custom ids cannot be
+   * read until it ends) — ask again later; `NONE`: no batch of that window carries the prefix (it was never submitted).
+   */
+  findBatch(input: { customIdPrefix: string; createdAfter: Date; createdBefore: Date }): Promise<ProviderBatchLookup>;
 }
+
+export type ProviderBatchLookup = { status: 'FOUND'; batchId: string } | { status: 'UNKNOWN' } | { status: 'NONE' };
 
 /**
  * Multilingual embeddings behind the same abstraction (ADR 0008 #7). The provider is chosen by `AI_EMBED_PROVIDER`;

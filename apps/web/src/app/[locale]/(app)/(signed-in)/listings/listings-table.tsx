@@ -1,11 +1,16 @@
 'use client';
 
-import type { ListingBulkDto, ListingColumn, ListingFilter } from '@inmolink/contracts';
+import {
+  LISTING_STUDIO_BULK_MAX,
+  type ListingBulkDto,
+  type ListingColumn,
+  type ListingFilter,
+} from '@inmolink/contracts';
 import { LISTING_STATUSES, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
-import { bulkProgressAction, startBulkAction } from './actions';
+import { bulkProgressAction, requestStudioBulkAction, startBulkAction } from './actions';
 import { ACTION_TYPES, type ActionType, bulkActionOf } from './bulk-action';
 import type { Option } from './taxonomy';
 import { makeT } from './values';
@@ -45,6 +50,8 @@ export function ListingsTable(props: ListingsTableProps) {
   const [bulk, setBulk] = useState<ListingBulkDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gaveUp, setGaveUp] = useState(false);
+  /** S13-F14: what the last "Write with AI" request queued. */
+  const [studio, setStudio] = useState<{ listings: number; skipped: number } | null>(null);
   const [pending, startTransition] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -91,6 +98,27 @@ export function ListingsTable(props: ListingsTableProps) {
       setBulk(res.data);
       setGaveUp(false);
       poll(res.data.id);
+    });
+  };
+
+  const errorText = (code: string) => {
+    const text = t(`errors.${code}`);
+    return text === `errors.${code}` ? t('errors.generic') : text;
+  };
+
+  // S13-F14: AI drafts for the selected rows (the batch API takes up to LISTING_STUDIO_BULK_MAX listings at once)
+  const studioReady = !allMatching && selected.size > 0 && selected.size <= LISTING_STUDIO_BULK_MAX;
+  const writeWithAi = () => {
+    if (!studioReady) return;
+    setError(null);
+    setStudio(null);
+    startTransition(async () => {
+      const res = await requestStudioBulkAction({ listingIds: [...selected] });
+      if (!res.ok) {
+        setError(errorText(res.code));
+        return;
+      }
+      setStudio({ listings: res.data.listings, skipped: res.data.skipped });
     });
   };
 
@@ -175,6 +203,16 @@ export function ListingsTable(props: ListingsTableProps) {
         >
           {t('bulk.apply')}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={writeWithAi}
+          disabled={!studioReady || pending}
+          title={t('bulk.studio.hint', { max: String(LISTING_STUDIO_BULK_MAX) })}
+          data-testid="bulk-studio"
+        >
+          {t('bulk.studio.run')}
+        </Button>
         {!allMatching ? (
           <Button type="button" size="sm" variant="ghost" onClick={() => setAllMatching(true)}>
             {t('bulk.selectAllMatching')}
@@ -182,6 +220,12 @@ export function ListingsTable(props: ListingsTableProps) {
         ) : null}
       </div>
 
+      {studio ? (
+        <p className="text-sm" role="status" data-testid="bulk-studio-queued">
+          {t('bulk.studio.queued', { count: String(studio.listings) })}
+          {studio.skipped > 0 ? ` ${t('bulk.studio.skipped', { count: String(studio.skipped) })}` : ''}
+        </p>
+      ) : null}
       {bulk ? (
         <div
           className="flex flex-col gap-1 rounded-md border p-3 text-sm"

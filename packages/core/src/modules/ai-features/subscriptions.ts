@@ -1,7 +1,9 @@
 import { subscribe } from '@inmolink/platform/outbox';
+import * as properties from '../properties';
 import * as search from '../search';
 import { aiFeaturesEvents } from './events';
 import { aiFeaturesJobs, whiteLabelJobs } from './jobs';
+import { autoDraftListing } from './studio';
 import { whiteLabelModelOn } from './white-label';
 
 let unsubscribe: (() => void)[] | undefined;
@@ -10,7 +12,8 @@ let unsubscribeWhiteLabel: (() => void)[] | undefined;
 /**
  * Outbox → ai-features worker (S12-02). Each `aiFeatures.listingStudio.requested` event becomes one job (job ID =
  * the request id): SINGLE → `generateListingCopy`, BULK → `submitListingStudioBatch`. The tenant is `meta.agencyId`
- * (RLS-checked when the event was written), the fair-share group. Called once by the worker.
+ * (RLS-checked when the event was written), the fair-share group. S13-F14: listing created / facts changed →
+ * `autoDraftListing` (behind its flag). Called once by the worker.
  */
 export function registerAiFeaturesSubscriptions(): void {
   if (unsubscribe) return;
@@ -25,6 +28,15 @@ export function registerAiFeaturesSubscriptions(): void {
           : aiFeaturesJobs.submitListingStudioBatch.enqueue(p);
       },
       { name: 'aiFeatures.listingStudio.run' },
+    ),
+    // S13-F14: auto-drafts on create / a facts change (flag `ai.listing-studio.auto-drafts`, off by default); a
+    // queued draft is an `aiFeatures.listingStudio.requested` event like a member's own request.
+    subscribe(
+      properties.propertiesEvents.factsChanged,
+      async (payload, meta) => {
+        await autoDraftListing({ agencyId: meta.agencyId, listingId: payload.listingId });
+      },
+      { name: 'aiFeatures.listingStudio.autoDraft' },
     ),
   ];
 }
