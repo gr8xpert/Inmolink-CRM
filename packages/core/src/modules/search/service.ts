@@ -765,11 +765,14 @@ export async function ownListingDetails(
 }
 
 /**
- * S12-04: which of these other agencies' listings and units `agencyId` may present to its clients now (shared with it,
- * public, not hidden from the network) — re-checked at view time by selection pages. One statement, `app_public`.
+ * S12 review: the one network-presentable check — which of these other agencies' listings and units `agencyId` may
+ * present to its clients now: shared with it (ALL, or `agencyId` preferred), public, not hidden from the network, and
+ * both the presenting agency and the owner listed (VERIFIED, not suspended). Re-checked at view time by selection pages,
+ * at publish (and caption) time by social posts and at render time by PDF documents. Own targets are never in the
+ * result. One statement, `app_public` or `app_system`.
  */
-export function networkSharedTargets(tx: Tx, agencyId: string, ids: readonly string[]): Promise<Set<string>> {
-  return repo.networkSharedTargetIds(tx, agencyId, ids).then((r) => new Set(r));
+export function networkPresentable(tx: Tx, presentingAgencyId: string, ids: readonly string[]): Promise<Set<string>> {
+  return repo.networkPresentableTargetIds(tx, presentingAgencyId, ids).then((r) => new Set(r));
 }
 
 /**

@@ -12,7 +12,7 @@
  * are plain text (rendered escaped) and, on another agency's listing, white-labelled too.
  *
  * Statements per page: the selection with its items (1), the agency's public profile (1), the documents (1), whether
- * the other agencies' ones are still shared with the agency (1, when there are any), the presentation (1: overrides
+ * the other agencies' ones are still shared with the agency and both still listed (1, when there are any), the presentation (1: overrides
  * and owner identities) — plus one redis-cache MGET (cached removals).
  */
 import type { WebsiteDetail, WebsitePresenter } from '@inmolink/contracts';
@@ -76,10 +76,11 @@ export async function selectionPage(token: string, lang?: string): Promise<Selec
       sel.locale,
     );
     // Re-checked at every view (security review): another agency's listing shows only while its owner still shares it
-    // with the selection's agency (shared with ALL or this agency preferred, not hidden from the network) — an owner
+    // with the selection's agency (shared with ALL or this agency preferred, not hidden from the network) and both
+    // agencies are listed (S12 review: an unverified or suspended agency presents no network listing) — an owner
     // narrowing or withdrawing it takes it off every selection at once, whatever the selection's expiry.
     const others = docs.filter((r) => r.ownerAgencyId !== sel.agencyId).map((r) => r.targetId);
-    const shared = others.length > 0 ? await search.networkSharedTargets(tx, sel.agencyId, others) : new Set<string>();
+    const shared = others.length > 0 ? await search.networkPresentable(tx, sel.agencyId, others) : new Set<string>();
     const rows = docs.filter((r) => r.ownerAgencyId === sel.agencyId || shared.has(r.targetId));
     const scope = { agencyId: sel.agencyId, referencePrefix: null, presenter };
     const { view } = await websiteApi.viewWith(tx, { scope }, locale, rows);

@@ -3,7 +3,7 @@ import { SOCIAL_LIMITS } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
 import { ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
-import { cutAtWord, plainText } from '../../white-label';
+import { cutAtWord } from '../../white-label';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { allowedNumbers, CAPTIONS_PROMPT, CaptionsAnswer, type Facts, numbersMatchFacts } from './caption-facts';
@@ -62,7 +62,9 @@ export async function generateCaptions(p: {
       listing.translations[0]?.description ??
       '';
     // The model never sees the owner's identity of a network listing (white label before, and again after).
-    const description = cutAtWord(await whiteLabelled(tx, plainText(text), listing, post.agencyId), 3_000);
+    // S12-07 review: the owner's text as stored (whiteLabelled takes its plain text), so its cached model removals
+    // (keyed by that plain text, S12-03) apply.
+    const description = cutAtWord(await whiteLabelled(tx, text, listing, post.agencyId), 3_000);
     return { post, account, listing, facts, description };
   });
   if (!loaded) return { captions: 0, status: 'STALE' };

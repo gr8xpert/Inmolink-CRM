@@ -388,18 +388,23 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
 }
 
 /**
- * S12-04: which of these other agencies' targets `agencyId` may present now — the network search's rule on the fallback
- * rows (`othersInNetwork` + `sharesWith`): public, not hidden from the network, shared with ALL or with `agencyId` among
- * the owner's preferred agencies. `app_public` reads the rows (global, public). One statement.
+ * S12-04 / S12 review: which of these other agencies' targets `agencyId` may present now — the network search's rule on
+ * the fallback rows (`othersInNetwork` + `sharesWith`): public, not hidden from the network, shared with ALL or with
+ * `agencyId` among the owner's preferred agencies — and both agencies taking part in the network now (listed in
+ * `agency_directory`: VERIFIED, as network search requires of the caller and RLS of an owner). `app_public` or
+ * `app_system` (both read every directory row). One statement: the directory is probed by primary key (the one read of
+ * another module's table here, like `search_commission_floor`, so a selection page stays within its statement budget).
  */
-export async function networkSharedTargetIds(tx: Tx, agencyId: string, ids: readonly string[]): Promise<string[]> {
+export async function networkPresentableTargetIds(tx: Tx, agencyId: string, ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];
   const res = await tx.execute(sql`
     select d.target_id as "targetId" from ${listingSearchDocs} d
      where d.target_id = any(${uuidArray([...new Set(ids)])})
        and d.owner_agency_id <> ${agencyId}::uuid
        and d.network_hidden is not true
-       and (d.share_scope = 'ALL' or d.preferred_agency_ids @> array[${agencyId}::uuid])`);
+       and (d.share_scope = 'ALL' or d.preferred_agency_ids @> array[${agencyId}::uuid])
+       and exists (select 1 from public.agency_directory o where o.agency_id = d.owner_agency_id and o.listed)
+       and exists (select 1 from public.agency_directory p where p.agency_id = ${agencyId}::uuid and p.listed)`);
   return (res.rows as { targetId: string }[]).map((r) => r.targetId);
 }
 

@@ -343,6 +343,31 @@ describe('selections (S12-04)', () => {
     expect(await shown()).toEqual([true, true]);
   });
 
+  it('[S12-04] review: an unverified or suspended presenting agency shows no other agency’s listing on its selections', async () => {
+    const made = await create({
+      title: 'Listed re-check',
+      locale: 'en',
+      items: [{ targetId: L.network }, { targetId: L.own }],
+    });
+    const shown = async () => (await presentations.selectionPage(made.share.token)).items.map((i) => i.detail !== null);
+    expect(await shown()).toEqual([true, true]);
+    try {
+      for (const status of ['SUSPENDED', 'PENDING'] as const) {
+        await setAgencyStatus(a.agencyId, status);
+        // a's own listing stays (its read model is not rebuilt here); b's is gone at once.
+        expect(await shown()).toEqual([false, true]);
+      }
+      await setAgencyStatus(a.agencyId, 'VERIFIED');
+      expect(await shown()).toEqual([true, true]);
+      // The owner suspended: its listing leaves a's page at the next view, before any rebuild.
+      await setAgencyStatus(b.agencyId, 'SUSPENDED');
+      expect(await shown()).toEqual([false, true]);
+    } finally {
+      await setAgencyStatus(a.agencyId, 'VERIFIED');
+      await setAgencyStatus(b.agencyId, 'VERIFIED');
+    }
+  });
+
   it('[S12-04] expiry, revocation and a new link: the old page is gone, the new one live', async () => {
     const made = await create({ title: 'Expiring', locale: 'en', expiresInDays: 7, items: [{ targetId: L.own }] });
     expect(made.selection.expiresAt).not.toBeNull();

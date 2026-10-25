@@ -74,8 +74,8 @@ export {
   listingAlertStatesPage,
   listingLabels,
   MAX_LOCKS_IN_FLIGHT,
-  // S12-04: selections check their items against the caller's view, and the network's sharing at view time.
-  networkSharedTargets,
+  // S12-04 / S12 review: selections, social posts and PDF documents re-check the network's sharing (and both agencies listed).
+  networkPresentable,
   type OwnListingDetail,
   ownListingDetails,
   publicCodeInUse,

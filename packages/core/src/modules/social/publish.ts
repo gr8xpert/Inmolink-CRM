@@ -1,7 +1,8 @@
 import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { emit } from '@inmolink/platform/outbox';
-import { compileOwner, NO_OWNER, plainText } from '../../white-label';
+import { compileOwner, NO_OWNER, ownerRefsOf, plainText, whiteLabelText } from '../../white-label';
+import { readAiRemovals } from '../../white-label-store';
 import * as agencies from '../agencies';
 import * as media from '../media';
 import * as properties from '../properties';
@@ -176,10 +177,11 @@ async function prepare(tx: Tx, input: { postId: string; agencyId: string; claime
 }
 
 /**
- * S12-07 review: whether the agency may still post this listing — its own, or another agency's that is still shared
- * with it on the network now: not hidden from the network, shared with everyone or this agency preferred
- * (`search.networkSharedTargets`, the rule selections re-check at every view), the owner listed and the posting
- * agency taking part in the network (listed). Checked at publish time and before captions are drafted.
+ * S12-07 review: whether the agency may still post this listing — its own, or another agency's that is still
+ * presentable by it on the network now (`search.networkPresentable`, the one rule selections re-check at every view
+ * and PDF documents at render time: shared with it, not hidden from the network, both agencies listed). The listing's
+ * own `networkHidden` (live, before its read model is rebuilt) is honoured too. Checked at publish time and before
+ * captions are drafted.
  */
 export async function networkPostable(
   tx: Tx,
@@ -188,27 +190,25 @@ export async function networkPostable(
 ): Promise<boolean> {
   if (listing.agencyId === postingAgencyId) return true;
   if (listing.networkHidden) return false;
-  const listed = await agencies.listedAgencyNamesOf(tx, [postingAgencyId, listing.agencyId]);
-  if (!listed.has(postingAgencyId) || !listed.has(listing.agencyId)) return false;
-  return (await search.networkSharedTargets(tx, postingAgencyId, [listing.id])).has(listing.id);
+  return (await search.networkPresentable(tx, postingAgencyId, [listing.id])).has(listing.id);
 }
 
 /**
  * A caption as it may publish (white label, S12-07): any e-mail address, URL or phone number goes; for another
- * agency's listing its identity (names, contacts, website) and own reference go too.
+ * agency's listing its identity (names, contacts, website) and own reference go too, and (S12-07 review) the model
+ * pass's cached removals of the owner's text (S12-03), as every other serving path applies them.
  */
 export async function whiteLabelled(
   tx: Tx,
   text: string,
-  listing: { agencyId: string; ref: string },
+  listing: { id: string; agencyId: string; ref: string },
   postingAgencyId: string,
 ): Promise<string> {
   if (!text) return text;
-  const network = listing.agencyId !== postingAgencyId;
-  const owner = network
-    ? ((await agencies.ownerIdentities(tx, [listing.agencyId])).get(listing.agencyId) ?? NO_OWNER)
-    : NO_OWNER;
-  return compileOwner(owner).clean(plainText(text), network ? [listing.ref] : []);
+  if (listing.agencyId === postingAgencyId) return compileOwner(NO_OWNER).clean(plainText(text), []);
+  const owner = (await agencies.ownerIdentities(tx, [listing.agencyId])).get(listing.agencyId) ?? NO_OWNER;
+  const removals = (await readAiRemovals([{ agencyId: listing.agencyId, targetId: listing.id }])).get(listing.id);
+  return whiteLabelText(text, compileOwner(owner), ownerRefsOf(listing), removals);
 }
 
 async function finish(postId: string, f: Finish): Promise<PublishOutcome> {

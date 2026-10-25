@@ -5,7 +5,8 @@
  * `app_public` — PUBLIC listings only, prices and status as they are now), presented as on a website of the
  * requesting agency (`websiteApi.viewWith` + `websites.serializeDetail`): another agency's listing carries the
  * requesting agency's presenter, never its owner's name, contacts or commission, and its text has passed the white-label
- * sanitizer (the deterministic pass plus the model pass's cached removals, S12-03). Idempotent: a document already
+ * sanitizer (the deterministic pass plus the model pass's cached removals, S12-03); it is re-checked as presentable
+ * (`search.networkPresentable`) when the document renders. Idempotent: a document already
  * stored is not rendered again (its id names its content).
  */
 import { withPublicRead } from '@inmolink/db';
@@ -40,7 +41,13 @@ export async function loadDocumentListings(input: { agencyId: string; listingIds
   return withPublicRead(async (tx) => {
     const agency = (await agencies.publicAgencies(tx, [input.agencyId])).get(input.agencyId) ?? null;
     const presenter = websites.sitePresenter({ name: agency?.name ?? '', contact: null }, agency);
-    const rows = await search.publicDocs(tx, input.listingIds, 'detail', input.locale, FALLBACK_CONTENT_LOCALE);
+    const docs = await search.publicDocs(tx, input.listingIds, 'detail', input.locale, FALLBACK_CONTENT_LOCALE);
+    // S12 review: another agency's listing only while it is still presentable by this agency at render time (shared
+    // with it, not hidden from the network, both agencies listed) — unshared since the request: left out (none left:
+    // DOCUMENT_LISTINGS_INVALID).
+    const others = docs.filter((r) => r.ownerAgencyId !== input.agencyId).map((r) => r.targetId);
+    const shared = others.length > 0 ? await search.networkPresentable(tx, input.agencyId, others) : new Set<string>();
+    const rows = docs.filter((r) => r.ownerAgencyId === input.agencyId || shared.has(r.targetId));
     const { view } = await websiteApi.viewWith(
       tx,
       { scope: { agencyId: input.agencyId, referencePrefix: null, presenter } },

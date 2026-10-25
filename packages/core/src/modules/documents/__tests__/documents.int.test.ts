@@ -376,3 +376,40 @@ describe('PDF documents (S12-05)', () => {
     }
   }, 60_000);
 });
+
+describe('S12-05 review', () => {
+  it('[S12-05] review: a listing unshared between the request and the render is left out (none left: DOCUMENT_LISTINGS_INVALID)', async () => {
+    const id = await listing(
+      b,
+      {},
+      { title: `Unshared villa ${RUN}`, description: 'Shared, then not.' },
+      { visibility: 'PUBLIC', shareScope: 'ALL' },
+    );
+    const payload = (listingIds: string[]) => ({
+      documentId: newId().replace(/-/g, '').slice(0, 32).padEnd(32, '0'),
+      agencyId: a.agencyId,
+      kind: 'PORTFOLIO' as const,
+      locale: 'en',
+      listingIds,
+      title: `Review ${RUN}`,
+    });
+    const asOf = new Date();
+    // Prepared while shared: it renders.
+    expect(await documents.listingsDocumentHtml(payload([id, L.aOwn as string]), asOf)).toContain(
+      `Unshared villa ${RUN}`,
+    );
+    // The owner narrows it to its preferred agencies (a is not one) before the worker renders.
+    await as(b, async (ctx) =>
+      properties.updateListing(
+        ctx,
+        id,
+        UpdateListingBody.parse({ shareScope: 'PREFERRED', version: (await properties.getListing(ctx, id)).version }),
+      ),
+    );
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [id]));
+    const html = await documents.listingsDocumentHtml(payload([id, L.aOwn as string]), asOf);
+    expect(html).not.toContain(`Unshared villa ${RUN}`);
+    expect(html).toContain(`Sea villa ${RUN}`);
+    expect(await refusal(documents.listingsDocumentHtml(payload([id]), asOf))).toBe('DOCUMENT_LISTINGS_INVALID');
+  });
+});

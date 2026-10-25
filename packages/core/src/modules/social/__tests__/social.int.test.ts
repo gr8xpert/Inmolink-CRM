@@ -4,6 +4,7 @@ import { closeDb, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { configureAi, createAiGateway, filePromptSource } from '@inmolink/platform/ai';
 import { FakeProvider, memoryAiCache, memoryAiStore } from '@inmolink/platform/ai/testing';
+import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
 import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
@@ -15,6 +16,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
+import { plainText, textKey } from '../../../white-label';
+import { writeAiRemovals } from '../../../white-label-store';
 import * as media from '../../media';
 import * as properties from '../../properties';
 import * as search from '../../search';
@@ -145,6 +148,8 @@ beforeAll(async () => {
   loadStackEnv('test');
   media.configureMedia({ urlKey: `social-test-key-${RUN}-0123456789abcdef` });
   await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
+  // S12-07 review: the model pass's cached removals are read from the cache
+  await configureCache({ prefix: `t:social:${RUN}`, commandTimeoutMs: 2_000 });
   graph = await startFakeGraph();
   social.configureSocial({
     keyring: createKeyring({ keys: { k1: generateKey() }, activeKeyId: 'k1' }),
@@ -194,6 +199,7 @@ afterAll(async () => {
   configureAi(undefined);
   await graph?.close();
   await closeRateLimit();
+  await closeCache();
   await closeDb();
 });
 
@@ -514,6 +520,87 @@ describe('S12-07 review', () => {
     expect((await social.publishPost(narrowed)).outcome).toBe('FAILED');
     expect((await postRow(narrowed.postId))?.error_code).toBe('LISTING_UNAVAILABLE');
     expect(graph.publishes()).toHaveLength(0);
+  });
+
+  it('[S12-07] review: a cached model removal takes an indirect mention out of the captions input and the published text', async () => {
+    const INDIRECT = 'For a viewing ask for Marisol at our Nerja office.';
+    const DESCRIPTION = `Villa with 4 bedrooms and a pool. ${INDIRECT} Sea views from every room.`;
+    const b = await createFounder();
+    await setAgencyStatus(b.agencyId, 'VERIFIED');
+    const l = await listing(b, 1, 'ALL');
+    await as(b, async (ctx) =>
+      properties.saveListingTranslation(ctx, l.id, 'en', {
+        version: (await properties.getListing(ctx, l.id)).version,
+        title: `Villa ${RUN}`,
+        description: DESCRIPTION,
+      }),
+    );
+    await system((tx) => search.rebuildReadModels(tx, 'LISTING', [l.id]));
+    // The worker's model pass found the indirect mention in b's description (S12-03), cached per target.
+    await writeAiRemovals(
+      { agencyId: b.agencyId, targetId: l.id },
+      { version: 1, prompt: 1, texts: { [textKey(plainText(DESCRIPTION))]: [INDIRECT] } },
+    );
+    const provider = new FakeProvider(() =>
+      JSON.stringify({ captions: [{ locale: 'en', text: 'A 4-bedroom villa with a pool.' }] }),
+    );
+    configureAi(
+      createAiGateway({
+        provider,
+        models: { FAST: 'fast-model', SMART: 'smart-model' },
+        pricing: { 'fast-model': { input: 1, output: 5 }, 'smart-model': { input: 5, output: 25 } },
+        batchDiscountBp: 5_000,
+        prompts: filePromptSource(PROMPTS_DIR),
+        cache: memoryAiCache(),
+        cacheTtlSeconds: 3_600,
+        store: memoryAiStore(),
+        budgetFor: () => ({ softMicroUsd: 1e12, hardMicroUsd: 2e12 }),
+        timeoutMs: 5_000,
+        breaker: { failures: 1_000, openMs: 1_000 },
+        logger: log,
+      }),
+    );
+    const accounts = (await connect(a)).items;
+    const page = accounts.find((i) => i.platform === 'FACEBOOK_PAGE') as (typeof accounts)[number];
+    // Captions input: the model never sees the indirect mention.
+    const drafted = await as(a, (ctx) =>
+      social.createSocialPost(ctx, { accountId: page.id, listingId: l.id, locale: 'en', captionLocales: ['en'] }),
+    );
+    const req = await latestEvent('social.captions.requested', 'postId', drafted.id);
+    await social.generateCaptions({
+      postId: drafted.id,
+      agencyId: a.agencyId,
+      requestId: req?.payload.requestId as string,
+      locales: ['en'],
+    });
+    expect(provider.calls[0]?.user).toContain('4 bedrooms');
+    expect(provider.calls[0]?.user).not.toContain('Marisol');
+    // Published text: the agent pasted the owner's description as the caption — it goes out without the mention.
+    const at = new Date(Date.now() + 60_000);
+    const post = await as(a, (ctx) =>
+      social.createSocialPost(ctx, {
+        accountId: page.id,
+        listingId: l.id,
+        locale: 'en',
+        caption: DESCRIPTION,
+        scheduledAt: at.toISOString(),
+      }),
+    );
+    await social.sweepDuePosts({ now: new Date(at.getTime() + 1_000) });
+    const due = await latestEvent('social.post.due', 'postId', post.id);
+    graph.calls.length = 0;
+    expect(
+      (
+        await social.publishPost({
+          postId: post.id,
+          agencyId: a.agencyId,
+          claimedAtMs: Number(due?.payload.claimedAtMs),
+        })
+      ).outcome,
+    ).toBe('PUBLISHED');
+    const sent = JSON.stringify(graph.publishes().map((c) => c.fields));
+    expect(sent).toContain('4 bedrooms');
+    expect(sent).not.toContain('Marisol');
   });
 
   it('[S12-07] scheduling and cancelling are audited; a disconnected account is hidden, then deleted, never revoked at Meta', async () => {
