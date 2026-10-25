@@ -23,7 +23,8 @@ import { z } from 'zod';
 
 /**
  * Website API: `app_public` for reads (read models, PUBLIC_READ) and `app_intake` for website forms (S7-05: inbound
- * leads and their outbox events only) — no `app_user`, no queue (PLAN §5.3 bulkheads).
+ * leads and their outbox events only) — no `app_user`, and no queue except AI search's usage jobs when AI is on (S12-08;
+ * PLAN §5.3 bulkheads).
  */
 export const feedApiEnv = {
   ...coreEnv,
@@ -38,6 +39,12 @@ export const feedApiEnv = {
   /** Cloudflare Turnstile (S7-05, H3): without it, forms through publishable keys are refused (fail closed). */
   ...turnstileEnv,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  /**
+   * S12-08: only with AI on (`AI_PROVIDER`, read by the AI gateway itself): AI search queues its usage records and
+   * budget refreshes (`ai.recordUsage`, `ai.refreshSpend`) for the worker. Production: an ACL user that may only
+   * enqueue those jobs.
+   */
+  REDIS_QUEUE_URL: redisEnv.REDIS_QUEUE_URL.optional(),
   /** Rate-limit counters only (S1-F6); production's ACL user reaches no queue key. */
   ...rateLimitEnv,
   // Readiness only; the search adapter brings a scoped search key (never the master key).
@@ -66,6 +73,29 @@ export const feedApiEnv = {
    * minute.
    */
   PORTAL_FEED_IP_PER_MINUTE: z.coerce.number().int().min(60).max(100_000).default(3_000),
+  /**
+   * S12-08: how long `/v2/search/ai` waits for the model before answering with a keyword search (the answer still
+   * fills the cache for the next visitor), and how long an understood sentence is kept. 500 ms keeps an uncached
+   * request inside its p95 budget (600 ms) whatever the provider does.
+   */
+  SEARCH_AI_TIMEOUT_MS: z.coerce.number().int().min(200).max(10_000).default(500),
+  SEARCH_AI_CACHE_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(90 * 86_400)
+    .default(7 * 86_400),
+  /**
+   * S12-08 review: model calls (cache misses) per API key per minute, per browser (publishable keys) per minute, per
+   * site per day; past them a keyword search answers. The agency's monthly calls are this feature's share of its AI
+   * hard cap (basis points), in worst-case FAST calls.
+   */
+  SEARCH_AI_MISSES_PER_KEY_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(120),
+  SEARCH_AI_MISSES_PER_BROWSER_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(10),
+  SEARCH_AI_MISSES_PER_SITE_PER_DAY: z.coerce.number().int().min(1).max(10_000_000).default(5_000),
+  SEARCH_AI_BUDGET_SHARE_BP: z.coerce.number().int().min(0).max(10_000).default(2_500),
+  /** Model calls still running after their request answered, per process; beyond it no new one starts. */
+  SEARCH_AI_MAX_LATE_CALLS: z.coerce.number().int().min(0).max(1_000).default(32),
   ...cryptoEnv,
 };
 export type FeedApiConfig = Config<typeof feedApiEnv>;

@@ -28,6 +28,7 @@ describe('edge-cache rules (S8-F2)', () => {
     expect(Object.fromEntries(Object.entries(EDGE_CACHE_RULES).map(([route, rule]) => [route, pin(rule)]))).toEqual({
       '/v2/listings': keyed(T.listings),
       '/v2/listings/:ref': keyed(T.detail),
+      '/v2/search/ai': keyed(T.listings), // S12-08
       '/v2/changes': 'never sie=0 cursor:no params:schema',
       '/v2/sitemap': keyed(T.sitemap),
       '/v2/developments': keyed(T.developments),

@@ -1,4 +1,6 @@
 import {
+  WebsiteAiSearchPage,
+  WebsiteAiSearchQuery,
   WebsiteChangesPage,
   WebsiteChangesQuery,
   WebsiteDetail,
@@ -17,6 +19,7 @@ import {
 } from '@inmolink/contracts';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { AppError } from '@inmolink/platform/errors';
+import { ipBucket } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
 import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
@@ -36,6 +39,9 @@ const DEVELOPMENTS = { paged: true, slicing: 'developments' } as const;
 const DETAIL = { sync: true } as const;
 /** Sitemap pages: paging rules, and the sync budget (a sitemap + detail crawl, S7-F7). */
 const SITEMAP = { paged: true, sync: true } as const;
+
+/** S12-08: CDN lifetime of an AI search answered by keyword search (the AI was unavailable, slow or capped). */
+const AI_SEARCH_FALLBACK_S_MAXAGE = 30;
 
 /** The key's site (`requireApiKey` ran first); keys without a site are refused there. */
 function siteOf(req: FastifyRequest): Promise<websiteApi.ApiSite> {
@@ -71,6 +77,39 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         await websiteApi.searchListings(site, req.query, { suspicious }),
         { noStore: suspicious, site },
       );
+    },
+  );
+
+  // S12-08: natural-language search — the sentence understood as filters (AI, cached), else searched as words.
+  app.get(
+    '/v2/search/ai',
+    {
+      schema: {
+        tags: ['website-v2'],
+        operationId: 'websiteV2.searchAi',
+        summary: "Search the site's listings with a visitor's sentence in any language (AI, keyword fallback)",
+        querystring: WebsiteAiSearchQuery,
+        response: { 200: WebsiteAiSearchPage },
+      },
+      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      onRequest: [app.requireApiKey('listings:read', PAGED)],
+    },
+    async (req, reply) => {
+      const suspicious = req.websitePaging?.suspicious === true;
+      const site = await siteOf(req);
+      const key = req.apiKey as NonNullable<typeof req.apiKey>;
+      const page = await websiteApi.aiSearch(site, req.query, {
+        suspicious,
+        // Model calls (cache misses) count per key, per browser, per site and per agency (S12-08 review).
+        caller: { keyId: key.keyId, kind: key.kind, ip: ipBucket(req.ip) },
+      });
+      // A keyword fallback (AI down, slow or out of budget) is CDN-cached briefly only: the next visitors get the AI
+      // again soon.
+      return sendSiteJson(req, reply, WebsiteAiSearchPage, page, {
+        noStore: suspicious,
+        site,
+        ...(page.understood.source === 'KEYWORD' ? { maxSMaxAge: AI_SEARCH_FALLBACK_S_MAXAGE } : {}),
+      });
     },
   );
 

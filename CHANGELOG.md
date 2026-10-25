@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(website-api): AI search for websites — GET /v2/search/ai, prompt search-ai v1 + 100-query eval (98% live), cached by normalized sentence, miss caps, keyword fallback [S12-08]
 - refactor(core): one keyset helper (pagination.rowAfter/rowOrder), shared actor (context.userIdOf/memberUserId) and e-mail text helpers (email-text.ts) replace 26 copies [S12-F18]
 - feat(ai-features): AI Listing Studio — AI_DRAFT copy and SEO meta per enabled locale from listing facts, tone presets, fact validator with repair, locked locales protected, bulk batch jobs, eval listing-studio, migration 0142 listing_studio_batches [S12-02]
 - perf(network,search): cap buyer-request matching pool-wide (4), record engine time per round [S12-F5] (acceptance pending H4)

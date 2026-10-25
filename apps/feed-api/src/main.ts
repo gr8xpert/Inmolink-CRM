@@ -1,4 +1,4 @@
-import { closeDb, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
+import { closeDb, configureAiRequestRuntime, configureDb, loadStackEnv, pingDb } from '@inmolink/core';
 import * as crm from '@inmolink/core/modules/crm';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
@@ -6,9 +6,11 @@ import * as migration from '@inmolink/core/modules/migration';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
+import { loadAiSettings } from '@inmolink/platform/ai';
 import { cacheConnection, closeCache, configureCache } from '@inmolink/platform/cache';
 import { hmacRotationFromEnv } from '@inmolink/platform/crypto';
 import { createLogger } from '@inmolink/platform/logger';
+import { closeQueues, configureQueue } from '@inmolink/platform/queue';
 import { closeRateLimit, configureRateLimit, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, requestSearchConfig, searchEngine } from '@inmolink/platform/search';
 import { drainHttp, gracefulShutdown, httpCheck, redisCheck } from '@inmolink/platform/server';
@@ -55,6 +57,30 @@ try {
     turnstile: config.TURNSTILE_SECRET_KEY
       ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
       : null,
+  });
+  // S12-08: AI search — the request-safe AI gateway (budget from the cached month spend, usage recorded by queued
+  // jobs: no `withSystem` here), after the cache and the queue. Without AI (`AI_PROVIDER=none`, the default) or a
+  // queue, no gateway: every AI search answers with a keyword search.
+  // The gateway here serves AI search only: a late model call ends within 3 s and is never retried (S12-08 review),
+  // unless the destination sets these itself.
+  process.env.AI_TIMEOUT_MS ??= '3000';
+  process.env.AI_MAX_RETRIES ??= '0';
+  const aiSettings = loadAiSettings();
+  const aiOn = aiSettings.provider !== 'none';
+  if (aiOn && config.REDIS_QUEUE_URL) {
+    await configureQueue({ url: config.REDIS_QUEUE_URL, logger });
+    configureAiRequestRuntime({ logger });
+  } else if (aiOn) logger.warn('AI_PROVIDER is set but REDIS_QUEUE_URL is not: AI search answers with keyword search');
+  websiteApi.configureAiSearch({
+    timeoutMs: config.SEARCH_AI_TIMEOUT_MS,
+    cacheTtlSeconds: config.SEARCH_AI_CACHE_TTL_SECONDS,
+    maxLateCalls: config.SEARCH_AI_MAX_LATE_CALLS,
+    limits: {
+      perKeyPerMinute: config.SEARCH_AI_MISSES_PER_KEY_PER_MINUTE,
+      perBrowserPerMinute: config.SEARCH_AI_MISSES_PER_BROWSER_PER_MINUTE,
+      perSitePerDay: config.SEARCH_AI_MISSES_PER_SITE_PER_DAY,
+      perAgencyPerMonth: websiteApi.aiSearchMonthlyCalls(aiSettings, config.SEARCH_AI_BUDGET_SHARE_BP),
+    },
   });
   // S7-06: Cache-Tags of site answers (keyed hashes; the worker purges the same tags).
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
@@ -120,6 +146,7 @@ try {
     steps: [
       drainHttp(app, config.SHUTDOWN_DRAIN_DELAY_MS),
       { name: 'rate-limit', run: closeRateLimit },
+      { name: 'queue', run: closeQueues }, // S12-08: AI usage records (a no-op without AI)
       { name: 'cache', run: closeCache },
       { name: 'db', run: closeDb },
       { name: 'telemetry', run: telemetry.shutdown },

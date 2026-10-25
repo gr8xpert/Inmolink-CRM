@@ -820,6 +820,173 @@ export type ListListingsResponse = {
   resultsChanged?: true;
 };
 
+/** Search the site's listings with a visitor's sentence in any language (AI, keyword fallback) */
+export type SearchAiParams = Record<string, never>;
+export type SearchAiQuery = {
+  _k?: string;
+  q: string;
+  lang?: string;
+  facets?: Array<"propertyTypeId" | "locationIds" | "featureIds" | "beds" | "transactionType">;
+  limit?: number;
+  cursor?: string;
+};
+export type SearchAiResponse = {
+  items: Array<({
+    kind: "LISTING";
+    id: string;
+    ref: string;
+    status: "DRAFT" | "ACTIVE" | "UNDER_OFFER" | "SOLD" | "RENTED" | "WITHDRAWN";
+    transactionType: "SALE" | "RENT_LONG_TERM" | "RENT_SHORT_TERM";
+    price: {
+      amountCents: number | null;
+      currency: string;
+      period: "NIGHT" | "WEEK" | "MONTH" | null;
+      onRequest: boolean;
+    };
+    propertyType: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+    place: {
+      country: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      region: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      city: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      area: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+    };
+    bedrooms: number | null;
+    bathrooms: number | null;
+    builtM2: number | null;
+    plotM2: number | null;
+    geo: {
+      lat: number;
+      lng: number;
+      precision: "EXACT" | "APPROX";
+    } | null;
+    imageCount: number;
+    developmentId: string | null;
+    title: string;
+    slug: string;
+    textLocale: string | null;
+    cover: {
+      kind: "IMAGE" | "FLOOR_PLAN";
+      cover: boolean;
+      alt: string | null;
+      room: "EXTERIOR" | "FACADE" | "LIVING_ROOM" | "DINING_ROOM" | "KITCHEN" | "BEDROOM" | "BATHROOM" | "OFFICE" | "HALL" | "TERRACE" | "BALCONY" | "GARDEN" | "POOL" | "GARAGE" | "STORAGE" | "VIEW" | "COMMUNITY" | "OTHER" | null;
+      width: number;
+      height: number;
+      urls: {
+        thumb?: string;
+        small?: string;
+        medium?: string;
+        large?: string;
+        og?: string;
+      };
+    } | null;
+    developmentRef: string | null;
+  }) | ({
+    kind: "UNIT";
+    id: string;
+    ref: string;
+    status: "AVAILABLE" | "RESERVED" | "SOLD";
+    price: {
+      amountCents: number | null;
+      currency: string;
+      period: "NIGHT" | "WEEK" | "MONTH" | null;
+      onRequest: boolean;
+    };
+    propertyType: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+    place: {
+      country: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      region: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      city: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+      area: {
+        id: string;
+        name: string;
+        slug: string;
+      } | null;
+    };
+    bedrooms: number | null;
+    bathrooms: number | null;
+    internalM2: number | null;
+    terraceM2: number | null;
+    plotM2: number | null;
+    floor: number | null;
+    orientation: "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW" | null;
+    geo: {
+      lat: number;
+      lng: number;
+      precision: "EXACT" | "APPROX";
+    } | null;
+    development: {
+      id: string;
+      name: string;
+      status: "OFF_PLAN" | "UNDER_CONSTRUCTION" | "KEY_READY" | "SOLD_OUT";
+      completionDate: string | null;
+      ref: string | null;
+    };
+    title: string;
+    slug: string;
+    textLocale: string | null;
+  })>;
+  total: number;
+  facets: Record<string, Record<string, number>>;
+  nextCursor: string | null;
+  degraded: boolean;
+  resultsChanged?: true;
+  understood: {
+    source: "AI" | "KEYWORD";
+    filters: {
+      q?: string;
+      kind?: "LISTING" | "UNIT";
+      transaction?: "SALE" | "RENT_LONG_TERM" | "RENT_SHORT_TERM";
+      types?: string[];
+      locations?: string[];
+      features?: string[];
+      priceMin?: number;
+      priceMax?: number;
+      bedsMin?: number;
+      bathsMin?: number;
+      areaMin?: number;
+      areaMax?: number;
+      sort?: "newest" | "price_asc" | "price_desc" | "beds_desc" | "area_desc";
+    };
+    unmatched: string[];
+  };
+};
+
 /** Every website API v2 operation: method and path template. */
 export const OPERATIONS = {
   createLead: { method: "POST", path: "/v2/leads" },
@@ -838,6 +1005,7 @@ export const OPERATIONS = {
   listDevelopments: { method: "GET", path: "/v2/developments" },
   listDevelopmentUnits: { method: "GET", path: "/v2/developments/{ref}/units" },
   listListings: { method: "GET", path: "/v2/listings" },
+  searchAi: { method: "GET", path: "/v2/search/ai" },
 } as const;
 
 export interface Operations {
@@ -857,6 +1025,7 @@ export interface Operations {
   listDevelopments: { params: ListDevelopmentsParams; query: ListDevelopmentsQuery; body?: never; headers?: never; response: ListDevelopmentsResponse };
   listDevelopmentUnits: { params: ListDevelopmentUnitsParams; query: ListDevelopmentUnitsQuery; body?: never; headers?: never; response: ListDevelopmentUnitsResponse };
   listListings: { params: ListListingsParams; query: ListListingsQuery; body?: never; headers?: never; response: ListListingsResponse };
+  searchAi: { params: SearchAiParams; query: SearchAiQuery; body?: never; headers?: never; response: SearchAiResponse };
 }
 
 export type OperationName = keyof Operations;
@@ -890,5 +1059,6 @@ export function bindOperations(
     listDevelopments: (query?: ListDevelopmentsQuery) => call('listDevelopments', { query }),
     listDevelopmentUnits: (params: ListDevelopmentUnitsParams, query?: ListDevelopmentUnitsQuery) => call('listDevelopmentUnits', { params, query }),
     listListings: (query?: ListListingsQuery) => call('listListings', { query }),
+    searchAi: (query: SearchAiQuery) => call('searchAi', { query }),
   };
 }

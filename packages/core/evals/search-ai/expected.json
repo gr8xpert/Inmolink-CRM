@@ -1,0 +1,492 @@
+{
+  "001 en: 3 bed villa in marbella with pool": {
+    "types": ["villa"],
+    "places": ["Marbella"],
+    "bedsMin": 3,
+    "features": ["pool"]
+  },
+  "002 en: apartment for rent in malaga under 1500 a month": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "places": ["Málaga"],
+    "priceMax": 1500
+  },
+  "003 en: penthouse with sea views in estepona": {
+    "types": ["penthouse"],
+    "features": ["sea-views"],
+    "places": ["Estepona"]
+  },
+  "004 en: cheapest 2 bedroom apartment in fuengirola": {
+    "types": ["apartment"],
+    "bedsMin": 2,
+    "places": ["Fuengirola"],
+    "sort": "price_asc"
+  },
+  "005 en: new build apartments costa del sol": {
+    "newBuild": true,
+    "types": ["apartment"],
+    "places": ["Costa del Sol"]
+  },
+  "006 en: townhouse in mijas between 300k and 450k": {
+    "types": ["townhouse"],
+    "places": ["Mijas"],
+    "priceMin": 300000,
+    "priceMax": 450000
+  },
+  "007 en: plot of land in benahavis": {
+    "types": ["plot"],
+    "places": ["Benahavís"]
+  },
+  "008 en: holiday rental in nerja with pool for 6 people": {
+    "transaction": "RENT_SHORT_TERM",
+    "places": ["Nerja"],
+    "features": ["pool"]
+  },
+  "009 en: 4 bedroom 3 bathroom house in alicante": {
+    "types": ["house"],
+    "bedsMin": 4,
+    "bathsMin": 3,
+    "places": ["Alicante"]
+  },
+  "010 en: villa over 2 million in sotogrande": {
+    "types": ["villa"],
+    "places": ["Sotogrande"],
+    "priceMin": 2000000
+  },
+  "011 en: studio for sale in torrevieja": {
+    "transaction": "SALE",
+    "types": ["studio"],
+    "places": ["Torrevieja"]
+  },
+  "012 en: frontline beach apartment in puerto banus": {
+    "types": ["apartment"],
+    "features": ["beachfront"],
+    "places": ["Puerto Banús"]
+  },
+  "013 en: finca with land near ronda": {
+    "types": ["finca"],
+    "places": ["Ronda"]
+  },
+  "014 en: gated community townhouse with garden and garage": {
+    "types": ["townhouse"],
+    "features": ["gated-community", "garden", "garage"]
+  },
+  "015 en: R4123456": {
+    "reference": "R4123456"
+  },
+  "016 en: apartments in mallorca with lift and air conditioning": {
+    "types": ["apartment"],
+    "places": ["Mallorca"],
+    "features": ["lift", "air-conditioning"]
+  },
+  "017 en: majorca villa with private pool": {
+    "types": ["villa"],
+    "places": ["Mallorca"],
+    "features": ["private-pool"]
+  },
+  "018 en: houses in seville under 250000": {
+    "types": ["house"],
+    "places": ["Sevilla"],
+    "priceMax": 250000
+  },
+  "019 en: latest properties in marbella": {
+    "places": ["Marbella"],
+    "sort": "newest"
+  },
+  "020 en: bungalow in the canary islands": {
+    "types": ["bungalow"],
+    "places": [["Islas Canarias", "Canarias"]]
+  },
+  "021 en: furnished flat to rent long term in valencia": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "features": ["furnished"],
+    "places": ["Valencia"]
+  },
+  "022 en: at least 200 m2 villa with mountain views": {
+    "types": ["villa"],
+    "areaMin": 200,
+    "features": ["mountain-views"]
+  },
+  "023 en: duplex in nueva andalucia with terrace": {
+    "types": ["duplex"],
+    "places": ["Nueva Andalucía"],
+    "features": ["terrace"]
+  },
+  "024 en: commercial property for sale in benidorm": {
+    "transaction": "SALE",
+    "types": ["commercial"],
+    "places": ["Benidorm"]
+  },
+  "025 en: apartment or penthouse in la cala de mijas": {
+    "types": ["apartment", "penthouse"],
+    "places": ["La Cala de Mijas"]
+  },
+  "026 en: frontline golf villa in la quinta": {
+    "types": ["villa"],
+    "features": ["frontline-golf"],
+    "places": ["La Quinta"]
+  },
+  "027 en: something cheap by the sea": {},
+  "028 en: 2 bed apartment in calahonda max 220k with communal pool": {
+    "types": ["apartment"],
+    "bedsMin": 2,
+    "places": ["Calahonda"],
+    "priceMax": 220000,
+    "features": ["communal-pool"]
+  },
+  "029 en: largest villas in marbella": {
+    "types": ["villa"],
+    "places": ["Marbella"],
+    "sort": "area_desc"
+  },
+  "030 en: parking space for sale in nerja": {
+    "transaction": "SALE",
+    "types": ["garage"],
+    "places": ["Nerja"]
+  },
+  "031 en: office to rent in madrid": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["office"],
+    "places": ["Madrid"]
+  },
+  "032 en: what's the weather like today": {},
+  "033 es: piso de 3 dormitorios en málaga": {
+    "types": ["apartment"],
+    "bedsMin": 3,
+    "places": ["Málaga"]
+  },
+  "034 es: chalet con piscina en marbella": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "035 es: ático con vistas al mar en benalmádena": {
+    "types": ["penthouse"],
+    "features": ["sea-views"],
+    "places": ["Benalmádena"]
+  },
+  "036 es: alquiler de apartamento en fuengirola hasta 1200 euros": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "places": ["Fuengirola"],
+    "priceMax": 1200
+  },
+  "037 es: casa adosada en mijas de 300.000 a 400.000 €": {
+    "types": ["townhouse"],
+    "places": ["Mijas"],
+    "priceMin": 300000,
+    "priceMax": 400000
+  },
+  "038 es: obra nueva en estepona": {
+    "newBuild": true,
+    "places": ["Estepona"]
+  },
+  "039 es: parcela en benahavís": {
+    "types": ["plot"],
+    "places": ["Benahavís"]
+  },
+  "040 es: villa de lujo de más de 3 millones en la zagaleta": {
+    "types": ["villa"],
+    "priceMin": 3000000,
+    "places": ["La Zagaleta"]
+  },
+  "041 es: apartamento en primera línea de playa en torremolinos": {
+    "types": ["apartment"],
+    "features": ["beachfront"],
+    "places": ["Torremolinos"]
+  },
+  "042 es: alquiler vacacional en nerja con piscina": {
+    "transaction": "RENT_SHORT_TERM",
+    "places": ["Nerja"],
+    "features": ["pool"]
+  },
+  "043 es: finca rústica en ronda": {
+    "types": ["finca"],
+    "places": ["Ronda"]
+  },
+  "044 es: local comercial en venta en alicante": {
+    "transaction": "SALE",
+    "types": ["commercial"],
+    "places": ["Alicante"]
+  },
+  "045 es: estudio barato en torrevieja": {
+    "types": ["studio"],
+    "places": ["Torrevieja"]
+  },
+  "046 es: piso más barato en sevilla": {
+    "types": ["apartment"],
+    "places": ["Sevilla"],
+    "sort": "price_asc"
+  },
+  "047 es: casa con jardín y garaje en valencia": {
+    "types": ["house"],
+    "features": ["garden", "garage"],
+    "places": ["Valencia"]
+  },
+  "048 es: pareado de 4 habitaciones y 2 baños en marbella": {
+    "types": ["semi-detached"],
+    "bedsMin": 4,
+    "bathsMin": 2,
+    "places": ["Marbella"]
+  },
+  "049 es: apartamento con ascensor y aire acondicionado en granada": {
+    "types": ["apartment"],
+    "features": ["lift", "air-conditioning"],
+    "places": ["Granada"]
+  },
+  "050 es: villa con piscina privada en mallorca": {
+    "types": ["villa"],
+    "features": ["private-pool"],
+    "places": ["Mallorca"]
+  },
+  "051 es: plaza de garaje en málaga": {
+    "types": ["garage"],
+    "places": ["Málaga"]
+  },
+  "052 es: medio millón máximo, piso en nueva andalucía": {
+    "priceMax": 500000,
+    "types": ["apartment"],
+    "places": ["Nueva Andalucía"]
+  },
+  "053 es: vivienda de más de 150 m2 en cádiz": {
+    "areaMin": 150,
+    "places": ["Cádiz"]
+  },
+  "054 es: urbanización cerrada con gimnasio en la costa del sol": {
+    "features": ["gated-community", "gym"],
+    "places": ["Costa del Sol"]
+  },
+  "055 es: bungalow en gran canaria": {
+    "types": ["bungalow"],
+    "places": ["Gran Canaria"]
+  },
+  "056 es: pisos en alquiler en madrid amueblados": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "places": ["Madrid"],
+    "features": ["furnished"]
+  },
+  "057 es: casa de campo con chimenea en la axarquía": {
+    "types": ["finca"],
+    "features": ["fireplace"],
+    "places": [["Axarquía", "La Axarquía"]]
+  },
+  "058 es: referencia CH-1234": {
+    "reference": "CH-1234"
+  },
+  "059 de: Villa mit Pool in Marbella": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "060 de: Wohnung mit Meerblick in Estepona bis 400.000 €": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Estepona"],
+    "priceMax": 400000
+  },
+  "061 de: Haus kaufen in Alicante mit 3 Schlafzimmern": {
+    "transaction": "SALE",
+    "types": ["house"],
+    "places": ["Alicante"],
+    "bedsMin": 3
+  },
+  "062 de: Penthouse in Mijas ab 500.000 Euro": {
+    "types": ["penthouse"],
+    "places": ["Mijas"],
+    "priceMin": 500000
+  },
+  "063 de: Ferienwohnung in Nerja": {
+    "transaction": "RENT_SHORT_TERM",
+    "types": ["apartment"],
+    "places": ["Nerja"]
+  },
+  "064 de: Neubau Wohnungen an der Costa Blanca": {
+    "newBuild": true,
+    "types": ["apartment"],
+    "places": ["Costa Blanca"]
+  },
+  "065 de: Grundstück in Benahavís": {
+    "types": ["plot"],
+    "places": ["Benahavís"]
+  },
+  "066 de: Reihenhaus mit Garten in Fuengirola": {
+    "types": ["townhouse"],
+    "features": ["garden"],
+    "places": ["Fuengirola"]
+  },
+  "067 de: Finca auf Mallorca mit privatem Pool": {
+    "types": ["finca"],
+    "places": ["Mallorca"],
+    "features": ["private-pool"]
+  },
+  "068 de: Wohnung mieten in Málaga, maximal 1.000 € im Monat": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "places": ["Málaga"],
+    "priceMax": 1000
+  },
+  "069 de: Doppelhaushälfte mit 4 Schlafzimmern in Marbella": {
+    "types": ["semi-detached"],
+    "bedsMin": 4,
+    "places": ["Marbella"]
+  },
+  "070 de: günstigste Villa in Sotogrande": {
+    "types": ["villa"],
+    "places": ["Sotogrande"],
+    "sort": "price_asc"
+  },
+  "071 fr: villa avec piscine à marbella": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "072 fr: appartement vue mer à benalmádena": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Benalmádena"]
+  },
+  "073 fr: maison 4 chambres à alicante": {
+    "types": ["house"],
+    "bedsMin": 4,
+    "places": ["Alicante"]
+  },
+  "074 fr: acheter un appartement à málaga moins de 300 000 €": {
+    "transaction": "SALE",
+    "types": ["apartment"],
+    "places": ["Málaga"],
+    "priceMax": 300000
+  },
+  "075 fr: location de vacances à nerja avec piscine": {
+    "transaction": "RENT_SHORT_TERM",
+    "places": ["Nerja"],
+    "features": ["pool"]
+  },
+  "076 fr: terrain à vendre à benahavis": {
+    "transaction": "SALE",
+    "types": ["plot"],
+    "places": ["Benahavís"]
+  },
+  "077 fr: attique avec terrasse à estepona": {
+    "types": ["penthouse"],
+    "features": ["terrace"],
+    "places": ["Estepona"]
+  },
+  "078 fr: maison mitoyenne à mijas entre 250 000 et 350 000 euros": {
+    "types": ["townhouse"],
+    "places": ["Mijas"],
+    "priceMin": 250000,
+    "priceMax": 350000
+  },
+  "079 fr: programme neuf sur la costa del sol": {
+    "newBuild": true,
+    "places": ["Costa del Sol"]
+  },
+  "080 fr: appartement meublé à louer à valence": {
+    "transaction": "RENT_LONG_TERM",
+    "types": ["apartment"],
+    "features": ["furnished"],
+    "places": ["Valencia"]
+  },
+  "081 nl: villa met zwembad in marbella": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "082 nl: appartement met zeezicht in fuengirola": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Fuengirola"]
+  },
+  "083 nl: huis kopen in alicante tot 250.000 euro": {
+    "transaction": "SALE",
+    "types": ["house"],
+    "places": ["Alicante"],
+    "priceMax": 250000
+  },
+  "084 nl: nieuwbouw appartement in estepona": {
+    "newBuild": true,
+    "types": ["apartment"],
+    "places": ["Estepona"]
+  },
+  "085 nl: rijtjeshuis met 3 slaapkamers in torrevieja": {
+    "types": ["townhouse"],
+    "bedsMin": 3,
+    "places": ["Torrevieja"]
+  },
+  "086 nl: vakantiehuis in nerja": {
+    "transaction": "RENT_SHORT_TERM",
+    "types": ["house"],
+    "places": ["Nerja"]
+  },
+  "087 nl: bouwkavel in benahavís": {
+    "types": ["plot"],
+    "places": ["Benahavís"]
+  },
+  "088 nl: penthouse met groot terras in mijas": {
+    "types": ["penthouse"],
+    "features": ["terrace"],
+    "places": ["Mijas"]
+  },
+  "089 sv: villa med pool i marbella": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "090 sv: lägenhet med havsutsikt i fuengirola": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Fuengirola"]
+  },
+  "091 sv: radhus i torrevieja under 200 000 euro": {
+    "types": ["townhouse"],
+    "places": ["Torrevieja"],
+    "priceMax": 200000
+  },
+  "092 sv: nyproduktion lägenheter på costa del sol": {
+    "newBuild": true,
+    "types": ["apartment"],
+    "places": ["Costa del Sol"]
+  },
+  "093 no: leilighet med 2 soverom i alicante": {
+    "types": ["apartment"],
+    "bedsMin": 2,
+    "places": ["Alicante"]
+  },
+  "094 no: hus med basseng i marbella": {
+    "types": ["house"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "095 da: lejlighed med havudsigt i estepona": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Estepona"]
+  },
+  "096 fi: huvila uima-altaalla marbellassa": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  },
+  "097 it: appartamento con vista mare a málaga": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Málaga"]
+  },
+  "098 it: attico a marbella sotto 1 milione": {
+    "types": ["penthouse"],
+    "places": ["Marbella"],
+    "priceMax": 1000000
+  },
+  "099 pl: mieszkanie z widokiem na morze w benidormie": {
+    "types": ["apartment"],
+    "features": ["sea-views"],
+    "places": ["Benidorm"]
+  },
+  "100 ru: вилла с бассейном в марбелье": {
+    "types": ["villa"],
+    "features": ["pool"],
+    "places": ["Marbella"]
+  }
+}

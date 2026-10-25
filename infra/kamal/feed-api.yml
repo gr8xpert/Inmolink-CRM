@@ -69,6 +69,13 @@ env:
     S3_REGION: "auto"
     S3_BUCKET_FEEDS: "inmolink-feeds"
     S3_BUCKET_EXPORTS: "inmolink-exports"
+    # S12-08 AI search (ADR 0018, Proposed): off until the ADR is accepted and the `feed_ai` ACL user exists. Model IDs
+    # and prices are configuration, never code; without AI_PROVIDER, /v2/search/ai answers with keyword search.
+    # AI_PROVIDER: "anthropic"
+    # AI_MODEL_FAST: "<FAST tier model id>"
+    # AI_MODEL_SMART: "<SMART tier model id>"
+    # AI_PRICING: '{"<model id>": {"input": 0, "output": 0}}'
+    # SEARCH_AI_TIMEOUT_MS: "500"
   secret:
     - RELEASE
     - SENTRY_DSN
@@ -91,3 +98,7 @@ env:
     - ENCRYPTION_KEYS
     - ENCRYPTION_ACTIVE_KEY_ID
     - HMAC_KEY
+    # S12-08 AI search (ADR 0018, Proposed) — uncomment with the clear entries above:
+    # redis-queue as the `feed_ai` ACL user: produces `ai` pool jobs only (ai.recordUsage, ai.refreshSpend).
+    # - REDIS_QUEUE_URL:REDIS_QUEUE_URL_FEED_AI
+    # - ANTHROPIC_API_KEY

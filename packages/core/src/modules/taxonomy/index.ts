@@ -90,3 +90,5 @@ export {
   type TreeNode,
   taxonomyCacheKey,
 } from './tree';
+// S12-08: in-memory name lookups for AI search.
+export { dropSearchVocabularyCopies, type SearchVocabulary, searchVocabulary } from './vocabulary';

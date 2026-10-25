@@ -493,6 +493,51 @@ export const WebsiteListingPage = z.strictObject({
 });
 export type WebsiteListingPage = z.infer<typeof WebsiteListingPage>;
 
+// ── S12-08: AI search ───────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /v2/search/ai` (S12-08, PLAN §9.1 / §8 #3): a visitor's sentence in any language, understood as `/v2/listings`
+ * filters. Next pages: the same `q` with the page's `cursor` (the same sentence is understood the same way).
+ */
+export const WebsiteAiSearchQuery = z.strictObject({
+  ...edgeKey,
+  q: z.string().trim().min(1).max(300),
+  lang: WebsiteLang.optional(),
+  facets: csv(PublicSearchFacet, PUBLIC_SEARCH_FACETS.length).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(24),
+  cursor: Cursor.optional(),
+});
+export type WebsiteAiSearchQuery = z.infer<typeof WebsiteAiSearchQuery>;
+
+/** The filters the sentence was understood as — the `/v2/listings` query parameters, ready to show as chips. */
+export const WebsiteAiSearchFilters = z.strictObject({
+  q: z.string().optional(),
+  kind: z.enum(['LISTING', 'UNIT']).optional(),
+  transaction: TransactionType.optional(),
+  types: z.array(z.uuid()).optional(),
+  locations: z.array(z.uuid()).optional(),
+  features: z.array(z.uuid()).optional(),
+  priceMin: z.number().int().optional(),
+  priceMax: z.number().int().optional(),
+  bedsMin: z.number().int().optional(),
+  bathsMin: z.number().int().optional(),
+  areaMin: z.number().optional(),
+  areaMax: z.number().optional(),
+  sort: PublicSearchSort.optional(),
+});
+export type WebsiteAiSearchFilters = z.infer<typeof WebsiteAiSearchFilters>;
+
+export const WebsiteAiSearchPage = WebsiteListingPage.extend({
+  understood: z.strictObject({
+    /** `AI`: filters from the sentence. `KEYWORD`: AI unavailable, slow or out of budget, or nothing understood — the words searched as free text. */
+    source: z.enum(['AI', 'KEYWORD']),
+    filters: WebsiteAiSearchFilters,
+    /** Places, types or features named that this site's taxonomy does not know (places are searched as text). */
+    unmatched: z.array(z.string()),
+  }),
+});
+export type WebsiteAiSearchPage = z.infer<typeof WebsiteAiSearchPage>;
+
 /** `GET /v2/listings/{ref}`: a reference as the site shows it. */
 export const WebsiteListingParams = z.strictObject({ ref: z.string().min(1).max(64).regex(/^\S+$/) });
 export type WebsiteListingParams = z.infer<typeof WebsiteListingParams>;

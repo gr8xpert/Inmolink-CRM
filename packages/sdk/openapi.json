@@ -1306,6 +1306,8 @@
                             "NETWORK_POST_CLOSED",
                             "NETWORK_SUBSCRIPTION_NOT_FOUND",
                             "NETWORK_SUBSCRIPTION_LIMIT",
+                            "SAVED_SEARCH_NOT_FOUND",
+                            "SAVED_SEARCH_LIMIT",
                             "AI_BUDGET_EXCEEDED",
                             "AI_UNAVAILABLE",
                             "AI_OUTPUT_INVALID",
@@ -3535,6 +3537,8 @@
                             "NETWORK_POST_CLOSED",
                             "NETWORK_SUBSCRIPTION_NOT_FOUND",
                             "NETWORK_SUBSCRIPTION_LIMIT",
+                            "SAVED_SEARCH_NOT_FOUND",
+                            "SAVED_SEARCH_LIMIT",
                             "AI_BUDGET_EXCEEDED",
                             "AI_UNAVAILABLE",
                             "AI_OUTPUT_INVALID",
@@ -3563,6 +3567,792 @@
           }
         },
         "summary": "A portal connection's XML feed: `kyero.xml` (Kyero v3) or `inmolink.xml` (generic). The token URL is the credential",
+        "tags": ["website-v2"]
+      }
+    },
+    "/v2/search/ai": {
+      "get": {
+        "operationId": "websiteV2.searchAi",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "_k",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{22}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lang",
+            "required": false,
+            "schema": {
+              "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "facets",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": ["propertyTypeId", "locationIds", "featureIds", "beds", "transactionType"],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "degraded": {
+                      "type": "boolean"
+                    },
+                    "facets": {
+                      "additionalProperties": {
+                        "additionalProperties": {
+                          "maximum": 9007199254740991,
+                          "minimum": -9007199254740991,
+                          "type": "integer"
+                        },
+                        "type": "object"
+                      },
+                      "type": "object"
+                    },
+                    "items": {
+                      "items": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "bathrooms": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "bedrooms": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "builtM2": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "cover": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "alt": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "cover": {
+                                    "type": "boolean"
+                                  },
+                                  "height": {
+                                    "exclusiveMinimum": true,
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "kind": {
+                                    "enum": ["IMAGE", "FLOOR_PLAN"],
+                                    "type": "string"
+                                  },
+                                  "room": {
+                                    "enum": [
+                                      "EXTERIOR",
+                                      "FACADE",
+                                      "LIVING_ROOM",
+                                      "DINING_ROOM",
+                                      "KITCHEN",
+                                      "BEDROOM",
+                                      "BATHROOM",
+                                      "OFFICE",
+                                      "HALL",
+                                      "TERRACE",
+                                      "BALCONY",
+                                      "GARDEN",
+                                      "POOL",
+                                      "GARAGE",
+                                      "STORAGE",
+                                      "VIEW",
+                                      "COMMUNITY",
+                                      "OTHER"
+                                    ],
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "urls": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "large": {
+                                        "type": "string"
+                                      },
+                                      "medium": {
+                                        "type": "string"
+                                      },
+                                      "og": {
+                                        "type": "string"
+                                      },
+                                      "small": {
+                                        "type": "string"
+                                      },
+                                      "thumb": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "type": "object"
+                                  },
+                                  "width": {
+                                    "exclusiveMinimum": true,
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  }
+                                },
+                                "required": ["kind", "cover", "alt", "room", "width", "height", "urls"],
+                                "type": "object"
+                              },
+                              "developmentId": {
+                                "format": "uuid",
+                                "nullable": true,
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "developmentRef": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "geo": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "lat": {
+                                    "type": "number"
+                                  },
+                                  "lng": {
+                                    "type": "number"
+                                  },
+                                  "precision": {
+                                    "enum": ["EXACT", "APPROX"],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["lat", "lng", "precision"],
+                                "type": "object"
+                              },
+                              "id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "imageCount": {
+                                "maximum": 9007199254740991,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "kind": {
+                                "enum": ["LISTING"],
+                                "type": "string"
+                              },
+                              "place": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "area": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "city": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "country": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "region": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  }
+                                },
+                                "required": ["country", "region", "city", "area"],
+                                "type": "object"
+                              },
+                              "plotM2": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "price": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "amountCents": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "currency": {
+                                    "maxLength": 3,
+                                    "minLength": 3,
+                                    "type": "string"
+                                  },
+                                  "onRequest": {
+                                    "type": "boolean"
+                                  },
+                                  "period": {
+                                    "enum": ["NIGHT", "WEEK", "MONTH"],
+                                    "nullable": true,
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["amountCents", "currency", "period", "onRequest"],
+                                "type": "object"
+                              },
+                              "propertyType": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "ref": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "enum": ["DRAFT", "ACTIVE", "UNDER_OFFER", "SOLD", "RENTED", "WITHDRAWN"],
+                                "type": "string"
+                              },
+                              "textLocale": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "transactionType": {
+                                "enum": ["SALE", "RENT_LONG_TERM", "RENT_SHORT_TERM"],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "id",
+                              "ref",
+                              "status",
+                              "transactionType",
+                              "price",
+                              "propertyType",
+                              "place",
+                              "bedrooms",
+                              "bathrooms",
+                              "builtM2",
+                              "plotM2",
+                              "geo",
+                              "imageCount",
+                              "developmentId",
+                              "title",
+                              "slug",
+                              "textLocale",
+                              "cover",
+                              "developmentRef"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "bathrooms": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "bedrooms": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "development": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "completionDate": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "ref": {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "enum": ["OFF_PLAN", "UNDER_CONSTRUCTION", "KEY_READY", "SOLD_OUT"],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "status", "completionDate", "ref"],
+                                "type": "object"
+                              },
+                              "floor": {
+                                "maximum": 9007199254740991,
+                                "minimum": -9007199254740991,
+                                "nullable": true,
+                                "type": "integer"
+                              },
+                              "geo": {
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "lat": {
+                                    "type": "number"
+                                  },
+                                  "lng": {
+                                    "type": "number"
+                                  },
+                                  "precision": {
+                                    "enum": ["EXACT", "APPROX"],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["lat", "lng", "precision"],
+                                "type": "object"
+                              },
+                              "id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "internalM2": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "kind": {
+                                "enum": ["UNIT"],
+                                "type": "string"
+                              },
+                              "orientation": {
+                                "enum": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"],
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "place": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "area": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "city": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "country": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  },
+                                  "region": {
+                                    "additionalProperties": false,
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "format": "uuid",
+                                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "slug": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["id", "name", "slug"],
+                                    "type": "object"
+                                  }
+                                },
+                                "required": ["country", "region", "city", "area"],
+                                "type": "object"
+                              },
+                              "plotM2": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "price": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "amountCents": {
+                                    "maximum": 9007199254740991,
+                                    "minimum": 0,
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  "currency": {
+                                    "maxLength": 3,
+                                    "minLength": 3,
+                                    "type": "string"
+                                  },
+                                  "onRequest": {
+                                    "type": "boolean"
+                                  },
+                                  "period": {
+                                    "enum": ["NIGHT", "WEEK", "MONTH"],
+                                    "nullable": true,
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["amountCents", "currency", "period", "onRequest"],
+                                "type": "object"
+                              },
+                              "propertyType": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "id": {
+                                    "format": "uuid",
+                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["id", "name", "slug"],
+                                "type": "object"
+                              },
+                              "ref": {
+                                "type": "string"
+                              },
+                              "slug": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "enum": ["AVAILABLE", "RESERVED", "SOLD"],
+                                "type": "string"
+                              },
+                              "terraceM2": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "textLocale": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "id",
+                              "ref",
+                              "status",
+                              "price",
+                              "propertyType",
+                              "place",
+                              "bedrooms",
+                              "bathrooms",
+                              "internalM2",
+                              "terraceM2",
+                              "plotM2",
+                              "floor",
+                              "orientation",
+                              "geo",
+                              "development",
+                              "title",
+                              "slug",
+                              "textLocale"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "maxLength": 200,
+                      "nullable": true,
+                      "pattern": "^[A-Za-z0-9_-]+$",
+                      "type": "string"
+                    },
+                    "resultsChanged": {
+                      "enum": [true],
+                      "type": "boolean"
+                    },
+                    "total": {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    "understood": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "filters": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "areaMax": {
+                              "type": "number"
+                            },
+                            "areaMin": {
+                              "type": "number"
+                            },
+                            "bathsMin": {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer"
+                            },
+                            "bedsMin": {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer"
+                            },
+                            "features": {
+                              "items": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "kind": {
+                              "enum": ["LISTING", "UNIT"],
+                              "type": "string"
+                            },
+                            "locations": {
+                              "items": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "priceMax": {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer"
+                            },
+                            "priceMin": {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer"
+                            },
+                            "q": {
+                              "type": "string"
+                            },
+                            "sort": {
+                              "enum": ["newest", "price_asc", "price_desc", "beds_desc", "area_desc"],
+                              "type": "string"
+                            },
+                            "transaction": {
+                              "enum": ["SALE", "RENT_LONG_TERM", "RENT_SHORT_TERM"],
+                              "type": "string"
+                            },
+                            "types": {
+                              "items": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "source": {
+                          "enum": ["AI", "KEYWORD"],
+                          "type": "string"
+                        },
+                        "unmatched": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": ["source", "filters", "unmatched"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["items", "total", "facets", "nextCursor", "degraded", "understood"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Search the site's listings with a visitor's sentence in any language (AI, keyword fallback)",
         "tags": ["website-v2"]
       }
     },

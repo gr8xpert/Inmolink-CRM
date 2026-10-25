@@ -9,8 +9,35 @@
  * S7-F8: the iFrame embed pages' reads, limits and lead intake (`embedSite`, `embedSearch`, `embedDetail`,
  * `submitEmbedLead`) and their branding sanitizer (`embedBranding`, `brandStyle`, `embedFrameAncestors`) — imported by
  * `apps/public` too. S8-02: the legacy website API shim's reads (`legacyProperties`, `legacyProperty`, `legacyTypes`):
- * v2 reads reshaped into the (assumed, golden-tested) legacy bodies, legacy ids through `migration`.
+ * v2 reads reshaped into the (assumed, golden-tested) legacy bodies, legacy ids through `migration`. S12-08: AI search
+ * (`aiSearch`): a visitor's sentence → filters through the AI gateway (cached, strict timeout, keyword fallback).
  */
+// S12-08: AI search (`GET /v2/search/ai`).
+export {
+  AI_SEARCH_FEATURE,
+  AI_SEARCH_PROMPT,
+  type AiSearchCaller,
+  type AiSearchLimits,
+  type AiSearchParser,
+  type AiSearchSettings,
+  aiSearch,
+  aiSearchCacheKey,
+  aiSearchInput,
+  aiSearchLateCalls,
+  aiSearchMonthlyCalls,
+  configureAiSearch,
+  DEFAULT_AI_SEARCH_LIMITS,
+  gatewayAiSearchParser,
+} from './ai-search';
+export {
+  AI_QUERY_MAX,
+  cleanAnswer as cleanAiSearchAnswer,
+  FEATURE_CONCEPTS,
+  normalizeAiQuery,
+  SearchAiAnswer,
+  TYPE_CONCEPTS,
+  toFilters as aiSearchFilters,
+} from './ai-search-parse';
 export { DEFAULT_WEBSITE_LIMITS, type WebsiteLimits } from './config';
 export { wrapSearchCursor as searchCursorFor } from './cursor';
 export {

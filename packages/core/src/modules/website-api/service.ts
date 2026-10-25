@@ -69,6 +69,11 @@ export interface ApiSite {
    */
   tag: string;
   requestId: string;
+  /**
+   * S12-08: the site agency's plan (AI budgets per plan). Plans arrive with billing (S13): until then `'none'` for
+   * every agency, as in a member's ctx.
+   */
+  plan: string | null;
   /** What this request's answer showed (S7-06): its edge cache tags (`edgeTagsOf`). */
   edge: EdgeSeen;
 }
@@ -114,7 +119,8 @@ export async function apiSiteOf(scope: websites.SiteScope, keyId: string | null,
     ]),
   ).slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
-  return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, edge: newEdgeSeen() };
+  // S12-08: plans arrive with billing (S13); every agency is on the same footing until then (like `withMemberCtx`).
+  return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, plan: 'none', edge: newEdgeSeen() };
 }
 
 /** `?lang=`: one of the site's languages (default its first). */

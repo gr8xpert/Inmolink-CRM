@@ -212,6 +212,19 @@ const catalogOf = (locale: ContentLocale, read: Reader = publicReader, local = t
 const currentLocations = (locale: ContentLocale, read: Reader = publicReader) => locationsOf(locale, read, false);
 const currentCatalog = (locale: ContentLocale, read: Reader = publicReader) => catalogOf(locale, read, false);
 
+/**
+ * S12-08: the localized tree and catalog as objects, for in-memory name lookups on the website path
+ * (`searchVocabulary`). Website reads (`app_public`); warm: in-process, no query.
+ */
+export async function websiteTaxonomyObjects(
+  locale: ContentLocale,
+): Promise<{ locations: Tagged<TaxonomyLocationsDto>; catalog: Tagged<TaxonomyCatalogDto> }> {
+  // Sequential: a cold miss reads one connection at a time (like `getTaxonomy`).
+  const locations = await locationsOf(locale);
+  const catalog = await catalogOf(locale);
+  return { locations, catalog };
+}
+
 // ---- Dashboard -----------------------------------------------------------------------------------------------
 
 /** The UI locale when it is a content locale, else the default content locale. */

@@ -41,7 +41,8 @@ describe('feed-api app', () => {
       'DATABASE_URL_APP_PUBLIC',
       'DATABASE_URL_APP_INTAKE',
     ]);
-    expect(Object.keys(feedApiEnv)).not.toContain('REDIS_QUEUE_URL');
+    // S12-08: a queue only for AI search's usage jobs, and only when AI is on — never required (PLAN §5.3 bulkheads).
+    expect(feedApiEnv.REDIS_QUEUE_URL.isOptional()).toBe(true);
   });
 
   it('[S7-F9] TRUST_PROXY: production requires a proxy IP / CIDR allowlist (no false, no hop count); dev keeps defaults', () => {

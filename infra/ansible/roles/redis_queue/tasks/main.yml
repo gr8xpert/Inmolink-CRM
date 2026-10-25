@@ -19,6 +19,7 @@
       - vault_redis_exporter_password is defined
       - vault_redis_exporter_password is match('^[A-Za-z0-9_-]{32,}$')
       - redis_queue_maxmemory is defined
+      - vault_redis_feed_ai_password is not defined or vault_redis_feed_ai_password is match('^[A-Za-z0-9_-]{32,}$')
     fail_msg: vault_redis_limits_password, vault_redis_media_password and vault_redis_exporter_password must be 32+ URL-safe characters (openssl rand -hex 32); redis_queue_maxmemory must be set per environment
   no_log: true
 
@@ -38,6 +39,11 @@
       user media on >{{ vault_redis_media_password }} {{ redis_media_acl }}
       # redis_exporter (S7-F7): server state only, no key.
       user exporter on >{{ vault_redis_exporter_password }} {{ redis_exporter_acl }}
+{% if vault_redis_feed_ai_password is defined %}
+      # feed-api's AI search (S12-08, ADR 0018 — Proposed): produces `ai` pool jobs (usage records, spend refreshes)
+      # only. Created once the vault holds its password (openssl rand -hex 32).
+      user feed_ai on >{{ vault_redis_feed_ai_password }} {{ redis_feed_ai_acl }}
+{% endif %}
       appendonly yes
       appendfsync everysec
       # A ceiling the memory alerts measure against (RedisMemoryHigh 80 %, RedisMemoryCritical 95 %; S7-F7): without

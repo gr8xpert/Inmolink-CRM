@@ -68,6 +68,8 @@ const legacy: EdgeCacheRule = { gate: 'never', sMaxAge: null, staleIfError: 0, c
 export const EDGE_CACHE_RULES = {
   '/v2/listings': keyed(websiteApi.WEBSITE_API_TTL.listings),
   '/v2/listings/:ref': keyed(websiteApi.WEBSITE_API_TTL.detail),
+  // S12-08: AI search first pages, like `/v2/listings` (only AI answers: a keyword fallback stays private).
+  '/v2/search/ai': keyed(websiteApi.WEBSITE_API_TTL.listings),
   '/v2/changes': { gate: 'never', sMaxAge: null, staleIfError: 0, cursorPages: false, params: null },
   '/v2/sitemap': keyed(websiteApi.WEBSITE_API_TTL.sitemap),
   '/v2/developments': keyed(websiteApi.WEBSITE_API_TTL.developments),
