@@ -3,6 +3,7 @@
  * this file (`pnpm check:boundaries`). Register each table in `../tenancy/registry.ts`, then run
  * `pnpm db:generate && pnpm db:migrate && pnpm db:rls`.
  */
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 import { sql } from 'drizzle-orm';
 import { check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
@@ -50,7 +51,7 @@ export const staffOperations = pgTable(
     index('staff_operations_active_idx').on(t.updatedAt).where(sql`${t.state} in ('QUEUED', 'RUNNING')`),
     // one active operation per kind and scope (a second start is STAFF_OPERATION_ACTIVE)
     uniqueIndex('staff_operations_active_uq')
-      .on(t.kind, sql`coalesce(${t.targetAgencyId}, '00000000-0000-0000-0000-000000000000'::uuid)`)
+      .on(t.kind, sql`coalesce(${t.targetAgencyId}, ${sql.raw(`'${PLATFORM_AGENCY_ID}'`)}::uuid)`)
       .where(sql`${t.state} in ('QUEUED', 'RUNNING')`),
     check(
       'staff_operations_kind_ck',
