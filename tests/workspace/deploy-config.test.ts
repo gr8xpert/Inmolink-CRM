@@ -288,6 +288,23 @@ describe('edge and access', () => {
     }
   });
 
+  it('[S13-F20] production and staging keep the base TRUST_PROXY (the per-IP webhook buckets count real client IPs)', () => {
+    for (const app of APPS.filter((a) => a !== 'worker')) {
+      for (const d of DESTS) {
+        const clear = dest(app, d).env?.clear ?? {};
+        // A destination override would silently drop the Cloudflare list (request.ip = Cloudflare's edge) or widen it.
+        expect(Object.keys(clear), `${app}.${d}`).not.toContain('TRUST_PROXY');
+        for (const role of Object.values(dest(app, d).servers ?? {})) {
+          expect(Object.keys(role.env?.clear ?? {}), `${app}.${d}`).not.toContain('TRUST_PROXY');
+        }
+      }
+      for (const role of Object.values(kamal(app).servers)) {
+        expect(Object.keys(role.env?.clear ?? {}), app).not.toContain('TRUST_PROXY');
+      }
+    }
+    expect(kamal('api').env.clear.TRUST_PROXY).toBeTruthy();
+  });
+
   it('[S1-F2] apps reach Postgres only through PgBouncer: no app_system path in pg_hba, no 5432 firewall hole', () => {
     // The direct LISTEN connection (app_system from app hosts and the kamal network) went with ADR 0014.
     const hba = read('infra', 'ansible', 'roles', 'postgres', 'templates', 'pg_hba.conf.j2');

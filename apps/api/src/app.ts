@@ -78,7 +78,7 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   healthRoutes(app, { checks: deps.checks, cacheMs: deps.readinessCacheMs });
   await app.register(identityRoutes);
   await app.register(agenciesRoutes);
-  await app.register(billingRoutes);
+  await app.register(billingRoutes, { limiter: deps.limiter });
   await app.register(complianceRoutes);
   await app.register(taxonomyRoutes);
   await app.register(staffTaxonomyRoutes);

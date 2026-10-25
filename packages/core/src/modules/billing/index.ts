@@ -20,3 +20,4 @@ export {
   setPriceLock,
   startCheckout,
 } from './service';
+export { isSignedStripeDelivery } from './webhook';

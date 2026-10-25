@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(billing): Stripe webhook rate limit after the signature (separate signed/unsigned per-address buckets, pre-body backstop); TRUST_PROXY pinned per destination [S13-F20]
 - fix(chat): per-thread send lock and one deadlock retry for cross-agency threads [S13-F24]
 - refactor(core,web): one memberUserId (lint rule), placeText, WhatsApp constant, web form-action helpers; empty presentations jobs removed, white-label jobs merged into ai-features [S13-F12]
 - feat(web): selections dashboard pages (list, create from a bookmark folder or listing ids, stats, rotate/revoke, WhatsApp/e-mail share); Lighthouse on /s/<token> [S13-F13]

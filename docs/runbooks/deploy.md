@@ -158,6 +158,13 @@ kamal-proxy to verify client certificates, which it does not do. Both lists come
 `infra/ansible/group_vars/all.yml` (a workspace test keeps the Kamal copies in sync); Cloudflare
 changes them rarely — check https://www.cloudflare.com/ips/ when bumping.
 
+`TRUST_PROXY` is set once, in each app's base `infra/kamal/<app>.yml`; the staging and production
+destination files must not override it (workspace test `[S13-F20]`). Per-IP limits depend on it — among
+them Stripe's webhook (`POST /v1/billing/stripe/webhook`), which counts signed deliveries and unsigned
+requests in separate per-IP buckets after the signature check (S13-F20). With `TRUST_PROXY=false` every
+request would come from a Cloudflare edge address and share those buckets. Do not add Stripe's webhook IPs
+anywhere: the signature, not the address, authenticates a delivery.
+
 ## Rollback
 
 `kamal rollback <previous sha> -c infra/kamal/<app>.yml -d <env>` per app (Kamal keeps the last 5

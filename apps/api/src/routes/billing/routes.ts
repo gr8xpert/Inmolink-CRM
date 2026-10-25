@@ -8,7 +8,7 @@ import {
 } from '@inmolink/contracts';
 import * as billing from '@inmolink/core/modules/billing';
 import { AppError } from '@inmolink/platform/errors';
-import type { RateLimitRule } from '@inmolink/platform/rate-limit';
+import { ipBucket, type RateLimiter, type RateLimitRule, replyRateLimited } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -21,9 +21,30 @@ const STRIPE_LIMITS: readonly RateLimitRule[] = [
   { name: 'billing.stripe.user', scope: 'user', limit: 10, windowSeconds: 60 },
   { name: 'billing.stripe.tenant', scope: 'tenant', limit: 60, windowSeconds: 3_600 },
 ];
-/** Stripe's webhook bursts (retries after an outage) come from a handful of Stripe addresses. */
-const WEBHOOK_LIMITS: readonly RateLimitRule[] = [
-  { name: 'billing.webhook.ip', scope: 'ip', limit: 1_200, windowSeconds: 60 },
+/**
+ * Stripe's webhook, counted after the signature check (S13-F20): signed deliveries and unsigned junk have their own
+ * per-address buckets, so a flood of junk from one address (even one in Stripe's egress range, which is shared) cannot
+ * push Stripe's own deliveries into 429. Signed: Stripe's bursts (retries after an outage) come from a handful of
+ * Stripe addresses. Unsigned: a misconfigured secret or a probe gets a few honest 400s a minute, then 429.
+ */
+export const WEBHOOK_SIGNED_LIMIT: RateLimitRule = {
+  name: 'billing.webhook.signed.ip',
+  scope: 'ip',
+  limit: 1_200,
+  windowSeconds: 60,
+};
+export const WEBHOOK_UNSIGNED_LIMIT: RateLimitRule = {
+  name: 'billing.webhook.unsigned.ip',
+  scope: 'ip',
+  limit: 60,
+  windowSeconds: 60,
+};
+/**
+ * Security review (S13-F20): a pre-body backstop per address, far above Stripe's bursts, so junk with a well-formed
+ * signature header cannot make the route read bodies and compute HMACs without bound.
+ */
+export const WEBHOOK_BACKSTOP_LIMITS: RateLimitRule[] = [
+  { name: 'billing.webhook.backstop.ip', scope: 'ip', limit: 12_000, windowSeconds: 60 },
 ];
 /** Stripe's event payloads are small; anything larger is not Stripe. */
 const WEBHOOK_MAX_BYTES = 256 * 1024;
@@ -34,7 +55,7 @@ const NO_STORE = 'no-store';
  * Billing (S13-01, PLAN §3 #28): the plan in force and the catalog, Stripe Checkout and the Customer Portal (admins),
  * invoices, and Stripe's webhook.
  */
-export async function billingRoutes(app: FastifyZod): Promise<void> {
+export async function billingRoutes(app: FastifyZod, opts: { limiter: RateLimiter }): Promise<void> {
   app.get(
     '/v1/billing',
     {
@@ -109,15 +130,17 @@ export async function billingRoutes(app: FastifyZod): Promise<void> {
     },
   );
 
-  await app.register(stripeWebhookRoute);
+  await app.register(stripeWebhookRoute, { limiter: opts.limiter });
 }
 
 /**
  * Stripe's webhook, in its own plugin: only here is a JSON body kept raw (the signature covers the exact bytes). No
  * session: the `Stripe-Signature` is the authentication, checked before anything is parsed; the event is queued and
  * answered at once (rules/api.md).
+ * The plugin's pre-body IP limit is off here (it cannot tell Stripe from junk on a shared address); the route counts
+ * each delivery in its signed or unsigned bucket instead. The body is capped at 256 KB and the check is one HMAC.
  */
-async function stripeWebhookRoute(hook: FastifyZod): Promise<void> {
+async function stripeWebhookRoute(hook: FastifyZod, opts: { limiter: RateLimiter }): Promise<void> {
   hook.removeContentTypeParser('application/json');
   hook.addContentTypeParser(
     'application/json',
@@ -135,15 +158,22 @@ async function stripeWebhookRoute(hook: FastifyZod): Promise<void> {
         response: { 200: StripeWebhookAck },
       },
       bodyLimit: WEBHOOK_MAX_BYTES,
-      config: { rateLimit: WEBHOOK_LIMITS },
+      config: { rateLimit: WEBHOOK_BACKSTOP_LIMITS },
     },
-    async (req) => {
+    async (req, reply) => {
+      const header = req.headers['stripe-signature'];
+      const delivery = {
+        payload: Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0),
+        signature: typeof header === 'string' ? header : undefined,
+      };
+      const rule = billing.isSignedStripeDelivery(delivery) ? WEBHOOK_SIGNED_LIMIT : WEBHOOK_UNSIGNED_LIMIT;
+      const limited = await opts.limiter.consume(rule, ipBucket(req.ip));
+      if (!limited.allowed) {
+        req.log.info({ rule: rule.name, scope: rule.scope }, 'rate limited');
+        return replyRateLimited(reply, rule.scope, limited.retryAfterSeconds);
+      }
       if (!Buffer.isBuffer(req.body)) throw new AppError('BILLING_WEBHOOK_INVALID');
-      const signature = req.headers['stripe-signature'];
-      await billing.receiveStripeWebhook({
-        payload: req.body,
-        signature: typeof signature === 'string' ? signature : undefined,
-      });
+      await billing.receiveStripeWebhook(delivery);
       return { received: true as const };
     },
   );
