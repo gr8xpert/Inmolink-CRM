@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(onboarding): idempotent keyset backfill of checklist steps from current state + pnpm ops:onboarding-backfill [S13-F26]
 - feat(onboarding): role-based checklist completed from outbox events, in-house dynamically imported product tour (no new dependency), help links via HELP_CENTER_URL, progress on the staff tenant page; optional networkHidden on properties.listing.visibilityChanged; migration 0157 [S13-04]
 - feat(support): support tickets — categories, priority, R2 attachments (5 × 10 MB, magic bytes), staff queue and audited triage/replies, staff-only internal notes, paged threads, e-mail notifications; registry userNoDelete; optional env SUPPORT_INBOX_EMAIL; migration 0156 [S13-05]
 - feat(ai-features): white-label model pass only for network-shown documents with new text (size-bounded events), retries of degraded runs, 30-day per-agency backfill [S13-F7]

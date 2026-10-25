@@ -36,6 +36,7 @@
     "legacy:key-flag": "tsx --conditions=@inmolink/source scripts/legacy-api/key-flag.ts",
     "ops:restore-drill": "tsx scripts/ops/restore-drill.ts",
     "ops:replay-outbox": "tsx --conditions=@inmolink/source scripts/ops/replay-outbox.ts",
+    "ops:onboarding-backfill": "tsx --conditions=@inmolink/source scripts/ops/onboarding-backfill.ts",
     "ops:rebuild-read-models": "tsx --conditions=@inmolink/source scripts/ops/rebuild-read-models.ts",
     "exports:sync-channels": "tsx --conditions=@inmolink/source scripts/ops/sync-portal-channels.ts",
     "billing:catalog": "tsx --conditions=@inmolink/source scripts/ops/sync-billing-catalog.ts",

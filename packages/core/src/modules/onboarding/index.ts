@@ -1,4 +1,12 @@
 /** onboarding — public API (PATTERNS §1). The only import path for other modules and apps. S13-04: the checklist. */
+export {
+  BACKFILL_EVENT_ID,
+  BACKFILL_MAX_BATCH,
+  type BackfillProgress,
+  backfillAgency,
+  backfillAgencySteps,
+  backfillOnboarding,
+} from './backfill';
 export { onboardingErrors } from './errors';
 export { onboardingEvents } from './events';
 export { onboardingJobs } from './jobs';

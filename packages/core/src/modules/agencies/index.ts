@@ -15,6 +15,7 @@ export {
   networkStandingsOf,
   setGiveToGetExemption,
 } from './network';
+export { verifiedAtByAgency } from './onboarding-reads';
 export { type AgenciesAction, assertVerified, can, type VerifiedAction } from './policy';
 export {
   addPreferredAgency,
