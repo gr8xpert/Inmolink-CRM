@@ -42,6 +42,8 @@ const site = (siteId: string, minCommissionBp: number): SiteScope => ({
     accentColor: null,
   },
   verified: true,
+  plan: null,
+  planEndsAt: null,
 });
 
 beforeAll(() => {

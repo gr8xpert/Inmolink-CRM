@@ -4,7 +4,7 @@
  */
 import type { Tx } from '@inmolink/db';
 import { websiteSites } from '@inmolink/db/schema/websites';
-import { and, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gt, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type WebsiteMode = (typeof websiteSites.$inferSelect)['mode'];
@@ -140,12 +140,60 @@ export async function updateSite(
   return row;
 }
 
-/** What the website API needs of a site (cached as JSON: no dates). */
-export type SiteScopeRow = Omit<SiteRow, 'createdAt' | 'updatedAt'>;
+/** What the website API needs of a site (cached as JSON: dates as ISO strings). */
+export type SiteScopeRow = Omit<SiteRow, 'createdAt' | 'updatedAt'> & {
+  /** S13-F21: the agency's plan in force as last synced (null: not yet). */
+  planCode: string | null;
+  /** S13-F21: when the website API stops serving the site (ISO; null: it serves). */
+  planEndsAt: string | null;
+};
 
 /** feed-api (`app_public`): a site by id, PK probe. */
 export async function findSite(tx: Tx, id: string): Promise<SiteScopeRow | null> {
   const { createdAt: _c, updatedAt: _u, ...columns } = siteColumns;
-  const [row] = await tx.select(columns).from(websiteSites).where(eq(websiteSites.id, id)).limit(1);
-  return row ?? null;
+  const [row] = await tx
+    .select({ ...columns, planCode: websiteSites.planCode, planEndsAt: websiteSites.planEndsAt })
+    .from(websiteSites)
+    .where(eq(websiteSites.id, id))
+    .limit(1);
+  return row ? { ...row, planEndsAt: row.planEndsAt?.toISOString() ?? null } : null;
+}
+
+/**
+ * S13-F21 (worker, `app_system`): records the agency's plan on its sites and when their website API stops serving
+ * (`endsAt` when the plan lost `website_api`: an earlier cut-off already set is kept, so a re-sync never extends the
+ * notice; null: it serves). Returns the ids of the sites that changed (their cached scope is dropped). Uses
+ * `website_sites_agency_id_uq`; a few rows.
+ */
+export async function setSitePlan(
+  tx: Tx,
+  agencyId: string,
+  planCode: string,
+  endsAt: Date | null,
+): Promise<{ id: string; planEndsAt: Date | null }[]> {
+  const next = endsAt
+    ? sql`coalesce(${websiteSites.planEndsAt}, ${endsAt.toISOString()}::timestamptz)`
+    : sql`null::timestamptz`;
+  const rows = await tx
+    .update(websiteSites)
+    .set({ planCode, planEndsAt: next })
+    .where(
+      and(
+        eq(websiteSites.agencyId, agencyId),
+        sql`(${websiteSites.planCode}, ${websiteSites.planEndsAt}) is distinct from (${planCode}::text, ${next})`,
+      ),
+    )
+    .returning({ id: websiteSites.id, planEndsAt: websiteSites.planEndsAt });
+  return rows;
+}
+
+/** S13-F21 (worker sweep): agencies with at least one site, after `after` in id order (keyset; the agency index). */
+export async function agenciesWithSites(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ agencyId: websiteSites.agencyId })
+    .from(websiteSites)
+    .where(after ? gt(websiteSites.agencyId, after) : undefined)
+    .orderBy(asc(websiteSites.agencyId))
+    .limit(limit);
+  return rows.map((r) => r.agencyId);
 }

@@ -32,6 +32,7 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import { detectFileType, scanDocument, storage } from '@inmolink/platform/storage';
 import { type Ctx, type CtxRunner, memberUserId } from '../../context';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
 import { assertCan, can } from './policy';
@@ -185,7 +186,10 @@ export async function openDevelopmentDocument(
   input: { developmentId: string; documentId: string },
 ): Promise<DevelopmentDocumentUrlDto> {
   assertCan(ctx, 'developmentDocument.read');
-  await readable(ctx, input.developmentId);
+  const development = await readable(ctx, input.developmentId);
+  // S13-F21: the new-build database's full view (PLAN §11: Free views developments and units); opening another
+  // agency's documents (brochures, plans) is the paid part. The owner's own files are always its own.
+  if (development.agencyId !== ctx.tenant.agencyId) await billing.requirePlan(ctx, 'new_builds_full');
   // RLS: another agency's non-shared document is simply not there.
   const row = await repo.getDocument(ctx.tx, input.developmentId, input.documentId);
   if (!row) throw new AppError('DEVELOPMENT_DOCUMENT_NOT_FOUND');

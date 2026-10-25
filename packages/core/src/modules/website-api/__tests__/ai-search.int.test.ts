@@ -426,8 +426,8 @@ describe('AI search for websites (S12-08)', () => {
       rule: { name: 'ai-search.browser' },
       identity: `${CALLER.keyId}|203.0.113.0`,
     });
-    // The tenant ctx names the site agency and its plan.
-    expect(fake.ctxs[0]).toMatchObject({ tenant: { agencyId: a.agencyId, plan: 'none' } });
+    // The tenant ctx names the site agency and its plan (S13-F21: as the worker recorded it on the site; not yet here).
+    expect(fake.ctxs[0]).toMatchObject({ tenant: { agencyId: a.agencyId, plan: null } });
     for (const rule of ['ai-search.key', 'ai-search.site', 'ai-search.month']) {
       const denied = limiter([rule]);
       configure({ parser: fake.parser, limiter: () => denied.limiter });

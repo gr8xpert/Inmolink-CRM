@@ -198,6 +198,21 @@ export async function identifierOwners(
 
 export type NewContact = Omit<typeof contacts.$inferInsert, 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'>;
 
+/**
+ * S13-F21: the agency's live contacts, counted up to `cap` (the plan quota: a capped count stops there). Serialises the
+ * agency's quota-checked creates first (transaction-scoped lock), so two creates cannot both take the last place.
+ * Uses `contacts_agency_created_idx` (partial: live contacts).
+ */
+export async function countLiveContactsUpTo(tx: Tx, agencyId: string, cap: number): Promise<number> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`crm.contactQuota:${agencyId}`}, 0))`);
+  const rows = await tx.execute<{ n: number }>(sql`
+    select count(*)::int as n from (
+      select 1 from ${contacts} where ${contacts.agencyId} = ${agencyId}::uuid and ${contacts.deletedAt} is null
+      limit ${cap + 1}
+    ) t`);
+  return rows.rows[0]?.n ?? 0;
+}
+
 /** Inserts contacts (one statement; ≤ 500 per call keeps the bind parameters well under the limit). */
 export async function insertContacts(tx: Tx, rows: readonly NewContact[]): Promise<void> {
   if (rows.length === 0) return;

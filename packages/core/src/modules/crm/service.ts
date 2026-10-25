@@ -24,6 +24,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { type Ctx, userIdOf } from '../../context';
 import { idempotencyHashOf, idempotencyWindowStart, isUniqueViolation } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import * as identity from '../identity';
 import { recordNoteAdded } from './activities';
@@ -198,6 +199,8 @@ export async function createContact(
   }
   if (owners.length > 0) throw new AppError('CONTACT_DUPLICATE', { matches: matchesOf(owners) });
   await assertOwner(ctx, input.ownerUserId);
+  // S13-F21: Free's CRM holds 100 contacts (PLAN §11); counted only when the plan has a limit (merges add none).
+  await billing.requireQuota(ctx, 'crm_contacts', (limit) => repo.countLiveContactsUpTo(ctx.tx, agencyId, limit));
 
   const id = newId();
   const now = new Date();

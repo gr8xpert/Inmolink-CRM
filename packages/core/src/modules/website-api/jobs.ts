@@ -35,6 +35,7 @@ import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as billing from '../billing';
 import * as crm from '../crm';
 import * as identity from '../identity';
 import * as search from '../search';
@@ -257,6 +258,25 @@ export const websiteApiJobs = {
     },
   }),
 
+  /**
+   * S13-F21: at a site's plan cut-off (`websites.site.planChanged` with `endsAt`, delayed until then) its edge copies
+   * are purged, so cached answers stop with the website API (402 from then on). Idempotent (`jobId` per cut-off).
+   */
+  purgeSiteAtCutoff: defineJob({
+    name: 'websiteApi.purgeSiteAtCutoff',
+    pool: 'indexing',
+    payload: z.object({ agencyId: z.uuid(), siteId: z.uuid(), endsAt: z.iso.datetime() }).strict(),
+    jobId: (p) => `websiteApi.purgeSiteAtCutoff:${p.siteId}:${p.endsAt}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      await queueEdgePurge(p.agencyId, [{ kind: 's', id: p.siteId }], clock.now());
+      return { queued: true };
+    },
+  }),
+
   sendLeadAcknowledgement: defineJob({
     name: 'websiteApi.sendLeadAcknowledgement',
     pool: 'email',
@@ -267,6 +287,17 @@ export const websiteApiJobs = {
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: 30_000,
     async run(p, { log }) {
+      // S13-F21: speed-to-lead is a paid feature (PLAN §11): without it on the agency's plan no reply is sent (the
+      // lead itself is kept and reaches the agency as always). Read only while plans are enforced.
+      if (
+        billing.billingConfig().enforcePlans &&
+        !(await withSystem('websiteApi.sendLeadAcknowledgement plan', (tx) =>
+          billing.hasPlanFeature(tx, p.agencyId, 'speed_to_lead'),
+        ))
+      ) {
+        log.info({ leadId: p.leadId }, 'lead acknowledgement skipped (not on the plan)');
+        return { sent: false, skipped: 'PLAN' };
+      }
       const loaded = await load(p.leadId, 'ackSentAt', `lead-ack:${p.leadId}`);
       if (!loaded || loaded.lead.ackSkippedReason) {
         log.info({ leadId: p.leadId }, 'lead acknowledgement skipped (no lead, already sent or capped)');

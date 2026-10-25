@@ -25,6 +25,7 @@ import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as developments from '../developments';
 import * as identity from '../identity';
 import * as properties from '../properties';
@@ -261,6 +262,8 @@ const languageOf = (locale: string): string | null => (/^[a-z]{2}(-[A-Z]{2})?$/.
  * address); the form's details stay on the lead (`visitor_*`) for the agent to compare. Otherwise a new contact is
  * created from them (source `WEBSITE`, type `BUYER`). Identifiers another writer takes meanwhile fail the transaction;
  * the job's retry then finds that contact.
+ * S13-F21: exempt from the plan's contact quota (`crm_contacts`, Free 100) by design — an inbound website or portal
+ * lead is never refused or lost because of the agency's plan; only member creates and CSV imports are counted.
  */
 async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.LeadRow): Promise<string> {
   const email = normalizeEmail(visitor.email);
@@ -609,6 +612,8 @@ export async function getLeadRouting(ctx: Ctx): Promise<LeadRoutingDto> {
 /** `PUT /v1/crm/lead-routing` (admins, at `version`): every round-robin member must be an active client member. */
 export async function updateLeadRouting(ctx: Ctx, input: UpdateLeadRoutingBody): Promise<LeadRoutingDto> {
   assertCan(ctx, 'crm.leads.routing');
+  // S13-F21: lead routing rules are CRM Full (PLAN §11).
+  await billing.requirePlan(ctx, 'crm_full');
   const agencyId = ctx.tenant.agencyId;
   const pool = distinct(input.agentUserIds);
   if (pool.length > 0) {

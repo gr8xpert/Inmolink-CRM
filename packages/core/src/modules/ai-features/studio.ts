@@ -33,6 +33,7 @@ import {
 import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { type AiBatchItemResult, type AiCtx, ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
+import { clock } from '@inmolink/platform/clock';
 import { AppError, isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
@@ -40,6 +41,7 @@ import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { withMemberCtx } from '../../member';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
@@ -76,6 +78,8 @@ export interface StudioRequest {
   tone: ListingStudioTone;
   locales: string[];
   replaceReviewed: boolean;
+  /** S13-F21: the agency's plan in force (AI budgets), resolved by the job; absent: the gateway's default budget. */
+  plan?: string | null;
 }
 
 export interface StudioOutcome {
@@ -137,6 +141,7 @@ async function emitRequest(
 ): Promise<ListingStudioAcceptedDto> {
   const locales = await resolveLocales(ctx, body.locales);
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  await countStudioListings(ctx, ids.length, mode);
   const requestId = newId();
   await emit(
     ctx.tx,
@@ -151,6 +156,19 @@ async function emitRequest(
     }),
   );
   return { requestId, listings: ids.length, skipped, locales };
+}
+
+/**
+ * S13-F21: the plan quota of Listing Studio (`studio_listings_month`, PLAN §11: Free 10 a month) — refused with
+ * `PLAN_REQUIRED` past it, else the listings are counted in this calendar month (UTC). Under the agency's studio lock
+ * (the bulk path already holds it), so concurrent requests are counted one after the other.
+ */
+async function countStudioListings(ctx: Ctx, n: number, mode: 'SINGLE' | 'BULK'): Promise<void> {
+  const { agencyId } = ctx.tenant;
+  if (mode === 'SINGLE') await repo.lockAgencyStudio(ctx.tx, agencyId);
+  const month = `${clock.now().toISOString().slice(0, 7)}-01`;
+  await billing.requireQuota(ctx, 'studio_listings_month', () => repo.studioListingsIn(ctx.tx, agencyId, month), n);
+  await repo.addStudioListings(ctx.tx, agencyId, month, n);
 }
 
 /** `POST /v1/listings/:id/studio`: queues AI drafts for one listing the caller may edit. */
@@ -295,11 +313,18 @@ async function readWork(req: StudioRequest, ids: readonly string[]): Promise<Lis
   return withMemberCtx(member(req), (ctx) => collectWork(ctx, req, ids));
 }
 
+/** S13-F21: the gateway meters the call against the agency's plan budget (`plan`, resolved once per job). */
 const aiCtxOf = (req: StudioRequest): AiCtx => ({
-  // Plans arrive with billing (S13): the gateway's default budget applies until then (as in `withMemberCtx`).
-  tenant: { agencyId: req.agencyId, plan: null },
+  tenant: { agencyId: req.agencyId, plan: req.plan ?? null },
   requestId: req.requestId,
 });
+
+/** S13-F21: the listing's work and the agency's plan in force (AI budgets per plan), in one transaction per job. */
+const readWorkAndPlan = (req: StudioRequest, ids: readonly string[]) =>
+  withMemberCtx(member(req), async (ctx) => ({
+    work: await collectWork(ctx, req, ids),
+    plan: (await billing.planOf(ctx.tx, req.agencyId)).code,
+  }));
 
 // ---- worker: generation and the fact check ----------------------------------------------------------------------
 
@@ -397,10 +422,12 @@ async function writeDrafts(
 }
 
 /** Job `aiFeatures.generateListingCopy`: one listing, one structured call per target locale. */
-export async function generateListingStudio(req: StudioRequest, log?: Logger): Promise<StudioOutcome> {
+export async function generateListingStudio(input: StudioRequest, log?: Logger): Promise<StudioOutcome> {
   const outcome: StudioOutcome = { written: {}, dropped: {} };
-  const [work] = await readWork(req, req.listingIds.slice(0, 1));
+  const read = await readWorkAndPlan(input, input.listingIds.slice(0, 1));
+  const [work] = read.work;
   if (!work) return outcome;
+  const req: StudioRequest = { ...input, plan: read.plan };
   const aiCtx = aiCtxOf(req);
   const copies = new Map<string, ListingCopy>();
   for (const locale of work.targets) {
@@ -559,12 +586,14 @@ export type BulkSubmit =
  * and applies the answers the cache already had. A retried job finds the record: submitted → nothing to do; items
  * recorded → the same items again; a reservation only → it builds them.
  */
-export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkSubmit> {
+export async function submitListingStudioBulk(input: StudioRequest): Promise<BulkSubmit> {
   const outcome: StudioOutcome = { written: {}, dropped: {} };
-  const { existing, gate } = await withMemberCtx(member(req), async (ctx) => ({
-    existing: await repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId),
+  const { existing, gate, plan } = await withMemberCtx(member(input), async (ctx) => ({
+    existing: await repo.getStudioBatch(ctx.tx, input.agencyId, input.requestId),
     gate: await studioGate(ctx),
+    plan: (await billing.planOf(ctx.tx, input.agencyId)).code,
   }));
+  const req: StudioRequest = { ...input, plan };
   if (existing?.providerBatchId) return { status: 'SUBMITTED', batchId: existing.providerBatchId, outcome };
   if (existing && existing.state !== 'RUNNING') return { status: 'DONE', outcome };
   // S13-F17: Listing Studio switched off since the request: nothing is sent, the reservation ends.
@@ -658,7 +687,11 @@ export async function collectListingStudioBulk(
     replaceReviewed: row.replaceReviewed,
   };
   // S13-F17: Listing Studio switched off since the submit: the batch is not collected (no provider call), given up.
-  const gate = await withMemberCtx(member(req), studioGate);
+  const { gate, plan } = await withMemberCtx(member(req), async (ctx) => ({
+    gate: await studioGate(ctx),
+    plan: (await billing.planOf(ctx.tx, req.agencyId)).code,
+  }));
+  req.plan = plan;
   if (options.giveUp || !gate.studio) {
     await finish(req, 'GAVE_UP', outcome);
     return { status: 'DONE', outcome };

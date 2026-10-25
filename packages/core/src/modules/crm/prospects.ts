@@ -23,6 +23,7 @@ import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as identity from '../identity';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
@@ -256,6 +257,8 @@ export async function createProspect(
   opts: { idempotencyKey?: string } = {},
 ): Promise<{ prospect: ProspectDto; replayed: boolean }> {
   assertCan(ctx, 'crm.prospects.write');
+  // S13-F21: the prospects board is CRM Full (PLAN §11).
+  await billing.requirePlan(ctx, 'crm_full');
   const agencyId = ctx.tenant.agencyId;
   const idempotency = idempotencyOf('crm.prospect', userIdOf(ctx), opts.idempotencyKey, input);
   const prior = await replayOf(

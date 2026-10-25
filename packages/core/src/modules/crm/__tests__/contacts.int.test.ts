@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   CreateActivityBody,
   CreateContactBody,
@@ -21,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
+import * as billing from '../../billing';
 import { contactImportKey, importBatch, runContactImport, sweepContactImports } from '../import';
 import * as crm from '../index';
 import { CONTACT_REFERENCES } from '../repo';
@@ -779,5 +781,69 @@ describe('CSV import', () => {
     expect(
       await refusal(createResult(a, { firstName: 'New', emails: [email('new-key')] }, { idempotencyKey: key })),
     ).toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+  });
+});
+
+describe('CSV import and the plan contact quota (S13-F21)', () => {
+  const csv = (lines: string[]) => new TextEncoder().encode(`${lines.join('\n')}\n`);
+  const live = async (m: Founder) =>
+    (
+      await rows<{ n: number }>(
+        sql`select count(*)::int as n from contacts where agency_id = ${m.agencyId}::uuid and deleted_at is null`,
+      )
+    )[0]?.n;
+  const importOf = async (m: Founder, names: string[]) => {
+    const upload = await crm.uploadContactImport(
+      (fn) => as(m, fn),
+      csv(['Name,Email', ...names.map((n) => `${n},${email(`q-${n}-${m.agencyId.slice(-6)}`)}`)]),
+    );
+    return upload.id;
+  };
+  const start = (m: Founder, id: string) =>
+    as(m, (ctx) =>
+      crm.startContactImport(ctx, id, StartContactImportBody.parse({ mapping: { firstName: 0, emails: [1] } })),
+    );
+
+  it('[S13-F21] a CSV import crossing the plan contact quota is refused (PLAN_REQUIRED); within it, it imports', async () => {
+    const catalog = JSON.parse(
+      readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
+    ) as { items: billing.CatalogInput[] };
+    await system((tx) => billing.upsertCatalog(tx, catalog.items, newId));
+    const f = await createFounder(); // Free: 100 contacts
+    await system((tx) =>
+      tx.execute(sql`insert into contacts (id, agency_id, first_name)
+        select gen_random_uuid(), ${f.agencyId}::uuid, 'Seeded ' || g from generate_series(1, 97) g`),
+    );
+    billing.configureBilling({ enforcePlans: true });
+    try {
+      // 97 + 5 > 100: the batch is refused whole, the run fails with the reason, nothing is added.
+      const over = await importOf(f, ['A', 'B', 'C', 'D', 'E']);
+      expect((await start(f, over)).status).toBe('QUEUED');
+      expect(await runContactImport({ agencyId: f.agencyId, importId: over }, job())).toEqual({
+        status: 'FAILED',
+        errorCode: 'PLAN_REQUIRED',
+      });
+      expect(await as(f, (ctx) => crm.getContactImport(ctx, over))).toMatchObject({
+        status: 'FAILED',
+        errorCode: 'PLAN_REQUIRED',
+        createdCount: 0,
+      });
+      expect(await live(f)).toBe(97);
+
+      // 97 + 3 = 100: imported.
+      const fits = await importOf(f, ['F', 'G', 'H']);
+      await start(f, fits);
+      expect(await runContactImport({ agencyId: f.agencyId, importId: fits }, job())).toEqual({ status: 'SUCCEEDED' });
+      expect(await live(f)).toBe(100);
+
+      // At the limit: an import cannot even start.
+      const full = await importOf(f, ['I']);
+      expect(await refusal(start(f, full))).toMatchObject({
+        code: 'PLAN_REQUIRED',
+        details: { reason: 'quota', quota: 'crm_contacts', plan: 'free', limit: 100 },
+      });
+    } finally {
+      billing.configureBilling({});
+    }
   });
 });

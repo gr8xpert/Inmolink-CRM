@@ -847,6 +847,9 @@ export const tenantTables: Record<string, TenantTable> = {
       items: '[]',
     },
   },
+  // S13-F21: Listing Studio listings requested per month (the plan quota): written in the member's request transaction.
+  // The guard (migration 0165) lets members only add to it — no delete, no lower count (security review).
+  listing_studio_usage: { kind: 'STRICT', triggers: ['listing_studio_usage_guard'], base: { month: '2026-01-01' } },
   // S3-10: an agency's own text for listings it presents — used only in its own channels. S7-02: its websites read
   // them as `app_public` (feed-api, `properties.siteOverrides`, always filtered by the site's agency): only overrides
   // of targets public paths may show (a public read model of the listing or unit, or of a unit of the development).

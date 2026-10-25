@@ -1,4 +1,5 @@
 import { withSystem } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
 import { type EventMeta, subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
 import * as crm from '../crm';
@@ -109,6 +110,20 @@ export function registerWebsiteApiSubscriptions(): void {
         await queueEdgePurge(payload.agencyId, [{ kind: 's', id: payload.siteId }], meta.createdAt);
       },
       { name: 'websiteApi.edge.siteChanged' },
+    ),
+    // S13-F21: a site's plan or cut-off changed: its edge copies are purged now, and again when the cut-off arrives.
+    subscribe(
+      websites.websitesEvents.sitePlanChanged,
+      async (payload, meta) => {
+        await queueEdgePurge(payload.agencyId, [{ kind: 's', id: payload.siteId }], meta.createdAt);
+        if (payload.endsAt) {
+          await websiteApiJobs.purgeSiteAtCutoff.enqueue(
+            { agencyId: payload.agencyId, siteId: payload.siteId, endsAt: payload.endsAt },
+            { delayMs: Math.max(0, Date.parse(payload.endsAt) - clock.now().getTime()) },
+          );
+        }
+      },
+      { name: 'websiteApi.edge.sitePlanChanged' },
     ),
     subscribe(
       websites.websitesEvents.feedChanged,

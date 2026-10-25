@@ -1,4 +1,4 @@
-import { FREE_PLAN, type PlanFeature, type SubscriptionStatus } from '@inmolink/contracts';
+import { FREE_PLAN, type PlanFeature, type PlanQuota, type SubscriptionStatus } from '@inmolink/contracts';
 
 /** Statuses during which the subscription's plan is in force (PAST_DUE only within the dunning grace, S13-02). */
 const LIVE: ReadonlySet<SubscriptionStatus> = new Set(['TRIALING', 'ACTIVE', 'PAST_DUE']);
@@ -26,6 +26,8 @@ export interface MatrixPlan {
   rank: number;
   active: boolean;
   features: readonly string[];
+  /** S13-F21: the plan's quotas (`PlanQuota` keys; a key not listed has no limit). */
+  limits?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -42,4 +44,28 @@ export function planGate(
     .filter((p) => p.active && p.features.includes(feature))
     .sort((a, b) => a.rank - b.rank || a.code.localeCompare(b.code))[0];
   return { allowed: false, requiredPlan: required?.code ?? null };
+}
+
+/**
+ * S13-F21: whether `needed` items (in use plus the ones being added) fit `plan`'s `quota` plus `extra` (add-on units),
+ * and if not, the cheapest offered plan they fit — `null` when none does. A plan that does not list the quota has no
+ * limit. Pure: the table-driven test runs it on the catalog.
+ */
+export function quotaGate(
+  matrix: readonly MatrixPlan[],
+  plan: string,
+  quota: PlanQuota,
+  needed: number,
+  extra = 0,
+): { allowed: true } | { allowed: false; limit: number; requiredPlan: string | null } {
+  const fits = (p: MatrixPlan | undefined) => {
+    const limit = p ? p.limits?.[quota] : 0;
+    return limit === undefined || needed <= limit + extra;
+  };
+  const current = matrix.find((p) => p.code === plan);
+  if (fits(current)) return { allowed: true };
+  const required = [...matrix]
+    .filter((p) => p.active && (current === undefined || p.rank > current.rank) && fits(p))
+    .sort((a, b) => a.rank - b.rank || a.code.localeCompare(b.code))[0];
+  return { allowed: false, limit: (current?.limits?.[quota] ?? 0) + extra, requiredPlan: required?.code ?? null };
 }

@@ -1,4 +1,5 @@
 import { hmacSha256 } from '@inmolink/platform/crypto';
+import { AppError } from '@inmolink/platform/errors';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { DEFAULT_WEBSITE_LIMITS, type WebsiteLimits } from './config';
 
@@ -58,6 +59,11 @@ export interface WebsiteApiSettings {
    * this host. Unset: embed forms are refused (`TURNSTILE_FAILED`).
    */
   embedOrigin?: string;
+  /**
+   * S13-F21: plans are enforced (`BILLING_ENFORCE_PLANS`): only then does a site past its plan cut-off (`planEndsAt`,
+   * the end of the notice after its agency's plan lost the website API) answer `PLAN_REQUIRED` (402). Off by default.
+   */
+  enforcePlans?: boolean;
 }
 
 let settings: WebsiteApiSettings | undefined;
@@ -104,4 +110,14 @@ export function alertListener(): ((alert: WebsiteAlert) => void) | undefined {
 /** The Turnstile verifier website forms are checked with, or null when none is configured. */
 export function turnstileVerifier(): TurnstileVerifier | null {
   return settings?.turnstile ?? null;
+}
+
+/**
+ * S13-F21: refuses a site whose plan cut-off has passed (`PLAN_REQUIRED`, 402) while plans are enforced — every website
+ * API answer (`apiSiteOf`) and the site's XML feed files (`siteFeedFile`). Reads the cached site scope only: no
+ * statement. The plan itself is not named to the site's visitors.
+ */
+export function assertSiteServes(site: { planEndsAt: string | null }, now: Date): void {
+  if (settings?.enforcePlans !== true || site.planEndsAt === null) return;
+  if (now.getTime() >= Date.parse(site.planEndsAt)) throw new AppError('PLAN_REQUIRED', { feature: 'website_api' });
 }

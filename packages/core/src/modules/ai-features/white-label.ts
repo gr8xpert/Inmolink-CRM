@@ -19,6 +19,7 @@ import {
 } from '../../white-label';
 import { type AiRemovalsEntry, readAiRemovalEntries, writeAiRemovals } from '../../white-label-store';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as search from '../search';
 import * as websiteApi from '../website-api';
 
@@ -254,6 +255,8 @@ export const shownOnNetwork = (row: Pick<DocRow, 'public' | 'status' | 'networkH
 interface OwnerDocs {
   rows: DocRow[];
   identity: OwnerIdentity;
+  /** S13-F21: the owner agency's plan in force (AI budgets per plan); read once per job, only with documents. */
+  plan: string | null;
 }
 
 type SanitizeOptions = { requestId?: string; onDegrade?: (code: ErrorCode) => void };
@@ -278,8 +281,13 @@ export async function sanitizeTargetTexts(
 
 async function ownerDocs(tx: Tx, agencyId: string, docs: readonly DocRow[]): Promise<OwnerDocs> {
   const rows = docs.filter((d) => d.agencyId === agencyId);
-  const identities = rows.length > 0 ? await agencies.ownerIdentities(tx, [agencyId]) : new Map();
-  return { rows, identity: (identities.get(agencyId) as OwnerIdentity | undefined) ?? NO_OWNER };
+  if (rows.length === 0) return { rows, identity: NO_OWNER, plan: null };
+  const identities = await agencies.ownerIdentities(tx, [agencyId]);
+  return {
+    rows,
+    identity: (identities.get(agencyId) as OwnerIdentity | undefined) ?? NO_OWNER,
+    plan: (await billing.planOf(tx, agencyId)).code,
+  };
 }
 
 /**
@@ -288,14 +296,14 @@ async function ownerDocs(tx: Tx, agencyId: string, docs: readonly DocRow[]): Pro
  */
 async function sanitizeDocs(
   agencyId: string,
-  { rows, identity }: OwnerDocs,
+  { rows, identity, plan }: OwnerDocs,
   options: SanitizeOptions,
   { keepAlive }: { keepAlive: boolean },
 ): Promise<SanitizeTextsResult> {
   const result: SanitizeTextsResult = { docs: rows.length, asked: 0, stored: 0, degraded: 0, degradedTargetIds: [] };
   if (rows.length === 0) return result;
   const matcher = compileOwner(identity);
-  const ctx: AiCtx = { tenant: { agencyId }, requestId: options.requestId };
+  const ctx: AiCtx = { tenant: { agencyId, plan }, requestId: options.requestId };
 
   const byTarget = new Map<string, DocRow[]>();
   for (const r of rows) byTarget.set(r.targetId, [...(byTarget.get(r.targetId) ?? []), r]);

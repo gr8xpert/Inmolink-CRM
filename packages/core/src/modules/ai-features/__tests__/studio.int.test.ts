@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   CreateListingBody,
@@ -18,6 +19,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, setAiFeatures } from '../../../testing/factories';
+import * as billing from '../../billing';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as aiFeatures from '../index';
@@ -85,7 +87,12 @@ function copyFor(input: StudioInput & { rejected?: string[] }): string {
 }
 
 let provider: FakeProvider;
-function useGateway(): void {
+function useGateway(
+  budgetFor: (plan: string | null | undefined) => { softMicroUsd: number; hardMicroUsd: number } = () => ({
+    softMicroUsd: 1e12,
+    hardMicroUsd: 2e12,
+  }),
+): void {
   provider = new FakeProvider((request) => copyFor(inputOf(request.user)));
   configureAi(
     createAiGateway({
@@ -97,7 +104,7 @@ function useGateway(): void {
       cache: memoryAiCache(),
       cacheTtlSeconds: 3_600,
       store: memoryAiStore(),
-      budgetFor: () => ({ softMicroUsd: 1e12, hardMicroUsd: 2e12 }),
+      budgetFor,
       timeoutMs: 5_000,
       breaker: { failures: 1_000, openMs: 1_000 },
       logger: log,
@@ -600,3 +607,85 @@ describe('AI Listing Studio and translation drafts toggles (S13-F17)', () => {
 
 const bulkOf = (ctx: Ctx, listingIds: string[]) =>
   aiFeatures.requestListingStudioBulk(ctx, ListingStudioBulkBody.parse({ listingIds }));
+
+describe('plans (S13-F21)', () => {
+  const BIG = { softMicroUsd: 1e12, hardMicroUsd: 2e12 };
+  async function studioAgency(): Promise<Founder> {
+    const f = await createFounder();
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    await rows(sql`update agency_settings set enabled_locales = '{en}' where agency_id = ${f.agencyId}`);
+    await setAiFeatures(f, ['LISTING_STUDIO']);
+    return f;
+  }
+  async function onPlan(f: Founder, planCode: string): Promise<void> {
+    const file = JSON.parse(
+      readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
+    ) as { items: billing.CatalogInput[] };
+    await system(async (tx) => {
+      await billing.upsertCatalog(tx, file.items, newId);
+      await tx.execute(sql`insert into billing_plan_grants (id, agency_id, kind, plan_code, starts_at, ends_at, reason)
+        values (${newId()}, ${f.agencyId}, 'STAFF', ${planCode}, now() - interval '1 hour', now() + interval '30 days',
+          'studio plan test')`);
+    });
+  }
+
+  it('[S13-F21] an AI call of a Pro agency is metered against the Pro budget', async () => {
+    const plans: (string | null | undefined)[] = [];
+    useGateway((plan) => {
+      plans.push(plan);
+      return BIG;
+    });
+    const f = await studioAgency();
+    await onPlan(f, 'pro');
+    const l = await create(f);
+    const outcome = await aiFeatures.generateListingStudio(await single(f, l.id));
+    expect(outcome.written[l.id]).toEqual(['en']);
+    expect(provider.calls.length).toBeGreaterThan(0);
+    expect(new Set(plans)).toEqual(new Set(['pro']));
+
+    // The bulk path (submit and collect jobs) too.
+    plans.length = 0;
+    const req = await bulk(f, [l.id], { replaceReviewed: true });
+    expect((await aiFeatures.submitListingStudioBulk(req)).status).toBe('SUBMITTED');
+    await aiFeatures.collectListingStudioBulk(req);
+    expect(plans.length).toBeGreaterThan(0);
+    expect(new Set(plans)).toEqual(new Set(['pro']));
+  });
+
+  it('[S13-F21] Listing Studio listings a month: Free asks for 10, the 11th is refused with PLAN_REQUIRED', async () => {
+    const f = await studioAgency();
+    const l = await create(f);
+    billing.configureBilling({ enforcePlans: true });
+    try {
+      for (let i = 0; i < 9; i++) await single(f, l.id);
+      // a bulk request crossing the limit is refused whole
+      const l2 = await create(f);
+      expect(await refusal(bulk(f, [l.id, l2.id]))).toBe('PLAN_REQUIRED');
+      await single(f, l.id); // the 10th
+      const refused = await as(f, (ctx) =>
+        aiFeatures.requestListingStudio(ctx, l.id, ListingStudioBody.parse({})),
+      ).catch((err: { code: string; details: unknown }) => err);
+      expect(refused).toMatchObject({
+        code: 'PLAN_REQUIRED',
+        details: { reason: 'quota', quota: 'studio_listings_month', plan: 'free', limit: 10 },
+      });
+      // Members cannot reset or lower the count (the guard): no delete, no decrease.
+      const month = `${new Date().toISOString().slice(0, 7)}-01`;
+      await expect(
+        as(f, (ctx) => ctx.tx.execute(sql`delete from listing_studio_usage where month = ${month}::date`)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+      await expect(
+        as(f, (ctx) => ctx.tx.execute(sql`update listing_studio_usage set listings = 0 where month = ${month}::date`)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+      const [usage] = await rows<{ listings: number }>(
+        sql`select listings from listing_studio_usage where agency_id = ${f.agencyId}::uuid and month = ${month}::date`,
+      );
+      expect(usage?.listings).toBe(10);
+      // a Pro agency has no monthly limit (fair use)
+      await onPlan(f, 'pro');
+      expect(await refusal(single(f, l.id))).toBe('resolved');
+    } finally {
+      billing.configureBilling({});
+    }
+  });
+});

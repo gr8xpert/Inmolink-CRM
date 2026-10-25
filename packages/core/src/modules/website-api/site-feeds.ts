@@ -39,6 +39,7 @@ import * as search from '../search';
 import * as websites from '../websites';
 import { edgeTag, edgeTagsConfigured } from './edge';
 import { serializeDetailsFor, siteForKey } from './service';
+import { assertSiteServes } from './settings';
 
 /** Items per batch (one sitemap page, then one read-model statement — and one view statement — per site locale). */
 export const SITE_FEED_BATCH = 200;
@@ -319,6 +320,8 @@ export async function siteFeedFile(token: string, file: SiteFeedFileName): Promi
   if (!feed?.runId) throw new AppError('SITE_FEED_NOT_FOUND');
   const scope = await websites.siteScope(feed.siteId);
   if (scope.agencyId !== feed.agencyId || !scope.verified) throw new AppError('SITE_FEED_NOT_FOUND');
+  // S13-F21: past the site's plan cut-off the feed answers 402 like the website API (while plans are enforced).
+  assertSiteServes(scope, clock.now());
   const sha = feed[SITE_FEED_FILES[file].sha];
   if (!sha) throw new AppError('SITE_FEED_NOT_FOUND');
   return {

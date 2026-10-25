@@ -8,6 +8,8 @@ import { z } from 'zod';
  * - `websites.site.changed` — a site's setup changed (policy, filters, prefix, locales, contact, domains, name or
  *   mode); `version` is the new one. Drops the site's cached scope (feed-api), so its answers follow at once;
  *   without it they follow within the cache TTL (60 s).
+ * - `websites.site.planChanged` (S13-F21) — the worker recorded a new plan or cut-off on a site (`endsAt`: when its
+ *   website API stops serving; null: it serves): its edge copies are purged now and again at the cut-off.
  * - `websites.lead.received` (S7-05) — a website form created an inbound lead (feed-api's intake transaction, as
  *   `app_intake`): the visitor's acknowledgement and the agency's notification follow in worker jobs.
  * - `websites.feed.changed` (S7-07) — a site's XML feed token was set (`ROTATED`, also the first one) or revoked:
@@ -19,6 +21,11 @@ export const websitesEvents = {
     'websites.site.changed',
     1,
     z.object({ siteId: z.uuid(), agencyId: z.uuid(), version: z.number().int() }),
+  ),
+  sitePlanChanged: defineEvent(
+    'websites.site.planChanged',
+    1,
+    z.object({ siteId: z.uuid(), agencyId: z.uuid(), endsAt: z.iso.datetime().nullable() }),
   ),
   feedChanged: defineEvent(
     'websites.feed.changed',

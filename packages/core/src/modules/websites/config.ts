@@ -8,10 +8,13 @@ import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 export interface WebsitesConfig {
   /** `WEBSITE_MIN_COMMISSION_EDITS_PER_DAY` (S12-F25, default 5). */
   minCommissionEditsPerDay?: number;
+  /** `WEBSITE_PLAN_NOTICE_DAYS` (S13-F21, default 30): a site's notice period after its plan lost the website API. */
+  planNoticeDays?: number;
 }
 
 let current: WebsitesConfig | undefined;
 let fromEnv: number | undefined;
+let noticeFromEnv: number | undefined;
 
 export function configureWebsites(config: WebsitesConfig): void {
   current = config;
@@ -40,4 +43,11 @@ export function minCommissionEditBudget(): RateLimitRule {
     windowSeconds: 86_400,
     failClosed: true,
   };
+}
+
+/** S13-F21: days a site keeps serving after its agency's plan lost the website API (`WEBSITE_PLAN_NOTICE_DAYS`). */
+export function planNoticeDays(): number {
+  if (current?.planNoticeDays !== undefined) return current.planNoticeDays;
+  noticeFromEnv ??= loadConfig(websitesEnv).WEBSITE_PLAN_NOTICE_DAYS;
+  return noticeFromEnv;
 }

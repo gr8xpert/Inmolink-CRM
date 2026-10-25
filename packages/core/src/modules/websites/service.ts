@@ -24,7 +24,7 @@ import type {
   UpdateSiteInput,
   WebsitePresenter,
 } from '@inmolink/contracts';
-import { type Tx, withPublicRead } from '@inmolink/db';
+import { type Tx, withPublicRead, withSystem } from '@inmolink/db';
 import { CONTENT_LOCALES, FALLBACK_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
 import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
@@ -38,7 +38,7 @@ import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as billing from '../billing';
 import * as compliance from '../compliance';
-import { minCommissionEditBudget } from './config';
+import { minCommissionEditBudget, planNoticeDays } from './config';
 import { websitesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
@@ -187,15 +187,16 @@ export async function createSite(ctx: Ctx, input: CreateSiteInput): Promise<Site
   assertCan(ctx, 'websites.manage');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   // S13-02: the website API is a paid feature (PLAN §11).
-  await billing.requirePlan(ctx, 'website_api');
+  const plan = await billing.requirePlan(ctx, 'website_api');
   assertNetworkAllowed(ctx, input.inventoryPolicy, input.inventoryFilters);
   assertContentLocales(input.locales);
   const { agencyId } = ctx.tenant;
   // Serialises concurrent creates of the agency, so the cap cannot be raced.
   await agencies.lockAgencyStatus(ctx.tx, agencyId, 'update');
-  if ((await repo.countSites(ctx.tx, agencyId)) >= MAX_SITES) {
-    throw new AppError('SITE_LIMIT_REACHED', { limit: MAX_SITES });
-  }
+  const sites = await repo.countSites(ctx.tx, agencyId);
+  if (sites >= MAX_SITES) throw new AppError('SITE_LIMIT_REACHED', { limit: MAX_SITES });
+  // S13-F21: the plan's sites (PLAN §11: Pro 1, Business 3; extra-website add-ons add to it).
+  await billing.requireQuota(ctx, 'sites', sites, 1, { plan });
   const minCommission = minCommissionOf(input.inventoryPolicy, input.inventoryFilters);
   await consumeMinCommissionEdit(ctx, null, null, minCommission);
   const row = await repo.insertSite(ctx.tx, {
@@ -326,6 +327,13 @@ export interface SiteScope {
   presenter: WebsitePresenter;
   /** The agency is VERIFIED now (listed in the directory): only then does the site show network listings. */
   verified: boolean;
+  /** S13-F21: the agency's plan in force as last synced by the worker (AI budgets per plan); null: not yet synced. */
+  plan: string | null;
+  /**
+   * S13-F21: when the website API stops serving the site (ISO): the agency's plan lost `website_api` and the notice
+   * period (`WEBSITE_PLAN_NOTICE_DAYS`) ends then. Null: it serves.
+   */
+  planEndsAt: string | null;
 }
 
 /**
@@ -385,7 +393,40 @@ export async function siteScope(siteId: string): Promise<SiteScope> {
     presenter: sitePresenter({ name: row.name, contact: (row.contact as SiteContact | null) ?? null }, entry.agency),
     // `listed` in the directory is "VERIFIED now"; the presenting lookup returns listed agencies only.
     verified: entry.agency !== null,
+    plan: row.planCode ?? null,
+    planEndsAt: row.planEndsAt ?? null,
   };
+}
+
+/**
+ * S13-F21 (worker): records the agency's plan in force on its sites (`websites.syncSitePlan`, on billing's plan events
+ * and a daily sweep) and drops their cached scopes. While plans are enforced (`BILLING_ENFORCE_PLANS`), a plan without
+ * `website_api` sets the sites' cut-off to the end of the notice period (`WEBSITE_PLAN_NOTICE_DAYS`) — kept, never
+ * extended, by later syncs; a plan with it (an upgrade) or plans not enforced clear it. Each changed site emits
+ * `websites.site.planChanged` (edge purge now and at the cut-off). Two statements plus one event per changed site.
+ */
+export async function syncSitePlan(agencyId: string): Promise<{ changed: number }> {
+  const now = clock.now();
+  const changed = await withSystem('websites.syncSitePlan', async (tx) => {
+    const plan = await billing.planOf(tx, agencyId);
+    const lapsed = billing.billingConfig().enforcePlans === true && !plan.features.includes('website_api');
+    const endsAt = lapsed ? new Date(now.getTime() + planNoticeDays() * 86_400_000) : null;
+    const rows = await repo.setSitePlan(tx, agencyId, plan.code, endsAt);
+    for (const r of rows) {
+      await emit(
+        tx,
+        websitesEvents.sitePlanChanged({ siteId: r.id, agencyId, endsAt: r.planEndsAt?.toISOString() ?? null }),
+      );
+    }
+    return rows;
+  });
+  for (const r of changed) await cache.delete(siteCacheKey(r.id));
+  return { changed: changed.length };
+}
+
+/** S13-F21 (worker sweep): a page of agencies with sites, in id order after `after`. One statement. */
+export async function agenciesWithSites(after: string | null, limit: number): Promise<string[]> {
+  return withSystem('websites.syncSitePlans', (tx) => repo.agenciesWithSites(tx, after, limit));
 }
 
 /**

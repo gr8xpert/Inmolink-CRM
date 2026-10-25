@@ -60,6 +60,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     searchJobs.repairIndex,
     // S7-06: purges the website API's edge cache when public listings, sites or keys change.
     websiteApiJobs.purgeEdgeCache,
+    websiteApiJobs.purgeSiteAtCutoff,
     // S10-04: the activity timeline's writers from outbox events (lead, merge, listing status).
     crmJobs.recordActivity,
     // S11-F10: the pipeline report's and the response KPI's rollups, rebuilt from lead events (throttled).
@@ -142,6 +143,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     networkJobs.closeExpiredPosts,
     networkJobs.closePostThreads,
     websitesJobs.pruneLeadIdempotency,
+    // S13-F21: the agency's plan on its sites (on billing's plan events; a daily sweep).
+    websitesJobs.syncSitePlan,
+    websitesJobs.syncSitePlans,
     identityJobs.flushApiKeyUsage,
     identityJobs.syncApiKeyAgencyStatus,
     agenciesJobs.pruneOrphanVerificationDocuments,

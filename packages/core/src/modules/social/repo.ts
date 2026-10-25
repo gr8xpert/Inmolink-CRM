@@ -64,6 +64,11 @@ export async function getAccount(tx: Tx, agencyId: string, id: string): Promise<
   return row ?? null;
 }
 
+/** S13-F21: serialises the agency's account connects until the transaction ends (quota and cap counted under it). */
+export async function lockAccountConnects(tx: Tx, agencyId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`social.connect:${agencyId}`}, 0))`);
+}
+
 export async function countAccounts(tx: Tx, agencyId: string): Promise<number> {
   const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })

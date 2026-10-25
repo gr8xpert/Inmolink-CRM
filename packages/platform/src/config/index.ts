@@ -369,6 +369,11 @@ export const planEnv = {
  */
 export const websitesEnv = {
   WEBSITE_MIN_COMMISSION_EDITS_PER_DAY: z.coerce.number().int().min(1).max(100).default(5),
+  /**
+   * S13-F21: days a site keeps serving after its agency's plan lost the website API (a downgrade, a trial or grant
+   * ending, a subscription ending) before feed-api answers 402 `PLAN_REQUIRED`. Worker setting.
+   */
+  WEBSITE_PLAN_NOTICE_DAYS: z.coerce.number().int().min(0).max(365).default(30),
 };
 
 /**

@@ -3,7 +3,7 @@
  * Queries only `@inmolink/db/schema/ai-features` — other modules' tables fail `pnpm check:boundaries`.
  */
 import type { Tx } from '@inmolink/db';
-import { listingStudioBatches } from '@inmolink/db/schema/ai-features';
+import { listingStudioBatches, listingStudioUsage } from '@inmolink/db/schema/ai-features';
 import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm';
 
 export type StudioBatchRow = typeof listingStudioBatches.$inferSelect;
@@ -25,6 +25,27 @@ export async function insertStudioBatch(tx: Tx, row: StudioBatchInsert): Promise
  */
 export async function lockAgencyStudio(tx: Tx, agencyId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`aiFeatures.studio:${agencyId}`}))`);
+}
+
+/** S13-F21: listings the agency asked Studio for in `month` (first day, `YYYY-MM-01`). Primary key probe. */
+export async function studioListingsIn(tx: Tx, agencyId: string, month: string): Promise<number> {
+  const [row] = await tx
+    .select({ n: listingStudioUsage.listings })
+    .from(listingStudioUsage)
+    .where(and(eq(listingStudioUsage.agencyId, agencyId), eq(listingStudioUsage.month, month)))
+    .limit(1);
+  return row?.n ?? 0;
+}
+
+/** S13-F21: counts `n` more listings asked of Studio in `month` (one upsert). */
+export async function addStudioListings(tx: Tx, agencyId: string, month: string, n: number): Promise<void> {
+  await tx
+    .insert(listingStudioUsage)
+    .values({ agencyId, month, listings: n })
+    .onConflictDoUpdate({
+      target: [listingStudioUsage.agencyId, listingStudioUsage.month],
+      set: { listings: sql`${listingStudioUsage.listings} + ${n}`, updatedAt: sql`now()` },
+    });
 }
 
 /** Records the items of a reserved batch (only while it has none: a retried submit never replaces them). */

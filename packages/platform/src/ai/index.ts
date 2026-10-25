@@ -96,6 +96,8 @@ export function createAiGatewayFromEnv(options: {
           timeoutMs: Math.max(1_000, Math.floor(s.timeoutMs / (s.maxRetries + 1))),
         })
       : null;
+  // S13-F21: plan keys match catalog plan codes case-insensitively (`AI_BUDGETS_BY_PLAN={"PRO":…}` budgets `pro`).
+  const budgets = new Map(Object.entries(s.budgetsByPlan).map(([k, v]) => [k.toLowerCase(), v]));
   return createAiGateway({
     provider,
     embeddings: embeddingProviderFor(s.embed),
@@ -106,7 +108,7 @@ export function createAiGatewayFromEnv(options: {
     cache: options.cache === undefined ? processCache : options.cache,
     cacheTtlSeconds: s.cacheTtlSeconds,
     store: options.store,
-    budgetFor: (plan) => (plan ? s.budgetsByPlan[plan] : undefined) ?? s.defaultBudget,
+    budgetFor: (plan) => (plan ? budgets.get(plan.toLowerCase()) : undefined) ?? s.defaultBudget,
     timeoutMs: s.timeoutMs,
     breaker: s.breaker,
     logger: options.logger ?? createLogger({ service: 'ai', level: process.env.LOG_LEVEL }),

@@ -30,6 +30,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { type Ctx, userIdOf } from '../../context';
 import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
+import * as billing from '../billing';
 import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
 import * as leadsRepo from './leads-repo';
@@ -154,6 +155,8 @@ export async function createPipelineStage(
   opts: { idempotencyKey?: string } = {},
 ): Promise<{ stage: PipelineStageDto; replayed: boolean }> {
   assertCan(ctx, 'crm.pipeline.manage');
+  // S13-F21: a custom pipeline is CRM Full (PLAN §11).
+  await billing.requirePlan(ctx, 'crm_full');
   const agencyId = ctx.tenant.agencyId;
   const idempotency = idempotencyOf('crm.stage', userIdOf(ctx), opts.idempotencyKey, input);
   const prior = await replayOf(ctx.tx, idempotency, (since, key) =>
@@ -197,6 +200,8 @@ export async function updatePipelineStage(
   input: UpdatePipelineStageBody,
 ): Promise<PipelineStageDto> {
   assertCan(ctx, 'crm.pipeline.manage');
+  // S13-F21: a custom pipeline is CRM Full (PLAN §11).
+  await billing.requirePlan(ctx, 'crm_full');
   const agencyId = ctx.tenant.agencyId;
   const current = await ownStage(ctx, id, { lock: 'update' });
   if (current.version !== input.version) throw new AppError('VERSION_CONFLICT');
@@ -241,6 +246,8 @@ export async function updatePipelineStage(
  */
 export async function reorderPipelineStages(ctx: Ctx, input: ReorderPipelineStagesBody): Promise<PipelineStageList> {
   assertCan(ctx, 'crm.pipeline.manage');
+  // S13-F21: a custom pipeline is CRM Full (PLAN §11).
+  await billing.requirePlan(ctx, 'crm_full');
   const agencyId = ctx.tenant.agencyId;
   const active = await pipelineRepo.listStages(ctx.tx, agencyId);
   const wanted = new Set(input.stageIds);
@@ -458,6 +465,8 @@ export async function listLeadStageHistory(ctx: Ctx, leadId: string, query: Page
  */
 export async function getPipelineReport(ctx: Ctx, query: PipelineReportQuery): Promise<PipelineReportDto> {
   assertCan(ctx, 'crm.leads.read');
+  // S13-F21: reports are Standard and up (PLAN §11).
+  await billing.requirePlan(ctx, 'reports_standard');
   const from = new Date(query.from);
   const to = new Date(query.to);
   const stages = await stagesOf(ctx, { archived: true });

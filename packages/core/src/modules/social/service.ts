@@ -242,10 +242,20 @@ export async function completeSocialConnect(
           ]
         : []),
     ]);
+    // S13-F21: connects of one agency run one at a time, so two concurrent callbacks cannot both take the last place
+    // (the plan quota and the account cap are counted under this lock).
+    await repo.lockAccountConnects(ctx.tx, agencyId);
     const existing = await repo.accountIdsByExternal(ctx.tx, agencyId, wanted);
     const added = wanted.filter((w) => !existing.has(`${w.platform}:${w.externalId}`)).length;
-    if ((await repo.countAccounts(ctx.tx, agencyId)) + added > MAX_ACCOUNTS) {
+    const accounts = await repo.countAccounts(ctx.tx, agencyId);
+    if (accounts + added > MAX_ACCOUNTS) {
       throw new AppError('VALIDATION_FAILED', { reason: 'account_limit', limit: MAX_ACCOUNTS });
+    }
+    // S13-F21: the plan's social accounts (PLAN §11: Pro 2, Business 6) — a Page and its Instagram account are two.
+    // Reconnecting accounts already stored adds none.
+    if (added > 0) {
+      const plan = await billing.requirePlan(ctx, 'social_posting');
+      await billing.requireQuota(ctx, 'social_accounts', accounts, added, { plan });
     }
     for (const w of wanted) {
       const id = existing.get(`${w.platform}:${w.externalId}`) ?? newId();

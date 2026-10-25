@@ -53,6 +53,17 @@ export const websiteSites = pgTable(
     contact: jsonb('contact'),
     /** Bumped on every change (cache entries and ETags of the site's answers). */
     version: integer('version').notNull().default(1),
+    /**
+     * S13-F21: the agency's plan in force (AI budgets of the website API), kept by the worker (`websites.syncSitePlan`
+     * on billing's plan events, and a daily sweep); null until first synced. Members never write it (guard).
+     */
+    planCode: text('plan_code'),
+    /**
+     * S13-F21: when the website API stops serving the site — set to the end of the notice period
+     * (`WEBSITE_PLAN_NOTICE_DAYS`) when the agency's plan lost `website_api` while plans are enforced; null: it serves.
+     * feed-api answers `PLAN_REQUIRED` (402) from then on, read with the cached site scope (no extra statement).
+     */
+    planEndsAt: timestamp('plan_ends_at', { withTimezone: true }),
     /** The admin who created the site (audit; no FK, so removing that user keeps the history). */
     createdBy: uuid('created_by').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

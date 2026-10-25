@@ -4,7 +4,19 @@
  * `pnpm db:generate && pnpm db:migrate && pnpm db:rls`.
  */
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 /**
@@ -54,5 +66,28 @@ export const listingStudioBatches = pgTable(
       sql`cardinality(${t.listingIds}) between 1 and 100 and cardinality(${t.factsHashes}) = cardinality(${t.listingIds})
         and cardinality(${t.locales}) between 1 and 20`,
     ),
+  ],
+);
+
+/**
+ * S13-F21: listings an agency asked Listing Studio to draft, per calendar month (UTC) — the plan quota
+ * `studio_listings_month` (PLAN §11: Free 10 a month). Counted when a request is accepted (single or bulk), in the
+ * request's transaction under the agency's studio lock; read only there (the primary key). Kept: a few rows a year.
+ */
+export const listingStudioUsage = pgTable(
+  'listing_studio_usage',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    /** The first day of the month (UTC). */
+    month: date('month', { mode: 'string' }).notNull(),
+    listings: integer('listings').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the quota check and the increment: where agency_id = ? and month = ?
+    primaryKey({ columns: [t.agencyId, t.month] }),
+    check('listing_studio_usage_listings_ck', sql`${t.listings} >= 0`),
   ],
 );

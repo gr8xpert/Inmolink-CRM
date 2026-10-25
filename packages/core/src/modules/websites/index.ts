@@ -81,6 +81,7 @@ export {
   sitePresenter,
   siteScope,
   siteSearchScope,
+  syncSitePlan,
   updateSite,
 } from './service';
 export { registerWebsitesSubscriptions, unregisterWebsitesSubscriptions } from './subscriptions';

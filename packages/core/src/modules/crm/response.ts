@@ -2,6 +2,7 @@ import { AppError, type ResponseTimeKpiDto, type ResponseTimeQuery } from '@inmo
 import { withTenant } from '@inmolink/db';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
+import * as billing from '../billing';
 import * as identity from '../identity';
 import { crmEvents } from './events';
 import { assertCan } from './policy';
@@ -62,6 +63,8 @@ export function recordAutoAck(p: { agencyId: string; inboundLeadId: string; at: 
  */
 export async function getResponseTimeKpi(ctx: Ctx, query: ResponseTimeQuery): Promise<ResponseTimeKpiDto> {
   assertCan(ctx, 'crm.leads.read');
+  // S13-F21: reports are Standard and up (PLAN §11).
+  await billing.requirePlan(ctx, 'reports_standard');
   const from = new Date(query.from);
   const to = new Date(query.to);
   const rows = mergeResponseParts(await rollupsRepo.responseKpiParts(ctx.tx, ctx.tenant.agencyId, from, to));

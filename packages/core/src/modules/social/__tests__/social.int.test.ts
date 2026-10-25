@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
@@ -18,6 +19,7 @@ import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, setAiFeatures } from '../../../testing/factories';
 import { plainText, textKey } from '../../../white-label';
 import { writeAiRemovals } from '../../../white-label-store';
+import * as billing from '../../billing';
 import * as media from '../../media';
 import * as properties from '../../properties';
 import * as search from '../../search';
@@ -964,5 +966,54 @@ describe('S13-F5 revoking the Meta grant', () => {
     for (const i of ofB) out.push(await social.revokeAccount({ agencyId: b.agencyId, accountId: i.id }));
     expect(out.filter((r) => r.revoked)).toHaveLength(1);
     expect(revokes()).toHaveLength(1);
+  });
+});
+
+describe('plan quota (S13-F21)', () => {
+  it('[S13-F21] two concurrent connects cannot both take the plan social accounts (counted under a lock)', async () => {
+    const catalog = JSON.parse(
+      readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
+    ) as { items: billing.CatalogInput[] };
+    const f = await createFounder();
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    await enable(f, true);
+    await system(async (tx) => {
+      await billing.upsertCatalog(tx, catalog.items, newId);
+      // Pro: 2 social accounts.
+      await tx.execute(sql`insert into billing_plan_grants (id, agency_id, kind, plan_code, starts_at, ends_at, reason)
+        values (${newId()}, ${f.agencyId}, 'STAFF', 'pro', now() - interval '1 hour', now() + interval '30 days',
+          'social quota test')`);
+    });
+    const digits = RUN.replace(/\D/g, '').padEnd(6, '3').slice(0, 6);
+    const pageSet = (n: number) => [
+      {
+        id: `6${digits}${n}`,
+        name: `Quota Page ${n} ${RUN}`,
+        access_token: `quota-page-${n}`,
+        instagram_business_account: { id: `5${digits}${n}`, username: `quota${n}` },
+      },
+    ];
+    // Each callback's `/me/accounts` answers its own Page (and its Instagram account): 2 accounts each.
+    const queue = [pageSet(1), pageSet(2)];
+    graph.onCall = (call) => {
+      if (call.path === '/me/accounts') graph.pages = queue.shift() ?? [];
+    };
+    billing.configureBilling({ enforcePlans: true });
+    try {
+      const results = await Promise.all([refusal(connect(f)), refusal(connect(f))]);
+      expect(results.sort()).toEqual(['PLAN_REQUIRED', 'accepted']);
+      const n = await system(
+        async (tx) =>
+          (
+            await tx.execute<{ n: number }>(
+              sql`select count(*)::int as n from social_accounts where agency_id = ${f.agencyId}::uuid`,
+            )
+          ).rows[0]?.n,
+      );
+      expect(n).toBe(2);
+    } finally {
+      graph.onCall = undefined;
+      billing.configureBilling({});
+    }
   });
 });

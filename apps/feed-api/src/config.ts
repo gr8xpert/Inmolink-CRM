@@ -9,6 +9,7 @@ import {
   loadConfig,
   mediaCdnEnv,
   networkEnv,
+  planEnv,
   portVar,
   rateLimitEnv,
   redisEnv,
@@ -66,6 +67,8 @@ export const feedApiEnv = {
   /** Give-to-get (S7-03): network listings on websites follow the network search's threshold and grace period. */
   NETWORK_GIVE_TO_GET_MIN_SHARED: networkEnv.NETWORK_GIVE_TO_GET_MIN_SHARED,
   NETWORK_GIVE_TO_GET_GRACE_DAYS: networkEnv.NETWORK_GIVE_TO_GET_GRACE_DAYS,
+  /** S13-F21: plans enforced: a site past its plan cut-off answers 402. */
+  BILLING_ENFORCE_PLANS: planEnv.BILLING_ENFORCE_PLANS,
   /**
    * S9-03: portal feed requests per minute per IP. Portals crawl many agencies' feeds from a few addresses, and a
    * nightly regeneration purges them all, so the origin sees every feed of a portal from one address at once; the

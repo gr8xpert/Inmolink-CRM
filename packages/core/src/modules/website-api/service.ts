@@ -51,7 +51,7 @@ import { raiseWebsiteAlert } from './alerts';
 import { unwrapSearchCursor, wrapSearchCursor } from './cursor';
 import { type EdgeSeen, newEdgeSeen } from './edge';
 import { honeytokenKind, withHoneytoken } from './honeytokens';
-import { configured, cursorSecret, websiteLimits } from './settings';
+import { assertSiteServes, configured, cursorSecret, websiteLimits } from './settings';
 
 /** A site as one request serves it. */
 export interface ApiSite {
@@ -70,8 +70,8 @@ export interface ApiSite {
   tag: string;
   requestId: string;
   /**
-   * S12-08: the site agency's plan (AI budgets per plan). Plans arrive with billing (S13): until then `'none'` for
-   * every agency, as in a member's ctx.
+   * S12-08: the site agency's plan (AI budgets per plan). S13-F21: the plan in force as the worker last recorded it on
+   * the cached site scope (`websites.syncSitePlan`) — no statement per request; null until first synced.
    */
   plan: string | null;
   /** What this request's answer showed (S7-06): its edge cache tags (`edgeTagsOf`). */
@@ -98,9 +98,12 @@ const SITE_TAG_PURPOSE = 'website-api.site-tag';
 
 /**
  * A site's scope as one request serves it (website API keys, S7-F8 embed pages): its inventory with network listings
- * dropped while the agency's give-to-get standing is locked. Cached reads only on a warm path.
+ * dropped while the agency's give-to-get standing is locked. Cached reads only on a warm path. S13-F21: refused with
+ * `PLAN_REQUIRED` once the site's plan cut-off (`planEndsAt`, end of the notice period) has passed.
  */
 export async function apiSiteOf(scope: websites.SiteScope, keyId: string | null, requestId: string): Promise<ApiSite> {
+  // S13-F21: the agency's plan lost the website API and the notice period is over: 402 (while plans are enforced).
+  assertSiteServes(scope, clock.now());
   let inventory: websites.SiteSearchScope = websites.siteSearchScope(scope, requestId);
   if (inventory.networkOf !== undefined && !(await search.websiteNetworkOpen(scope.agencyId))) {
     const { networkOf: _network, networkRefPrefix: _prefix, ...own } = inventory;
@@ -119,8 +122,7 @@ export async function apiSiteOf(scope: websites.SiteScope, keyId: string | null,
     ]),
   ).slice(0, 16);
   const shows = inventory.ownerAgencyIds.length > 0 || inventory.networkOf !== undefined;
-  // S12-08: plans arrive with billing (S13); every agency is on the same footing until then (like `withMemberCtx`).
-  return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, plan: 'none', edge: newEdgeSeen() };
+  return { keyId, scope, inventory: shows ? inventory : null, tag, requestId, plan: scope.plan, edge: newEdgeSeen() };
 }
 
 /** `?lang=`: one of the site's languages (default its first). */

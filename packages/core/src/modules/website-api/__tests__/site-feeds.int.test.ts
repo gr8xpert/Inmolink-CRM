@@ -584,3 +584,39 @@ describe('per-site XML feeds (S7-07)', () => {
     expect(sold).toMatchObject({ networkLost: { all: true, agencyIds: [] } });
   });
 });
+
+describe('plan cut-off (S13-F21)', () => {
+  const cutOff = (siteId: string, endsAt: string | null) =>
+    system(async (tx) => {
+      await tx.execute(sql`update website_sites set plan_ends_at = ${endsAt}::timestamptz where id = ${siteId}::uuid`);
+    }).then(() => cache.delete(websites.siteCacheKey(siteId)));
+  const configure = (enforcePlans: boolean) =>
+    websiteApi.configureWebsiteApi({
+      mediaBaseUrl: 'https://media.example',
+      cursorKey: 'test-cursor-key-0123456789abcdef0123',
+      enforcePlans,
+    });
+
+  it('[S13-F21] a site past its plan cut-off serves no XML feed (PLAN_REQUIRED) while plans are enforced', async () => {
+    const site = S.network;
+    const token = tokens[site] as string;
+    expect(await refusal(websiteApi.siteFeedFile(token, 'kyero.xml'))).toBe('served');
+    try {
+      configure(true);
+      // In the notice period: served.
+      await cutOff(site, new Date(Date.now() + 86_400_000).toISOString());
+      expect(await refusal(websiteApi.siteFeedFile(token, 'kyero.xml'))).toBe('served');
+      // Past the cut-off: 402, for the feed as for the website API.
+      await cutOff(site, new Date(Date.now() - 1_000).toISOString());
+      expect(await refusal(websiteApi.siteFeedFile(token, 'kyero.xml'))).toBe('PLAN_REQUIRED');
+      expect(await refusal(websiteApi.apiSiteOf(await websites.siteScope(site), null, newId()))).toBe('PLAN_REQUIRED');
+      // Plans not enforced (BILLING_ENFORCE_PLANS off): the cut-off is not applied.
+      configure(false);
+      expect(await refusal(websiteApi.siteFeedFile(token, 'kyero.xml'))).toBe('served');
+      expect(await refusal(websiteApi.apiSiteOf(await websites.siteScope(site), null, newId()))).toBe('served');
+    } finally {
+      configure(false);
+      await cutOff(site, null);
+    }
+  });
+});

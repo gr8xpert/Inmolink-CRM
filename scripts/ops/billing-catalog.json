@@ -1,5 +1,5 @@
 {
-  "$comment": "S13-01/S13-02: the plan catalog and plan matrix (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). `features` are the gated features a plan includes (`PlanFeature` keys); every item carries a Stripe Tax `taxCode` (SaaS: txcd_10103001), sent on its Stripe product and updated there when changed; Free and Enterprise have no prices (Enterprise is a staff grant). Add-on prices are set by staff before they are offered; an add-on's `seatsIncluded` is the seats one unit adds.",
+  "$comment": "S13-01/S13-02: the plan catalog and plan matrix (PLAN §11 working assumptions, excl. VAT, amounts in cents). Data, not code: edit and run `pnpm billing:catalog`; a changed amount retires the old Stripe price (existing subscriptions keep it). `features` are the gated features a plan includes (`PlanFeature` keys); every item carries a Stripe Tax `taxCode` (SaaS: txcd_10103001), sent on its Stripe product and updated there when changed; `limits` are the plan quotas (`PlanQuota` keys: sites, social_accounts, crm_contacts, studio_listings_month; a quota a plan does not list has no limit — Pro's Listing Studio is fair use; an add-on's limits are what one unit adds); Free and Enterprise have no prices (Enterprise is a staff grant). Add-on prices are set by staff before they are offered; an add-on's `seatsIncluded` is the seats one unit adds.",
   "items": [
     {
       "code": "free",
@@ -8,6 +8,7 @@
       "rank": 0,
       "taxCode": "txcd_10103001",
       "features": [],
+      "limits": { "sites": 0, "social_accounts": 0, "crm_contacts": 100, "studio_listings_month": 10 },
       "prices": []
     },
     {
@@ -28,6 +29,7 @@
         "client_portal",
         "reports_standard"
       ],
+      "limits": { "sites": 1, "social_accounts": 2 },
       "prices": [
         { "interval": "YEAR", "currency": "EUR", "amountCents": 80000 },
         { "interval": "MONTH", "currency": "EUR", "amountCents": 7900 }
@@ -58,6 +60,7 @@
         "reports_standard",
         "reports_advanced"
       ],
+      "limits": { "sites": 3, "social_accounts": 6 },
       "prices": [{ "interval": "YEAR", "currency": "EUR", "amountCents": 150000 }]
     },
     {
@@ -85,6 +88,7 @@
         "reports_standard",
         "reports_advanced"
       ],
+      "limits": {},
       "prices": []
     },
     {
@@ -101,6 +105,7 @@
       "seatsIncluded": null,
       "rank": 110,
       "taxCode": "txcd_10103001",
+      "limits": { "sites": 1 },
       "prices": []
     }
   ]

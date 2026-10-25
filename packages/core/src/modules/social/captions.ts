@@ -5,6 +5,7 @@ import { ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
 import { cutAtWord } from '../../white-label';
 import * as agencies from '../agencies';
+import * as billing from '../billing';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { allowedNumbers, CAPTIONS_PROMPT, CaptionsAnswer, type Facts, numbersMatchFacts } from './caption-facts';
@@ -36,7 +37,7 @@ export async function generateCaptions(p: {
     const [listing] = await properties.listingsForReadModels(tx, [post.listingId]);
     // S12-07 review: another agency's listing only while it is still shared with the posting agency.
     if (!account || !listing || !(await networkPostable(tx, post.agencyId, listing))) {
-      return { post, account: null, listing: null, facts: null, description: '' };
+      return { post, account: null, listing: null, facts: null, description: '', plan: null };
     }
     const tax = await taxonomy.taxonomyForReadModels(
       tx,
@@ -67,7 +68,9 @@ export async function generateCaptions(p: {
     // S12-07 review: the owner's text as stored (whiteLabelled takes its plain text), so its cached model removals
     // (keyed by that plain text, S12-03) apply.
     const description = cutAtWord(await whiteLabelled(tx, text, listing, post.agencyId), 3_000);
-    return { post, account, listing, facts, description };
+    // S13-F21: the agency's plan in force, once per job: the call is metered against its plan budget.
+    const plan = (await billing.planOf(tx, post.agencyId)).code;
+    return { post, account, listing, facts, description, plan };
   });
   if (!loaded) return { captions: 0, status: 'STALE' };
   const save = (patch: { captions: repo.Captions; captionStatus: repo.CaptionStatus; caption?: string | null }) =>
@@ -88,7 +91,7 @@ export async function generateCaptions(p: {
   const answer = await aiOrFallback(
     () =>
       ai.structured(
-        { tenant: { agencyId: p.agencyId, plan: null }, requestId: p.requestId },
+        { tenant: { agencyId: p.agencyId, plan: loaded.plan }, requestId: p.requestId },
         {
           feature: 'social.captions',
           prompt: CAPTIONS_PROMPT,

@@ -14,6 +14,7 @@ import {
   StartContactImportBody,
 } from '@inmolink/contracts';
 import { type Tx, withSystem, withTenant } from '@inmolink/db';
+import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
@@ -21,6 +22,7 @@ import { detectSheetKind, isSheetError, readSheetRows, type SheetKind } from '@i
 import { storage } from '@inmolink/platform/storage';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as billing from '../billing';
 import * as compliance from '../compliance';
 import { auditImpersonatedRead } from './audit';
 import { crmEvents } from './events';
@@ -179,6 +181,10 @@ export async function startContactImport(
   const current = await repo.getImport(ctx.tx, id, { forUpdate: true });
   if (!current) throw new AppError('CONTACT_IMPORT_NOT_FOUND');
   if (current.status !== 'UPLOADED') throw new AppError('CONTACT_IMPORT_STARTED');
+  // S13-F21: an agency already at its plan's contacts cannot start one (each batch is counted again by the run).
+  await billing.requireQuota(ctx, 'crm_contacts', (limit) =>
+    repo.countLiveContactsUpTo(ctx.tx, current.agencyId, limit),
+  );
   const { onDuplicate, ...settings } = input;
   const m = settings.mapping;
   const columns = [m.firstName, m.lastName, m.fullName, m.language, m.tags, m.types, m.consentMarketing]
@@ -463,6 +469,18 @@ export async function importBatch(
   }
 
   const agencyId = scope.agencyId;
+  // S13-F21: Free's CRM holds 100 contacts (PLAN §11). The batch's new contacts are counted against the plan quota
+  // under the agency's contact-quota lock (merges add none); a batch that would cross it is refused whole and the run
+  // fails with `PLAN_REQUIRED` — the batches before it stay imported (their counts are on the import).
+  if (created.length > 0) {
+    await billing.requireAgencyQuota(
+      tx,
+      agencyId,
+      'crm_contacts',
+      (limit) => repo.countLiveContactsUpTo(tx, agencyId, limit),
+      created.length,
+    );
+  }
   await repo.insertContacts(
     tx,
     created.map((t) => ({
@@ -615,6 +633,8 @@ export async function runContactImport(
       await flush();
     } catch (err) {
       if (isSheetError(err)) return await finish(p, key, 'FAILED', err.code);
+      // S13-F21: over the plan's contacts: not retried (the plan decides), the import says why.
+      if (isAppError(err) && err.code === 'PLAN_REQUIRED') return await finish(p, key, 'FAILED', 'PLAN_REQUIRED');
       throw err;
     }
     job.log.info({ importId: p.importId, rows: processed }, 'contact import finished');

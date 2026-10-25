@@ -9,6 +9,7 @@ import {
   type PlanFeature,
   PlanFeature as PlanFeatureSchema,
   type PlanGrantDto,
+  type PlanQuota,
   type PriceLockBody,
   STAFF_BILLING_LIST_LIMIT,
   type StaffAgencyBillingDto,
@@ -25,7 +26,7 @@ import { decodeCursor, toPage } from '../../pagination';
 import { billingConfig, dunningGraceMs, stripeClient } from './config';
 import { billingEvents } from './events';
 import { billingJobs } from './jobs';
-import { effectivePlan, planGate } from './plan';
+import { effectivePlan, planGate, quotaGate } from './plan';
 import { assertCan, assertStaffCan, can } from './policy';
 import * as repo from './repo';
 import { StripeError, verifyStripeSignature } from './stripe';
@@ -52,12 +53,100 @@ export async function planOf(tx: Tx, agencyId: string): Promise<repo.PlanInForce
  * S13-02: the gate of a plan feature (PLAN §11). A gated use case calls it after its policy check; without the feature
  * on the agency's plan it answers `PLAN_REQUIRED` with the cheapest plan that has it (`requiredPlan`, null when only a
  * custom plan would). Off while plans are not enforced (`BILLING_ENFORCE_PLANS`, until billing is live: H3).
+ * S13-F21: one statement when allowed (the matrix is read only to name the required plan); returns the plan in force
+ * (null when not enforced) so a quota check in the same use case reuses it (`requireQuota(…, { plan })`).
  */
-export async function requirePlan(ctx: Ctx, feature: PlanFeature): Promise<void> {
+export async function requirePlan(ctx: Ctx, feature: PlanFeature): Promise<repo.PlanInForce | null> {
+  if (!billingConfig().enforcePlans) return null;
+  const plan = await planOf(ctx.tx, ctx.tenant.agencyId);
+  if (plan.features.includes(feature)) return plan;
+  const gate = planGate(await repo.planMatrix(ctx.tx), plan.code, feature);
+  if (!gate.allowed) throw new AppError('PLAN_REQUIRED', { feature, plan: plan.code, requiredPlan: gate.requiredPlan });
+  return plan;
+}
+
+/**
+ * S13-F21: whether the agency's plan includes `feature`, for worker paths without a member (speed-to-lead): always
+ * while plans are not enforced. One statement when enforced.
+ */
+export async function hasPlanFeature(tx: Tx, agencyId: string, feature: PlanFeature): Promise<boolean> {
+  if (!billingConfig().enforcePlans) return true;
+  return (await planOf(tx, agencyId)).features.includes(feature);
+}
+
+/** What `requireQuota` is told the items in use are: a number, or a counter given the limit (it may stop there). */
+export type QuotaUsed = number | ((limit: number) => Promise<number>);
+
+/**
+ * S13-F21: the gate of a plan quota (PLAN §11: sites, social accounts, Free CRM contacts, Listing Studio listings a
+ * month). A create path calls it with the items in use — a number, or a counter given the limit (so it can stop
+ * counting there, and is not run at all when the plan has no limit for the quota) — before adding `adding` more.
+ * Over the plan's limit (plus add-on units, e.g. extra websites) it answers `PLAN_REQUIRED`
+ * `{ reason: 'quota', quota, plan, limit, requiredPlan }`. Off while plans are not enforced. Callers that can race
+ * serialise their creates (the item count and the insert in one locked section). One statement (the plan's limit and
+ * the add-on units), plus the counter; with `plan` (from `requirePlan` in the same use case) only the add-on units, and
+ * only when the plan has a limit. The matrix is read only on a refusal (to name the required plan).
+ */
+export async function requireQuota(
+  ctx: Ctx,
+  quota: PlanQuota,
+  used: QuotaUsed,
+  adding = 1,
+  opts: { plan?: repo.PlanInForce | null } = {},
+): Promise<void> {
+  await requireAgencyQuota(ctx.tx, ctx.tenant.agencyId, quota, used, adding, opts);
+}
+
+/**
+ * `requireQuota` for a tenant transaction without a member (the contact import job, `withTenant`): the same check on
+ * the agency the transaction is pinned to.
+ */
+export async function requireAgencyQuota(
+  tx: Tx,
+  agencyId: string,
+  quota: PlanQuota,
+  used: QuotaUsed,
+  adding = 1,
+  opts: { plan?: repo.PlanInForce | null } = {},
+): Promise<void> {
   if (!billingConfig().enforcePlans) return;
-  const plan = (await planOf(ctx.tx, ctx.tenant.agencyId)).code;
-  const gate = planGate(await repo.planMatrix(ctx.tx), plan, feature);
-  if (!gate.allowed) throw new AppError('PLAN_REQUIRED', { feature, plan, requiredPlan: gate.requiredPlan });
+  const now = clock.now();
+  let q: { code: string; limit: number | undefined; extra: number };
+  if (opts.plan) {
+    const base = opts.plan.limits[quota];
+    q = {
+      code: opts.plan.code,
+      limit: base,
+      extra: base === undefined ? 0 : await repo.addonQuotaUnits(tx, agencyId, quota, graceStart(now)),
+    };
+  } else {
+    q = await repo.quotaInForce(tx, agencyId, quota, now, graceStart(now));
+  }
+  if (q.limit === undefined) return;
+  const limit = q.limit + q.extra;
+  const n = typeof used === 'number' ? used : await used(limit);
+  if (n + adding <= limit) return;
+  const gate = quotaGate(await repo.planMatrix(tx), q.code, quota, n + adding, q.extra);
+  throw new AppError('PLAN_REQUIRED', {
+    reason: 'quota',
+    quota,
+    plan: q.code,
+    limit,
+    requiredPlan: gate.allowed ? null : gate.requiredPlan,
+  });
+}
+
+/** What the live subscription's add-ons add (`perUnit` per add-on code × quantity); 0 on Free or without add-ons. */
+async function addonUnits(
+  tx: Tx,
+  agencyId: string,
+  now: Date,
+  perUnit: (codes: string[]) => Promise<Map<string, number>>,
+): Promise<number> {
+  const sub = await repo.subscriptionOf(tx, agencyId);
+  if (!sub || effectivePlan(sub, graceStart(now)) === FREE_PLAN || sub.addons.length === 0) return 0;
+  const units = await perUnit(sub.addons.map((a) => a.code));
+  return sub.addons.reduce((n, a) => n + (units.get(a.code) ?? 0) * a.quantity, 0);
 }
 
 /**
@@ -86,15 +175,7 @@ async function seatLimit(tx: Tx, agencyId: string): Promise<{ plan: string; seat
   const now = clock.now();
   const plan = await repo.planInForce(tx, agencyId, now, graceStart(now));
   if (plan.seats === null) return { plan: plan.code, seats: null };
-  const sub = await repo.subscriptionOf(tx, agencyId);
-  if (!sub || effectivePlan(sub, graceStart(now)) === FREE_PLAN || sub.addons.length === 0) {
-    return { plan: plan.code, seats: plan.seats };
-  }
-  const perUnit = await repo.addonSeats(
-    tx,
-    sub.addons.map((a) => a.code),
-  );
-  const extra = sub.addons.reduce((n, a) => n + (perUnit.get(a.code) ?? 0) * a.quantity, 0);
+  const extra = await addonUnits(tx, agencyId, now, (codes) => repo.addonSeats(tx, codes));
   return { plan: plan.code, seats: plan.seats + extra };
 }
 

@@ -13,6 +13,7 @@ import {
   loadConfig,
   mediaCdnEnv,
   networkEnv,
+  planEnv,
   rateLimitEnv,
   redisEnv,
   searchEnv,
@@ -38,6 +39,8 @@ export const publicEnv = {
   /** Embed lead forms (S7-F8 → S7-05 intake). Unset: forms are refused. */
   DATABASE_URL_APP_INTAKE: databaseEnv.DATABASE_URL_APP_INTAKE,
   REDIS_CACHE_URL: redisEnv.REDIS_CACHE_URL,
+  /** S13-F21: plans enforced: an embedded site past its plan cut-off answers 402. */
+  BILLING_ENFORCE_PLANS: planEnv.BILLING_ENFORCE_PLANS,
   ...rateLimitEnv,
   MEILI_URL: searchEnv.MEILI_URL,
   MEILI_SEARCH_KEY: searchEnv.MEILI_SEARCH_KEY,
@@ -102,6 +105,8 @@ async function setup(): Promise<PublicConfig> {
       ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
       : null,
     embedOrigin: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+    // S13-F21: the website API cut-off of a site whose plan lost it applies only while plans are enforced.
+    enforcePlans: config.BILLING_ENFORCE_PLANS === 'true',
   });
   // S12-04: selection pages find their selection by the token's HMAC (HMAC_KEY), like the API that made the link.
   presentations.configurePresentations({

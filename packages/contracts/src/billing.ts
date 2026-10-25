@@ -57,6 +57,15 @@ export const PlanFeature = z.enum([
 ]);
 export type PlanFeature = z.infer<typeof PlanFeature>;
 
+/**
+ * S13-F21: counted plan quotas (PLAN §11). The keys are code; each plan's limit is catalog data
+ * (`billing-catalog.json` `limits`; a key a plan does not list has no limit; an add-on's value is what one unit adds).
+ * A create path calls `billing.requireQuota(ctx, quota, used)`: over the limit it answers `PLAN_REQUIRED`
+ * (`{ reason: 'quota', quota, plan, limit, requiredPlan }`).
+ */
+export const PlanQuota = z.enum(['sites', 'social_accounts', 'crm_contacts', 'studio_listings_month']);
+export type PlanQuota = z.infer<typeof PlanQuota>;
+
 /** S13-02: what put an agency on a plan without a subscription — a trial, or a staff grant (founding, pilot, support). */
 export const PlanGrantKind = z.enum(['TRIAL', 'STAFF']);
 export type PlanGrantKind = z.infer<typeof PlanGrantKind>;

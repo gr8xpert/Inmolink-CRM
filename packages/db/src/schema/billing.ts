@@ -64,6 +64,11 @@ export const billingCatalogItems = pgTable(
     seatsIncluded: integer('seats_included'),
     /** S13-02: the gated features a plan includes (`PlanFeature` keys; PLAN §11 matrix as data). */
     features: text('features').array().notNull().default(sql`'{}'::text[]`),
+    /**
+     * S13-F21: per-plan quotas (PLAN §11 as data, `PlanQuota` keys → a count): a plan's limit, or what one unit of an
+     * add-on adds (extra website). A key a plan does not list has no limit. Read whole, never filtered on.
+     */
+    limits: jsonb('limits').$type<Record<string, number>>().notNull().default({}),
     /** Display order of plans (lower first). */
     rank: integer('rank').notNull().default(0),
     active: boolean('active').notNull().default(true),

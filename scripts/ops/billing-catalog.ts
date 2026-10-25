@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { BillingCurrency, BillingInterval, CatalogCode, PlanFeature } from '@inmolink/contracts';
+import { BillingCurrency, BillingInterval, CatalogCode, PlanFeature, PlanQuota } from '@inmolink/contracts';
 import { z } from 'zod';
 
 /** The plan catalog file's shape (S13-01, `scripts/ops/billing-catalog.json`): prices are data, never code. */
@@ -15,6 +15,11 @@ export const CatalogFile = z.object({
           rank: z.number().int().min(0).max(10_000),
           /** S13-02: the gated features a plan includes (the plan matrix as data). */
           features: z.array(PlanFeature).max(100).optional(),
+          /**
+           * S13-F21: quotas (`PlanQuota` → a count): a plan's limits (a quota not listed has no limit), or what one unit
+           * of an add-on adds (extra website → sites).
+           */
+          limits: z.partialRecord(PlanQuota, z.number().int().min(0).max(1_000_000)).optional(),
           /** S13-F19: the Stripe Tax product tax code (`txcd_…`) sent on the Stripe product; null/absent: the account's preset. */
           taxCode: z
             .string()
