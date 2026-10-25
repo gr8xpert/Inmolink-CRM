@@ -1,0 +1,72 @@
+{
+  "title": "Selections",
+  "intro": "Share a live page of chosen properties with a client. Prices and status update by themselves; you see the views, likes and enquiries.",
+  "new": "New selection",
+  "back": "All selections",
+  "empty": "No selections yet. Create one from a bookmark folder.",
+  "next": "Older selections",
+  "fromFolder": "Create a selection from this folder",
+  "statuses": { "LIVE": "Live", "EXPIRED": "Expired", "REVOKED": "Revoked" },
+  "kinds": {
+    "VIEW": "Viewed the page",
+    "LIKE": "Liked a property",
+    "UNLIKE": "Removed a like",
+    "ENQUIRE": "Sent an enquiry"
+  },
+  "columns": {
+    "title": "Title",
+    "status": "Status",
+    "items": "Properties",
+    "views": "Views",
+    "lastViewed": "Last viewed",
+    "created": "Created"
+  },
+  "stats": { "views": "Views", "likes": "Likes", "enquiries": "Enquiries" },
+  "create": {
+    "title": "New selection",
+    "intro": "Pick a bookmark folder, or paste the ids of the listings from your search results.",
+    "name": "Title",
+    "folder": "Bookmark folder",
+    "noFolder": "No folder: use the listing ids below",
+    "listingIds": "Listing ids",
+    "listingIdsHint": "Comma-separated. Ignored when a folder is chosen.",
+    "message": "Message for the client (optional)",
+    "locale": "Client's language",
+    "days": "Link valid for (days)",
+    "submit": "Create selection",
+    "open": "Open the selection"
+  },
+  "share": {
+    "title": "Share with your client",
+    "once": "This link is shown only now. Copy or send it before you leave this page.",
+    "link": "Selection link",
+    "open": "Open the page",
+    "whatsapp": "Share on WhatsApp",
+    "email": "Share by e-mail"
+  },
+  "detail": {
+    "expires": "valid until {when}",
+    "tokenHint": "link ending …{hint}",
+    "items": "Properties",
+    "item": "Property",
+    "activity": "Latest activity",
+    "noActivity": "The client has not opened the page yet.",
+    "manage": "Link",
+    "rotate": "Make a new link",
+    "rotateHint": "A new link replaces the old one: the old link stops working at once.",
+    "revoke": "Revoke the link"
+  },
+  "notices": { "revoked": "The link no longer works." },
+  "errors": {
+    "generic": "Something went wrong. Try again.",
+    "FORBIDDEN": "You are not allowed to do this.",
+    "SELECTION_NOT_FOUND": "This selection does not exist.",
+    "SELECTION_GONE": "This selection is no longer available.",
+    "SELECTION_ITEMS_INVALID": "None of these properties can be shown to a client, or there are too many.",
+    "BOOKMARK_FOLDER_NOT_FOUND": "This bookmark folder does not exist.",
+    "CONTACT_NOT_FOUND": "This contact does not exist.",
+    "VALIDATION_FAILED": "Check the title, the language and the folder or listing ids.",
+    "VERSION_CONFLICT": "Someone changed this selection. Reload the page and try again.",
+    "RATE_LIMITED": "Too many requests. Wait a moment."
+  }
+}

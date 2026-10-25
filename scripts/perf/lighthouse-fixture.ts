@@ -4,6 +4,7 @@
 // their read models as processed images (the media pipeline itself is not part of this measurement).
 import { CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
 import { closeDb, withMemberCtx } from '@inmolink/core';
+import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
@@ -15,6 +16,7 @@ import { newId } from '@inmolink/platform/ids';
 import { configureStorage, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
+import { testStackEnv } from '../../tests/e2e/stack';
 
 const DESCRIPTION = [
   'A bright villa a short walk from the beach, with sea views from the terrace and the main bedroom.',
@@ -22,7 +24,12 @@ const DESCRIPTION = [
   'Upstairs, three bedrooms share two bathrooms. Parking for two cars, storage room and air conditioning throughout.',
 ].join('\n\n');
 
-export async function seedEmbedFixture(): Promise<{ siteId: string; ref: string; close: () => Promise<void> }> {
+export async function seedEmbedFixture(): Promise<{
+  siteId: string;
+  ref: string;
+  selectionPath: string;
+  close: () => Promise<void>;
+}> {
   const run = newId().slice(-8);
   await setupTestDb('worker');
   await configureCache({ prefix: `perf:lighthouse:${run}` });
@@ -123,9 +130,21 @@ export async function seedEmbedFixture(): Promise<{ siteId: string; ref: string;
     }),
   );
   const ref = (await as(a, (ctx) => properties.getListing(ctx, listingIds[0] as string))).ref as string;
+  // The key the public app (same test env) hashes and looks the token up with.
+  presentations.configurePresentations({ tokenKey: testStackEnv().HMAC_KEY as string });
+  // S13-F13: a selection of own and network listings, as its public page `/s/<token>` shows it.
+  const selection = await as(a, (ctx) =>
+    presentations.createSelection(ctx, {
+      title: 'Villas for you',
+      message: 'A few homes I think you will like.',
+      locale: 'en',
+      items: listingIds.slice(0, 4).map((targetId) => ({ targetId })),
+    }),
+  );
   return {
     siteId: site.id,
     ref,
+    selectionPath: selection.share.path,
     close: async () => {
       await closeCache();
       await closeDb();

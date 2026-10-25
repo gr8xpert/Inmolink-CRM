@@ -30,6 +30,7 @@ export default async function BookmarksPage(props: { searchParams: Promise<Recor
   const res = await fetchBookmarksPage(sessionRef(session.user), folderId, cursor);
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('listings');
+  const ts = await getTranslations('selections');
   const format = await getFormatter();
   const messages = (await getMessages()) as unknown as { listings: Record<string, unknown> };
   const names = listingTaxonomy(res.taxonomy);
@@ -120,6 +121,14 @@ export default async function BookmarksPage(props: { searchParams: Promise<Recor
                 ))}
               </ul>
             )}
+            {current && items.length > 0 ? (
+              <Link
+                href={`/selections/new?folder=${current.id}`}
+                className="self-start text-sm font-medium underline-offset-4 hover:underline"
+              >
+                {ts('fromFolder')}
+              </Link>
+            ) : null}
             {current && next ? (
               <Link
                 href={`/bookmarks?folder=${current.id}&cursor=${next}`}

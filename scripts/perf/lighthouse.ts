@@ -5,7 +5,7 @@
 // - With `--url` (repeatable): audits those pages as they are served (staging: the iFrame embed search and detail).
 // - Without: a local run — seeds an IFRAME site with own and network listings into the docker `test` stack, starts
 //   the production build of apps/public (`pnpm --filter @inmolink/app-public build` first) on a loopback port with the
-//   test env, and audits its embed search and detail pages. Search answers from the Postgres fallback there (the test
+//   test env, and audits its embed search and detail pages and a selection page (`/s/<token>`). Search answers from the Postgres fallback there (the test
 //   Meilisearch has no index of the seeded listings); the listings' photos are served by the test MinIO (no CDN).
 //   Staging numbers (behind the CDN) are the reference.
 //
@@ -101,7 +101,12 @@ async function localTarget(): Promise<{ urls: string[]; stop: () => Promise<void
   });
   await waitFor(`${base}/healthz`, 60_000);
   return {
-    urls: [`${base}/embed/${fixture.siteId}/en`, `${base}/embed/${fixture.siteId}/en/listing/${fixture.ref}`],
+    urls: [
+      `${base}/embed/${fixture.siteId}/en`,
+      `${base}/embed/${fixture.siteId}/en/listing/${fixture.ref}`,
+      // S13-F13: the selection page a client opens from the agent's link.
+      `${base}${fixture.selectionPath}`,
+    ],
     stop: async () => {
       server.kill();
       await fixture.close();

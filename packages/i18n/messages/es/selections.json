@@ -1,0 +1,72 @@
+{
+  "title": "Selecciones",
+  "intro": "Comparte con un cliente una página en vivo de inmuebles elegidos. Los precios y el estado se actualizan solos; tú ves las visitas, los me gusta y las consultas.",
+  "new": "Nueva selección",
+  "back": "Todas las selecciones",
+  "empty": "Aún no hay selecciones. Crea una desde una carpeta de favoritos.",
+  "next": "Selecciones anteriores",
+  "fromFolder": "Crear una selección con esta carpeta",
+  "statuses": { "LIVE": "Activa", "EXPIRED": "Caducada", "REVOKED": "Revocada" },
+  "kinds": {
+    "VIEW": "Abrió la página",
+    "LIKE": "Marcó un inmueble como favorito",
+    "UNLIKE": "Quitó un me gusta",
+    "ENQUIRE": "Envió una consulta"
+  },
+  "columns": {
+    "title": "Título",
+    "status": "Estado",
+    "items": "Inmuebles",
+    "views": "Visitas",
+    "lastViewed": "Última visita",
+    "created": "Creada"
+  },
+  "stats": { "views": "Visitas", "likes": "Me gusta", "enquiries": "Consultas" },
+  "create": {
+    "title": "Nueva selección",
+    "intro": "Elige una carpeta de favoritos o pega los identificadores de los anuncios de tu búsqueda.",
+    "name": "Título",
+    "folder": "Carpeta de favoritos",
+    "noFolder": "Sin carpeta: usar los identificadores de abajo",
+    "listingIds": "Identificadores de anuncios",
+    "listingIdsHint": "Separados por comas. Se ignoran si eliges una carpeta.",
+    "message": "Mensaje para el cliente (opcional)",
+    "locale": "Idioma del cliente",
+    "days": "Enlace válido (días)",
+    "submit": "Crear selección",
+    "open": "Abrir la selección"
+  },
+  "share": {
+    "title": "Comparte con tu cliente",
+    "once": "Este enlace solo se muestra ahora. Cópialo o envíalo antes de salir de esta página.",
+    "link": "Enlace de la selección",
+    "open": "Abrir la página",
+    "whatsapp": "Compartir por WhatsApp",
+    "email": "Compartir por correo"
+  },
+  "detail": {
+    "expires": "válida hasta {when}",
+    "tokenHint": "enlace terminado en …{hint}",
+    "items": "Inmuebles",
+    "item": "Inmueble",
+    "activity": "Última actividad",
+    "noActivity": "El cliente aún no ha abierto la página.",
+    "manage": "Enlace",
+    "rotate": "Generar un enlace nuevo",
+    "rotateHint": "Un enlace nuevo sustituye al anterior: el enlace antiguo deja de funcionar al instante.",
+    "revoke": "Revocar el enlace"
+  },
+  "notices": { "revoked": "El enlace ya no funciona." },
+  "errors": {
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "FORBIDDEN": "No tienes permiso para hacerlo.",
+    "SELECTION_NOT_FOUND": "Esta selección no existe.",
+    "SELECTION_GONE": "Esta selección ya no está disponible.",
+    "SELECTION_ITEMS_INVALID": "Ninguno de estos inmuebles se puede mostrar a un cliente, o son demasiados.",
+    "BOOKMARK_FOLDER_NOT_FOUND": "Esta carpeta de favoritos no existe.",
+    "CONTACT_NOT_FOUND": "Este contacto no existe.",
+    "VALIDATION_FAILED": "Revisa el título, el idioma y la carpeta o los identificadores.",
+    "VERSION_CONFLICT": "Alguien ha cambiado esta selección. Recarga la página e inténtalo de nuevo.",
+    "RATE_LIMITED": "Demasiadas peticiones. Espera un momento."
+  }
+}

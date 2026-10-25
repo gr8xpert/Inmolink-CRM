@@ -18,6 +18,7 @@ import type notifications from '../messages/en/notifications.json';
 import type onboarding from '../messages/en/onboarding.json';
 import type portals from '../messages/en/portals.json';
 import type security from '../messages/en/security.json';
+import type selections from '../messages/en/selections.json'; // S13-F13
 import type shell from '../messages/en/shell.json';
 import type social from '../messages/en/social.json';
 import type staff from '../messages/en/staff.json';
@@ -54,6 +55,7 @@ export interface Messages {
   onboarding: typeof onboarding;
   portals: typeof portals;
   security: typeof security;
+  selections: typeof selections; // S13-F13
   shell: typeof shell;
   'staff-access': typeof staffAccess;
   staff: typeof staff;
