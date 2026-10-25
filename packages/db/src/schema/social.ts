@@ -54,6 +54,12 @@ export const socialAccounts = pgTable(
     tokenEnc: text('token_enc').notNull(),
     /** `platform/crypto` envelope of the long-lived user token (to refresh the Page token); null: none kept. */
     userTokenEnc: text('user_token_enc'),
+    /**
+     * S13-F5: the Meta user whose login connected it (app-scoped id from `GET /me`): the app's grant at Meta is revoked
+     * only when the last non-disconnected account of that user, in any agency, goes. Null: connected before S13-F5 (never
+     * revoked). Hidden from `app_user` like the tokens.
+     */
+    metaUserId: text('meta_user_id'),
     /** When the user token expires (Meta's `expires_in`); null: unknown or never. */
     tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
     status: socialAccountStatusEnum('status').notNull().default('ACTIVE'),
@@ -74,7 +80,10 @@ export const socialAccounts = pgTable(
     index('social_accounts_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
     // the token check sweep: where status = 'ACTIVE' order by token_expires_at
     index('social_accounts_expiry_idx').on(t.tokenExpiresAt).where(sql`${t.status} = 'ACTIVE'`),
+    // S13-F5: the revoke job's check across agencies: where meta_user_id = ? and status_reason is distinct from ?
+    index('social_accounts_meta_user_idx').on(t.metaUserId).where(sql`${t.metaUserId} is not null`),
     check('social_accounts_external_ck', sql`length(${t.externalId}) between 1 and 64`),
+    check('social_accounts_meta_user_ck', sql`${t.metaUserId} is null or length(${t.metaUserId}) between 1 and 64`),
     check('social_accounts_name_ck', sql`length(${t.name}) between 1 and 200`),
   ],
 );

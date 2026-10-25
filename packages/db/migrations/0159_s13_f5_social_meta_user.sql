@@ -1,0 +1,3 @@
+ALTER TABLE "social_accounts" ADD COLUMN "meta_user_id" text;--> statement-breakpoint
+CREATE INDEX "social_accounts_meta_user_idx" ON "social_accounts" USING btree ("meta_user_id") WHERE "social_accounts"."meta_user_id" is not null;--> statement-breakpoint
+ALTER TABLE "social_accounts" ADD CONSTRAINT "social_accounts_meta_user_ck" CHECK ("social_accounts"."meta_user_id" is null or length("social_accounts"."meta_user_id") between 1 and 64);

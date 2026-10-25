@@ -22,6 +22,8 @@ export interface FakeGraph {
   origin: string;
   app: MetaAppConfig;
   calls: GraphCall[];
+  /** The Meta user `GET /me` answers with (S13-F5). */
+  userId: string;
   pages: {
     id: string;
     name: string;
@@ -39,7 +41,7 @@ export async function startFakeGraph(): Promise<FakeGraph> {
   const calls: GraphCall[] = [];
   const failures: { match: (c: GraphCall) => boolean; failure: GraphFailure; left: number }[] = [];
   let seq = 1_000;
-  const fake: Partial<FakeGraph> = { calls, pages: [] };
+  const fake: Partial<FakeGraph> = { calls, userId: '7000000001', pages: [] };
 
   const answer = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json' });
@@ -77,6 +79,7 @@ export async function startFakeGraph(): Promise<FakeGraph> {
           return answer(res, 200, { access_token: `long-${seq++}`, token_type: 'bearer', expires_in: 5_184_000 });
         }
       }
+      if (path === '/me' && req.method === 'GET') return answer(res, 200, { id: fake.userId });
       if (path === '/me/accounts') return answer(res, 200, { data: fake.pages });
       if (path === '/me/permissions' && req.method === 'DELETE') return answer(res, 200, { success: true });
       const m = /^\/(\d+)\/(photos|feed|media|media_publish)$/.exec(path);

@@ -13,12 +13,16 @@ import { publishPost, sweepDuePosts } from './publish';
  * - `social.checkAccounts` (pool `social`, every 6 hours): refreshes tokens before they expire; marks the ones Meta
  *   refuses as needing reconnection (`accounts.ts`).
  * - `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event): deletes the disconnected
- *   account, its posts and tokens (`accounts.ts`; revoking at Meta is a follow-up).
+ *   account, its posts and tokens, and revokes the app's grant at Meta with the Meta user's last account
+ *   (`accounts.ts`, S13-F5).
  * - `social.notifyReconnect` (pool `realtime`, one per `social.account.needsReconnect` event, job ID = the event's id):
  *   the admins' `SOCIAL_ACCOUNT_RECONNECT` notification.
  * - `social.generateCaptions` (pool `ai`, one per `social.captions.requested` event, job ID = the request's id): AI
  *   captions per language (`captions.ts`).
  */
+/** S13-F5: on its last attempt a Meta outage no longer keeps the disconnected account (and its tokens). */
+const REVOKE_ATTEMPTS = 5;
+
 export const socialJobs = {
   sweepDuePosts: defineJob({
     name: 'social.sweepDuePosts',
@@ -72,11 +76,11 @@ export const socialJobs = {
     payload: z.object({ agencyId: z.uuid(), accountId: z.uuid() }),
     jobId: (p) => `social.revokeAccount:${p.accountId}`,
     group: (p) => p.agencyId,
-    attempts: 5,
+    attempts: REVOKE_ATTEMPTS,
     backoff: { type: 'exponential', delay: 10_000 },
     timeoutMs: 60_000,
-    async run(p) {
-      return revokeAccount(p);
+    async run(p, { attempt }) {
+      return revokeAccount(p, { lastAttempt: attempt >= REVOKE_ATTEMPTS });
     },
   }),
 

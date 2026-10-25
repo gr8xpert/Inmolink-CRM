@@ -534,7 +534,8 @@ export const tenantTables: Record<string, TenantTable> = {
   social_accounts: {
     kind: 'STRICT',
     base: { platform: 'FACEBOOK_PAGE', external_id: '1234567', name: 'Isolation', token_enc: 'x' },
-    hiddenColumns: ['token_enc', 'user_token_enc'],
+    // S13-F5: the Meta user id too (the revoke job reads it as app_system).
+    hiddenColumns: ['token_enc', 'user_token_enc', 'meta_user_id'],
   },
   social_posts: { kind: 'STRICT', base: { locale: 'en', media_ids: '{01900000-0000-7000-8000-000000000001}' } },
   // S13-01: billing. The Stripe customer is written by the member starting a checkout; the subscription and invoices

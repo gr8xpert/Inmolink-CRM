@@ -702,22 +702,178 @@ describe('S12-07 review', () => {
       { type: 'social.post.cancelled', metadata: {} },
     ]);
 
-    // Disconnected: hidden at once, then deleted with its posts by the job. Meta is not called (the login may serve
-    // other agencies' connections: revoking there is a follow-up).
+    // Disconnected: hidden at once, then deleted with its posts by the job. Meta is not called: the same login's
+    // Instagram account is still connected (S13-F5 revokes only with the Meta user's last account).
     graph.calls.length = 0;
     await as(a, (ctx) => social.disconnectSocialAccount(ctx, page.id));
     expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).not.toContain(page.id);
     expect(await countEvents('social.account.disconnected', 'accountId', page.id)).toBe(1);
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({ deleted: true });
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({
+      deleted: true,
+      revoked: false,
+    });
     expect(await postRow(post.id)).toBeUndefined();
     // Run again (a redelivered event): nothing more. The Instagram account is untouched.
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({ deleted: false });
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({
+      deleted: false,
+      revoked: false,
+    });
     expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).toContain(ig.id);
     // Connected again before the job ran: kept.
     await as(a, (ctx) => social.disconnectSocialAccount(ctx, ig.id));
     await connect(a);
-    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({ deleted: false });
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).toEqual({
+      deleted: false,
+      revoked: false,
+    });
     expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items.map((i) => i.id)).toContain(ig.id);
     expect(graph.calls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+});
+
+describe('S13-F5 revoking the Meta grant', () => {
+  let users = 0;
+  /** A Meta user of its own for this run: rows left by earlier runs never count as its live accounts. */
+  const metaUser = () => `7${Date.now()}${users++}`;
+  const revokes = () => graph.calls.filter((c) => c.method === 'DELETE' && c.path === '/me/permissions');
+  const pageOf = (items: Awaited<ReturnType<typeof connect>>['items'], platform: string) =>
+    items.find((i) => i.platform === platform) as (typeof items)[number];
+  const disconnectAll = async (m: Founder, items: Awaited<ReturnType<typeof connect>>['items']) => {
+    for (const i of items) await as(m, (ctx) => social.disconnectSocialAccount(ctx, i.id));
+  };
+
+  it('[S13-F5] another agency’s account with the same Meta user keeps working; the last account of that user revokes once', async () => {
+    const b = await createFounder();
+    await setAgencyStatus(b.agencyId, 'VERIFIED');
+    await enable(b, true);
+    const user = metaUser();
+    graph.userId = user;
+    const ofA = (await connect(a)).items;
+    const ofB = (await connect(b)).items;
+    // The Meta user is stored with each account, hidden from the request role like the tokens.
+    const stored = await system(
+      async (tx) =>
+        (
+          await tx.execute<{ meta_user_id: string | null }>(
+            sql`select meta_user_id from social_accounts where agency_id in (${a.agencyId}::uuid, ${b.agencyId}::uuid)`,
+          )
+        ).rows,
+    );
+    expect(stored.map((r) => r.meta_user_id)).toEqual([user, user, user, user]);
+    await expect(
+      as(a, (ctx) => ctx.tx.execute(sql`select meta_user_id from social_accounts where agency_id = ${a.agencyId}`)),
+    ).rejects.toThrow();
+
+    // Agency a disconnects both its accounts: deleted, but b still uses the same login, so the grant stays.
+    graph.calls.length = 0;
+    await disconnectAll(a, ofA);
+    for (const i of ofA) {
+      expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id })).toEqual({
+        deleted: true,
+        revoked: false,
+      });
+    }
+    expect(revokes()).toHaveLength(0);
+    // b's accounts are untouched and still publish.
+    const listed = (await as(b, (ctx) => social.listSocialAccounts(ctx))).items;
+    expect(listed.map((i) => [i.id, i.status])).toEqual(ofB.map((i) => [i.id, 'ACTIVE']));
+    const l = await listing(b, 1);
+    const at = new Date(Date.now() + 60_000);
+    const post = await as(b, (ctx) =>
+      social.createSocialPost(ctx, {
+        accountId: pageOf(ofB, 'FACEBOOK_PAGE').id,
+        listingId: l.id,
+        locale: 'en',
+        caption: 'Still connected',
+        scheduledAt: at.toISOString(),
+      }),
+    );
+    await social.sweepDuePosts({ now: new Date(at.getTime() + 1_000) });
+    const due = await latestEvent('social.post.due', 'postId', post.id);
+    const job = { postId: post.id, agencyId: b.agencyId, claimedAtMs: Number(due?.payload.claimedAtMs) };
+    expect((await social.publishPost(job)).outcome).toBe('PUBLISHED');
+
+    // b disconnects both: the Page's job finds the Instagram account (waiting for its own job) and only deletes; the
+    // user's last account revokes the grant, once — with that account's user token, never a Page token.
+    await disconnectAll(b, ofB);
+    const [first, last] = [pageOf(ofB, 'FACEBOOK_PAGE'), pageOf(ofB, 'INSTAGRAM_BUSINESS')];
+    expect(await social.revokeAccount({ agencyId: b.agencyId, accountId: first.id })).toEqual({
+      deleted: true,
+      revoked: false,
+    });
+    expect(revokes()).toHaveLength(0);
+    expect(await social.revokeAccount({ agencyId: b.agencyId, accountId: last.id })).toEqual({
+      deleted: true,
+      revoked: true,
+    });
+    expect(revokes()).toHaveLength(1);
+    expect(revokes()[0]?.fields.access_token).toMatch(/^long-\d+$/);
+    expect(revokes()[0]?.fields.appsecret_proof).toMatch(/^[0-9a-f]{64}$/);
+    expect(revokes()[0]?.fields.__secretInUrl).toBeUndefined();
+    // A redelivered event: nothing left, nothing revoked again.
+    expect(await social.revokeAccount({ agencyId: b.agencyId, accountId: last.id })).toEqual({
+      deleted: false,
+      revoked: false,
+    });
+    expect(revokes()).toHaveLength(1);
+  });
+
+  it('[S13-F5] a Meta outage retries the revoke and the last attempt deletes anyway; a refused token or an account without a Meta user deletes without revoking', async () => {
+    // Outage: the job throws (it retries) and keeps the account; on its last attempt it deletes it.
+    graph.userId = metaUser();
+    let items = (await connect(a)).items;
+    await disconnectAll(a, items);
+    const [page, ig] = [pageOf(items, 'FACEBOOK_PAGE'), pageOf(items, 'INSTAGRAM_BUSINESS')];
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: page.id })).toEqual({
+      deleted: true,
+      revoked: false,
+    });
+    const down = { status: 503, body: { error: { message: 'Service unavailable', code: 2 } } };
+    const isRevoke = (c: { method: string; path: string }) => c.method === 'DELETE' && c.path === '/me/permissions';
+    graph.failWith(isRevoke, down);
+    await expect(social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id })).rejects.toMatchObject({
+      kind: 'UNAVAILABLE',
+    });
+    graph.failWith(isRevoke, down);
+    expect(await social.revokeAccount({ agencyId: a.agencyId, accountId: ig.id }, { lastAttempt: true })).toEqual({
+      deleted: true,
+      revoked: false,
+    });
+
+    // Meta already refuses the user token: nothing left to revoke, deleted.
+    graph.userId = metaUser();
+    items = (await connect(a)).items;
+    await disconnectAll(a, items);
+    graph.failWith(isRevoke, EXPIRED_TOKEN);
+    const results = [];
+    for (const i of items) results.push(await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id }));
+    expect(results).toEqual([
+      { deleted: true, revoked: false },
+      { deleted: true, revoked: false },
+    ]);
+
+    // Both accounts' jobs at once: they take turns on the user's accounts, so one of them revokes.
+    graph.userId = metaUser();
+    items = (await connect(a)).items;
+    await disconnectAll(a, items);
+    graph.calls.length = 0;
+    const together = await Promise.all(
+      items.map((i) => social.revokeAccount({ agencyId: a.agencyId, accountId: i.id })),
+    );
+    expect(together.map((r) => r.deleted)).toEqual([true, true]);
+    expect(together.filter((r) => r.revoked)).toHaveLength(1);
+    expect(revokes()).toHaveLength(1);
+
+    // Connected before S13-F5 (no Meta user stored): never revoked — it may share a login with other agencies.
+    graph.userId = metaUser();
+    items = (await connect(a)).items;
+    await system((tx) =>
+      tx.execute(sql`update social_accounts set meta_user_id = null where agency_id = ${a.agencyId}`),
+    );
+    await disconnectAll(a, items);
+    graph.calls.length = 0;
+    for (const i of items) await social.revokeAccount({ agencyId: a.agencyId, accountId: i.id });
+    expect(revokes()).toHaveLength(0);
+    expect((await as(a, (ctx) => social.listSocialAccounts(ctx))).items).toHaveLength(0);
   });
 });

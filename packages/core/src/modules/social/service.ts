@@ -212,8 +212,11 @@ export async function completeSocialConnect(
   });
   let userToken: { accessToken: string; expiresIn: number | null };
   let pages: MetaPage[];
+  let metaUserId: string;
   try {
     userToken = await client.userTokenFromCode(input.code);
+    // S13-F5: whose login this is — the grant at Meta is revoked only with that user's last account.
+    metaUserId = await client.userId(userToken.accessToken);
     pages = await client.pages(userToken.accessToken);
   } catch (err) {
     connectError(err);
@@ -258,6 +261,7 @@ export async function completeSocialConnect(
           tokenEnc: pageTokenCipher.encrypt(agencyId, id, w.token),
           userTokenEnc: userTokenCipher.encrypt(agencyId, id, userToken.accessToken),
           tokenExpiresAt: expiresAt,
+          metaUserId,
           connectedBy: ctx.actor.userId,
         },
         now,
@@ -274,7 +278,8 @@ export async function completeSocialConnect(
 
 /**
  * `DELETE /v1/social/accounts/:accountId`: the account is hidden at once and stops publishing; a worker job deletes it
- * with its posts and tokens (`social.revokeAccount`; revoking at Meta is a follow-up). Audited.
+ * with its posts and tokens (`social.revokeAccount`; S13-F5: it also revokes the app's grant at Meta when this was the
+ * Meta user's last account). Audited.
  */
 export async function disconnectSocialAccount(ctx: Ctx, accountId: string): Promise<void> {
   assertCan(ctx, 'social.manage');

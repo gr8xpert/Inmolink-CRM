@@ -1811,7 +1811,7 @@ do $$
 declare cols text;
 begin
   select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."social_accounts"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_enc', 'user_token_enc']);
+   where attrelid = 'public."social_accounts"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['token_enc', 'user_token_enc', 'meta_user_id']);
   execute format('grant select (%s) on table public."social_accounts" to app_user', cols);
 end $$;
 grant insert, update, delete on table public."social_accounts" to app_user;

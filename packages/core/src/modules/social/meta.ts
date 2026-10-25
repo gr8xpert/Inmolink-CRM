@@ -106,6 +106,12 @@ export class MetaGraphClient {
     return { accessToken: tokenOf(res), expiresIn };
   }
 
+  /** The id of the user of `userToken` (app-scoped; S13-F5: stored with the accounts its login connects). */
+  async userId(userToken: string): Promise<string> {
+    const res = await this.#get('/me', { fields: 'id', appsecret_proof: this.#proof(userToken) }, userToken);
+    return idOf(res.id);
+  }
+
   /** The Pages the user manages, with their Page tokens and the Instagram Business account of each (at most 100). */
   async pages(userToken: string): Promise<MetaPage[]> {
     const res = await this.#get(
@@ -204,8 +210,8 @@ export class MetaGraphClient {
   }
 
   /**
-   * Removes the app's permissions for the user of `userToken`: the app can post nothing for that user any more. Not
-   * called yet — the user may have connected Pages in other agencies (TODO in `accounts.ts`, `revokeAccount`).
+   * Removes the app's permissions for the user of `userToken`: the app can post nothing for that user any more, in any
+   * agency — `social.revokeAccount` calls it only for the user's last connected account (S13-F5).
    */
   async revokePermissions(userToken: string): Promise<void> {
     const u = new URL(this.#url('/me/permissions'));

@@ -109,21 +109,52 @@ export async function notifyReconnect(p: {
 }
 
 /**
- * `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event, S12-07 review): the disconnected
- * account and its posts are deleted — its tokens leave our side with it. An account connected again before the job ran
- * is left as it is; a redelivered event finds nothing to delete.
+ * `social.revokeAccount` (pool `social`, one per `social.account.disconnected` event, S12-07 review, S13-F5): the
+ * disconnected account and its posts are deleted — its tokens leave our side with it. An account connected again
+ * before the job ran is left as it is; a redelivered event finds nothing to delete (and revokes nothing).
  *
- * TODO(S12-07 follow-up): also revoke the app's access at Meta. `DELETE /me/permissions` acts on the Meta *user*, whose
- * login may have connected Pages in other agencies too (and refreshed tokens differ, so tokens cannot be compared):
- * it would cut those connections off. Store the Meta user id at connect (migration), then revoke only when no
- * non-disconnected account in any agency has that user id — or revoke the Page connection alone.
- * `MetaGraphClient.revokePermissions` is ready for it.
+ * S13-F5: `DELETE /me/permissions` acts on the Meta *user*, whose login may have connected Pages in other agencies too.
+ * The job locks every account of the account's Meta user (any agency): while another one exists — connected, or
+ * disconnected and waiting for its own job — this one is just deleted; the last one left revokes the grant with its
+ * user token (outside any transaction), then is deleted. So a user's accounts revoke once, whatever the order of their
+ * jobs. An account connected before S13-F5 (no user id) is never revoked. A token Meta already refuses (or a refused
+ * request) leaves nothing to revoke; a Meta outage throws so the job retries — on its last attempt the account is
+ * deleted anyway, so a disconnected account's tokens never linger.
  */
-export async function revokeAccount(p: { agencyId: string; accountId: string }): Promise<{ deleted: boolean }> {
-  const deleted = await withSystem(`social.revokeAccount: ${p.accountId}`, async (tx) => {
+export async function revokeAccount(
+  p: { agencyId: string; accountId: string },
+  opts: { lastAttempt?: boolean } = {},
+): Promise<{ deleted: boolean; revoked: boolean }> {
+  const found = await withSystem(`social.revokeAccount: ${p.accountId}`, async (tx) => {
     const account = await repo.accountWithTokens(tx, p.accountId);
-    if (!account || account.agencyId !== p.agencyId || account.statusReason !== repo.DISCONNECTED) return false;
-    return repo.deleteDisconnected(tx, account.id);
+    if (!account || account.agencyId !== p.agencyId || account.statusReason !== repo.DISCONNECTED) return null;
+    if (account.metaUserId !== null && account.userTokenEnc !== null) {
+      const accounts = await repo.lockMetaUserAccounts(tx, account.metaUserId);
+      const self = accounts.find((a) => a.id === account.id);
+      // Connected again, or deleted by a concurrent run, while we waited for the lock.
+      if (self?.statusReason !== repo.DISCONNECTED) return null;
+      if (accounts.length === 1) return { revoke: true as const, account, userTokenEnc: account.userTokenEnc };
+    }
+    return { revoke: false as const, deleted: await repo.deleteDisconnected(tx, account.id) };
   });
-  return { deleted };
+  if (!found) return { deleted: false, revoked: false };
+  if (!found.revoke) return { deleted: found.deleted, revoked: false };
+  const { account, userTokenEnc } = found;
+  let revoked = false;
+  const app = metaApp();
+  if (app) {
+    try {
+      await new MetaGraphClient(app, socialConfig().fetchOptions).revokePermissions(
+        userTokenCipher.decrypt(account.agencyId, account.id, userTokenEnc),
+      );
+      revoked = true;
+    } catch (err) {
+      if (!(err instanceof MetaError)) throw err;
+      if (err.retryable && !opts.lastAttempt) throw err;
+    }
+  }
+  const deleted = await withSystem(`social.revokeAccount: delete ${p.accountId}`, (tx) =>
+    repo.deleteDisconnected(tx, account.id),
+  );
+  return { deleted, revoked };
 }

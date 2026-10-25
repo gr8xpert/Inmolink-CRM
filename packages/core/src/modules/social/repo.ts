@@ -104,6 +104,8 @@ export interface AccountWrite {
   tokenEnc: string;
   userTokenEnc: string | null;
   tokenExpiresAt: Date | null;
+  /** S13-F5: the Meta user whose login connected it. */
+  metaUserId: string;
   connectedBy: string;
 }
 
@@ -120,6 +122,7 @@ export async function upsertAccount(tx: Tx, row: AccountWrite, now: Date): Promi
         tokenEnc: row.tokenEnc,
         userTokenEnc: row.userTokenEnc,
         tokenExpiresAt: row.tokenExpiresAt,
+        metaUserId: row.metaUserId,
         status: 'ACTIVE',
         statusReason: null,
         checkedAt: now,
@@ -159,15 +162,37 @@ export async function deleteDisconnected(tx: Tx, id: string): Promise<boolean> {
 export interface AccountSecrets extends AccountRow {
   tokenEnc: string;
   userTokenEnc: string | null;
+  metaUserId: string | null;
 }
 
-/** An account with its encrypted tokens (worker only). */
+/** An account with its encrypted tokens and its Meta user (worker only). */
 export async function accountWithTokens(tx: Tx, id: string): Promise<AccountSecrets | null> {
   const [row] = await tx
-    .select({ ...accountColumns, tokenEnc: socialAccounts.tokenEnc, userTokenEnc: socialAccounts.userTokenEnc })
+    .select({
+      ...accountColumns,
+      tokenEnc: socialAccounts.tokenEnc,
+      userTokenEnc: socialAccounts.userTokenEnc,
+      metaUserId: socialAccounts.metaUserId,
+    })
     .from(socialAccounts)
     .where(eq(socialAccounts.id, id));
   return row ?? null;
+}
+
+/**
+ * S13-F5: every account of the Meta user, in any agency, locked (worker, `app_system`): the revoke jobs of one user's
+ * accounts run one after another, so only the last one left revokes the grant. One indexed statement
+ * (`social_accounts_meta_user_idx`); a user connects a handful of accounts.
+ */
+export async function lockMetaUserAccounts(
+  tx: Tx,
+  metaUserId: string,
+): Promise<{ id: string; statusReason: string | null }[]> {
+  return tx
+    .select({ id: socialAccounts.id, statusReason: socialAccounts.statusReason })
+    .from(socialAccounts)
+    .where(eq(socialAccounts.metaUserId, metaUserId))
+    .for('update');
 }
 
 /**
