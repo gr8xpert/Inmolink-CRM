@@ -302,8 +302,40 @@ export function isNetworkClosedRefusal(err: unknown): boolean {
   return false;
 }
 
+/** SQLSTATE 40P01 (deadlock detected), wherever Drizzle wraps it. */
+function isDeadlock(err: unknown): boolean {
+  for (
+    let e = err as { code?: unknown; cause?: unknown } | undefined, i = 0;
+    e && i < 3;
+    e = e.cause as typeof e, i++
+  ) {
+    if (e.code === '40P01') return true;
+  }
+  return false;
+}
+
 /**
- * `POST /v1/chat/threads/:id/messages`: a message from a participant (4 statements: membership, name, insert, event);
+ * S13-F24: a message into a VIEWING or NETWORK thread. The fan-out trigger moves both agencies' copies of the thread,
+ * so sends into one thread take its advisory lock first (one order: no deadlock between two sends from either side).
+ * The insert runs in a savepoint: a deadlock with another writer (e.g. the worker closing the thread) is retried once
+ * instead of aborting the request (+3 statements: lock, savepoint, release).
+ */
+async function sendIntoPeerThread(
+  ctx: Ctx,
+  message: Parameters<typeof repo.insertMessage>[1],
+): Promise<repo.MessageRow | null> {
+  await repo.lockThreadSends(ctx.tx, message.threadId);
+  const attempt = () => ctx.tx.transaction((sp) => repo.insertMessage(sp, message));
+  try {
+    return await attempt();
+  } catch (err) {
+    if (!isDeadlock(err)) throw err;
+    return attempt();
+  }
+}
+
+/**
+ * `POST /v1/chat/threads/:id/messages`: a message from a participant (4 statements: membership, name, insert, event; +3 in a VIEWING or NETWORK thread, S13-F24);
  * a closed viewing or network thread is read-only (`CHAT_THREAD_CLOSED`; the fan-out trigger refuses it too, and a
  * `NETWORK` thread's message once its post closed or either agency is no longer listed — S12-F12).
  * `clientKey` replays a retried send. The other agency's copy is appended in the same statement; the event drives
@@ -324,23 +356,25 @@ export async function sendMessage(ctx: Ctx, threadId: string, raw: SendChatMessa
   }
   if (thread.closedAt) throw new AppError('CHAT_THREAD_CLOSED');
   const name = ((await identity.memberNames(ctx, [me])).get(me) ?? '').slice(0, 200);
-  const inserted = await repo
-    .insertMessage(ctx.tx, {
-      agencyId,
-      id: newId(),
-      threadId,
-      senderUserId: me,
-      senderName: name,
-      body: body.body,
-      clientKey: body.clientKey ?? null,
-    })
-    .catch((err: unknown) => {
-      // S12-F12: the fan-out trigger refuses a NETWORK thread whose post closed or whose agencies are no longer listed
-      // (before the worker marks it closed): read-only, like a closed thread. S12-F16: only that refusal — any other
-      // (a 42501 from a participant or RLS check) propagates.
-      if (thread.kind === 'NETWORK' && isNetworkClosedRefusal(err)) throw new AppError('CHAT_THREAD_CLOSED');
-      throw err;
-    });
+  const message = {
+    agencyId,
+    id: newId(),
+    threadId,
+    senderUserId: me,
+    senderName: name,
+    body: body.body,
+    clientKey: body.clientKey ?? null,
+  };
+  const inserted = await (thread.peerAgencyId
+    ? sendIntoPeerThread(ctx, message)
+    : repo.insertMessage(ctx.tx, message)
+  ).catch((err: unknown) => {
+    // S12-F12: the fan-out trigger refuses a NETWORK thread whose post closed or whose agencies are no longer listed
+    // (before the worker marks it closed): read-only, like a closed thread. S12-F16: only that refusal — any other
+    // (a 42501 from a participant or RLS check) propagates.
+    if (thread.kind === 'NETWORK' && isNetworkClosedRefusal(err)) throw new AppError('CHAT_THREAD_CLOSED');
+    throw err;
+  });
   if (!inserted) {
     // the same key, sent twice at once: the other request's message
     const prior = body.clientKey ? await repo.messageByClientKey(ctx.tx, agencyId, me, body.clientKey) : null;

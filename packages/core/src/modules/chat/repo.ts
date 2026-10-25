@@ -253,6 +253,16 @@ export async function listMessages(
 }
 
 /**
+ * S13-F24: serialises sends into one cross-agency thread until the transaction ends (advisory, no table lock). Both
+ * agencies' copies share the thread id, and `chat_messages_fanout` updates the sender's copy, then the peer's: two
+ * sends from either side at once took the two `chat_threads` rows in opposite orders (40P01). The peer's copy is
+ * invisible under RLS, so the order is fixed by this one per-thread lock instead of row locks.
+ */
+export async function lockThreadSends(tx: Tx, threadId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`chat.send:${threadId}`}, 0))`);
+}
+
+/**
  * A member's message (the guard stamps its time; `chat_messages_fanout` checks the sender takes part, appends the other
  * agency's copy and moves both threads). Null when the sender's `clientKey` was used already (a retried send).
  */

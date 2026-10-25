@@ -560,3 +560,85 @@ describe('staff reads (S12-F9)', () => {
     }
   });
 });
+
+describe('concurrent sends into a cross-agency thread (S13-F24)', () => {
+  /** A NETWORK thread between `a` (replier) and `b` (poster; its admins are seated), with its first message. */
+  async function networkThread(title: string): Promise<string> {
+    const postId = newId();
+    await system((tx) =>
+      tx.execute(sql`insert into network_posts (agency_id, id, kind, title, body, expires_at)
+        values (${b.agencyId}, ${postId}, 'BUYER_REQUEST', ${`${title} ${RUN}`}, 'Looking', now() + interval '1 day')`),
+    );
+    const reply = await as(a, (ctx) =>
+      chat.replyInNetworkThread(ctx, { postId, posterAgencyId: b.agencyId, message: { body: 'Hello' } }),
+    );
+    return reply.thread.id;
+  }
+
+  const copies = (threadId: string) =>
+    rows<{ agency_id: string; n: number }>(sql`
+      select agency_id, count(*)::int as n from chat_messages where thread_id = ${threadId} group by agency_id`);
+
+  it('[S13-F24] sends from both agencies at once into one network thread all succeed, both copies hold every message', async () => {
+    const threadId = await networkThread('F24');
+    const rounds = 6;
+    const perSide = 2;
+    for (let r = 0; r < rounds; r++) {
+      const sends = [a, b].flatMap((m) =>
+        Array.from({ length: perSide }, (_, i) =>
+          refusal(as(m, (ctx) => chat.sendMessage(ctx, threadId, { body: `r${r} ${m.agencyId.slice(-4)} ${i}` }))),
+        ),
+      );
+      expect(await Promise.all(sends), `round ${r}`).toEqual(Array(2 * perSide).fill('accepted'));
+    }
+    const total = 1 + rounds * 2 * perSide;
+    const byAgency = new Map((await copies(threadId)).map((c) => [c.agency_id, c.n]));
+    expect(byAgency.get(a.agencyId)).toBe(total);
+    expect(byAgency.get(b.agencyId)).toBe(total);
+  });
+
+  it('[S13-F24] a deadlock with another writer is retried once, never surfaced', async () => {
+    const threadId = await networkThread('F24 deadlock');
+    /**
+     * Another writer takes the copies in the order opposite to a send of `a`'s (`b`'s copy first, then `a`'s) while
+     * `send` runs; the send waits first, so its deadlock check fires first and it is the victim (40P01).
+     */
+    const crossWriter = async (send: () => Promise<unknown>) => {
+      let started!: () => void;
+      const locked = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const writer = system(async (tx) => {
+        await tx.execute(
+          sql`update chat_threads set updated_at = now() where agency_id = ${b.agencyId} and id = ${threadId}`,
+        );
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        await tx.execute(
+          sql`update chat_threads set updated_at = now() where agency_id = ${a.agencyId} and id = ${threadId}`,
+        );
+      });
+      await locked;
+      const result = send();
+      const [outcome] = await Promise.all([result, writer]);
+      return outcome;
+    };
+    // without the retry the scenario deadlocks: a raw insert as `a` is the victim
+    const raw = await crossWriter(() =>
+      sqlState(
+        asUser(
+          a,
+          sql`insert into chat_messages (agency_id, id, thread_id, sender_agency_id, sender_user_id, sender_name, body)
+          values (${a.agencyId}, ${newId()}, ${threadId}, ${a.agencyId}, ${a.userId}, 'A', 'raw')`,
+        ),
+      ),
+    );
+    expect(raw).toBe('40P01');
+    // the service retries it once: the message is sent, once, into both copies
+    const sent = await crossWriter(() => refusal(as(a, (ctx) => chat.sendMessage(ctx, threadId, { body: 'retried' }))));
+    expect(sent).toBe('accepted');
+    const byAgency = new Map((await copies(threadId)).map((c) => [c.agency_id, c.n]));
+    expect(byAgency.get(a.agencyId)).toBe(2);
+    expect(byAgency.get(b.agencyId)).toBe(2);
+  });
+});
