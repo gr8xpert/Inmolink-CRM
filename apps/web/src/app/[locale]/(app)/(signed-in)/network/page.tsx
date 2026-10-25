@@ -102,6 +102,19 @@ export default async function NetworkPage(props: { searchParams: Promise<Record<
           >
             {t('view.map')}
           </Link>
+          {/* S5-06: save the current filters as a search with alerts (the saved searches page reads them) */}
+          <Link
+            href={`/network/saved-searches?${new URLSearchParams({
+              ...(state.type ? { type: state.type } : {}),
+              ...(state.location ? { location: state.location } : {}),
+              ...(state.min !== undefined ? { min: String(state.min) } : {}),
+              ...(state.max !== undefined ? { max: String(state.max) } : {}),
+              ...(state.beds !== undefined ? { beds: String(state.beds) } : {}),
+            })}`}
+            className={buttonVariants({ variant: 'outline' })}
+          >
+            {t('savedSearches.saveThis')}
+          </Link>
         </nav>
       </div>
 

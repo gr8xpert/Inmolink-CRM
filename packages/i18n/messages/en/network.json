@@ -214,5 +214,66 @@
       "RENT_LONG_TERM": "Long-term rental",
       "RENT_SHORT_TERM": "Holiday rental"
     }
+  },
+  "savedSearches": {
+    "title": "Saved searches",
+    "intro": "Save a search and get an alert when a listing that matches it comes on the market, drops its price or is back on the market — in your notifications and your e-mail summary.",
+    "toSearch": "Network search",
+    "link": "Saved searches",
+    "saveThis": "Save this search",
+    "empty": "You have no saved searches yet.",
+    "listLabel": "Your saved searches",
+    "anything": "Any listing",
+    "beds": "{count, plural, one {# bedroom or more} other {# bedrooms or more}}",
+    "delete": "Delete",
+    "transactions": {
+      "SALE": "For sale",
+      "RENT_LONG_TERM": "Long-term rental",
+      "RENT_SHORT_TERM": "Holiday rental"
+    },
+    "scopes": {
+      "ALL": "Our listings and the network",
+      "OWN": "Our listings only",
+      "NETWORK": "Network listings only"
+    },
+    "frequencies": {
+      "INSTANT": "Alert at once",
+      "DAILY": "Daily digest",
+      "OFF": "No alerts"
+    },
+    "alerts": {
+      "NEW": "New listings",
+      "PRICE_DROP": "Price drops",
+      "BACK_ON_MARKET": "Back on the market"
+    },
+    "form": {
+      "title": "New saved search",
+      "name": "Name",
+      "transaction": "Transaction",
+      "propertyType": "Property type",
+      "location": "Location",
+      "any": "Any",
+      "anywhere": "Anywhere",
+      "priceMin": "Minimum price (€)",
+      "priceMax": "Maximum price (€)",
+      "beds": "Bedrooms (at least)",
+      "scope": "Listings",
+      "frequency": "Alerts",
+      "alerts": "Alert me about",
+      "submit": "Save search"
+    },
+    "done": {
+      "saved": "Search saved.",
+      "deleted": "Saved search deleted."
+    },
+    "errors": {
+      "load": "Your saved searches could not be loaded. Try again.",
+      "generic": "Something went wrong. Try again.",
+      "VALIDATION_FAILED": "Check the search: a value was not valid.",
+      "FORBIDDEN": "You cannot change saved searches.",
+      "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
+      "SAVED_SEARCH_NOT_FOUND": "That saved search no longer exists.",
+      "SAVED_SEARCH_LIMIT": "You can keep at most {max} saved searches. Delete one first."
+    }
   }
 }

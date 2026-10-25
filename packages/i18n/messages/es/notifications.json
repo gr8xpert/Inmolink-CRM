@@ -7,7 +7,8 @@
     "CHAT_MESSAGE": "Nuevo mensaje de {actor}: {subject}",
     "NETWORK_POST": "Nueva publicación en la red: {subject}",
     "NETWORK_MATCH": "La solicitud de comprador «{subject}» coincide con {count, plural, one {# de tus inmuebles} other {# de tus inmuebles}}: {refs}",
-    "IMPORT_PAUSED": "Importación pausada para revisión: {subject}"
+    "IMPORT_PAUSED": "Importación pausada para revisión: {subject}",
+    "SAVED_SEARCH_ALERT": "{kind, select, NEW {Nuevo inmueble} PRICE_DROP {Bajada de precio} BACK_ON_MARKET {De nuevo en el mercado} other {{count, plural, one {# nueva coincidencia} other {# nuevas coincidencias}}}} en tu búsqueda guardada «{subject}»: {refs}"
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads asignados a mí",
@@ -17,7 +18,8 @@
     "CHAT_MESSAGE": "Mensajes del chat",
     "NETWORK_POST": "Publicaciones del tablón de la red",
     "NETWORK_MATCH": "Solicitudes de compradores que coinciden con mis inmuebles",
-    "IMPORT_PAUSED": "Importaciones pausadas para revisión"
+    "IMPORT_PAUSED": "Importaciones pausadas para revisión",
+    "SAVED_SEARCH_ALERT": "Mis búsquedas guardadas"
   },
   "email": {
     "subject": "{count, plural, one {Tienes # notificación nueva} other {Tienes # notificaciones nuevas}}",

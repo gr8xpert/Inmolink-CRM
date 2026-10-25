@@ -214,5 +214,66 @@
       "RENT_LONG_TERM": "Alquiler de larga duración",
       "RENT_SHORT_TERM": "Alquiler vacacional"
     }
+  },
+  "savedSearches": {
+    "title": "Búsquedas guardadas",
+    "intro": "Guarda una búsqueda y recibe un aviso cuando un inmueble que encaje salga al mercado, baje de precio o vuelva al mercado — en tus notificaciones y en tu resumen por correo.",
+    "toSearch": "Búsqueda en la red",
+    "link": "Búsquedas guardadas",
+    "saveThis": "Guardar esta búsqueda",
+    "empty": "Todavía no tienes búsquedas guardadas.",
+    "listLabel": "Tus búsquedas guardadas",
+    "anything": "Cualquier inmueble",
+    "beds": "{count, plural, one {# dormitorio o más} other {# dormitorios o más}}",
+    "delete": "Eliminar",
+    "transactions": {
+      "SALE": "En venta",
+      "RENT_LONG_TERM": "Alquiler de larga duración",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    },
+    "scopes": {
+      "ALL": "Nuestros inmuebles y la red",
+      "OWN": "Solo nuestros inmuebles",
+      "NETWORK": "Solo inmuebles de la red"
+    },
+    "frequencies": {
+      "INSTANT": "Aviso inmediato",
+      "DAILY": "Resumen diario",
+      "OFF": "Sin avisos"
+    },
+    "alerts": {
+      "NEW": "Inmuebles nuevos",
+      "PRICE_DROP": "Bajadas de precio",
+      "BACK_ON_MARKET": "De nuevo en el mercado"
+    },
+    "form": {
+      "title": "Nueva búsqueda guardada",
+      "name": "Nombre",
+      "transaction": "Operación",
+      "propertyType": "Tipo de inmueble",
+      "location": "Ubicación",
+      "any": "Cualquiera",
+      "anywhere": "Cualquier lugar",
+      "priceMin": "Precio mínimo (€)",
+      "priceMax": "Precio máximo (€)",
+      "beds": "Dormitorios (mínimo)",
+      "scope": "Inmuebles",
+      "frequency": "Avisos",
+      "alerts": "Avisarme de",
+      "submit": "Guardar búsqueda"
+    },
+    "done": {
+      "saved": "Búsqueda guardada.",
+      "deleted": "Búsqueda guardada eliminada."
+    },
+    "errors": {
+      "load": "No se pudieron cargar tus búsquedas guardadas. Inténtalo de nuevo.",
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "VALIDATION_FAILED": "Revisa la búsqueda: algún valor no es válido.",
+      "FORBIDDEN": "No puedes cambiar las búsquedas guardadas.",
+      "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+      "SAVED_SEARCH_NOT_FOUND": "Esa búsqueda guardada ya no existe.",
+      "SAVED_SEARCH_LIMIT": "Puedes tener como máximo {max} búsquedas guardadas. Elimina una primero."
+    }
   }
 }

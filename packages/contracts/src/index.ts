@@ -25,6 +25,7 @@ export * from './http';
 export * from './identity';
 export * from './imports';
 export * from './legacy-v1';
+export * from './matching';
 export * from './media';
 export * from './migration';
 export * from './mls';

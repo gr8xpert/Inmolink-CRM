@@ -27,6 +27,8 @@ export const NOTIFICATION_TYPES = [
   'NETWORK_POST',
   'NETWORK_MATCH',
   'IMPORT_PAUSED',
+  // S5-06: a saved search's alert (a new listing, a price drop, back on the market) or its daily digest.
+  'SAVED_SEARCH_ALERT',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;

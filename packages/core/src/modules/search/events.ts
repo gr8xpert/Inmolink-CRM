@@ -19,6 +19,17 @@ export const NETWORK_LOST_AGENCIES = 400;
  *   partners' live XML feeds, so the target leaves them within minutes. Absent (events from before S8-F1): none.
  */
 export const searchEvents = {
+  /**
+   * S5-06: these listings' read models were written or dropped (one event per owner agency, ≤
+   * `PUBLIC_DOCS_EVENT_TARGETS` ids), in the rebuild's transaction — whatever their visibility. The matching worker
+   * compares each listing's new state with the last one it saw (a new listing, a price drop, back on the market) and
+   * alerts the saved searches it matches. IDs only: the consumer reads the current read models.
+   */
+  listingsChanged: defineEvent(
+    'search.listings.changed',
+    1,
+    z.object({ agencyId: z.uuid(), listingIds: z.array(z.uuid()).min(1).max(PUBLIC_DOCS_EVENT_TARGETS) }),
+  ),
   publicDocsChanged: defineEvent(
     'search.publicDocs.changed',
     1,

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(matching): saved searches and alerts — new listing / price drop / back on market from read-model changes, GIN reverse-lookup matching, instant or daily-digest notifications, migration 0141 [S5-06]
 - test: outbox dispatcher test scope (agencyIds); wall-clock budgets (chat fan-out/e2e, crm timeline, speed-to-lead, lead→inbox, price-list approval) moved from the int run to the perf project [S12-F19]
 - perf(realtime): user events carry a recipient prefix and nodes skip non-local members unparsed (REALTIME_PREFIX_EVENTS rollout flag); pub/sub buffer limit set; user-event and subscriber-disconnect metrics; 10k-event 3-node load test [S12-F4]
 - feat(realtime): deactivated members get no pushes and their sockets close within 1 s; password reset closes older sessions; revocations shared via redis-cache [S12-F10]

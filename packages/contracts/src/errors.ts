@@ -324,6 +324,10 @@ export const ErrorCodes = {
   NETWORK_SUBSCRIPTION_NOT_FOUND: 404,
   /** The member has `NETWORK_LIMITS.subscriptionsPerUser` subscriptions already. */
   NETWORK_SUBSCRIPTION_LIMIT: 422,
+  // S5-06: saved searches and alerts.
+  SAVED_SEARCH_NOT_FOUND: 404,
+  /** The member has `SAVED_SEARCH_LIMITS.perUser` saved searches already. */
+  SAVED_SEARCH_LIMIT: 422,
   // AI gateway (S12-01, ADR 0008). Features catch these and degrade (keep the owner text, "try later").
   /** The agency's monthly AI hard cap is reached: nothing was sent to the provider. */
   AI_BUDGET_EXCEEDED: 429,

@@ -1302,6 +1302,39 @@ export const tenantTables: Record<string, TenantTable> = {
     },
     base: { name: 'Marbella villas' },
   },
+  // S5-06: an agent's saved searches — the member's own only (colleagues neither read nor change them). The matching
+  // worker (app_system) reads every agency's candidates through the GIN `match_keys` index.
+  saved_searches: {
+    kind: 'STRICT',
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: {
+        insert: 'user_id = app_user_id()',
+        update: 'user_id = app_user_id()',
+        delete: 'user_id = app_user_id()',
+      },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+    base: { name: 'Marbella villas', match_keys: '{*:*}' },
+  },
+  // S5-06: the alerts a member's saved searches raised — written by the matching worker (app_system); the member
+  // reads and deletes only their own (a deleted saved search takes its alerts with it, FK cascade).
+  saved_search_alerts: {
+    kind: 'STRICT',
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: {
+        insert: 'user_id = app_user_id()',
+        update: 'user_id = app_user_id()',
+        delete: 'user_id = app_user_id()',
+      },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+    base: { kind: 'NEW', dedupe_key: 0, ref: 'INL-ISO' },
+  },
+  // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only in
+  // practice — app_user has no path that reads or writes it.
+  matching_listing_states: { kind: 'STRICT', base: { status: 'ACTIVE', version: 1 } },
 };
 
 /**

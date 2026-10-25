@@ -9,6 +9,7 @@ import { developmentsJobs } from '@inmolink/core/modules/developments';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
+import { matchingJobs } from '@inmolink/core/modules/matching';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { mlsJobs } from '@inmolink/core/modules/mls';
 import { networkJobs } from '@inmolink/core/modules/network';
@@ -58,7 +59,14 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.refreshReportDay,
   ],
   // S11-05: network board posts to matching subscribers, buyer requests against the other agencies' listings.
-  matching: [networkJobs.notifySubscribers, networkJobs.matchBuyerRequest],
+  matching: [
+    networkJobs.notifySubscribers,
+    networkJobs.matchBuyerRequest,
+    // S5-06: saved searches' alerts from the read models' changes, their daily digests and prune.
+    matchingJobs.matchListings,
+    matchingJobs.sendDigest,
+    matchingJobs.sweepDigests,
+  ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
     websiteApiJobs.generateSiteFeed,

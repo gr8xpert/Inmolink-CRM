@@ -168,7 +168,7 @@ export async function deleteOthers(
   tx: Tx,
   ids: readonly string[],
   keep: readonly { targetId: string; locale: string }[],
-): Promise<string[]> {
+): Promise<{ targetId: string; agencyId: string }[]> {
   if (ids.length === 0) return [];
   const kept =
     keep.length === 0
@@ -179,8 +179,12 @@ export async function deleteOthers(
             sql`, `,
           )}]::text[]))`;
   const res = await tx.execute(sql`
-    delete from ${listingReadModels} where target_id = any(${uuidArray(ids)}) ${kept} returning target_id`);
-  return (res.rows as { target_id: string }[]).map((r) => r.target_id);
+    delete from ${listingReadModels} where target_id = any(${uuidArray(ids)}) ${kept} returning target_id, agency_id`);
+  // S5-06: with the owner agency (the `search.listings.changed` event of a listing whose read model is gone)
+  return (res.rows as { target_id: string; agency_id: string }[]).map((r) => ({
+    targetId: r.target_id,
+    agencyId: r.agency_id,
+  }));
 }
 
 /** A position in the full rebuild's sweep: after the read model `(targetId, locale)` (the primary key). */

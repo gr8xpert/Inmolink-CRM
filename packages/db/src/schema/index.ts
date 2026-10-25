@@ -15,6 +15,7 @@ export * from './flags';
 export * from './identity';
 export * from './imports';
 export * from './jobs';
+export * from './matching';
 export * from './media';
 export * from './migration';
 export * from './mls';

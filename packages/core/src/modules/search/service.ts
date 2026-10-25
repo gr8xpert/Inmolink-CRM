@@ -94,7 +94,7 @@ export async function rebuildListingReadModels(
     buildListingDocs(l, mediaOf.get(l.id), tax, ownerOf.get(l.agencyId) ?? NO_OWNER),
   );
   return {
-    ...(await write(tx, unique, docs, options)),
+    ...(await write(tx, 'LISTING', unique, docs, options)),
     built: new Set(docs.map((d) => d.targetId)).size,
     pendingMedia: listings.filter((l) => (mediaOf.get(l.id)?.pending ?? 0) > 0).map((l) => l.id),
   };
@@ -124,7 +124,7 @@ export async function rebuildUnitReadModels(
   );
   const docs = units.flatMap((u) => buildUnitDocs(u, tax, ownerOf.get(u.agencyId) ?? NO_OWNER));
   return {
-    ...(await write(tx, unique, docs, options)),
+    ...(await write(tx, 'UNIT', unique, docs, options)),
     built: new Set(docs.map((d) => d.targetId)).size,
     pendingMedia: [],
   };
@@ -142,11 +142,14 @@ export interface WriteOptions {
  * Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03) and brings their
  * fallback rows up to date (S5-04) unless the caller does (`refreshSearchDocs: false`).
  */
-async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
+async function write(tx: Tx, kind: ReadModelKind, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
   const developmentRefs = new Map<string, string>();
   for (const d of docs) if (d.developmentId && d.developmentRef) developmentRefs.set(d.developmentId, d.developmentRef);
-  const deleted = await repo.deleteOthers(tx, ids, docs);
+  const dropped = await repo.deleteOthers(tx, ids, docs);
+  const deleted = dropped.map((r) => r.targetId);
   const written = await repo.upsertDocs(tx, docs);
+  // S5-06: the listings whose read models changed, for the saved searches' alerts (matching)
+  if (kind === 'LISTING') await emit(tx, listingsChangedEvents(written, dropped, docs));
   // Public targets get their public code (S7-02) once; a target that got one now is pushed again with it. Their
   // developments get one in the same statement (S7-F6: sites name developments `<prefix>-<code>`); a development is
   // not a target, so its new code changes nothing here.
@@ -172,6 +175,37 @@ async function write(tx: Tx, ids: readonly string[], docs: BuiltDoc[], options: 
     if (options.refreshSearchDocs !== false) await refreshSearchDocs(tx, changed, developmentRefs);
   }
   return { written: written.length, deleted: deleted.length, developmentRefs };
+}
+
+/**
+ * S5-06: `search.listings.changed` for the listings whose read models were written or dropped — per owner agency, in
+ * chunks of `PUBLIC_DOCS_EVENT_TARGETS`. No event when none changed (an unchanged rebuild).
+ */
+function listingsChangedEvents(
+  written: readonly string[],
+  dropped: readonly { targetId: string; agencyId: string }[],
+  docs: readonly BuiltDoc[],
+): OutboxMessage[] {
+  const ownerOf = new Map<string, string>(dropped.map((r) => [r.targetId, r.agencyId]));
+  for (const d of docs) ownerOf.set(d.targetId, d.agencyId);
+  const byOwner = new Map<string, Set<string>>();
+  for (const id of [...written, ...dropped.map((r) => r.targetId)]) {
+    const owner = ownerOf.get(id);
+    if (!owner) continue;
+    const set = byOwner.get(owner) ?? new Set<string>();
+    set.add(id);
+    byOwner.set(owner, set);
+  }
+  const events: OutboxMessage[] = [];
+  for (const [agencyId, set] of byOwner) {
+    const listingIds = [...set];
+    for (let i = 0; i < listingIds.length; i += PUBLIC_DOCS_EVENT_TARGETS) {
+      events.push(
+        searchEvents.listingsChanged({ agencyId, listingIds: listingIds.slice(i, i + PUBLIC_DOCS_EVENT_TARGETS) }),
+      );
+    }
+  }
+  return events;
 }
 
 /**

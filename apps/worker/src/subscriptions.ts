@@ -10,6 +10,7 @@ import * as exports from '@inmolink/core/modules/exports';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
+import * as matching from '@inmolink/core/modules/matching';
 import * as media from '@inmolink/core/modules/media';
 import * as migration from '@inmolink/core/modules/migration';
 import * as mls from '@inmolink/core/modules/mls';
@@ -51,6 +52,7 @@ export const MODULES = {
   notifications,
   chat,
   network,
+  matching,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -80,4 +82,6 @@ export function registerSubscriptions(): void {
   chat.registerChatSubscriptions();
   // S11-05: a network post notifies matching subscriptions; a buyer request is matched against listings.
   network.registerNetworkSubscriptions();
+  // S5-06: listings whose read models changed are matched against the saved searches.
+  matching.registerMatchingSubscriptions();
 }
