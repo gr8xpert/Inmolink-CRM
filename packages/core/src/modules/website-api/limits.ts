@@ -21,7 +21,12 @@
  *   is flagged.
  */
 
-import { LegacyPropertiesQuery, WebsiteDevelopmentsQuery, WebsiteListingsQuery } from '@inmolink/contracts';
+import {
+  LegacyPropertiesQuery,
+  WebsiteAiSearchQuery,
+  WebsiteDevelopmentsQuery,
+  WebsiteListingsQuery,
+} from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import {
   LocalFixedWindows,
@@ -34,6 +39,7 @@ import {
 } from '@inmolink/platform/rate-limit';
 import type { ApiKeyPrincipal } from '../identity';
 import * as identity from '../identity';
+import { normalizeAiQuery } from './ai-search-parse';
 import { raiseWebsiteAlert } from './alerts';
 import { readSearchCursor } from './cursor';
 import { websiteLimits } from './settings';
@@ -115,6 +121,8 @@ const SLICE_FIELDS = {
   developments: ['locations'],
   // S8-02: the v1 shim's `/v1/properties` (legacy parameter names; `sort` is added like listings).
   'legacy-properties': ['q', 'type', 'location', 'feature', 'transaction', 'min_price', 'max_price', 'beds', 'baths'],
+  // S12-08: `/v2/search/ai` — the sentence is the filter (in its normalized form, so respellings count as one slice).
+  'search-ai': ['q'],
 } as const;
 
 export type SliceEndpoint = keyof typeof SLICE_FIELDS;
@@ -143,17 +151,20 @@ export function sliceSignature(endpoint: SliceEndpoint, rawQuery: unknown): stri
       ? WebsiteListingsQuery
       : endpoint === 'legacy-properties'
         ? LegacyPropertiesQuery
-        : WebsiteDevelopmentsQuery;
+        : endpoint === 'search-ai'
+          ? WebsiteAiSearchQuery
+          : WebsiteDevelopmentsQuery;
   const parsed = schema.safeParse(rawQuery ?? {});
   if (!parsed.success) return undefined;
   const query = parsed.data as Record<string, unknown>;
   const parts: string[] = [];
   for (const field of SLICE_FIELDS[endpoint]) {
-    const value = query[field];
+    const raw = query[field];
+    const value = endpoint === 'search-ai' && typeof raw === 'string' ? normalizeAiQuery(raw) : raw;
     if (value !== undefined) parts.push(`${field}=${canonical(field, value)}`);
   }
   if (parts.length === 0) return undefined;
-  if (endpoint !== 'developments') parts.push(`sort=${String(query.sort)}`);
+  if (endpoint !== 'developments' && endpoint !== 'search-ai') parts.push(`sort=${String(query.sort)}`);
   return `${endpoint}|${parts.join('&')}`;
 }
 

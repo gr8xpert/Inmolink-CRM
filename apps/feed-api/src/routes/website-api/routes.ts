@@ -35,6 +35,11 @@ const PAGED = { paged: true } as const;
 const LISTINGS = { paged: true, listings: true, slicing: 'listings' } as const;
 /** `/v2/developments`: filtered first pages count towards filter-slicing too (S7-F7). */
 const DEVELOPMENTS = { paged: true, slicing: 'developments' } as const;
+/**
+ * S12-08: `/v2/search/ai`, like `/v2/listings` — its cursors are listing search cursors (deep-paging rules), and a first
+ * page counts towards filter-slicing (the normalized sentence is its signature).
+ */
+const AI_SEARCH = { paged: true, listings: true, slicing: 'search-ai' } as const;
 /** Details count towards the sync budget, net of what the change feed explained (S7-F7). */
 const DETAIL = { sync: true } as const;
 /** Sitemap pages: paging rules, and the sync budget (a sitemap + detail crawl, S7-F7). */
@@ -92,7 +97,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         response: { 200: WebsiteAiSearchPage },
       },
       config: { rateLimit: KEYED_ROUTE_LIMITS },
-      onRequest: [app.requireApiKey('listings:read', PAGED)],
+      onRequest: [app.requireApiKey('listings:read', AI_SEARCH)],
     },
     async (req, reply) => {
       const suspicious = req.websitePaging?.suspicious === true;

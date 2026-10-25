@@ -33,18 +33,27 @@ const allowMisses = {
 } as unknown as RateLimiter;
 const configure = (parser: websiteApi.AiSearchParser) =>
   websiteApi.configureAiSearch({ parser, limiter: () => allowMisses, cacheReady: () => true });
+/** The website limits each request was checked against (`requireApiKey`), newest last. */
+const limitChecks: { rule: { name: string }; distinct?: string }[][] = [];
 const allow = {
   consume: async () => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 }),
   credit: async () => undefined,
-  consumeMany: async (checks: readonly unknown[]) =>
-    checks.map(() => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 })),
+  consumeMany: async (checks: readonly { rule: { name: string }; distinct?: string }[]) => {
+    limitChecks.push([...checks]);
+    return checks.map(() => ({ allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0, resetAtMs: 0 }));
+  },
 } as unknown as RateLimiter;
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let founder: Founder;
 let key: string;
+/** A browser widget's key (publishable, the site's origin): browsers get the per-browser paging rules. */
+let widgetKey: string;
+const ORIGIN = 'https://www.ai-site.example';
 let villa: string;
 let city: string;
+/** A second listing, outside the city: the site has two (a listings cursor exists). */
+let country: string;
 
 const as = <T>(fn: Parameters<typeof withMemberCtx<T>>[1]) =>
   withMemberCtx({ userId: founder.userId, agencyId: founder.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -79,7 +88,7 @@ beforeAll(async () => {
   search.resetSearchBreaker();
   founder = await createFounder();
   await setAgencyStatus(founder.agencyId, 'VERIFIED');
-  ({ villa, city } = await withSystem('feed-api.ai-search.test', async (tx) => {
+  ({ villa, city, country } = await withSystem('feed-api.ai-search.test', async (tx) => {
     const name = (n: string) => [{ locale: 'en', name: `${n} ${RUN}`, slug: `fai-${n.toLowerCase()}-${RUN}` }];
     const country = await taxonomy.createLocation(tx, {
       level: 'COUNTRY',
@@ -109,27 +118,31 @@ beforeAll(async () => {
       sort: 0,
       translations: [{ locale: 'en', name: 'Villa', slug: `fai-villa-${RUN}` }],
     });
-    return { villa: v, city: c };
+    return { villa: v, city: c, country };
   }));
   await taxonomy.invalidateTaxonomyCache();
-  const { id } = await as((ctx) =>
-    properties.createListing(
-      ctx,
-      CreateListingBody.parse({ propertyTypeId: villa, locationId: city, priceCents: 30_000_000, energyRating: 'B' }),
-    ),
-  );
-  await as(async (ctx) =>
-    properties.updateListing(
-      ctx,
-      id,
-      UpdateListingBody.parse({
-        status: 'ACTIVE',
-        visibility: 'PUBLIC',
-        version: (await properties.getListing(ctx, id)).version,
-      }),
-    ),
-  );
-  await withSystem('feed-api.ai-search.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [id]));
+  const listingIds: string[] = [];
+  for (const locationId of [city, country]) {
+    const { id } = await as((ctx) =>
+      properties.createListing(
+        ctx,
+        CreateListingBody.parse({ propertyTypeId: villa, locationId, priceCents: 30_000_000, energyRating: 'B' }),
+      ),
+    );
+    await as(async (ctx) =>
+      properties.updateListing(
+        ctx,
+        id,
+        UpdateListingBody.parse({
+          status: 'ACTIVE',
+          visibility: 'PUBLIC',
+          version: (await properties.getListing(ctx, id)).version,
+        }),
+      ),
+    );
+    listingIds.push(id);
+  }
+  await withSystem('feed-api.ai-search.test', (tx) => search.rebuildReadModels(tx, 'LISTING', listingIds));
   const site = await as((ctx) =>
     websites.createSite(ctx, {
       name: 'AI site',
@@ -149,6 +162,17 @@ beforeAll(async () => {
         kind: 'SECRET',
         scopes: ['listings:read'],
         allowedOrigins: [],
+        siteId: site.id,
+      }),
+    )
+  ).secret;
+  widgetKey = (
+    await as((ctx) =>
+      identity.createApiKey(ctx, {
+        name: 'Widget',
+        kind: 'PUBLISHABLE',
+        scopes: ['listings:read'],
+        allowedOrigins: [ORIGIN],
         siteId: site.id,
       }),
     )
@@ -209,6 +233,41 @@ describe('GET /v2/search/ai (S12-08)', () => {
     expect(res.json().understood).toMatchObject({ source: 'KEYWORD', filters: { q: `epsilon ${RUN} budget` } });
     expect(res.headers['cache-control']).toMatch(/^public, .*s-maxage=30,/);
     expect(res.headers.etag).toBeDefined();
+  });
+
+  it('[S12-08] AI-search pages count towards the same deep-paging and filter-slicing budgets as /v2/listings', async () => {
+    configure({ parse: async () => ({ ...EMPTY, types: ['villa'], places: [`Epsilon ${TAG}`] }) });
+    limitChecks.length = 0;
+    await get(`/v2/search/ai?${new URLSearchParams({ q: `Villa in Epsilon ${RUN}!` })}`);
+    await get(`/v2/search/ai?${new URLSearchParams({ q: `villa  in epsilon ${RUN}` })}`);
+    const slices = limitChecks.map((checks) => checks.find((c) => c.rule.name.startsWith('feed.slice.key'))?.distinct);
+    // A first page is a slice; respellings of one sentence are one slice.
+    expect(slices[0]).toBe(`search-ai|q=villa in epsilon ${RUN}`);
+    expect(slices[1]).toBe(slices[0]);
+    // A browser's cursor page counts as paged (the per-browser paging rules), like a listings cursor page.
+    const widget = { 'x-api-key': widgetKey, origin: ORIGIN };
+    const first = await get(
+      `/v2/search/ai?${new URLSearchParams({ q: `villa in epsilon ${RUN}`, limit: '1' })}`,
+      widget,
+    );
+    expect(first.statusCode).toBe(200);
+    expect(limitChecks.flat().some((c) => c.rule.name === 'feed.slice.browser')).toBe(true);
+    // The site has two listings: a keyword-searched sentence ("villa") pages; its next page is a cursor page.
+    configure({ parse: async () => ({ ...EMPTY, types: ['villa'] }) });
+    const all = await get(`/v2/search/ai?${new URLSearchParams({ q: `any villa ${RUN}`, limit: '1' })}`, widget);
+    const cursor = all.json().nextCursor as string;
+    expect(cursor).toBeTruthy();
+    limitChecks.length = 0;
+    const next = await get(
+      `/v2/search/ai?${new URLSearchParams({ q: `any villa ${RUN}`, limit: '1', cursor })}`,
+      widget,
+    );
+    expect(next.statusCode).toBe(200);
+    expect(limitChecks.flat().some((c) => c.rule.name.startsWith('feed.paging.browser'))).toBe(true);
+    // A cursor page is not a slice (only the browser's slicing flag is peeked, nothing counted).
+    expect(limitChecks.flat().some((c) => c.rule.name.startsWith('feed.slice') && c.distinct !== undefined)).toBe(
+      false,
+    );
   });
 
   it('[S12-08] the query is validated and the route is in the OpenAPI document', async () => {
