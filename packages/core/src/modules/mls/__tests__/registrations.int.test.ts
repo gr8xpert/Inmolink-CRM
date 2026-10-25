@@ -346,7 +346,8 @@ describe('first valid registration wins', () => {
     const definers = await rows<{ name: string }>(sql`
       select proname as name from pg_proc
        where prosecdef and pg_get_userbyid(proowner) = 'app_owner' and prosrc ~ 'agency_settings' order by 1`);
-    expect(definers.map((r) => r.name)).toEqual(['client_registrations_receipt']);
+    // S13-F17: `agency_ai_features` returns only the AI toggle list (reviewed; app_public, pinned search_path).
+    expect(definers.map((r) => r.name)).toEqual(['agency_ai_features', 'client_registrations_receipt']);
   });
 });
 

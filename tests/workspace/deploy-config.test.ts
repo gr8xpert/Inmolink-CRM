@@ -160,7 +160,7 @@ describe('Kamal deploy config', () => {
     );
     const deployed = read('infra', 'ansible', 'roles', 'monitoring', 'tasks', 'main.yml');
     for (const file of rules) expect(deployed, file).toContain(file);
-  });
+  }, 30_000); // a cold dynamic import of the worker config takes > 5 s on a loaded CI runner
 
   it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
     const k = kamal('worker');

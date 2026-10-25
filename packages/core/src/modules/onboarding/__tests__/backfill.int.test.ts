@@ -154,22 +154,46 @@ describe('onboarding backfill', () => {
     expect(await onboarding.backfillAgency(full.agencyId)).toBe(0);
     expect(await steps(full.agencyId)).toEqual(before);
 
-    const pages: onboarding.BackfillProgress[] = [];
-    const all = await onboarding.backfillOnboarding({ batch: 2, onPage: (p) => pages.push(p) });
-    const count = await system(async (tx) =>
-      Number((await tx.execute(sql`select count(*) as n from agencies`)).rows[0]?.n),
+    // The shared test database holds thousands of agencies and other files add more meanwhile (CI): walk from just
+    // before this file's agencies (ids are time-ordered), so the keyset pages over them and whatever came later.
+    const ours = [full.agencyId, listingOnly.agencyId, empty.agencyId].sort();
+    const start = await system(async (tx) => {
+      const r = await tx.execute<{ id: string | null }>(
+        sql`select agency_id::text as id from agencies where agency_id < ${ours[0]}::uuid order by agency_id desc limit 1`,
+      );
+      return r.rows[0]?.id ?? undefined;
+    });
+    const countBefore = await system(async (tx) =>
+      Number(
+        (
+          await tx.execute(
+            start
+              ? sql`select count(*) as n from agencies where agency_id > ${start}::uuid`
+              : sql`select count(*) as n from agencies`,
+          )
+        ).rows[0]?.n,
+      ),
     );
-    expect(all.agencies).toBe(count);
-    expect(pages.length).toBe(Math.ceil(count / 2));
+    const pages: onboarding.BackfillProgress[] = [];
+    const all = await onboarding.backfillOnboarding({
+      ...(start ? { after: start } : {}),
+      batch: 2,
+      onPage: (p) => pages.push(p),
+    });
+    expect(all.agencies).toBeGreaterThanOrEqual(countBefore);
+    expect(pages.length).toBeGreaterThanOrEqual(Math.ceil(countBefore / 2));
     expect(all.changed).toBeGreaterThanOrEqual(0);
     expect(await steps(full.agencyId)).toEqual(before);
 
-    // resumable: starting after the last agency visits nothing
-    const resumed = await onboarding.backfillOnboarding({ after: all.lastAgencyId, batch: 2 });
-    expect(resumed).toMatchObject({ agencies: 0, changed: 0 });
+    // resumable: starting after an agency visits only the ones after it
+    const resumed = await onboarding.backfillOnboarding({ after: full.agencyId, batch: 2 });
+    expect(resumed.agencies).toBeLessThan(all.agencies);
 
-    // idempotent over everything: a second full run writes no row
-    expect((await onboarding.backfillOnboarding({ batch: 500 })).changed).toBe(0);
+    // idempotent: a second full run changes nothing for agencies already backfilled
+    const listingOnlyBefore = await steps(listingOnly.agencyId);
+    await onboarding.backfillOnboarding({ ...(start ? { after: start } : {}), batch: 500 });
+    expect(await steps(full.agencyId)).toEqual(before);
+    expect(await steps(listingOnly.agencyId)).toEqual(listingOnlyBefore);
   });
 
   it('[S13-F26] an earlier real event wins over the backfill and a page is capped at 1,000 agencies', async () => {
