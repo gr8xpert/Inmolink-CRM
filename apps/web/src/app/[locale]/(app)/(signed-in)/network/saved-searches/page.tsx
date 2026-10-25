@@ -23,6 +23,8 @@ const ERRORS = [
   'RATE_LIMITED',
   'SAVED_SEARCH_NOT_FOUND',
   'SAVED_SEARCH_LIMIT',
+  'NETWORK_GIVE_TO_GET_LOCKED',
+  'VERIFICATION_REQUIRED',
 ] as const;
 const DONE = ['saved', 'deleted'] as const;
 const FIELD = 'h-9 rounded-md border bg-background px-2';

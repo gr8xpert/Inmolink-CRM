@@ -10,7 +10,7 @@ import {
   type SavedSearchScope,
   type TransactionType,
 } from '@inmolink/contracts';
-import { withSystem } from '@inmolink/db';
+import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -27,15 +27,19 @@ import * as repo from './repo';
  * matching use cases (S5-06, PLAN §7 M9): an agent's saved searches (request side, the member's own under RLS) and
  * their alerts (worker side, `app_system`):
  *
- * - `matchListings` (one per `search.listings.changed` event — the read models of up to 100 listings of one agency were
- *   written or dropped): each listing's read model is compared with the last state matching saw of it
+ * - `matchListings` (one per `search.listings.changed` event — up to 100 listings of one agency whose read models'
+ *   status, price or version changed): each listing's read model is compared with the last state matching saw of it
  *   (`matching_listing_states`) — new on the market, price dropped, back on the market (`transitionOf`) — and only
- *   those few are matched against the saved searches, in one statement over the inverse index (`repo.matchQuery`). One
- *   alert per saved search, listing, kind and state (`saved_search_alerts_dedupe_uq`): a redelivered event, a retried
- *   job or a second rebuild of the same change alerts nobody twice. INSTANT searches' alerts are notified in the same
- *   transaction (`SAVED_SEARCH_ALERT`, one notification per saved search and kind, naming up to 10 references); DAILY
- *   ones wait for `sendDigest`. The notifications module does the rest: the bell, the live push and the e-mail summary.
- * - `sendDigest` (daily, per agency): one notification per saved search with what it matched since.
+ *   those few are matched against the saved searches over the inverse index (`repo.matchQuery`: the owner's own
+ *   searches, and the network's only when other agencies may see the listing). One alert per saved search, listing,
+ *   kind and state (`saved_search_alerts_dedupe_uq`): a redelivered event, a retried job or a second rebuild of the
+ *   same change alerts nobody twice. Another agency's search alerts only while that agency takes part in the network
+ *   (listed, give-to-get not LOCKED — network search's gate) and the listing's owner is listed.
+ * - `sendAlerts` (per agency): the waiting alerts, re-checked against the listings' current visibility and the
+ *   agency's standing, as one `SAVED_SEARCH_ALERT` notification per member — INSTANT searches within
+ *   `INSTANT_WINDOW_MS` of the first alert (a short digest), DAILY ones once a day. The notifications module does the
+ *   rest: the bell, the live push and the e-mail summary.
+ * - `rekeyAgency`: an agency's searches' keys follow its network standing (`net:` keys only while it takes part).
  */
 
 /** Where an alert opens: the member's saved searches. */
@@ -71,8 +75,18 @@ function toDto(r: repo.SavedSearchRow): SavedSearchDto {
 
 const unique = <T>(xs: readonly T[] | undefined): T[] => [...new Set(xs ?? [])];
 
+/**
+ * The saved search's columns from the body. A search over the network (scope ALL or NETWORK) follows network search's
+ * rules: a verified agency only (`VERIFICATION_REQUIRED`), and not while its give-to-get gate is LOCKED
+ * (`NETWORK_GIVE_TO_GET_LOCKED`, with the gate) — the agency may still watch its own listings (scope OWN).
+ */
 async function fieldsOf(ctx: Ctx, raw: SavedSearchBody): Promise<repo.SavedSearchFields> {
   const s = SavedSearchBody.parse(raw);
+  if (s.scope !== 'OWN') {
+    agencies.assertVerified(ctx, 'network.search');
+    const gate = await search.networkGate(ctx);
+    if (gate.state === 'LOCKED') throw new AppError('NETWORK_GIVE_TO_GET_LOCKED', { gate });
+  }
   const locationIds = unique(s.locationIds);
   if (locationIds.length > 0) {
     const lines = await taxonomy.locationLineages(ctx.tx, locationIds);
@@ -98,11 +112,15 @@ async function fieldsOf(ctx: Ctx, raw: SavedSearchBody): Promise<repo.SavedSearc
     bathsMin: s.bathsMin ?? null,
     areaMinM2: s.areaMinM2 ?? null,
     areaMaxM2: s.areaMaxM2 ?? null,
-    matchKeys: searchKeys({ transactionType, locationIds }),
+    // a network scope got here only for a verified agency whose gate is open
+    matchKeys: searchKeys(
+      { agencyId: ctx.tenant.agencyId, scope: s.scope, transactionType, locationIds },
+      s.scope !== 'OWN',
+    ),
   };
 }
 
-/** `GET /v1/saved-searches`: the caller's own, oldest first (one query). */
+/** `GET /v1/saved-searches`: the caller's own, oldest first (one query; at most `perUser`, so no cursor). */
 export async function listSavedSearches(ctx: Ctx): Promise<SavedSearchList> {
   assertCan(ctx, 'matching.savedSearches.manage');
   const rows = await repo.savedSearchesOf(ctx.tx, ctx.tenant.agencyId, userIdOf(ctx), SAVED_SEARCH_LIMITS.perUser);
@@ -140,36 +158,44 @@ export async function deleteSavedSearch(ctx: Ctx, id: string): Promise<void> {
   }
 }
 
+/* ------------------------------------------------------------------ network standing (worker) */
+
+/**
+ * Of these agencies, those taking part in the network now: listed (VERIFIED) and give-to-get not LOCKED. Three
+ * statements (listed, standings, shared counts) for any number; none when `ids` is empty.
+ */
+async function networkOpenAmong(tx: Tx, ids: readonly string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Set();
+  const listed = await agencies.listedAgencyNamesOf(tx, unique);
+  const gates = await search.networkGatesOf(
+    tx,
+    unique.filter((id) => listed.has(id)),
+  );
+  return new Set([...gates].filter(([, g]) => g.state !== 'LOCKED').map(([id]) => id));
+}
+
+/** May the members of `agencyId` see this listing in network search now (its owner listed: `ownerListed`)? */
+function sharedWith(doc: search.ListingIndexDoc, agencyId: string, ownerListed: boolean): boolean {
+  if (!ownerListed || doc.networkHidden) return false;
+  return doc.shareScope === 'ALL' || doc.preferredAgencyIds.includes(agencyId);
+}
+
 /* ------------------------------------------------------------------ alerts (worker) */
 
 export interface MatchResult {
   /** Listings that changed in a way that alerts (new, price drop, back on market). */
   transitions: number;
-  /** Alerts written now (deduplicated). */
+  /** Alerts written now (deduplicated), waiting to be sent. */
   alerts: number;
-  /** Notifications raised now (INSTANT searches). */
-  notified: number;
-}
-
-const safe = (params: Record<string, string | number>) =>
-  NotificationParams.safeParse(params).success ? params : { ...params, subject: '', refs: '' };
-
-/** The notification of `alerts` (one saved search, one kind or the digest): count, name and up to 10 references. */
-function alertParams(name: string, kind: SavedSearchAlertKind | 'DIGEST', refs: readonly string[]) {
-  const listed = refs.slice(0, SAVED_SEARCH_LIMITS.refsPerNotification).join(', ');
-  const more = refs.length - SAVED_SEARCH_LIMITS.refsPerNotification;
-  return safe({
-    subject: notificationText(name),
-    kind,
-    count: refs.length,
-    refs: notificationText(more > 0 ? `${listed} +${more}` : listed),
-  });
+  /** The agencies of those alerts (their `sendAlerts` is queued). */
+  agencies: string[];
 }
 
 /**
  * `matching.matchListings` (worker): one `search.listings.changed` event's listings against the saved searches — one
- * short transaction, about ten statements whatever the batch (read models, states, candidates, listed agencies,
- * alerts, notifications, states). `nowMs` for tests.
+ * short transaction, about a dozen statements whatever the batch (read models, states, owners' standing, candidate
+ * pages, other agencies' standing, alerts, states). `nowMs` for tests.
  */
 export async function matchListings(
   input: { agencyId: string; listingIds: readonly string[] },
@@ -188,79 +214,58 @@ export async function matchListings(
       if (t) changed.push({ doc, t });
     }
 
-    let alerts = 0;
-    let notified = 0;
+    let written = { written: 0, agencies: [] as string[] };
     if (changed.length > 0) {
-      const probes: repo.ListingProbe[] = changed.map(({ doc, t }) => ({
-        listingId: doc.id,
-        ownerAgencyId: doc.ownerAgencyId,
-        kind: t.kind,
-        keys: listingKeys(doc),
-        propertyTypeId: doc.propertyTypeId,
-        featureIds: doc.featureIds,
-        priceCents: doc.priceOnRequest ? null : doc.priceCents,
-        beds: doc.beds,
-        baths: doc.baths,
-        areaM2: doc.areaM2,
-        network: !doc.networkHidden,
-        shareAll: doc.shareScope === 'ALL',
-        preferredAgencyIds: doc.preferredAgencyIds,
-      }));
+      // other agencies see a listing only while its owner is listed (network search's rule)
+      const listedOwners = await agencies.listedAgencyNamesOf(tx, [
+        ...new Set(changed.map((c) => c.doc.ownerAgencyId)),
+      ]);
+      const probes: repo.ListingProbe[] = changed.map(({ doc, t }) => {
+        const network = listedOwners.has(doc.ownerAgencyId) && !doc.networkHidden;
+        return {
+          listingId: doc.id,
+          ownerAgencyId: doc.ownerAgencyId,
+          kind: t.kind,
+          keys: listingKeys({ ...doc, network }),
+          transactionType: doc.transactionType,
+          locationIds: doc.locationIds,
+          propertyTypeId: doc.propertyTypeId,
+          featureIds: doc.featureIds,
+          priceCents: doc.priceOnRequest ? null : doc.priceCents,
+          beds: doc.beds,
+          baths: doc.baths,
+          areaM2: doc.areaM2,
+          network,
+          shareAll: doc.shareScope === 'ALL',
+          preferredAgencyIds: doc.preferredAgencyIds,
+        };
+      });
       const byId = new Map(changed.map((c) => [c.doc.id, c]));
       const candidates = await repo.matchCandidates(tx, probes);
-      // another agency's search alerts only while that agency takes part in the network (listed: VERIFIED)
-      const others = [...new Set(candidates.map((c) => c.agencyId).filter((a) => a !== input.agencyId))];
-      const listed = await agencies.listedAgencyNamesOf(tx, others);
-      const matched = candidates.filter((c) => {
-        const owner = byId.get(c.listingId)?.doc.ownerAgencyId;
-        return c.agencyId === owner || listed.has(c.agencyId);
-      });
-      const pairs = matched.flatMap((c) => {
-        const hit = byId.get(c.listingId);
-        if (!hit) return [];
-        const row: repo.NewAlert = {
-          id: newId(),
-          agencyId: c.agencyId,
-          userId: c.userId,
-          savedSearchId: c.savedSearchId,
-          listingId: c.listingId,
-          kind: hit.t.kind,
-          dedupeKey: hit.t.dedupeKey,
-          ref: hit.doc.ref,
-          priceCents: hit.doc.priceOnRequest ? null : hit.doc.priceCents,
-          previousPriceCents: hit.t.previousPriceCents,
-          notified: c.frequency === 'INSTANT',
-        };
-        return [{ c, row, kind: hit.t.kind }];
-      });
-      const written = await repo.insertAlerts(
+      // another agency's search alerts only while that agency takes part in the network (listed, gate not LOCKED)
+      const open = await networkOpenAmong(
         tx,
-        pairs.map((p) => p.row),
+        candidates.filter((c) => c.agencyId !== byId.get(c.listingId)?.doc.ownerAgencyId).map((c) => c.agencyId),
       );
-      alerts = written.size;
-
-      // INSTANT: one notification per saved search and kind, for the alerts written now only
-      const groups = new Map<string, { c: repo.Candidate; kind: SavedSearchAlertKind; refs: string[] }>();
-      for (const { c, row, kind } of pairs) {
-        if (!written.has(row.id) || !row.notified) continue;
-        const key = `${row.savedSearchId}:${kind}`;
-        const g = groups.get(key) ?? { c, kind, refs: [] };
-        g.refs.push(row.ref);
-        groups.set(key, g);
-      }
-      if (groups.size > 0) {
-        const raised = await notifications.raiseNotificationsAcross(
-          tx,
-          'SAVED_SEARCH_ALERT',
-          [...groups.values()].map((g) => ({
-            agencyId: g.c.agencyId,
-            userIds: [g.c.userId],
-            params: alertParams(g.c.name, g.kind, g.refs),
-            link: SAVED_SEARCHES_LINK,
-          })),
-        );
-        notified = raised.notified.length;
-      }
+      const rows: repo.NewAlert[] = candidates.flatMap((c) => {
+        const hit = byId.get(c.listingId);
+        if (!hit || (c.agencyId !== hit.doc.ownerAgencyId && !open.has(c.agencyId))) return [];
+        return [
+          {
+            id: newId(),
+            agencyId: c.agencyId,
+            userId: c.userId,
+            savedSearchId: c.savedSearchId,
+            listingId: c.listingId,
+            kind: hit.t.kind,
+            dedupeKey: hit.t.dedupeKey,
+            ref: hit.doc.ref,
+            priceCents: hit.doc.priceOnRequest ? null : hit.doc.priceCents,
+            previousPriceCents: hit.t.previousPriceCents,
+          },
+        ];
+      });
+      written = await repo.insertAlerts(tx, rows);
     }
 
     await repo.upsertStates(
@@ -274,58 +279,159 @@ export async function matchListings(
       })),
     );
     await repo.markGone(tx, missing);
-    return { transitions: changed.length, alerts, notified };
+    return { transitions: changed.length, alerts: written.written, agencies: written.agencies };
   });
 }
 
-/** Alerts claimed per digest transaction (an agency with more is digested over several). */
-export const DIGEST_CLAIM = 2_000;
-/** Agencies queued per statement of the daily sweep. */
-export const DIGEST_SWEEP_PAGE = 500;
-/** Alerts are kept this long (the dedupe of NEW keeps working: a listing is new once, within its first week). */
-export const ALERT_RETENTION_DAYS = 90;
-/** States of listings gone this long are dropped (a return later counts as new). */
-export const GONE_RETENTION_DAYS = 180;
-export const PRUNE_BATCH = 5_000;
+/** INSTANT alerts wait this long after the agency's first one, then go out together (one notification per member). */
+export const INSTANT_WINDOW_MS = 5 * 60_000;
+/** Alerts claimed per send transaction (an agency with more is sent over several). */
+export const SEND_CLAIM = 2_000;
+
+const safe = (params: Record<string, string | number>) =>
+  NotificationParams.safeParse(params).success ? params : { ...params, subject: '', refs: '' };
 
 /**
- * `matching.sendDigest` (worker, per agency): the agency's alerts waiting for their digest (DAILY searches), claimed
- * and marked notified, become one `SAVED_SEARCH_ALERT` notification per saved search (`kind` DIGEST: how many, and up
- * to 10 references) — in one transaction per `DIGEST_CLAIM` alerts. A search turned OFF meanwhile is skipped. `more`:
- * alerts are left, run again.
+ * One member's notification of their alerts: one alert names its kind, several are counted (`DIGEST`); the saved
+ * searches' names and up to 10 references.
  */
-export async function sendDigest(agencyId: string): Promise<{ notified: number; more: boolean }> {
-  return withSystem(`matching.sendDigest: agency ${agencyId}`, async (tx) => {
-    const claimed = await repo.claimPending(tx, agencyId, DIGEST_CLAIM);
-    const groups = new Map<string, { userId: string; name: string; refs: string[] }>();
-    for (const a of claimed) {
-      if (a.frequency === 'OFF') continue;
-      const g = groups.get(a.savedSearchId) ?? { userId: a.userId, name: a.name, refs: [] };
+function alertParams(names: readonly string[], kinds: readonly string[], refs: readonly string[]) {
+  const listed = refs.slice(0, SAVED_SEARCH_LIMITS.refsPerNotification).join(', ');
+  const more = refs.length - SAVED_SEARCH_LIMITS.refsPerNotification;
+  return safe({
+    subject: notificationText([...new Set(names)].join(', ')),
+    kind: refs.length === 1 ? (kinds[0] ?? 'DIGEST') : 'DIGEST',
+    count: refs.length,
+    refs: notificationText(more > 0 ? `${listed} +${more}` : listed),
+  });
+}
+
+/**
+ * `matching.sendAlerts` (worker, per agency): the agency's alerts waiting to be sent of saved searches with this
+ * frequency (`INSTANT` also claims those of searches turned OFF meanwhile, and drops them), claimed and marked sent —
+ * re-checked first: the listing still ACTIVE, and for another agency's listing still shared with this agency, its
+ * owner listed and this agency still taking part in the network (listed, gate not LOCKED). What remains becomes one
+ * `SAVED_SEARCH_ALERT` notification per member, in one transaction per `SEND_CLAIM` alerts. `more`: alerts are left.
+ */
+export async function sendAlerts(
+  agencyId: string,
+  frequency: 'INSTANT' | 'DAILY',
+): Promise<{ notified: number; dropped: number; more: boolean }> {
+  return withSystem(`matching.sendAlerts: agency ${agencyId}`, async (tx) => {
+    const claimed = await repo.claimPending(
+      tx,
+      agencyId,
+      frequency === 'INSTANT' ? ['INSTANT', 'OFF'] : ['DAILY'],
+      SEND_CLAIM,
+    );
+    const live = claimed.filter((a) => a.frequency !== 'OFF');
+    const { docs } = await search.indexDocsFor(tx, [...new Set(live.map((a) => a.listingId))], { text: false });
+    const docOf = new Map(docs.map((d) => [d.id, d]));
+    const owners = [...new Set(docs.map((d) => d.ownerAgencyId).filter((o) => o !== agencyId))];
+    const listed = owners.length > 0 ? await agencies.listedAgencyNamesOf(tx, owners) : new Map<string, string>();
+    const open = owners.length > 0 ? await networkOpenAmong(tx, [agencyId]) : new Set<string>();
+    const visible = live.filter((a) => {
+      const doc = docOf.get(a.listingId);
+      if (doc?.kind !== 'LISTING' || doc.status !== 'ACTIVE') return false;
+      if (doc.ownerAgencyId === agencyId) return a.scope !== 'NETWORK';
+      return a.scope !== 'OWN' && open.has(agencyId) && sharedWith(doc, agencyId, listed.has(doc.ownerAgencyId));
+    });
+    const byUser = new Map<string, { names: string[]; kinds: string[]; refs: string[] }>();
+    for (const a of visible) {
+      const g = byUser.get(a.userId) ?? { names: [], kinds: [], refs: [] };
+      g.names.push(a.name);
+      g.kinds.push(a.kind);
       g.refs.push(a.ref);
-      groups.set(a.savedSearchId, g);
+      byUser.set(a.userId, g);
     }
     let notified = 0;
-    if (groups.size > 0) {
+    if (byUser.size > 0) {
       const raised = await notifications.raiseNotificationsAcross(
         tx,
         'SAVED_SEARCH_ALERT',
-        [...groups.values()].map((g) => ({
+        [...byUser].map(([userId, g]) => ({
           agencyId,
-          userIds: [g.userId],
-          params: alertParams(g.name, 'DIGEST', g.refs),
+          userIds: [userId],
+          params: alertParams(g.names, g.kinds, g.refs),
           link: SAVED_SEARCHES_LINK,
         })),
       );
       notified = raised.notified.length;
     }
-    return { notified, more: claimed.length === DIGEST_CLAIM };
+    return { notified, dropped: claimed.length - visible.length, more: claimed.length === SEND_CLAIM };
   });
 }
 
-/** The daily sweep's page of agencies with alerts waiting for their digest (keyset by agency id). */
-export function digestAgencies(after: string | null, limit: number = DIGEST_SWEEP_PAGE): Promise<string[]> {
-  return withSystem('matching.sweepDigests', (tx) => repo.pendingAgencies(tx, after, limit));
+/** Agencies queued per statement of the sweeps. */
+export const SWEEP_PAGE = 500;
+
+/** A page of agencies with alerts waiting to be sent (keyset by agency id); `olderThan`: only older alerts. */
+export function pendingAlertAgencies(
+  after: string | null,
+  olderThan: Date | null = null,
+  limit: number = SWEEP_PAGE,
+): Promise<string[]> {
+  return withSystem('matching.sweepAlerts', (tx) => repo.pendingAgencies(tx, after, limit, olderThan));
 }
+
+/* ------------------------------------------------------------------ keys, backfill, prune (worker) */
+
+/**
+ * `matching.rekeyAgency` (worker): the agency's saved searches' keys rewritten for its network standing now —
+ * `net:` keys only while it takes part in the network (listed, give-to-get not LOCKED) — and from any older key
+ * format. One transaction; answers how many changed.
+ */
+export async function rekeyAgency(agencyId: string): Promise<{ searches: number; changed: number; open: boolean }> {
+  return withSystem(`matching.rekeyAgency: agency ${agencyId}`, async (tx) => {
+    const searches = await repo.searchesOfAgency(tx, agencyId);
+    if (searches.length === 0) return { searches: 0, changed: 0, open: false };
+    const open = (await networkOpenAmong(tx, [agencyId])).has(agencyId);
+    const changed = await repo.setMatchKeys(
+      tx,
+      searches.map((s) => ({ id: s.id, keys: searchKeys(s, open) })),
+    );
+    return { searches: searches.length, changed, open };
+  });
+}
+
+/** A page of agencies with saved searches (keyset by agency id), for the daily re-key sweep. */
+export function savedSearchAgencies(after: string | null, limit: number = SWEEP_PAGE): Promise<string[]> {
+  return withSystem('matching.sweepRekey', (tx) => repo.agenciesWithSearches(tx, after, limit));
+}
+
+/** Listing states written per backfill transaction. */
+export const BACKFILL_BATCH = 5_000;
+
+/**
+ * `matching.backfillListingStates` (worker, once after deploy): the state of every listing with a read model that
+ * matching has not seen yet, `BACKFILL_BATCH` per transaction (keyset on the listing id) — so the first change of an
+ * existing listing after deploy is told apart (a price drop, back on the market). Answers where to go on (null: done).
+ */
+export async function backfillListingStates(
+  after: string | null,
+  limit: number = BACKFILL_BATCH,
+): Promise<{ inserted: number; next: string | null }> {
+  return withSystem('matching.backfillListingStates', async (tx) => {
+    const page = await search.listingAlertStatesPage(tx, after, limit);
+    const inserted = await repo.insertMissingStates(
+      tx,
+      page.map((p) => ({
+        listingId: p.targetId,
+        agencyId: p.agencyId,
+        status: p.status,
+        priceCents: p.priceCents,
+        version: p.version,
+      })),
+    );
+    return { inserted, next: page.length < limit ? null : (page.at(-1)?.targetId ?? null) };
+  });
+}
+
+/** Alerts are kept this long (the dedupe of NEW keeps working: a listing is new once, within its first week). */
+export const ALERT_RETENTION_DAYS = 90;
+/** States of listings gone this long are dropped (a return later counts as new). */
+export const GONE_RETENTION_DAYS = 180;
+export const PRUNE_BATCH = 5_000;
 
 /** The daily prune: old alerts and long-gone listing states, `PRUNE_BATCH` rows per statement. */
 export async function pruneMatching(nowMs: number = clock.nowMs()): Promise<{ alerts: number; states: number }> {

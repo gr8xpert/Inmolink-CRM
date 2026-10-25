@@ -63,10 +63,15 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   matching: [
     networkJobs.notifySubscribers,
     networkJobs.matchBuyerRequest,
-    // S5-06: saved searches' alerts from the read models' changes, their daily digests and prune.
+    // S5-06: saved searches' alerts from the read models' changes, their short and daily digests, keys, prune, backfill.
     matchingJobs.matchListings,
-    matchingJobs.sendDigest,
+    matchingJobs.sendAlerts,
+    matchingJobs.sweepAlerts,
     matchingJobs.sweepDigests,
+    matchingJobs.rekeyAgency,
+    matchingJobs.sweepRekey,
+    matchingJobs.pruneAlerts,
+    matchingJobs.backfillListingStates,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [

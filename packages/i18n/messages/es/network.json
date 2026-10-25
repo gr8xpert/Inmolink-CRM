@@ -273,7 +273,9 @@
       "FORBIDDEN": "No puedes cambiar las búsquedas guardadas.",
       "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
       "SAVED_SEARCH_NOT_FOUND": "Esa búsqueda guardada ya no existe.",
-      "SAVED_SEARCH_LIMIT": "Puedes tener como máximo {max} búsquedas guardadas. Elimina una primero."
+      "SAVED_SEARCH_LIMIT": "Puedes tener como máximo {max} búsquedas guardadas. Elimina una primero.",
+      "NETWORK_GIVE_TO_GET_LOCKED": "Tu agencia comparte muy pocos inmuebles con la red para vigilarla. Elige «Solo nuestros inmuebles» o comparte más inmuebles primero.",
+      "VERIFICATION_REQUIRED": "Solo las agencias verificadas pueden vigilar la red. Elige «Solo nuestros inmuebles» hasta que tu agencia esté verificada."
     }
   }
 }

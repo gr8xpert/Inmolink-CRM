@@ -27,6 +27,7 @@ import {
   type NetworkSearchItem,
   type NetworkSearchResult,
 } from '@inmolink/contracts';
+import type { Tx } from '@inmolink/db';
 import { CONTENT_LOCALES, FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
@@ -90,6 +91,59 @@ export function giveToGetGate(input: {
     threshold: input.minShared,
     graceEndsAt: graceEndsAt.toISOString(),
   };
+}
+
+/** The caller's give-to-get gate from its standing (two statements with `getNetworkStanding`). */
+async function gateOf(ctx: Ctx, agency: { createdAt: Date; giveToGetExempt: boolean }): Promise<GiveToGetGate> {
+  const { minShared, graceDays } = giveToGet;
+  const sharedListings = await properties.countNetworkSharedListings(ctx, Math.max(minShared, 1));
+  return giveToGetGate({
+    exempt: agency.giveToGetExempt,
+    sharedListings,
+    createdAt: agency.createdAt,
+    now: clock.now(),
+    minShared,
+    graceDays,
+  });
+}
+
+/**
+ * S5-06: the caller's give-to-get gate (network search's rule) — saved searches over the network are refused while it
+ * is LOCKED. Two statements.
+ */
+export async function networkGate(ctx: Ctx): Promise<GiveToGetGate> {
+  assertCan(ctx, 'search.network');
+  return gateOf(ctx, await agencies.getNetworkStanding(ctx));
+}
+
+/**
+ * Worker form of `networkGate` (PATTERNS §12, S5-06 saved-search alerts): the gate of each of these agencies, in the
+ * job's own transaction — two statements for any number (standings, shared counts). Unknown agencies are absent.
+ */
+export async function networkGatesOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, GiveToGetGate>> {
+  const ids = [...new Set(agencyIds)];
+  if (ids.length === 0) return new Map();
+  const { minShared, graceDays } = giveToGet;
+  const [standings, shared] = await Promise.all([
+    agencies.networkStandingsOf(tx, ids),
+    properties.countNetworkSharedListingsOf(tx, ids, Math.max(minShared, 1)),
+  ]);
+  const now = clock.now();
+  const gates = new Map<string, GiveToGetGate>();
+  for (const [id, a] of standings) {
+    gates.set(
+      id,
+      giveToGetGate({
+        exempt: a.giveToGetExempt,
+        sharedListings: shared.get(id) ?? 0,
+        createdAt: a.createdAt,
+        now,
+        minShared,
+        graceDays,
+      }),
+    );
+  }
+  return gates;
 }
 
 /** One listing's or unit's terms, as the commission maths needs them. */
@@ -243,17 +297,8 @@ export async function searchNetwork(
   const standing = await run(async (ctx): Promise<Standing> => {
     assertCan(ctx, 'search.network');
     agencies.assertVerified(ctx, 'network.search');
-    const { minShared, graceDays } = giveToGet;
     const agency = await agencies.getNetworkStanding(ctx);
-    const sharedListings = await properties.countNetworkSharedListings(ctx, Math.max(minShared, 1));
-    const gate = giveToGetGate({
-      exempt: agency.giveToGetExempt,
-      sharedListings,
-      createdAt: agency.createdAt,
-      now: clock.now(),
-      minShared,
-      graceDays,
-    });
+    const gate = await gateOf(ctx, agency);
     if (gate.state === 'LOCKED') return { gate, scope: null };
     const scope: Scope = { self: ctx.tenant.agencyId, preferred: agency.preferred };
     return { gate, scope, locale: contentLocaleOf(ctx.locale), requestId: ctx.requestId };

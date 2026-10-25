@@ -5,7 +5,7 @@
  * `deleteSavedSearch`) and their alerts — a listing new on the market, its price dropped, back on the market — raised
  * from the read models' `search.listings.changed` events (`matchListings`, one alert per saved search, listing and
  * change) and delivered by the notifications module (`SAVED_SEARCH_ALERT`: in-app, live push, e-mail summary), at once
- * or in a daily digest (`sendDigest`).
+ * in a short (5-minute) or daily digest (`sendAlerts`).
  */
 export {
   ANY,
@@ -20,7 +20,7 @@ export {
 } from './alerts';
 export { matchingErrors } from './errors';
 export { matchingEvents } from './events';
-export { DIGEST_SPREAD_MS, digestDelayOf, matchingJobs } from './jobs';
+export { matchingJobs, STALE_INSTANT_MS, SWEEP_SPREAD_MS, sweepDelayOf } from './jobs';
 export {
   CLIENT_MODE_ALLOWED,
   can,
@@ -30,18 +30,23 @@ export {
 } from './policy';
 export {
   ALERT_RETENTION_DAYS,
+  BACKFILL_BATCH,
+  backfillListingStates,
   createSavedSearch,
-  DIGEST_CLAIM,
-  DIGEST_SWEEP_PAGE,
   deleteSavedSearch,
-  digestAgencies,
   GONE_RETENTION_DAYS,
+  INSTANT_WINDOW_MS,
   listSavedSearches,
   type MatchResult,
   matchListings,
+  pendingAlertAgencies,
   pruneMatching,
+  rekeyAgency,
   SAVED_SEARCHES_LINK,
-  sendDigest,
+  SEND_CLAIM,
+  SWEEP_PAGE,
+  savedSearchAgencies,
+  sendAlerts,
   updateSavedSearch,
 } from './service';
 export { registerMatchingSubscriptions, unregisterMatchingSubscriptions } from './subscriptions';

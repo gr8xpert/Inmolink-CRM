@@ -43,6 +43,18 @@ export async function countNetworkSharedListings(ctx: Ctx, cap: number): Promise
 }
 
 /**
+ * Worker form of `countNetworkSharedListings` (PATTERNS §12, S5-06 saved-search alerts): each of these agencies'
+ * ACTIVE listings shared with every agency, counted up to `cap` — one statement for any number of agencies.
+ */
+export function countNetworkSharedListingsOf(
+  tx: Tx,
+  agencyIds: readonly string[],
+  cap: number,
+): Promise<Map<string, number>> {
+  return repo.countNetworkSharedOf(tx, agencyIds, cap);
+}
+
+/**
  * S10-02 (CRM leads, raw `tx` of the caller's agency, inbound promotion included): a listing as a lead's target — its
  * owner agency, and its responsible agent when the caller owns it (`OWNER_AGENT` assignment). Null when the caller
  * cannot read it (RLS) or it is deleted.

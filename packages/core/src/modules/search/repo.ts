@@ -187,6 +187,65 @@ export async function deleteOthers(
   }));
 }
 
+/** S5-06: what alerts a saved search about a listing — its read model's status, price and version. */
+export interface AlertState {
+  status: string;
+  priceCents: number | null;
+  version: number;
+}
+
+/**
+ * S5-06: `lockTargets` for listings, answering their alert states as their read models hold them before the rebuild
+ * (one statement: every lock is taken — the aggregate — before the read models are read). A rebuild of the same target that committed while this one
+ * waited for its lock is not seen here: the states are then older, and the change event is only sent once more.
+ */
+export async function lockListingTargets(tx: Tx, ids: readonly string[]): Promise<Map<string, AlertState>> {
+  if (ids.length === 0) return new Map();
+  const res = await tx.execute(sql`
+    with held as (
+      select count(pg_advisory_xact_lock(k)) as n
+        from (select distinct hashtextextended('read_model:' || x::text, 0) as k
+                from unnest(${uuidArray(ids)}) as x
+               order by 1) s)
+    select r.* from held cross join lateral (
+      select distinct on (target_id) target_id, status, version,
+             case when (card->'price'->>'onRequest')::boolean then null else (card->'price'->>'amountCents')::bigint end
+               as price_cents
+        from ${listingReadModels}
+       where target_id = any(${uuidArray(ids)}) and held.n >= 0
+       order by target_id, locale) r`);
+  return new Map(
+    (res.rows as { target_id: string; status: string; version: number; price_cents: string | null }[]).map((r) => [
+      r.target_id,
+      { status: r.status, version: r.version, priceCents: r.price_cents === null ? null : Number(r.price_cents) },
+    ]),
+  );
+}
+
+/** S5-06: a page of listings' alert states with their owner (keyset on the target id), for the matching backfill. */
+export async function alertStatesPage(
+  tx: Tx,
+  after: string | null,
+  limit: number,
+): Promise<(AlertState & { targetId: string; agencyId: string })[]> {
+  const res = await tx.execute(sql`
+    select distinct on (target_id) target_id, agency_id, status, version,
+           case when (card->'price'->>'onRequest')::boolean then null else (card->'price'->>'amountCents')::bigint end
+             as price_cents
+      from ${listingReadModels}
+     where kind = 'LISTING' and target_id > coalesce(${after}::uuid, '00000000-0000-0000-0000-000000000000')
+     order by target_id, locale limit ${limit}`);
+  return (
+    res.rows as { target_id: string; agency_id: string; status: string; version: number; price_cents: string | null }[]
+  ).map((r) => ({
+    targetId: r.target_id,
+    agencyId: r.agency_id,
+    status: r.status,
+    version: r.version,
+    priceCents: r.price_cents === null ? null : Number(r.price_cents),
+  }));
+}
+
 /** A position in the full rebuild's sweep: after the read model `(targetId, locale)` (the primary key). */
 export interface SweepPosition {
   targetId: string;

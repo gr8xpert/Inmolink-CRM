@@ -199,6 +199,79 @@ export async function markGone(tx: Tx, listingIds: readonly string[]): Promise<v
      where listing_id = any(${uuids(listingIds)}) and status <> 'GONE'`);
 }
 
+/** Writes the states of listings matching has not seen yet (backfill, one statement); answers how many. */
+export async function insertMissingStates(tx: Tx, rows: readonly StateRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const json = JSON.stringify(
+    rows.map((r) => ({
+      listing_id: r.listingId,
+      agency_id: r.agencyId,
+      status: r.status,
+      price_cents: r.priceCents,
+      version: r.version,
+    })),
+  );
+  const res = await tx.execute(sql`
+    insert into ${matchingListingStates} (listing_id, agency_id, status, price_cents, version)
+    select listing_id, agency_id, status, price_cents, version
+      from jsonb_to_recordset(${json}::jsonb)
+        as x(listing_id uuid, agency_id uuid, status text, price_cents bigint, version int)
+    on conflict (listing_id) do nothing`);
+  return res.rowCount ?? 0;
+}
+
+/* ------------------------------------------------------------------ match keys (worker) */
+
+export interface KeyedSearch {
+  id: string;
+  agencyId: string;
+  scope: string;
+  transactionType: string | null;
+  locationIds: string[];
+  matchKeys: string[];
+}
+
+/** The agency's saved searches with their keys (`saved_searches_user_idx` prefix; ≤ members × 50). */
+export async function searchesOfAgency(tx: Tx, agencyId: string): Promise<KeyedSearch[]> {
+  return tx
+    .select({
+      id: savedSearches.id,
+      agencyId: savedSearches.agencyId,
+      scope: savedSearches.scope,
+      transactionType: savedSearches.transactionType,
+      locationIds: savedSearches.locationIds,
+      matchKeys: savedSearches.matchKeys,
+    })
+    .from(savedSearches)
+    .where(eq(savedSearches.agencyId, agencyId));
+}
+
+/** Rewrites these searches' keys (one statement); answers how many changed. */
+export async function setMatchKeys(tx: Tx, rows: readonly { id: string; keys: string[] }[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const res = await tx.execute(sql`
+    update ${savedSearches} s set match_keys = x.keys
+      from jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) as x(id uuid, keys text[])
+     where s.id = x.id and s.match_keys is distinct from x.keys`);
+  return res.rowCount ?? 0;
+}
+
+const NIL = '00000000-0000-0000-0000-000000000000';
+
+/** Agencies with saved searches after `after` (a loose scan of `saved_searches_user_idx`), at most `limit`. */
+export async function agenciesWithSearches(tx: Tx, after: string | null, limit: number): Promise<string[]> {
+  const res = await tx.execute<{ agency_id: string }>(sql`
+    with recursive a as (
+      (select agency_id from ${savedSearches}
+        where agency_id > coalesce(${after}::uuid, ${NIL}::uuid)
+        order by agency_id limit 1)
+      union all
+      select (select agency_id from ${savedSearches} x where x.agency_id > a.agency_id order by x.agency_id limit 1)
+        from a where a.agency_id is not null)
+    select agency_id from a where agency_id is not null limit ${limit}`);
+  return res.rows.map((r) => r.agency_id);
+}
+
 /* ------------------------------------------------------------------ matching (worker) */
 
 /** One changed listing as the matching query probes it. */
@@ -206,7 +279,10 @@ export interface ListingProbe {
   listingId: string;
   ownerAgencyId: string;
   kind: 'NEW' | 'PRICE_DROP' | 'BACK_ON_MARKET';
+  /** `listingKeys`: the owner's own searches, and the network's when other agencies may see it. */
   keys: string[];
+  transactionType: string;
+  locationIds: string[];
   propertyTypeId: string;
   featureIds: string[];
   /** Null: price on request (matches no price bound). */
@@ -214,7 +290,7 @@ export interface ListingProbe {
   beds: number | null;
   baths: number | null;
   areaM2: number | null;
-  /** Other agencies see it in network search (indexed, not hidden from the network). */
+  /** Other agencies may see it (on the network, not hidden, its owner listed). */
   network: boolean;
   shareAll: boolean;
   preferredAgencyIds: string[];
@@ -225,28 +301,33 @@ export type Candidate = {
   savedSearchId: string;
   agencyId: string;
   userId: string;
-  name: string;
   frequency: 'INSTANT' | 'DAILY';
 };
 
-/** Matches one statement returns at most (a broad search set over a batch of 100 listings stays far below it). */
-export const CANDIDATES_MAX = 50_000;
+/**
+ * Listings probed per statement (perf review: no row cap that could cut matches short). A statement answers every
+ * match of its listings; a batch of 100 is twenty statements, each bounded by the searches that may see 5 listings (~3 ms a listing at the
+ * scale seed, tests/perf/saved-search-matching).
+ */
+export const PROBE_CHUNK = 5;
 
 /**
- * The saved searches these changed listings match (S5-06), any agency — one statement for the batch. The listings
- * come in as a `jsonb_to_recordset`; each one probes `saved_searches_match_keys_idx` (GIN, `match_keys && keys`: only
- * the searches for its transaction type or any, and for one of its places or anywhere), and the remaining criteria
- * are checked on those candidates only — never a walk over every saved search. Who may see the listing: the owner's
- * own searches (scope ALL or OWN), or another agency's (ALL or NETWORK) when it is on the network and shared with
- * that agency (with ALL, or the agency is one its owner prefers). Exported for the plan test.
+ * Every saved search these changed listings match (S5-06), any agency. The listings come in as a `jsonb_to_recordset`; each probes `saved_searches_match_keys_idx` (GIN,
+ * `match_keys && keys`) with its keys — its owner's own searches for its transaction type, and, only when other
+ * agencies may see it, the network searches for its transaction type at one of its places (or any, anywhere) — so a
+ * search of another agency's own stock, or of a place it is not in, is never read. The remaining criteria (places
+ * and transaction of own searches, types, features, ranges, the alert kind, sharing) are checked on those candidates
+ * only. Exported for the plan tests.
  */
-export function matchQuery(probes: readonly ListingProbe[], max: number = CANDIDATES_MAX): SQL {
+export function matchQuery(probes: readonly ListingProbe[]): SQL {
   const json = JSON.stringify(
     probes.map((p) => ({
       listing_id: p.listingId,
       owner: p.ownerAgencyId,
       kind: p.kind,
       keys: p.keys,
+      transaction_type: p.transactionType,
+      location_ids: p.locationIds,
       property_type_id: p.propertyTypeId,
       feature_ids: p.featureIds,
       price_cents: p.priceCents,
@@ -260,13 +341,15 @@ export function matchQuery(probes: readonly ListingProbe[], max: number = CANDID
   );
   return sql`
     select l.listing_id as "listingId", s.id as "savedSearchId", s.agency_id as "agencyId", s.user_id as "userId",
-           s.name, s.frequency
+           s.frequency
       from jsonb_to_recordset(${json}::jsonb) as l(listing_id uuid, owner uuid, kind text, keys text[],
-             property_type_id uuid, feature_ids uuid[], price_cents bigint, beds int, baths int, area_m2 numeric,
-             network boolean, share_all boolean, preferred uuid[])
+             transaction_type text, location_ids uuid[], property_type_id uuid, feature_ids uuid[], price_cents bigint,
+             beds int, baths int, area_m2 numeric, network boolean, share_all boolean, preferred uuid[])
       join ${savedSearches} s on s.match_keys && l.keys and s.frequency <> 'OFF'
      where case l.kind when 'NEW' then s.alert_new when 'PRICE_DROP' then s.alert_price_drop
                        else s.alert_back_on_market end
+       and (s.transaction_type is null or s.transaction_type = l.transaction_type)
+       and (cardinality(s.location_ids) = 0 or s.location_ids && l.location_ids)
        and (cardinality(s.property_type_ids) = 0 or l.property_type_id = any(s.property_type_ids))
        and s.feature_ids <@ l.feature_ids
        and (s.price_min_cents is null or l.price_cents >= s.price_min_cents)
@@ -276,14 +359,20 @@ export function matchQuery(probes: readonly ListingProbe[], max: number = CANDID
        and (s.area_min_m2 is null or l.area_m2 >= s.area_min_m2)
        and (s.area_max_m2 is null or l.area_m2 <= s.area_max_m2)
        and case when s.agency_id = l.owner then s.scope <> 'NETWORK'
-                else s.scope <> 'OWN' and l.network and (l.share_all or s.agency_id = any(l.preferred)) end
-     limit ${max}`;
+                else s.scope <> 'OWN' and l.network and (l.share_all or s.agency_id = any(l.preferred)) end`;
 }
 
-export async function matchCandidates(tx: Tx, probes: readonly ListingProbe[]): Promise<Candidate[]> {
-  if (probes.length === 0) return [];
-  const res = await tx.execute<Candidate>(matchQuery(probes));
-  return res.rows;
+/** Every saved search these listings match, `chunk` listings per statement (no cap on the matches). */
+export async function matchCandidates(
+  tx: Tx,
+  probes: readonly ListingProbe[],
+  chunk: number = PROBE_CHUNK,
+): Promise<Candidate[]> {
+  const all: Candidate[] = [];
+  for (let i = 0; i < probes.length; i += chunk) {
+    all.push(...(await tx.execute<Candidate>(matchQuery(probes.slice(i, i + chunk)))).rows);
+  }
+  return all;
 }
 
 /* ------------------------------------------------------------------ alerts (worker) */
@@ -299,16 +388,17 @@ export interface NewAlert {
   ref: string;
   priceCents: number | null;
   previousPriceCents: number | null;
-  /** INSTANT searches' alerts go out now (notified); DAILY ones wait for the digest. */
-  notified: boolean;
 }
 
 /**
- * Writes the alerts (one statement); a saved search, listing, kind and state alerted already is skipped
- * (`saved_search_alerts_dedupe_uq`). Answers the ids written now — only those are notified.
+ * Writes the alerts, waiting to be sent (one statement); a saved search, listing, kind and state alerted already is
+ * skipped (`saved_search_alerts_dedupe_uq`). Answers how many were written now, and their agencies.
  */
-export async function insertAlerts(tx: Tx, alerts: readonly NewAlert[]): Promise<Set<string>> {
-  if (alerts.length === 0) return new Set();
+export async function insertAlerts(
+  tx: Tx,
+  alerts: readonly NewAlert[],
+): Promise<{ written: number; agencies: string[] }> {
+  if (alerts.length === 0) return { written: 0, agencies: [] };
   const json = JSON.stringify(
     alerts.map((a) => ({
       id: a.id,
@@ -321,34 +411,38 @@ export async function insertAlerts(tx: Tx, alerts: readonly NewAlert[]): Promise
       ref: a.ref,
       price_cents: a.priceCents,
       previous_price_cents: a.previousPriceCents,
-      notified: a.notified,
     })),
   );
-  const res = await tx.execute<{ id: string }>(sql`
+  const res = await tx.execute<{ agency_id: string }>(sql`
     insert into ${savedSearchAlerts}
-      (id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents, previous_price_cents,
-       notified_at)
-    select id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents,
-           previous_price_cents, case when notified then now() end
+      (id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents, previous_price_cents)
+    select id, agency_id, user_id, saved_search_id, listing_id, kind, dedupe_key, ref, price_cents, previous_price_cents
       from jsonb_to_recordset(${json}::jsonb) as x(id uuid, agency_id uuid, user_id uuid, saved_search_id uuid,
-             listing_id uuid, kind text, dedupe_key int, ref text, price_cents bigint, previous_price_cents bigint,
-             notified boolean)
+             listing_id uuid, kind text, dedupe_key int, ref text, price_cents bigint, previous_price_cents bigint)
     on conflict (saved_search_id, listing_id, kind, dedupe_key) do nothing
-    returning id`);
-  return new Set(res.rows.map((r) => r.id));
+    returning agency_id`);
+  return { written: res.rows.length, agencies: [...new Set(res.rows.map((r) => r.agency_id))] };
 }
 
-/** Agencies with alerts waiting for their digest, after `after` (keyset on the pending index), at most `limit`. */
-export async function pendingAgencies(tx: Tx, after: string | null, limit: number): Promise<string[]> {
-  // a loose index scan over `saved_search_alerts_pending_idx`: one probe per agency, however many alerts wait
+/**
+ * Agencies with alerts waiting to be sent, after `after` (a loose index scan over `saved_search_alerts_pending_idx`:
+ * one probe per agency, however many alerts wait), at most `limit`; with `olderThan`, only alerts written before it.
+ */
+export async function pendingAgencies(
+  tx: Tx,
+  after: string | null,
+  limit: number,
+  olderThan: Date | null = null,
+): Promise<string[]> {
+  const age = olderThan ? sql`and created_at < ${olderThan.toISOString()}::timestamptz` : sql``;
   const res = await tx.execute<{ agency_id: string }>(sql`
     with recursive a as (
       (select agency_id from ${savedSearchAlerts}
-        where notified_at is null and agency_id > coalesce(${after}::uuid, '00000000-0000-0000-0000-000000000000')
+        where notified_at is null ${age} and agency_id > coalesce(${after}::uuid, ${NIL}::uuid)
         order by agency_id limit 1)
       union all
       select (select agency_id from ${savedSearchAlerts} x
-               where x.notified_at is null and x.agency_id > a.agency_id order by x.agency_id limit 1)
+               where x.notified_at is null ${age} and x.agency_id > a.agency_id order by x.agency_id limit 1)
         from a where a.agency_id is not null)
     select agency_id from a where agency_id is not null limit ${limit}`);
   return res.rows.map((r) => r.agency_id);
@@ -358,26 +452,37 @@ export type ClaimedAlert = {
   savedSearchId: string;
   userId: string;
   name: string;
+  scope: string;
   frequency: string;
+  listingId: string;
+  kind: string;
   ref: string;
 };
 
 /**
- * Claims the agency's alerts waiting for their digest (at most `limit`, one statement): marks them notified and
- * answers them with their saved search. `skip locked`: a concurrent digest run takes other rows.
+ * Claims the agency's alerts waiting to be sent whose saved search has one of `frequencies` (at most `limit`, one
+ * statement): marks them notified and answers them with their saved search. `skip locked`: a concurrent run takes
+ * other rows.
  */
-export async function claimPending(tx: Tx, agencyId: string, limit: number): Promise<ClaimedAlert[]> {
+export async function claimPending(
+  tx: Tx,
+  agencyId: string,
+  frequencies: readonly string[],
+  limit: number,
+): Promise<ClaimedAlert[]> {
   const res = await tx.execute<ClaimedAlert>(sql`
     with c as (
-      select id from ${savedSearchAlerts}
-       where agency_id = ${agencyId} and notified_at is null
-       order by saved_search_id, id limit ${limit} for update skip locked),
+      select a.id from ${savedSearchAlerts} a join ${savedSearches} s on s.id = a.saved_search_id
+       where a.agency_id = ${agencyId} and a.notified_at is null
+         and s.frequency = any(${`{${frequencies.join(',')}}`}::text[])
+       order by a.saved_search_id, a.id limit ${limit} for update of a skip locked),
     u as (
       update ${savedSearchAlerts} a set notified_at = now() from c where a.id = c.id
-      returning a.saved_search_id, a.ref, a.created_at, a.id)
-    select u.saved_search_id as "savedSearchId", s.user_id as "userId", s.name, s.frequency, u.ref
+      returning a.saved_search_id, a.listing_id, a.kind, a.ref, a.created_at, a.id)
+    select u.saved_search_id as "savedSearchId", s.user_id as "userId", s.name, s.scope, s.frequency,
+           u.listing_id as "listingId", u.kind, u.ref
       from u join ${savedSearches} s on s.id = u.saved_search_id
-     order by u.saved_search_id, u.created_at, u.id`);
+     order by s.user_id, u.saved_search_id, u.created_at, u.id`);
   return res.rows;
 }
 

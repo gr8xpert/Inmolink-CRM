@@ -211,6 +211,18 @@ export async function networkStanding(tx: Tx, agencyId: string): Promise<Network
   return row ?? null;
 }
 
+/** S5-06 (worker, `withSystem`): these agencies' give-to-get standing — sign-up date and exemption. One statement. */
+export async function networkStandings(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ id: string; createdAt: Date; giveToGetExempt: boolean }[]> {
+  if (ids.length === 0) return [];
+  return tx
+    .select({ id: agencies.id, createdAt: agencies.createdAt, giveToGetExempt: agencies.giveToGetExempt })
+    .from(agencies)
+    .where(inArray(agencies.id, [...ids]));
+}
+
 /** Directory names of these agencies (listed ones, as RLS shows them to a verified agency): one primary-key probe each. */
 export async function directoryNames(tx: Tx, ids: readonly string[]): Promise<{ id: string; name: string }[]> {
   if (ids.length === 0) return [];

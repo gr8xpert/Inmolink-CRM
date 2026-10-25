@@ -2,7 +2,7 @@ import type { SavedSearchAlertKind } from '@inmolink/contracts';
 
 /**
  * Saved-search alert rules (S5-06), pure: which change of a listing alerts, and the inverse-index keys that find the
- * saved searches it could match.
+ * saved searches that could match it and may see it.
  */
 
 /** A key part left open: any transaction type, or anywhere. */
@@ -15,23 +15,45 @@ export const NEW_LISTING_WINDOW_MS = 7 * 86_400_000;
 export const GONE = 'GONE';
 
 /**
- * A saved search's `match_keys`: `<transaction>:<location>` for every pair of its transaction type (or `*`) and its
- * locations (or `*`). A search for SALE in Marbella and Estepona: `SALE:<marbella>`, `SALE:<estepona>`.
+ * A saved search's `match_keys` (S5-06 perf review: keys carry who may see what, so a listing probes only the searches
+ * that could see it):
+ * - `own:<agency>:<transaction>` (`*`: any) when it watches its agency's own listings (scope ALL or OWN) — one key; its
+ *   places are checked on the few candidates of that agency;
+ * - `net:<transaction>:<location>` per location (`*`: anywhere) when it watches the network (ALL or NETWORK) and its
+ *   agency takes part in it (`networkOpen`: VERIFIED and give-to-get not LOCKED, re-keyed when that changes);
+ * - `off:<agency>` when neither applies (a NETWORK search of an agency whose network is closed): no listing probes it.
  */
-export function searchKeys(s: { transactionType: string | null; locationIds: readonly string[] }): string[] {
+export function searchKeys(
+  s: { agencyId: string; scope: string; transactionType: string | null; locationIds: readonly string[] },
+  networkOpen: boolean,
+): string[] {
   const tx = s.transactionType ?? ANY;
-  const locations = s.locationIds.length > 0 ? [...new Set(s.locationIds)] : [ANY];
-  return locations.map((l) => `${tx}:${l}`).sort();
+  const keys: string[] = [];
+  if (s.scope !== 'NETWORK') keys.push(`own:${s.agencyId}:${tx}`);
+  if (s.scope !== 'OWN' && networkOpen) {
+    const locations = s.locationIds.length > 0 ? [...new Set(s.locationIds)] : [ANY];
+    for (const l of locations) keys.push(`net:${tx}:${l}`);
+  }
+  if (keys.length === 0) keys.push(`off:${s.agencyId}`);
+  return keys.sort();
 }
 
 /**
- * A listing's keys: its transaction type and `*`, times each of its places (country, region, city, area) and `*` —
- * every key a saved search that could match it has. At most 2 × 5 = 10.
+ * A listing's keys: its owner's own searches for its transaction type or any (`own:<owner>:…`, 2 keys), and — when
+ * other agencies may see it (on the network, its owner listed) — the network searches for its transaction type or any,
+ * at each of its places (country, region, city, area) or anywhere (`net:…`, at most 2 × 5 = 10).
  */
-export function listingKeys(l: { transactionType: string; locationIds: readonly string[] }): string[] {
-  const keys: string[] = [];
-  for (const tx of [l.transactionType, ANY]) {
-    for (const loc of [...new Set(l.locationIds), ANY]) keys.push(`${tx}:${loc}`);
+export function listingKeys(l: {
+  ownerAgencyId: string;
+  transactionType: string;
+  locationIds: readonly string[];
+  network: boolean;
+}): string[] {
+  const keys = [`own:${l.ownerAgencyId}:${l.transactionType}`, `own:${l.ownerAgencyId}:${ANY}`];
+  if (l.network) {
+    for (const tx of [l.transactionType, ANY]) {
+      for (const loc of [...new Set(l.locationIds), ANY]) keys.push(`net:${tx}:${loc}`);
+    }
   }
   return keys;
 }

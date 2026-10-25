@@ -12,6 +12,7 @@ export {
   listedAgencyNamesOf,
   type NetworkStanding,
   networkAgencyNames,
+  networkStandingsOf,
   setGiveToGetExemption,
 } from './network';
 export { type AgenciesAction, assertVerified, can, type VerifiedAction } from './policy';

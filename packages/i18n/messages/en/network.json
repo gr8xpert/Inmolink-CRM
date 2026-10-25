@@ -273,7 +273,9 @@
       "FORBIDDEN": "You cannot change saved searches.",
       "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
       "SAVED_SEARCH_NOT_FOUND": "That saved search no longer exists.",
-      "SAVED_SEARCH_LIMIT": "You can keep at most {max} saved searches. Delete one first."
+      "SAVED_SEARCH_LIMIT": "You can keep at most {max} saved searches. Delete one first.",
+      "NETWORK_GIVE_TO_GET_LOCKED": "Your agency shares too few listings with the network to watch it. Choose “Our listings only”, or share more listings first.",
+      "VERIFICATION_REQUIRED": "Only verified agencies can watch the network. Choose “Our listings only” until your agency is verified."
     }
   }
 }

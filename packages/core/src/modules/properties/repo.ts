@@ -1490,6 +1490,27 @@ export async function countNetworkShared(tx: Tx, agencyId: string, cap: number):
   return (result.rows[0] as { n: number }).n;
 }
 
+/**
+ * S5-06 (worker, `withSystem`): `countNetworkShared` for many agencies in one statement — each agency's count a probe
+ * of its own listings, stopped at `cap`.
+ */
+export async function countNetworkSharedOf(
+  tx: Tx,
+  agencyIds: readonly string[],
+  cap: number,
+): Promise<Map<string, number>> {
+  if (agencyIds.length === 0) return new Map();
+  const result = await tx.execute(sql`
+    select a.id as agency_id, (select count(*)::int from (
+        select 1 from ${properties}
+         where ${properties.agencyId} = a.id and ${properties.visibility} <> 'PRIVATE'
+           and ${properties.status} = 'ACTIVE' and ${properties.deletedAt} is null
+           and ${properties.networkHiddenAt} is null and ${properties.shareScope} = 'ALL'
+         limit ${cap}) s) as n
+      from unnest(${`{${[...new Set(agencyIds)].join(',')}}`}::uuid[]) as a(id)`);
+  return new Map((result.rows as { agency_id: string; n: number }[]).map((r) => [r.agency_id, r.n]));
+}
+
 /** Commission terms of these listings for the search index (S7-F4): worker-facing, no RLS (`withSystem`). */
 export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
   if (ids.length === 0) return [];

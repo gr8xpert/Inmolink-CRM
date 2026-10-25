@@ -41,16 +41,38 @@ describe('saved search alert rules', () => {
     expect(transitionOf({ ...seen, status: 'UNDER_OFFER', version: 5 }, active(), NOW)).toBeNull();
   });
 
-  it('[S5-06] a listing’s keys cover every saved search that could match it (inverse index)', () => {
-    const keys = new Set(listingKeys({ transactionType: 'SALE', locationIds: ['es', 'mlg', 'mbl'] }));
-    expect(keys.size).toBe(8);
-    const hits = (s: { transactionType: string | null; locationIds: string[] }) =>
-      searchKeys(s).some((k) => keys.has(k));
-    expect(hits({ transactionType: null, locationIds: [] })).toBe(true);
-    expect(hits({ transactionType: 'SALE', locationIds: ['mbl', 'elsewhere'] })).toBe(true);
-    expect(hits({ transactionType: null, locationIds: ['es'] })).toBe(true);
-    expect(hits({ transactionType: 'RENT_LONG_TERM', locationIds: [] })).toBe(false);
-    expect(hits({ transactionType: 'SALE', locationIds: ['elsewhere'] })).toBe(false);
-    expect(searchKeys({ transactionType: 'SALE', locationIds: ['b', 'a', 'a'] })).toEqual(['SALE:a', 'SALE:b']);
+  it('[S5-06] a listing’s keys reach its owner’s own searches and, only when shared, the open network’s', () => {
+    const owner = 'A';
+    const listing = { ownerAgencyId: owner, transactionType: 'SALE', locationIds: ['es', 'mlg', 'mbl'] };
+    const shared = new Set(listingKeys({ ...listing, network: true }));
+    const unshared = new Set(listingKeys({ ...listing, network: false }));
+    expect(shared.size).toBe(2 + 8);
+    expect(unshared.size).toBe(2);
+    const hits = (
+      keys: Set<string>,
+      s: { agencyId: string; scope: string; transactionType: string | null; locationIds: string[] },
+      open = true,
+    ) => searchKeys(s, open).some((k) => keys.has(k));
+    const own = { agencyId: owner, scope: 'ALL', transactionType: null, locationIds: [] };
+    const other = { agencyId: 'B', scope: 'ALL', transactionType: null, locationIds: [] };
+    // the owner's own searches, shared or not; another agency's own-stock search never
+    expect(hits(unshared, own)).toBe(true);
+    expect(hits(unshared, { ...own, scope: 'OWN', transactionType: 'SALE' })).toBe(true);
+    expect(hits(unshared, { ...own, transactionType: 'RENT_LONG_TERM' })).toBe(false);
+    expect(hits(shared, { ...other, scope: 'OWN' })).toBe(false);
+    // another agency's network search: only for a shared listing, only while its network is open
+    expect(hits(unshared, other)).toBe(false);
+    expect(hits(shared, other)).toBe(true);
+    expect(hits(shared, other, false)).toBe(false);
+    expect(hits(shared, { ...other, scope: 'NETWORK', transactionType: 'SALE', locationIds: ['mbl', 'x'] })).toBe(true);
+    expect(hits(shared, { ...other, locationIds: ['elsewhere'] })).toBe(false);
+    expect(hits(shared, { ...other, transactionType: 'RENT_LONG_TERM' })).toBe(false);
+    // keys: one own key, one network key per place, a closed NETWORK search none that a listing probes
+    expect(searchKeys({ ...other, transactionType: 'SALE', locationIds: ['b', 'a', 'a'] }, true)).toEqual([
+      'net:SALE:a',
+      'net:SALE:b',
+      'own:B:SALE',
+    ]);
+    expect(searchKeys({ ...other, scope: 'NETWORK' }, false)).toEqual(['off:B']);
   });
 });

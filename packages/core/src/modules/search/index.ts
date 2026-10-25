@@ -56,6 +56,8 @@ export {
   giveToGetSettings,
   NETWORK_ENGINE_TIMEOUT_MS,
   networkCommission,
+  networkGate,
+  networkGatesOf,
   searchNetwork,
 } from './network';
 export { CLIENT_MODE_ALLOWED, can } from './policy';
@@ -69,6 +71,7 @@ export {
   type FullRebuildOptions,
   type FullRebuildProgress,
   indexDocsFor,
+  listingAlertStatesPage,
   listingLabels,
   MAX_LOCKS_IN_FLIGHT,
   type OwnListingDetail,

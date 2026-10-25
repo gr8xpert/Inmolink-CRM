@@ -51,6 +51,18 @@ export async function directoryNamesOf(tx: Tx, ids: readonly string[]): Promise<
 }
 
 /**
+ * Worker form of `getNetworkStanding` (PATTERNS §12, S5-06 saved-search alerts): the give-to-get standing of these
+ * agencies (sign-up date, staff exemption), in the job's own transaction. One query; unknown ids are absent.
+ */
+export async function networkStandingsOf(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<Map<string, { createdAt: Date; giveToGetExempt: boolean }>> {
+  const rows = await repo.networkStandings(tx, [...new Set(ids)]);
+  return new Map(rows.map((r) => [r.id, { createdAt: r.createdAt, giveToGetExempt: r.giveToGetExempt }]));
+}
+
+/**
  * Worker form (PATTERNS §12, S11-05 network board): the directory names of those of these agencies that take part in
  * the network now (listed: VERIFIED) — the agencies a network post may notify. One query; others are absent.
  */

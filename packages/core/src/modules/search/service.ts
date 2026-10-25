@@ -70,7 +70,8 @@ export async function rebuildListingReadModels(
   options: WriteOptions = {},
 ): Promise<RebuildResult> {
   const unique = [...new Set(ids)];
-  await repo.lockTargets(tx, unique);
+  // S5-06: the lock answers the targets' alert states before this rebuild (one statement, as the lock was)
+  const before = await repo.lockListingTargets(tx, unique);
   const listings = await properties.listingsForReadModels(tx, unique);
   const live = listings.map((l) => l.id);
   const ownerOf = await agencies.readModelOwnersOf(
@@ -94,7 +95,7 @@ export async function rebuildListingReadModels(
     buildListingDocs(l, mediaOf.get(l.id), tax, ownerOf.get(l.agencyId) ?? NO_OWNER),
   );
   return {
-    ...(await write(tx, 'LISTING', unique, docs, options)),
+    ...(await write(tx, 'LISTING', unique, docs, options, before)),
     built: new Set(docs.map((d) => d.targetId)).size,
     pendingMedia: listings.filter((l) => (mediaOf.get(l.id)?.pending ?? 0) > 0).map((l) => l.id),
   };
@@ -142,14 +143,22 @@ export interface WriteOptions {
  * Writes the documents and, in the same transaction, queues the changed targets' index push (S5-03) and brings their
  * fallback rows up to date (S5-04) unless the caller does (`refreshSearchDocs: false`).
  */
-async function write(tx: Tx, kind: ReadModelKind, ids: readonly string[], docs: BuiltDoc[], options: WriteOptions) {
+async function write(
+  tx: Tx,
+  kind: ReadModelKind,
+  ids: readonly string[],
+  docs: BuiltDoc[],
+  options: WriteOptions,
+  before: ReadonlyMap<string, repo.AlertState> = new Map(),
+) {
   const developmentRefs = new Map<string, string>();
   for (const d of docs) if (d.developmentId && d.developmentRef) developmentRefs.set(d.developmentId, d.developmentRef);
   const dropped = await repo.deleteOthers(tx, ids, docs);
   const deleted = dropped.map((r) => r.targetId);
   const written = await repo.upsertDocs(tx, docs);
-  // S5-06: the listings whose read models changed, for the saved searches' alerts (matching)
-  if (kind === 'LISTING') await emit(tx, listingsChangedEvents(written, dropped, docs));
+  // S5-06: the listings whose status, price or version changed (or that got or lost their read model), for the saved
+  // searches' alerts (matching) — not a text, media or sanitizer rewrite of the same state
+  if (kind === 'LISTING') await emit(tx, listingsChangedEvents(written, dropped, docs, before));
   // Public targets get their public code (S7-02) once; a target that got one now is pushed again with it. Their
   // developments get one in the same statement (S7-F6: sites name developments `<prefix>-<code>`); a development is
   // not a target, so its new code changes nothing here.
@@ -185,13 +194,25 @@ function listingsChangedEvents(
   written: readonly string[],
   dropped: readonly { targetId: string; agencyId: string }[],
   docs: readonly BuiltDoc[],
+  before: ReadonlyMap<string, repo.AlertState>,
 ): OutboxMessage[] {
   const ownerOf = new Map<string, string>(dropped.map((r) => [r.targetId, r.agencyId]));
-  for (const d of docs) ownerOf.set(d.targetId, d.agencyId);
+  const now = new Map<string, BuiltDoc>();
+  for (const d of docs) {
+    ownerOf.set(d.targetId, d.agencyId);
+    if (!now.has(d.targetId)) now.set(d.targetId, d);
+  }
+  const moved = (id: string) => {
+    const was = before.get(id);
+    const doc = now.get(id);
+    if (!was || !doc) return was !== undefined || doc !== undefined; // got or lost its read model
+    const price = doc.card.price.onRequest ? null : doc.card.price.amountCents;
+    return was.status !== doc.status || was.version !== doc.version || was.priceCents !== price;
+  };
   const byOwner = new Map<string, Set<string>>();
   for (const id of [...written, ...dropped.map((r) => r.targetId)]) {
     const owner = ownerOf.get(id);
-    if (!owner) continue;
+    if (!owner || !moved(id)) continue;
     const set = byOwner.get(owner) ?? new Set<string>();
     set.add(id);
     byOwner.set(owner, set);
@@ -870,4 +891,12 @@ export function ensureListingsIndex(
   def: IndexDefinition = listingsIndex(),
 ): Promise<EnsureIndexResult> {
   return engine.ensureIndex(def);
+}
+
+/**
+ * Worker form (PATTERNS §12, S5-06 matching backfill): a page of listings' alert states — status, price, version and
+ * owner — read from their read models (one statement, keyset on the target id). Never a request path.
+ */
+export function listingAlertStatesPage(tx: Tx, after: string | null, limit: number) {
+  return repo.alertStatesPage(tx, after, limit);
 }
