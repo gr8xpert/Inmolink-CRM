@@ -594,8 +594,15 @@ export const tenantTables: Record<string, TenantTable> = {
     },
   },
   ai_usage_monthly: { kind: 'STRICT', userReadOnly: true, base: { month: '2026-01-01' } },
-  // S12-01: thumbs up/down on AI outputs — members append and read their agency's; nobody edits or deletes them.
-  ai_feedback: { kind: 'STRICT', userAppendRead: true, base: { feature: 'test.feature', rating: 1 } },
+  // S12-01: thumbs up/down on AI outputs — members append rows that name themselves (S12-01 review: `user_id` is the
+  // session's user, so nobody files feedback as a colleague) and read their agency's; immutable — nobody edits or
+  // deletes them, workers included.
+  ai_feedback: {
+    kind: 'STRICT',
+    immutable: true,
+    userInsert: 'user_id is not distinct from app_user_id()',
+    base: { feature: 'test.feature', rating: 1 },
+  },
   // S10-08: data export runs (contacts, leads, listings, the account ZIP) — the agency's own; counts and codes only,
   // the exported file lives in the private bucket. Admins create them, the worker runs them. S11-F3: rows are
   // worker-only once created — claimed, recorded and expired as `app_system` — so app_user (an admin's request) reads

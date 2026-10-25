@@ -275,3 +275,114 @@ describe('AI gateway — request-path metering (redis mirror + queued usage)', (
     expect(provider.calls).toHaveLength(0);
   });
 });
+
+// S12-01 review (migration 0146): reservations in Postgres, and feedback rows that name their author.
+describe('AI gateway — budget reservations in Postgres (0146)', () => {
+  const agencyC = newId();
+  const reservedOf = (agencyId: string) =>
+    withSystem('test.ai.reserved', async (tx: Tx) => {
+      const { rows } = await tx.execute(
+        sql`select reserved_micro_usd from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
+      );
+      return rows[0] ? Number(rows[0].reserved_micro_usd) : 0;
+    });
+
+  beforeAll(async () => {
+    await adminQuery(`insert into agencies (agency_id, kind, name) values ($1, 'AGENCY', $2)`, [
+      agencyC,
+      `AI C ${run}`,
+    ]);
+  });
+
+  it('[S12-01] concurrent calls cannot pass the hard cap together (atomic reservation, Postgres)', async () => {
+    // One call reserves ≈ 1 500 micro-USD (300 max tokens at 5 USD/Mtok + its input); the cap fits two.
+    const provider = new FakeProvider(() => ({
+      text: 'ok',
+      usage: { inputTokens: 10, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    }));
+    // Every call holds the provider until all four reservations were tried, so they really overlap.
+    const original = provider.complete.bind(provider);
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    provider.complete = async (req, opts) => {
+      await gate;
+      return original(req, opts);
+    };
+    let tried = 0;
+    const counting = {
+      ...store,
+      reserve: async (input: Parameters<typeof store.reserve>[0]) => {
+        try {
+          return await store.reserve(input);
+        } finally {
+          if (++tried === 4) open();
+        }
+      },
+    };
+    const g = gateway(provider, {
+      store: counting,
+      budgetFor: () => ({ softMicroUsd: 3_200, hardMicroUsd: 3_200 }),
+    });
+    const results = await Promise.allSettled(
+      [1, 2, 3, 4].map((i) => g.generate(ctxOf(agencyC), { ...call({ race: i, run }), cacheKey: false })),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
+    expect(provider.calls).toHaveLength(2);
+    // Settled at the real cost (10 × 1 + 10 × 5 each), every reservation released.
+    expect(await spendOf(agencyC)).toBe(120);
+    expect(await reservedOf(agencyC)).toBe(0);
+  });
+
+  it('[S12-01] a batch keeps its reservation until collected and settles into its submit month', async () => {
+    const provider = new FakeProvider(() => 'Lote.');
+    const g = gateway(provider);
+    const request = { ...call(null), items: [{ customId: 'r1', input: { r: `res-${run}` } }] };
+    const handle = await g.batch(ctxOf(agencyC), request);
+    const batchId = handle.batchId as string;
+    const held = await reservedOf(agencyC);
+    expect(held).toBeGreaterThan(0);
+    const row = await withSystem('test.ai.batchrow', async (tx: Tx) => {
+      const { rows } = await tx.execute(
+        sql`select to_char(usage_month, 'YYYY-MM-DD') as m, reserved_micro_usd from ai_jobs where agency_id = ${agencyC} and provider_batch_id = ${batchId}`,
+      );
+      return rows[0];
+    });
+    expect(row).toMatchObject({ m: month, reserved_micro_usd: String(held) });
+    provider.endBatch(batchId);
+    const before = await spendOf(agencyC);
+    await g.collectBatch(ctxOf(agencyC), { batchId, request });
+    expect(await spendOf(agencyC)).toBe(before + 1_000);
+    expect(await reservedOf(agencyC)).toBe(0);
+  });
+
+  it('[S12-01] a member files feedback only as themselves; nobody edits or deletes it', async () => {
+    const member = newId();
+    const input = {
+      agencyId: agencyC,
+      feature: 'itest.describe',
+      jobId: null,
+      promptId: PROMPT_ID,
+      promptVersion: 1,
+      rating: 1 as const,
+    };
+    const id = await withTenant({ agencyId: agencyC, userId: member }, (tx: Tx) =>
+      recordAiFeedback(tx, { ...input, userId: member }),
+    );
+    await expect(
+      withTenant({ agencyId: agencyC, userId: member }, (tx: Tx) =>
+        recordAiFeedback(tx, { ...input, userId: newId() }),
+      ),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: '42501' }) });
+    await expect(
+      withTenant({ agencyId: agencyC, userId: member }, (tx: Tx) => recordAiFeedback(tx, { ...input, userId: null })),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: '42501' }) });
+    for (const stmt of [
+      sql`update ai_feedback set rating = -1 where id = ${id}`,
+      sql`delete from ai_feedback where id = ${id}`,
+    ]) {
+      await expect(withTenant({ agencyId: agencyC, userId: member }, (tx: Tx) => tx.execute(stmt))).rejects.toThrow();
+    }
+  });
+});

@@ -94,24 +94,6 @@ export function usageMonth(at: Date): string {
   return `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
 
-/**
- * TEMPORARY (S12-01 review, until the reservation migration is applied everywhere — remove with it): whether
- * `ai_usage_monthly.reserved_micro_usd` / `ai_jobs.usage_month` exist. Without them the store keeps the 0139 behaviour
- * (check-then-record, no reservation), so lanes testing against the 0139 schema keep working. A `true` is kept for the
- * process; a `false` is re-checked after a minute (the migration may land while it runs).
- */
-let reservationSchema: { ok: boolean; at: number } | undefined;
-async function hasReservations(tx: SqlExecutor): Promise<boolean> {
-  if (reservationSchema && (reservationSchema.ok || Date.now() - reservationSchema.at < 60_000)) {
-    return reservationSchema.ok;
-  }
-  const { rows } = await tx.execute(sql`
-    select count(*)::int as n from information_schema.columns
-    where table_schema = 'public' and table_name = 'ai_usage_monthly' and column_name = 'reserved_micro_usd'`);
-  reservationSchema = { ok: Number(rows[0]?.n) > 0, at: Date.now() };
-  return reservationSchema.ok;
-}
-
 async function bumpMonth(
   tx: SqlExecutor,
   agencyId: string,
@@ -126,7 +108,7 @@ async function bumpMonth(
             ${usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens}, ${usage.outputTokens}, now())
     on conflict (agency_id, month) do update set
       cost_micro_usd = ai_usage_monthly.cost_micro_usd + excluded.cost_micro_usd,
-      ${(await hasReservations(tx)) ? sql`reserved_micro_usd = greatest(ai_usage_monthly.reserved_micro_usd - ${releaseMicroUsd}, 0),` : sql``}
+      reserved_micro_usd = greatest(ai_usage_monthly.reserved_micro_usd - ${releaseMicroUsd}, 0),
       calls = ai_usage_monthly.calls + 1,
       input_tokens = ai_usage_monthly.input_tokens + excluded.input_tokens,
       output_tokens = ai_usage_monthly.output_tokens + excluded.output_tokens,
@@ -140,16 +122,15 @@ async function bumpMonth(
  */
 export async function recordUsageRow(tx: SqlExecutor, job: AiJobRecord, releaseMicroUsd: number): Promise<boolean> {
   const pending = job.status === 'PENDING';
-  const v2 = await hasReservations(tx);
   const { rows } = await tx.execute(sql`
     insert into ai_jobs (id, agency_id, feature, kind, tier, model, prompt_id, prompt_version, input_hash, status,
       error_code, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micro_usd, latency_ms,
-      item_count, provider_batch_id, request_id, ${v2 ? sql`usage_month, reserved_micro_usd,` : sql``} completed_at)
+      item_count, provider_batch_id, request_id, usage_month, reserved_micro_usd, completed_at)
     values (${job.id}, ${job.agencyId}, ${job.feature}, ${job.kind}, ${job.tier}, ${job.model}, ${job.promptId},
       ${job.promptVersion}, ${job.inputHash}, ${job.status}, ${job.errorCode}, ${job.usage.inputTokens},
       ${job.usage.outputTokens}, ${job.usage.cacheReadTokens}, ${job.usage.cacheWriteTokens}, ${job.costMicroUsd},
       ${job.latencyMs}, ${job.itemCount}, ${job.providerBatchId}, ${job.requestId},
-      ${v2 ? sql`${job.month}::date, ${pending ? releaseMicroUsd : 0},` : sql``} ${pending ? null : sql`now()`})
+      ${job.month}::date, ${pending ? releaseMicroUsd : 0}, ${pending ? null : sql`now()`})
     on conflict (id) do nothing
     returning id`);
   if (rows.length === 0) return false;
@@ -175,15 +156,6 @@ export function createPgAiStore(runSystem: SystemRunner, options: PgAiStoreOptio
     async reserve({ agencyId, month, estimateMicroUsd, hardMicroUsd }) {
       const estimate = Math.max(0, Math.ceil(estimateMicroUsd));
       return runSystem('ai.reserveBudget', async (tx) => {
-        if (!(await hasReservations(tx))) {
-          // 0139 schema (TEMPORARY): check only.
-          const { rows } = await tx.execute(sql`
-            select cost_micro_usd from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`);
-          const spent = rows[0] ? Number(rows[0].cost_micro_usd) : 0;
-          return spent + estimate > hardMicroUsd
-            ? ({ ok: false, reason: 'HARD_CAP' } as const)
-            : ({ ok: true, spentMicroUsd: spent } as const);
-        }
         await tx.execute(sql`
           insert into ai_usage_monthly (agency_id, month) values (${agencyId}, ${month}::date)
           on conflict (agency_id, month) do nothing`);
@@ -206,7 +178,6 @@ export function createPgAiStore(runSystem: SystemRunner, options: PgAiStoreOptio
     async release(agencyId, month, reservedMicroUsd) {
       if (reservedMicroUsd <= 0) return;
       await runSystem('ai.releaseBudget', async (tx) => {
-        if (!(await hasReservations(tx))) return;
         await tx.execute(sql`
           update ai_usage_monthly set reserved_micro_usd = greatest(reserved_micro_usd - ${reservedMicroUsd}, 0),
             updated_at = now()
@@ -226,11 +197,10 @@ export function createPgAiStore(runSystem: SystemRunner, options: PgAiStoreOptio
 
     async settleBatch(input) {
       const month = await runSystem('ai.settleBatch', async (tx) => {
-        const v2 = await hasReservations(tx);
         const { rows } = await tx.execute(sql`
           with pending as (
-            select id, ${v2 ? sql`reserved_micro_usd` : sql`0::bigint as reserved_micro_usd`},
-              ${v2 ? sql`coalesce(usage_month, date_trunc('month', created_at at time zone 'UTC')::date)` : sql`date_trunc('month', created_at at time zone 'UTC')::date`} as month
+            select id, reserved_micro_usd,
+              coalesce(usage_month, date_trunc('month', created_at at time zone 'UTC')::date) as month
             from ai_jobs
             where agency_id = ${input.agencyId} and provider_batch_id = ${input.providerBatchId} and status = 'PENDING'
             for update
@@ -239,7 +209,7 @@ export function createPgAiStore(runSystem: SystemRunner, options: PgAiStoreOptio
             output_tokens = ${input.usage.outputTokens}, cache_read_tokens = ${input.usage.cacheReadTokens},
             cache_write_tokens = ${input.usage.cacheWriteTokens}, cost_micro_usd = ${input.costMicroUsd},
             error_code = ${input.failedItems > 0 ? `ITEMS_FAILED:${input.failedItems}` : null},
-            ${v2 ? sql`reserved_micro_usd = 0, usage_month = pending.month,` : sql``} completed_at = now()
+            reserved_micro_usd = 0, usage_month = pending.month, completed_at = now()
           from pending where j.id = pending.id
           returning to_char(pending.month, 'YYYY-MM-DD') as month, pending.reserved_micro_usd as reserved`);
         const row = rows[0];
@@ -338,9 +308,8 @@ export async function refreshSpendMirror(
   month: string,
 ): Promise<number> {
   // Settled cost plus the worker path's open reservations (the request path's own live in the mirror's `held`).
-  const reserved = (await hasReservations(tx)) ? sql`cost_micro_usd + reserved_micro_usd` : sql`cost_micro_usd`;
   const { rows } = await tx.execute(
-    sql`select ${reserved} as spent from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
+    sql`select cost_micro_usd + reserved_micro_usd as spent from ai_usage_monthly where agency_id = ${agencyId} and month = ${month}::date`,
   );
   const spent = rows[0] ? Number(rows[0].spent) : 0;
   await mirror.seed(agencyId, month, spent);

@@ -350,10 +350,10 @@ grant select, update on table public."agency_verification_requests" to app_staff
 alter table public."ai_feedback" enable row level security;
 alter table public."ai_feedback" force row level security;
 create policy own_rows on public."ai_feedback" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+  using (agency_id = app_agency()) with check (agency_id = app_agency() and (user_id is not distinct from app_user_id()));
 revoke all on table public."ai_feedback" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."ai_feedback" to app_user;
-grant select, insert, update, delete on table public."ai_feedback" to app_system;
+grant select, insert on table public."ai_feedback" to app_system;
 
 -- ai_jobs: STRICT
 alter table public."ai_jobs" enable row level security;

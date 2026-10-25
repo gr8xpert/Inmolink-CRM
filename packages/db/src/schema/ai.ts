@@ -57,6 +57,10 @@ export const aiJobs = pgTable(
     itemCount: integer('item_count').notNull().default(1),
     providerBatchId: text('provider_batch_id'),
     requestId: text('request_id'),
+    /** S12-01 review: the usage month the cost counts against (a batch settles into its submit month). */
+    usageMonth: date('usage_month'),
+    /** S12-01 review: a PENDING batch's budget reservation, released when it is collected. */
+    reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
@@ -69,6 +73,7 @@ export const aiJobs = pgTable(
     check('ai_jobs_status_ck', sql`${t.status} in ('SUCCEEDED', 'FAILED', 'PENDING')`),
     check('ai_jobs_tier_ck', sql`${t.tier} is null or ${t.tier} in ('FAST', 'SMART')`),
     check('ai_jobs_cost_ck', sql`${t.costMicroUsd} >= 0`),
+    check('ai_jobs_reserved_ck', sql`${t.reservedMicroUsd} >= 0`),
   ],
 );
 
@@ -85,6 +90,8 @@ export const aiUsageMonthly = pgTable(
     /** First day of the month (UTC). */
     month: date('month').notNull(),
     costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull().default(0),
+    /** S12-01 review: open reservations (worst-case cost of calls and batches in flight); the hard cap counts them. */
+    reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
     calls: integer('calls').notNull().default(0),
     inputTokens: bigint('input_tokens', { mode: 'number' }).notNull().default(0),
     outputTokens: bigint('output_tokens', { mode: 'number' }).notNull().default(0),
@@ -94,6 +101,7 @@ export const aiUsageMonthly = pgTable(
     // budget check: where agency_id = ? and month = ?
     primaryKey({ columns: [t.agencyId, t.month] }),
     check('ai_usage_monthly_month_ck', sql`extract(day from ${t.month}) = 1`),
+    check('ai_usage_monthly_reserved_ck', sql`${t.reservedMicroUsd} >= 0`),
   ],
 );
 
@@ -119,8 +127,8 @@ export const promptVersions = pgTable(
 );
 
 /**
- * Thumbs up/down on an AI output (PLAN §8 `AiFeedback` → weekly review → prompt/eval updates). Members append and
- * read their agency's rows; nobody edits or deletes them.
+ * Thumbs up/down on an AI output (PLAN §8 `AiFeedback` → weekly review → prompt/eval updates). Members append rows
+ * that name themselves (`user_id = app_user_id()`) and read their agency's; nobody edits or deletes them (immutable).
  */
 export const aiFeedback = pgTable(
   'ai_feedback',
@@ -145,6 +153,8 @@ export const aiFeedback = pgTable(
     index('ai_feedback_feature_created_idx').on(t.feature, t.createdAt),
     // the agency's own feedback list: where agency_id = ? order by created_at desc
     index('ai_feedback_agency_created_idx').on(t.agencyId, t.createdAt, t.id),
+    // S12-01 review: the feedback on one output (weekly review joins jobs): where ai_job_id = ?
+    index('ai_feedback_job_idx').on(t.aiJobId),
     check('ai_feedback_rating_ck', sql`${t.rating} in (-1, 1)`),
     check('ai_feedback_comment_ck', sql`${t.comment} is null or char_length(${t.comment}) <= 2000`),
   ],
