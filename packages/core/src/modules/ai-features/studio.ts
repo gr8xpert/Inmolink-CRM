@@ -125,12 +125,19 @@ export async function requestListingStudio(
   return emitRequest(ctx, [listingId], body, 'SINGLE', 0);
 }
 
-/** `POST /v1/listing-studio-batches`: queues AI drafts for many listings (the ones the caller may edit). */
+/**
+ * `POST /v1/listing-studio-batches`: queues AI drafts for many listings (the ones the caller may edit). At most
+ * `LISTING_STUDIO_RUNNING_MAX` batches per agency: the request takes the agency's studio lock (transaction-scoped
+ * advisory lock), counts the running batches and reserves its own batch row (no items yet; the submit job fills it)
+ * in the same transaction as the event — concurrent requests are counted one after the other, pending ones included.
+ */
 export async function requestListingStudioBulk(
   ctx: Ctx,
   body: ListingStudioBulkBody,
 ): Promise<ListingStudioAcceptedDto> {
   assertCan(ctx, 'aiFeatures.listingStudio');
+  if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  await repo.lockAgencyStudio(ctx.tx, ctx.tenant.agencyId);
   if ((await repo.countRunningStudioBatches(ctx.tx, ctx.tenant.agencyId)) >= LISTING_STUDIO_RUNNING_MAX) {
     throw new AppError('LISTING_STUDIO_BATCH_LIMIT', { max: LISTING_STUDIO_RUNNING_MAX });
   }
@@ -138,7 +145,19 @@ export async function requestListingStudioBulk(
   if (editable.length === 0) throw new AppError('FORBIDDEN', { reason: 'no_editable_listing' });
   // keep the caller's order (the batch's custom ids are positions in this list)
   const ids = body.listingIds.filter((id) => editable.includes(id));
-  return emitRequest(ctx, ids, body, 'BULK', body.listingIds.length - ids.length);
+  const dto = await emitRequest(ctx, ids, body, 'BULK', body.listingIds.length - ids.length);
+  await repo.insertStudioBatch(ctx.tx, {
+    id: dto.requestId,
+    agencyId: ctx.tenant.agencyId,
+    createdByUserId: ctx.actor.userId,
+    listingIds: ids,
+    locales: dto.locales,
+    tone: body.tone,
+    replaceReviewed: body.replaceReviewed,
+    factsHashes: ids.map(() => ''),
+    items: [],
+  });
+  return dto;
 }
 
 // ---- worker: inputs ---------------------------------------------------------------------------------------------
@@ -429,13 +448,14 @@ async function applyResults(
         ? { ok: false, reason: 'REPAIR_CAP' }
         : await aiOrFallback(
             async (): Promise<Checked> => {
+              // counted before the call, like `checkOrRepair`: a failed call counts against the cap too
+              repairs.left -= 1;
               const res = await ai.structured(aiCtx, {
                 feature: FEATURE_REPAIR,
                 prompt: LISTING_STUDIO_PROMPT,
                 input,
                 schema: ListingCopy,
               });
-              repairs.left -= 1;
               return checkOrRepair(aiCtx, input, res.data, undefined, repairs);
             },
             (code): Checked => {
@@ -484,8 +504,9 @@ export type BulkSubmit =
 
 /**
  * Job `aiFeatures.submitListingStudioBatch`: builds one item per (listing, target locale), records them with each
- * listing's facts hash (`listing_studio_batches`, id = request id), submits the batch and applies the answers the
- * cache already had. A retried job finds the record: submitted → nothing to do; not yet → the same items again.
+ * listing's facts hash in the row the request reserved (`listing_studio_batches`, id = request id), submits the batch
+ * and applies the answers the cache already had. A retried job finds the record: submitted → nothing to do; items
+ * recorded → the same items again; a reservation only → it builds them.
  */
 export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkSubmit> {
   const outcome: StudioOutcome = { written: {}, dropped: {} };
@@ -494,10 +515,33 @@ export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkS
   if (existing && existing.state !== 'RUNNING') return { status: 'DONE', outcome };
   let items: StoredItem[];
   let hashes: string[];
-  if (existing) {
-    items = existing.items as StoredItem[];
+  const recorded = (existing?.items ?? []) as StoredItem[];
+  if (existing && recorded.length > 0) {
+    items = recorded;
     hashes = existing.factsHashes;
+  } else if (existing) {
+    // the request's reservation: build the items now and record them before anything is sent
+    const work = await readWork(req, req.listingIds);
+    hashes = req.listingIds.map((id) => work.find((w) => w.listingId === id)?.hash ?? '');
+    items = batchItems(req, work);
+    if (items.length === 0) {
+      await finish(req, 'DONE', outcome);
+      return { status: 'DONE', outcome };
+    }
+    const filled = { items, hashes };
+    const stored = await withMemberCtx(member(req), async (ctx) =>
+      (await repo.fillStudioBatch(ctx.tx, req.agencyId, req.requestId, filled.items, filled.hashes))
+        ? null
+        : repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId),
+    );
+    // another run recorded its items first: submit those, never a second set
+    if (stored) {
+      if (stored.providerBatchId) return { status: 'SUBMITTED', batchId: stored.providerBatchId, outcome };
+      items = stored.items as StoredItem[];
+      hashes = stored.factsHashes;
+    }
   } else {
+    // no reservation (an event queued before reservations existed)
     const work = await readWork(req, req.listingIds);
     hashes = req.listingIds.map((id) => work.find((w) => w.listingId === id)?.hash ?? '');
     items = batchItems(req, work);

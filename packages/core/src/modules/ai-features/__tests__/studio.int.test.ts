@@ -421,6 +421,47 @@ describe('AI Listing Studio (S12-02)', () => {
     expect((await bulk(other, [l.id])).mode).toBe('BULK');
   });
 
+  it('[S12-02] concurrent bulk requests cannot pass the running-batch cap together (reserved, serialized)', async () => {
+    const other = await createFounder();
+    await setAgencyStatus(other.agencyId, 'VERIFIED');
+    const l = await create(other);
+    const tries = 6;
+    const results = await Promise.all(
+      Array.from({ length: tries }, () =>
+        refusal(
+          as(other, (ctx) =>
+            aiFeatures.requestListingStudioBulk(ctx, ListingStudioBulkBody.parse({ listingIds: [l.id] })),
+          ),
+        ),
+      ),
+    );
+    expect(results.filter((r) => r === 'resolved')).toHaveLength(LISTING_STUDIO_RUNNING_MAX);
+    expect(results.filter((r) => r === 'LISTING_STUDIO_BATCH_LIMIT')).toHaveLength(tries - LISTING_STUDIO_RUNNING_MAX);
+    // the pending requests hold their reservations: one more is refused before any job ran
+    const [held] = await rows<{ n: number }>(
+      sql`select count(*)::int as n from listing_studio_batches where agency_id = ${other.agencyId} and state = 'RUNNING'`,
+    );
+    expect(held?.n).toBe(LISTING_STUDIO_RUNNING_MAX);
+    expect(await refusal(bulk(other, [l.id]))).toBe('LISTING_STUDIO_BATCH_LIMIT');
+  });
+
+  it('[S12-02] a reserved batch with nothing to write is finished at submit, freeing its slot', async () => {
+    useGateway();
+    const other = await createFounder();
+    await setAgencyStatus(other.agencyId, 'VERIFIED');
+    await rows(sql`update agency_settings set enabled_locales = '{en}' where agency_id = ${other.agencyId}`);
+    const l = await create(other);
+    const v = (await content(other, l.id)).version;
+    await translate(other, l.id, 'en', { version: v, title: 'My villa', locked: true });
+    const req = await bulk(other, [l.id]);
+    expect(await aiFeatures.submitListingStudioBulk(req)).toMatchObject({ status: 'DONE' });
+    const [record] = await rows<{ state: string }>(
+      sql`select state from listing_studio_batches where id = ${req.requestId}`,
+    );
+    expect(record?.state).toBe('DONE');
+    expect(provider.batches.size).toBe(0);
+  });
+
   it('[S12-02] a batch whose member lost access is marked GAVE_UP from a system transaction', async () => {
     useGateway();
     const helperId = newId();

@@ -19,6 +19,36 @@ export async function insertStudioBatch(tx: Tx, row: StudioBatchInsert): Promise
   return rows.length > 0;
 }
 
+/**
+ * Serializes the agency's bulk studio requests (S12-02 review): a transaction-scoped advisory lock, released at
+ * commit, so the running-batch count and the reservation of concurrent requests happen one after the other.
+ */
+export async function lockAgencyStudio(tx: Tx, agencyId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`aiFeatures.studio:${agencyId}`}))`);
+}
+
+/** Records the items of a reserved batch (only while it has none: a retried submit never replaces them). */
+export async function fillStudioBatch(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  items: unknown[],
+  factsHashes: string[],
+): Promise<boolean> {
+  const rows = await tx
+    .update(listingStudioBatches)
+    .set({ items, factsHashes, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(listingStudioBatches.id, id),
+        eq(listingStudioBatches.agencyId, agencyId),
+        sql`${listingStudioBatches.items} = '[]'::jsonb`,
+      ),
+    )
+    .returning({ id: listingStudioBatches.id });
+  return rows.length > 0;
+}
+
 /** One batch of the agency (primary key). */
 export async function getStudioBatch(tx: Tx, agencyId: string, id: string): Promise<StudioBatchRow | null> {
   const [row] = await tx
