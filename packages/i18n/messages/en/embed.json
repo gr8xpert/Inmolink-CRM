@@ -83,5 +83,28 @@
     },
     "needsJavaScript": "JavaScript is required to send an enquiry. Please turn it on, or use the contact details above."
   },
-  "poweredBy": "Listings by {agency}"
+  "poweredBy": "Listings by {agency}",
+  "selection": {
+    "pageTitle": "{title} · {agency}",
+    "intro": "Selected for you by {agency}",
+    "count": "{count, plural, one {# property} other {# properties}}",
+    "expires": "Available until {date}",
+    "unavailable": "This property is no longer available.",
+    "note": "Your agent's note",
+    "details": "Description and features",
+    "like": "I like it",
+    "unlike": "Remove like",
+    "liked": "Thank you — your agent can see you like this property.",
+    "unliked": "Your like was removed.",
+    "enquire": "Ask about this property",
+    "enquireAll": "Send a message to {agency}",
+    "message": "Your message",
+    "send": "Send",
+    "sent": "Thank you — {agency} has your message and will be in touch soon.",
+    "invalid": "Please write a message (up to 2,000 characters).",
+    "limited": "Too many requests from this connection. Please try again later.",
+    "error": "That did not work. Please try again.",
+    "gone": "This selection is no longer available",
+    "goneHint": "The link has expired or was replaced. Please ask your agent for a new one."
+  }
 }

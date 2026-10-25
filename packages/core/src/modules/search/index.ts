@@ -88,6 +88,8 @@ export {
   rebuildListingReadModels,
   rebuildReadModels,
   rebuildUnitReadModels,
+  // S12-04: selections check their items against the caller's view.
+  visibleTargets,
 } from './service';
 export {
   DEVELOPMENT_IGNORED_FIELDS,

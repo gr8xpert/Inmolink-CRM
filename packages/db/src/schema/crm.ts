@@ -632,7 +632,7 @@ export const leadIntroductions = pgTable(
 
 /** The activity types (`ACTIVITY_TYPES` in contracts), as a check constraint's list. */
 const activityTypeList = sql.raw(
-  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED', 'STAGE_CHANGED', 'TASK_COMPLETED'`,
+  `'CALL', 'EMAIL', 'MEETING', 'VIEWING', 'OTHER', 'NOTE_ADDED', 'CONTACT_MERGED', 'LEAD_CREATED', 'LEAD_UPDATED', 'LISTING_STATUS_CHANGED', 'STAGE_CHANGED', 'TASK_COMPLETED', 'SELECTION_VIEWED', 'SELECTION_LIKED', 'SELECTION_ENQUIRED'`, // S12-04: selections
 );
 
 /**

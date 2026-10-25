@@ -52,9 +52,10 @@ export default createProxy(async (siteId, forwardedFor) =>
 
 export const config = {
   matcher: [
-    // Everything except route handlers (`/api`, `/healthz`), Next internals, files with an extension (so slugs never
-    // contain a dot) and the embeds (matched below, dots included).
-    '/((?!(?:api|healthz|embed)(?:/|$)|_next|_vercel|.*\\..*).*)',
+    // Everything except route handlers (`/api`, `/healthz`, S12-04: a selection's `/s/<token>` — no locale prefix, its
+    // own headers), Next internals, files with an extension (so slugs never contain a dot) and the embeds (matched
+    // below, dots included).
+    '/((?!(?:api|healthz|embed|s)(?:/|$)|_next|_vercel|.*\\..*).*)',
     // Every embed path: none may render without the gate.
     '/embed/:path*',
     '/embed',

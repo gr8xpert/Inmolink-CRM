@@ -83,5 +83,28 @@
     },
     "needsJavaScript": "Para enviar una consulta hace falta JavaScript. Actívelo o utilice los datos de contacto de arriba."
   },
-  "poweredBy": "Inmuebles de {agency}"
+  "poweredBy": "Inmuebles de {agency}",
+  "selection": {
+    "pageTitle": "{title} · {agency}",
+    "intro": "Seleccionado para usted por {agency}",
+    "count": "{count, plural, one {# inmueble} other {# inmuebles}}",
+    "expires": "Disponible hasta el {date}",
+    "unavailable": "Este inmueble ya no está disponible.",
+    "note": "Nota de su agente",
+    "details": "Descripción y características",
+    "like": "Me gusta",
+    "unlike": "Quitar me gusta",
+    "liked": "Gracias: su agente verá que le gusta este inmueble.",
+    "unliked": "Se ha quitado su me gusta.",
+    "enquire": "Preguntar por este inmueble",
+    "enquireAll": "Enviar un mensaje a {agency}",
+    "message": "Su mensaje",
+    "send": "Enviar",
+    "sent": "Gracias: {agency} ha recibido su mensaje y le contactará pronto.",
+    "invalid": "Escriba un mensaje (hasta 2.000 caracteres).",
+    "limited": "Demasiadas solicitudes desde esta conexión. Inténtelo más tarde.",
+    "error": "No se ha podido completar. Inténtelo de nuevo.",
+    "gone": "Esta selección ya no está disponible",
+    "goneHint": "El enlace ha caducado o se ha sustituido. Pida uno nuevo a su agente."
+  }
 }

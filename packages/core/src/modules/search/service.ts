@@ -765,6 +765,14 @@ export async function ownListingDetails(
 }
 
 /**
+ * S12-04: which of these listings and units the caller may present (a read model their RLS shows: their own agency's
+ * or a network one). One statement (primary key range per target).
+ */
+export function visibleTargets(tx: Tx, ids: readonly string[]): Promise<string[]> {
+  return repo.visibleTargetIds(tx, [...new Set(ids)]);
+}
+
+/**
  * Reference and title of these listings for a list page (S12-F21): from the read models, as far as the caller's RLS
  * shows them (their own, or a network listing), in `locale` else English else any built locale. One statement.
  */

@@ -23,6 +23,7 @@ export * from './mls';
 export * from './network';
 export * from './notifications';
 export * from './outbox';
+export * from './presentations';
 export * from './properties';
 export * from './quality';
 export * from './search';

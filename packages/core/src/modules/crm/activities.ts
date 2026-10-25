@@ -196,7 +196,16 @@ export interface RecordedActivity {
   agencyId: string;
   /** The event's time (ISO): the activity's, so a redelivery maps to the same row. */
   occurredAt: string;
-  type: 'LEAD_CREATED' | 'LEAD_UPDATED' | 'STAGE_CHANGED' | 'CONTACT_MERGED' | 'LISTING_STATUS_CHANGED';
+  type:
+    | 'LEAD_CREATED'
+    | 'LEAD_UPDATED'
+    | 'STAGE_CHANGED'
+    | 'CONTACT_MERGED'
+    | 'LISTING_STATUS_CHANGED'
+    // S12-04: a client on a selection's page (presentations' subscription).
+    | 'SELECTION_VIEWED'
+    | 'SELECTION_LIKED'
+    | 'SELECTION_ENQUIRED';
   contactId?: string | undefined;
   leadId?: string | undefined;
   listingId?: string | undefined;

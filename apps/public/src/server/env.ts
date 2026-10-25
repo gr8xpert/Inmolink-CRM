@@ -1,4 +1,5 @@
 import { configureDb, loadStackEnv } from '@inmolink/core';
+import * as presentations from '@inmolink/core/modules/presentations';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { configureCache } from '@inmolink/platform/cache';
@@ -101,6 +102,11 @@ async function setup(): Promise<PublicConfig> {
       ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
       : null,
     embedOrigin: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+  });
+  // S12-04: selection pages find their selection by the token's HMAC (HMAC_KEY), like the API that made the link.
+  presentations.configurePresentations({
+    tokenKey: config.HMAC_KEY,
+    publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
   });
   // S7-06 edge tags on embed pages: a listing or site change purges them like the website API's answers.
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });

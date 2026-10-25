@@ -21,7 +21,14 @@ function srcSet(image: WebsiteImage): string | undefined {
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
-function Picture(props: { image: WebsiteImage; alt: string; sizes: string; eager?: boolean; className?: string }) {
+// S12-04: shared with the selection pages.
+export function Picture(props: {
+  image: WebsiteImage;
+  alt: string;
+  sizes: string;
+  eager?: boolean;
+  className?: string;
+}) {
   const src = props.image.urls.medium ?? props.image.urls.small ?? props.image.urls.large ?? props.image.urls.thumb;
   if (!src) return null;
   return (
@@ -60,11 +67,11 @@ export function priceText(price: WebsiteCard['price'], { t, fmt }: ViewText): st
   return price.period ? t(`card.perPeriod.${price.period}`, { price: amount }) : amount;
 }
 
-function placeText(place: WebsiteCard['place']): string {
+export function placeText(place: WebsiteCard['place']): string {
   return [place.area?.name, place.city?.name, place.region?.name].filter(Boolean).join(', ');
 }
 
-function facts(item: WebsiteCard | WebsiteDetail, { t, fmt }: ViewText): string[] {
+export function facts(item: WebsiteCard | WebsiteDetail, { t, fmt }: ViewText): string[] {
   const out: string[] = [];
   if (item.bedrooms !== null) out.push(t('card.beds', { count: item.bedrooms }));
   if (item.bathrooms !== null) out.push(t('card.baths', { count: item.bathrooms }));

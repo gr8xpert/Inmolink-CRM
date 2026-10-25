@@ -16,6 +16,7 @@ import {
   telemetryEnv,
   websitesEnv,
 } from '@inmolink/platform/config';
+import { z } from 'zod';
 
 /**
  * Dashboard API: `app_user` (RLS) for tenant routes, `app_staff` (RLS, staff predicates) for staff
@@ -53,6 +54,11 @@ export const apiEnv = {
   ...authVerifyEnv,
   /** Media preview URLs name variants by their public id (S3-06). */
   ...mediaEnv,
+  /**
+   * S12-04: the public pages' host (apps/public, `https://sites.inmolink.es`): selection links and their WhatsApp and
+   * e-mail share links. Unset: the API answers the page's path only.
+   */
+  PUBLIC_PAGES_URL: z.url().optional(),
 };
 export type ApiConfig = Config<typeof apiEnv>;
 

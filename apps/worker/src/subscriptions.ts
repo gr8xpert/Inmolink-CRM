@@ -18,6 +18,7 @@ import * as mls from '@inmolink/core/modules/mls';
 import * as network from '@inmolink/core/modules/network';
 import * as notifications from '@inmolink/core/modules/notifications';
 import * as pluginUpdates from '@inmolink/core/modules/plugin-updates';
+import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
 import * as quality from '@inmolink/core/modules/quality';
 import * as search from '@inmolink/core/modules/search';
@@ -53,8 +54,9 @@ export const MODULES = {
   notifications,
   chat,
   network,
-  matching,
   'ai-features': aiFeatures,
+  matching,
+  presentations,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -84,10 +86,12 @@ export function registerSubscriptions(): void {
   chat.registerChatSubscriptions();
   // S11-05: a network post notifies matching subscriptions; a buyer request is matched against listings.
   network.registerNetworkSubscriptions();
-  // S5-06: listings whose read models changed are matched against the saved searches.
-  matching.registerMatchingSubscriptions();
   // S12-03: changed public documents queue the white-label sanitizer's model pass.
   aiFeatures.registerWhiteLabelSubscriptions();
   // S12-02: Listing Studio requests become generation / batch jobs in the `ai` pool.
   aiFeatures.registerAiFeaturesSubscriptions();
+  // S5-06: listings whose read models changed are matched against the saved searches.
+  matching.registerMatchingSubscriptions();
+  // S12-04: a client's view, like or enquiry on a selection reaches the CRM timeline.
+  presentations.registerPresentationsSubscriptions();
 }

@@ -6,7 +6,7 @@
  * `tenantTables`, everything else under `globalTables`. The guard fails on anything unregistered,
  * and an unregistered table gets no grants, so access fails closed.
  */
-import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
+import { NIL_UUID, PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 
 /** A staff member's own row, or any row for an active super admin (their own `staff_users` row, policy staff_self). */
 const SUPER_ADMIN_OR_OWN_SESSION =
@@ -315,7 +315,8 @@ export const tenantTables: Record<string, TenantTable> = {
     appendOnly: true,
     authAppend: { column: 'type', prefix: 'identity.' },
     // Website form intake (app_intake, S7-05) appends the lead's own event for the agency its transaction is pinned to.
-    intakeAppend: { column: 'type', values: ['websites.lead.received'] },
+    // S12-04: a client's view, like or enquiry on a selection page, appended with its interaction.
+    intakeAppend: { column: 'type', values: ['websites.lead.received', 'presentations.selection.interacted'] },
     staff: {
       insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid)`,
     },
@@ -744,7 +745,7 @@ export const tenantTables: Record<string, TenantTable> = {
   listing_studio_batches: {
     kind: 'STRICT',
     base: {
-      listing_ids: '{00000000-0000-0000-0000-000000000000}',
+      listing_ids: `{${NIL_UUID}}`,
       locales: '{en}',
       tone: 'PROFESSIONAL',
       facts_hashes: '{""}',
@@ -1374,6 +1375,35 @@ export const tenantTables: Record<string, TenantTable> = {
   // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only in
   // practice — app_user has no path that reads or writes it.
   matching_listing_states: { kind: 'STRICT', base: { status: 'ACTIVE', version: 1 } },
+  // S12-04: selections. The public pages (`app_public`) find a live one by its token's keyed hash; who made it, for
+  // which client and its link hint never leave the agency.
+  selections: {
+    kind: 'PUBLIC_READ',
+    publicReadSql: 'revoked_at is null and (expires_at is null or expires_at > now())',
+    publicHiddenColumns: ['created_by', 'contact_id', 'token_hint', 'version', 'created_at', 'updated_at'],
+    base: { title: 'Isolation', locale: 'en', token_hint: 'abcd' },
+    samples: {
+      visible: [{}],
+      hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }, { expires_at: '2020-01-01T00:00:00Z' }],
+    },
+  },
+  // A selection's items: readable by the public pages while their selection is live (the `exists` runs under
+  // `app_public`'s policy on `selections`). The generated suite seeds no parent selection, so these rows are hidden
+  // there; the readable side is tested in the presentations module (`selections.int.test.ts`).
+  selection_items: {
+    kind: 'PUBLIC_READ',
+    publicReadSql: `exists (select 1 from public.selections s where s.id = selection_items.selection_id
+      and s.revoked_at is null and (s.expires_at is null or s.expires_at > now()))`,
+    base: { position: 0 },
+    samples: { visible: [], hidden: [{}] },
+  },
+  // What clients did on a selection's page: written by the public pages as `app_intake` (pinned to the selection's
+  // agency), read by the agency only.
+  selection_interactions: {
+    kind: 'STRICT',
+    intake: { selectColumns: ['id', 'selection_id', 'kind', 'created_at'] },
+    base: { kind: 'VIEW' },
+  },
 };
 
 /**

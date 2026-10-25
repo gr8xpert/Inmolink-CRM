@@ -83,6 +83,8 @@ export {
   searchListings,
   siteForKey,
   sitemap,
+  // S12-04: selections present their documents as a site of their agency.
+  viewWith,
 } from './service';
 export { configureWebsiteApi, type WebsiteAlert } from './settings';
 export {

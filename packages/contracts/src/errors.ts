@@ -342,6 +342,12 @@ export const ErrorCodes = {
   // S12-02: AI Listing Studio.
   /** The agency already has `LISTING_STUDIO_RUNNING_MAX` bulk studio batches running: wait until one ends. */
   LISTING_STUDIO_BATCH_LIMIT: 409,
+  // S12-04: selections.
+  SELECTION_NOT_FOUND: 404,
+  /** The selection's link expired or was revoked (the public page answers 410). */
+  SELECTION_GONE: 410,
+  /** None of the chosen listings or units can be shown (no public document), or more than `SELECTION_LIMITS.items`. */
+  SELECTION_ITEMS_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

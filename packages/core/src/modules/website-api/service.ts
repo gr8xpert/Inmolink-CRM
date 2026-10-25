@@ -174,7 +174,8 @@ async function viewFor(
  */
 export async function viewWith(
   tx: Tx,
-  site: ApiSite,
+  // S12-04: only the scope's agency, prefix and presenter are read — selections present as their agency's "site".
+  site: { scope: Pick<ApiSite['scope'], 'agencyId' | 'referencePrefix' | 'presenter'> },
   lang: string,
   rows: readonly Pick<search.PublicDocRow, 'targetId' | 'ownerAgencyId' | 'doc'>[],
   extra?: SQL,

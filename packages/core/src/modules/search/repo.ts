@@ -18,6 +18,7 @@ import {
 } from '@inmolink/db/schema/search';
 import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
+import { NIL_UUID } from '@inmolink/platform/tenancy';
 import { and, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
 import type { BuiltDoc } from './build';
 import type { ListingIndexDoc } from './index-doc';
@@ -233,7 +234,7 @@ export async function alertStatesPage(
            case when (card->'price'->>'onRequest')::boolean then null else (card->'price'->>'amountCents')::bigint end
              as price_cents
       from ${listingReadModels}
-     where kind = 'LISTING' and target_id > coalesce(${after}::uuid, '00000000-0000-0000-0000-000000000000')
+     where kind = 'LISTING' and target_id > coalesce(${after}::uuid, ${NIL_UUID}::uuid)
      order by target_id, locale limit ${limit}`);
   return (
     res.rows as { target_id: string; agency_id: string; status: string; version: number; price_cents: string | null }[]
@@ -384,6 +385,16 @@ export async function readDocs(tx: Tx, ids: readonly string[], locale?: string) 
         locale === undefined ? undefined : eq(listingReadModels.locale, locale),
       ),
     );
+}
+
+/** S12-04: which of these targets have a read model the caller's RLS shows (own or network), any locale. */
+export async function visibleTargetIds(tx: Tx, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx
+    .selectDistinct({ targetId: listingReadModels.targetId })
+    .from(listingReadModels)
+    .where(inArray(listingReadModels.targetId, [...ids]));
+  return rows.map((r) => r.targetId);
 }
 
 /** Reference and title of these listings' cards, every locale built (S12-F21): two JSON fields, one statement. */
