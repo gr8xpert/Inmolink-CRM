@@ -518,7 +518,7 @@ export const leads = pgTable(
       foreignColumns: [pipelineStages.agencyId, pipelineStages.id],
     }),
     // S11-F5: the assignee is a member of the lead's agency (NO ACTION: a member row is never deleted while it has
-    // work; added NOT VALID in migration 0138, validated later)
+    // work; added NOT VALID in migration 0138, validated in 0150 — S12-F17)
     foreignKey({
       name: 'leads_assignee_member_fk',
       columns: [t.agencyId, t.assignedUserId],

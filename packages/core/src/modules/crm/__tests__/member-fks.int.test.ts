@@ -164,6 +164,20 @@ describe('member foreign keys (S11-F5)', () => {
     }
   });
 
+  it('[S12-F17] the six S11-F5 member FKs are validated (the leads one since migration 0150)', async () => {
+    const rows = await system(async (tx) => {
+      const res = await tx.execute(sql`
+        select conname, convalidated from pg_constraint
+         where conname in ('leads_assignee_member_fk', 'tasks_assignee_member_fk', 'calendar_events_organizer_member_fk',
+                           'calendar_event_attendees_member_fk', 'calendar_feeds_member_fk',
+                           'seller_prospects_assignee_member_fk')
+         order by conname`);
+      return res.rows as { conname: string; convalidated: boolean }[];
+    });
+    expect(rows).toHaveLength(6);
+    for (const r of rows) expect(r.convalidated, r.conname).toBe(true);
+  });
+
   it('[S11-F5] re-assigning to a non-member fails at the DB', async () => {
     for (const r of rowsOf) {
       const refused = await system((tx) =>

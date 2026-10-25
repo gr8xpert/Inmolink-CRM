@@ -38,8 +38,15 @@ beforeAll(async () => {
   // S12-F7: most leads from the website, CHATBOT rare (~0.5 %)
   const source = `case when abs(hashtext(g::text || 'o')) % 1000 < 5 then 'CHATBOT'
                        when abs(hashtext(g::text || 'o')) % 10 < 2 then 'PORTAL' else 'WEBSITE' end`;
+  // S12-F17: what a crashed earlier run left (its rows are committed): the noise agencies' rows, leads assigned to the
+  // seed's members, the seed's stages and member rows — so no orphan assignee stays behind for the member FK
+  await purge();
   await adminQuery(`begin;
     set local session_replication_role = replica;
+    -- S12-F17: the seed's assignees are members of the agency (\`leads_assignee_member_fk\` holds for every row)
+    insert into agency_members (agency_id, user_id, role, name, email)
+    select '${founder.agencyId}', m::uuid, 'AGENT', 'Perf ' || m, 'perf-' || m || '@example.com'
+      from unnest(array[${list(MEMBERS)}]) m;
     insert into activities (id, agency_id, occurred_at, type, contact_id)
     select gen_random_uuid(), '${founder.agencyId}',
            date_trunc('milliseconds', now() - g * interval '25 days' / ${ROWS}, 'UTC'), ${typeCase('t')}, gen_random_uuid()
@@ -73,14 +80,21 @@ beforeAll(async () => {
   await adminQuery('analyze contacts');
 }, 300_000);
 
-afterAll(async () => {
+/** S12-F17: deletes this suite's rows — its own agency's, the noise agencies', and any earlier run's (fixed ids). */
+async function purge(): Promise<void> {
+  const agencies = founder ? `'${founder.agencyId}', ${list(NOISE_AGENCIES)}` : list(NOISE_AGENCIES);
   await adminQuery(`begin;
     set local session_replication_role = replica;
-    delete from activities where agency_id in ('${founder.agencyId}', ${list(NOISE_AGENCIES)});
-    delete from leads where agency_id in ('${founder.agencyId}', ${list(NOISE_AGENCIES)});
-    delete from pipeline_stages where agency_id = '${founder.agencyId}';
-    delete from contacts where agency_id = '${founder.agencyId}';
+    delete from activities where agency_id in (${agencies});
+    delete from leads where agency_id in (${agencies}) or assigned_user_id in (${list(MEMBERS)});
+    delete from pipeline_stages where id in (${list(STAGES)})${founder ? ` or agency_id = '${founder.agencyId}'` : ''};
+    delete from agency_members where user_id in (${list(MEMBERS)});
+    ${founder ? `delete from contacts where agency_id = '${founder.agencyId}';` : ''}
     commit;`);
+}
+
+afterAll(async () => {
+  await purge();
   await adminQuery('vacuum analyze activities');
   await adminQuery('vacuum analyze leads');
   await closeDb();
