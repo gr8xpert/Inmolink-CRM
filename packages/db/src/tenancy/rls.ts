@@ -142,6 +142,16 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
         );
       }
     }
+    if (def.userNoInsert) {
+      // S13-F3: rows a worker writes that a member reads and may remove (saved-search alerts), never plants.
+      if (
+        (!def.userSelect && !def.memberWrite) ||
+        def.userSelect?.write?.insert !== undefined ||
+        def.memberWrite?.insert !== undefined
+      ) {
+        throw new Error(`${name}: userNoInsert is only valid with userSelect or memberWrite (no insert predicate)`);
+      }
+    }
     if (def.memberWrite) {
       if (def.kind !== 'STRICT') throw new Error(`${name}: memberWrite is only valid for STRICT tables`);
       if (
@@ -321,7 +331,8 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
             ? APPEND_READ
             : DML;
   // S13-05: `userNoDelete` drops DELETE from whatever the table grants app_user.
-  const user = def.userNoDelete ? granted.filter((p) => p !== 'DELETE') : granted;
+  // S13-F3: `userNoInsert` drops INSERT the same way.
+  const user = granted.filter((p) => !(def.userNoDelete && p === 'DELETE') && !(def.userNoInsert && p === 'INSERT'));
   return {
     app_user: user,
     app_system: def.immutable ? APPEND_READ : DML,
@@ -392,7 +403,7 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
   const out: PolicySpec[] =
     def.userSelect || def.memberWrite
       ? [
-          { name: 'own_insert', cmd: 'INSERT', roles: ['app_user'] },
+          ...(def.userNoInsert ? [] : [{ name: 'own_insert', cmd: 'INSERT' as const, roles: ['app_user'] }]),
           ...(def.userNoUpdate ? [] : [{ name: 'own_update', cmd: 'UPDATE' as const, roles: ['app_user'] }]),
           ...(def.userNoDelete ? [] : [{ name: 'own_delete', cmd: 'DELETE' as const, roles: ['app_user'] }]),
           { name: def.userSelect ? 'user_select' : 'own_select', cmd: 'SELECT', roles: ['app_user'] },
@@ -827,8 +838,13 @@ function tenantTableSql(name: string, def: TenantTable): string[] {
           // S1-F10: writes stay on the agency's rows; reads are narrowed to what the reading user may see.
           // S11-04: `userSelect.write` narrows each write to rows of the writing user too.
           // S12-F14: `memberWrite` — the same write policies, and every row of the agency is read.
-          `create policy own_insert on ${t} for insert to app_user
+          // S13-F3: `userNoInsert` — no INSERT grant, no insert policy
+          ...(def.userNoInsert
+            ? []
+            : [
+                `create policy own_insert on ${t} for insert to app_user
   with check (agency_id = app_agency()${userWrite(name, def, 'insert')});`,
+              ]),
           // S12-F3 review: `userNoUpdate` — no UPDATE grant, no update policy
           ...(def.userNoUpdate
             ? []

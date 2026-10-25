@@ -501,6 +501,30 @@ describe('RLS generator', () => {
     );
   });
 
+  it('[S13-F3] worker-written tables: alerts read + delete, listing states and selection interactions read-only', () => {
+    const alerts = registry.tenant.saved_search_alerts as TenantTable;
+    const sql = tablesSql({ tenant: { saved_search_alerts: alerts }, global: {} });
+    expect(sql).toContain('grant select, delete on table public."saved_search_alerts" to app_user;');
+    expect(sql).not.toContain('create policy own_insert on public."saved_search_alerts"');
+    expect(sql).not.toContain('create policy own_update on public."saved_search_alerts"');
+    expect(expectedPolicies(alerts).map((p) => `${p.name}:${p.cmd}`)).toEqual([
+      'own_delete:DELETE',
+      'user_select:SELECT',
+    ]);
+    for (const t of ['matching_listing_states', 'selection_interactions']) {
+      expect(expectedPrivileges(registry.tenant[t] as TenantTable).app_user).toEqual(['SELECT']);
+    }
+    expect(expectedPrivileges(registry.tenant.selection_interactions as TenantTable).app_intake).toEqual([
+      'SELECT',
+      'INSERT',
+    ]);
+    const bad = (tenant: TenantRegistry['tenant'][string]) => () => tablesSql({ tenant: { t: tenant }, global: {} });
+    expect(bad({ kind: 'STRICT', userNoInsert: true })).toThrow(/userNoInsert/);
+    expect(bad({ kind: 'STRICT', memberWrite: { insert: 'true', own: {} }, userNoInsert: true })).toThrow(
+      /userNoInsert/,
+    );
+  });
+
   it('[S1-08] immutable tables: no app role gets UPDATE or DELETE', () => {
     const def = {
       kind: 'STRICT',

@@ -111,6 +111,11 @@ interface TenantBase {
    */
   userNoDelete?: true;
   /**
+   * S13-F3, with `userSelect` or `memberWrite` (no insert predicate): no INSERT grant (and no `own_insert` policy) —
+   * rows a worker (`app_system`) writes that a member may read and remove but never plant (saved-search alerts).
+   */
+  userNoInsert?: true;
+  /**
    * S12-F14, STRICT only: "agency reads, member writes". `app_user` reads every row of its agency (`own_select`) but
    * INSERTs, UPDATEs and DELETEs only rows that also satisfy that command's predicate (ANDed with
    * `agency_id = app_agency()` in `own_insert` / `own_update` / `own_delete`), such as `user_id = app_user_id()` — for
@@ -1471,23 +1476,22 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { name: 'Marbella villas', match_keys: '{*:*}' },
   },
   // S5-06: the alerts a member's saved searches raised — written by the matching worker (app_system); the member
-  // reads and deletes only their own (a deleted saved search takes its alerts with it, FK cascade).
+  // reads and deletes only their own (a deleted saved search takes its alerts with it, FK cascade). S13-F3: never
+  // inserted or updated by a request (`userNoInsert`, `userNoUpdate`) — no forged alert, no rewritten `notified_at`.
   saved_search_alerts: {
     kind: 'STRICT',
+    userNoInsert: true,
+    userNoUpdate: true,
     userSelect: {
       sql: 'user_id = app_user_id()',
-      write: {
-        insert: 'user_id = app_user_id()',
-        update: 'user_id = app_user_id()',
-        delete: 'user_id = app_user_id()',
-      },
+      write: { delete: 'user_id = app_user_id()' },
       samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
     },
     base: { kind: 'NEW', dedupe_key: 0, ref: 'INL-ISO' },
   },
-  // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only in
-  // practice — app_user has no path that reads or writes it.
-  matching_listing_states: { kind: 'STRICT', base: { status: 'ACTIVE', version: 1 } },
+  // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only —
+  // S13-F3: `userReadOnly`, so no request can plant or rewrite the state the matcher diffs against.
+  matching_listing_states: { kind: 'STRICT', userReadOnly: true, base: { status: 'ACTIVE', version: 1 } },
   // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
   // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
   // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never
@@ -1501,9 +1505,11 @@ export const tenantTables: Record<string, TenantTable> = {
   // through `selection_by_token` (S13-F1).
   selection_items: { kind: 'STRICT', definerRead: true, base: { position: 0 } },
   // What clients did on a selection's page: written by the public pages as `app_intake` (pinned to the selection's
-  // agency), read by the agency only.
+  // agency), read by the agency only. S13-F3: immutable for members (`userReadOnly`) — the client history a request
+  // can neither plant, rewrite nor remove (a deleted selection takes its interactions with it, FK cascade).
   selection_interactions: {
     kind: 'STRICT',
+    userReadOnly: true,
     intake: { selectColumns: ['id', 'selection_id', 'kind', 'created_at'] },
     base: { kind: 'VIEW' },
   },

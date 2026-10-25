@@ -597,6 +597,33 @@ describe.each(tenantNames)('tenant table %s', (table) => {
       expect(await adminCount(a)).toBe(visible.length + hidden.length);
       expect(await adminCount(b)).toBe(1);
     });
+  } else if (!def.appendOnly && def.userNoInsert) {
+    // S13-F3: rows a worker writes that a member reads and removes (saved-search alerts) — never planted by a request.
+    it(`[S13-F3] ${table}: userNoInsert — a member reads and deletes their own rows, never inserts one (nor updates, with userNoUpdate)`, async () => {
+      const ownReadable = build({ ...forReader(ownSample), agency_id: b });
+      await expectSqlState(
+        () => rb(b, (tx) => tx.execute(insertSql(table, ownReadable)).then(() => undefined)),
+        DENIED,
+      );
+      if (def.userNoUpdate) {
+        await expectSqlState(
+          () =>
+            rb(b, (tx) =>
+              tx
+                .execute(sql`update ${sql.identifier(table)} set agency_id = agency_id where agency_id = ${b}`)
+                .then(() => undefined),
+            ),
+          DENIED,
+        );
+      }
+      // The positive control: the grant and policy let the member read and remove their own row.
+      await rb(b, async (tx) => {
+        expect(await count(tx, table, b)).toBe(1);
+        const res = await tx.execute(sql`delete from ${sql.identifier(table)} where agency_id = ${b}`);
+        expect(res.rowCount).toBe(1);
+      });
+      expect(await adminCount(b)).toBe(1);
+    });
   } else if (!def.appendOnly) {
     it(`[S0-05] ${table}: positive control — tenant B can insert and update its own rows`, async () => {
       // Proves the cross-tenant denials above come from the policies, not from a missing grant.

@@ -1305,10 +1305,10 @@ grant select, insert, update, delete on table public."locations" to app_staff;
 -- matching_listing_states: STRICT
 alter table public."matching_listing_states" enable row level security;
 alter table public."matching_listing_states" force row level security;
-create policy own_rows on public."matching_listing_states" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_rows on public."matching_listing_states" for select to app_user
+  using (agency_id = app_agency());
 revoke all on table public."matching_listing_states" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."matching_listing_states" to app_user;
+grant select on table public."matching_listing_states" to app_user;
 grant select, insert, update, delete on table public."matching_listing_states" to app_system;
 
 -- media_objects: GLOBAL
@@ -1721,16 +1721,12 @@ grant select, insert, update, delete on table public."read_model_queue" to app_s
 -- saved_search_alerts: STRICT
 alter table public."saved_search_alerts" enable row level security;
 alter table public."saved_search_alerts" force row level security;
-create policy own_insert on public."saved_search_alerts" for insert to app_user
-  with check (agency_id = app_agency() and (user_id = app_user_id()));
-create policy own_update on public."saved_search_alerts" for update to app_user
-  using (agency_id = app_agency() and (user_id = app_user_id())) with check (agency_id = app_agency() and (user_id = app_user_id()));
 create policy own_delete on public."saved_search_alerts" for delete to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
 create policy user_select on public."saved_search_alerts" for select to app_user
   using (agency_id = app_agency() and (user_id = app_user_id()));
 revoke all on table public."saved_search_alerts" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."saved_search_alerts" to app_user;
+grant select, delete on table public."saved_search_alerts" to app_user;
 grant select, insert, update, delete on table public."saved_search_alerts" to app_system;
 
 -- saved_searches: STRICT
@@ -1757,10 +1753,10 @@ grant select, insert, update, delete on table public."search_index_queue" to app
 -- selection_interactions: STRICT
 alter table public."selection_interactions" enable row level security;
 alter table public."selection_interactions" force row level security;
-create policy own_rows on public."selection_interactions" to app_user
-  using (agency_id = app_agency()) with check (agency_id = app_agency());
+create policy own_rows on public."selection_interactions" for select to app_user
+  using (agency_id = app_agency());
 revoke all on table public."selection_interactions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."selection_interactions" to app_user;
+grant select on table public."selection_interactions" to app_user;
 grant select, insert, update, delete on table public."selection_interactions" to app_system;
 create policy intake_insert on public."selection_interactions" for insert to app_intake
   with check (agency_id = app_agency());
