@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- refactor(core): one white-label listing-text helper and one website-api "present public docs" read for selections and PDFs [S13-F11]
 - test(core): Client Mode allow-lists pinned for identity, social, matching, presentations, documents, ai-features; 403 contract test for the S12 routes [S13-F4]
 - feat(sdk): widget natural-language search box on /v2/search/ai, EN/ES strings [S13-F16]
 - fix(platform): redact selection token paths (/s/<token>) in logs and error text [S13-F2]

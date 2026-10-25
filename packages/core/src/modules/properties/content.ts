@@ -15,9 +15,7 @@ import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
-import { compileOwner, NO_OWNER, ownerRefsOf, whiteLabelText } from '../../white-label';
-import { readAiRemovals } from '../../white-label-store';
-import * as agencies from '../agencies';
+import { whiteLabelListingText } from '../../white-label-listing';
 import { propertiesEvents } from './events';
 import { assertCan } from './policy';
 import * as repo from './repo';
@@ -85,24 +83,26 @@ export async function getListingContent(ctx: Ctx, id: string): Promise<ListingCo
   return { listingId: id, version: row.version, translations: shown.map(toTranslationDto), featureIds };
 }
 
-/** S12-06 review: a network listing's texts as a client may see them (Client Mode). */
+/** S12-06 review: a network listing's texts as a client may see them (Client Mode; S13-F11: the one white-label pass). */
 async function whiteLabelled(
   ctx: Ctx,
   row: repo.ListingRow,
   translations: repo.TranslationView[],
 ): Promise<repo.TranslationView[]> {
-  const owner = (await agencies.ownerIdentities(ctx.tx, [row.agencyId])).get(row.agencyId) ?? NO_OWNER;
-  const matcher = compileOwner(owner);
-  const refs = ownerRefsOf({ ref: row.ref });
-  // S12-03: then the model pass's cached removals of these texts (deterministic-only without them).
-  const removals = (await readAiRemovals([{ agencyId: row.agencyId, targetId: row.id }])).get(row.id);
-  const clean = (text: string | null) => (text === null ? null : whiteLabelText(text, matcher, refs, removals));
-  return translations.map((t) => ({
+  // S12-03: the owner's identity and reference, then the model pass's cached removals (deterministic-only without them).
+  const texts = translations.flatMap((t) => [t.title, t.description, t.metaTitle, t.metaDescription]);
+  const clean = await whiteLabelListingText(
+    ctx.tx,
+    { id: row.id, agencyId: row.agencyId, ref: row.ref },
+    ctx.tenant.agencyId,
+    texts,
+  );
+  return translations.map((t, i) => ({
     ...t,
-    title: clean(t.title) ?? '',
-    description: clean(t.description),
-    metaTitle: clean(t.metaTitle),
-    metaDescription: clean(t.metaDescription),
+    title: clean[i * 4] ?? '',
+    description: clean[i * 4 + 1] ?? null,
+    metaTitle: clean[i * 4 + 2] ?? null,
+    metaDescription: clean[i * 4 + 3] ?? null,
   }));
 }
 

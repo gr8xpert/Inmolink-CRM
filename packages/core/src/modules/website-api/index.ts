@@ -73,6 +73,14 @@ export {
 export { LEAD_TURNSTILE_ACTION, type LeadRequestFacts, submitLead } from './leads';
 export { legacyProperties, legacyProperty, legacyTypes, resetLegacyCaches } from './legacy-v1';
 export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_POOL, sliceSignature } from './limits';
+// S13-F11: public documents presented as an agency's own site (selections, listing PDFs).
+export {
+  type PresentableDocRow,
+  type PresentedPublicDocs,
+  type PresentPublicDocsInput,
+  presentDocs,
+  presentPublicDocs,
+} from './present';
 export {
   type ApiSite,
   changes,

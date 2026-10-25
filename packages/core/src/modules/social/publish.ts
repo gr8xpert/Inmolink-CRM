@@ -1,9 +1,8 @@
 import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { emit } from '@inmolink/platform/outbox';
-import { compileOwner, NO_OWNER, ownerRefsOf, plainText, whiteLabelText } from '../../white-label';
-import { readAiRemovals } from '../../white-label-store';
-import * as agencies from '../agencies';
+import { compileOwner, NO_OWNER, plainText } from '../../white-label';
+import { whiteLabelListingText } from '../../white-label-listing';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as search from '../search';
@@ -193,6 +192,9 @@ export async function networkPostable(
   return (await search.networkPresentable(tx, postingAgencyId, [listing.id])).has(listing.id);
 }
 
+/** Any e-mail address, URL or phone number of a caption (plain text): nobody's identity in particular. */
+const genericClean = (text: string) => compileOwner(NO_OWNER).clean(plainText(text), []);
+
 /**
  * A caption as it may publish (white label, S12-07): any e-mail address, URL or phone number goes; for another
  * agency's listing its identity (names, contacts, website) and own reference go too, and (S12-07 review) the model
@@ -205,10 +207,9 @@ export async function whiteLabelled(
   postingAgencyId: string,
 ): Promise<string> {
   if (!text) return text;
-  if (listing.agencyId === postingAgencyId) return compileOwner(NO_OWNER).clean(plainText(text), []);
-  const owner = (await agencies.ownerIdentities(tx, [listing.agencyId])).get(listing.agencyId) ?? NO_OWNER;
-  const removals = (await readAiRemovals([{ agencyId: listing.agencyId, targetId: listing.id }])).get(listing.id);
-  return whiteLabelText(text, compileOwner(owner), ownerRefsOf(listing), removals);
+  // S13-F11: the one white-label pass; on the posting agency's own listing only the generic patterns go.
+  const [caption] = await whiteLabelListingText(tx, listing, postingAgencyId, [text] as const, { own: genericClean });
+  return caption;
 }
 
 async function finish(postId: string, f: Finish): Promise<PublishOutcome> {

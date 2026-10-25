@@ -6,14 +6,14 @@
  * Live data, never per-request joins over raw tables (CLAUDE.md rule 9): the documents are the read models
  * (`search.publicDocs`, `app_public`: PUBLIC ones only — an item no longer public shows as unavailable), so an owner's
  * price or status change shows on the next view (the read model is rebuilt within seconds of the change, and pages
- * are not cached). White-labelled as on a website of the selection's agency (`websites.serializeDetail` through
- * `websiteApi.viewWith`): another agency's listing carries the agency's own reference prefix and presenter, its text
- * the deterministic pass and the model pass's cached removals (S12-03). The agent's own title and note for an item
+ * are not cached). White-labelled as on a website of the selection's agency (`websiteApi.presentPublicDocs`, S13-F11:
+ * the same read as listing PDFs): another agency's listing carries the agency's own reference prefix and presenter,
+ * its text the deterministic pass and the model pass's cached removals (S12-03). The agent's own title and note for an item
  * are plain text (rendered escaped) and, on another agency's listing, white-labelled too.
  *
- * Statements per page: the selection with its items (1), the agency's public profile (1), the documents (1), whether
- * the other agencies' ones are still shared with the agency and both still listed (1, when there are any), the presentation (1: overrides
- * and owner identities) — plus one redis-cache MGET (cached removals).
+ * Statements per page: the selection with its items (1), then `presentPublicDocs`'s: the agency's public profile (1),
+ * the documents (1), whether the other agencies' ones are still shared with the agency and both still listed (1, when
+ * there are any), the presentation (1: overrides and owner identities) — plus one redis-cache MGET (cached removals).
  */
 import type { WebsiteDetail, WebsitePresenter } from '@inmolink/contracts';
 import { AppError, type SelectionPageAction } from '@inmolink/contracts';
@@ -21,11 +21,10 @@ import { withIntake, withPublicRead } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { RateLimitCheck, RateLimiter } from '@inmolink/platform/rate-limit';
-import { compileOwner, NO_OWNER, ownerRefsOf, plainText, whiteLabelText } from '../../white-label';
-import * as agencies from '../agencies';
-import * as search from '../search';
+import { compileOwner, NO_OWNER, plainText } from '../../white-label';
+import { whiteLabelListingTextWith } from '../../white-label-listing';
 import * as websiteApi from '../website-api';
-import * as websites from '../websites';
+import type * as websites from '../websites';
 import { SELECTION_TOKEN, selectionTokenHash, selectionTokenHashCandidates } from './config';
 import { presentationsEvents } from './events';
 import * as repo from './repo';
@@ -66,73 +65,56 @@ export async function selectionPage(token: string, lang?: string): Promise<Selec
     const sel = await repo.liveSelectionByTokenHash(tx, selectionTokenHashCandidates(token));
     if (!sel) throw new AppError('SELECTION_NOT_FOUND');
     const locale = lang && /^[a-z]{2}(-[A-Z]{2})?$/.test(lang) ? lang : sel.locale;
-    const agency = (await agencies.publicAgencies(tx, [sel.agencyId])).get(sel.agencyId) ?? null;
-    const presenter = websites.sitePresenter({ name: agency?.name ?? sel.title, contact: null }, agency);
-    const docs = await search.publicDocs(
-      tx,
-      sel.items.map((i) => i.targetId),
-      'detail',
+    // S13-F11: the one "present public docs" read, shared with listing PDFs. Re-checked at every view (security
+    // review): another agency's listing shows only while its owner still shares it with the selection's agency (shared
+    // with ALL or this agency preferred, not hidden from the network) and both agencies are listed (S12 review: an
+    // unverified or suspended agency presents no network listing) — an owner narrowing or withdrawing it takes it off
+    // every selection at once, whatever the selection's expiry.
+    const { view, rows, details } = await websiteApi.presentPublicDocs(tx, {
+      agencyId: sel.agencyId,
+      ids: sel.items.map((i) => i.targetId),
       locale,
-      sel.locale,
-    );
-    // Re-checked at every view (security review): another agency's listing shows only while its owner still shares it
-    // with the selection's agency (shared with ALL or this agency preferred, not hidden from the network) and both
-    // agencies are listed (S12 review: an unverified or suspended agency presents no network listing) — an owner
-    // narrowing or withdrawing it takes it off every selection at once, whatever the selection's expiry.
-    const others = docs.filter((r) => r.ownerAgencyId !== sel.agencyId).map((r) => r.targetId);
-    const shared = others.length > 0 ? await search.networkPresentable(tx, sel.agencyId, others) : new Set<string>();
-    const rows = docs.filter((r) => r.ownerAgencyId === sel.agencyId || shared.has(r.targetId));
-    const scope = { agencyId: sel.agencyId, referencePrefix: null, presenter };
-    const { view } = await websiteApi.viewWith(tx, { scope }, locale, rows);
-    return presentSelection({ selection: sel, locale, view, rows });
+      fallbackLocale: sel.locale,
+      fallbackName: sel.title,
+      titles: titlesOf(sel.items),
+    });
+    return presentSelection({ selection: sel, locale, view, rows, details });
   });
 }
 
 /** A document row as the page needs it (`search.publicDocs`). */
-export type SelectionDocRow = Pick<
-  search.PublicDocRow,
-  'targetId' | 'ownerAgencyId' | 'publicCode' | 'developmentCode' | 'developmentOwnRef' | 'doc'
->;
+export type SelectionDocRow = websiteApi.PresentableDocRow;
+
+/** The agent's titles for the selection's items: they take precedence over the agency's own listing override. */
+const titlesOf = (items: readonly { targetId: string; titleOverride: string | null }[]) =>
+  new Map(items.flatMap((i) => (i.titleOverride ? [[i.targetId, i.titleOverride] as const] : [])));
 
 /**
- * The page from what was read (pure): each item's document as the agency presents it (`websites.serializeDetail` on
- * `view`, the agent's title for it taking precedence over the agency's own listing override), its note white-labelled
- * like the owner's text on another agency's listing; items without a public document are unavailable.
+ * The page from what was read (pure): each item's document as the agency presents it (`websiteApi.presentDocs` on
+ * `view`, the agent's title for it taking precedence over the agency's own listing override; `details` when
+ * `presentPublicDocs` already presented them), its note white-labelled like the owner's text on another agency's
+ * listing; items without a public document are unavailable.
  */
 export function presentSelection(input: {
   selection: Omit<repo.PublicSelectionRow, 'agencyId'> & { agencyId: string };
   locale: string;
   view: websites.SiteView;
   rows: readonly SelectionDocRow[];
+  details?: ReadonlyMap<string, WebsiteDetail>;
 }): SelectionPageModel {
   const { selection: sel, view, rows } = input;
-  const targets = new Map(view.overrides?.targets ?? []);
-  for (const i of sel.items) {
-    if (i.titleOverride) {
-      targets.set(i.targetId, { title: i.titleOverride, description: targets.get(i.targetId)?.description ?? null });
-    }
-  }
-  const shown: websites.SiteView = {
-    ...view,
-    overrides: { targets, developments: view.overrides?.developments ?? new Map() },
-  };
+  const details = input.details ?? websiteApi.presentDocs(view, rows, titlesOf(sel.items)).details;
   const byTarget = new Map(rows.map((r) => [r.targetId, r]));
   const items = sel.items.map((i): SelectionPageItem => {
     const r = byTarget.get(i.targetId);
-    if (!r)
+    const detail = r ? (details.get(i.targetId) ?? null) : null;
+    if (!r || !detail)
       return { targetId: i.targetId, position: i.position, note: i.note ? plainText(i.note) : null, detail: null };
-    const owned = {
-      ownerAgencyId: r.ownerAgencyId,
-      publicCode: r.publicCode,
-      developmentCode: r.developmentCode,
-      developmentOwnRef: r.developmentOwnRef,
-      doc: r.doc as Parameters<typeof websites.serializeDetail>[1]['doc'],
-    };
     return {
       targetId: i.targetId,
       position: i.position,
-      note: i.note ? noteOf(shown, owned, i.note) : null,
-      detail: websites.serializeDetail(shown, owned),
+      note: i.note ? noteOf(view, r, i.note) : null,
+      detail,
     };
   });
   return {
@@ -147,17 +129,28 @@ export function presentSelection(input: {
   };
 }
 
-/** The agent's note on an item: plain text; on another agency's listing, white-labelled like the owner's text. */
+/**
+ * The agent's note on an item: plain text; on another agency's listing, white-labelled like the owner's text (S13-F11:
+ * the one white-label pass, with the owner facts the view already read — no statement).
+ */
 function noteOf(
   view: websites.SiteView,
-  item: { ownerAgencyId: string; developmentOwnRef: string | null; doc: { id: string; ref: string } },
+  item: { ownerAgencyId: string; developmentOwnRef: string | null; doc: unknown },
   note: string,
 ): string {
-  if (item.ownerAgencyId === view.site.agencyId) return plainText(note);
-  const matcher =
-    view.matchers?.get(item.ownerAgencyId) ?? compileOwner(view.owners?.get(item.ownerAgencyId) ?? NO_OWNER);
-  const refs = ownerRefsOf({ ref: item.doc.ref, developmentOwnRef: item.developmentOwnRef });
-  return whiteLabelText(note, matcher, refs, view.aiRemovals?.get(item.doc.id));
+  const doc = item.doc as { id: string; ref: string };
+  const listing = {
+    id: doc.id,
+    agencyId: item.ownerAgencyId,
+    ref: doc.ref,
+    developmentOwnRef: item.developmentOwnRef,
+  };
+  const owner = {
+    matcher: view.matchers?.get(item.ownerAgencyId) ?? compileOwner(view.owners?.get(item.ownerAgencyId) ?? NO_OWNER),
+    removals: view.aiRemovals?.get(doc.id),
+  };
+  const [clean] = whiteLabelListingTextWith(owner, listing, view.site.agencyId, [note] as const, { own: plainText });
+  return clean;
 }
 
 export type SelectionInteraction =
