@@ -43,7 +43,9 @@ export {
   unregisterAiFeaturesSubscriptions,
   unregisterWhiteLabelSubscriptions,
 } from './subscriptions';
-// S12-03: the white-label sanitizer (its jobs and subscriptions live in jobs.ts / subscriptions.ts).
+// S12-03: the white-label sanitizer (its jobs and subscriptions live in jobs.ts / subscriptions.ts). S13-F17: the raw
+// model call (`modelRemovals`) stays internal — callers go through `sanitizeTargetTexts` / the backfill, which check the
+// agency's WHITE_LABEL toggle first.
 export {
   BACKFILL_PAGE_TARGETS,
   type BackfillCursor,
@@ -52,7 +54,6 @@ export {
   MAX_MODEL_TEXT_CHARS,
   MIN_MODEL_TEXT_CHARS,
   modelInput,
-  modelRemovals,
   type PreparedText,
   prepareTexts,
   protectedNamesOf,

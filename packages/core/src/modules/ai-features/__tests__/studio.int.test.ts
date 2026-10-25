@@ -17,7 +17,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, setAiFeatures } from '../../../testing/factories';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as aiFeatures from '../index';
@@ -149,6 +149,8 @@ beforeAll(async () => {
   await setupTestDb('worker');
   owner = await createFounder();
   await setAgencyStatus(owner.agencyId, 'VERIFIED');
+  // S13-F17: every AI feature is off until the agency's admin switches it on.
+  await setAiFeatures(owner, ['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
   const agentId = newId();
   await system(async (tx) => {
     await tx.execute(
@@ -410,6 +412,7 @@ describe('AI Listing Studio (S12-02)', () => {
   it('[S12-02] an agency has at most LISTING_STUDIO_RUNNING_MAX bulk batches running', async () => {
     const other = await createFounder();
     await setAgencyStatus(other.agencyId, 'VERIFIED');
+    await setAiFeatures(other, ['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
     const l = await create(other);
     for (let i = 0; i < LISTING_STUDIO_RUNNING_MAX; i++) {
       await rows(sql`insert into listing_studio_batches
@@ -424,6 +427,7 @@ describe('AI Listing Studio (S12-02)', () => {
   it('[S12-02] concurrent bulk requests cannot pass the running-batch cap together (reserved, serialized)', async () => {
     const other = await createFounder();
     await setAgencyStatus(other.agencyId, 'VERIFIED');
+    await setAiFeatures(other, ['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
     const l = await create(other);
     const tries = 6;
     const results = await Promise.all(
@@ -449,6 +453,7 @@ describe('AI Listing Studio (S12-02)', () => {
     useGateway();
     const other = await createFounder();
     await setAgencyStatus(other.agencyId, 'VERIFIED');
+    await setAiFeatures(other, ['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
     await rows(sql`update agency_settings set enabled_locales = '{en}' where agency_id = ${other.agencyId}`);
     const l = await create(other);
     const v = (await content(other, l.id)).version;
@@ -488,6 +493,108 @@ describe('AI Listing Studio (S12-02)', () => {
       sql`select state from listing_studio_batches where id = ${req.requestId}`,
     );
     expect(record?.state).toBe('GAVE_UP');
+  });
+});
+
+describe('AI Listing Studio and translation drafts toggles (S13-F17)', () => {
+  /** A fresh agency (en main, es other) with only the given features on. */
+  async function agencyWith(features: Parameters<typeof setAiFeatures>[1]): Promise<Founder> {
+    const f = await createFounder();
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    await rows(sql`update agency_settings set enabled_locales = '{en,es}' where agency_id = ${f.agencyId}`);
+    // every other AI feature switched on, to show they leave this one alone
+    await setAiFeatures(f, ['WEBSITE_SEARCH', 'WHITE_LABEL', 'SOCIAL_CAPTIONS', ...features]);
+    return f;
+  }
+  const localesAsked = () => provider.calls.map((c) => inputOf(c.user).locale);
+
+  it('[S13-F17] Listing Studio off: the request is refused (AI_NOT_ENABLED) and queued jobs make zero provider calls', async () => {
+    useGateway();
+    const f = await agencyWith(['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+    const l = await create(f);
+    const l2 = await create(f);
+    const queued = await single(f, l.id);
+    const queuedBulk = await bulk(f, [l2.id]);
+    await setAiFeatures(f, ['LISTING_STUDIO'], false);
+
+    expect(await refusal(single(f, l.id))).toBe('AI_NOT_ENABLED');
+    expect(await refusal(bulk(f, [l.id]))).toBe('AI_NOT_ENABLED');
+    expect(await aiFeatures.generateListingStudio(queued)).toEqual({ written: {}, dropped: {} });
+    expect(await aiFeatures.submitListingStudioBulk(queuedBulk)).toMatchObject({ status: 'DONE' });
+    expect(provider.calls).toHaveLength(0);
+    expect(provider.batches.size).toBe(0);
+    const [record] = await rows<{ state: string }>(
+      sql`select state from listing_studio_batches where id = ${queuedBulk.requestId}`,
+    );
+    expect(record?.state).toBe('GAVE_UP');
+    expect((await content(f, l.id)).translations).toEqual([]);
+  });
+
+  it('[S13-F17] Listing Studio switched off while a batch runs: it is given up, never collected', async () => {
+    useGateway();
+    const f = await agencyWith(['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+    const l = await create(f);
+    const req = await bulk(f, [l.id]);
+    const submitted = await aiFeatures.submitListingStudioBulk(req);
+    if (submitted.status !== 'SUBMITTED') throw new Error('expected a submitted batch');
+    provider.endBatch(submitted.batchId);
+    await setAiFeatures(f, ['LISTING_STUDIO'], false);
+    const results = provider.batchResults.bind(provider);
+    let collected = 0;
+    provider.batchResults = (...args: Parameters<typeof results>) => {
+      collected++;
+      return results(...args);
+    };
+    try {
+      const res = await aiFeatures.collectListingStudioBulk({
+        requestId: req.requestId,
+        agencyId: f.agencyId,
+        userId: f.userId,
+      });
+      expect(res.status).toBe('DONE');
+    } finally {
+      provider.batchResults = results;
+    }
+    expect(collected).toBe(0);
+    expect(provider.calls).toHaveLength(0);
+    const [record] = await rows<{ state: string }>(
+      sql`select state from listing_studio_batches where id = ${req.requestId}`,
+    );
+    expect(record?.state).toBe('GAVE_UP');
+  });
+
+  it('[S13-F17] Listing Studio on: calls happen (main language), other AI features off do not matter', async () => {
+    useGateway();
+    const f = await createFounder();
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    await rows(sql`update agency_settings set enabled_locales = '{en,es}' where agency_id = ${f.agencyId}`);
+    await setAiFeatures(f, ['LISTING_STUDIO']);
+    const l = await create(f);
+    const outcome = await aiFeatures.generateListingStudio(await single(f, l.id));
+    expect(outcome.written[l.id]).toEqual(['en']);
+    expect(localesAsked()).toEqual(['en']);
+  });
+
+  it('[S13-F17] translation drafts off: only the main language is drafted; naming another is refused; zero calls for it', async () => {
+    useGateway();
+    const f = await agencyWith(['LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+    const l = await create(f);
+    // queued while translations were on (both languages), run after they were switched off
+    const queued = await single(f, l.id);
+    expect(queued.locales).toEqual(['en', 'es']);
+    await setAiFeatures(f, ['TRANSLATION_DRAFTS'], false);
+
+    expect(await refusal(single(f, l.id, { locales: ['es'] }))).toBe('AI_NOT_ENABLED');
+    expect((await single(f, l.id)).locales).toEqual(['en']);
+    const outcome = await aiFeatures.generateListingStudio(queued);
+    expect(outcome.written[l.id]).toEqual(['en']);
+    expect(localesAsked()).toEqual(['en']);
+
+    // switched on again: the other language is drafted (calls happen)
+    await setAiFeatures(f, ['TRANSLATION_DRAFTS']);
+    const again = await aiFeatures.generateListingStudio(await single(f, l.id, { locales: ['es'] }));
+    expect(again.written[l.id]).toEqual(['es']);
+    expect(localesAsked()).toEqual(['en', 'es']);
   });
 });
 

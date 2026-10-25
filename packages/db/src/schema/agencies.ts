@@ -125,12 +125,22 @@ export const agencySettings = pgTable(
     clientModePinMinLength: integer('client_mode_pin_min_length').notNull().default(4),
     /** Client Mode: wrong PINs before the session must log in again. */
     clientModePinMaxAttempts: integer('client_mode_pin_max_attempts').notNull().default(5),
+    /**
+     * S13-F17: the AI features the agency switched on (contracts `AI_FEATURES`), one toggle each, every one off by
+     * default. Admins change them (`agencies.setAgencyAiFeature`, audited); each feature's call site reads them through
+     * `agencies.aiFeatureEnabled` (cached) before any model call. Not part of `version` (the settings form's).
+     */
+    aiFeatures: text('ai_features').array().notNull().default(sql`'{}'::text[]`),
     version: integer('version').notNull().default(1),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check('agency_settings_locales_ck', sql`cardinality(${t.enabledLocales}) between 1 and 20`),
     check('agency_settings_split_ck', sql`${t.defaultSplitBp} between 0 and 10000`),
+    check(
+      'agency_settings_ai_features_ck',
+      sql`${t.aiFeatures} <@ array['WEBSITE_SEARCH', 'WHITE_LABEL', 'LISTING_STUDIO', 'SOCIAL_CAPTIONS', 'TRANSLATION_DRAFTS']::text[]`,
+    ),
     check(
       'agency_settings_time_zone_ck',
       sql`char_length(${t.timeZone}) <= 64 and ${t.timeZone} ~ '^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){0,2}$'`,

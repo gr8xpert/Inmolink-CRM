@@ -3,6 +3,16 @@
  * verification (S1-03), profile and settings (S1-06; other modules read settings via `getAgencySettings`),
  * preferred agencies and the agency directory (S1-07; listings use the `app_preferring_agencies()` RLS helper).
  */
+export {
+  AI_FEATURES_CACHE,
+  agencyIdsWithAiFeaturePage,
+  aiFeatureEnabled,
+  aiFeaturesCacheKey,
+  assertAiFeatureEnabled,
+  enabledAiFeatures,
+  getAgencyAiFeatures,
+  setAgencyAiFeature,
+} from './ai-features';
 export { agenciesErrors } from './errors';
 export { agenciesEvents } from './events';
 export { agenciesJobs } from './jobs';
@@ -55,6 +65,7 @@ export {
   getAgencySettings,
   getClientModePolicy,
   getMyAgencySettings,
+  invalidateAgencySettings,
   LOGO_URL_TTL_SECONDS,
   removeAgencyLogo,
   updateAgencyProfile,

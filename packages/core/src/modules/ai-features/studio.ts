@@ -16,6 +16,12 @@
  * Targets: the requested locales (default: every enabled one) minus locked locales — and, without `replaceReviewed`,
  * minus texts a person wrote or reviewed. The write re-checks both in its statement (`properties.saveListingAiDrafts`)
  * and drops a draft when the listing's facts changed since it was generated (facts hash).
+ *
+ * S13-F17: per-agency toggles (`agencies.aiFeatureEnabled`, cached). `LISTING_STUDIO` off: the request is refused
+ * (`AI_NOT_ENABLED`) and a queued job, batch or collect calls no model (a running batch is given up). Drafts in the
+ * agency's other languages (all but its main one, the first enabled content locale) are translations
+ * (`TRANSLATION_DRAFTS`): off, the default request targets the main language only, a request naming another is
+ * refused, and the worker never asks the model for them.
  */
 import {
   LISTING_STUDIO_RUNNING_MAX,
@@ -33,6 +39,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx } from '../../context';
 import { withMemberCtx } from '../../member';
+import * as agencies from '../agencies';
 import * as media from '../media';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
@@ -80,13 +87,45 @@ export interface StudioOutcome {
 
 // ---- request path -----------------------------------------------------------------------------------------------
 
-function resolveLocales(ctx: Ctx, requested: readonly string[] | undefined): string[] {
-  const enabled = ctx.tenant.locales.filter((l) => (CONTENT_LOCALES as readonly string[]).includes(l));
-  if (!requested) return enabled;
-  if (requested.some((l) => !enabled.includes(l))) {
+/** S13-F17: which of the agency's AI toggles let Studio write a locale. */
+export interface StudioGate {
+  studio: boolean;
+  translations: boolean;
+  /** The agency's main content locale (its first enabled one): not a translation. */
+  main: string | null;
+}
+
+const contentLocalesOf = (ctx: Ctx) =>
+  ctx.tenant.locales.filter((l) => (CONTENT_LOCALES as readonly string[]).includes(l));
+
+/** The agency's Studio toggles (one cached read). */
+export async function studioGate(ctx: Ctx): Promise<StudioGate> {
+  const on = await agencies.enabledAiFeatures(ctx.tenant.agencyId, ctx);
+  return {
+    studio: on.includes('LISTING_STUDIO'),
+    translations: on.includes('TRANSLATION_DRAFTS'),
+    main: contentLocalesOf(ctx)[0] ?? null,
+  };
+}
+
+/** Whether the toggles let Studio ask the model for this locale. */
+export const studioAllows = (gate: StudioGate, locale: string): boolean =>
+  gate.studio && (gate.translations || locale === gate.main);
+
+async function resolveLocales(ctx: Ctx, requested: readonly string[] | undefined): Promise<string[]> {
+  const enabled = contentLocalesOf(ctx);
+  if (requested?.some((l) => !enabled.includes(l))) {
     throw new AppError('VALIDATION_FAILED', { field: 'locales', reason: 'not_enabled' });
   }
-  return enabled.filter((l) => requested.includes(l));
+  const wanted = requested ? enabled.filter((l) => requested.includes(l)) : enabled;
+  const gate = await studioGate(ctx);
+  if (!gate.studio) throw new AppError('AI_NOT_ENABLED', { feature: 'LISTING_STUDIO' });
+  const allowed = wanted.filter((l) => studioAllows(gate, l));
+  // Translation drafts off: a request naming another language is refused; the default is the main language only.
+  if (requested && allowed.length < wanted.length)
+    throw new AppError('AI_NOT_ENABLED', { feature: 'TRANSLATION_DRAFTS' });
+  if (allowed.length === 0) throw new AppError('AI_NOT_ENABLED', { feature: 'TRANSLATION_DRAFTS' });
+  return allowed;
 }
 
 async function emitRequest(
@@ -96,7 +135,7 @@ async function emitRequest(
   mode: 'SINGLE' | 'BULK',
   skipped: number,
 ): Promise<ListingStudioAcceptedDto> {
-  const locales = resolveLocales(ctx, body.locales);
+  const locales = await resolveLocales(ctx, body.locales);
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
   const requestId = newId();
   await emit(
@@ -121,6 +160,7 @@ export async function requestListingStudio(
   body: ListingStudioBody,
 ): Promise<ListingStudioAcceptedDto> {
   assertCan(ctx, 'aiFeatures.listingStudio');
+  await agencies.assertAiFeatureEnabled(ctx, 'LISTING_STUDIO');
   await properties.assertStudioEditable(ctx, listingId);
   return emitRequest(ctx, [listingId], body, 'SINGLE', 0);
 }
@@ -137,6 +177,7 @@ export async function requestListingStudioBulk(
 ): Promise<ListingStudioAcceptedDto> {
   assertCan(ctx, 'aiFeatures.listingStudio');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
+  await agencies.assertAiFeatureEnabled(ctx, 'LISTING_STUDIO');
   await repo.lockAgencyStudio(ctx.tx, ctx.tenant.agencyId);
   if ((await repo.countRunningStudioBatches(ctx.tx, ctx.tenant.agencyId)) >= LISTING_STUDIO_RUNNING_MAX) {
     throw new AppError('LISTING_STUDIO_BATCH_LIMIT', { max: LISTING_STUDIO_RUNNING_MAX });
@@ -176,6 +217,9 @@ interface ListingWork {
 
 /** Reads the listings' facts, names and photo tags as the member, and builds each locale's model input. */
 async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[]): Promise<ListingWork[]> {
+  // S13-F17: the toggles as they are now — a feature switched off after the request asks the model for nothing.
+  const gate = await studioGate(ctx);
+  if (!gate.studio) return [];
   const listings = await properties.studioListings(ctx, ids);
   if (listings.length === 0) return [];
   // one after the other: a transaction is one connection
@@ -227,6 +271,7 @@ async function collectWork(ctx: Ctx, req: StudioRequest, ids: readonly string[])
     }
     const byLocale = new Map(l.translations.map((t) => [t.locale, t]));
     const targets = req.locales.filter((locale) => {
+      if (!studioAllows(gate, locale)) return false;
       const t = byLocale.get(locale);
       if (!t) return true;
       if (t.locked) return false;
@@ -428,6 +473,7 @@ async function applyResults(
   hashes: readonly string[],
   results: readonly AiBatchItemResult[],
   outcome: StudioOutcome,
+  gate: StudioGate,
 ): Promise<void> {
   const aiCtx = aiCtxOf(req);
   const repairs = { left: STUDIO_REPAIRS_PER_APPLY };
@@ -437,6 +483,11 @@ async function applyResults(
     const key = parseCustomId(req, r.customId);
     const input = inputOf.get(r.customId);
     if (!key || !input) continue;
+    // S13-F17: a locale whose toggle was switched off since the submit gets no repair call and no draft.
+    if (!studioAllows(gate, key.locale)) {
+      outcome.dropped[`${key.listingId}:${key.locale}`] = 'AI_NOT_ENABLED';
+      continue;
+    }
     if (!r.ok) {
       outcome.dropped[`${key.listingId}:${key.locale}`] = r.error;
       continue;
@@ -510,15 +561,28 @@ export type BulkSubmit =
  */
 export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkSubmit> {
   const outcome: StudioOutcome = { written: {}, dropped: {} };
-  const existing = await withMemberCtx(member(req), (ctx) => repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId));
+  const { existing, gate } = await withMemberCtx(member(req), async (ctx) => ({
+    existing: await repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId),
+    gate: await studioGate(ctx),
+  }));
   if (existing?.providerBatchId) return { status: 'SUBMITTED', batchId: existing.providerBatchId, outcome };
   if (existing && existing.state !== 'RUNNING') return { status: 'DONE', outcome };
+  // S13-F17: Listing Studio switched off since the request: nothing is sent, the reservation ends.
+  if (!gate.studio) {
+    if (existing) await finish(req, 'GAVE_UP', outcome);
+    return { status: 'DONE', outcome };
+  }
   let items: StoredItem[];
   let hashes: string[];
   const recorded = (existing?.items ?? []) as StoredItem[];
   if (existing && recorded.length > 0) {
-    items = recorded;
+    // S13-F17: the recorded items of locales still allowed (a retried submit after a toggle was switched off).
+    items = recorded.filter((i) => studioAllows(gate, i.input.locale));
     hashes = existing.factsHashes;
+    if (items.length === 0) {
+      await finish(req, 'GAVE_UP', outcome);
+      return { status: 'DONE', outcome };
+    }
   } else if (existing) {
     // the request's reservation: build the items now and record them before anything is sent
     const work = await readWork(req, req.listingIds);
@@ -560,7 +624,7 @@ export async function submitListingStudioBulk(req: StudioRequest): Promise<BulkS
     await withMemberCtx(member(req), (ctx) => repo.insertStudioBatch(ctx.tx, row));
   }
   const handle = await ai.batch(aiCtxOf(req), batchRequest(items));
-  await applyResults(req, items, hashes, handle.cached, outcome);
+  await applyResults(req, items, hashes, handle.cached, outcome, gate);
   if (handle.batchId === null) {
     await finish(req, 'DONE', outcome);
     return { status: 'DONE', outcome };
@@ -593,14 +657,16 @@ export async function collectListingStudioBulk(
     tone: row.tone as ListingStudioTone,
     replaceReviewed: row.replaceReviewed,
   };
-  if (options.giveUp) {
+  // S13-F17: Listing Studio switched off since the submit: the batch is not collected (no provider call), given up.
+  const gate = await withMemberCtx(member(req), studioGate);
+  if (options.giveUp || !gate.studio) {
     await finish(req, 'GAVE_UP', outcome);
     return { status: 'DONE', outcome };
   }
   const items = row.items as StoredItem[];
   const res = await ai.collectBatch(aiCtxOf(req), { batchId: row.providerBatchId, request: batchRequest(items) });
   if (res.status === 'IN_PROGRESS') return res;
-  await applyResults(req, items, row.factsHashes, res.results, outcome);
+  await applyResults(req, items, row.factsHashes, res.results, outcome, gate);
   await finish(req, 'DONE', outcome);
   return { status: 'DONE', outcome };
 }

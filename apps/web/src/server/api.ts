@@ -1,10 +1,12 @@
 import {
   type AddPreferredAgencyBody,
   AGENCY_LOGO_TYPES,
+  AgencyAiFeaturesDto,
   AgencyDto,
   AgencyProfileDto,
   AgencySettingsDto,
   AgencyVerificationDto,
+  type AiFeature,
   ApiKeyPage,
   BookmarkDto,
   type BookmarkFolderBody,
@@ -404,6 +406,23 @@ export function removeAgencyLogo(session: SessionRef): Promise<ApiResult<AgencyP
 
 export function fetchAgencySettings(session: SessionRef): Promise<ApiResult<AgencySettingsDto>> {
   return apiRequest(session, '/v1/agency/settings', AgencySettingsDto);
+}
+
+/** S13-F17: which AI features the agency switched on (members; the dashboard hides what is off). */
+export function fetchAgencyAiFeatures(session: SessionRef): Promise<ApiResult<AgencyAiFeaturesDto>> {
+  return apiRequest(session, '/v1/agency/ai-features', AgencyAiFeaturesDto);
+}
+
+/** S13-F17: switch one AI feature on or off (admins; the API refuses others). */
+export function saveAgencyAiFeature(
+  session: SessionRef,
+  feature: AiFeature,
+  enabled: boolean,
+): Promise<ApiResult<AgencyAiFeaturesDto>> {
+  return apiRequest(session, `/v1/agency/ai-features/${encodeURIComponent(feature)}`, AgencyAiFeaturesDto, {
+    method: 'PUT',
+    body: { enabled },
+  });
 }
 
 export function saveAgencySettings(

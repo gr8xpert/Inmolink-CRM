@@ -167,8 +167,9 @@ describe('RLS generator', () => {
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
     // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
-    // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(7);
+    // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
+    // lookup (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(8);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -330,6 +331,15 @@ describe('RLS generator', () => {
     }
     // No other role gains a policy or grant from it.
     expect(tables).not.toMatch(/definer_read[^;]*to [^;]*app_(?:user|public|system|auth|staff)/);
+  });
+
+  it('[S13-F17] the AI toggles lookup is SECURITY DEFINER, owned by app_owner, executable by app_public only', () => {
+    expect(out).toContain('create or replace function agency_ai_features(a_id uuid) returns text[]');
+    expect(out).toMatch(/agency_ai_features[^;]*security definer set search_path = pg_catalog, pg_temp/);
+    expect(out).toContain('grant execute on function agency_ai_features(uuid) to app_public;');
+    expect(out).not.toMatch(/agency_ai_features\(uuid\) to [^;]*app_(?:user|system|auth|staff)/);
+    const owner = 'alter function agency_ai_features(uuid) owner to app_owner;';
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create or replace function agency_ai_features('));
   });
 
   it('[S1-F10] userSelect: app_user reads through a user predicate and a column list without the hidden columns', () => {

@@ -1,8 +1,11 @@
 import {
   AGENCY_LOGO_MAX_BYTES,
   AGENCY_LOGO_TYPES,
+  AgencyAiFeaturesDto,
   AgencyProfileDto,
   AgencySettingsDto,
+  AiFeatureParams,
+  SetAiFeatureBody,
   SignedUrlDto,
   UpdateAgencyProfileBody,
   UpdateAgencySettingsBody,
@@ -130,6 +133,44 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
     (req, reply) => {
       reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => agencies.updateAgencySettings(ctx, req.body));
+    },
+  );
+
+  app.get(
+    '/v1/agency/ai-features',
+    {
+      schema: {
+        tags: ['agencies'],
+        operationId: 'agencies.getAgencyAiFeatures',
+        summary: 'Which AI features the agency switched on (members; refused in Client Mode)',
+        response: { 200: AgencyAiFeaturesDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return app.withCtx(req, (ctx) => agencies.getAgencyAiFeatures(ctx));
+    },
+  );
+
+  app.put(
+    '/v1/agency/ai-features/:feature',
+    {
+      schema: {
+        tags: ['agencies'],
+        operationId: 'agencies.setAgencyAiFeature',
+        summary: 'Switch one AI feature on or off (admins; every change audited)',
+        params: AiFeatureParams,
+        body: SetAiFeatureBody,
+        response: { 200: AgencyAiFeaturesDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      return agencies.setAgencyAiFeature(app.ctxRunner(req), req.params.feature, req.body.enabled);
     },
   );
 }

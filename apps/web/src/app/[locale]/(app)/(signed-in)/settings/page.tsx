@@ -29,6 +29,10 @@ export default async function SettingsPage() {
         </Link>
       </div>
       <p className="text-sm text-muted-foreground">{t('settings.intro')}</p>
+      {/* S13-F17: the AI feature toggles have their own page. */}
+      <Link href="/settings/ai" className="text-sm font-medium underline-offset-4 hover:underline">
+        {t('aiFeatures.link')}
+      </Link>
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">
           {res.status === 403 ? t('errors.forbidden') : t('errors.generic')}

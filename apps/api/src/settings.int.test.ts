@@ -168,4 +168,33 @@ describe('agency settings routes', () => {
     expect(removed.statusCode).toBe(200);
     expect(removed.json().logo).toBeNull();
   });
+
+  it('[S13-F17] AI feature toggles over HTTP: all off, an admin switches one, Listing Studio refused while off', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const got = await app.inject({ method: 'GET', url: '/v1/agency/ai-features', headers });
+    expect(got.statusCode).toBe(200);
+    expect(got.headers['cache-control']).toBe('no-store');
+    expect(Object.values(got.json().features)).toEqual([false, false, false, false, false]);
+
+    const studio = await app.inject({ method: 'POST', url: `/v1/listings/${f.agencyId}/studio`, headers, payload: {} });
+    expect(studio.statusCode).toBe(403);
+    expect(studio.json().error.code).toBe('AI_NOT_ENABLED');
+
+    const unknown = await app.inject({
+      method: 'PUT',
+      url: '/v1/agency/ai-features/SMART_EVERYTHING',
+      headers,
+      payload: { enabled: true },
+    });
+    expect(unknown.statusCode).toBe(422);
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/v1/agency/ai-features/LISTING_STUDIO',
+      headers,
+      payload: { enabled: true },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().features).toMatchObject({ LISTING_STUDIO: true, TRANSLATION_DRAFTS: false });
+  });
 });

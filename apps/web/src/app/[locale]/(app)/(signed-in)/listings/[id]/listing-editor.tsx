@@ -78,6 +78,8 @@ export interface ListingEditorProps {
   locale: string;
   /** The `listings` catalog, translated on the server. */
   messages: Record<string, unknown>;
+  /** S13-F17: the agency switched Listing Studio on (off: the Studio panel is hidden). */
+  studioEnabled?: boolean;
 }
 
 type SaveState = { kind: 'saved' } | { kind: 'pending' } | { kind: 'saving' } | { kind: 'error'; code: string };
@@ -613,7 +615,7 @@ export function ListingEditor(props: ListingEditorProps) {
           'translations',
           [],
           <>
-            {disabled ? null : (
+            {disabled || !props.studioEnabled ? null : (
               <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3" data-testid="listing-studio">
                 <p className="font-medium text-sm">{t('editor.translations.studio.title')}</p>
                 <p className="text-muted-foreground text-sm">{t('editor.translations.studio.hint')}</p>

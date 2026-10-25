@@ -17,6 +17,8 @@ export const AGENCIES_ACTIONS = [
   'agencies.preferred.manage',
   'agencies.directory.search',
   'agencies.network.read',
+  'agencies.aiFeatures.read',
+  'agencies.aiFeatures.update',
 ] as const;
 export type AgenciesAction = (typeof AGENCIES_ACTIONS)[number];
 
@@ -42,6 +44,9 @@ export const AGENCIES_IMPERSONATION: ImpersonationRules<AgenciesAction> = {
   'agencies.preferred.manage': 'allowed',
   'agencies.directory.search': 'allowed',
   'agencies.network.read': 'allowed',
+  // S13-F17: switching an AI feature on spends the agency's money: the admin's own decision, never support's.
+  'agencies.aiFeatures.read': 'allowed',
+  'agencies.aiFeatures.update': 'forbidden',
 };
 
 /** Roles that administer their agency (PLAN §3 #2). */
@@ -62,6 +67,8 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
     case 'agencies.verification.manage':
     case 'agencies.profile.update':
     case 'agencies.settings.update':
+    // S13-F17: AI feature toggles (admins only, audited).
+    case 'agencies.aiFeatures.update':
     case 'agencies.preferred.add':
     case 'agencies.preferred.manage':
     case 'agencies.verification.read':
@@ -71,6 +78,8 @@ export function can(ctx: Ctx, action: AgenciesAction, resource?: { agencyId: str
     case 'agencies.directory.search':
     // Network search's view of the agency (S5-05): give-to-get standing and partners — agent side only.
     case 'agencies.network.read':
+    // S13-F17: which AI features are on (the dashboard hides the panels of those that are off); agent side only.
+    case 'agencies.aiFeatures.read':
       // Members see whom their agency trusts (they choose PREFERRED sharing on listings); the list and
       // its internal notes are never shown to a client.
       return sameAgency && !ctx.clientMode;

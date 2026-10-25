@@ -53,6 +53,9 @@ create or replace function website_network_open(a_id uuid, min_shared integer, g
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;
+create or replace function agency_ai_features(a_id uuid) returns text[]
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select coalesce((select s.ai_features from public.agency_settings s where s.agency_id = a_id), '{}'::text[]) $$;
 create or replace function legacy_target_ids(legacy_ids text[]) returns table(entity text, legacy_id text, new_id uuid)
   language sql stable security definer set search_path = pg_catalog, pg_temp
   as $$ select m.entity, m.legacy_id, m.new_id
@@ -134,11 +137,13 @@ create function calendar_feed_tag(hash text)
           join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
          where f.token_hash = hash and f.revoked_at is null and f.live;
 end $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function calendar_feed_tag(text) to app_public;
 grant execute on function portal_feed_by_token(text) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
+grant execute on function agency_ai_features(uuid) to app_public;
+alter function agency_ai_features(uuid) owner to app_owner;
 grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
 alter function legacy_target_ids(text[]) owner to app_owner;
 alter function legacy_ids_of(uuid[]) owner to app_owner;

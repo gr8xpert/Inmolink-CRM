@@ -21,6 +21,9 @@
  *   usage through the store the process installed (feed-api: the request-safe store of S12-01, no `withSystem`).
  * - The sentence reaches the model inside an untrusted block (`untrustedBlock`), and the prompt says to treat it as
  *   data.
+ * - S13-F17: only for an agency that switched `WEBSITE_SEARCH` on (`agencies.aiFeatureEnabled`, a cached read: no
+ *   statement on a warm process). Off — or the toggle unreadable — the request answers the keyword search and neither
+ *   the model nor the understood-sentence cache is asked.
  */
 import type { WebsiteAiSearchFilters, WebsiteAiSearchPage, WebsiteAiSearchQuery } from '@inmolink/contracts';
 import { CONTENT_LOCALES } from '@inmolink/i18n';
@@ -29,6 +32,7 @@ import { cache, cacheConnection, cacheKey } from '@inmolink/platform/cache';
 import { AppError, isAppError } from '@inmolink/platform/errors';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { type RateLimitCheck, type RateLimiter, rateLimiter } from '@inmolink/platform/rate-limit';
+import * as agencies from '../agencies';
 import * as taxonomy from '../taxonomy';
 import { aiQueryHash, cleanAnswer, normalizeAiQuery, SearchAiAnswer, toFilters } from './ai-search-parse';
 import { type ApiSite, langOf, searchPage } from './service';
@@ -298,6 +302,16 @@ export async function warmAiSearch(locales: readonly string[] = CONTENT_LOCALES)
 /** Tests: model calls of this process still running after their request answered. */
 export const aiSearchLateCalls = (): number => lateCalls;
 
+/** S13-F17: whether the site's agency switched AI search on; an unreadable toggle counts as off (keyword search). */
+async function aiSearchOn(site: ApiSite): Promise<boolean> {
+  try {
+    return await agencies.aiFeatureEnabled(site.scope.agencyId, 'WEBSITE_SEARCH');
+  } catch (err) {
+    logger().warn({ agencyId: site.scope.agencyId, err }, 'ai search toggle unreadable: keyword search');
+    return false;
+  }
+}
+
 /** The free text a keyword search takes (the listings search's limit). */
 const KEYWORD_MAX = 100;
 
@@ -314,7 +328,7 @@ export async function aiSearch(
   const lang = langOf(site, q.lang);
   const normalized = normalizeAiQuery(q.q);
   const answer =
-    normalized === ''
+    normalized === '' || !(await aiSearchOn(site))
       ? null
       : await understand(site, normalized, {
           cacheOnly: opts.suspicious === true || q.cursor !== undefined,

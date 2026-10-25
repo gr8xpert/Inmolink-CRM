@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, purgeReferenceFixtures } from '../../../testing/factories';
+import * as agencies from '../../agencies';
 import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
@@ -47,6 +48,10 @@ const as = <T>(fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: a.userId, agencyId: a.agencyId, requestId: newId(), locale: 'en' }, fn);
 const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('website-api.ai-search.test', fn);
 const site = () => websiteApi.siteForKey({ agencyId: a.agencyId, siteId }, newId());
+/** S13-F17: switches one of the agency's AI features (the founder is its admin); this process misses at once. */
+const toggle = async (feature: Parameters<typeof agencies.setAgencyAiFeature>[1], enabled: boolean) => {
+  await agencies.setAgencyAiFeature(as, feature, enabled);
+};
 const query = (q: string, extra: Record<string, unknown> = {}) => WebsiteAiSearchQuery.parse({ q, ...extra });
 
 const CALLER: websiteApi.AiSearchCaller = { keyId: newId(), kind: 'SECRET', ip: '203.0.113.0' };
@@ -158,6 +163,8 @@ beforeAll(async () => {
   });
   a = await createFounder();
   await setAgencyStatus(a.agencyId, 'VERIFIED');
+  // S13-F17: every AI feature is off until the agency's admin switches it on.
+  await toggle('WEBSITE_SEARCH', true);
   ids = await system(async (tx) => {
     const tr = (name: string, slug: string) => [{ locale: 'en', name, slug: code(slug) }];
     const country = await taxonomy.createLocation(tx, {
@@ -251,6 +258,44 @@ afterAll(async () => {
 });
 
 const idsOf = (page: WebsiteAiSearchPage) => page.items.map((i) => i.id).sort();
+
+describe('AI search toggle (S13-F17)', () => {
+  it('[S13-F17] website AI search off: the keyword search answers and the model is never asked; on: it is', async () => {
+    const fake = fakeParser(() => ({ types: ['villa'], places: [GAMMA] }));
+    configure({ parser: fake.parser });
+    const s = await site();
+    try {
+      await toggle('WEBSITE_SEARCH', false);
+      // Warm the toggle and the site (the first request of a process reads them once).
+      await ask(s, query(`warm off ${RUN}`));
+      let page = undefined as unknown as WebsiteAiSearchPage;
+      const queries = await countQueries(async () => {
+        page = await ask(s, query(`villas in gamma off ${RUN}`));
+      });
+      expect(page.understood.source).toBe('KEYWORD');
+      expect(fake.calls).toEqual([]);
+      // The toggle is a cached read: the keyword search's own statements only.
+      expect(queries).toBeLessThanOrEqual(3);
+    } finally {
+      await toggle('WEBSITE_SEARCH', true);
+    }
+    const on = await ask(s, query(`villas in gamma on ${RUN}`));
+    expect(on.understood.source).toBe('AI');
+    expect(fake.calls).toEqual([`villas in gamma on ${RUN}`]);
+  });
+
+  it('[S13-F17] other AI features switched on or off leave website AI search as it is', async () => {
+    const fake = fakeParser(() => ({ types: ['villa'], places: [GAMMA] }));
+    configure({ parser: fake.parser });
+    const s = await site();
+    for (const f of ['WHITE_LABEL', 'LISTING_STUDIO', 'SOCIAL_CAPTIONS', 'TRANSLATION_DRAFTS'] as const) {
+      await toggle(f, false);
+    }
+    const page = await ask(s, query(`villas in gamma others ${RUN}`));
+    expect(page.understood.source).toBe('AI');
+    expect(fake.calls).toHaveLength(1);
+  });
+});
 
 describe('AI search for websites (S12-08)', () => {
   it("[S12-08] a sentence is understood as filters and searched in the site's inventory, within 3 queries", async () => {

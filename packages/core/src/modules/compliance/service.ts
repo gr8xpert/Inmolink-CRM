@@ -61,6 +61,7 @@ export const AUDIT_TYPES = [
   'agencies.verification.decided',
   'agencies.profile.updated',
   'agencies.giveToGet.changed',
+  'agencies.aiFeatures.changed',
   'media.document.uploaded',
   'media.document.opened',
   'media.document.deleted',

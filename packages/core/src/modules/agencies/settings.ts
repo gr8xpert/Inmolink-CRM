@@ -157,6 +157,16 @@ export interface AgencyCommissionDefaults {
  */
 const settingsWrittenIn = new WeakSet<object>();
 
+/** S13-F17: this transaction wrote the agency's settings (its reads bypass the shared caches). */
+export function markSettingsWritten(tx: Tx): void {
+  settingsWrittenIn.add(tx);
+}
+
+/** S13-F17: whether this transaction wrote the agency's settings. */
+export function settingsWritten(tx: Tx): boolean {
+  return settingsWrittenIn.has(tx);
+}
+
 /** The full settings, cached per agency (TTL ≤ 5 min, versioned tag); loaded under `ctx`'s RLS. */
 async function loadSettings(ctx: Ctx): Promise<AgencySettingsDto> {
   const agencyId = ctx.tenant.agencyId;

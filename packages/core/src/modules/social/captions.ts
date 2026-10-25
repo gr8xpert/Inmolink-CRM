@@ -4,6 +4,7 @@ import { withSystem } from '@inmolink/db';
 import { ai, aiOrFallback, untrustedBlock } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
 import { cutAtWord } from '../../white-label';
+import * as agencies from '../agencies';
 import * as properties from '../properties';
 import * as taxonomy from '../taxonomy';
 import { allowedNumbers, CAPTIONS_PROMPT, CaptionsAnswer, type Facts, numbersMatchFacts } from './caption-facts';
@@ -18,6 +19,7 @@ import * as repo from './repo';
  * caption passes the white-label pass before it is stored (a network listing's owner never shows). Captions may
  * publish as drafted (`origin: AI_DRAFT`; the member can edit them). A newer request makes this one's answer stale; a
  * gateway refusal (budget, outage, invalid output) leaves the post's captions as they were and `captionStatus` FAILED.
+ * S13-F17: an agency that switched `SOCIAL_CAPTIONS` off since the request gets no model call: FAILED, captions kept.
  */
 
 export async function generateCaptions(p: {
@@ -73,7 +75,7 @@ export async function generateCaptions(p: {
       repo.saveCaptions(tx, p.postId, p.requestId, patch, clock.now()),
     );
   const { post, account, listing, facts } = loaded;
-  if (!account || !listing || !facts) {
+  if (!account || !listing || !facts || !(await agencies.aiFeatureEnabled(p.agencyId, 'SOCIAL_CAPTIONS'))) {
     await save({ captions: post.captions, captionStatus: 'FAILED' });
     return { captions: 0, status: 'FAILED' };
   }

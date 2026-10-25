@@ -388,6 +388,8 @@ export const tenantTables: Record<string, TenantTable> = {
     kind: 'STRICT',
     singleRow: true,
     definerRead: true,
+    // S13-F17 review: `ai_features` changes only by an active admin, never impersonated (guard trigger 0158).
+    triggers: ['agency_settings_ai_features_guard'],
     auth: { insert: 'agency_id = app_agency()' },
     base: { enabled_locales: '{es}' },
   },

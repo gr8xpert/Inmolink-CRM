@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'node:url';
 import { CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
 import { withMemberCtx } from '@inmolink/core';
+import * as agencies from '@inmolink/core/modules/agencies';
 import * as identity from '@inmolink/core/modules/identity';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
-import { createFounder, type Founder } from '@inmolink/core/test';
+import { createFounder, type Founder, setAiFeatures } from '@inmolink/core/test';
 import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { configureAi, createAiGateway, filePromptSource } from '@inmolink/platform/ai';
@@ -85,6 +86,8 @@ beforeAll(async () => {
   });
   a = await createFounder();
   await setAgencyStatus(a.agencyId, 'VERIFIED');
+  // S13-F17: website AI search runs only for an agency that switched it on.
+  await setAiFeatures(a, ['WEBSITE_SEARCH']);
   ids = await system(async (tx) => {
     const tr = (n: string) => [{ locale: 'en', name: n, slug: `pai-${n.toLowerCase().replace(/\W+/g, '-')}-${RUN}` }];
     const country = await taxonomy.createLocation(tx, {
@@ -368,3 +371,29 @@ it('[S12-08] concurrent misses: late model calls stay within maxLateCalls, RSS b
   expect(websiteApi.aiSearchLateCalls()).toBe(0);
   expect(rssGrowthMb).toBeLessThan(128);
 }, 600_000);
+
+it('[S13-F17] the AI search toggle: warm, no statement; cold, one statement of its own (≤ 3 with BEGIN/COMMIT)', async () => {
+  // A request whose sentence is cached, so the model is out of the picture.
+  const sentence = `warm villa zeta ${RUN}`;
+  expect((await ask(sentence)).statusCode).toBe(200);
+  const warmStatements: string[] = [];
+  const warm = await countQueries(async () => expect((await ask(sentence)).statusCode).toBe(200), {
+    onQuery: (text) => warmStatements.push(text),
+  });
+  expect(warm).toBeLessThanOrEqual(3);
+  expect(warmStatements.join('\n')).not.toContain('agency_ai_features');
+
+  // Cold: the toggle's cache dropped (Redis tag and the in-process copy) — one read on the app_public pool.
+  await agencies.invalidateAgencySettings(a.agencyId);
+  const toggleOnly = await countQueries(() => agencies.aiFeatureEnabled(a.agencyId, 'WEBSITE_SEARCH'), {
+    includeTransactionControl: true,
+  });
+  expect(toggleOnly).toBeLessThanOrEqual(3);
+  await agencies.invalidateAgencySettings(a.agencyId);
+  const coldStatements: string[] = [];
+  const cold = await countQueries(async () => expect((await ask(sentence)).statusCode).toBe(200), {
+    onQuery: (text) => coldStatements.push(text),
+  });
+  expect(coldStatements.filter((t) => t.includes('agency_ai_features'))).toHaveLength(1);
+  expect(cold).toBe(warm + 1);
+});

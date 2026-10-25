@@ -5,7 +5,7 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { sessionRef } from '@/server/api';
+import { fetchAgencyAiFeatures, sessionRef } from '@/server/api';
 import { fetchSocialAccounts } from '@/server/social-api';
 import { createPostAction } from '../actions';
 import { SocialNotice } from '../notice';
@@ -21,8 +21,13 @@ export default async function NewSocialPostPage({ searchParams }: { searchParams
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const params = await searchParams;
   const listingId = z.uuid().safeParse(params.listingId).success ? params.listingId : '';
-  const accounts = await fetchSocialAccounts(sessionRef(session.user));
+  const [accounts, ai] = await Promise.all([
+    fetchSocialAccounts(sessionRef(session.user)),
+    fetchAgencyAiFeatures(sessionRef(session.user)),
+  ]);
   if (accounts === 'revoked') redirect('/session/expired');
+  // S13-F17: AI captions only when the agency switched them on; captions are typed by hand otherwise.
+  const aiCaptions = ai !== 'revoked' && ai.ok && ai.data.features.SOCIAL_CAPTIONS;
   const t = await getTranslations('social');
   const usable = accounts.ok ? accounts.data.items.filter((a) => a.status === 'ACTIVE') : [];
 
@@ -78,17 +83,19 @@ export default async function NewSocialPostPage({ searchParams }: { searchParams
               className="rounded-md border bg-background p-2 text-sm"
             />
           </div>
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-sm font-medium">{t('compose.aiCaptions')}</legend>
-            <div className="flex flex-wrap gap-3 text-sm">
-              {CONTENT_LOCALES.slice(0, 8).map((l) => (
-                <label key={l} className="flex items-center gap-1">
-                  <input type="checkbox" name="captionLocales" value={l} /> {l.toUpperCase()}
-                </label>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">{t('compose.aiHint')}</p>
-          </fieldset>
+          {aiCaptions ? (
+            <fieldset className="flex flex-col gap-1">
+              <legend className="text-sm font-medium">{t('compose.aiCaptions')}</legend>
+              <div className="flex flex-wrap gap-3 text-sm">
+                {CONTENT_LOCALES.slice(0, 8).map((l) => (
+                  <label key={l} className="flex items-center gap-1">
+                    <input type="checkbox" name="captionLocales" value={l} /> {l.toUpperCase()}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('compose.aiHint')}</p>
+            </fieldset>
+          ) : null}
           <div className="flex flex-col gap-1">
             <Label htmlFor="scheduledAt">{t('compose.when')}</Label>
             <Input id="scheduledAt" name="scheduledAt" type="datetime-local" />

@@ -154,5 +154,38 @@
       "action": "Review your agency's settings",
       "unexpected": "If you did not expect this export, check your team's access and change your password."
     }
+  },
+  "aiFeatures": {
+    "title": "AI features",
+    "intro": "Switch each AI feature on or off for your agency. Every feature is off until an administrator switches it on, and each change is recorded in the audit log. All features use the most economical AI model.",
+    "link": "AI features",
+    "on": "On",
+    "off": "Off",
+    "switchOn": "Switch on",
+    "switchOff": "Switch off",
+    "adminOnly": "Only an administrator of your agency can switch AI features.",
+    "saved": "Saved.",
+    "features": {
+      "WEBSITE_SEARCH": {
+        "title": "Website AI search",
+        "description": "Visitors of your websites search in their own words. Off: their words are searched as keywords."
+      },
+      "WHITE_LABEL": {
+        "title": "AI white-label check",
+        "description": "Removes indirect mentions of your agency (an agent's name, your office) from listings other agencies show. Off: phone numbers, e-mails and names are still removed automatically."
+      },
+      "LISTING_STUDIO": {
+        "title": "Listing Studio",
+        "description": "Writes listing titles and descriptions from the facts and photos, as drafts you review. Off: the Studio panel is hidden."
+      },
+      "SOCIAL_CAPTIONS": {
+        "title": "Social captions",
+        "description": "Drafts captions for your social posts. Off: you type the captions yourself."
+      },
+      "TRANSLATION_DRAFTS": {
+        "title": "Translation drafts",
+        "description": "Listing Studio also drafts your other languages. Off: Studio writes your main language only."
+      }
+    }
   }
 }

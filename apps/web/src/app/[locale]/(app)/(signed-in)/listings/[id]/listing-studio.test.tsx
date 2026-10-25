@@ -69,7 +69,7 @@ const content = {
   ],
 } as ListingContentDto;
 
-const render = (locale: string, l: ListingDto = listing()) =>
+const render = (locale: string, l: ListingDto = listing(), studioEnabled = true) =>
   renderToStaticMarkup(
     <ListingEditor
       listing={l}
@@ -84,10 +84,16 @@ const render = (locale: string, l: ListingDto = listing()) =>
       mapStyleUrl="https://example.com/style.json"
       locale={locale}
       messages={catalog(locale)}
+      studioEnabled={studioEnabled}
     />,
   );
 
 describe('listing editor: AI Listing Studio (S12-02)', () => {
+  it('[S13-F17] the studio panel is hidden while the agency has Listing Studio switched off', () => {
+    expect(render('en', listing(), false)).not.toContain('data-testid="listing-studio"');
+    expect(render('en', listing(), true)).toContain('data-testid="listing-studio"');
+  });
+
   it('[S12-02] the studio panel offers the tone presets and marks an AI draft for review (EN)', () => {
     const html = render('en');
     expect(html).toContain('data-testid="listing-studio"');

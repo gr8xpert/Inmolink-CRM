@@ -44,6 +44,10 @@ import * as websiteApi from '../website-api';
  * target, and the index text is only matched, never shown — a buyer-facing page always renders the cleaned text. The
  * deterministic pass already strips the owner's identity from the index text (S7-F5); a free-text query for an
  * agent's first name can still match a network document (it reveals nothing that page shows).
+ *
+ * S13-F17: only for an owner agency that switched `WHITE_LABEL` on (`agencies.aiFeatureEnabled`, cached). Off, the
+ * event's run, its retries and the backfill read nothing and call no model (`disabled`), queue no retry and end the
+ * agency's walk: serving paths apply the deterministic pass (and removals cached while it was on).
  */
 
 export const WHITE_LABEL_FEATURE = 'white-label.sanitize';
@@ -147,7 +151,10 @@ export function modelInput(texts: readonly PreparedText[]): string {
 export const unescapeBlockText = (s: string): string =>
   s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-/** Asks the model for one document's texts; null when the gateway degrades (outage, budget, refusal, bad output). */
+/**
+ * Asks the model for one document's texts; null when the gateway degrades (outage, budget, refusal, bad output).
+ * Module-internal (S13-F17): its callers check the agency's WHITE_LABEL toggle first (not exported from the module).
+ */
 export async function modelRemovals(
   ctx: AiCtx,
   texts: readonly PreparedText[],
@@ -220,7 +227,22 @@ export interface SanitizeTextsResult {
   degraded: number;
   /** S13-F7: the targets with such a document (the job asks again for them later). */
   degradedTargetIds: string[];
+  /** S13-F17: the owner agency has the model pass switched off: nothing was read or asked. */
+  disabled?: true;
 }
+
+const DISABLED: SanitizeTextsResult = {
+  docs: 0,
+  asked: 0,
+  stored: 0,
+  degraded: 0,
+  degradedTargetIds: [],
+  disabled: true,
+};
+
+/** S13-F17: whether the owner agency switched the white-label model pass on (cached read). */
+export const whiteLabelModelOn = (agencyId: string): Promise<boolean> =>
+  agencies.aiFeatureEnabled(agencyId, 'WHITE_LABEL');
 
 type DocRow = Awaited<ReturnType<typeof search.readModelDocs>>[number];
 
@@ -247,6 +269,7 @@ export async function sanitizeTargetTexts(
   input: { agencyId: string; targetIds: readonly string[] },
   options: SanitizeOptions = {},
 ): Promise<SanitizeTextsResult> {
+  if (!(await whiteLabelModelOn(input.agencyId))) return { ...DISABLED, degradedTargetIds: [] };
   const owner = await withSystem('aiFeatures.sanitizeTexts', async (tx) =>
     ownerDocs(tx, input.agencyId, await search.readModelDocs(tx, input.targetIds)),
   );
@@ -360,6 +383,9 @@ export async function whiteLabelBackfillPage(
   input: { agencyId: string; after: BackfillCursor | null },
   options: SanitizeOptions = {},
 ): Promise<BackfillPageResult> {
+  if (!(await whiteLabelModelOn(input.agencyId))) {
+    return { ...DISABLED, degradedTargetIds: [], targets: 0, next: null };
+  }
   const { page, owner } = await withSystem('aiFeatures.whiteLabelBackfill', async (tx) => {
     const page = await search.networkShownTargetsPage(tx, input.agencyId, input.after, BACKFILL_PAGE_TARGETS);
     const docs =

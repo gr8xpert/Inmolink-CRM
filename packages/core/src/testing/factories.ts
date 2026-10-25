@@ -1,9 +1,11 @@
-import type { RegisterInput } from '@inmolink/contracts';
+import type { AiFeature, RegisterInput } from '@inmolink/contracts';
 import { setAuthScope, withAuth, withSystem } from '@inmolink/db';
 import { newToken } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
 import { authCtx, type Ctx } from '../context';
+import { withMemberCtx } from '../member';
+import * as agencies from '../modules/agencies';
 import * as identity from '../modules/identity';
 
 /** Query budget checks (PATTERNS §20); `withSystem` for app tests' fixtures (worker-built read models, S7-03). */
@@ -64,6 +66,25 @@ export async function createFounder(over: Partial<RegisterInput> = {}): Promise<
     if (!agencyId) throw new Error('createFounder: sign-up created no agency');
     return { userId, agencyId, email: input.email, password: input.password };
   });
+}
+
+/**
+ * S13-F17: switches AI features on (or off) for the founder's agency through the real service (the founder is its
+ * admin; audited like any change; the service drops the cached toggles after each commit). Every feature is off by
+ * default.
+ */
+export async function setAiFeatures(
+  founder: { userId: string; agencyId: string },
+  features: readonly AiFeature[],
+  enabled = true,
+): Promise<void> {
+  for (const f of features) {
+    await agencies.setAgencyAiFeature(
+      (fn) => withMemberCtx({ userId: founder.userId, agencyId: founder.agencyId, requestId: newId() }, fn),
+      f,
+      enabled,
+    );
+  }
 }
 
 /** Statements of `purgeReferenceFixtures`, each with the LIKE pattern as `$1`. Deepest locations first. */

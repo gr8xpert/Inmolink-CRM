@@ -35,6 +35,7 @@ export const HELPER_FUNCTIONS = [
   'app_preferring_agencies',
   'app_partition_maintenance',
   'website_network_open',
+  'agency_ai_features',
   'legacy_target_ids',
   'legacy_ids_of',
   'portal_feed_by_token',
@@ -588,6 +589,13 @@ end $$;`,
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;`,
+    // S13-F17: the AI features an agency switched on, for the paths that run without the agency's context — feed-api
+    // (app_public: website AI search) and workers (the white-label model pass) — through `withPublicRead`. One primary
+    // key probe of agency_settings (its `definer_read` policy); the toggles only, nothing else of the row. Cached by the
+    // caller (`agencies.aiFeatureEnabled`).
+    `create or replace function agency_ai_features(a_id uuid) returns text[]
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select coalesce((select s.ai_features from public.agency_settings s where s.agency_id = a_id), '{}'::text[]) $$;`,
     // S8-02: the v1 shim's listing and unit legacy ids. feed-api (app_public) reads only the taxonomy maps; these two
     // answer, for the ids a request names, the matching ids and nothing else (no scan: at most 1,000 inputs, each an
     // index probe). Owned by app_owner (its `definer_read` policy on legacy_id_maps).
@@ -671,11 +679,14 @@ end $$;`,
           join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
          where f.token_hash = hash and f.revoked_at is null and f.live;
 end $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
     `grant execute on function calendar_feed_tag(text) to app_public;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
+    `grant execute on function agency_ai_features(uuid) to app_public;`,
+    // S13-F17: reads agency_settings through its `definer_read` policy (app_owner), whichever role ran the SQL.
+    `alter function agency_ai_features(uuid) owner to app_owner;`,
     `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
     // S8-F26: both lookups read legacy_id_maps through its `definer_read` policy (app_owner), so they must be OWNED by
     // app_owner whichever role ran the migration (a function runs as its owner).

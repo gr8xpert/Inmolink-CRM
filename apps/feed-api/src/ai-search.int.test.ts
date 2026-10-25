@@ -6,7 +6,7 @@ import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
-import { createFounder, type Founder, withSystem } from '@inmolink/core/test';
+import { createFounder, type Founder, setAiFeatures, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
@@ -88,6 +88,8 @@ beforeAll(async () => {
   search.resetSearchBreaker();
   founder = await createFounder();
   await setAgencyStatus(founder.agencyId, 'VERIFIED');
+  // S13-F17: website AI search runs only for an agency that switched it on.
+  await setAiFeatures(founder, ['WEBSITE_SEARCH']);
   ({ villa, city, country } = await withSystem('feed-api.ai-search.test', async (tx) => {
     const name = (n: string) => [{ locale: 'en', name: `${n} ${RUN}`, slug: `fai-${n.toLowerCase()}-${RUN}` }];
     const country = await taxonomy.createLocation(tx, {

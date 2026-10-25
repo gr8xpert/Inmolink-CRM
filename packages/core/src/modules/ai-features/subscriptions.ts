@@ -2,6 +2,7 @@ import { subscribe } from '@inmolink/platform/outbox';
 import * as search from '../search';
 import { aiFeaturesEvents } from './events';
 import { aiFeaturesJobs, whiteLabelJobs } from './jobs';
+import { whiteLabelModelOn } from './white-label';
 
 let unsubscribe: (() => void)[] | undefined;
 let unsubscribeWhiteLabel: (() => void)[] | undefined;
@@ -48,6 +49,8 @@ export function registerWhiteLabelSubscriptions(): void {
       async (payload, meta) => {
         const targetIds = payload.networkShownIds ?? payload.targetIds;
         if (targetIds.length === 0) return;
+        // S13-F17: an agency with the model pass switched off queues nothing (the job would check it again).
+        if (!(await whiteLabelModelOn(payload.agencyId))) return;
         await whiteLabelJobs.sanitizeTexts.enqueue({ eventId: meta.eventId, agencyId: payload.agencyId, targetIds });
       },
       { name: 'aiFeatures.whiteLabel.publicDocsChanged' },

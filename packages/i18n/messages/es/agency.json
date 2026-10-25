@@ -154,5 +154,38 @@
       "action": "Revisar la configuración de tu agencia",
       "unexpected": "Si no esperabas esta exportación, revisa los accesos de tu equipo y cambia tu contraseña."
     }
+  },
+  "aiFeatures": {
+    "title": "Funciones de IA",
+    "intro": "Active o desactive cada función de IA para su agencia. Todas están desactivadas hasta que un administrador las activa, y cada cambio queda registrado en el registro de auditoría. Todas usan el modelo de IA más económico.",
+    "link": "Funciones de IA",
+    "on": "Activada",
+    "off": "Desactivada",
+    "switchOn": "Activar",
+    "switchOff": "Desactivar",
+    "adminOnly": "Solo un administrador de su agencia puede activar o desactivar las funciones de IA.",
+    "saved": "Guardado.",
+    "features": {
+      "WEBSITE_SEARCH": {
+        "title": "Búsqueda con IA en la web",
+        "description": "Los visitantes de sus webs buscan con sus propias palabras. Desactivada: sus palabras se buscan como palabras clave."
+      },
+      "WHITE_LABEL": {
+        "title": "Revisión de marca blanca con IA",
+        "description": "Elimina menciones indirectas a su agencia (el nombre de un agente, su oficina) de los inmuebles que muestran otras agencias. Desactivada: teléfonos, correos y nombres se siguen eliminando automáticamente."
+      },
+      "LISTING_STUDIO": {
+        "title": "Listing Studio",
+        "description": "Redacta títulos y descripciones de inmuebles a partir de los datos y las fotos, como borradores que usted revisa. Desactivada: el panel de Studio no se muestra."
+      },
+      "SOCIAL_CAPTIONS": {
+        "title": "Textos para redes sociales",
+        "description": "Redacta los textos de sus publicaciones en redes sociales. Desactivada: usted escribe los textos."
+      },
+      "TRANSLATION_DRAFTS": {
+        "title": "Borradores de traducción",
+        "description": "Listing Studio redacta también sus otros idiomas. Desactivada: Studio redacta solo su idioma principal."
+      }
+    }
   }
 }

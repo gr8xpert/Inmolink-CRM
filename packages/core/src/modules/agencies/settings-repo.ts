@@ -230,3 +230,74 @@ export async function timeZoneOf(tx: Tx, agencyId: string): Promise<string | nul
     .where(eq(agencySettings.agencyId, agencyId));
   return row?.timeZone ?? null;
 }
+
+// ── AI feature toggles (S13-F17) ────────────────────────────────────────────────────────────────
+
+/** The agency's switched-on AI features, under the caller's RLS (primary key lookup); null without a settings row. */
+export async function aiFeaturesOf(tx: Tx, agencyId: string): Promise<string[] | null> {
+  const [row] = await tx
+    .select({ aiFeatures: agencySettings.aiFeatures })
+    .from(agencySettings)
+    .where(eq(agencySettings.agencyId, agencyId));
+  return row?.aiFeatures ?? null;
+}
+
+/**
+ * The same through the SECURITY DEFINER lookup `agency_ai_features(uuid)` (`withPublicRead`, app_public): feed-api and
+ * workers, which run without the agency's context. Empty for an unknown agency.
+ */
+export async function publicAiFeaturesOf(tx: Tx, agencyId: string): Promise<string[]> {
+  const res = await tx.execute(sql`select public.agency_ai_features(${agencyId}::uuid) as f`);
+  return ((res.rows[0] as { f: string[] | null } | undefined)?.f ?? []).slice();
+}
+
+/**
+ * Switches one feature on or off in one statement (the row locked by the update): the toggles before and after, or
+ * null without a settings row. Leaves `version` alone (the settings form's optimistic version).
+ */
+export async function setAiFeature(
+  tx: Tx,
+  agencyId: string,
+  feature: string,
+  enabled: boolean,
+): Promise<{ before: string[]; after: string[]; version: number } | null> {
+  const res = await tx.execute(sql`
+    with before as (
+      select ai_features from public.agency_settings where agency_id = ${agencyId}::uuid for update
+    )
+    update public.agency_settings s
+       set ai_features = ${
+         enabled
+           ? sql`case when ${feature}::text = any(s.ai_features) then s.ai_features else array_append(s.ai_features, ${feature}::text) end`
+           : sql`array_remove(s.ai_features, ${feature}::text)`
+       }
+      from before
+     where s.agency_id = ${agencyId}::uuid
+    returning before.ai_features as before, s.ai_features as after, s.version`);
+  const row = res.rows[0] as { before: string[]; after: string[]; version: number } | undefined;
+  return row ? { before: row.before, after: row.after, version: row.version } : null;
+}
+
+/**
+ * S13-F17: a page of the agencies that switched `feature` on, by id (keyset), for a sweep under `withSystem` (the
+ * white-label backfill skips the others). One row per agency in agency_settings (≈ 5,000 at scale).
+ */
+export async function agencyIdsWithAiFeaturePage(
+  tx: Tx,
+  feature: string,
+  after: string | null,
+  limit: number,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: agencySettings.agencyId })
+    .from(agencySettings)
+    .where(
+      and(
+        sql`${agencySettings.aiFeatures} @> array[${feature}::text]`,
+        after ? sql`${agencySettings.agencyId} > ${after}::uuid` : undefined,
+      ),
+    )
+    .orderBy(agencySettings.agencyId)
+    .limit(limit);
+  return rows.map((r) => r.id);
+}

@@ -31,6 +31,7 @@ import { emit } from '@inmolink/platform/outbox';
 import { type RateLimitRule, rateLimitConnection, rateLimiter } from '@inmolink/platform/rate-limit';
 import type { Ctx, CtxRunner } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
+import * as agencies from '../agencies';
 import * as billing from '../billing';
 import * as compliance from '../compliance';
 import * as media from '../media';
@@ -143,6 +144,8 @@ export const CAPTION_REQUESTS = {
 } as const satisfies RateLimitRule;
 
 async function consumeCaptionRequest(ctx: Ctx): Promise<void> {
+  // S13-F17: AI captions only for an agency that switched them on (typed captions always work).
+  await agencies.assertAiFeatureEnabled(ctx, 'SOCIAL_CAPTIONS');
   const res = await rateLimiter().consume(CAPTION_REQUESTS, ctx.tenant.agencyId);
   if (!res.allowed) throw new AppError('RATE_LIMITED', { retryAfterSeconds: res.retryAfterSeconds });
 }

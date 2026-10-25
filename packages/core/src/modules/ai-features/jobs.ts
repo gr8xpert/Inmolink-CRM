@@ -219,6 +219,9 @@ export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
  *   `BACKFILL_PAGE_TARGETS` network-shown targets (`whiteLabelBackfillPage`), then queues the next page (job id = run,
  *   agency and cursor: resumable, a re-run collapses). Answered targets and cached answers cost no model call; a
  *   degraded page (budget, outage) stops the agency's walk until the next sweep.
+ *
+ * S13-F17: only for agencies that switched `WHITE_LABEL` on — the sweep pages those only; an event, a retry or a
+ * backfill page of an agency that switched it off reads nothing, calls no model, queues no retry and ends the walk.
  */
 export const whiteLabelJobs = {
   sanitizeTexts: defineJob({
@@ -274,8 +277,9 @@ export const whiteLabelJobs = {
       let after: string | null = null;
       let queued = 0;
       for (;;) {
+        // S13-F17: only the agencies that switched the model pass on.
         const ids = await withSystem('aiFeatures.whiteLabelSweep', (tx) =>
-          agencies.agencyIdsPage(tx, after, SWEEP_AGENCY_PAGE),
+          agencies.agencyIdsWithAiFeaturePage(tx, 'WHITE_LABEL', after, SWEEP_AGENCY_PAGE),
         );
         for (const agencyId of ids) await whiteLabelJobs.whiteLabelBackfill.enqueue({ run, agencyId, after: null });
         queued += ids.length;

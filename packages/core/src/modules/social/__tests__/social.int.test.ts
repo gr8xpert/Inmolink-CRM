@@ -15,7 +15,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, setAiFeatures } from '../../../testing/factories';
 import { plainText, textKey } from '../../../white-label';
 import { writeAiRemovals } from '../../../white-label-store';
 import * as media from '../../media';
@@ -181,6 +181,8 @@ beforeAll(async () => {
     return { locationId, propertyTypeId };
   });
   await enable(a, true);
+  // S13-F17: AI captions only once the agency's admin switched them on.
+  await setAiFeatures(a, ['SOCIAL_CAPTIONS']);
 }, 180_000);
 
 beforeEach(() => {
@@ -478,6 +480,76 @@ describe('AI captions (S12-07)', () => {
       (await social.generateCaptions({ postId: post.id, agencyId: a.agencyId, requestId: newId(), locales: ['en'] }))
         .status,
     ).toBe('STALE');
+  });
+
+  it('[S13-F17] social captions off: requests refused (AI_NOT_ENABLED), a queued job makes zero provider calls; on: calls happen', async () => {
+    const provider = new FakeProvider(() =>
+      JSON.stringify({ captions: [{ locale: 'en', text: 'A 3-bedroom villa.' }] }),
+    );
+    configureAi(
+      createAiGateway({
+        provider,
+        models: { FAST: 'fast-model', SMART: 'smart-model' },
+        pricing: { 'fast-model': { input: 1, output: 5 }, 'smart-model': { input: 5, output: 25 } },
+        batchDiscountBp: 5_000,
+        prompts: filePromptSource(PROMPTS_DIR),
+        cache: memoryAiCache(),
+        cacheTtlSeconds: 3_600,
+        store: memoryAiStore(),
+        budgetFor: () => ({ softMicroUsd: 1e12, hardMicroUsd: 2e12 }),
+        timeoutMs: 5_000,
+        breaker: { failures: 1_000, openMs: 1_000 },
+        logger: log,
+      }),
+    );
+    const accounts = (await connect(a)).items;
+    const accountId = (accounts[0] as (typeof accounts)[number]).id;
+    const l = await listing(a, 1);
+    // Requested while on, run after the switch off.
+    const queued = await as(a, (ctx) =>
+      social.createSocialPost(ctx, { accountId, listingId: l.id, locale: 'en', captionLocales: ['en'] }),
+    );
+    const req = await latestEvent('social.captions.requested', 'postId', queued.id);
+    // every other AI feature on, captions off
+    await setAiFeatures(a, ['WEBSITE_SEARCH', 'WHITE_LABEL', 'LISTING_STUDIO', 'TRANSLATION_DRAFTS']);
+    await setAiFeatures(a, ['SOCIAL_CAPTIONS'], false);
+    try {
+      const refused = await as(a, (ctx) =>
+        social.createSocialPost(ctx, { accountId, listingId: l.id, locale: 'en', captionLocales: ['en'] }),
+      ).catch((err: { code?: string }) => err.code);
+      expect(refused).toBe('AI_NOT_ENABLED');
+      const typed = await as(a, (ctx) =>
+        social.createSocialPost(ctx, { accountId, listingId: l.id, locale: 'en', caption: 'Typed by hand' }),
+      );
+      expect(typed).toMatchObject({ caption: 'Typed by hand', captionStatus: 'NONE' });
+      const again = await as(a, (ctx) =>
+        social.requestSocialCaptions(ctx, typed.id, { version: typed.version, locales: ['en'] }),
+      ).catch((err: { code?: string }) => err.code);
+      expect(again).toBe('AI_NOT_ENABLED');
+      const run = await social.generateCaptions({
+        postId: queued.id,
+        agencyId: a.agencyId,
+        requestId: req?.payload.requestId as string,
+        locales: ['en'],
+      });
+      expect(run).toEqual({ captions: 0, status: 'FAILED' });
+      expect(provider.calls).toHaveLength(0);
+    } finally {
+      await setAiFeatures(a, ['SOCIAL_CAPTIONS']);
+    }
+    const on = await as(a, async (ctx) => {
+      const post = await social.getSocialPost(ctx, queued.id);
+      return social.requestSocialCaptions(ctx, post.id, { version: post.version, locales: ['en'] });
+    });
+    const onReq = await latestEvent('social.captions.requested', 'postId', on.id);
+    const res = await social.generateCaptions({
+      postId: on.id,
+      agencyId: a.agencyId,
+      requestId: onReq?.payload.requestId as string,
+      locales: ['en'],
+    });
+    expect(res.status).toBe('READY');
+    expect(provider.calls).toHaveLength(1);
   });
 });
 

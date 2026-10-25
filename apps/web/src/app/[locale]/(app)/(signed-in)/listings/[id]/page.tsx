@@ -4,7 +4,7 @@ import { notFound, redirect } from 'next/navigation';
 import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { fetchListingEditor, sessionRef } from '@/server/api';
+import { fetchAgencyAiFeatures, fetchListingEditor, sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
 import { listingTaxonomy } from '../taxonomy';
 import { BookmarkButton } from './bookmark-button';
@@ -38,8 +38,13 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const res = await fetchListingEditor(sessionRef(session.user), id);
+  const [res, ai] = await Promise.all([
+    fetchListingEditor(sessionRef(session.user), id),
+    // S13-F17: the Studio panel only when the agency switched Listing Studio on.
+    fetchAgencyAiFeatures(sessionRef(session.user)),
+  ]);
   if (res === 'revoked') redirect('/session/expired');
+  const studioEnabled = ai !== 'revoked' && ai.ok && ai.data.features.LISTING_STUDIO;
   if (!res.listing.ok && res.listing.status === 404) notFound();
   const t = await getTranslations('listings');
   const lang = await getTranslations('onboarding');
@@ -82,6 +87,7 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
             mapStyleUrl={config.MAP_STYLE_URL}
             locale={locale}
             messages={messages.listings}
+            studioEnabled={studioEnabled}
           />
         </>
       )}

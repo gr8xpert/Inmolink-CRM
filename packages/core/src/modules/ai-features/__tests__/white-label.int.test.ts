@@ -14,7 +14,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, setAiFeatures } from '../../../testing/factories';
 import { whiteLabelLeaks } from '../../../testing/white-label';
 import { blocksOf } from '../../../testing/white-label-fixtures';
 import { readAiRemovalEntries, writeAiRemovals } from '../../../white-label-store';
@@ -136,6 +136,8 @@ beforeAll(async () => {
   a = await createFounder();
   b = await createFounder({ companyName: OWNER_NAME });
   for (const m of [a, b]) await setAgencyStatus(m.agencyId, 'VERIFIED');
+  // S13-F17: the model pass runs only for agencies that switched it on (every AI feature is off by default).
+  for (const m of [a, b]) await setAiFeatures(m, ['WHITE_LABEL']);
   const ids = await withSystem('wl.test', async (tx) => {
     const name = (n: string) => [{ locale: 'en', name: `${n} ${RUN}`, slug: code(n.toLowerCase()) }];
     const country = await taxonomy.createLocation(tx, {
@@ -563,4 +565,66 @@ describe('white-label pass only for network-shown documents; backfill (S13-F7)',
     const jobs = await sanitizeJobsOf(a.agencyId, events);
     expect((jobs.length * 1_000) / N).toBe(0);
   }, 300_000);
+});
+
+describe('white-label model pass toggle (S13-F17)', () => {
+  beforeAll(() => registerWhiteLabelSubscriptions());
+  afterAll(async () => {
+    unregisterWhiteLabelSubscriptions();
+    await setAiFeatures(b, ['WHITE_LABEL']);
+  });
+
+  it('[S13-F17] white-label model pass off: events, retries and the backfill make zero provider calls and re-queue nothing', async () => {
+    const provider = gateway(model());
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    // every other AI feature on, the model pass off
+    await setAiFeatures(b, ['WEBSITE_SEARCH', 'LISTING_STUDIO', 'SOCIAL_CAPTIONS', 'TRANSLATION_DRAFTS']);
+    await setAiFeatures(b, ['WHITE_LABEL'], false);
+
+    // An event naming a network-shown target queues no job.
+    const event = { agencyId: b.agencyId, targetIds: [listingId], networkShownIds: [listingId], developmentIds: [] };
+    expect(await sanitizeJobsOf(b.agencyId, [event])).toEqual([]);
+
+    // A job (queued before the switch) and its retries: no model call, no retry queued.
+    const spy = vi.spyOn(whiteLabelJobs.sanitizeTexts, 'enqueue').mockResolvedValue(undefined as never);
+    const ctx = { log, jobId: 'wl-off', attempt: 1, progress: async () => {}, signal: new AbortController().signal };
+    try {
+      for (const retry of [0, 1]) {
+        const res = await whiteLabelJobs.sanitizeTexts.spec.run(
+          { eventId: newId(), agencyId: b.agencyId, targetIds: [listingId], retry },
+          ctx,
+        );
+        expect(res).toMatchObject({ disabled: true, asked: 0, degraded: 0 });
+      }
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The backfill: the walk ends at once, the sweep does not page the agency.
+    const page = await whiteLabelBackfillPage({ agencyId: b.agencyId, after: null });
+    expect(page).toMatchObject({ disabled: true, next: null, asked: 0 });
+    const swept = await withSystem('wl.test', (tx) =>
+      agencies.agencyIdsWithAiFeaturePage(tx, 'WHITE_LABEL', null, 100_000),
+    );
+    expect(swept).not.toContain(b.agencyId);
+    expect(swept).toContain(a.agencyId);
+    expect(provider.calls).toHaveLength(0);
+    // Served deterministic-only: no leak of a direct contact.
+    expect(whiteLabelLeaks((await served()).detail, await ownerOfB())).toEqual([]);
+  });
+
+  it('[S13-F17] white-label model pass on: the event queues the job and the model is asked', async () => {
+    const provider = gateway(model());
+    await setAiFeatures(b, ['WHITE_LABEL']);
+    const event = { agencyId: b.agencyId, targetIds: [listingId], networkShownIds: [listingId], developmentIds: [] };
+    expect(await sanitizeJobsOf(b.agencyId, [event])).toEqual([expect.objectContaining({ targetIds: [listingId] })]);
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const res = await sanitizeTargetTexts({ agencyId: b.agencyId, targetIds: [listingId] });
+    expect(res.disabled).toBeUndefined();
+    expect(provider.calls.length).toBeGreaterThan(0);
+    expect(
+      await withSystem('wl.test', (tx) => agencies.agencyIdsWithAiFeaturePage(tx, 'WHITE_LABEL', null, 100_000)),
+    ).toContain(b.agencyId);
+  });
 });
